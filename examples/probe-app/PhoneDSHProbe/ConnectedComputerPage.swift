@@ -99,12 +99,13 @@ struct ConnectedComputerPage: View {
     private func securitySection(_ record: PCLinkPairingRecord) -> some View {
         Section {
             row("本机指纹", models.pcLink.ownFingerprint)
-            row("中继", record.relayOrigin)
+            row("配对方式", PCLinkWorkspaceText.pairingMode(record.pairingMode))
             row("配对时间", PCLinkWorkspaceText.pairedAtDisplay(record.pairedAt))
+            row("中继", record.relayOrigin)
         } header: {
             Text("本机")
         } footer: {
-            Text("电脑只显示手机名称并要求输入本机指纹批准；指纹不符的配对会被作废。")
+            Text("本机指纹用于核对这台手机；扫码或手动码本身就是配对确认，电脑不会再要求输入指纹。")
         }
     }
 

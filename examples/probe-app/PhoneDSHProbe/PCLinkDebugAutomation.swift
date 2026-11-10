@@ -98,11 +98,9 @@ final class PCLinkDebugAutomation {
                 return ["ok": false, "detail": "missing uri"]
             }
             let flow = PCPairingFlow(client: models.pcLink.client)
+            // v1.6: the flow submits pair.auth and waits for the authenticated
+            // confirm; scanning is the approval, so no second confirm call.
             await flow.begin(qrURI: uri)
-            guard case .awaitingApproval = flow.state else {
-                return ["ok": false, "detail": "pairing did not reach approval: \(String(describing: flow.state))"]
-            }
-            await flow.confirm()
             let outcome = result(for: flow.state)
             if outcome["ok"] as? Bool == true {
                 // Same automatic hand-off the pairing page performs.

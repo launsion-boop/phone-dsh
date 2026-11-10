@@ -2,13 +2,13 @@
 
 Status: `target` — frozen contract; the B relay is implemented in this branch,
 but P28 stays `target` until the C/D ends and the runtime evidence exist.
-Revision label `pclink-v1.5` (sender-side pacing, relay `rate_limited` session
-invalidation and the receiver reassembly timeout after `pclink-v1.4`; see the
-change record's revision log). The golden fixture revision stays `pclink-v1.3`
-because no frame, schema or vector byte changed in `pclink-v1.4`/`pclink-v1.5`.
-The change record is
+Revision label `pclink-v1.6` (automatic pairing approval after the verified
+`pair.auth`, `approvedVia:"qr"|"manual"`, the admin `plugin` build facts and
+the non-TTY/resilient `pclink pair`; see the change record's revision log).
+The golden fixture revision moves to `pclink-v1.6` because the PC record's
+`approvedVia` and the state-machine samples changed. The change record is
 [PC-20261109-pclink-v1](../../../docs/protocol-changes/PC-20261109-pclink-v1.md);
-its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.5`.
+its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.6`.
 
 PCLink is the pair of a relay plane and an end-to-end plane between one iPhone
 and one PC running `dsh web` through a PC plugin. It is **not** the DSH Remote
@@ -32,13 +32,15 @@ secret, and rejected on replay. The relay cannot read or modify an end-to-end
 message, cannot impersonate either end, and cannot swap the PC public key during
 QR pairing or the manual-code pairing. A dropped or delayed message can break
 liveness but cannot turn into a different accepted message. A new pairing is
-written only after the local PC operator reads the **60-bit fingerprint displayed
-on the phone's own pairing page** and types it into the PC for comparison with
-the machineId derived from `pair.auth.publicKey` (§2.2, §4.4, §4.6). That ritual
-raises the bar for a relay attacker and an accidental approval; it is a human
-process, **not** a boundary against a same-user PC process, a process that
-bypasses the CLI TTY check through a pty, or an agent running on an
-already-paired phone with PC shell access (non-goal 7).
+written only after the phone proves possession of the single-use secret shown
+on the PC screen — the QR `S` or the manual code `C` — in a MACed `pair.auth`
+that the PC verifies; the PC then approves **automatically** and sends
+`pair.confirm` (§4.4). Possession of the screen secret is the approval (the
+2026-11-10 user decision, matching the WhatsApp Web-class model): scanning the
+QR or typing the code *is* the confirmation. This is a human-process control
+in the sense that the PC screen is the secret channel, **not** a boundary
+against a same-user PC process, a process that can see the screen, or an agent
+running on an already-paired phone with PC shell access (non-goal 7).
 
 **What the relay can do.** It can observe the outer headers (`v`, `type`, `sid`,
 `seq`, `from`, `to` and the byte length of `body`), drop, delay or close
@@ -56,11 +58,12 @@ provide identity hiding (review L2).
 
 - The phone OS and app process, the PC OS and the `dsh web` process, and their
   CSPRNGs.
-- The local PC operator reading the 12-character fingerprint from the phone's
-  own pairing screen and typing it into the PC, and the phone user's explicit
-  pairing action. The QR/manual code and the approval decision are made by the
-  human at each end. The phone screen is the trust anchor for the fingerprint;
-  the PC MUST NOT display the pending peer's fingerprint or machineId.
+- The user's physical control of the PC terminal/screen while a pairing slot is
+  open: whoever can read the QR or manual code from that screen within its
+  five-minute life can complete the pairing. The phone user's explicit pairing
+  action (scan or code entry) and the full-owner warning. The PC does not ask
+  its operator to compare a phone-displayed value; the one-time screen secret
+  is the approval decision.
 - TLS certificate validation for the relay WSS endpoint (§3.1). The relay is
   authenticated as a transport endpoint, not as a trusted content endpoint.
 - The PC's local DSH instance and its owner Peer. The plugin has the same DSH
@@ -75,7 +78,7 @@ provide identity hiding (review L2).
    add an endpoint allowlist. The handling guidance for a stolen/lost phone is
    **revoke all pairings, then run `rotate-identity`**; a phone-only local
    removal is not authoritative. Other mitigations are the first-pairing
-   warning, the compare-the-phone approval gate, the paired-notice/banner
+   warning, the one-time screen-secret approval path, the paired-notice/banner
    detection path, and end-to-end encryption, not endpoint restriction.
 3. Relay availability, resistance to denial of service beyond the limits in
    §3.5, or durable store-and-forward. The relay has no persistence and never
@@ -112,8 +115,8 @@ the two plaintext transcript hashes. That construction is not safe:
   40-bit code as the only confidentiality of the rendezvous.
 
 `pclink-v1.1` removed the SAS entirely (no SAS field, user-confirmed value or
-fixture) and raised the manual secret to **80 bits**; `pclink-v1.2`/`pclink-v1.3`
-keep that removal: 16 Crockford base32 characters,
+fixture) and raised the manual secret to **80 bits**; `pclink-v1.2` through
+`pclink-v1.6` keep that removal: 16 Crockford base32 characters,
 displayed as `XXXX-XXXX-XXXX-XXXX` and entered with `-`, spaces and letter case
 ignored (`I`/`L`→`1`, `O`→`0`; `U` and every other non-alphabet character are
 rejected). At 80 bits, deriving the rendezvous or testing a pairing MAC by
@@ -126,41 +129,47 @@ PC public key from the QR; QR remains the recommended path. The manual path
 opens only the C slot and only after the user explicitly selects manual pairing;
 the default opens only the QR/S slot (§4.3).
 
-**Approval is compare-the-phone, not copy-the-PC (review High-1).** All
-pairings, QR and manual, require the local PC operator to complete the approval
-before the PC sends `pair.confirm` and writes a record. The phone pairing page
-MUST display **its own** `machineId[0:12]` fingerprint as `xxxx-xxxx-xxxx`
-(60 bits); the PC CLI and Web UI MUST show only the already-validated phone
-name for a pending pairing and MUST NOT show the pending peer's fingerprint,
-machineId or public key. The operator reads the fingerprint from the phone
-screen and types it into the PC; the plugin derives the phone machineId from
-`pair.auth.publicKey`, computes the same 12-character fingerprint and compares
-it, ignoring `-`, whitespace and case. A mismatch blocks the pairing, sends
-`relay.pair.close{reason:"auth_failed"}`, destroys that single-use slot and
-requires a fresh pairing. The CLI does this on a TTY (never `y/N`, Enter,
-`--yes`, redirected stdin or a non-TTY); the Web UI uses the normal DSH
-browser/owner authentication and the same typed fingerprint.
+**Approval is possession of the one-time screen secret (user decision,
+2026-11-10).** Both QR and manual pairing are approved by the PC automatically
+after it verifies `pair.auth`: the joining phone has just proved it knows the
+single-use secret displayed only on the PC screen, so scanning the QR (or
+typing the manual code) *is* the confirmation. The PC MUST NOT wait for a local
+operator to read a phone fingerprint and type it back, MUST NOT enter
+`awaiting_approval` for a v1.6 pairing, and the CLI MUST NOT prompt for a
+fingerprint. The phone's pairing page likewise no longer displays a fingerprint
+for comparison; the fingerprint lives on the completed pairing's status/notice
+and on the App's "已连接的电脑" page for later verification.
 
-A bystander who wins the join race (for example after seeing a shared QR or
-manual code) is therefore blocked at the PC approval: the operator types the
-fingerprint on the real phone, which does not match the bystander's key-derived
-machineId. Grinding an Ed25519 key whose machineId starts with a chosen 60-bit
-fingerprint costs about 2^60 key generations (2^60 ≈ 1.15×10^18). Doing that
-inside the 300 s slot life would require ≈3.8×10^15 generations/s; even a
-10^12/s farm needs ≈13 days, and a 10^10/s farm ≈3.6 years. This is a
-detection/approval control, not a cryptographic authentication of the physical
-phone; the 80-bit S/C MAC authenticates the keys.
+**Residual risk (accepted).** Anyone who can see or photograph the PC screen
+while the slot is open — a bystander, a shared screen, a screen share, a video
+call, a recording — can join first and be auto-approved, obtaining exactly the
+full DSH control the legitimate phone would get. The slot is one per pairing,
+single-use, expires after 300 s absolute, and the first successful join locks
+out later joiners. Within that window the screen secret is the only human gate.
+This is the same trust model as WhatsApp Web's "scan the QR on the screen", and
+it was adopted because the compare-the-phone ritual failed on real hardware:
+the user had to leave the iPhone to read its fingerprint into the PC, the phone
+locked or backgrounded, the relay connection dropped, the PC reported
+`pairing closed by peer: peer_offline`, and the pairing (and phone UI) hung.
+The controls that remain are: one open slot, single successful join and a
+300 s absolute expiry; the PC terminal and `status` print
+`已配对：<phone name>（<fingerprint>）` plus the exact revoke command
+(`pclink unpair <machineId>`, or `pclink unpair --all`) once the record is
+durable; `pairs.log` records `approvedVia:"qr"|"manual"` and the record hash;
+the PC sends `pclink.notice{kind:"paired"}` to every other established phone;
+and the App's "已连接的电脑" page shows this phone's own fingerprint, pairing
+mode and pairing time for later verification. If the code or QR leaked to a
+screen observer, the user can revoke immediately.
 
 The approval is **not** an absolute boundary (review M-A), and this contract
 does not claim otherwise. A same-user PC process that can read `pairs.json`/the
-admin token or call the admin API can drive the approval; a process that
-allocates a pty can satisfy the CLI's TTY check; and an agent running on an
-already-paired phone with PC shell access can pair by acting as that phone's
-user. §8.1's `Host`/`Origin`/`Content-Type` fence, the server-proof challenge,
-`pairs.log`, the `/api/pclink.admin/*` source-Peer gate and the remote
-`pclink.admin/` ban reduce and detect that class but do not make it impossible.
-The user is told that "the PC operator approved this phone" is a human process,
-not a hardware boundary.
+admin token or call the admin API can drive the admin API; a process that can
+see the screen can join first; and an agent running on an already-paired phone
+with PC shell access can pair by acting as that phone's user. §8.1's
+`Host`/`Origin`/`Content-Type` fence, the server-proof challenge, `pairs.log`,
+the `/api/pclink.admin/*` source-Peer gate and the remote `pclink.admin/` ban
+reduce and detect that class but do not make it impossible. The user is told
+that pairing approval is the one-time screen secret, not a hardware boundary.
 
 **Detection (review M-A).** After every successful new pairing the PC MUST
 notify every **other** paired phone that has an established end-to-end session
@@ -215,16 +224,18 @@ a substitute for a signature. The relay MUST derive it from the presented
 public key and reject a mismatch. Both ends MUST derive it the same way when
 recording a pairing.
 
-The **fingerprint** used by the local approval ritual is
+The **fingerprint** used for display and verification is
 `machineId[0:12]`, displayed as three groups of four (`xxxx-xxxx-xxxx`) and
 representing 60 bits. It is a human-checkable name for the key, not a security
-boundary. The phone pairing page MUST display its own fingerprint; the PC MUST
-NOT display the pending peer's fingerprint or any field from which it can be
-derived (the pending `machineId` and `publicKey`). The operator types what the
-phone shows; input normalization ignores `-`, spaces/whitespace and letter case,
-and the plugin compares the result with the fingerprint of the machineId derived
-from the verified `pair.auth.publicKey` (§4.4, §8.2, §8.3). The full machineId
-is still stored in the pairing record and re-derived from the key.
+boundary and not a pairing-approval input in v1.6. The PC terminal/`status`
+prints it for each completed pairing and the completed record carries the full
+machineId; the App's "已连接的电脑" page shows the phone's own fingerprint (and
+the PC record's fingerprint) so the user can verify what was paired. While a
+pairing is pending and before the record is durable, `status`/the Web UI MUST
+NOT expose the pending peer's `machineId`, `publicKey` or fingerprint; only the
+verified `peerName` may be shown. Fingerprint input normalization (ignore `-`,
+spaces/whitespace and letter case) remains for selecting a paired phone in
+`pclink unpair <fingerprint>`; it is not used to approve a pairing.
 
 In pairing, both sides MUST derive the peer `machineId` from the peer public
 key they received and compare it with the `machineId` member of
@@ -672,7 +683,7 @@ E2E sessions as evidence that at least one of its own `e2e` frames was dropped:
   future/defensive use.
 - The PC name is 1–64 UTF-8 bytes, NFC, with no C0/C1/`Cf` characters (review
   L4). The phone name has the same limits. Names are display metadata and are
-  covered by the pairing MACs and shown in the local approval prompt.
+  covered by the pairing MACs and shown in the completion output and notice.
 
 ### 4.2 QR URI
 
@@ -691,9 +702,11 @@ rather than guessed as a space (review M1 negative vector), and a literal `+`
 in a value is encoded as `%2B`. The phone MUST verify that the PC `publicKey`
 in `pair.hello` equals `k` from the QR **before** it writes a record; a
 mismatch is `auth_failed` and the phone closes the rendezvous. The phone
-derives `machineId` from `k` and requires it to equal `m`. The QR path still
-goes through the PC local approval in §4.4 before the PC sends `pair.confirm`;
-the QR removes the code-guessing risk but does not replace the operator.
+derives `machineId` from `k` and requires it to equal `m`. The QR path no
+longer goes through a PC local approval: after the phone proves possession of
+`S` in a verified `pair.auth`, the PC approves automatically and sends
+`pair.confirm` (§4.4). Scanning the QR displayed on the PC screen is the
+approval; the QR removes the code-guessing risk and the operator round-trip.
 
 ### 4.3 Rendezvous
 
@@ -754,21 +767,25 @@ is `bad_frame`/`rendezvous_expired`. Either side ends with:
 
 The relay forwards the close to the peer and deletes the slot. Reasons are
 `paired`, `cancelled`, `rejected`, `peer_offline`, `rendezvous_expired`,
-`rendezvous_exhausted`, `auth_failed`, `storage`, `timeout`. `rejected` is the
-PC operator's explicit refusal; `timeout` covers an approval prompt or payload
-that did not finish in time. If a participant disconnects, the relay sends the other
+`rendezvous_exhausted`, `auth_failed`, `storage`, `timeout`. `rejected` is an
+explicit local refusal (kept for a pre-v1.6 PC that still prompts for manual
+approval and for a future UI); a v1.6 PC normally ends a successful pairing
+with `paired` and never waits for an operator decision. `timeout` covers a
+pairing payload or a pre-v1.6 approval prompt that did not finish in time. If a
+participant disconnects, the relay sends the other
 `relay.pair.close{reason:"peer_offline"}` and deletes the slot. A second
 `relay.pair.open` for the same rendezvous on the same PC connection is
 idempotent; another PC opening an existing slot is `rendezvous_exhausted`.
 
 A forged `relay.pair.close` from a participant only ends that rendezvous; it
-cannot create a record, change a key, or bypass the local approval. The worst
-effect is liveness (the user re-runs the pairing), which is accepted (review
-L7). The pairing MACs are the cryptographic boundary; the local approval is a
-human-process barrier, not an absolute boundary against the classes in
-non-goal 7. The relay's close delivery is neither.
+cannot create a record, change a key, or bypass the verified one-time
+screen-secret check. The worst effect is liveness (the user re-runs the
+pairing), which is accepted (review L7). The pairing MACs are the cryptographic
+boundary; possession of the screen secret is a human-process barrier, not an
+absolute boundary against the classes in non-goal 7. The relay's close delivery
+is neither.
 
-### 4.4 Pairing handshake and local approval
+### 4.4 Pairing handshake and automatic approval
 
 The pairing payloads are `pair.*` objects. The pairing key is:
 
@@ -802,7 +819,8 @@ with domains `pclink-v1/pair-hello`, `pclink-v1/pair-auth`,
  "peerNonce":"<the hello nonce>","mac":"..."}
 ```
 
-3. PC → phone `pair.confirm` (only after the local operator approves):
+3. PC → phone `pair.confirm` (sent automatically after the PC verifies
+   `pair.auth`):
 
 ```json
 {"v":1,"type":"pair.confirm","role":"pc","nonce":"<hello nonce>",
@@ -830,58 +848,62 @@ with the same rule. Both sides verify all received MACs and the
 transcript hash before writing anything. Neither side trusts a key because the
 relay said `joined`.
 
-**Local approval is compare-the-phone (review High-1).** After verifying
-`pair.auth`, the PC MUST enter `awaiting_approval` and MUST NOT send
-`pair.confirm` yet. It exposes **only** the already-validated phone `name` to
-the local operator; it MUST NOT display or return the pending phone's
-`machineId`, `publicKey`, fingerprint or any other field from which the
-fingerprint can be derived. The operator must read the fingerprint from the
-phone's own pairing page and supply it:
+**Automatic approval by the one-time screen secret (user decision,
+2026-11-10).** After verifying `pair.auth` — MAC, relay origin, machineId
+derivation, name rule and transcript inputs — the PC MUST approve the pairing
+immediately: record `approvedAt` (UTC now) and `approvedVia` (`"qr"` for a QR
+slot, `"manual"` for a manual slot) in memory, then send `pair.confirm`. A v1.6
+PC MUST NOT enter `awaiting_approval`, MUST NOT wait for any local operator
+input, and MUST NOT accept or compare a phone-displayed fingerprint as an
+approval. Scanning the terminal QR or typing the manual code *is* the approval:
+the joining phone has just proved possession of the single-use secret displayed
+only on the PC screen, and the slot permits exactly one successful join.
 
-- The **phone** pairing page MUST display its own `machineId[0:12]` as
-  `xxxx-xxxx-xxxx` (60 bits) prominently and continuously while the PC approval
-  is pending. It is the value the operator compares; the phone MUST NOT print a
-  PC-supplied value as its own.
-- **CLI**: a TTY prompt shows the phone name only and asks for the 12-character
-  fingerprint shown on the phone. The CLI normalizes `-`, spaces/whitespace and
-  letter case, then sends it to the plugin. `y`/`N`, Enter, `--yes` or any
-  non-TTY stdin MUST NOT approve; without a TTY the CLI cancels the pairing and
-  exits non-zero. The CLI never prints the pending machineId/fingerprint.
-- **DSH Web UI**: the plugin page, through the normal DSH browser/owner
-  authentication, shows the phone name only and requires the operator to type
-  the fingerprint read from the phone. The page never sees `admin.json` or the
-  admin token.
-- The plugin derives the phone machineId from the **verified**
-  `pair.auth.publicKey`, computes the canonical `machineId[0:12]` fingerprint
-  and compares it with the normalized input. A mismatch MUST block the pairing
-  (`POST /v1/pair/approve` returns `approved:false` with
-  `error.code:"auth_failed"`), send
-  `relay.pair.close{reason:"auth_failed"}`, destroy the pending slot and write
-  nothing. The slot is single-use: the operator/phone must start a fresh
-  pairing; the same slot is not retried. The UI must say clearly that the
-  fingerprint did not match the phone that joined and that the pairing was
-  voided.
-- **Reject** or **120 s** without an approval: the PC sends
-  `relay.pair.close{reason:"rejected"|"timeout"}`, deletes the pending state and
-  writes nothing. The phone MUST NOT have written a record (it writes only
-  after a verified `pair.confirm`).
+The PC CLI and pairing page MUST NOT prompt for a phone fingerprint. The
+pending-peer redaction still applies while the slot is not durable: `status`
+and the Web UI expose only the verified `peerName`, never the pending
+`machineId`, `publicKey` or fingerprint (§8.2). The record is written only
+after verifying `pair.final`, and the PC MUST append the record hash plus
+`approvedVia` to `pairs.log` before replacing `pairs.json` (§4.6, §8.1). If the
+audit append or the record write fails, it sends
+`relay.pair.close{reason:"storage"}` and writes nothing usable; the phone rolls
+back the record it wrote. If the phone's write fails, it sends `storage` and
+the PC writes nothing.
 
-A bystander who joins first is blocked here: the operator types the fingerprint
-from the real phone, which does not equal the bystander's key-derived
-fingerprint, so the pairing is voided. See §1 for the 60-bit cost argument and
-the limits of this human-process control.
+**Residual risk (accepted).** Anyone who can see or photograph the PC screen
+while the slot is open can join first and be auto-approved, obtaining full
+control of this PC's DSH. The slot is one per pairing, single-use, expires
+after 300 s absolute, and the first successful join locks out later joiners
+(`rendezvous_exhausted`). Within that window the screen secret is the only
+human gate. This matches the WhatsApp Web-class "scan the QR on the screen"
+model. It replaced compare-the-phone (review High-1) because that ritual failed
+on real hardware: the user had to leave the iPhone to read its fingerprint into
+the PC, the phone locked or backgrounded, the relay connection dropped, the PC
+reported `pairing closed by peer: peer_offline`, and both the pairing and the
+phone UI hung. The mitigations that remain are: the PC terminal and `status`
+print `已配对：<phone name>（<fingerprint>）` and the exact revoke command
+(`pclink unpair <machineId>`, or `pclink unpair --all`) as soon as the record is
+durable; `pairs.log` records `approvedVia:"qr"|"manual"` and the record hash;
+the PC sends `pclink.notice{kind:"paired"}` to every other established phone
+(§4.6); and the App's "已连接的电脑" page shows the phone's own fingerprint,
+pairing mode and pairing time for later verification. A leaked or observed
+screen secret is handled by revoking the pairing immediately.
 
-On a matching approval the PC records `approvedAt` (UTC now) and `approvedVia`
-(`"cli"|"webui"`) in memory and sends `pair.confirm`. It writes the record only
-after verifying `pair.final`, and it MUST append the record hash and approval to
-`pairs.log` before replacing `pairs.json` (§4.6, §8.1). If the audit append or
-the record write fails, it sends `relay.pair.close{reason:"storage"}` and writes
-nothing usable; the phone rolls back the record it wrote. If the phone's write
-fails, it sends `storage` and the PC writes nothing.
+The approval is **not** an absolute boundary (review M-A), and this contract
+does not claim otherwise: a same-user PC process that can read `pairs.json`/the
+admin token or call the admin API can drive the admin surface, a process that
+can see the screen can join first, and an agent running on an already-paired
+phone with PC shell access can pair by acting as that phone's user. §8.1's
+`Host`/`Origin`/`Content-Type` fence, the server-proof challenge, `pairs.log`,
+the `/api/pclink.admin/*` source-Peer gate and the remote `pclink.admin/` ban
+reduce and detect that class but do not make it impossible.
 
 The phone sends `pair.final` only after it has durably written its record. The
 phone record does not carry `approvedVia` (the PC approval is a PC-side fact);
-it carries the same peer key/name/origin fields. A lost final leaves a
+it carries the same peer key/name/origin fields plus an optional phone-side
+`pairingMode` (`"qr"|"manual"`) so the completed-pairing page can show which
+action the user performed. `pairingMode` is not an approval field and the PC
+never reads it. A lost final leaves a
 one-sided phone record; on the next connection the PC answers with a signed
 `unpaired` reject and the phone asks the user before removing it (§5.2/§5.5).
 The PC's record is never written by an unapproved or relay-only flow.
@@ -902,16 +924,14 @@ second user comparison. The security argument is:
   the old 40-bit code was grindable in the rendezvous (`2^40`) and the
   uncommitted six-digit SAS could then be ground (`10^6`); with 80 bits and no
   SAS there is no feasible grind and no short comparison value to match.
-- The PC operator reads the phone's own 60-bit fingerprint and types it into
-  the PC before the PC sends `pair.confirm` (§4.4); the phone user performs an
-  explicit pairing action and accepts the full-owner warning. An attacker who
-  only observes a screen (shared screen, stream, bystander) cannot complete a
-  pairing without the local approval, and a bystander that pre-joins the slot
-  is blocked because its key-derived fingerprint does not match the phone the
-  operator is holding. A 2^60 grind inside the 300 s window is infeasible
-  (§1). This is still a human-process guard, not a boundary against a same-user
-  process, a pty-based TTY bypass or a paired-phone agent with PC shell
-  (non-goal 7); the paired-notice and Web UI banner provide detection.
+- Positive possession of C proves the joiner can read the PC screen; the phone
+  user performs an explicit pairing action and accepts the full-owner warning.
+  A v1.6 PC approves the verified `pair.auth` automatically (§4.4). An
+  attacker who only observes the screen after the first successful join is
+  locked out by the single-use slot; one who observes the screen *before* the
+  legitimate phone joins can join first and is approved. That is the accepted
+  residual risk (§1/§4.4), not a cryptographic failure: the 80-bit C still
+  authenticates the exchanged keys.
 - The QR path is stronger (128-bit S plus the `k` pin) and remains the
   recommended path. The manual path is for a camera-less/blocked-camera PC and
   is selected explicitly with `pair --manual`/the Web UI manual action; the
@@ -930,16 +950,23 @@ The PC record is exactly:
 {"peerMachineId":"...","peerPublicKey":"...","peerName":"...",
  "pairedAt":"2026-11-09T00:00:00Z","relayOrigin":"https://relay.example",
  "connection":{"mode":"relay"},
- "approvedAt":"2026-11-09T00:00:05Z","approvedVia":"cli"}
+ "approvedAt":"2026-11-09T00:00:05Z","approvedVia":"qr"}
 ```
 
-`approvedAt` and `approvedVia` (`"cli"` or `"webui"`) are required on every PC
-record and are written only after the local approval in §4.4. The phone record
-has the same fields except `approvedAt`/`approvedVia`; its approval is the
-phone user's own pairing action and warning. `peerName` follows the §2.1
+`approvedAt` and `approvedVia` are required on every PC record. A v1.6 PC writes
+`approvedVia:"qr"` or `"manual"` — the pairing mode whose one-time screen
+secret the phone proved — when it verifies `pair.auth` (§4.4); the record
+itself is written only after `pair.final`. Records persisted by a pre-v1.6 PC
+may carry the legacy values `"cli"`/`"webui"`; they remain valid and usable,
+are never rewritten, and `status`/the UI display them as a legacy
+fingerprint-approval pairing. The phone record has the same fields except
+`approvedAt`/`approvedVia`, and MAY additionally carry `pairingMode`
+(`"qr"|"manual"`, phone-side display metadata). Its approval is the phone
+user's own pairing action (the scan or manual-code submit) and warning. `peerName` follows the §2.1
 name rule (1–64 UTF-8 bytes, NFC, no C0/C1/`Cf`). The PC record is
 `schema/pairing-record.schema.json` (it requires both approval fields); the
-phone record is `schema/phone-pairing-record.schema.json` (it forbids them).
+phone record is `schema/phone-pairing-record.schema.json` (it forbids the
+approval fields and allows the optional `pairingMode`).
 
 PC storage is `$DSH_HOME/pclink/pairs.json` as
 `{"v":1,"pcMachineId":"...","pairs":[record...]}` (max 1024 records) and the
@@ -961,7 +988,7 @@ it does not use the record and reports `unavailable`/unsupported mode.
 ```json
 {"v":1,"event":"pair","peerMachineId":"...","peerPublicKey":"...",
  "recordSha256":"<sha256 hex of canonical_json(record)>",
- "approvedAt":"...","approvedVia":"cli","at":"..."}
+ "approvedAt":"...","approvedVia":"qr","at":"..."}
 {"v":1,"event":"unpair","peerMachineId":"...","at":"..."}
 {"v":1,"event":"rotate","oldMachineId":"...","newMachineId":"...","at":"..."}
 ```
@@ -1012,28 +1039,36 @@ has one:
 ```
 
 `name` and `fingerprint` identify the newly paired phone; `fingerprint` is the
-same 12-character value the new phone displayed. The phone UI MUST display the
-notice with a warning that an unexpected pairing means "revoke all and rotate
-identity". The Web UI plugin page MUST show a persistent banner for the most
-recent successful pairing (not a transient toast). There is no queued notice:
-a phone that was offline when the pairing completed sees the banner on the PC
-and the pair in `status` when it reconnects. A compromised PC can suppress or
-forge this notice; it is a detection aid, not a security boundary.
+same 12-character value derived from its machineId. The phone UI MUST display
+the notice with a warning that an unexpected pairing means "revoke all and
+rotate identity". The Web UI plugin page MUST show a persistent banner for the
+most recent successful pairing (not a transient toast). There is no queued
+notice: a phone that was offline when the pairing completed sees the banner on
+the PC and the pair in `status` when it reconnects. A compromised PC can
+suppress or forge this notice; it is a detection aid, not a security boundary.
 
 Before the phone writes the first pairing record (or replaces a stale one), it
-MUST show this exact warning, MUST display its own 12-character fingerprint on
-the pairing page, and require an explicit confirmation action:
+MUST show this exact warning and require an explicit pairing action — the scan
+of the terminal QR or the submit of the manual code:
 
-> 此手机将能完整操作这台电脑上的 DSH：对话、在电脑上执行 Shell 和读写文件、处理审批、修改设置和插件。
+> 连接后，这台手机可以完整使用这台电脑上的 DSH（对话、Shell、文件、审批与设置）。
 
-The PC CLI/terminal and Web UI MUST print/show the equivalent warning, and the
-local approval prompt MUST show only the phone name and ask for the fingerprint
-read from the phone (§4.4). The pairing is never silent. The phone MUST NOT
-describe the PC as tamper-resistant, and neither end may claim endpoint
-restrictions that do not exist (there is no endpoint allowlist; §7). A record is
-usable only after the PC's durable write and audit line; a phone record whose PC
-never wrote is one-sided and is cleared only after the signed-`unpaired` prompt
-in §5.5.
+The PC CLI/terminal and Web UI MUST print/show the equivalent warning when the
+QR/code is displayed. There is no local approval prompt in a v1.6 PC: the
+verified `pair.auth` is approved automatically (§4.4). The pairing is never
+silent. The phone MUST NOT describe the PC as tamper-resistant, and neither end
+may claim endpoint restrictions that do not exist (there is no endpoint
+allowlist; §7). A record is usable only after the PC's durable write and audit
+line; a phone record whose PC never wrote is one-sided and is cleared only after
+the signed-`unpaired` prompt in §5.5.
+
+**Completed-pairing display obligations (P09).** After a pairing is durable, the
+PC CLI/`status` MUST print `已配对：<phone name>（<fingerprint>）` and the exact
+revoke command. The App's "已连接的电脑" page MUST show this phone's own
+fingerprint (for verification), the pairing mode (扫码/手动码; a legacy record
+may show its fingerprint-approval origin), and the pairing time. The pairing
+page itself MUST NOT show a fingerprint card or instruct the user to type a
+fingerprint into the PC.
 
 ## 5. End-to-end sessions
 
@@ -1686,9 +1721,9 @@ The local `/v1/*` carrier is the CLI boundary; the Web UI uses the DSH
 | Operation | Request | Success response |
 | --- | --- | --- |
 | `POST /v1/challenge` | `{nonce:"<32B b64url>"}` | `{v:1,nonce,proof:"<32B b64url HMAC>"}`; no Bearer |
-| `GET /v1/status` | — | `{v:1,identity:{machineId,publicKey,name},relay:{origin,state},pairs:[{peerMachineId,peerName,pairedAt,approvedAt,approvedVia,online,usable,reason?}],warnings:[...],pairing?:{id,state,mode,qrURI?,manualCode?,expiresAt,peerName?,peerMachineId?,peerFingerprint?,error?}}`; the pending peer fields are constrained by state (§ below) |
+| `GET /v1/status` | — | `{v:1,plugin:{version,packageSha256},identity:{machineId,publicKey,name},relay:{origin,state},pairs:[{peerMachineId,peerName,pairedAt,approvedAt,approvedVia,online,usable,reason?}],warnings:[...],pairing?:{id,state,mode,qrURI?,manualCode?,expiresAt,peerName?,peerMachineId?,peerFingerprint?,error?}}`; the pending peer fields are constrained by state (§ below) |
 | `POST /v1/pair` | `{mode?:"qr"\|"manual",relay?,name?}` | `{v:1,pairing:{id,mode,relayOrigin,qrURI?,manualCode?,expiresAt}}` |
-| `POST /v1/pair/approve` | `{pairingId,fingerprint}` | `{v:1,approved:true}`; the record appears in `status` after `pair.final`. On mismatch: `{v:1,approved:false,error:{code:"auth_failed",message:"..."}}` and the slot is destroyed |
+| `POST /v1/pair/approve` | `{pairingId,fingerprint}` | **Deprecated compatibility route, no v1.6 PC path.** A v1.6 PC never enters `awaiting_approval`, so it answers `unavailable` ("pairing is not awaiting approval"). Kept so a pre-v1.6 CLI/Web UI can talk to a v1.6 PC without a 404; its old fingerprint semantics remain documented only for a pre-v1.6 PC. |
 | `POST /v1/pair/cancel` | `{pairingId,rejected?:true}` | `{v:1,cancelled:true}` |
 | `POST /v1/unpair` | `{peerMachineId?}` or `{all:true}` | `{v:1,removed:[...]}` |
 | `POST /v1/rotate-identity` | `{confirm:"rotate-identity"}` | `{v:1,rotated:true,oldMachineId,newMachineId}` |
@@ -1697,44 +1732,51 @@ The challenge proof is `HMAC-SHA256(token, "pclink-v1/admin-proof" || 0x00 ||
 nonce_raw)`. The CLI verifies it in constant time; a missing/mismatched proof
 means "plugin not running" and the CLI exits without sending the token.
 
-`pairing.state` is `opening`, `waiting`, `joined`, `awaiting_approval`,
-`completed` or `failed`; `mode` is `qr` or `manual`. `qrURI` appears only in
-`qr` mode while waiting; `manualCode` (the formatted `XXXX-XXXX-XXXX-XXXX`)
-appears only in `manual` mode while waiting; `sas` does not exist. `error` is a
-§9.1 code. `relay.state` is `connected|connecting|offline`. `online` means an
-established E2E session that has not hit the 15-minute idle timeout (§5.5).
-`usable` is false for an unapproved/revoked record (§4.6) with the reason; the
-Web UI shows a warning banner for each.
+`pairing.state` is `opening`, `waiting`, `joined`, `completed` or `failed` on a
+v1.6 PC. `awaiting_approval` is retained only for a pre-v1.6 PC that still
+requires compare-the-phone; a v1.6 PC MUST NOT expose it. `mode` is `qr` or
+`manual`. `qrURI` appears only in `qr` mode while waiting; `manualCode` (the
+formatted `XXXX-XXXX-XXXX-XXXX`) appears only in `manual` mode while waiting;
+`sas` does not exist. `error` is a §9.1 code. `relay.state` is
+`connected|connecting|offline`. `online` means an established E2E session that
+has not hit the 15-minute idle timeout (§5.5). `usable` is false for an
+unapproved/revoked record (§4.6) with the reason; the Web UI shows a warning
+banner for each.
 
-**Pending-peer redaction (review High-1).** While `pairing.state` is
-`awaiting_approval` (and equally in `opening`/`waiting`/`joined`), the
-`GET /v1/status` response and the Web UI `/api/pclink.admin/status` body MUST
-NOT contain `peerMachineId`, `peerPublicKey`, `peerFingerprint` or any other
-field from which the pending phone's machineId/fingerprint can be derived. Only
-the verified `peerName` is exposed so the operator knows which phone they are
-approving. After the record is durably written (`completed`), `peerMachineId`
-and `peerFingerprint` MAY appear; they also appear in `pairs`. The canonical
-fingerprint display is `machineId[0:12]` as `xxxx-xxxx-xxxx`. The schema is
-`schema/admin-status.schema.json`; its samples include the forbidden-field
-negative.
+`plugin` is the build identity of the **running** plugin process: `version`
+from the installed package manifest and `packageSha256`, the §8.3 deterministic
+digest over the package files this process loaded. Both are captured at
+process start; a later `dsh plugin add` changes the files on disk but not this
+value, which is what lets the installer detect that a restart is required. The
+field is required in a v1.6 status response. A pre-v1.6 plugin omits it; a
+consumer in the upgrade window MUST treat the absence as an untracked old build
+(and restart), never as a status failure.
+
+**Pending-peer redaction (review High-1, retained).** While `pairing.state` is
+`opening`/`waiting`/`joined` (and equally in the legacy `awaiting_approval`),
+the `GET /v1/status` response and the Web UI `/api/pclink.admin/status` body
+MUST NOT contain `peerMachineId`, `peerPublicKey`, `peerFingerprint` or any
+other field from which the pending phone's machineId/fingerprint can be
+derived. Only the verified `peerName` is exposed so the operator can see which
+phone joined. After the record is durably written (`completed`),
+`peerMachineId` and `peerFingerprint` MAY appear; they also appear in `pairs`.
+The canonical fingerprint display is `machineId[0:12]` as `xxxx-xxxx-xxxx`. The
+schema is `schema/admin-status.schema.json`; its samples include the
+forbidden-field negative.
 
 `POST /v1/pair` starts exactly one pairing (one slot: S for `qr`, C for
 `manual`) and returns immediately. A second pair request while one is active
 is `unavailable` ("pairing already in progress"); cancel first. When a phone
-joins, the plugin moves to `awaiting_approval` and exposes **only** the phone
-name to the local operator. `POST /v1/pair/approve` requires the
-`fingerprint` the operator read from the phone screen, not a value from
-`status`; normalization ignores `-`, whitespace and case, and the canonical
-display is `xxxx-xxxx-xxxx`. The plugin derives the machineId from the verified
-`pair.auth.publicKey`, computes the fingerprint and compares. On success it
-sends `pair.confirm` and returns immediately; the record appears in `status`
-only after `pair.final` and the durable audit/write (§4.4/§4.6). On mismatch it
-MUST send `relay.pair.close{reason:"auth_failed"}`, destroy the pending slot
-(the slot is single-use and is not retried), return `approved:false` with
-`error.code:"auth_failed"` and write nothing. A `pair/cancel` with
-`rejected:true` sends `relay.pair.close{reason:"rejected"}`; without it,
-`cancelled`. A 120 s approval timeout sends `timeout`. There is no "complete
-without approval" path for either mode and no SAS failure path.
+joins and its `pair.auth` verifies, the plugin moves to `joined`, records
+`approvedAt`/`approvedVia` (`qr`/`manual`), sends `pair.confirm` automatically
+and exposes only the phone name until `pair.final` completes the durable write
+(§4.4/§4.6). It MUST NOT wait for a local approval, MUST NOT enter
+`awaiting_approval`, and there is no 120 s approval timeout; the 300 s slot
+expiry bounds the whole exchange. `POST /v1/pair/approve` is retained as a
+deprecated compatibility route: on a v1.6 PC it returns `unavailable` because
+no pairing is ever `awaiting_approval`; it does not destroy the slot. A
+`pair/cancel` with `rejected:true` sends `relay.pair.close{reason:"rejected"}`;
+without it, `cancelled`. There is no SAS failure path.
 
 `POST /v1/unpair` aborts handshakes, closes sessions, appends the tombstone and
 removes the record(s) per §4.6; `removed` is the list of machineIds. If the
@@ -1751,8 +1793,10 @@ For the Web UI plugin page, the plugin registers owner-only DSH routes on its
 existing `/api` carrier with the same JSON bodies: `POST /api/pclink.admin/status`,
 `/pair`, `/pair/approve`, `/pair/cancel`, `/unpair`, `/rotate-identity` (the
 `/api` prefix is the DSH carrier; these six operation names are the complete
-PCLink admin surface). There is no `/api/pclink.admin/challenge`; that route
-exists only on the loopback CLI carrier. The Web UI routes are protected by the
+PCLink admin surface). `/pair/approve` is retained as the same deprecated
+compatibility route as on the loopback carrier. There is no
+`/api/pclink.admin/challenge`; that route exists only on the loopback CLI
+carrier. The Web UI routes are protected by the
 normal DSH browser/API authentication fence and are accepted only from an owner
 Peer; the local loopback token is not accepted there. The browser page never
 sees `admin.json` or its token and never talks to the loopback admin server
@@ -1773,19 +1817,28 @@ send the Bearer token to the loopback admin API. `install` is the plugin-install
 path (`dsh plugin --profile web add ...`) and is outside this contract.
 
 - `pclink status` lists every pairing (name, machineId, fingerprint, approval
-  timestamp/via, online/usable), the pending pairing state, and any
-  unapproved/revoked-record warning. During `awaiting_approval` it shows only
-  the phone name, never the pending machineId/fingerprint/public key.
-- `pclink pair` starts `mode:"qr"` and prints the QR URI, the five-minute
-  expiry and the full-owner warning. `pclink pair --manual` starts
-  `mode:"manual"` and prints the `XXXX-XXXX-XXXX-XXXX` code, expiry and warning.
-  Both poll status; on `awaiting_approval` they print only the phone name and
-  **require a TTY** where the operator types the 12-character fingerprint read
-  from the phone screen (hyphen/space/case ignored). `y`/`N`, an empty line,
-  redirected stdin or `--yes` MUST NOT approve; without a TTY the CLI cancels
-  and exits non-zero. A mismatch cancels the pairing, voids the slot and exits
-  non-zero with the mismatch message. The CLI never prints a SAS and never
-  accepts a relay-completed pairing without this approval.
+  timestamp/via, online/usable), the pending pairing state, the running plugin
+  `version`/`packageSha256` (or an explicit "legacy/unknown" when a pre-v1.6 PC
+  omits `plugin`), and any unapproved/revoked-record warning. `pclink status
+  --json` prints the raw admin status body (plus the same absence tolerated),
+  which is the install script's build-verification seam. While a pairing is
+  pending and not durable it shows only the phone name, never the pending
+  machineId/fingerprint/public key.
+- `pclink pair` starts `mode:"qr"`, prints the five-minute expiry and the
+  full-owner warning, and renders the QR in the terminal when stdout is a
+  terminal and a renderer is available; it always prints the complete
+  `pclink://` URI so a non-TTY/redirected run (CI, `curl | bash`, a log
+  capture) never fails for lack of a TTY. `pclink pair --manual` starts
+  `mode:"manual"` and prints the `XXXX-XXXX-XXXX-XXXX` code, expiry and
+  warning. Neither mode prompts for or accepts a fingerprint, and neither
+  requires a TTY: pairing is completed by the phone's scan/code entry alone.
+  Both poll status until `completed`/`failed` or the five-minute deadline. A
+  single admin request timeout or connection failure is retried within the
+  deadline (the plugin may be busy while `dsh web` restarts); only a terminal
+  pairing state or a non-retryable error ends the command. On completion the
+  CLI prints `配对完成：<phone name>（<fingerprint>）` and the exact revoke
+  command (`pclink unpair <machineId>` or `pclink unpair --all`). The CLI never
+  prints a SAS.
 - `pclink unpair` with no argument lists every pairing, requires a TTY
   confirmation and revokes all (or the selected machineId), then prints the
   result. For a stolen/lost phone it directs the user to revoke all and then
@@ -1797,10 +1850,11 @@ path (`dsh plugin --profile web add ...`) and is outside this contract.
   action.
 
 Every command reports the PCLink error code and a human message; it never
-rewrites an `auth_failed`/`unpaired` into a DSH 401/403. The CLI's TTY
-fingerprint check is a human-process guard, not a boundary against a same-user
-process that can call the admin API directly or a pty that bypasses the TTY
-test (§1 non-goal 7).
+rewrites an `auth_failed`/`unpaired` into a DSH 401/403. The destructive
+commands (`unpair`, `rotate-identity`) keep their TTY confirmation; the
+fingerprint comparison is no longer a pairing step, so pairing itself has no
+TTY requirement and no human-process approval claim. A same-user process that
+can call the admin API directly remains outside the boundary (§1 non-goal 7).
 
 ## 9. Error codes
 
@@ -1914,24 +1968,38 @@ does not prompt for a DSH cookie.
 
 ## 11. Compatibility and versioning
 
-PCLink v1 is the first PCLink version; `pclink-v1.5` is the current revised
-freeze before any implementation is accepted as conformant. There is no old
-PCLink implementation or persisted PCLink data to interoperate with; the pair
-records, `pairs.log`, identity files and admin token are new. The unfrozen
-`pclink-v1` draft is superseded (no implementation or persisted data exists); a
-`pclink-v1` draft record without
+PCLink v1 is the first PCLink wire version; `pclink-v1.6` is the current revised
+freeze before any implementation is accepted as conformant. A PCLink
+implementation of `pclink-v1.5` exists on `main`, and the user may already have
+its pair records on disk; §4.6 states the one-way record compatibility and the
+rollback consequence. The unfrozen `pclink-v1` draft is superseded (no
+implementation or persisted data exists); a `pclink-v1` draft record without
 `approvedAt`/`approvedVia`/`pairs.log` is unapproved and unusable, so a draft
 store must re-pair rather than be silently adopted. Future versions MUST use a
 new protocol version/capability and an explicit change record; a v1 receiver
 rejects `v != 1` (outer) or an unsupported suite/caps with
 `version_unsupported`, never downgrades.
 
+The pairing handshake bytes (`pair.hello/auth/confirm/final`), the QR/manual
+secrets, the rendezvous, the relay plane and the E2E session bytes are
+unchanged by v1.6. What changed is **who approves and when**, the persisted
+record's `approvedVia` vocabulary and the admin `plugin` facts:
+
 | Producer → consumer | Behaviour |
 | --- | --- |
-| old → new | no old PCLink producer exists. A future v2 producer is rejected by a v1 relay/receiver, not downgraded. |
-| new → old | no old consumer exists. A v2 consumer must be introduced with a new version/capability. |
-| new → new | this contract. |
-| persisted v1 data → new / rollback | `identity.key`, `pairs.json`, `pairs.log` and `admin.json` are versioned; a stale `pcMachineId`/`phoneMachineId`, a missing/mismatched `pairs.log` line, or a later `unpair` makes the record unusable and requires re-pair. A build without PCLink ignores the directory; rolling forward reads the same v1 files. The `pclink-v1` draft's unapproved records are intentionally not adopted. There is no migration from an earlier PCLink because none exists. |
+| old App (waits for `pair.confirm`) → new PC | **Interoperates.** After the phone's `pair.auth` verifies, the new PC sends `pair.confirm` immediately. The old App's "waiting for the PC operator" screen is satisfied as soon as the confirm arrives; the record is written normally. The old App may still display its own fingerprint while waiting — harmless, because the new PC never asks for it. |
+| new App → old PC (still compare-the-phone) | **Interoperates, with a PC-side wait.** The new App sends `pair.auth` and waits for the old PC's `pair.confirm`; the old PC CLI still shows its fingerprint prompt. The App's waiting copy must be mode-neutral: "请在电脑上完成确认" (or "如果这台电脑仍要求确认，请在电脑上完成确认"), never instructing the user to read a fingerprint into the PC. If the PC operator never confirms, the old 120 s approval timeout closes the slot and the App reports the failure. |
+| new PC → new App | this contract; `pair.confirm` is sent automatically and the App may auto-close on the authenticated confirm. |
+| persisted v1.5 records (`approvedVia:"cli"|"webui"`) → new PC | **Usable without rewriting.** The record schema keeps the legacy enum values; `status`/the App show them as a legacy fingerprint-approval origin. New pairings always write `qr`/`manual`. |
+| persisted v1.6 records (`approvedVia:"qr"|"manual"`) → rolled-back pre-v1.6 PC | **Fail-closed.** The old build's record validator accepts only `cli`/`webui`, so it treats the new record as unapproved/unusable and the phone must re-pair. Rolling back requires re-pairing; the plugin does not silently rewrite or adopt the new value. |
+| persisted v1 → new / rollback (other files) | `identity.key`, `pairs.log` and `admin.json` are unchanged. A stale `pcMachineId`/`phoneMachineId`, a missing/mismatched `pairs.log` line, or a later `unpair` still makes a record unusable and requires re-pair. A build without PCLink ignores the directory. |
+
+An old admin client that calls `/v1/pair/approve` against a new PC gets
+`unavailable` because the new PC never enters `awaiting_approval`; it can still
+poll `status` and observe `completed`. A new `status` response adds `plugin` and
+new `approvedVia` values; an old client that ignores unknown members keeps
+working, and a new client reading a pre-v1.6 status tolerates the missing
+`plugin` member and the legacy `approvedVia` values.
 
 The DSH API range is separate: `>=0.2.2-rc.1 <0.3.0` is the tested range; an
 out-of-range PC is a warning, not a block, and individual endpoint failures are
@@ -1939,8 +2007,8 @@ visible. P14's DSH Remote `client-request`/mux and P06's event semantics are
 unchanged: PCLink carries `args`/`payload` and event payloads byte-for-byte and
 does not define a second DSH API. The P09 UI contract for the drawer/switch,
 pairing page and "connected computer" page lands with the iOS PR; this contract
-only requires the user-visible obligations in §4.6/§10. The Swift module
-declaration in `Package.swift` is a P12 change in the D-stage PR. `P18` owns the
+requires the user-visible obligations in §4.6/§10. The Swift module declaration
+in `Package.swift` is a P12 change in the D-stage PR. `P18` owns the
 `phone-dsh.drawer.backend` UserDefaults key (values `phone`|`pc`, default
 `phone`); its owning-contract entry is added by the D-stage P18 change, not by
 this record.
@@ -1963,27 +2031,33 @@ this record.
   code and Crockford normalization, the complete keyC manual-mode
   hello/auth/confirm/final MAC set with mutation/wrong-key negatives,
   origin-bound rendezvous (including a different-origin value), pairing
-  MACs/records, 12-character approval fingerprints with case/separator
-  tolerance and the wrong-phone-fingerprint negative, the paired-notice shape,
-  audit entries, and invalid rows. `tools/vectors.mjs --write` regenerates it
+  MACs/records (`approvedVia:"qr"`), 12-character fingerprints with
+  case/separator tolerance (display/unpair-target normalization; the former
+  wrong-phone-approval negative is now a state-machine sample of automatic
+  approval), the auto-approval model rows (`pair.auth` verified → confirm sent,
+  both `qr` and `manual`), the paired-notice shape, audit entries, and invalid
+  rows. `tools/vectors.mjs --write` regenerates it
   from fixed public labels; `--check` independently re-implements machineId,
   strict wire JSON (literal-NUL/BOM/duplicate/lone-surrogate/non-object-root
   rejection plus escaped-`U+0000` acceptance), canonical JSON, HKDF,
   origin-bound rendezvous, pair MAC, AEAD nonce/AAD/open,
-  chunk split/reassembly, QR parse, Crockford decode and fingerprint
-  normalization. The checker owns its own domain/suite/alphabet/PKCS#8
-  constants, does not call the generator's helpers, and counts crypto negatives
-  separately from the explicitly labelled state-machine model samples (the
-  output says “状态机模型样例，非密码证据”). `sha256(utf8(label))` is the test
-  private key; the labels and public values are in the document; no production
-  key is stored.
+  chunk split/reassembly, QR parse, Crockford decode, fingerprint
+  normalization and the auto-approval/record load model. The checker owns its
+  own domain/suite/alphabet/PKCS#8 constants, does not call the generator's
+  helpers, and counts crypto negatives separately from the explicitly labelled
+  state-machine model samples (the output says “状态机模型样例，非密码证据”).
+  `sha256(utf8(label))` is the test private key; the labels and public values
+  are in the document; no production key is stored.
 - `schema/*.schema.json` are the closed shapes, including
   `admin-challenge.schema.json` for the CLI server proof,
-  `admin-status.schema.json` for the `/v1/status` response (including the
-  `awaiting_approval` variant that rejects `peerMachineId`/`peerPublicKey`/
-  `peerFingerprint`), the `session.reject.sig` field, and the split PC/phone
-  record schemas (`pairing-record.schema.json` requires
-  `approvedAt`/`approvedVia`; `phone-pairing-record.schema.json` forbids them).
+  `admin-status.schema.json` for the `/v1/status` response (the required
+  `plugin` build facts, `approvedVia` `qr|manual` plus the legacy
+  `cli|webui`, and the retained legacy `awaiting_approval` variant that rejects
+  `peerMachineId`/`peerPublicKey`/`peerFingerprint`), the `session.reject.sig`
+  field, and the split PC/phone record schemas
+  (`pairing-record.schema.json` requires `approvedAt`/`approvedVia` and accepts
+  `qr`/`manual` plus the legacy values; `phone-pairing-record.schema.json`
+  forbids them).
   `golden/schema-samples.json` carries at least one valid and one invalid
   sample per schema, including valid RPC-args and stream-item samples with a
   decoded `U+0000` and an invalid `pclink.notice.name` containing `U+0000`;
@@ -2017,7 +2091,7 @@ python3 spec/tools/schema_diff.py --root . --base "$(git merge-base HEAD origin/
 python3 spec/tools/cross_check.py --root .
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree
 # phone-p0-conformance is a separate page-ratchet gate; at this revision it
-# still reports exactly the 12 known GAP-32/GAP-33 divergences.
+# reports the 7 known GAP-32(d)/GAP-35 divergences.
 
 # B relay
 cd relay && npm ci && npm test
@@ -2038,8 +2112,10 @@ bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-sdk
 
 The D-stage App wiring additionally needs the P09 page/source changes and the
 P12 `Package.swift` declaration; those are separate changes. Android is out of
-scope for v1 and its missing drawer actions are tracked as GAP-35; this A
-freeze does not modify `spec/ui/**`.
+scope for v1 and its missing drawer actions are tracked as GAP-35. The P09 page
+contract changes for the redesigned pairing page and the "connected computer"
+page are part of the same branch (`spec/ui/v1/pages/pc-pairing.json`,
+`connected-computer.json`); they do not change any wire byte.
 
 ## 13. Decisions frozen for review
 
@@ -2087,14 +2163,18 @@ follows AGENTS.md §3.3 and the change record's revision log.
     PCLink `rpc.*` calls for `pclink.admin/` are the PCLink `forbidden` code;
     the handler also refuses a PCLink remote source Peer regardless of the
     endpoint string.
-11. Every pairing (QR and manual) requires compare-the-phone approval before
-    `pair.confirm`: the phone displays its own 60-bit fingerprint, the PC shows
-    only the phone name, and the operator types the fingerprint from the phone
-    screen. The CLI requires a TTY and has no `--yes`. A mismatch destroys the
-    single-use slot. `pairs.log` is an append-only approval/tombstone log; an
-    unlogged record is unusable. After a successful pairing the PC sends
-    `pclink.notice{kind:"paired",...}` to other established phones and the Web
-    UI shows a persistent banner.
+11. Pairing approval is possession of the one-time screen secret (v1.6 user
+    decision): after the verified `pair.auth`, the PC approves automatically
+    for both QR and manual, records `approvedVia:"qr"|"manual"` and sends
+    `pair.confirm`; there is no compare-the-phone step, no fingerprint TTY
+    prompt and no `awaiting_approval` on a v1.6 PC. A pre-v1.6 PC may still
+    require compare-the-phone; a new App's waiting copy stays mode-neutral. The
+    accepted residual risk is a screen observer joining first; mitigations are
+    the single-use 300 s slot, the first-join lock, the terminal/status
+    `已配对：<name>（<fingerprint>）` readout with the revoke command, the
+    `pairs.log` approval mode/hash, the other-phone `pclink.notice`, and the
+    App's verification fields. `pairs.log` is an append-only approval/tombstone
+    log; an unlogged record is unusable.
 12. Both ends generate fresh ephemeral X25519 keys per handshake, reject
     all-zero/low-order DH, derive traffic keys with `salt = th2`, and derive
     `k_confirm_phone`/`k_confirm_pc` separately from the traffic keys. `T_init`
@@ -2109,11 +2189,13 @@ follows AGENTS.md §3.3 and the change record's revision log.
     fails, the plugin stays off the relay (fail-closed) rather than claiming
     success. The PC's E2E idle timeout is 15 minutes; `status.online` follows
     that state, not an observation of the phone's socket.
-15. While `awaiting_approval`, `/v1/status` and `/api/pclink.admin/status` do
-    not expose the pending peer's machineId, public key or fingerprint; only
-    the verified name is shown. The phone that has been offline for a long time
-    shows the manual-unpair hint after an identity change, because it cannot
-    detect the new PC identity.
+15. Before a pairing record is durable, `/v1/status` and
+    `/api/pclink.admin/status` do not expose the pending peer's machineId,
+    public key or fingerprint; only the verified name is shown. A v1.6 PC
+    normally moves from `joined` to `completed` within one round trip, so this
+    window is short; the legacy `awaiting_approval` state keeps the same rule.
+    The phone that has been offline for a long time shows the manual-unpair
+    hint after an identity change, because it cannot detect the new PC identity.
 16. The §2.3 strict JSON rule applies to wire bytes, not to decoded DSH values.
     A literal `0x00`, BOM, duplicate member, lone surrogate and non-object root
     are rejected; a legal `\u0000` escape in a DSH passthrough value is
@@ -2121,6 +2203,13 @@ follows AGENTS.md §3.3 and the change record's revision log.
     relay/`e2e.handshake` outer carriers contain no DSH passthrough value, so a
     relay may keep rejecting every NUL in outer frames. This is the adopted C
     implementer CCR (`pclink-v1.3`); no handshake or AEAD byte changes.
+17. The admin status `plugin.version`/`plugin.packageSha256` describe the
+    running process, captured at start, not the files currently on disk. The
+    installer compares them with the post-`dsh plugin add` on-disk build and
+    requires a verified restart when they differ; an absent `plugin` member
+    means a pre-v1.6 build and is treated as "restart required if a plugin was
+    running", never as an up-to-date result. This is what fixes the
+    upgrade-without-restart bug.
 
 ## 14. Fixture and file map
 
@@ -2129,7 +2218,7 @@ follows AGENTS.md §3.3 and the change record's revision log.
 | `README.md` | this normative contract |
 | `endpoints.json` | normative `workspace/1` inventory and retry classes |
 | `schema/*.schema.json` | closed relay/inner/handshake/pairing/admin shapes (including `admin-challenge.schema.json` and `admin-status.schema.json`) |
-| `golden/pclink-v1-vectors.json` | shared crypto, pairing and JSON wire-boundary vectors (valid + invalid), `pclink-v1.3` |
+| `golden/pclink-v1-vectors.json` | shared crypto, pairing and JSON wire-boundary vectors (valid + invalid), `pclink-v1.6` |
 | `golden/schema-samples.json` | valid/invalid sample per schema |
 | `tools/vectors.mjs` | Node 24 generator + independent checker (no npm dependencies) |
 | `tools/check_samples.py` | existing-validator schema/inventory checker plus the name byte/NFC/`Cf` rule and the `json_boundary` wire/field rows |

@@ -1,10 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PCLink v1 admin status response (GET /v1/status and /api/pclink.admin/status)",
-  "$comment": "While pairing.state is awaiting_approval (and also opening/waiting/joined) the pairing object must not contain peerMachineId, peerPublicKey, peerFingerprint or any other field from which the pending peer's fingerprint can be derived. Only peerName is exposed. After the record is durable (completed) peerMachineId and peerFingerprint may appear.",
+  "$comment": "A v1.6 PC exposes plugin.version/packageSha256 (running process build facts) and never enters awaiting_approval; that state is retained only for a pre-v1.6 PC. While pairing.state is opening/waiting/joined (or legacy awaiting_approval) the pairing object must not contain peerMachineId, peerPublicKey, peerFingerprint or any other pending-peer fingerprint source. Only peerName is exposed. After the record is durable (completed) peerMachineId and peerFingerprint may appear.",
   "type": "object",
   "required": [
     "v",
+    "plugin",
     "identity",
     "relay",
     "pairs",
@@ -14,6 +15,27 @@
   "properties": {
     "v": {
       "const": 1
+    },
+    "plugin": {
+      "type": "object",
+      "required": [
+        "version",
+        "packageSha256"
+      ],
+      "additionalProperties": false,
+      "description": "Build facts of the running plugin process, captured at start. A pre-v1.6 status omits this member; consumers in the upgrade window must treat the absence as an untracked old build and restart.",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]*$"
+        },
+        "packageSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
     },
     "identity": {
       "type": "object",
@@ -97,9 +119,12 @@
           },
           "approvedVia": {
             "enum": [
+              "qr",
+              "manual",
               "cli",
               "webui"
-            ]
+            ],
+            "description": "v1.6 writes qr|manual; cli|webui are legacy pre-v1.6 records accepted and displayed as legacy."
           },
           "online": {
             "type": "boolean"

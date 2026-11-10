@@ -5,6 +5,7 @@
 import { join } from 'node:path'
 import { pclinkError } from '../core/errors.mjs'
 import { b64urlEncode } from '../core/encoding.mjs'
+import { packageVersion, pluginBuildInfo } from '../core/package-info.mjs'
 import { loadAdminFile, pclinkStateDir, probeAuditAppend, removeFile } from '../core/store.mjs'
 import { AdminPlane } from './admin-plane.mjs'
 import { AdminServer } from './admin-server.mjs'
@@ -14,8 +15,8 @@ import { RelayLink } from './relay-link.mjs'
 import { SessionManager } from './session-manager.mjs'
 import { PclinkStore } from './state.mjs'
 
-/** Plugin version reported in `peer.hello.app.version`. */
-export const PLUGIN_VERSION = '0.1.0'
+/** Plugin version reported in `peer.hello.app.version` (package manifest). */
+export const PLUGIN_VERSION = packageVersion()
 /** Fail-closed probe retry interval. */
 export const FAIL_CLOSED_RETRY_MS = 5_000
 
@@ -37,6 +38,7 @@ export class PclinkRuntime {
    *   random?: () => number,
    *   dshInfo?: {version: string, commit?: string},
    *   appVersion?: string,
+   *   pluginInfo?: {version: string, packageSha256: string},
    *   probeAudit?: (dir: string) => void,
    * }} options Runtime dependencies and config.
    */
@@ -56,6 +58,7 @@ export class PclinkRuntime {
     this.WebSocketCtor = options.WebSocketCtor
     this.dshInfo = options.dshInfo ?? dshRuntimeInfo(this.log)
     this.appVersion = options.appVersion ?? PLUGIN_VERSION
+    this.pluginInfo = options.pluginInfo ?? pluginBuildInfo()
     this.probeAudit = options.probeAudit ?? probeAuditAppend
     this.stateDir = pclinkStateDir(this.dshHome)
     this.warnings = []
@@ -124,6 +127,7 @@ export class PclinkRuntime {
       relay: { origin: this.relayOrigin, state: 'offline' },
       unpair: body => this.unpair(body),
       rotateIdentity: body => this.rotateIdentity(body),
+      plugin: this.pluginInfo,
       extraWarnings: () => [
         ...this.warnings,
         ...(this.failClosedWarning === undefined ? [] : [this.failClosedWarning]),

@@ -490,7 +490,7 @@ export function validatePairingRecord(record) {
   validateName(record.peerName, 'pairing record.peerName')
   pairingTime(record.pairedAt, 'pairing record.pairedAt')
   pairingTime(record.approvedAt, 'pairing record.approvedAt')
-  if (record.approvedVia !== 'cli' && record.approvedVia !== 'webui') throw pclinkError('bad_frame', 'pairing record.approvedVia')
+  if (!['qr', 'manual', 'cli', 'webui'].includes(record.approvedVia)) throw pclinkError('bad_frame', 'pairing record.approvedVia')
   validateRelayOrigin(record.relayOrigin)
   validateConnection(record.connection)
   return record
@@ -514,7 +514,7 @@ export function validatePhonePairingRecord(record) {
 
 /**
  * Build the PC record from verified pairing facts.
- * @param {{peerMachineId: string, peerPublicKey: string, peerName: string, relayOrigin: string, pairedAt: string, approvedAt: string, approvedVia: 'cli'|'webui'}} input Fields.
+ * @param {{peerMachineId: string, peerPublicKey: string, peerName: string, relayOrigin: string, pairedAt: string, approvedAt: string, approvedVia: 'qr'|'manual'|'cli'|'webui'}} input Fields.
  * @returns {Record<string, unknown>} PC record.
  */
 export function buildPairingRecord(input) {

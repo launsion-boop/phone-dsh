@@ -60,10 +60,12 @@
     "approvedVia": {
       "type": "string",
       "enum": [
+        "qr",
+        "manual",
         "cli",
         "webui"
       ],
-      "$comment": "PC records only; the local approval carrier."
+      "$comment": "PC records only. v1.6 writes qr|manual (the verified one-time screen secret mode); cli|webui are legacy pre-v1.6 values accepted on load and never rewritten."
     }
   },
   "dependentRequired": {
@@ -74,5 +76,5 @@
       "approvedAt"
     ]
   },
-  "$comment": "Every pairs.json record MUST carry approvedAt+approvedVia after the local operator approval. The phone record is phone-pairing-record.schema.json."
+  "$comment": "Every pairs.json record MUST carry approvedAt+approvedVia. v1.6 writes approvedVia qr|manual after the verified pair.auth; legacy cli|webui records remain usable. The phone record is phone-pairing-record.schema.json."
 }

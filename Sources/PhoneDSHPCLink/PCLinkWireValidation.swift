@@ -481,7 +481,8 @@ public enum PCLinkWire {
         var required: Set<String> = ["peerMachineId", "peerPublicKey", "peerName",
                                      "pairedAt", "relayOrigin", "connection"]
         if !phoneRecord { required.formUnion(["approvedAt", "approvedVia"]) }
-        let object = try value.closedObject(required: required)
+        let optional: Set<String> = phoneRecord ? ["pairingMode"] : []
+        let object = try value.closedObject(required: required, optional: optional)
         try PCLinkValidation.requireMachineId(try value.requiredString("peerMachineId"))
         _ = try PCLinkBase64URL.decode(try value.requiredString("peerPublicKey"), expectedBytes: 32)
         try PCLinkValidation.name(try value.requiredString("peerName"))
@@ -499,12 +500,16 @@ public enum PCLinkWire {
             guard object["approvedAt"] == nil, object["approvedVia"] == nil else {
                 throw PCLinkError.badFrame("phone records must not carry approval fields")
             }
+            if let mode = object["pairingMode"],
+               mode.stringValue.flatMap(PCLinkPairingMode.init(rawValue:)) == nil {
+                throw PCLinkError.badFrame("phone pairingMode")
+            }
         } else {
             guard PCLinkValidation.timestamp(try value.requiredString("approvedAt")) else {
                 throw PCLinkError.badFrame("approvedAt")
             }
             guard let via = object["approvedVia"]?.stringValue,
-                  ["cli", "webui"].contains(via) else {
+                  ["qr", "manual", "cli", "webui"].contains(via) else {
                 throw PCLinkError.badFrame("approvedVia")
             }
         }

@@ -1,7 +1,7 @@
 {
   "format": "pclink-v1-vectors",
   "format_version": 3,
-  "revision": "pclink-v1.3",
+  "revision": "pclink-v1.6",
   "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
   "test_key_rule": "sha256(utf8(label)) is the raw private key; these are public test labels, never production keys",
   "labels": {
@@ -684,7 +684,7 @@
             "mode": "relay"
           },
           "approvedAt": "2026-11-09T00:00:05Z",
-          "approvedVia": "cli"
+          "approvedVia": "qr"
         },
         "audit": [
           {
@@ -692,9 +692,9 @@
             "event": "pair",
             "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
             "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
-            "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+            "recordSha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
             "approvedAt": "2026-11-09T00:00:05Z",
-            "approvedVia": "cli",
+            "approvedVia": "qr",
             "at": "2026-11-09T00:00:05Z"
           }
         ],
@@ -711,7 +711,7 @@
             "mode": "relay"
           },
           "approvedAt": "2026-11-09T00:00:05Z",
-          "approvedVia": "cli"
+          "approvedVia": "qr"
         },
         "audit": [
           {
@@ -719,9 +719,9 @@
             "event": "pair",
             "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
             "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
-            "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+            "recordSha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
             "approvedAt": "2026-11-09T00:00:05Z",
-            "approvedVia": "cli",
+            "approvedVia": "qr",
             "at": "2026-11-09T00:00:05Z"
           },
           {
@@ -740,13 +740,20 @@
       "expected": "abort"
     },
     "approval": {
-      "blocked": {
-        "approved": false,
-        "expected": "blocked"
-      },
-      "confirm_sent": {
+      "auto_qr": {
+        "mode": "qr",
         "approved": true,
         "expected": "confirm_sent"
+      },
+      "auto_manual": {
+        "mode": "manual",
+        "approved": true,
+        "expected": "confirm_sent"
+      },
+      "bad_mode": {
+        "mode": "future",
+        "approved": true,
+        "expected": "bad_frame"
       }
     },
     "admin_peer": {
@@ -894,7 +901,8 @@
         "relayOrigin": "https://relay.example",
         "connection": {
           "mode": "relay"
-        }
+        },
+        "pairingMode": "qr"
       },
       "pc": {
         "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
@@ -906,7 +914,7 @@
           "mode": "relay"
         },
         "approvedAt": "2026-11-09T00:00:05Z",
-        "approvedVia": "cli"
+        "approvedVia": "qr"
       }
     },
     "approval": {
@@ -923,8 +931,12 @@
       ],
       "rejected_input": "2222-2222-2222",
       "approvedAt": "2026-11-09T00:00:05Z",
-      "approvedVia": "cli",
-      "rule": "machineId[0:12] grouped xxxx-xxxx-xxxx; 60-bit fingerprint typed from the phone screen"
+      "approvedVia": "qr",
+      "auto_approval": {
+        "qr": "confirm_sent",
+        "manual": "confirm_sent"
+      },
+      "rule": "v1.6: the verified pair.auth proves possession of the one-time screen secret and is approved automatically; the fingerprint is display/unpair-target normalization only"
     },
     "audit": {
       "pair_entry": {
@@ -932,9 +944,9 @@
         "event": "pair",
         "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
         "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
-        "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+        "recordSha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
         "approvedAt": "2026-11-09T00:00:05Z",
-        "approvedVia": "cli",
+        "approvedVia": "qr",
         "at": "2026-11-09T00:00:05Z"
       },
       "unpair_entry": {
@@ -943,7 +955,7 @@
         "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
         "at": "2026-11-09T01:00:00Z"
       },
-      "record_sha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+      "record_sha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
       "approved_usable": {
         "record": {
           "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
@@ -955,7 +967,7 @@
             "mode": "relay"
           },
           "approvedAt": "2026-11-09T00:00:05Z",
-          "approvedVia": "cli"
+          "approvedVia": "qr"
         },
         "audit": [
           {
@@ -963,9 +975,9 @@
             "event": "pair",
             "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
             "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
-            "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+            "recordSha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
             "approvedAt": "2026-11-09T00:00:05Z",
-            "approvedVia": "cli",
+            "approvedVia": "qr",
             "at": "2026-11-09T00:00:05Z"
           }
         ],
@@ -1174,7 +1186,7 @@
           "mode": "relay"
         },
         "approvedAt": "2026-11-09T00:00:05Z",
-        "approvedVia": "cli"
+        "approvedVia": "qr"
       },
       "audit": [],
       "expected": "unapproved",
@@ -1193,7 +1205,7 @@
           "mode": "relay"
         },
         "approvedAt": "2026-11-09T00:00:05Z",
-        "approvedVia": "cli"
+        "approvedVia": "qr"
       },
       "audit": [
         {
@@ -1201,9 +1213,9 @@
           "event": "pair",
           "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
           "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
-          "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+          "recordSha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
           "approvedAt": "2026-11-09T00:00:05Z",
-          "approvedVia": "cli",
+          "approvedVia": "qr",
           "at": "2026-11-09T00:00:05Z"
         },
         {
@@ -1217,14 +1229,23 @@
       "evidence": "model"
     },
     {
-      "case": "pairing-awaiting-approval-no-confirm",
+      "case": "pairing-auto-approved-qr",
       "kind": "approval",
-      "approved": false,
-      "expected": "blocked",
+      "mode": "qr",
+      "approved": true,
+      "expected": "confirm_sent",
       "evidence": "model"
     },
     {
-      "case": "approval-wrong-phone-fingerprint",
+      "case": "pairing-auto-approved-manual",
+      "kind": "approval",
+      "mode": "manual",
+      "approved": true,
+      "expected": "confirm_sent",
+      "evidence": "model"
+    },
+    {
+      "case": "fingerprint-unpair-target-wrong",
       "kind": "fingerprint",
       "public_key": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
       "entered": "2222-2222-2222",
@@ -1789,7 +1810,7 @@
           "mode": "relay"
         },
         "approvedAt": "2026-11-09T00:00:05Z",
-        "approvedVia": "cli"
+        "approvedVia": "qr"
       },
       "audit": [
         {
@@ -1797,9 +1818,9 @@
           "event": "pair",
           "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
           "peerPublicKey": "1lwESsTkiaI8FEW0MCjDT7h3qasGPHFfHwHKl0fNAGc",
-          "recordSha256": "db8dd841014dc744d9d16efe940bf3434efbc3cbeb8e493a5433a8d2f2593042",
+          "recordSha256": "88ec324033e674048c793fdb1424c6b974e8d8a6bbdc8c374a1d53ca22ce3f8e",
           "approvedAt": "2026-11-09T00:00:05Z",
-          "approvedVia": "cli",
+          "approvedVia": "qr",
           "at": "2026-11-09T00:00:05Z"
         },
         {

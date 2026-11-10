@@ -1,13 +1,14 @@
 /** Interactive CLI command implementations (TTY-gated fingerprint approval). */
 
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { AdminClient } from '../core/admin.mjs'
 import { fingerprintOf, normalizeFingerprintInput } from '../core/encoding.mjs'
 import { pclinkError } from '../core/errors.mjs'
 import { encodeQr, renderQrUnicode } from '../core/qr.mjs'
+import { packageSha256, packageVersion, pluginBuildInfo } from '../core/package-info.mjs'
+
+export { packageSha256, packageVersion, pluginBuildInfo }
 
 /** The exact §4.6 full-owner warning shown before any pairing/approval. */
 export const FULL_OWNER_WARNING = '此手机将能完整操作这台电脑上的 DSH：对话、在电脑上执行 Shell 和读写文件、处理审批、修改设置和插件。'
@@ -60,10 +61,17 @@ function printPairing(output, pairing) {
   }
   if (pairing.state === 'completed') {
     output.write(`配对完成：${pairing.peerName}（${pairing.peerFingerprint}）\n`)
+    if (pairing.peerMachineId !== undefined) {
+      output.write(`撤销这台手机：pclink unpair ${pairing.peerMachineId}\n`)
+    } else {
+      output.write('撤销这台手机：pclink unpair --all\n')
+    }
     return
   }
   if (pairing.state === 'awaiting_approval') {
-    output.write(`等待批准：手机名称 ${pairing.peerName}。请在手机配对页读取它显示的本机指纹并输入。\n`)
+    // Legacy pre-v1.6 PC: this CLI does not type fingerprints, but keeps
+    // polling so an operator using the old PC's own prompt can finish it.
+    output.write(`这台电脑仍在运行旧版配对流程，正在等待本机操作员在电脑上确认（手机名称 ${pairing.peerName}）。\n`)
     return
   }
   output.write(`配对状态：${pairing.state}\n`)
@@ -104,30 +112,31 @@ export function renderQrCode(uri, output, options = {}) {
 }
 
 /**
- * Start a pairing and poll until terminal, requiring a TTY fingerprint entry.
+ * Start a pairing and poll until terminal. No TTY, fingerprint or operator
+ * input is involved: the phone's scan/code entry is the approval (§4.4).
  *
- * Test seam: `stdinIsTTY` and `ask` are injected; production passes
- * `process.stdin.isTTY` and a readline prompt. There is no `--yes` path.
+ * A single admin request timeout or connection failure is retried inside the
+ * deadline, because `dsh web` may be busy during a restart (§8.3).
+ *
  * @param {{
  *   client: AdminClient,
  *   mode?: 'qr'|'manual',
  *   output: {write: (text: string) => void},
- *   stdinIsTTY: boolean,
- *   ask: (prompt: string) => Promise<string>,
  *   pollMs?: number,
  *   timeoutMs?: number,
  *   onStatus?: (status: object) => void,
  *   signal?: AbortSignal,
+ *   now?: () => number,
+ *   delayImpl?: (ms: number) => Promise<void>,
  * }} options Pairing dependencies.
  * @returns {Promise<object>} final status body.
  */
 export async function runPair(options) {
-  // §8.3: without a TTY the pairing can never be approved. Fail before opening
-  // a slot so the relay/phone cannot join a pairing this process must cancel.
-  if (!options.stdinIsTTY) throw pclinkError('unavailable', 'approval requires a TTY; pairing was not started')
   const mode = options.mode ?? 'qr'
   const pollMs = options.pollMs ?? 250
   const timeoutMs = options.timeoutMs ?? 300_000
+  const now = options.now ?? (() => Date.now())
+  const wait = options.delayImpl ?? delay
   const started = await options.client.pair({ mode })
   const pairingId = started.pairing.id
   options.output.write(`PCLink 配对已开始（${mode === 'manual' ? '手动码' : 'QR'}）。\n`)
@@ -140,12 +149,28 @@ export async function runPair(options) {
     expiresAt: started.pairing.expiresAt,
   })
   if (mode === 'qr' && started.pairing.qrURI !== undefined) renderQrCode(started.pairing.qrURI, options.output)
-  const deadline = Date.now() + timeoutMs
-  let approved = false
+  const deadline = now() + timeoutMs
+  let retrying = false
   for (;;) {
     if (options.signal?.aborted === true) throw pclinkError('unavailable', 'pairing cancelled')
-    if (Date.now() > deadline) throw pclinkError('session_expired', 'pairing did not complete in time')
-    const status = await options.client.status()
+    if (now() > deadline) throw pclinkError('session_expired', 'pairing did not complete in time')
+    let status
+    try {
+      status = await options.client.status()
+    } catch (error) {
+      // A transient admin timeout/connection failure while dsh web restarts is
+      // not a terminal pairing result. Keep the slot alive and retry.
+      if (error?.code === 'unavailable') {
+        if (!retrying) {
+          retrying = true
+          options.output.write('等待插件响应（dsh web 可能正在重启），配对继续…\n')
+        }
+        await wait(pollMs)
+        continue
+      }
+      throw error
+    }
+    retrying = false
     options.onStatus?.(status)
     const pairing = status.pairing
     if (pairing === undefined || pairing.id !== pairingId) {
@@ -154,37 +179,30 @@ export async function runPair(options) {
     if (pairing.state === 'failed') throw pclinkError(pairing.error ?? 'unavailable', `pairing failed: ${pairing.error ?? 'unavailable'}`)
     if (pairing.state === 'completed') {
       options.output.write(`配对完成：${pairing.peerName}（${pairing.peerFingerprint}）\n`)
+      options.output.write(pairing.peerMachineId === undefined
+        ? '撤销这台手机：pclink unpair --all\n'
+        : `撤销这台手机：pclink unpair ${pairing.peerMachineId}\n`)
       return status
     }
-    if (pairing.state === 'awaiting_approval' && !approved) {
-      if (!options.stdinIsTTY) {
-        await options.client.cancel(pairingId)
-        throw pclinkError('unavailable', 'approval requires a TTY; pairing cancelled')
-      }
-      options.output.write(`手机名称：${pairing.peerName}\n`)
-      options.output.write('请从这台手机自己的配对页面读取 12 位指纹（xxxx-xxxx-xxxx）并输入，不是电脑上显示的任意值：\n')
-      const answer = await options.ask('指纹> ')
-      if (typeof answer !== 'string' || answer.trim() === '') {
-        await options.client.cancel(pairingId)
-        throw pclinkError('auth_failed', 'no fingerprint entered; pairing cancelled')
-      }
-      const result = await options.client.approve(pairingId, answer)
-      if (result.approved !== true) {
-        throw pclinkError(result.error?.code ?? 'auth_failed', result.error?.message ?? 'fingerprint mismatch; pairing voided')
-      }
-      approved = true
-      options.output.write('已批准。等待手机完成配对写入…\n')
+    if (pairing.state === 'awaiting_approval') {
+      printPairing(options.output, pairing)
     }
-    await delay(pollMs)
+    await wait(pollMs)
   }
 }
 
 /**
- * Print admin status, including the redacted pending pairing.
+ * Print admin status, including plugin build facts and the pending pairing.
  * @param {object} status Admin status body.
  * @param {{write: (text: string) => void}} output Output.
  */
 export function printStatus(status, output) {
+  const plugin = status.plugin
+  if (plugin === undefined) {
+    output.write('插件：旧版（status 未提供 plugin 构建信息）\n')
+  } else {
+    output.write(`插件：${plugin.version}  sha256=${plugin.packageSha256}\n`)
+  }
   output.write(`PC 身份：${status.identity.name}  ${status.identity.machineId}  ${fingerprintOf(status.identity.machineId)}\n`)
   output.write(`中继：${status.relay.origin}  ${status.relay.state}\n`)
   if (status.pairs.length === 0) {
@@ -192,13 +210,20 @@ export function printStatus(status, output) {
   } else {
     output.write('已配对手机：\n')
     for (const pair of status.pairs) {
-      output.write(`  - ${pair.peerName}  ${pair.peerMachineId}  ${fingerprintOf(pair.peerMachineId)}  approved=${pair.approvedAt} via=${pair.approvedVia} online=${String(pair.online)} usable=${String(pair.usable)}${pair.reason === undefined ? '' : ` reason=${pair.reason}`}\n`)
+      const via = pair.approvedVia === 'qr'
+        ? '扫码'
+        : pair.approvedVia === 'manual'
+          ? '手动码'
+          : `旧版批准（${pair.approvedVia}）`
+      output.write(`  - ${pair.peerName}  ${pair.peerMachineId}  ${fingerprintOf(pair.peerMachineId)}  approved=${pair.approvedAt} via=${via} online=${String(pair.online)} usable=${String(pair.usable)}${pair.reason === undefined ? '' : ` reason=${pair.reason}`}\n`)
     }
   }
   if (status.pairing !== undefined) {
     const pairing = status.pairing
     if (pairing.state === 'awaiting_approval') {
-      output.write(`进行中的配对：等待批准，手机名称 ${pairing.peerName}（不显示对方指纹/机器码）\n`)
+      output.write(`进行中的配对：旧版 PC 流程等待本机操作员确认，手机名称 ${pairing.peerName}（不显示对方指纹/机器码）\n`)
+    } else if (pairing.state === 'joined') {
+      output.write(`进行中的配对：已收到手机证明，正在完成（${pairing.peerName}）\n`)
     } else if (pairing.state === 'completed') {
       output.write(`最近配对完成：${pairing.peerName} ${pairing.peerFingerprint}\n`)
     } else if (pairing.state === 'failed') {
@@ -270,35 +295,4 @@ export async function runRotateIdentity(options) {
  */
 export function createCliAdminClient(dshHome) {
   return new AdminClient({ dir: join(dshHome, 'pclink') })
-}
-
-/**
- * Compute a deterministic SHA-256 over the plugin package files.
- * @param {string} root Package root.
- * @returns {string} lowercase hex digest.
- */
-export function packageSha256(root) {
-  const hash = createHash('sha256')
-  const files = []
-  const walk = (directory, prefix) => {
-    for (const name of readdirSync(directory).sort()) {
-      if (name === 'node_modules' || name === 'test' || name === '.spike') continue
-      const path = join(directory, name)
-      const relative = prefix === '' ? name : `${prefix}/${name}`
-      const stat = statSync(path)
-      if (stat.isDirectory()) walk(path, relative)
-      else if (stat.isFile()) files.push({ relative, path })
-    }
-  }
-  walk(root, '')
-  files.sort((left, right) => (left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0))
-  for (const file of files) {
-    const bytes = readFileSync(file.path)
-    hash.update(file.relative)
-    hash.update('\0')
-    hash.update(String(bytes.length))
-    hash.update('\0')
-    hash.update(bytes)
-  }
-  return hash.digest('hex')
 }

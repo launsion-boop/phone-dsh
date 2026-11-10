@@ -5,8 +5,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh | bash
 #
 # When stdin is the curl pipe, every interactive prompt is read from /dev/tty.
-# There is no non-interactive approval path: the operator must type the
-# fingerprint shown on the phone, exactly like `pclink pair`.
+# Pairing is scan-only: the script prints the QR, the phone scans/codes it, and
+# the PC approves automatically. The script never reads a fingerprint. The only
+# Y/n question is the upgrade restart; the out-of-range-dsh and foreground
+# restart prompts are "press Enter" confirmations.
 #
 # Environment (all optional):
 #   PCLINK_REF          git ref in the default GitHub spec (default: main)
@@ -21,6 +23,7 @@ set -eu
 
 DEFAULT_RELAY='https://pclink.tonoai.cn'
 PROFILE_NAME='web'
+LAUNCHD_LABEL='ai.deepseek.dsh'
 
 info() {
   printf '%s\n' "$*"
@@ -58,10 +61,10 @@ esac
 
 # ----------------------------------------------------------------------- TTY
 # `curl | bash` makes stdin the script pipe. Open the controlling terminal
-# once and use fd 3 for every question. A process without a controlling
-# terminal cannot approve a pairing and must fail before opening a slot.
+# once and use fd 3 for every question. The installer still needs a terminal
+# for the restart question and the QR, but pairing itself takes no input.
 if ! { : </dev/tty; } 2>/dev/null; then
-  die '安装与配对需要终端（TTY）：请在终端里运行这条命令，不要接管道重定向或放到 CI。配对批准必须由你在终端输入手机屏幕上显示的指纹，脚本不会自动批准。'
+  die '安装需要终端（TTY）：请在终端里运行这条命令，不要接管道重定向或放到 CI。配对本身只扫码，不需要输入指纹，但升级重启的确认需要终端。'
 fi
 exec 3</dev/tty
 if ! printf '' >&3 2>/dev/null; then
@@ -72,14 +75,6 @@ ask() {
   printf '%s' "$1" >&3
   REPLY=''
   IFS= read -r REPLY <&3 || REPLY=''
-}
-
-ask_yes_no() {
-  ask "$1 [y/N] "
-  case "${REPLY}" in
-    y|Y|yes|YES|Yes) return 0 ;;
-    *) return 1 ;;
-  esac
 }
 
 # ---------------------------------------------------------------------- Node
@@ -160,7 +155,11 @@ version_in_range() {
 
 if ! version_in_range "${DSH_VERSION}"; then
   warn "dsh ${DSH_VERSION} 不在已验证范围 >=0.2.2-rc.1 <0.3.0 内。"
-  ask_yes_no '仍要继续安装吗？' || die '已取消：请先把 dsh 升级到 0.2.2 或更新版本。'
+  ask '按 Enter 继续安装，Ctrl-C 退出：'
+  case "${REPLY}" in
+    q|Q|quit|QUIT) die '已取消：请先把 dsh 升级到 0.2.2 或更新版本。' ;;
+  esac
+  info '      继续安装（未验证的 dsh 版本）。'
 fi
 
 # ------------------------------------------------------------------ DSH home
@@ -175,6 +174,7 @@ else
 fi
 PROFILE_DIR=${DSH_HOME}/profiles/${PROFILE_NAME}
 PLUGIN_BIN=${PROFILE_DIR}/node_modules/.bin/pclink
+PACKAGE_DIR=${PROFILE_DIR}/node_modules/dsh-pclink
 
 # ------------------------------------------------------------------- spec
 if [ -n "${PCLINK_PLUGIN_SPEC:-}" ]; then
@@ -189,6 +189,72 @@ if [ -n "${PCLINK_RELAY_URL:-}" ]; then
 else
   info "      中继：${DEFAULT_RELAY}（默认）"
 fi
+
+# ------------------------------------------------------- build facts helpers
+# The on-disk package build. The walker must match core/package-info.mjs so an
+# admin `plugin.packageSha256` and this value are comparable.
+disk_facts() {
+  if [ ! -d "${PACKAGE_DIR}" ]; then
+    printf 'unknown unknown'
+    return 0
+  fi
+  node - "${PACKAGE_DIR}" <<'NODE' 2>/dev/null || printf 'unknown unknown'
+const { createHash } = require('node:crypto')
+const fs = require('node:fs')
+const path = require('node:path')
+const root = process.argv[2]
+const skipped = new Set(['node_modules', 'test', '.spike'])
+let version = 'unknown'
+for (const candidate of [path.join(root, 'package.json'), path.join(root, 'plugin', 'package.json')]) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(candidate, 'utf8'))
+    if (typeof manifest.version === 'string' && manifest.version !== '') { version = manifest.version; break }
+  } catch {}
+}
+const files = []
+const walk = (directory, prefix) => {
+  for (const name of fs.readdirSync(directory).sort()) {
+    if (skipped.has(name)) continue
+    const full = path.join(directory, name)
+    const relative = prefix === '' ? name : prefix + '/' + name
+    const stat = fs.statSync(full)
+    if (stat.isDirectory()) walk(full, relative)
+    else if (stat.isFile()) files.push({ relative, full })
+  }
+}
+try { walk(root, '') } catch { process.stdout.write(version + ' unknown'); process.exit(0) }
+files.sort((left, right) => left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0)
+const hash = createHash('sha256')
+for (const file of files) {
+  const bytes = fs.readFileSync(file.full)
+  hash.update(file.relative)
+  hash.update('\0')
+  hash.update(String(bytes.length))
+  hash.update('\0')
+  hash.update(bytes)
+}
+process.stdout.write(version + ' ' + hash.digest('hex'))
+NODE
+}
+
+# The running plugin's own build facts from the v1.6 admin status. Empty when
+# the running process is pre-v1.6 (no plugin member) or the CLI is old.
+running_facts() {
+  status_json=$("${PLUGIN_BIN}" status --json 2>/dev/null < /dev/null || true)
+  [ -n "${status_json}" ] || return 0
+  printf '%s' "${status_json}" | node -e '
+let text = ""
+process.stdin.on("data", chunk => { text += chunk })
+process.stdin.on("end", () => {
+  try {
+    const status = JSON.parse(text)
+    if (status && status.plugin && typeof status.plugin.version === "string" && typeof status.plugin.packageSha256 === "string") {
+      process.stdout.write(status.plugin.version + " " + status.plugin.packageSha256)
+    }
+  } catch {}
+})
+' 2>/dev/null || true
+}
 
 # ------------------------------------------------------ load/reload planning
 profile_patch_reload() {
@@ -216,9 +282,133 @@ wait_for_plugin() {
   return 1
 }
 
+# Wait until the running process reports the exact new build, not merely an
+# open admin port (§8.2 plugin facts).
+wait_for_plugin_build() {
+  limit=$1
+  want_version=$2
+  want_sha=$3
+  waited=0
+  last='(no status)'
+  while [ "${waited}" -lt "${limit}" ]; do
+    facts=$(running_facts || true)
+    if [ -n "${facts}" ]; then
+      last=${facts}
+      got_version=${facts%% *}
+      got_sha=${facts#* }
+      if [ "${got_version}" = "${want_version}" ] && { [ "${want_sha}" = 'unknown' ] || [ "${got_sha}" = "${want_sha}" ]; }; then
+        return 0
+      fi
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  printf '      运行中的插件仍是：%s；期望：%s %s\n' "${last}" "${want_version}" "${want_sha}" >&2
+  return 1
+}
+
+service_kind() {
+  if command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$(id -u)/${LAUNCHD_LABEL}" >/dev/null 2>&1 < /dev/null; then
+    printf 'launchd'
+    return 0
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl --user list-unit-files --no-legend 2>/dev/null < /dev/null | grep -q '^ai\.deepseek\.dsh\.service'; then
+      printf 'systemd-ai'
+      return 0
+    fi
+    if systemctl --user list-unit-files --no-legend 2>/dev/null < /dev/null | grep -q '^dsh\.service'; then
+      printf 'systemd-dsh'
+      return 0
+    fi
+  fi
+  printf 'none'
+}
+
+launchd_command() {
+  printf 'launchctl kickstart -k gui/%s/%s' "$(id -u)" "${LAUNCHD_LABEL}"
+}
+
+systemd_command() {
+  if [ "$1" = 'systemd-ai' ]; then
+    printf 'systemctl --user restart ai.deepseek.dsh.service'
+  else
+    printf 'systemctl --user restart dsh.service'
+  fi
+}
+
+foreground_command() {
+  printf '%s web --no-open' "${DSH}"
+}
+
+print_restart_command() {
+  kind=$1
+  case "${kind}" in
+    launchd)
+      info "        launchd：  $(launchd_command)"
+      ;;
+    systemd-ai)
+      info "        systemd：  $(systemd_command 'systemd-ai')"
+      ;;
+    systemd-dsh)
+      info "        systemd：  $(systemd_command 'systemd-dsh')"
+      ;;
+    *)
+      info "        前台：     在运行 dsh web 的终端按 Ctrl-C，然后重新运行：$(foreground_command)"
+      info "                    （请确认该终端的 DSH_HOME 与本次一致：${DSH_HOME}）"
+      ;;
+  esac
+}
+
+wait_after_manual_restart() {
+  kind=$1
+  print_restart_command "${kind}"
+  ask '重启完成后按 Enter 继续校验运行中的版本（输入 q 退出）：'
+  case "${REPLY}" in
+    q|Q|quit|QUIT) die '已退出；重启 dsh web 后重新运行这条安装命令即可。' ;;
+  esac
+  info '      等待新版本就绪…'
+  wait_for_plugin_build 120 "${NEW_VERSION}" "${NEW_SHA}" || die "运行中的插件没有加载新版本 ${NEW_VERSION}。请确认 dsh web 使用的是 ${DSH_HOME}，并查看它的日志。"
+  info '      运行中的插件已是新版本。'
+}
+
+restart_now() {
+  kind=$1
+  case "${kind}" in
+    launchd)
+      launchctl kickstart -k "gui/$(id -u)/${LAUNCHD_LABEL}"
+      ;;
+    systemd-ai)
+      systemctl --user restart ai.deepseek.dsh.service
+      ;;
+    systemd-dsh)
+      systemctl --user restart dsh.service
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# ----------------------------------------------------------- before install
 PLUGIN_WAS_READY=0
 if plugin_ready; then
   PLUGIN_WAS_READY=1
+fi
+
+BEFORE_DISK=$(disk_facts)
+BEFORE_VERSION=${BEFORE_DISK%% *}
+BEFORE_SHA=${BEFORE_DISK#* }
+
+RUNNING_FACTS=''
+if [ "${PLUGIN_WAS_READY}" -eq 1 ]; then
+  RUNNING_FACTS=$(running_facts || true)
+fi
+RUNNING_VERSION='unknown'
+RUNNING_SHA='unknown'
+if [ -n "${RUNNING_FACTS}" ]; then
+  RUNNING_VERSION=${RUNNING_FACTS%% *}
+  RUNNING_SHA=${RUNNING_FACTS#* }
 fi
 
 # -------------------------------------------------------------- plugin add
@@ -243,9 +433,63 @@ case "${RELOAD_MODE}" in
   startup) HOT_RELOAD=0 ;;
 esac
 
+AFTER_DISK=$(disk_facts)
+NEW_VERSION=${AFTER_DISK%% *}
+NEW_SHA=${AFTER_DISK#* }
+
+RESTART_REQUIRED=0
 if [ "${PLUGIN_WAS_READY}" -eq 1 ]; then
+  if [ "${BEFORE_VERSION}" != "${NEW_VERSION}" ] || [ "${BEFORE_SHA}" != "${NEW_SHA}" ]; then
+    RESTART_REQUIRED=1
+  fi
+  # A pre-v1.6 process has no admin `plugin` facts; an on-disk comparison
+  # cannot prove what it loaded, so treat it as requiring a restart.
+  if [ -z "${RUNNING_FACTS}" ]; then
+    RESTART_REQUIRED=1
+  elif [ "${RUNNING_VERSION}" != "${NEW_VERSION}" ] || [ "${RUNNING_SHA}" != "${NEW_SHA}" ]; then
+    RESTART_REQUIRED=1
+  fi
+fi
+
+if [ "${PLUGIN_WAS_READY}" -eq 1 ] && [ "${RESTART_REQUIRED}" -eq 1 ]; then
   info ''
-  info '[3/4] 插件此前已在运行；本次只做升级/幂等校验，不重启 dsh web。'
+  info '[3/4] 检测到插件已升级：运行中的 dsh web 仍加载旧代码。'
+  info "      升级前运行中：${RUNNING_VERSION} sha256=${RUNNING_SHA}"
+  info "      升级后磁盘上：${NEW_VERSION} sha256=${NEW_SHA}"
+  if [ "${RUNNING_VERSION}" = 'unknown' ]; then
+    info '      （旧版插件没有报告构建信息，无法证明它已是新版本；需要重启。）'
+  fi
+  kind=$(service_kind)
+  RESTART_DONE=0
+  if [ "${kind}" != 'none' ]; then
+    ask '需要重启 dsh web 以加载新版本，现在重启？[Y/n] '
+    case "${REPLY}" in
+      n|N|no|NO|No) ;;
+      *)
+        info "      重启 dsh web（${kind}）…"
+        if ! restart_now "${kind}"; then
+          print_restart_command "${kind}" >&2
+          die "重启 dsh web 失败（${kind}）。请按上面的命令手动重启。"
+        fi
+        RESTART_DONE=1
+        ;;
+    esac
+  fi
+  if [ "${RESTART_DONE}" -eq 1 ]; then
+    info '      等待新版本被加载…'
+    wait_for_plugin_build 120 "${NEW_VERSION}" "${NEW_SHA}" || die "dsh web 已重启，但运行中的插件不是 ${NEW_VERSION}。请查看 dsh web 日志。"
+    info '      运行中的插件已是新版本。'
+  else
+    wait_after_manual_restart "${kind}"
+  fi
+elif [ "${PLUGIN_WAS_READY}" -eq 1 ]; then
+  info ''
+  info '[3/4] 插件已在运行且构建未变化；校验 admin API。'
+  if wait_for_plugin 15; then
+    info '      插件仍健康。'
+  else
+    die '插件在升级后没有恢复 admin API。请查看 dsh web 日志后重试。'
+  fi
 elif [ "${HOT_RELOAD}" -eq 1 ]; then
   info ''
   info '[3/4] 等待 dsh web 热加载插件…'
@@ -256,6 +500,14 @@ elif [ "${HOT_RELOAD}" -eq 1 ]; then
   fi
   if wait_for_plugin 25; then
     info '      插件已热加载，无需重启 dsh web。'
+    facts=$(running_facts || true)
+    if [ -n "${facts}" ]; then
+      got_version=${facts%% *}
+      got_sha=${facts#* }
+      if [ "${got_version}" != "${NEW_VERSION}" ] || { [ "${NEW_SHA}" != 'unknown' ] && [ "${got_sha}" != "${NEW_SHA}" ]; }; then
+        die "热加载后的插件版本 ${got_version}（${got_sha}）与磁盘上的 ${NEW_VERSION}（${NEW_SHA}）不一致。请重启 dsh web。"
+      fi
+    fi
   else
     HOT_RELOAD=0
   fi
@@ -264,40 +516,14 @@ fi
 if [ "${PLUGIN_WAS_READY}" -eq 0 ] && [ "${HOT_RELOAD}" -eq 0 ]; then
   info ''
   info '[3/4] 插件没有自动加载；此环境需要重启 dsh web。'
-  info '      请在另一个终端按你的运行方式重启（执行前请确认 DSH_HOME 与本次一致）：'
-  if command -v launchctl >/dev/null 2>&1 && launchctl print "gui/$(id -u)/ai.deepseek.dsh" >/dev/null 2>&1 < /dev/null; then
-    info "        launchd：  launchctl kickstart -k gui/$(id -u)/ai.deepseek.dsh"
-  fi
-  if command -v systemctl >/dev/null 2>&1; then
-    if systemctl --user list-unit-files --no-legend 2>/dev/null < /dev/null | grep -q '^ai\.deepseek\.dsh\.service'; then
-      info '        systemd：  systemctl --user restart ai.deepseek.dsh.service'
-    elif systemctl --user list-unit-files --no-legend 2>/dev/null < /dev/null | grep -q '^dsh\.service'; then
-      info '        systemd：  systemctl --user restart dsh.service'
-    fi
-  fi
-  info '        前台：     在运行 dsh web 的终端按 Ctrl-C，然后重新运行 dsh web --no-open'
-  ask '重启完成后按 Enter 继续等待插件（输入 q 退出）：'
-  case "${REPLY}" in
-    q|Q|quit|QUIT) die '已退出；重启 dsh web 后重新运行这条安装命令即可。' ;;
-  esac
-  info '      等待插件就绪…'
-  wait_for_plugin 120 || die "插件仍未就绪。请确认 dsh web 已使用 ${DSH_HOME} 启动，并查看它的日志。"
-  info '      插件已就绪。'
-elif [ "${PLUGIN_WAS_READY}" -eq 1 ]; then
-  # The running plugin is already healthy. `dsh plugin add` may hot-upgrade it
-  # in place; wait for the admin API so a reload/restart window cannot race the
-  # pairing command.
-  if wait_for_plugin 15; then
-    info '      插件仍健康。'
-  else
-    die '插件在升级后没有恢复 admin API。请查看 dsh web 日志后重试。'
-  fi
+  kind=$(service_kind)
+  wait_after_manual_restart "${kind}"
 fi
 
 if [ ! -x "${PLUGIN_BIN}" ]; then
   # Some package managers link the bin differently; fall back to the package
   # entry point under the profile (never a hard-coded ~/.dsh path).
-  PACKAGE_CLI=${PROFILE_DIR}/node_modules/dsh-pclink/cli/bin.mjs
+  PACKAGE_CLI=${PACKAGE_DIR}/cli/bin.mjs
   [ -f "${PACKAGE_CLI}" ] || die "插件已安装，但在 ${PLUGIN_BIN} 找不到 pclink。请检查上面的 dsh plugin 输出。"
   set -- node "${PACKAGE_CLI}" pair
 else
@@ -306,10 +532,8 @@ fi
 
 # ----------------------------------------------------------------------- pair
 info ''
-info '[4/4] 打开配对二维码'
-info '      扫码后，在手机配对页读取它显示的 12 位指纹并输入到这里；'
-info '      这里的输入只从终端读取，脚本不会自动批准。'
-if "$@" < /dev/tty > /dev/tty 2>&1; then
+info '[4/4] 打开配对二维码（手机扫码即完成配对，不需要在电脑上输入指纹）'
+if "$@" < /dev/null > /dev/tty 2>&1; then
   info ''
   info '安装与配对完成。以后可以直接运行上面 profile 里的 pclink pair 重新配对。'
 else

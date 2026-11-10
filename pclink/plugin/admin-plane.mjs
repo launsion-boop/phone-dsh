@@ -36,6 +36,7 @@ export class AdminPlane {
    *   relay: {origin: string, state: string},
    *   unpair: (body: object) => Record<string, unknown>,
    *   rotateIdentity: (body: object) => Record<string, unknown>,
+   *   plugin: {version: string, packageSha256: string},
    *   extraWarnings?: () => string[],
    * }} options Dependencies.
    */
@@ -46,6 +47,7 @@ export class AdminPlane {
     this.relay = options.relay
     this.unpairOperation = options.unpair
     this.rotateOperation = options.rotateIdentity
+    this.plugin = options.plugin ?? { version: '0.0.0', packageSha256: '0'.repeat(64) }
     this.extraWarnings = options.extraWarnings ?? (() => [])
   }
 
@@ -60,6 +62,7 @@ export class AdminPlane {
     const pairing = this.pairing.status()
     return {
       v: 1,
+      plugin: this.plugin,
       identity: {
         machineId: this.store.identity.machineId,
         publicKey: Buffer.from(this.store.identity.publicKey).toString('base64url'),

@@ -1,6 +1,7 @@
 /**
  * One-at-a-time PC pairing slot (§4.3/§4.4): QR or manual, relay rendezvous,
- * compare-the-phone approval, transcript-verified final and durable write.
+ * automatic approval after the verified pair.auth, transcript-verified final
+ * and durable write. A v1.6 pairing never enters awaiting_approval.
  */
 import {
   b64urlDecode,
@@ -28,7 +29,7 @@ import {
 
 /** Pairing slot lifetime: 300 s absolute (§3.5/§4.3). */
 export const PAIR_SLOT_TTL_MS = 300_000
-/** Approval prompt budget: 120 s (§4.4). */
+/** Legacy pre-v1.6 approval prompt budget; v1.6 never arms it. */
 export const APPROVAL_TTL_MS = 120_000
 
 function defaultTimers() {
@@ -224,15 +225,22 @@ export class PairingManager {
       pairing.peerName = verified.auth.name
       pairing.peerMachineId = verified.machineId
       pairing.peerPublicKey = verified.auth.publicKey
-      pairing.state = 'awaiting_approval'
-      this.log(`pairing awaiting approval name=${verified.auth.name}`)
-      this.approvalTimer = this.timers.setTimeout(() => {
-        this.approvalTimer = undefined
-        if (this.pairing !== pairing || pairing.state !== 'awaiting_approval' || pairing.approved) return
-        this.send({ v: 1, type: 'relay.pair.close', rendezvous: pairing.rendezvous, reason: 'timeout' })
-        this.fail('session_expired', 'approval timed out')
-      }, APPROVAL_TTL_MS)
-      this.approvalTimer?.unref?.()
+      // §4.4 v1.6: possession of the one-time screen secret is the approval.
+      // Verifying pair.auth *is* the decision; send confirm immediately.
+      pairing.approved = true
+      pairing.approvedAt = this.now()
+      pairing.approvedVia = pairing.mode
+      pairing.state = 'joined'
+      pairing.peerFingerprint = fingerprintOf(verified.machineId)
+      this.log(`pairing approved via=${pairing.mode} name=${verified.auth.name} fingerprint=${pairing.peerFingerprint}`)
+      const { transcriptHash } = pairTranscriptHash(pairing.hello, pairing.auth)
+      const confirm = buildPairConfirm({
+        pairKey: pairing.pairKey,
+        nonce: pairing.helloNonce,
+        peerNonce: b64urlDecode(pairing.auth.nonce, { length: 32 }),
+        transcriptHash,
+      })
+      this.send({ v: 1, type: 'relay.pair.message', rendezvous: pairing.rendezvous, payload: confirm })
       return
     }
     if (payload?.type === 'pair.final') {
@@ -293,46 +301,21 @@ export class PairingManager {
   }
 
   /**
-   * Operator approval by comparing the phone's own 60-bit fingerprint.
+   * Deprecated pre-v1.6 compare-the-phone approval.
+   *
+   * A v1.6 PairingManager approves the verified `pair.auth` automatically and
+   * never enters `awaiting_approval`; this method exists only so the retained
+   * `/v1/pair/approve` compatibility route can answer cleanly instead of a
+   * 404. It never changes the active slot.
    * @param {string} pairingId Pairing id.
-   * @param {string} fingerprint Fingerprint typed from the phone screen.
-   * @param {'cli'|'webui'} [via] Approval carrier.
-   * @returns {Record<string, unknown>} `/v1/pair/approve` body.
+   * @param {string} _fingerprint Ignored legacy input.
+   * @param {'cli'|'webui'} [_via] Ignored legacy carrier.
+   * @returns {never} always throws.
    */
-  approve(pairingId, fingerprint, via = 'cli') {
+  approve(pairingId, _fingerprint, _via = 'cli') {
     const pairing = this.pairing
     if (pairing === undefined || pairing.id !== pairingId) throw pclinkError('unavailable', 'no such pairing')
-    if (pairing.state !== 'awaiting_approval') throw pclinkError('unavailable', 'pairing is not awaiting approval')
-    if (pairing.approved) throw pclinkError('unavailable', 'pairing is already approved')
-    if (via !== 'cli' && via !== 'webui') throw pclinkError('bad_frame', 'invalid approval carrier')
-    let normalized
-    try {
-      normalized = normalizeFingerprintInput(fingerprint)
-    } catch {
-      normalized = undefined
-    }
-    if (normalized === undefined || !fingerprintMatches(pairing.peerMachineId, normalized)) {
-      this.send({ v: 1, type: 'relay.pair.close', rendezvous: pairing.rendezvous, reason: 'auth_failed' })
-      this.fail('auth_failed', 'fingerprint does not match the phone that joined; pairing voided')
-      return {
-        v: 1,
-        approved: false,
-        error: { code: 'auth_failed', message: 'fingerprint does not match the phone that joined; pairing was voided' },
-      }
-    }
-    pairing.approved = true
-    pairing.approvedAt = this.now()
-    pairing.approvedVia = via
-    const { transcriptHash } = pairTranscriptHash(pairing.hello, pairing.auth)
-    const confirm = buildPairConfirm({
-      pairKey: pairing.pairKey,
-      nonce: pairing.helloNonce,
-      peerNonce: b64urlDecode(pairing.auth.nonce, { length: 32 }),
-      transcriptHash,
-    })
-    this.send({ v: 1, type: 'relay.pair.message', rendezvous: pairing.rendezvous, payload: confirm })
-    this.log(`pairing approved via=${via}`)
-    return { v: 1, approved: true }
+    throw pclinkError('unavailable', 'pairing is not awaiting approval')
   }
 
   /**
@@ -439,10 +422,10 @@ export class PairingManager {
         peerFingerprint: pairing.peerFingerprint,
       }
     }
-    if (pairing.state === 'awaiting_approval') {
+    if (pairing.state === 'joined' || pairing.state === 'awaiting_approval') {
       return {
         id: pairing.id,
-        state: 'awaiting_approval',
+        state: pairing.state,
         mode: pairing.mode,
         expiresAt: pairing.expiresAt,
         peerName: pairing.peerName,

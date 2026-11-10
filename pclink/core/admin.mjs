@@ -31,7 +31,7 @@ export class AdminClient {
   constructor(options) {
     this.dir = options.dir
     this.fetchImpl = options.fetchImpl ?? fetch
-    this.timeoutMs = options.timeoutMs ?? 5_000
+    this.timeoutMs = options.timeoutMs ?? 15_000
     this.adminFile = undefined
   }
 

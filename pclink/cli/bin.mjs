@@ -21,7 +21,7 @@ function parseArgs(argv) {
   const options = { command: argv[0], flags: new Map(), positional: [] }
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index]
-    if (argument === '--manual' || argument === '--all' || argument === '--no-restart' || argument === '--no-pair' || argument === '--help' || argument === '-h') {
+    if (argument === '--manual' || argument === '--all' || argument === '--no-restart' || argument === '--no-pair' || argument === '--help' || argument === '-h' || argument === '--json') {
       options.flags.set(argument, true)
       continue
     }
@@ -46,11 +46,12 @@ commands:
       'dsh plugin --profile web add <spec>', ask about restarting dsh web,
       wait for the plugin, print the package SHA-256 and start pairing.
   pair [--manual]
-      Open one QR (default) or manual-code pairing and poll it. The PC
-      operator must type the 12-character fingerprint shown on the phone;
-      a TTY is mandatory and there is no --yes path.
-  status
-      Print PC identity, relay state, pairings and the pending pairing.
+      Open one QR (default) or manual-code pairing and poll it. Scanning or
+      typing the code on the phone is the approval; there is no fingerprint
+      prompt and no TTY requirement. Transient admin timeouts are retried.
+  status [--json]
+      Print plugin build facts, PC identity, relay state, pairings and the
+      pending pairing. --json prints the raw admin status body.
   unpair [<name|machineId|fingerprint>] [--all]
       Revoke one pairing, or all with no argument/--all. Requires a TTY.
   rotate-identity
@@ -73,13 +74,17 @@ async function main() {
   const home = dshHome()
   const output = process.stdout
   const stdinIsTTY = process.stdin.isTTY === true
-  const readline = createInterface({ input: process.stdin, output: process.stdout })
-  const ask = prompt => readline.question(prompt)
+  let readline
+  const ask = prompt => {
+    readline ??= createInterface({ input: process.stdin, output: process.stdout })
+    return readline.question(prompt)
+  }
   try {
     switch (args.command) {
       case 'status': {
         const status = await createCliAdminClient(home).status()
-        printStatus(status, output)
+        if (args.flags.has('--json')) output.write(`${JSON.stringify(status)}\n`)
+        else printStatus(status, output)
         return 0
       }
       case 'pair': {
@@ -88,8 +93,6 @@ async function main() {
           client,
           mode: args.flags.has('--manual') ? 'manual' : 'qr',
           output,
-          stdinIsTTY,
-          ask,
         })
         return 0
       }
@@ -137,7 +140,7 @@ async function main() {
         throw new PclinkError('bad_frame', `unknown command ${args.command}`)
     }
   } finally {
-    readline.close()
+    readline?.close()
   }
 }
 

@@ -239,10 +239,17 @@ final class GoldenVectorTests: XCTestCase {
                         && unpairAbort["unpair"]?.boolValue == true ? "abort" : "continue")
 
         let approval = try XCTUnwrap(resources["approval"])
-        XCTAssertEqual(approval["blocked"]?["expected"]?.stringValue,
-                       approval["blocked"]?["approved"]?.boolValue == true ? "confirm_sent" : "blocked")
-        XCTAssertEqual(approval["confirm_sent"]?["expected"]?.stringValue,
-                       approval["confirm_sent"]?["approved"]?.boolValue == true ? "confirm_sent" : "blocked")
+        for (name, entry) in approval.objectValue?.dictionary ?? [:] {
+            let approved = entry["approved"]?.boolValue == true
+            let mode = entry["mode"]?.stringValue
+            let decision: String
+            if mode == "qr" || mode == "manual" {
+                decision = approved ? "confirm_sent" : "blocked"
+            } else {
+                decision = "bad_frame"
+            }
+            XCTAssertEqual(decision, entry["expected"]?.stringValue, name)
+        }
 
         let adminPeer = try XCTUnwrap(resources["admin_peer"])
         for testCase in try XCTUnwrap(adminPeer["cases"]?.arrayValue) {
@@ -379,11 +386,11 @@ final class GoldenVectorTests: XCTestCase {
     func testEveryInvalidRow() throws {
         let v = try TestSupport.vectors()
         let invalid = try XCTUnwrap(v["invalid"]?.arrayValue)
-        XCTAssertEqual(invalid.count, 81)
+        XCTAssertEqual(invalid.count, 82)
         let crypto = invalid.filter { $0["evidence"]?.stringValue == "crypto" }
         let model = invalid.filter { $0["evidence"]?.stringValue == "model" }
         XCTAssertEqual(crypto.count, 56)
-        XCTAssertEqual(model.count, 25)
+        XCTAssertEqual(model.count, 26)
 
         let handshake = try XCTUnwrap(v["handshake"])
         let pcPublicKey = try XCTUnwrap(

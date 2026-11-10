@@ -31,7 +31,7 @@ import {
 import { AdminPlane, adminOperationForPath, adminRoutePaths } from '../plugin/admin-plane.mjs'
 import { AdminServer } from '../plugin/admin-server.mjs'
 import { AdminClient } from '../core/admin.mjs'
-import { PairingManager, PAIR_SLOT_TTL_MS, APPROVAL_TTL_MS } from '../plugin/pairing-manager.mjs'
+import { PairingManager, PAIR_SLOT_TTL_MS } from '../plugin/pairing-manager.mjs'
 import { PclinkRuntime } from '../plugin/pclink.mjs'
 import { runAsPclinkRemote } from '../plugin/remote-context.mjs'
 import { FakeLink, FakeTimers, makeStore } from './helpers.mjs'
@@ -181,22 +181,21 @@ test('pairing manual mode only opens the C slot and displays the 16-character co
   assert.equal(pairing.status().manualCode, start.pairing.manualCode)
 })
 
-test('pairing approve requires the phone fingerprint, writes only after final, and sends a notice', () => {
+test('pairing auto-approves the verified auth, sends confirm, writes only after final and audits qr', () => {
   const records = []
   const { store, phone, pairing, link } = makePairing({ onCompleted: record => records.push(record) })
-  const start = pairing.start({ mode: 'manual' })
+  const start = pairing.start({ mode: 'qr' })
   const { secret } = secretOfStart(start)
   const joined = joinAndAuth({ pairing, link, store, phone, secret })
-  assert.equal(pairing.status().state, 'awaiting_approval')
-  assert.equal(pairing.status().peerName, 'iPhone')
+  const status = pairing.status()
+  assert.equal(status.state, 'joined')
+  assert.equal(status.peerName, 'iPhone')
   for (const forbidden of ['peerMachineId', 'peerFingerprint', 'peerPublicKey']) {
-    assert.equal(pairing.status()[forbidden], undefined, forbidden)
+    assert.equal(status[forbidden], undefined, forbidden)
   }
-  // No pair.confirm may exist before approval.
-  assert.equal(link.frames('relay.pair.message').some(frame => frame.payload.type === 'pair.confirm'), false)
-  const approved = pairing.approve(start.pairing.id, phone.machineId.slice(0, 12).replace(/(.{4})(.{4})(.{4})/, '$1-$2-$3'), 'cli')
-  assert.deepEqual(approved, { v: 1, approved: true })
-  assert.equal(pairing.status().state, 'awaiting_approval')
+  // §4.4 v1.6: the verified pair.auth is the approval; confirm is already sent.
+  assert.equal(link.frames('relay.pair.message').some(frame => frame.payload.type === 'pair.confirm'), true)
+  assert.equal(store.records.length, 0, 'the record still waits for pair.final')
   finishPairing({ pairing, link, rendezvous: joined.rendezvous, hello: joined.hello, auth: joined.auth, pairKey: joined.pairKey })
   const completed = pairing.status()
   assert.equal(completed.state, 'completed')
@@ -204,27 +203,28 @@ test('pairing approve requires the phone fingerprint, writes only after final, a
   assert.equal(completed.peerFingerprint, fingerprintOf(phone.machineId))
   const record = store.records.find(entry => entry.peerMachineId === phone.machineId)
   assert.ok(record)
-  assert.equal(record.approvedVia, 'cli')
-  assert.equal(store.audit.filter(event => event.event === 'pair').length, 1)
+  assert.equal(record.approvedVia, 'qr')
+  const audit = store.audit.filter(event => event.event === 'pair')
+  assert.equal(audit.length, 1)
+  assert.equal(audit[0].approvedVia, 'qr')
   assert.equal(records.length, 1)
   assert.equal(link.frames('relay.pair.close').at(-1).reason, 'paired')
 })
 
-test('pairing wrong fingerprint blocks, voids the single-use slot and writes nothing', () => {
+test('the deprecated approve route is a no-op on a v1.6 slot and never voids it', () => {
   const { store, phone, pairing, link } = makePairing()
-  const start = pairing.start({ mode: 'qr' })
+  const start = pairing.start({ mode: 'manual' })
   const { secret } = secretOfStart(start)
-  joinAndAuth({ pairing, link, store, phone, secret })
-  const result = pairing.approve(start.pairing.id, '2222-2222-2222', 'cli')
-  assert.equal(result.approved, false)
-  assert.equal(result.error.code, 'auth_failed')
-  assert.equal(link.frames('relay.pair.close').at(-1).reason, 'auth_failed')
-  assert.equal(pairing.status().state, 'failed')
-  assert.equal(pairing.status().error, 'auth_failed')
-  assert.equal(store.records.length, 0)
-  assert.equal(store.audit.length, 0)
-  assert.equal(link.frames('relay.pair.message').some(frame => frame.payload.type === 'pair.confirm'), false)
-  assert.throws(() => pairing.approve(start.pairing.id, phone.machineId.slice(0, 12)), error => error.code === 'unavailable')
+  const joined = joinAndAuth({ pairing, link, store, phone, secret })
+  assert.throws(
+    () => pairing.approve(start.pairing.id, '2222-2222-2222', 'cli'),
+    error => error.code === 'unavailable' && /not awaiting approval/.test(error.message),
+  )
+  assert.equal(pairing.status().state, 'joined')
+  assert.equal(link.frames('relay.pair.close').length, 0)
+  finishPairing({ pairing, link, rendezvous: joined.rendezvous, hello: joined.hello, auth: joined.auth, pairKey: joined.pairKey })
+  assert.equal(pairing.status().state, 'completed')
+  assert.equal(store.records[0].approvedVia, 'manual')
 })
 
 test('pairing MAC failure is auth_failed and never reaches approval', () => {
@@ -241,15 +241,16 @@ test('pairing MAC failure is auth_failed and never reaches approval', () => {
   assert.equal(store.records.length, 0)
 })
 
-test('pairing approval timeout and slot expiry close the slot', () => {
+test('a joined pairing has no 120 s approval timer; slot expiry still closes it', () => {
   const first = makePairing()
   const start = first.pairing.start({ mode: 'qr' })
   const { secret } = secretOfStart(start)
   joinAndAuth({ pairing: first.pairing, link: first.link, store: first.store, phone: first.phone, secret })
-  first.timers.advance(APPROVAL_TTL_MS + 1)
+  first.timers.advance(120_001)
+  assert.equal(first.pairing.status().state, 'joined', 'auto-approval must not arm the legacy approval timeout')
+  first.timers.advance(PAIR_SLOT_TTL_MS)
   assert.equal(first.pairing.status().state, 'failed')
-  assert.equal(first.pairing.status().error, 'session_expired')
-  assert.equal(first.link.frames('relay.pair.close').at(-1).reason, 'timeout')
+  assert.equal(first.pairing.status().error, 'rendezvous_expired')
 
   const second = makePairing()
   second.pairing.start({ mode: 'manual' })
@@ -263,7 +264,6 @@ test('pairing storage failure sends storage and leaves no usable record', () => 
   const start = pairing.start({ mode: 'qr' })
   const { secret } = secretOfStart(start)
   const joined = joinAndAuth({ pairing, link, store, phone, secret })
-  pairing.approve(start.pairing.id, phone.machineId.slice(0, 12), 'webui')
   store.addPair = () => { throw new Error('disk full') }
   finishPairing({ pairing, link, rendezvous: joined.rendezvous, hello: joined.hello, auth: joined.auth, pairKey: joined.pairKey })
   assert.equal(link.frames('relay.pair.close').at(-1).reason, 'storage')
@@ -279,7 +279,7 @@ test('pairing relay loss fails the slot instead of pretending success', () => {
   assert.equal(pairing.status().error, 'unavailable')
 })
 
-test('admin status is schema-valid while awaiting approval and hides the pending peer', async () => {
+test('admin status is schema-valid while joined and hides the pending peer', async () => {
   const { store, phone, pairing, link } = makePairing()
   const start = pairing.start({ mode: 'qr' })
   const { secret } = secretOfStart(start)
@@ -292,6 +292,7 @@ test('admin status is schema-valid while awaiting approval and hides the pending
     relay: { origin: ORIGIN, state: 'connected' },
     unpair: () => ({ v: 1, removed: [] }),
     rotateIdentity: () => ({ v: 1 }),
+    plugin: { version: '0.2.0', packageSha256: 'a'.repeat(64) },
   })
   const status = plane.status()
   const { validateJsonSchema } = await import('../core/schema.mjs')

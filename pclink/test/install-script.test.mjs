@@ -18,9 +18,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { packageSha256 } from '../core/package-info.mjs'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -75,9 +76,9 @@ function ttylessCopy(root) {
     .replace('if ! { : </dev/tty; } 2>/dev/null; then', 'if false; then')
     .replace('exec 3</dev/tty', 'exec 3<"$PCLINK_TEST_TTY_IN"')
     .replaceAll('<&3', '<"$PCLINK_TEST_TTY_IN"')
-    .replaceAll('>&3', '>"$PCLINK_TEST_TTY_OUT"')
+    .replaceAll('>&3', '>>"$PCLINK_TEST_TTY_OUT"')
     .replaceAll('< /dev/tty', '<"$PCLINK_TEST_TTY_IN"')
-    .replaceAll('> /dev/tty', '>"$PCLINK_TEST_TTY_OUT"')
+    .replaceAll('> /dev/tty', '>>"$PCLINK_TEST_TTY_OUT"')
   const path = join(root, 'install-ttyless.sh')
   writeFileSync(path, text)
   return path
@@ -103,7 +104,7 @@ test('install.sh refuses to run without a controlling terminal (curl | bash)', (
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /需要终端（TTY）/)
-  assert.match(result.stderr, /不会自动批准/)
+  assert.match(result.stderr, /配对本身只扫码/)
   // Nothing was installed or paired.
   assert.equal(result.stdout.includes('[1/4]'), false)
 })
@@ -152,14 +153,14 @@ test('version_in_range accepts >=0.2.2-rc.1 <0.3.0 and rejects the rest', () => 
   ])
 })
 
-test('an out-of-range dsh asks once and a no answer cancels before install', () => {
+test('an out-of-range dsh asks once and a q answer cancels before install', () => {
   const root = tempDir('pclink-out-of-range-')
   const bin = join(root, 'bin')
   mkdirSync(bin, { recursive: true })
   const script = ttylessCopy(root)
   const input = join(root, 'answers.txt')
   const output = join(root, 'prompts.txt')
-  writeFileSync(input, 'n\n')
+  writeFileSync(input, 'q\n')
   const env = baseEnv(bin)
   executable(join(bin, 'pnpm'), '#!/bin/sh\necho 11.0.0\n')
   executable(join(bin, 'dsh'), '#!/bin/sh\nif [ "$1" = "-V" ]; then echo 0.3.0; exit 0; fi\nexit 0\n')
@@ -170,7 +171,7 @@ test('an out-of-range dsh asks once and a no answer cancels before install', () 
   assert.equal(result.status, 1)
   assert.match(result.stderr, /不在已验证范围/)
   assert.match(result.stderr, /已取消/)
-  assert.match(readFileSync(output, 'utf8'), /仍要继续安装吗/)
+  assert.match(readFileSync(output, 'utf8'), /按 Enter 继续安装/)
   // It cancelled before `dsh plugin add`.
   assert.equal(readFileSync(output, 'utf8').includes('安装/更新 PCLink 插件'), false)
 })
@@ -227,6 +228,146 @@ exit 0
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /\[4\/4\] 打开配对二维码/)
   assert.match(readFileSync(output, 'utf8'), /FAKE PAIR pair/)
+})
+
+
+/** Build a fake profile package with a known version/bytes. */
+function writePackage(root, version, marker) {
+  mkdirSync(join(root, 'cli'), { recursive: true })
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'dsh-pclink', version }) + '\n')
+  writeFileSync(join(root, 'cli', 'bin.mjs'), `// ${marker}\n`)
+  return packageSha256(root)
+}
+
+/** Fake pclink bin whose `--json` facts follow a marker/counter. */
+function fakePclink(path, { oldVersion, oldSha, newVersion, newSha, marker, flipAfterCalls }) {
+  executable(path, `#!/bin/sh
+if [ "$1" = "pair" ]; then
+  printf 'FAKE PAIR %s\\n' "$*" >> "${path}.pair.log"
+  exit 0
+fi
+if [ "$1" = "status" ]; then
+  if [ "$2" != "--json" ]; then exit 0; fi
+  if [ -n "${flipAfterCalls}" ]; then
+    count=0
+    [ -f "${path}.count" ] && count=$(cat "${path}.count")
+    count=$((count + 1))
+    printf '%s' "$count" > "${path}.count"
+    if [ "$count" -ge ${flipAfterCalls} ]; then : > "${marker}"; fi
+  fi
+  if [ -f "${marker}" ]; then
+    printf '{"v":1,"plugin":{"version":"${newVersion}","packageSha256":"${newSha}"}}\\n'
+  else
+    printf '{"v":1,"plugin":{"version":"${oldVersion}","packageSha256":"${oldSha}"}}\\n'
+  fi
+  exit 0
+fi
+exit 0
+`)
+}
+
+/** Shared scaffolding for the upgrade branches. */
+function upgradeFixture(root, { withLaunchd, flipAfterCalls }) {
+  const bin = join(root, 'bin')
+  mkdirSync(bin, { recursive: true })
+  const home = join(root, 'home')
+  const dshHome = join(root, 'dsh')
+  const profile = join(dshHome, 'profiles', 'web')
+  const packageDir = join(profile, 'node_modules', 'dsh-pclink')
+  const oldRoot = join(root, 'old-package')
+  const newRoot = join(root, 'new-package')
+  const oldSha = writePackage(oldRoot, '0.1.0', 'old')
+  const newSha = writePackage(newRoot, '0.2.0', 'new')
+  mkdirSync(join(profile, 'node_modules', '.bin'), { recursive: true })
+  mkdirSync(join(dshHome, 'pclink'), { recursive: true })
+  // Install the old package into the profile before the script starts.
+  mkdirSync(join(packageDir, 'cli'), { recursive: true })
+  writeFileSync(join(packageDir, 'package.json'), readFileSync(join(oldRoot, 'package.json')))
+  writeFileSync(join(packageDir, 'cli', 'bin.mjs'), readFileSync(join(oldRoot, 'cli', 'bin.mjs')))
+  writeFileSync(join(dshHome, 'pclink', 'admin.json'), '{}\n')
+  const marker = join(root, 'restarted')
+  const pclink = join(bin, 'pclink')
+  fakePclink(pclink, {
+    oldVersion: '0.1.0', oldSha, newVersion: '0.2.0', newSha,
+    marker, flipAfterCalls,
+  })
+  // The path the installer resolves is the profile's .bin/pclink.
+  executable(join(profile, 'node_modules', '.bin', 'pclink'), `#!/bin/sh\nexec "${pclink}" "$@"\n`)
+  executable(join(bin, 'pnpm'), '#!/bin/sh\necho 11.0.0\n')
+  executable(join(bin, 'dsh'), `#!/bin/sh
+if [ "$1" = "-V" ]; then echo 0.2.2; exit 0; fi
+if [ "$1" = "plugin" ]; then
+  cp '${newRoot}/package.json' '${packageDir}/package.json'
+  cp '${newRoot}/cli/bin.mjs' '${packageDir}/cli/bin.mjs'
+  exit 0
+fi
+exit 0
+`)
+  // Always shadow the host launchctl: a macOS dev machine may run the user's
+  // real ai.deepseek.dsh agent, and this test must never restart it.
+  executable(join(bin, 'launchctl'), withLaunchd
+    ? `#!/bin/sh
+if [ "$1" = "print" ]; then exit 0; fi
+if [ "$1" = "kickstart" ]; then : > '${marker}'; exit 0; fi
+exit 1
+`
+    : '#!/bin/sh\nexit 1\n')
+  return { bin, home, dshHome, newSha, oldSha, marker, pclink, profile }
+}
+
+test('upgrade restart: launchd is restarted and the new version/SHA is verified', () => {
+  const root = tempDir('pclink-upgrade-launchd-')
+  const fixture = upgradeFixture(root, { withLaunchd: true, flipAfterCalls: '' })
+  const script = ttylessCopy(root)
+  const input = join(root, 'answers.txt')
+  const output = join(root, 'prompts.txt')
+  writeFileSync(input, 'y\n')
+  writeFileSync(output, '')
+  const env = {
+    ...baseEnv(fixture.bin),
+    HOME: fixture.home,
+    DSH_HOME: fixture.dshHome,
+    DSH_BIN: join(fixture.bin, 'dsh'),
+    PCLINK_PLUGIN_SPEC: '/nonexistent/pclink',
+    PCLINK_TEST_TTY_IN: input,
+    PCLINK_TEST_TTY_OUT: output,
+  }
+  const result = runPipedBash('pclink-upgrade-launchd', script, { encoding: 'utf8', env })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /检测到插件已升级/)
+  assert.match(readFileSync(output, 'utf8'), /需要重启 dsh web 以加载新版本/)
+  assert.match(result.stdout, /运行中的插件已是新版本/)
+  assert.ok(existsSync(fixture.marker), 'launchctl kickstart must have run')
+  const prompts = readFileSync(output, 'utf8')
+  assert.equal((prompts.match(/\[Y\/n\]/g) ?? []).length, 1, 'at most one Y/n prompt')
+  assert.match(readFileSync(`${fixture.pclink}.pair.log`, 'utf8'), /pair/)
+})
+
+test('upgrade restart: with no service manager it prints the exact command and waits for Enter', () => {
+  const root = tempDir('pclink-upgrade-foreground-')
+  // Flip on the third status call: initial running_facts (1), first verify (2),
+  // second verify (3) — the user pressed Enter and the new process is up.
+  const fixture = upgradeFixture(root, { withLaunchd: false, flipAfterCalls: 3 })
+  const script = ttylessCopy(root)
+  const input = join(root, 'answers.txt')
+  const output = join(root, 'prompts.txt')
+  writeFileSync(input, '\n\n')
+  writeFileSync(output, '')
+  const env = {
+    ...baseEnv(fixture.bin),
+    HOME: fixture.home,
+    DSH_HOME: fixture.dshHome,
+    DSH_BIN: join(fixture.bin, 'dsh'),
+    PCLINK_PLUGIN_SPEC: '/nonexistent/pclink',
+    PCLINK_TEST_TTY_IN: input,
+    PCLINK_TEST_TTY_OUT: output,
+  }
+  const result = runPipedBash('pclink-upgrade-foreground', script, { encoding: 'utf8', env })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /前台：/)
+  assert.match(result.stdout, /web --no-open/)
+  assert.match(result.stdout, /运行中的插件已是新版本/)
+  assert.equal((readFileSync(output, 'utf8').match(/\[Y\/n\]/g) ?? []).length, 0)
 })
 
 test('install.sh does not put a bare $NAME directly before a non-ASCII byte', () => {

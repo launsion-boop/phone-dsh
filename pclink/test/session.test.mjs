@@ -817,19 +817,23 @@ test('every model-evidence invalid vector row is consumed by the real state mach
       case 'revoked-record-rejected':
         assert.equal(evaluateRecordAudit(row.record, row.audit).reason, row.expected)
         break
-      case 'pairing-awaiting-approval-no-confirm': {
+      case 'pairing-auto-approved-qr':
+      case 'pairing-auto-approved-manual': {
         const { store, phone } = makeStore({ records: false })
         const link = new FakeLink()
         const pairing = new PairingManager({ store, send: frame => link.send(frame), relayOrigin: ORIGIN, pcName: 'My PC', timers: new FakeTimers() })
-        const start = pairing.start({ mode: 'manual' })
-        const secret = (await import('../core/pairing.mjs')).crockfordDecode((await import('../core/pairing.mjs')).normalizeManualCode(start.pairing.manualCode))
-        void secret
-        pairing.handleFrame({ v: 1, type: 'relay.pair.joined', rendezvous: (await import('../core/pairing.mjs')).rendezvousFor(secret, ORIGIN), role: 'pc', peerMachineId: phone.machineId })
+        const start = pairing.start({ mode: row.mode })
+        const { crockfordDecode, normalizeManualCode, parseQrUri, pairKeyFor, rendezvousFor, buildPairAuth } = await import('../core/pairing.mjs')
+        const secret = row.mode === 'qr'
+          ? b64urlDecode(parseQrUri(start.pairing.qrURI).secret, { length: 16 })
+          : crockfordDecode(normalizeManualCode(start.pairing.manualCode))
+        const rendezvous = rendezvousFor(secret, ORIGIN)
+        pairing.handleFrame({ v: 1, type: 'relay.pair.joined', rendezvous, role: 'pc', peerMachineId: phone.machineId })
         const hello = link.frames('relay.pair.message').at(-1).payload
-        const pairKey = (await import('../core/pairing.mjs')).pairKeyFor(secret)
-        const auth = buildPairAuth({ identity: phone, name: 'iPhone', relay: ORIGIN, nonce: Buffer.alloc(32, 1), peerNonce: b64urlDecode(hello.nonce, { length: 32 }), pairKey })
-        pairing.handleFrame({ v: 1, type: 'relay.pair.message', rendezvous: (await import('../core/pairing.mjs')).rendezvousFor(secret, ORIGIN), payload: auth })
-        assert.equal(link.frames('relay.pair.message').some(frame => frame.payload.type === 'pair.confirm'), false)
+        const auth = buildPairAuth({ identity: phone, name: 'iPhone', relay: ORIGIN, nonce: Buffer.alloc(32, 1), peerNonce: b64urlDecode(hello.nonce, { length: 32 }), pairKey: pairKeyFor(secret) })
+        pairing.handleFrame({ v: 1, type: 'relay.pair.message', rendezvous, payload: auth })
+        assert.equal(pairing.status().state, 'joined')
+        assert.equal(link.frames('relay.pair.message').some(frame => frame.payload.type === 'pair.confirm'), true)
         break
       }
       case 'status-awaiting-approval-hides-fingerprint': {
