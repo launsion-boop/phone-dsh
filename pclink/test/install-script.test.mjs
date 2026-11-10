@@ -8,6 +8,12 @@
  * `openpty(3)` and cannot allocate an expect pty. The copy is generated from
  * the real file on every run and differs only in TTY redirections; it is not a
  * checked-in alternate script.
+ *
+ * The script tests always run through `/bin/bash`. Where that is macOS bash
+ * 3.2 and an en_US.UTF-8 locale exists, every run also exports LANG/LC_ALL
+ * en_US.UTF-8: bash 3.2 treats the first byte of a following multibyte
+ * character as part of a bare `$name`, and with `set -u` that breaks the
+ * installer on stock Macs.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -20,6 +26,37 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PCLINK = resolve(HERE, '..')
 const INSTALL = join(PCLINK, 'install.sh')
+const BASH = '/bin/bash'
+
+/** First UTF-8 locale the host advertises, preferring the macOS name. */
+function utf8Locale() {
+  const result = spawnSync('locale', ['-a'], { encoding: 'utf8' })
+  if (result.status !== 0) return undefined
+  const locales = result.stdout.split('\n').map(line => line.trim())
+  return locales.find(name => name === 'en_US.UTF-8')
+    ?? locales.find(name => name === 'en_US.utf8')
+}
+
+const UTF8_LOCALE = utf8Locale()
+const BASH_VERSION = spawnSync(BASH, ['--version'], { encoding: 'utf8' }).stdout ?? ''
+const MACOS_BASH32_UTF8 = process.platform === 'darwin'
+  && /version 3\.2\./.test(BASH_VERSION)
+  && UTF8_LOCALE !== undefined
+
+/** Force UTF-8 whenever the host has it; this is what stock Macs use. */
+function bashUtf8Env(env = process.env) {
+  return UTF8_LOCALE === undefined ? env : { ...env, LANG: UTF8_LOCALE, LC_ALL: UTF8_LOCALE }
+}
+
+/** Spawn `/bin/bash`, never the `bash` a modified PATH might resolve elsewhere. */
+function spawnBash(args, options = {}) {
+  return spawnSync(BASH, args, { ...options, env: bashUtf8Env(options.env) })
+}
+
+/** Run this suite's normal `cat script | bash` simulation under /bin/bash. */
+function runPipedBash(name, script, options = {}) {
+  return spawnBash(['-c', 'cat "$1" | "$2"', name, script, BASH], options)
+}
 
 function tempDir(prefix) {
   return mkdtempSync(join(tmpdir(), prefix))
@@ -58,7 +95,7 @@ function baseEnv(bin) {
 }
 
 test('install.sh refuses to run without a controlling terminal (curl | bash)', () => {
-  const result = spawnSync('/bin/bash', ['-c', 'cat "$1" | bash', 'pclink-install-no-tty', INSTALL], {
+  const result = runPipedBash('pclink-install-no-tty', INSTALL, {
     detached: true,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -74,7 +111,7 @@ test('install.sh refuses to run without a controlling terminal (curl | bash)', (
 test('install.sh refuses Windows before any prompt', () => {
   const bin = tempDir('pclink-win-bin-')
   executable(join(bin, 'uname'), '#!/bin/sh\necho MINGW64_NT-10.0\n')
-  const result = spawnSync('/bin/bash', ['-c', 'cat "$1" | bash', 'pclink-install-win', INSTALL], {
+  const result = runPipedBash('pclink-install-win', INSTALL, {
     detached: true,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -126,7 +163,7 @@ test('an out-of-range dsh asks once and a no answer cancels before install', () 
   const env = baseEnv(bin)
   executable(join(bin, 'pnpm'), '#!/bin/sh\necho 11.0.0\n')
   executable(join(bin, 'dsh'), '#!/bin/sh\nif [ "$1" = "-V" ]; then echo 0.3.0; exit 0; fi\nexit 0\n')
-  const result = spawnSync('/bin/bash', ['-c', 'cat "$1" | bash', 'pclink-install-range', script], {
+  const result = runPipedBash('pclink-install-range', script, {
     encoding: 'utf8',
     env: { ...env, PCLINK_TEST_TTY_IN: input, PCLINK_TEST_TTY_OUT: output, DSH_BIN: join(bin, 'dsh') },
   })
@@ -147,7 +184,7 @@ test('missing dsh fails with the DSH_BIN/PATH hint before install', () => {
   const input = join(root, 'answers.txt')
   const output = join(root, 'prompts.txt')
   writeFileSync(input, '')
-  const result = spawnSync('/bin/bash', ['-c', 'cat "$1" | bash', 'pclink-install-no-dsh', script], {
+  const result = runPipedBash('pclink-install-no-dsh', script, {
     encoding: 'utf8',
     env: { ...baseEnv(bin), PCLINK_TEST_TTY_IN: input, PCLINK_TEST_TTY_OUT: output },
   })
@@ -183,11 +220,113 @@ if [ "$1" = "plugin" ]; then
 fi
 exit 0
 `)
-  const result = spawnSync('/bin/bash', ['-c', 'cat "$1" | bash', 'pclink-install-stdin', script], {
+  const result = runPipedBash('pclink-install-stdin', script, {
     encoding: 'utf8',
     env: { ...env, PCLINK_TEST_TTY_IN: input, PCLINK_TEST_TTY_OUT: output },
   })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /\[4\/4\] 打开配对二维码/)
   assert.match(readFileSync(output, 'utf8'), /FAKE PAIR pair/)
+})
+
+test('install.sh does not put a bare $NAME directly before a non-ASCII byte', () => {
+  // macOS /bin/bash 3.2 with a UTF-8 locale folds the first byte of a
+  // multibyte character into a bare variable name. With `set -u`,
+  // `$DEFAULT_RELAY（默认）` becomes an unbound `DEFAULT_RELAY\xef` and the
+  // installer aborts. `${DEFAULT_RELAY}（默认）` has an unambiguous end.
+  const source = readFileSync(INSTALL, 'utf8')
+  const offenders = []
+  for (const [index, line] of source.split('\n').entries()) {
+    for (const match of line.matchAll(/\$(?!\{)[A-Za-z_][A-Za-z0-9_]*/g)) {
+      const next = line.codePointAt(match.index + match[0].length)
+      if (next !== undefined && next > 0x7f) {
+        offenders.push(`line ${index + 1}: ${match[0]}${String.fromCodePoint(next)}`)
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], 'a bare $NAME followed by a multibyte byte is unbound under bash 3.2 + UTF-8')
+})
+
+test('install.sh uses ${NAME} for every named expansion', () => {
+  // The targeted check above is what the bash 3.2 bug requires; bracing every
+  // named expansion keeps the next Chinese character from reintroducing it.
+  const source = readFileSync(INSTALL, 'utf8')
+  const bare = [...source.matchAll(/\$(?!\{)[A-Za-z_][A-Za-z0-9_]*/g)]
+    .map(match => `${match[0]} at offset ${match.index}`)
+  assert.deepEqual(bare, [], 'use ${NAME} everywhere')
+})
+
+test('install.sh prints the default relay under macOS bash 3.2 + UTF-8', (t) => {
+  if (!MACOS_BASH32_UTF8) {
+    t.skip(`needs macOS /bin/bash 3.2 + en_US.UTF-8 (bash: ${BASH_VERSION.split('\n')[0]}, locale: ${UTF8_LOCALE ?? 'none'})`)
+    return
+  }
+  const root = tempDir('pclink-utf8-relay-')
+  const bin = join(root, 'bin')
+  mkdirSync(bin, { recursive: true })
+  const script = ttylessCopy(root)
+  const input = join(root, 'answers.txt')
+  const output = join(root, 'prompts.txt')
+  writeFileSync(input, '')
+  writeFileSync(output, '')
+  executable(join(bin, 'pnpm'), '#!/bin/sh\necho 11.0.0\n')
+  executable(join(bin, 'dsh'), '#!/bin/sh\nif [ "$1" = "-V" ]; then echo 0.2.2; exit 0; fi\nexit 9\n')
+  const env = baseEnv(bin)
+  delete env.PCLINK_RELAY_URL
+  const result = runPipedBash('pclink-install-utf8-relay', script, {
+    encoding: 'utf8',
+    env: {
+      ...env,
+      PCLINK_TEST_TTY_IN: input,
+      PCLINK_TEST_TTY_OUT: output,
+      DSH_BIN: join(bin, 'dsh'),
+    },
+  })
+  assert.doesNotMatch(result.stderr, /unbound variable/)
+  assert.match(result.stdout, /中继：https:\/\/pclink\.tonoai\.cn（默认）/)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /dsh plugin add 失败/)
+})
+
+test('install.sh pairing-failure die uses $pair_status under macOS bash 3.2 + UTF-8', (t) => {
+  if (!MACOS_BASH32_UTF8) {
+    t.skip(`needs macOS /bin/bash 3.2 + en_US.UTF-8 (bash: ${BASH_VERSION.split('\n')[0]}, locale: ${UTF8_LOCALE ?? 'none'})`)
+    return
+  }
+  const root = tempDir('pclink-utf8-pair-')
+  const bin = join(root, 'bin')
+  mkdirSync(bin, { recursive: true })
+  const script = ttylessCopy(root)
+  const input = join(root, 'answers.txt')
+  const output = join(root, 'pair.out')
+  writeFileSync(input, '')
+  writeFileSync(output, '')
+  const env = baseEnv(bin)
+  executable(join(bin, 'pnpm'), '#!/bin/sh\necho 11.0.0\n')
+  const pclink = join(root, 'pclink')
+  executable(pclink, '#!/bin/sh\nif [ "$1" = "status" ]; then exit 0; fi\nexit 7\n')
+  executable(join(bin, 'dsh'), `#!/bin/sh
+if [ "$1" = "-V" ]; then echo 0.2.2; exit 0; fi
+if [ "$1" = "plugin" ]; then
+  mkdir -p "$DSH_HOME/profiles/web/node_modules/.bin" "$DSH_HOME/pclink"
+  cp '${pclink}' "$DSH_HOME/profiles/web/node_modules/.bin/pclink"
+  chmod +x "$DSH_HOME/profiles/web/node_modules/.bin/pclink"
+  : > "$DSH_HOME/pclink/admin.json"
+  exit 0
+fi
+exit 0
+`)
+  const result = runPipedBash('pclink-install-utf8-pair', script, {
+    encoding: 'utf8',
+    env: {
+      ...env,
+      PCLINK_RELAY_URL: 'https://relay.example',
+      PCLINK_TEST_TTY_IN: input,
+      PCLINK_TEST_TTY_OUT: output,
+    },
+  })
+  assert.doesNotMatch(result.stderr, /unbound variable/)
+  assert.match(result.stdout, /中继：https:\/\/relay\.example（PCLINK_RELAY_URL）/)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /配对未完成（退出码 7）/)
 })
