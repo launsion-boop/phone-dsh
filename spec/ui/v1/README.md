@@ -121,7 +121,7 @@ Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionV
 | DevelopmentToolsPage 已删除 | PR #13 删除该页；PR22 全仓无 `struct DevelopmentToolsPage` | memory/probes/background/task-screen 保持不可达，不恢复开发者页 |
 
 | HomeSpec 的 dark 是回退值 | `HomeSpec.swift:5` 明说浅色是参考录像的实测值，dark 用既有 parity 调色板 | 按 HomeSpec 给出的 light/dark 对镜像，不另造色 |
-| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3894` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
+| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3906` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
 
 ## 2. 组件语义清单
 
@@ -248,9 +248,9 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | 输入 | `composerOpenMinHeight`=104 `sendButton`=36 `composerIcon`=24 | `HomeSpec.swift:71`–`:73` |
 | 间距 | `blockGap`=20 `paragraphGap`=16 `disclosureGap`=8 | `HomeSpec.swift:57`–`:61` |
 | 圆角 | `radius.bubble`=24 `radius.listCard`=18 `radius.composerOpen`=24 | `HomeSpec.swift:78`–`:80` |
-| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3902`–`:3906` |
-| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4590`–`:4594`、`:927` |
-| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:1981`、`:2007` |
+| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3914`–`:3906` |
+| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4602`–`:4594`、`:927` |
+| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:1993`、`:2007` |
 | 页面层 | `bannerGap`=12 `bannerInsetH`=4 `bannerInsetV`=6 | `ChatPage.swift:1023`、`:1045`–`:1046` |
 
 `geometry` 的 `scalesWith` 全部为 null：HomeSpec 使用固定 `frame` / padding，没有 `@ScaledMetric`；字号本身仍按
@@ -264,7 +264,7 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | `stroke.hairline` | 0.5pt | `Components.swift:223` | 代码卡/工具卡 0.5pt 描边 |
 | `motion.disclosure` | 160ms easeOut once | `NativeMessageRows.swift:28` | 过程/思考行展开折叠 |
 | `motion.shimmer` | 1500ms linear forever | `DSHComponents.swift:56` | thinking 行运行中摘要扫光 |
-| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2076` | 发送键可用态切换 |
+| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2088` | 发送键可用态切换 |
 | `motion.copyConfirmHold` | 1000ms linear once | `Components.swift:181` | 「已复制」保持时长 |
 
 ### Baseline accessibility debt（已登记基线无障碍债）

@@ -112,6 +112,8 @@ public actor DeviceMCPServer: NativeMCPServing {
                         reply = try await BLEDeviceStore.shared.invokeLink(deviceID, requestID: intent.requestID, name: toolName, arguments: arguments, key: wireKey)
                     } else { reply = try await BLEDeviceStore.shared.queryLink(deviceID, requestID: intent.requestID, name: toolName) }
                     output = String(decoding: try (reply ?? .object(["request_id": .string(intent.requestID.uuidString.lowercased()), "status": .string("running")])).encoded(), as: UTF8.self)
+                } catch let refused as LinkNotExecuted {
+                    throw BLEFailure("request_id=\(intent.requestID.uuidString.lowercased()) not_executed: the board refused the \(refused.stage) (\(refused.statusName)) before running it. Nothing ran; a new call may be made.")
                 } catch { throw BLEFailure("request_id=\(intent.requestID.uuidString.lowercased()) outcome_unknown: \(error.localizedDescription). Query this request; do not replay.") }
             case "ble_link_result":
                 guard Set(args.keys) == ["device_id", "request_id"], let raw = string(args["device_id"]), let deviceID = UUID(uuidString: raw),

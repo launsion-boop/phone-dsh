@@ -93,7 +93,7 @@ unless requested.
 
 ## BLE tools (implemented on iOS)
 
-The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans, connection and per-tool grants require user action. The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.
+The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans and connection require user action; per-tool grants follow [BLE Link](../device/v1/ble-link.md) rule 6 (the iOS app trusts a board the user connected: its tools are allowed until the user revokes one). The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.
 
 Status: implemented by the iOS host (`Sources/PhoneDSHBLE/DeviceMCPServer.swift`), verified by
 `golden/native-mcp/ble-devices.json`, `BLEDeviceMCPTests` and `DeviceMCPNativeRegressionTests`; the
@@ -121,6 +121,10 @@ the stored result, a different task under the same key is `idempotency_conflict`
 interrupted run is `outcome_unknown` and is never replayed. One task runs at a time.
 `initialize` appends the tool's usage note to `instructions`; `serverInfo` is unchanged.
 LED and other board tools stay on `ble_link_call` (BLE Link profile).
+
+With the Bot runtime the Bot listener forwards `iphone_agent_run` like every other native
+tool, to the same server instance (`PhoneNativeMCP.server`), so both paths share one receipt
+store and one in-flight guard.
 
 Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
 `IPhoneAgentMCPTests`; the Android host does not serve it.

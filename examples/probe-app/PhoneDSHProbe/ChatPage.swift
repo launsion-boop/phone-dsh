@@ -1454,6 +1454,12 @@ struct ChatPage: View {
         }
     }
 
+    /// Whole points for the scroll trace. `Int(_:)` traps on NaN or infinity, which a geometry value
+    /// can be before layout settles; the trace must never crash a streaming turn.
+    static func traceValue(_ value: CGFloat) -> String {
+        value.isFinite && abs(value) < 1e12 ? String(Int(value.rounded())) : String(describing: value)
+    }
+
     /// Follow the tail after the next layout pass.
     ///
     /// Sending a message appends a row and, in the same update, this view asks
@@ -1471,8 +1477,8 @@ struct ChatPage: View {
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Int(scrollTrace.contentHeight)) viewport=\(Int(viewportHeight)) "
-                    + "tail=\(Int(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(viewportHeight)) "
+                    + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)

@@ -80,9 +80,9 @@ struct BluetoothDevicesPage: View {
                     .accessibilityIdentifier("ble-device-connect-\(device.id.uuidString)")
             } else {
                 Text("\(device.state) · RSSI \(device.rssi)")
-                Button("断开连接", role: .destructive) { store.disconnect(device.id) }
+                Button("断开连接", role: .destructive) { store.forgetAndDisconnect(device.id) }
                     .accessibilityIdentifier("ble-device-disconnect-\(device.id.uuidString)")
-                Text("每次建立新连接后，请重新授权读取或提醒控制。")
+                Text("你连接的设备默认允许 Agent 使用全部能力；关闭某个开关即撤销并记住，断开连接后不再自动重连。")
                     .font(.footnote).foregroundStyle(.secondary)
                     .accessibilityIdentifier("ble-device-reauthorize-\(device.id.uuidString)")
                 Toggle("允许读取标准数据", isOn: Binding(get: {

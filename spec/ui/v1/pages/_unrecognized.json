@@ -94,7 +94,7 @@
    "page": "runtime-details",
    "kind": "unresolved-section",
    "name": "<untitled: empty>",
-   "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4324) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
+   "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4336) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   }
@@ -102,7 +102,7 @@
  "notes": [
   {
    "page": "chat",
-   "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1395 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
+   "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1407 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   }

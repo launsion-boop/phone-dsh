@@ -72,6 +72,7 @@ classes: `credential-injection`, `header-strip`, `redirect-scope`, `egress-class
   `te`, `trailer`, `proxy-connection`, `cookie`, `cookie2`, `referer`, `referrer`, plus every
   `x-pdsh-*` internal header (`ModelGateway.swift:1007`, `:1031`). Input: those headers → expect:
   absent from `outbound_headers` and listed in `stripped`.
+- **Journal key to loopback tool endpoints.** The one `x-pdsh-*` exception: `x-pdsh-idempotency-key` is forwarded only when the upstream host is a loopback literal (`127.0.0.1`, `::1`, `localhost`), i.e. the app's own tool endpoint (the Bot MCP listener forwards native tools that require it, [native-mcp.md](native-mcp.md)); every other `x-pdsh-*` header, and the key to any non-loopback upstream, is still stripped (Swift `ModelGateway.keepsJournalKey`, Android `GatewayRequestHeaders.isDropped(name, targetHost)`).
 - **Cookie and Referer.** The Worker's same-origin XHR carries the loopback launch cookie and a
   loopback Referer; they authenticate the local origin, not the upstream, so both are always
   dropped (`ModelGateway.swift:1035`). A host cookie credential is applied later by §2 and is the
@@ -81,8 +82,7 @@ classes: `credential-injection`, `header-strip`, `redirect-scope`, `egress-class
   asserts the forwarded value, so `gw-hop-003` is the only oracle for this rule.
 - **Default is passthrough.** Only the denylist is removed; an unknown caller header (including an
   authentication-shaped one) is forwarded unchanged. See §9.
-- Vectors: `gw-hop-001` (hop-by-hop, `Host`, `X-PDSH-*`), `gw-hop-002` (cookie/cookie2/Referer),
-  `gw-hop-003` (`Idempotency-Key` survives).
+- Vectors: `gw-hop-001` (hop-by-hop, `Host`, `X-PDSH-*`), `gw-hop-002` (cookie/cookie2/Referer), `gw-hop-003` (`Idempotency-Key` survives), `gw-hop-004` (journal key survives to a loopback tool endpoint; another `x-pdsh-*` header is stripped).
 
 ## 4. Redirect scope — `redirect-scope`
 
