@@ -4,13 +4,28 @@
 
 Run DeepSeek Harness, unmodified, on your phone.
 
-[简体中文](README.md) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
+**[Download for iPhone on the App Store](https://apps.apple.com/app/phone-dsh/id6828310755)**
 
-<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="Phone DSH generating a PDF and reporting progress in the native chat"></p>
+[简体中文](README.md) · [Bot features](#bot-features) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
+
+<p align="center">
+  <img src="docs/assets/screenshot-bot-chat.png" width="260" alt="The main Bot chat on iPhone with the message composer at the bottom">
+  <img src="docs/assets/screenshot-bot-info.png" width="260" alt="The Bot info page on iPhone with name, hairstyle, and hair color controls">
+</p>
 
 > The mascot is fan artwork of the DeepSeek assistant character, used as project branding. It is not an official DeepSeek asset, it is not covered by the MIT licence (see [NOTICE](NOTICE)), and this project is not affiliated with DeepSeek.
 
 > **Unofficial project.** Phone DSH is not a DeepSeek product and has no affiliation, sponsorship or endorsement from DeepSeek. It depends on the official DeepSeek Harness and installs it through the official plugin contract.
+
+## Bot features
+
+After you configure a model provider on your iPhone, open the **Bot** tab to chat with the default assistant, 大肥鱼.
+
+- **Chat and tasks.** Attach files and use cards in the conversation to answer questions, follow task progress, and receive results.
+- **Multiple Bots.** Create and switch between Bots in the sidebar. Each Bot has its own name, appearance, conversation, and routines. Bots can leave messages for each other.
+- **Tool approvals.** Approve or deny tool requests in the conversation. Open the Bot info page to review past decisions.
+- **Memory.** Ask a Bot to save preferences and facts. On the Bot info page, you can view or delete that Bot's memories and clear memories shared by all Bots.
+- **Routines.** Ask a Bot in chat to run a task on a schedule. You can pause or resume routines on the Bot info page. Regular runs wait until quiet hours end, and results can wait until the next conversation.
 
 ## What this project is for
 
@@ -44,31 +59,15 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 
 ## Architecture
 
-```text
-┌───────────────────────────────────────────────────┐
-│ iPhone app (one process)                          │
-│                                                   │
-│ Swift host: PhoneDSHHost                          │
-│  ├─ LoopbackServer   127.0.0.1, one origin        │
-│  ├─ WorkspaceLog     WAL + materialized copy      │
-│  ├─ ModelGateway     credentials, SSE, retry      │
-│  └─ Controller, WebEngine, ExecProvider           │
-│                │                                  │
-│                │ loopback HTTP + ordered WS       │
-│                ▼                                  │
-│ WKWebView (web process)                           │
-│  └─ Web Worker                                    │
-│      └─ DSH webworker-runtime                     │
-│          ├─ in-memory VFS (authority)             │
-│          ├─ bash, git, python3, file tools        │
-│          └─ capability manifest                   │
-└──────────────────────┬────────────────────────────┘
-                       │ /v1/http, host-injected key, allow-list
-                       ▼
-                model provider (DeepSeek, ...)
-```
+![Phone DSH architecture. The native host and Web Worker share a loopback origin. The host connects to model providers and remote MCP servers.](docs/assets/architecture-en.svg)
 
-The app and the Worker meet at one origin. The page and static assets are served over HTTP; side effects travel over one ordered binary WebSocket (`VFS`, `EXEC`, `JOURNAL`, `API`, `LIFECYCLE`, `CONSOLE`, `FENCE` and the rest); model and MCP traffic goes to `/v1/http`, the only path that leaves the device. The WAL is the recovery log, never a second writer: while the Worker runs, its in-memory VFS is the authority. See [docs/architecture.md](docs/architecture.md) for the persistence model, the frame contract and the failure modes.
+The app and the Worker meet at one origin. The page and static assets are served over HTTP; side effects travel over one ordered binary WebSocket (`VFS`, `EXEC`, `JOURNAL`, `API`, `LIFECYCLE`, `CONSOLE`, `FENCE` and the rest); requests to model providers and remote MCP servers use the host's `/v1/http` gateway. The WAL is the recovery log, never a second writer: while the Worker runs, its in-memory VFS is the authority. See [docs/architecture.md](docs/architecture.md) for the persistence model, the frame contract and the failure modes.
+
+### Phone, Worker, and device plane
+
+![Device plane. A BLE or LAN connector links peripherals to the native host. Each device reuses its own fixed DSH session.](docs/assets/device-plane-en.svg)
+
+The connector reports device state. The phone shows each device session in a read-only view, separate from regular chats, and distinguishes device events from user messages. Device writes require a capability grant.
 
 ## xz-shell
 

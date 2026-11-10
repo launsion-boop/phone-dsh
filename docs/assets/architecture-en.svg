@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="644" viewBox="0 0 1000 644" xml:lang="en" role="img" aria-labelledby="title description">
+<title id="title">Phone DSH architecture</title>
+<desc id="description">The native host handles durability and network access. The Web Worker runs DeepSeek Harness.</desc>
+<defs>
+  <linearGradient id="bg" x2="1" y2="1" gradientUnits="objectBoundingBox">
+    <stop stop-color="#FFFFFF"/><stop offset="1" stop-color="#F4F8FF"/>
+  </linearGradient>
+  <pattern id="grid" width="18" height="18" patternUnits="userSpaceOnUse">
+    <circle cx="2" cy="2" r="1" fill="#7891B3" opacity=".16"/>
+  </pattern>
+  <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse">
+    <path d="M0 0L7 3.5L0 7Z" fill="#386BB7"/>
+  </marker>
+</defs>
+<rect x=".5" y=".5" width="999" height="643" rx="24" fill="url(#bg)" stroke="#CBD8EB"/>
+<rect x="789" y="23" width="172" height="115" fill="url(#grid)"/>
+<rect x="34" y="30" width="166" height="28" rx="14" fill="#E8F0FF"/>
+<circle cx="50" cy="44" r="4" fill="#2D63C8"/>
+<g font-family="Inter, -apple-system, BlinkMacSystemFont, Noto Sans CJK SC, PingFang SC, Hiragino Sans GB, Microsoft YaHei, sans-serif">
+<text x="62" y="49" font-size="13" font-weight="700" fill="#2355AA" letter-spacing="1.15">PHONE DSH  /  01</text>
+<text x="34" y="105" font-size="37" font-weight="700" fill="#142747" letter-spacing="0">Phone DSH architecture</text>
+<text x="35" y="140" font-size="17" font-weight="400" fill="#4C6280" letter-spacing="0">The native host handles durability and network access. The Web Worker runs DeepSeek Harness.</text>
+<rect x="34" y="166" width="744" height="441" rx="20" fill="#F3F7FD" stroke="#A9BEDD"/>
+<text x="53" y="191" font-size="15" font-weight="700" fill="#395679" letter-spacing="1">PHONE  /  iOS + Android</text>
+<rect x="53" y="210" width="705" height="151" rx="15" fill="#EAF3FF" stroke="#A4BEE6"/>
+<rect x="67" y="219" width="30" height="30" rx="8" fill="#2862BC" fill-opacity=".10"/>
+<path d="M3 5h18v14H3zM3 10h18M7 7.5h.01m3 0h.01" transform="translate(70 222)" fill="none" stroke="#2862BC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="112" y="242" font-size="23" font-weight="700" fill="#142747" letter-spacing="0">Native host  /  App process</text>
+<text x="112" y="266" font-size="15" font-weight="400" fill="#465E7E" letter-spacing="0">Swift on iOS, Kotlin on Android</text>
+<text x="72" y="295" font-size="17" font-weight="700" fill="#17365C" letter-spacing="0">LoopbackServer</text>
+<text x="72" y="318" font-size="14" font-weight="600" fill="#225BAD" letter-spacing="0">127.0.0.1</text>
+<text x="72" y="340" font-size="13" font-weight="400" fill="#425C7D" letter-spacing="0">One loopback origin</text>
+<text x="242" y="295" font-size="17" font-weight="700" fill="#17365C" letter-spacing="0">WorkspaceLog</text>
+<text x="242" y="318" font-size="14" font-weight="600" fill="#225BAD" letter-spacing="0">WAL</text>
+<text x="242" y="340" font-size="13" font-weight="400" fill="#425C7D" letter-spacing="0">Recovery log and copy</text>
+<text x="410" y="295" font-size="17" font-weight="700" fill="#17365C" letter-spacing="0">ModelGateway</text>
+<text x="410" y="318" font-size="14" font-weight="600" fill="#225BAD" letter-spacing="0">/v1/http</text>
+<text x="410" y="340" font-size="13" font-weight="400" fill="#425C7D" letter-spacing="0">Credentials, SSE, retry</text>
+<text x="584" y="295" font-size="17" font-weight="700" fill="#17365C" letter-spacing="0">Controller</text>
+<text x="584" y="318" font-size="12" font-weight="600" fill="#225BAD" letter-spacing="0">WebEngine · ExecProvider</text>
+<text x="584" y="340" font-size="13" font-weight="400" fill="#425C7D" letter-spacing="0">Lifecycle, read-only exec</text>
+<path d="M224 281v63" stroke="#C4D7F1"/>
+<path d="M392 281v63" stroke="#C4D7F1"/>
+<path d="M567 281v63" stroke="#C4D7F1"/>
+<path d="M86 370V423" fill="none" stroke="#386BB7" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="114" y="393" font-size="18" font-weight="650" fill="#204C91" letter-spacing="0">Same-origin HTTP + ordered binary WebSocket</text>
+<text x="114" y="416" font-size="15" font-weight="400" fill="#4A6283" letter-spacing="0">Page, assets, and proxy requests / VFS, exec, and journal frames</text>
+<rect x="53" y="432" width="705" height="155" rx="15" fill="#F2EEFF" stroke="#BFB1E5"/>
+<rect x="67" y="446" width="30" height="30" rx="8" fill="#6C45B3" fill-opacity=".10"/>
+<path d="M8 3v3m8-3v3M8 18v3m8-3v3M3 8h3m-3 8h3m12-8h3m-3 8h3M6 6h12v12H6zM10 10h4v4h-4z" transform="translate(70 449)" fill="none" stroke="#6C45B3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="112" y="470" font-size="23" font-weight="700" fill="#142747" letter-spacing="0">Web Worker  /  WebView process</text>
+<text x="112" y="495" font-size="15" font-weight="400" fill="#564584" letter-spacing="0">DSH webworker-runtime in WKWebView or Android WebView</text>
+<text x="72" y="536" font-size="17" font-weight="700" fill="#392566" letter-spacing="0">In-memory VFS</text>
+<text x="72" y="561" font-size="14" font-weight="400" fill="#574779" letter-spacing="0">Authoritative workspace</text>
+<text x="298" y="536" font-size="17" font-weight="700" fill="#392566" letter-spacing="0">Tool execution</text>
+<text x="298" y="561" font-size="14" font-weight="400" fill="#574779" letter-spacing="0">bash, git, python3, file tools</text>
+<text x="545" y="536" font-size="17" font-weight="700" fill="#392566" letter-spacing="0">Capability manifest</text>
+<text x="545" y="561" font-size="14" font-weight="400" fill="#574779" letter-spacing="0">Advertised host capabilities</text>
+<text x="814" y="191" font-size="15" font-weight="700" fill="#395679" letter-spacing="1">OFF DEVICE</text>
+<path d="M759 290H808" fill="none" stroke="#386BB7" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="814" y="219" width="151" height="133" rx="15" fill="#E6F7F1" stroke="#94CCBD"/>
+<rect x="826" y="230" width="30" height="30" rx="8" fill="#28775F" fill-opacity=".10"/>
+<path d="M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18ZM3 12h18M12 3c5 5 5 13 0 18m0-18c-5 5-5 13 0 18" transform="translate(829 233)" fill="none" stroke="#28775F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="830" y="292" font-size="16" font-weight="700" fill="#145440" letter-spacing="0">Model providers</text>
+<text x="830" y="322" font-size="16" font-weight="700" fill="#145440" letter-spacing="0">Remote MCP</text>
+<text x="815" y="383" font-size="14" font-weight="700" fill="#145440" letter-spacing="0">Model access</text>
+<text x="815" y="409" font-size="13" font-weight="400" fill="#3D665C" letter-spacing="0">Allow-list, scoped keys</text>
+<text x="815" y="452" font-size="14" font-weight="700" fill="#145440" letter-spacing="0">Remote MCP access</text>
+<text x="815" y="478" font-size="13" font-weight="400" fill="#3D665C" letter-spacing="0">Exact URL grant</text>
+</g>
+</svg>
