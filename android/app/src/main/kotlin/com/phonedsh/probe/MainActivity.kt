@@ -213,6 +213,9 @@ class MainActivity : ComponentActivity() {
         // asks it for the key's *state* while building the Worker env, and before
         // the view model constructs the gateway that asks it for the credential.
         val apiKeys = ApiKeyStore.install(applicationContext)
+        // The tono-account session, before the launch config and the gateway: both
+        // ask it whether the cloud origin's credential is the signed-in account.
+        TonoAccountHost.get(applicationContext)
         // The independent Search/Fetch settings and their own key account, read by
         // the launch plan when the view model mounts the web-search grant.
         WebSearchSettingsStore.install(applicationContext, apiKeys)

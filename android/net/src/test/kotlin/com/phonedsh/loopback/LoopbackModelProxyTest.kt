@@ -734,4 +734,90 @@ class LoopbackModelProxyTest {
         }
         return out.toByteArray()
     }
+
+    // ---- spec/v1/tono-account.md §5 on the real model edge ----------------
+
+    @Test
+    fun cloudOriginRetryFlowsMatchTheSharedCases() = runBlocking {
+        val root = com.phonedsh.gateway.GatewayVectorRunner.findRepositoryRoot()
+        val fixture = com.phonedsh.gateway.GatewayJson.parse(
+            java.nio.file.Files.readString(root.resolve("spec/v1/golden/tono-account/cases.json")),
+        ) as com.phonedsh.gateway.JsonValue.Obj
+        val flows = fixture.array("retry_flows")!!.map { it as com.phonedsh.gateway.JsonValue.Obj }
+        assertTrue(flows.isNotEmpty())
+        for (flow in flows) {
+            val name = flow.string("name")!!
+            val scripted = java.util.concurrent.ConcurrentLinkedQueue(
+                flow.array("responses")!!.map { it as com.phonedsh.gateway.JsonValue.Obj },
+            )
+            val upstream = FakeModelUpstream { _, out ->
+                val next = scripted.poll()
+                if (next == null) {
+                    writeSimpleResponse(out, 599, emptyMap(), "")
+                } else {
+                    val headers = linkedMapOf("Content-Type" to "application/json")
+                    next.string("retry_after")?.let { headers["Retry-After"] = it }
+                    val code = next.string("code")
+                    writeSimpleResponse(
+                        out,
+                        next.int("status")!!,
+                        headers,
+                        if (code != null) """{"error":{"code":"$code"}}""" else """{"ok":true}""",
+                    )
+                }
+            }
+            try {
+                val refresh = flow.string("refresh")
+                val invalidations = AtomicInteger()
+                val provider = object : GatewayCredentialProvider {
+                    @Volatile var value = 1
+                    @Volatile var unavailable = false
+                    override fun resolve(scope: com.phonedsh.gateway.CredentialScope): GatewayCredential {
+                        if (unavailable) throw CredentialUnavailableException("refresh failed")
+                        return GatewayCredential.Bearer("at_TEST_ACCESS_$value")
+                    }
+                    override fun invalidate(credential: GatewayCredential, scope: com.phonedsh.gateway.CredentialScope) {
+                        invalidations.incrementAndGet()
+                        when (refresh) {
+                            "new_value" -> value++
+                            "unavailable" -> unavailable = true
+                        }
+                    }
+                }
+                val sleeps = CopyOnWriteArrayList<Long>()
+                val proxy = LoopbackModelProxy(
+                    endpoint = ModelEndpoint.parse(upstream.origin)!!,
+                    credentialProvider = provider,
+                    cloudPolicy = com.phonedsh.gateway.TonoCloudResponsePolicy(listOf(upstream.origin)),
+                    sleeper = { sleeps += it },
+                )
+                LoopbackServer(modelProxy = proxy).use { server ->
+                    val loopback = server.start(assets)
+                    newClient().use { http ->
+                        val response = http.post(loopback.urlFor("/v1/messages")) {
+                            header(HttpHeaders.Authorization, "Bearer ${loopback.token}")
+                            contentType(ContentType.Application.Json)
+                            setBody(requestBody)
+                        }
+                        val expect = flow.obj("expect")!!
+                        assertEquals(name, expect.int("final_status"), response.status.value)
+                    }
+                }
+                val expect = flow.obj("expect")!!
+                assertEquals(name, expect.int("contacts"), upstream.requests.size)
+                assertEquals(name, expect.int("invalidations"), invalidations.get())
+                assertEquals(
+                    name,
+                    expect.array("sleeps_seconds")!!.map { (it as com.phonedsh.gateway.JsonValue.Num).literal.toLong() * 1000 },
+                    sleeps.toList(),
+                )
+                for (recorded in upstream.requests) {
+                    assertEquals(name, requestBody, recorded.body)
+                    assertTrue(name, recorded.authorization?.startsWith("Bearer at_TEST_ACCESS_") == true)
+                }
+            } finally {
+                upstream.close()
+            }
+        }
+    }
 }

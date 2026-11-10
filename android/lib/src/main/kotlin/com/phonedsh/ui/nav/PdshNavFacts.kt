@@ -117,6 +117,8 @@ public data class PdshNavFacts(
     public val ssh: com.phonedsh.ui.page.SSHFacts = com.phonedsh.ui.page.SSHFacts(),
     /** Android ADB: the saved target and the last 保存 / 测试连接 status (host-owned). */
     public val androidAdb: com.phonedsh.ui.page.AndroidAdbFacts = com.phonedsh.ui.page.AndroidAdbFacts(),
+    /** Tono 账号: the session facts (phone hint, re-verification date), host-owned. */
+    public val tonoAccount: com.phonedsh.ui.page.TonoAccountFacts = com.phonedsh.ui.page.TonoAccountFacts(),
     public val runtime: RuntimeFacts = RuntimeFacts(),
     public val egress: EgressAllowListFacts = EgressAllowListFacts(),
     public val automation: AutomationFacts = AutomationFacts(),
@@ -516,6 +518,23 @@ public sealed interface PdshHostAction {
     /** 停止当前 Android 操作: cancel the running tool call or connection check. */
     public data object AndroidAdbCancel : PdshHostAction {
         override val wire: String = "androidAdb.cancel"
+    }
+
+    /** Tono 账号 获取验证码 for the drafted number; `toString` hides it. */
+    public class TonoAccountRequestCode(public val phone: String) : PdshHostAction {
+        override val wire: String = "tonoAccount.requestCode"
+        override fun toString(): String = "TonoAccountRequestCode(***)"
+    }
+
+    /** Tono 账号 登录 with the drafted code; `toString` hides it. */
+    public class TonoAccountSignIn(public val code: String) : PdshHostAction {
+        override val wire: String = "tonoAccount.signIn"
+        override fun toString(): String = "TonoAccountSignIn(***)"
+    }
+
+    /** Tono 账号 退出登录: local state first, then a best-effort logout. */
+    public data object TonoAccountSignOut : PdshHostAction {
+        override val wire: String = "tonoAccount.signOut"
     }
 
     /** Persist the web-search switch position. */

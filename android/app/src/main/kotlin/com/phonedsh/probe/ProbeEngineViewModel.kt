@@ -4,6 +4,7 @@
 // and forwards start/stop. The screen stays a pure function of the engine's flows.
 package com.phonedsh.probe
 
+import com.phonedsh.account.TonoAccountKeySource
 import android.app.Application
 import android.net.Uri
 import android.os.PowerManager
@@ -1008,6 +1009,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         WebSearchLaunchPlan.resolve(
             settings = settings?.read() ?: WebSearchSettingsRead.Absent,
             independentKey = { settings?.keyState() ?: ApiKeyState.Absent },
+            accountCovers = { base -> TonoAccountKeySource.usesAccount(base, TonoAccountHost.activeSession()) },
             proxyRequested = launchConfig.modelProxy,
             official = {
                 OfficialWebSearchLaunch.resolve(
@@ -1034,6 +1036,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
             keys = ModelKeySource {
                 val store = WebSearchSettingsStore.active() ?: throw CredentialUnavailableException()
                 store.readKey()
+            }.let { stored ->
+                TonoAccountHost.activeSession()?.let { TonoAccountKeySource.overlay(plan.base, it, stored) } ?: stored
             },
             transport = HttpUrlConnectionGatewayTransport(),
             fallback = diagnosticHttpEgress,
