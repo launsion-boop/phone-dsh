@@ -49,22 +49,16 @@ public enum PCLinkRelayConfiguration {
 
 // MARK: - Install guide (pclink-pacing)
 
-/// The one copy-paste install/pairing guide. It lives next to the relay origin
+/// The single copy-paste install guide. It lives next to the relay origin
 /// (`PCLinkRelayConfiguration`) so the command text has a single owner; the
 /// drawer empty state, the pairing page and `pclink/README.md` carry the same
-/// string. `#main` only resolves after the PR that adds `pclink/` is merged;
-/// the install was verified against the PR head commit in a throwaway
-/// `DSH_HOME` (see the PC-20261109-pclink-v1 change record §4.17).
+/// string. The script checks the environment, installs the plugin, lets
+/// `dsh web` load it and shows the pairing QR; the phone is scanned at the
+/// prompt (see `pclink/install.sh` and `pclink/README.md`).
 public enum PCLinkInstallGuide {
-    public static let requirement = "电脑上需要已安装 DSH 0.2.2 及以上版本。"
-    public static let restartHint = "安装后重启 dsh web，再在电脑上运行配对命令。"
-    /// Shortest form: `dsh plugin` forwards to pnpm, whose git subdirectory
-    /// syntax is `github:<owner>/<repo>#<ref>&path:/<dir>`.
+    public static let requirement = "电脑上需要已安装 DSH 0.2.2 及以上版本和 Node.js 22 及以上版本。"
+    public static let hint = "在电脑终端运行上面的命令，按提示用手机扫码；脚本会安装插件、加载 dsh web 并显示配对二维码。"
     public static let installCommand =
-        "dsh plugin --profile web add 'github:launsion-boop/phone-dsh#main&path:/pclink'"
-    /// The installed package exposes `bin.pclink`; the profile installs it
-    /// under its own node_modules/.bin. This avoids needing a global pclink.
-    public static let pairingCommand =
-        "~/.dsh/profiles/web/node_modules/.bin/pclink pair"
+        "curl -fsSL https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/pclink/install.sh | bash"
     public static let title = "先在电脑上安装 DSH 插件"
 }

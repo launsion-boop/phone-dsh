@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { AdminClient } from '../core/admin.mjs'
 import { fingerprintOf, normalizeFingerprintInput } from '../core/encoding.mjs'
 import { pclinkError } from '../core/errors.mjs'
+import { encodeQr, renderQrUnicode } from '../core/qr.mjs'
 
 /** The exact §4.6 full-owner warning shown before any pairing/approval. */
 export const FULL_OWNER_WARNING = '此手机将能完整操作这台电脑上的 DSH：对话、在电脑上执行 Shell 和读写文件、处理审批、修改设置和插件。'
@@ -72,22 +73,34 @@ function printPairing(output, pairing) {
 }
 
 /**
- * Render a QR when `qrencode` is installed, otherwise state the URI fallback.
+ * Render a QR in the terminal. `qrencode` is preferred when installed; the
+ * built-in encoder always renders the URI otherwise, so pairing never depends
+ * on an optional external binary.
  * @param {string} uri Pairing URI.
  * @param {{write: (text: string) => void}} output Output.
+ * @param {{spawnSyncImpl?: typeof spawnSync, ansi?: boolean}} [options] Test seams.
+ * @returns {boolean} true when a QR was printed.
  */
-export function renderQrCode(uri, output) {
+export function renderQrCode(uri, output, options = {}) {
+  const runner = options.spawnSyncImpl ?? spawnSync
+  const ansi = options.ansi ?? true
   try {
-    const result = spawnSync('qrencode', ['-t', 'ANSIUTF8', '-o', '-', uri], { encoding: 'utf8', timeout: 3_000 })
+    const result = runner('qrencode', ['-t', 'ANSIUTF8', '-o', '-', uri], { encoding: 'utf8', timeout: 3_000 })
     if (result.status === 0 && typeof result.stdout === 'string' && result.stdout.trim() !== '') {
       output.write(`${result.stdout}\n`)
       return true
     }
   } catch {
-    // Fall through to the URI-only form.
+    // Fall through to the bundled encoder.
   }
-  output.write('（未找到 qrencode，无法在终端渲染二维码图片；上面的 pclink:// URI 是完整配对内容。）\n')
-  return false
+  try {
+    const { modules } = encodeQr(uri)
+    output.write(`${renderQrUnicode(modules, { quietZone: 4, ansi })}\n`)
+    return true
+  } catch (error) {
+    output.write(`（无法在终端渲染二维码：${error.message}；上面的 pclink:// URI 是完整配对内容，可在手机配对页粘贴。）\n`)
+    return false
+  }
 }
 
 /**

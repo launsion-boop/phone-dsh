@@ -72,9 +72,6 @@ export class PclinkRuntime {
     this.sessions = undefined
     this.adminPlane = undefined
     this.adminServer = undefined
-    if (this.relayOrigin === 'https://relay.example.invalid') {
-      this.warnings.push('PCLINK_RELAY_URL 仍是占位值 wss://relay.example.invalid；安装前必须替换为正式中继。')
-    }
   }
 
   /** Start the admin carrier, then the relay supervisor. */

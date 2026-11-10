@@ -223,12 +223,11 @@ struct PCPluginInstallGuide: View {
                 .font(.system(size: 13))
                 .foregroundStyle(HomeSpec.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            commandRow(PCLinkInstallGuide.installCommand, label: "安装插件")
-            Text(PCLinkInstallGuide.restartHint)
+            commandRow(PCLinkInstallGuide.installCommand, label: "安装与配对")
+            Text(PCLinkInstallGuide.hint)
                 .font(.system(size: 12))
                 .foregroundStyle(HomeSpec.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            commandRow(PCLinkInstallGuide.pairingCommand, label: "运行配对")
         }
         .padding(12)
         .background(HomeSpec.userBubble.opacity(0.7),

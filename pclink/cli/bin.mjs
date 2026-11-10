@@ -58,7 +58,7 @@ commands:
 
 Environment:
   DSH_HOME          DSH home (default ~/.dsh); PCLink state is $DSH_HOME/pclink
-  PCLINK_RELAY_URL  Relay origin or wss URL; the built-in default is a placeholder
+  PCLINK_RELAY_URL  Relay origin or ws(s) URL (default https://pclink.tonoai.cn)
   PCLINK_PC_NAME    PC display name
 `)
 }
