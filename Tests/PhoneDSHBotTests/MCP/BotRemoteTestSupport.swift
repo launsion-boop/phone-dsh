@@ -97,6 +97,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private(set) var createdIDs: [String] = []
     private(set) var requestedSessionIds: [String] = []
     private(set) var claimedSessions: [String] = []
+    private(set) var claimedSessionTokens: [(sessionId: String, sessionToken: String?)] = []
     private(set) var archivedSessions: [String] = []
     private(set) var unarchivedSessions: [String] = []
     private(set) var openMuxCount = 0
@@ -194,7 +195,11 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
             return .object(["archivedSessionIds": .array(ids.map { .string($0) })])
         case "phone/botClaimSession":
             let sessionId = args["request"]?["sessionId"]?.stringValue ?? ""
-            lock.withLock { claimedSessions.append(sessionId) }
+            let sessionToken = args["request"]?["sessionToken"]?.stringValue
+            lock.withLock {
+                claimedSessions.append(sessionId)
+                claimedSessionTokens.append((sessionId, sessionToken))
+            }
             return .object(["ok": .bool(true), "sessionId": .string(sessionId)])
         case "session/page":
             let sessionId = args["request"]?["address"]?["sessionId"]?.stringValue ?? ""

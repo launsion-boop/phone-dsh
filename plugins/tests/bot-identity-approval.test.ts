@@ -178,10 +178,11 @@ test('botClaimSession owns a legacy session id without the gb- namespace', async
   try {
     await ctx.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, hub) })
     const remote = ctx.get('botRuntimeRemote') as {
-      botClaimSession(request: { sessionId: string }): { ok: boolean; sessionId: string }
+      botClaimSession(request: { sessionId: string; sessionToken?: string }): { ok: boolean; sessionId: string }
     }
-    assert.deepEqual(remote.botClaimSession({ sessionId: 'session-legacy' }),
-      { ok: true, sessionId: 'session-legacy' })
+    assert.deepEqual(remote.botClaimSession({
+      sessionId: 'session-legacy', sessionToken: 'dshg_fixture_legacy',
+    }), { ok: true, sessionId: 'session-legacy' })
     ctx.tools.register(defineTool({
       name: 'bash', description: 'probe', parameters: {},
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
@@ -205,10 +206,114 @@ test('botClaimSession owns a legacy session id without the gb- namespace', async
     assert.equal(result.isError, false)
     assert.equal(executed, 1)
     assert.equal(registrations.length, 1)
+    assert.equal(registrations[0]!.sessionToken, 'dshg_fixture_legacy')
     assert.equal(approvals, 1)
   } finally {
     hub.close()
     await ctx.fiber.dispose()
+  }
+})
+
+test('a claim without a token stores no credential and registration omits the field', async () => {
+  const ctx = await mount()
+  const hub = new BotStreamHub()
+  const registrations: Record<string, unknown>[] = []
+  try {
+    await ctx.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, hub) })
+    const remote = ctx.get('botRuntimeRemote') as {
+      botClaimSession(request: { sessionId: string; sessionToken?: string }): { ok: boolean; sessionId: string }
+    }
+    assert.deepEqual(remote.botClaimSession({ sessionId: 'session-legacy' }),
+      { ok: true, sessionId: 'session-legacy' })
+    registerProbe(ctx)
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        registrations.push(payload)
+        return { ok: false, error: 'unauthorized' }
+      },
+      cancel: async () => {},
+    })
+    for (const sessionId of ['session-legacy', 'gb-never-claimed']) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`claimed-without-token-${sessionId}`), name: 'mcp__phone__ListRoutines',
+        arguments: {}, signal: new AbortController().signal, agent: agent(sessionId),
+      })
+      assert.equal(result.isError, true, 'the host must reject a registration without a token')
+    }
+    assert.equal(registrations.length, 2)
+    for (const registration of registrations) {
+      assert.equal('sessionToken' in registration, false,
+        'the bridge must not fabricate a token')
+    }
+  } finally {
+    hub.close()
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a new Worker generation loses the credential until the App claims again', async () => {
+  const first = await mount()
+  let restored = ''
+  try {
+    const registrations: Record<string, unknown>[] = []
+    const remote = new BotRuntimeRemote(first, new BotStreamHub())
+    assert.deepEqual(remote.botClaimSession({
+      sessionId: 'gb-main', sessionToken: 'dshg_fixture_generation_1',
+    }), { ok: true, sessionId: 'gb-main' })
+    registerProbe(first)
+    await first.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        registrations.push(payload)
+        return { ok: true, id: 'generation-registration' }
+      },
+      cancel: async () => {},
+    })
+    const before = await executeTool(first, {
+      callId: ToolCallId('generation-before'), name: 'mcp__phone__ListRoutines',
+      arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+    })
+    assert.equal(before.isError, false)
+    assert.equal(registrations[0]!.sessionToken, 'dshg_fixture_generation_1')
+
+    // The replaced Worker gets a brand-new in-memory map: the old claim is
+    // gone, so the same session has no credential and the next registration
+    // omits the field (the host rejects it until the App claims again).
+    const second = await mount()
+    try {
+      await second.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, new BotStreamHub()) })
+      const remote2 = second.get('botRuntimeRemote') as {
+        botClaimSession(request: { sessionId: string; sessionToken?: string }): { ok: boolean; sessionId: string }
+      }
+      registerProbe(second)
+      await second.plugin(dshbotIdentityBridge, {
+        request: async payload => {
+          restored = String(payload.sessionToken ?? '')
+          return payload.sessionToken === undefined
+            ? { ok: false, error: 'unauthorized' }
+            : { ok: true, id: 'reclaimed-registration' }
+        },
+        cancel: async () => {},
+      })
+      const lost = await executeTool(second, {
+        callId: ToolCallId('generation-lost'), name: 'mcp__phone__ListRoutines',
+        arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+      })
+      assert.equal(lost.isError, true, 'a lost Worker credential must fail closed')
+      assert.equal(restored, '')
+      assert.deepEqual(remote2.botClaimSession({
+        sessionId: 'gb-main', sessionToken: 'dshg_fixture_generation_2',
+      }), { ok: true, sessionId: 'gb-main' })
+      const resumed = await executeTool(second, {
+        callId: ToolCallId('generation-reclaimed'), name: 'mcp__phone__ListRoutines',
+        arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+      })
+      assert.equal(resumed.isError, false)
+      assert.equal(restored, 'dshg_fixture_generation_2')
+    } finally {
+      await second.fiber.dispose()
+    }
+  } finally {
+    await first.fiber.dispose()
   }
 })
 

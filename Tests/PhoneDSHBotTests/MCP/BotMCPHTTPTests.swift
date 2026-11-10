@@ -17,7 +17,7 @@ final class BotMCPHTTPTests: XCTestCase {
         let provider = BotDomainVolatileContextProvider(memory: memory, routines: machine, now: { 1_000 })
         let fixture = try makeBotMCPFixture(volatileProvider: provider)
         defer { fixture.cleanup() }
-        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let issued = try await fixture.runtime.issueSessionToken(botId: "main", sessionId: "gb-main", kind: .chat)
         let server = BotMCPHTTPServer(handler: BotMCPHandler(runtime: fixture.runtime), token: "test-token-1234567890")
         let url = try await server.start()
         defer { server.stop() }
@@ -26,6 +26,7 @@ final class BotMCPHTTPTests: XCTestCase {
             "runtimeId": .string(BotMCPRuntime.defaultRuntimeID), "sessionId": .string("gb-main"),
             "callId": .string("volatile-http"), "name": .string("BotVolatileContext"),
             "argsDigest": .string(try BotArgumentsDigest.string(for: arguments)),
+            "sessionToken": .string(issued.token),
         ]), token: server.token)
         let response = try await request(url, body: .object([
             "jsonrpc": .string("2.0"), "id": .string("volatile-http"), "method": .string("tools/call"),
@@ -43,7 +44,7 @@ final class BotMCPHTTPTests: XCTestCase {
     func testRealStreamableHTTPDiscoversOnlyP0AndExecutesClaimedCard() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
-        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let issued = try await fixture.runtime.issueSessionToken(botId: "main", sessionId: "gb-main", kind: .chat)
         let handler = BotMCPHandler(runtime: fixture.runtime)
         let server = BotMCPHTTPServer(handler: handler, token: "test-token-1234567890")
         let url = try await server.start()
@@ -75,6 +76,7 @@ final class BotMCPHTTPTests: XCTestCase {
             "runtimeId": .string(BotMCPRuntime.defaultRuntimeID), "sessionId": .string("gb-main"),
             "callId": .string("http-card"), "name": .string("ask_user"),
             "argsDigest": .string(try BotArgumentsDigest.string(for: arguments)),
+            "sessionToken": .string(issued.token),
         ]), token: server.token)
         XCTAssertEqual(registered["ok"], .bool(true))
 
@@ -157,7 +159,7 @@ final class BotMCPHTTPTests: XCTestCase {
     func testIdentityCancelAndApprovalRoutesAreUsableOverHTTP() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
-        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let issued = try await fixture.runtime.issueSessionToken(botId: "main", sessionId: "gb-main", kind: .chat)
         let handler = BotMCPHandler(runtime: fixture.runtime)
         let server = BotMCPHTTPServer(handler: handler, token: "routes-token")
         let url = try await server.start()
@@ -169,6 +171,7 @@ final class BotMCPHTTPTests: XCTestCase {
             "runtimeId": .string(BotMCPRuntime.defaultRuntimeID), "sessionId": .string("gb-main"),
             "callId": .string("cancel-http"), "name": .string("ListRoutines"),
             "argsDigest": .string(try BotArgumentsDigest.string(for: arguments)),
+            "sessionToken": .string(issued.token),
         ]), token: "routes-token")
         let registrationId = try XCTUnwrap(registered["id"]?.stringValue)
         let cancelled = try await request(base.appendingPathComponent("identity/cancel"), body: .object([

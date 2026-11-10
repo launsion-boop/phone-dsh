@@ -40,7 +40,7 @@ final class BotMCPNativeForwardingTests: XCTestCase {
     func testBotAndNativeToolsShareOnePhoneEndpoint() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
-        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let main = try await fixture.runtime.issueSessionToken(botId: "main", sessionId: "gb-main", kind: .chat)
         let handler = BotMCPHandler(runtime: fixture.runtime)
         await handler.attachNativeMCP(StubNativeMCP())
 
@@ -72,6 +72,7 @@ final class BotMCPNativeForwardingTests: XCTestCase {
             "runtimeId": .string(BotMCPRuntime.defaultRuntimeID), "sessionId": .string("gb-main"),
             "callId": .string("bot-call"), "name": .string("ListRoutines"),
             "argsDigest": .string(try BotArgumentsDigest.string(for: arguments)),
+            "sessionToken": .string(main.token),
         ]))
         XCTAssertEqual(registration["ok"], .bool(true))
         let bot = await handler.rpc(
@@ -84,7 +85,7 @@ final class BotMCPNativeForwardingTests: XCTestCase {
     func testHTTPEndpointListsAndCallsBothToolFamilies() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
-        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let main = try await fixture.runtime.issueSessionToken(botId: "main", sessionId: "gb-main", kind: .chat)
         let handler = BotMCPHandler(runtime: fixture.runtime)
         await handler.attachNativeMCP(StubNativeMCP())
         let server = BotMCPHTTPServer(handler: handler, token: "native-token")
@@ -110,6 +111,7 @@ final class BotMCPNativeForwardingTests: XCTestCase {
             "runtimeId": .string(BotMCPRuntime.defaultRuntimeID), "sessionId": .string("gb-main"),
             "callId": .string("http-bot"), "name": .string("ListRoutines"),
             "argsDigest": .string(try BotArgumentsDigest.string(for: arguments)),
+            "sessionToken": .string(main.token),
         ]))
         let bot = try await post(url, body: .object([
             "jsonrpc": .string("2.0"), "id": .string("http-bot"), "method": .string("tools/call"),
@@ -126,7 +128,9 @@ final class BotMCPNativeForwardingTests: XCTestCase {
             method: "tools/call",
             params: .object(["name": .string("android_connect"), "arguments": .object([:])]),
             id: .string("native"))
-        XCTAssertEqual(response["error"]?["code"], .number(-32602))
+        XCTAssertEqual(response["result"]?["isError"], .bool(true))
+        XCTAssertEqual(response["result"]?["structuredContent"]?["error"]?["code"],
+                       .string("unknown_tool"))
     }
 
     private func post(_ url: URL, body: BotJSONValue, token: String) async throws -> BotJSONValue {

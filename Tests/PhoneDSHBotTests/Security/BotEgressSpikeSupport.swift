@@ -54,18 +54,21 @@ func spikePost(_ url: URL, token: String?, body: BotJSONValue,
 
 func spikeRegister(_ base: URL, token: String, sessionId: String, callId: String,
                    name: String, arguments: BotJSONValue,
+                   sessionToken: String? = nil,
                    headers: [String: String] = [:]) async throws -> SpikeHTTPResponse {
     let digest = try BotArgumentsDigest.string(for: arguments)
+    var body: [String: BotJSONValue] = [
+        "runtimeId": .string(BotMCPRuntime.defaultRuntimeID),
+        "sessionId": .string(sessionId),
+        "callId": .string(callId),
+        "name": .string(name),
+        "arguments": arguments,
+        "argsDigest": .string(digest),
+    ]
+    if let sessionToken { body["sessionToken"] = .string(sessionToken) }
     return try await spikePost(
         base.appendingPathComponent("identity/register"), token: token,
-        body: .object([
-            "runtimeId": .string(BotMCPRuntime.defaultRuntimeID),
-            "sessionId": .string(sessionId),
-            "callId": .string(callId),
-            "name": .string(name),
-            "arguments": arguments,
-            "argsDigest": .string(digest),
-        ]), headers: headers)
+        body: .object(body), headers: headers)
 }
 
 func spikeCall(_ base: URL, token: String, name: String, arguments: BotJSONValue,

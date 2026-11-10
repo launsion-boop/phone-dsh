@@ -77,6 +77,19 @@
     },
     {
       "suite": "egress",
+      "name": "bot-identity-cancel-correct-token",
+      "target": "http://127.0.0.1:8787/identity/cancel",
+      "headers": {
+        "x-pdsh-mcp-egress": "wpf0-fixture-egress-token"
+      },
+      "expect": {
+        "admitted": true
+      },
+      "boundary": "correct",
+      "reason": "identity cancellation is one of the four gated Bot routes"
+    },
+    {
+      "suite": "egress",
       "name": "user-connector-correct-token",
       "target": "https://connector.example.test/mcp",
       "headers": {

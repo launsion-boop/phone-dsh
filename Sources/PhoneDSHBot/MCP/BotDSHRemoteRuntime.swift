@@ -89,6 +89,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         var wakeDelivered: Bool
     }
 
+    private struct SessionCredential {
+        let token: String
+        let principal: BotGatewayPrincipal
+        /// The Worker generation that acknowledged the claim. A Worker restart
+        /// invalidates the Worker's in-memory token map, so the App must claim
+        /// again before the session's next turn.
+        var claimGeneration: UInt64
+        var claimAcknowledged: Bool
+    }
+
     private struct TurnCoordinator {
         let sessionId: String
         let attemptId: String
@@ -116,7 +126,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     private let ledger: BotLLMLedger
     private let watchdog: BotWatchdogMonitor
     private let wakeInbox: WakeInbox?
-    private var sessions: [String: BotGatewayPrincipal] = [:]
+    private var sessions: [String: SessionCredential] = [:]
+    /// Bumped whenever the Worker is replaced. Every session credential is
+    /// re-claimed before its next turn, using its current token when that
+    /// incarnation still resolves and a freshly issued one otherwise.
+    private var claimGeneration: UInt64 = 0
     private var coordinators: [String: TurnCoordinator] = [:]
     private var queuedTurns: [String: QueuedTurn] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
@@ -160,6 +174,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
 
     public func attachTransport(_ newTransport: any DSHRemoteTransport) async {
         transport = newTransport
+        // The previous Worker's in-memory session credentials are gone. Keep
+        // the host-side tokens (the BotTokenRegistry incarnation is still the
+        // current one) but require a fresh issue+claim before the next turn.
+        claimGeneration &+= 1
         guard mainSessionId != nil else { return }
         for (sessionId, coordinator) in coordinators {
             do {
@@ -174,7 +192,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
         for queued in queuedTurns.values { queued.work.cancel() }
         queuedTurns.removeAll()
-        sessions.removeAll()
         mainSessionId = nil
     }
 
@@ -565,6 +582,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// chat task. Terminal records survive too, so a restart never turns an
     /// existing task id into `unauthorized`.
     public func workerRestarted() async {
+        // The replaced Worker lost every in-memory session credential. Keep the
+        // host-side issue/principal pair and re-claim it before the next turn.
+        claimGeneration &+= 1
         let live = taskStates.filter { $0.value.live }
         for (taskId, state) in live {
             state.work?.cancel()
@@ -632,7 +652,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             timeoutMs: state.timeoutMs, status: state.record.status,
             result: state.record.result, partial: state.record.partial,
             error: state.record.error, createdAt: now(), wakeDelivered: state.wakeDelivered)
-        let principal = sessions[state.ownerSessionId] ?? BotGatewayPrincipal(
+        let principal = sessions[state.ownerSessionId]?.principal ?? BotGatewayPrincipal(
             botId: state.ownerBotId, sessionId: state.ownerSessionId,
             kind: state.parentKind, expiresAt: Int64.max,
             incarnation: state.ownerIncarnation)
@@ -805,9 +825,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 recoveredCwd = await remoteSessionCwd(recovered.sessionId)
             }
             if recoveredCwd == root, await validateRemoteSession(recovered.sessionId, attempts: 100) {
-                try await claimOwnedSession(recovered.sessionId)
-                let principal = try await runtime.issueSession(botId: botId, sessionId: recovered.sessionId, kind: .chat)
-                sessions[recovered.sessionId] = principal
+                let principal = try await issueAndClaimSession(recovered.sessionId, kind: .chat)
                 try await recordRuntimeStarted(recovered.sessionId, principal: principal, cwd: root)
                 return recovered.sessionId
             }
@@ -978,9 +996,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
             throw BotMCPError.unavailable("session/create returned no sessionId")
         }
-        try await claimOwnedSession(sessionId)
-        let principal = try await runtime.issueSession(botId: botId, sessionId: sessionId, kind: kind)
-        sessions[sessionId] = principal
+        _ = try await issueAndClaimSession(sessionId, kind: kind)
         return sessionId
     }
 
@@ -992,39 +1008,74 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         return "gb-\(kind.rawValue)-\(UUID().uuidString.lowercased())"
     }
 
-    /// A Bot session must be owned before its first turn. New `gb-` sessions
-    /// are already deterministically owned by the Worker namespace; legacy or
-    /// recovered ids need this RPC. A Worker that predates the claim method is
-    /// tolerated only for `gb-` ids; everything else fails closed.
-    private func claimOwnedSession(_ sessionId: String) async throws {
+    /// Issues the registry token for a session first, then hands exactly that
+    /// token to `phone/botClaimSession`; the reverse order would leave the
+    /// Worker without a credential for the first turn. A Worker that predates
+    /// the claim method is tolerated only for `gb-` ids, and the missing token
+    /// then fails identity registration closed.
+    private func issueAndClaimSession(_ sessionId: String, kind: BotSessionKind) async throws -> BotGatewayPrincipal {
+        let issued = try await runtime.issueSessionToken(
+            botId: botId, sessionId: sessionId, kind: kind)
+        let acknowledged = try await claimOwnedSession(sessionId, sessionToken: issued.token)
+        sessions[sessionId] = SessionCredential(
+            token: issued.token, principal: issued.principal,
+            claimGeneration: claimGeneration, claimAcknowledged: acknowledged)
+        return issued.principal
+    }
+
+    /// Claims one Bot session for the current Worker generation. Returns
+    /// whether the Worker acknowledged the claim; an unacknowledged `gb-` claim
+    /// is retried before the next turn rather than treated as authenticated.
+    private func claimOwnedSession(_ sessionId: String, sessionToken: String) async throws -> Bool {
         // The App-side registry mirrors every id this runtime creates,
         // recovers or claims so the DSH pages can hide legacy non-`gb-` ids.
         onSessionRegistered?(sessionId)
+        var fields: [String: BotJSONValue] = ["sessionId": .string(sessionId)]
+        if !sessionToken.isEmpty { fields["sessionToken"] = .string(sessionToken) }
         let response: BotJSONValue
         do {
             response = try await transport.call("phone/botClaimSession", args: .object([
-                "request": .object(["sessionId": .string(sessionId)]),
+                "request": .object(fields),
             ]))
         } catch {
-            if sessionId.hasPrefix("gb-") { return }
+            if sessionId.hasPrefix("gb-") { return false }
             throw error
         }
         guard response["ok"]?.boolValue == true else {
             // An unacknowledged claim can never make a legacy id safe.
-            if sessionId.hasPrefix("gb-") { return }
+            if sessionId.hasPrefix("gb-") { return false }
             throw BotMCPError.unavailable("Bot session ownership was not acknowledged for \(sessionId)")
         }
+        return true
     }
 
     private func ensureSession(sessionId: String, kind: BotSessionKind) async throws -> BotGatewayPrincipal {
-        if let existing = sessions[sessionId] { return existing }
-        guard await validateRemoteSession(sessionId) else {
-            throw BotMCPError.unavailable("session/page could not resume \(sessionId)")
+        if let existing = sessions[sessionId] {
+            if existing.claimGeneration == claimGeneration, existing.claimAcknowledged {
+                return existing.principal
+            }
+            // A replaced Worker lost its in-memory map but the host may still
+            // hold the current incarnation. Re-claim that exact token instead
+            // of rotating for availability; a re-sign/rotate/revoke in the
+            // meantime no longer resolves and falls through to a fresh issue.
+            if let current = await runtime.gateway.tokens.lookup(existing.token),
+               current.sessionId == sessionId,
+               let live = await runtime.gateway.tokens.lookupSession(sessionId),
+               live.incarnation == current.incarnation {
+                let acknowledged = try await claimOwnedSession(
+                    sessionId, sessionToken: existing.token)
+                sessions[sessionId] = SessionCredential(
+                    token: existing.token, principal: current,
+                    claimGeneration: claimGeneration, claimAcknowledged: acknowledged)
+                return current
+            }
+        } else {
+            guard await validateRemoteSession(sessionId) else {
+                throw BotMCPError.unavailable("session/page could not resume \(sessionId)")
+            }
         }
-        try await claimOwnedSession(sessionId)
-        let principal = try await runtime.issueSession(botId: botId, sessionId: sessionId, kind: kind)
-        sessions[sessionId] = principal
-        return principal
+        // New session or no current incarnation: issue first, then claim.
+        return try await issueAndClaimSession(sessionId, kind: kind)
     }
 
     private func canSteer(sessionId: String) -> Bool {
