@@ -234,31 +234,31 @@ final class BotCaptureUITests: XCTestCase {
         let field = app.textFields["bot.add.name"]
         XCTAssertTrue(field.waitForExistence(timeout: 3))
         let create = app.buttons["bot.add.create"]
-        XCTAssertFalse(create.isEnabled)
-        XCTAssertTrue(app.staticTexts["bot.add.name.hint"].exists)
 
-        // The dialog opens with a 61-character draft. Clear through the
-        // field's own control; a blind delete burst depends on where the tap
-        // put the caret and can leave a different, still-valid name.
+        // The dialog opens empty: 创建 is disabled and no validation/count text
+        // is rendered below the field.
+        XCTAssertFalse(create.isEnabled)
+        XCTAssertFalse(app.staticTexts["bot.add.name.hint"].exists)
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ OR label CONTAINS %@", "不能为空", "最多")
+        ).firstMatch.exists)
+
+        // Typing past the limit is capped in the field binding: 61 UTF-16
+        // units become 60, so 创建 stays enabled and no hint appears.
+        let capped = String(repeating: "长", count: 60)
+        field.tap()
+        field.typeText(String(repeating: "长", count: 61))
+        XCTAssertTrue(waitUntil(timeout: 3) { (field.value as? String) == capped })
+        XCTAssertTrue(waitUntil(timeout: 2) { create.isEnabled })
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "最多")
+        ).firstMatch.exists)
+
+        // Clear, enter a real name, create, and confirm the header switched.
         let clear = app.buttons["bot.add.name.clear"]
         XCTAssertTrue(clear.waitForExistence(timeout: 2))
         clear.tap()
-        XCTAssertTrue(app.staticTexts["名称不能为空。"].waitForExistence(timeout: 2))
-        XCTAssertFalse(create.isEnabled)
-
-        // A valid name enables 创建.
-        field.tap()
-        field.typeText("小舟")
-        XCTAssertTrue(waitUntil(timeout: 2) { create.isEnabled })
-
-        // Appending past the limit must disable it again. The fixture's
-        // create path must reject the same value too.
-        field.typeText(String(repeating: "长", count: 61))
-        XCTAssertTrue(app.staticTexts["名称最多 60 个字符，当前 63 个。"].waitForExistence(timeout: 2))
         XCTAssertTrue(waitUntil(timeout: 2) { !create.isEnabled })
-
-        XCTAssertTrue(clear.waitForExistence(timeout: 2))
-        clear.tap()
         field.tap()
         field.typeText("小舟")
         XCTAssertTrue(waitUntil(timeout: 2) { create.isEnabled })

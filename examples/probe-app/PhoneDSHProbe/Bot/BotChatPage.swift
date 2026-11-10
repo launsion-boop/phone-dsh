@@ -345,30 +345,6 @@ struct BotChatPage: View {
                                 appearance: model.appearance, reaction: model.reaction)
                     .transition(.opacity.combined(with: .offset(y: 6)))
             }
-            if model.pendingApprovalCount > 0 {
-                Button {
-                    model.scrollRequestID = model.visibleRows.first(where: {
-                        $0.body.type == "approval" && ($0.body["status"]?.string ?? "pending") == "pending"
-                    })?.id
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.shield")
-                            .foregroundStyle(NativeParityTokens.warning)
-                        Text("有 \(model.pendingApprovalCount) 项操作待审批")
-                            .botSecondaryFont(weight: .medium)
-                            .foregroundStyle(HomeSpec.textPrimary)
-                        Spacer()
-                        Text("查看")
-                            .botSecondaryFont(weight: .medium)
-                            .foregroundStyle(HomeSpec.textSecondary)
-                    }
-                    .padding(.horizontal, 14)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .homeListCard()
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("bot.approval.banner")
-            }
             if let notice = model.runtimeNotice {
                 // DSH composer notice: one 13pt line above the card, dismissible.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
