@@ -3,6 +3,7 @@
 // 原生外壳的骨架（重构第一步）：底部四标签 对话 / 会话 / 工作区 / 设置。
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
+import ProbeKit
 import SwiftUI
 import PhoneDSH
 import PhoneDSHAgentCore
@@ -90,7 +91,8 @@ struct NativeShell: View {
         HomeAppearance.apply()
     }
 
-    @State private var drawerOpen = false
+    @State private var drawerOpen = NativeDebugDefaults.drawerOpen(
+        environment: ProcessInfo.processInfo.environment)
     /// Bottom menu selection; 任务 (the chat page) is where the app opens.
     @State private var selectedTab: HomeTab = .tasks
     @State private var keyboardVisible = false
@@ -101,12 +103,18 @@ struct NativeShell: View {
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
-    /// Shared app state. The Bot avatar's off-screen/background pause is
-    /// derived from it here; the app's only scene-phase observer updates it.
-    @Environment(AppModel.self) private var model
+    @Environment(\.workspaceModels) private var models
+    /// Shared app state. The Bot page's scene/tab pause is derived from it here;
+    /// the app's only scene-phase observer updates it. The Bot avatar's
+    /// off-screen/background pause reads the same value.
+    @Environment(AppModel.self) private var appModel
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
+    @State private var debugPCLinkScreen: String? = {
+        let value = ProcessInfo.processInfo.environment["PDSH_PCLINK_SCREEN"]
+        return value?.isEmpty == false ? value : nil
+    }()
     #endif
 
     var body: some View {
@@ -140,15 +148,12 @@ struct NativeShell: View {
                         .accessibilityHidden(true)
                 }
 
-                SessionsDrawerPanel(isOpen: panelOpen,
-                                    topInset: proxy.safeAreaInsets.top,
-                                    bottomInset: proxy.safeAreaInsets.bottom,
-                                    isPersistent: usesSidebar)
-                    .offset(x: drawerOffset(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible))
-                    .shadow(color: .black.opacity(modalDrawerVisible ? 0.12 : 0), radius: 20, x: 6)
-                    .simultaneousGesture(modalDrawerVisible ? closeDrag : nil)
-                    .allowsHitTesting(sidebarVisible || modalDrawerVisible)
-                    .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
+                drawerPanel(panelOpen: panelOpen,
+                            topInset: proxy.safeAreaInsets.top,
+                            bottomInset: proxy.safeAreaInsets.bottom,
+                            usesSidebar: usesSidebar,
+                            sidebarVisible: sidebarVisible,
+                            modalDrawerVisible: modalDrawerVisible)
             }
             .ignoresSafeArea()
             .preferredColorScheme(preferences.appearance.colorScheme)
@@ -156,9 +161,10 @@ struct NativeShell: View {
                 drawerOpen = false
                 dragOffset = 0
             }
-            // The session drawer belongs to 任务; leaving that tab closes it.
-            .onChange(of: selectedTab) { _, tab in
-                if tab != .tasks { closeDrawer() }
+            // Each drawer belongs to its own tab (任务 sessions, Bot roster);
+            // any tab change closes it and the new tab gets its own panel.
+            .onChange(of: selectedTab) { _, _ in
+                closeDrawer()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keyboardVisible = true
@@ -172,6 +178,17 @@ struct NativeShell: View {
         // never depend on taps or swipes. Names match docs/screen-inventory.md.
         .fullScreenCover(item: $preview) { screen in
             NavigationStack { screen.body }
+        }
+        // Unattended D2 E2E: open the real PC surfaces without a tap.
+        .fullScreenCover(item: Binding(
+            get: { debugPCLinkScreen.flatMap(DebugPCLinkScreen.init(rawValue:)) },
+            set: { debugPCLinkScreen = $0?.rawValue })) { screen in
+            NavigationStack {
+                switch screen {
+                case .pairing: PCPairingPage()
+                case .connected: ConnectedComputerPage()
+                }
+            }
         }
         #endif
         #if DEBUG
@@ -215,28 +232,75 @@ struct NativeShell: View {
         ZStack {
             tabPage(.bot) {
                 NavigationStack {
-                    // One pause entry for every host-driven condition: the Bot
-                    // tab is off-screen or the app is not active. BotFishView
-                    // additionally observes low power mode locally. The Bot tab
-                    // stays mounted in the background, so the second term is
-                    // what stops its TimelineView from rendering per frame.
-                    BotProductionPage()
-                        .environment(\.botFishPaused,
-                                     selectedTab != .bot || !model.isSceneActive)
-                        .toolbar(.hidden, for: .navigationBar)
-                        .modifier(tabRoot(.bot))
-                }
-            }
-            tabPage(.tasks) {
-                NavigationStack {
-                    ChatPage(openDrawer: {
+                    BotProductionPage(openDrawer: {
                         if usesSidebar {
                             withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
                         } else {
                             openDrawer()
                         }
-                    }, drawerExpanded: sidebarVisible)
-                    .modifier(tabRoot(.tasks))
+                    })
+                    // One pause entry for every host-driven condition: the Bot
+                    // tab is off-screen or the app is not active. The Bot page
+                    // and the 大肥鱼 avatar read the same value.
+                    .environment(\.botPageActive, botPageActive)
+                    .environment(\.botFishPaused, !botPageActive)
+                    .toolbar(.hidden, for: .navigationBar)
+                    .modifier(tabRoot(.bot))
+                }
+            }
+            tabPage(.tasks) {
+                // D2: keep one ChatPage per backend alive. Both stay in the
+                // hierarchy so drafts, scroll offsets and running turns never
+                // cross when the drawer segment changes.
+                ZStack {
+                    NavigationStack {
+                        ChatPage(modelOverride: models.phoneChat,
+                                 managementOverride: models.phoneManagement,
+                                 openDrawer: {
+                            if usesSidebar {
+                                withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                            } else {
+                                openDrawer()
+                            }
+                        }, drawerExpanded: sidebarVisible)
+                        .modifier(tabRoot(.tasks))
+                    }
+                    .opacity(models.isPhoneSelected ? 1 : 0)
+                    .allowsHitTesting(models.isPhoneSelected)
+                    .accessibilityHidden(!models.isPhoneSelected)
+
+                    if let pcChat = models.pcChat {
+                        NavigationStack {
+                            ChatPage(modelOverride: pcChat,
+                                     managementOverride: models.pcManagement,
+                                     openDrawer: {
+                                         if usesSidebar {
+                                             withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                                         } else {
+                                             openDrawer()
+                                         }
+                                     }, drawerExpanded: sidebarVisible)
+                            .modifier(tabRoot(.tasks))
+                        }
+                        .opacity(models.isPhoneSelected ? 0 : 1)
+                        .allowsHitTesting(!models.isPhoneSelected)
+                        .accessibilityHidden(models.isPhoneSelected)
+                    } else if !models.isPhoneSelected {
+                        // Same container as ChatPage above: the shell ignores
+                        // the safe area for the drawer, and NavigationStack is
+                        // what re-establishes it for the header. Without this
+                        // the placeholder header sits under the status bar.
+                        NavigationStack {
+                            PCWorkspaceChatPlaceholder(openDrawer: {
+                                if usesSidebar {
+                                    withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                                } else {
+                                    openDrawer()
+                                }
+                            }, drawerExpanded: sidebarVisible)
+                            .toolbar(.hidden, for: .navigationBar)
+                        }
+                    }
                 }
             }
             tabPage(.discover) {
@@ -261,6 +325,44 @@ struct NativeShell: View {
             .opacity(selected ? 1 : 0)
             .allowsHitTesting(selected)
             .accessibilityHidden(!selected)
+    }
+
+    /// The one drawer mechanism serves both tabs: 任务 shows the session list,
+    /// Bot shows the Bot roster. Width, corners, drag, scrim and the wide
+    /// persistent form are the same panel chrome.
+    @ViewBuilder
+    private func drawerPanel(panelOpen: Binding<Bool>, topInset: CGFloat,
+                             bottomInset: CGFloat, usesSidebar: Bool,
+                             sidebarVisible: Bool, modalDrawerVisible: Bool) -> some View {
+        Group {
+            if selectedTab == .bot {
+                BotDrawerHost(isOpen: panelOpen,
+                              topInset: topInset,
+                              bottomInset: bottomInset,
+                              isPersistent: usesSidebar)
+            } else {
+                SessionsDrawerPanel(isOpen: panelOpen,
+                                    topInset: topInset,
+                                    bottomInset: bottomInset,
+                                    isPersistent: usesSidebar)
+            }
+        }
+        .offset(x: drawerOffset(usesSidebar: usesSidebar, sidebarVisible: sidebarVisible))
+        .shadow(color: .black.opacity(modalDrawerVisible ? 0.12 : 0), radius: 20, x: 6)
+        .simultaneousGesture(modalDrawerVisible ? closeDrag : nil)
+        .allowsHitTesting(sidebarVisible || modalDrawerVisible)
+        .accessibilityHidden(!sidebarVisible && !modalDrawerVisible)
+        // The Bot drawer is part of the Bot page; its avatar rows use the
+        // same off-screen/background pause as the page.
+        .environment(\.botPageActive, botPageActive)
+        .environment(\.botFishPaused, !botPageActive)
+    }
+
+    /// The one value behind the Bot page's pause: the tab is selected and the
+    /// scene is active. `AppModel.isSceneActive` is updated by the app entry's
+    /// single scene-phase observer, never by a view.
+    private var botPageActive: Bool {
+        selectedTab == .bot && appModel.isSceneActive
     }
 
     /// The phone drawer's x: 0 open, following a leftward drag, fully off
@@ -749,6 +851,13 @@ struct EgressAllowListPage: View {
 #if DEBUG
 /// Debug-only screen router: one launch argument, one screen. Names are the
 /// same ones used in docs/screen-inventory.md.
+/// Unattended D2 screens, opened by `PDSH_PCLINK_SCREEN`.
+enum DebugPCLinkScreen: String, Identifiable, CaseIterable {
+    case pairing
+    case connected
+    var id: String { rawValue }
+}
+
 enum PreviewScreen: String, Identifiable, CaseIterable {
     case settings
     case settingsModel = "settings.model"

@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 relay.pair.* (relay rendezvous plane)",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "rendezvous"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "relay.pair.open"
+        },
+        "rendezvous": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "rendezvous"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "relay.pair.join"
+        },
+        "rendezvous": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "rendezvous",
+        "role",
+        "peerMachineId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "relay.pair.joined"
+        },
+        "rendezvous": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "role": {
+          "enum": [
+            "pc",
+            "phone"
+          ]
+        },
+        "peerMachineId": {
+          "type": "string",
+          "pattern": "^[a-z2-7]{26}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "rendezvous",
+        "payload"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "relay.pair.message"
+        },
+        "rendezvous": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "payload": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "rendezvous",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "relay.pair.close"
+        },
+        "rendezvous": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{22}$"
+        },
+        "reason": {
+          "enum": [
+            "paired",
+            "cancelled",
+            "rejected",
+            "peer_offline",
+            "rendezvous_expired",
+            "rendezvous_exhausted",
+            "auth_failed",
+            "storage",
+            "timeout"
+          ]
+        }
+      }
+    }
+  ]
+}

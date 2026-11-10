@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import ProbeKit
 import SwiftUI
 
 struct NativeDisclosureRow<Content: View>: View {

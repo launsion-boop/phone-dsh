@@ -115,11 +115,15 @@ final class ChatWorkflowTests: XCTestCase {
             credentialProvider: StaticCredentialProvider([:]),
             egressHosts: [])
         XCTAssertEqual(configuration.turnInactivityTimeout, 1_800)
-        XCTAssertEqual(configuration.engine.bootTimeout, 600)
+        XCTAssertEqual(configuration.engine.bootTimeout, 600,
+                       "the cold-start ceiling stays 600 s")
+        XCTAssertEqual(configuration.resumeBootReadyTimeout, 30)
+        XCTAssertEqual(configuration.resumeHelloTimeout, 30)
+        XCTAssertEqual(configuration.resumeVisibilityTimeout, 5)
         XCTAssertEqual(configuration.engine.environment["PDSH_SHELL_TIMEOUT_MS"], "600000")
     }
 
-    func testResumeWatchdogOutlivesTheHostHelloDeadline() throws {
+    func testResumeWatchdogOutlivesTheHostResumeBudgets() throws {
         let configuration = ChatHostConfiguration.make(
             workspaceRoot: URL(fileURLWithPath: "/tmp/pdsh-chat-config-test"),
             bundle: PhoneDSHBundleLocation(staticDirectory: URL(fileURLWithPath: "/static")),
@@ -127,10 +131,13 @@ final class ChatWorkflowTests: XCTestCase {
             modelName: "test",
             credentialProvider: StaticCredentialProvider([:]),
             egressHosts: [])
-        XCTAssertGreaterThan(ChatHostConfiguration.defaultResumeWatchdogTimeout,
-                             configuration.helloTimeout)
         XCTAssertEqual(ChatHostConfiguration.defaultResumeWatchdogTimeout,
-                       configuration.helloTimeout + 60)
+                       configuration.resumeBootReadyTimeout
+                           + configuration.resumeHelloTimeout
+                           + configuration.resumeVisibilityTimeout + 10)
+        XCTAssertLessThan(ChatHostConfiguration.defaultResumeWatchdogTimeout,
+                          configuration.helloTimeout,
+                          "the resume watchdog must not wait for the 600 s cold budget")
     }
 
     func testOnlyFailedHostNeedsResetAfterStart() {

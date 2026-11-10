@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 relay.allow",
+  "type": "object",
+  "required": ["v", "type", "peers"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "const": 1 },
+    "type": { "const": "relay.allow" },
+    "peers": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 1024,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z2-7]{26}$" }
+    }
+  }
+}

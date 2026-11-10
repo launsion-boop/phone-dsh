@@ -1,0 +1,14 @@
+# PCLink v1 PC bundle layer.
+#
+# The installable package root is `pclink/` (it carries `core/`, `plugin/` and
+# `cli/`); this patch is shared by that package and by a local `--patch` row
+# whose `name` is the absolute plugin/index.js path.
+- insert:
+    - id: pclink
+      name: dsh-pclink
+      config:
+        # Relay origin (the plugin also reads PCLINK_RELAY_URL when unset) and
+        # PC display name (PCLINK_PC_NAME). The default is the hosted relay
+        # https://pclink.tonoai.cn; set relayUrl only to override it.
+        # relayUrl: https://pclink.tonoai.cn
+        # name: My PC

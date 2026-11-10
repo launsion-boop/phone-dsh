@@ -19,6 +19,16 @@ public struct BotRemoteTurnResult: Sendable, Equatable {
     }
 }
 
+/// Handle for one live-frame observer. Multiple independent observers may
+/// subscribe to the same Bot; removing one never disturbs the others.
+public struct BotLiveFrameSubscription: Hashable, Sendable {
+    public let id: UUID
+
+    public init(id: UUID = UUID()) {
+        self.id = id
+    }
+}
+
 /// A live view of the main chat turn for the Bot page, taken from the same
 /// `session/follow` stream `collectTurn` already reads. In-process only: it is
 /// not persisted, not a row and not part of any wire contract. Hidden
@@ -114,7 +124,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     private var interruptedTaskWakes: [String] = []
     private var routineSessions: [String: String] = [:]
     private var mainSessionTask: Task<String, Error>?
-    private var liveObserver: (@Sendable (BotLiveTurnFrame) -> Void)?
+    private var liveObservers: [BotLiveFrameSubscription: @Sendable (BotLiveTurnFrame) -> Void] = [:]
+    /// The one compatibility observer installed by `setLiveObserver`.
+    private var legacyLiveSubscription: BotLiveFrameSubscription?
+    private var wakeInFlight = false
 
     public private(set) var mainSessionId: String?
 
@@ -141,7 +154,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         ledger = BotLLMLedger(eventLog: runtime.store)
         watchdog = BotWatchdogMonitor(eventLog: runtime.store, now: now)
         try await runtime.grants.recover()
-        await runtime.attachTaskExecutor(self)
+        await runtime.attachTaskExecutor(self, botID: botId)
         await restorePersistedTasks()
     }
 
@@ -229,10 +242,62 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                                  hidden: true, requestId: requestId)
     }
 
-    /// One observer (the Bot page) receives live frames of visible main-chat
-    /// turns; pass nil to stop.
+    /// Subscribes one additional observer to live frames of visible main-chat
+    /// turns. Every subscription is independent; the returned token removes
+    /// only that observer.
+    public func subscribeLiveFrames(
+        _ observer: @escaping @Sendable (BotLiveTurnFrame) -> Void
+    ) -> BotLiveFrameSubscription {
+        let subscription = BotLiveFrameSubscription()
+        liveObservers[subscription] = observer
+        return subscription
+    }
+
+    public func unsubscribeLiveFrames(_ subscription: BotLiveFrameSubscription) {
+        liveObservers.removeValue(forKey: subscription)
+    }
+
+    /// Independent stream view of the same live frames. Each call gets its own
+    /// subscription; cancelling the stream removes only that observer.
+    public func liveFrames() -> AsyncStream<BotLiveTurnFrame> {
+        let subscription = BotLiveFrameSubscription()
+        let (stream, continuation) = AsyncStream<BotLiveTurnFrame>.makeStream(
+            bufferingPolicy: .bufferingNewest(512))
+        liveObservers[subscription] = { frame in continuation.yield(frame) }
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.unsubscribeLiveFrames(subscription) }
+        }
+        return stream
+    }
+
+    /// Backward-compatible single observer used by the existing Bot page.
+    /// Subscriptions created through `subscribeLiveFrames`/`liveFrames` are
+    /// unaffected; pass nil to remove only this compatibility observer.
     public func setLiveObserver(_ observer: (@Sendable (BotLiveTurnFrame) -> Void)?) {
-        liveObserver = observer
+        if let legacyLiveSubscription {
+            liveObservers.removeValue(forKey: legacyLiveSubscription)
+        }
+        legacyLiveSubscription = nil
+        guard let observer else { return }
+        let subscription = BotLiveFrameSubscription()
+        liveObservers[subscription] = observer
+        legacyLiveSubscription = subscription
+    }
+
+    /// Delivers pending held inbox items by opening a normal visible chat turn
+    /// whose prompt starts with the held block. If this Bot already has a
+    /// running (or queued) chat turn, nothing is opened and the items stay
+    /// pending for the next user turn.
+    public func wakeWithHeldMessages() async throws {
+        guard let wakeInbox else { return }
+        guard !wakeInFlight else { return }
+        wakeInFlight = true
+        defer { wakeInFlight = false }
+        let sessionId = try await ensureMainSession()
+        guard coordinators[sessionId] == nil, queuedTurns[sessionId] == nil else { return }
+        let pending = try await wakeInbox.items().contains { $0.state == .pending }
+        guard pending else { return }
+        _ = try await sendUserMessage("")
     }
 
     public func heldChatActionNonces(sessionID: String) -> [String: String] {
@@ -570,7 +635,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 break
             }
             for event in events {
-                if let snapshot = Self.decodePersistedTask(event) {
+                if let snapshot = Self.decodePersistedTask(event),
+                   snapshot.parentBotId == botId {
                     latest[snapshot.taskId] = snapshot
                 }
                 if event.type == "task.settled", let record = Self.decodeTaskRecord(event.data),
@@ -828,12 +894,32 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
 
     private func remoteSessionCwd(_ sessionId: String) async -> String? {
         do {
-            let list = try await transport.call("session/list", args: .object([:]))
+            // DSH 0.2.2-rc.1's gateway requires the reserved `_request` member
+            // for `session/list` (assertExactArguments); a bare `{}` is
+            // arguments-invalid and used to be swallowed here.
+            let list = try await transport.call("session/list", args: .object(["_request": .object([:])]))
             for item in list["items"]?.arrayValue ?? [] where item["sessionId"]?.stringValue == sessionId {
                 return item["cwd"]?.stringValue
             }
-        } catch {}
+        } catch {
+            await recordDiagnostic(
+                "session/list cwd lookup failed for \(sessionId): \(error)", sessionId: sessionId)
+        }
         return nil
+    }
+
+    /// Diagnostics go to the Bot journal's ephemeral `runtime.stderr` buffer,
+    /// the same event writer this runtime already uses; no durable event,
+    /// schema, or wire field is introduced.
+    private func recordDiagnostic(_ message: String, sessionId: String) async {
+        let principal = BotGatewayPrincipal(
+            botId: botId, sessionId: sessionId, kind: .chat, expiresAt: Int64.max)
+        _ = try? await runtime.eventWriter.append(
+            type: "runtime.stderr", principal: principal,
+            data: .object([
+                "source": .string("BotDSHRemoteRuntime.remoteSessionCwd"),
+                "message": .string(message),
+            ]))
     }
 
     private func isSessionCwdConflict(_ error: Error) -> Bool {
@@ -1126,8 +1212,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         var suppressWrapUp = false
         let live = kind == .chat && !hidden
         func publish(_ frameKind: BotLiveTurnFrame.Kind) {
-            guard live, let liveObserver else { return }
-            liveObserver(BotLiveTurnFrame(sessionId: sessionId, turnId: currentTurn, kind: frameKind))
+            guard live else { return }
+            publishLiveFrame(BotLiveTurnFrame(
+                sessionId: sessionId, turnId: currentTurn, kind: frameKind))
         }
         while true {
             guard coordinators[sessionId]?.attemptId == attemptId else {
@@ -1261,6 +1348,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 continue
             }
         }
+    }
+
+    private func publishLiveFrame(_ frame: BotLiveTurnFrame) {
+        guard !liveObservers.isEmpty else { return }
+        for observer in Array(liveObservers.values) { observer(frame) }
     }
 
     private func isQuestionTool(_ name: String) -> Bool {

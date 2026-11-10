@@ -132,7 +132,7 @@ class GatewaySession(
             return preflightDeny(GatewayFailure.credentialUnavailable(), scopes)
         }
 
-        val sanitized = requestHeaders.sanitize(request.headers)
+        val sanitized = requestHeaders.sanitize(request.headers, url.host)
         var outbound = LinkedHashMap(sanitized.headers)
         credential.applyTo(outbound)
         var secrets = credential.secretValues()

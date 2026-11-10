@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import ProbeKit
 import UIKit
 import XCTest
 

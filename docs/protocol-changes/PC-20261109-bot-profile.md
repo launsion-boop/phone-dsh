@@ -81,3 +81,53 @@ Self-check（`spec/README.md` §5.1）：没有新增第二种 envelope 或别�
 | Diff hygiene | `git diff --check` | PASS |
 
 Not verified: Swift 编译与 XCTest、iOS 模拟器／真机、桌面 dsh-bot 导出器实跑（容器没有 dsh-bot checkout；调用方用 `bf4075b` 重跑比对）。`swift test --filter PhoneDSHBotTests` 的其它测试也未在本容器运行。`phone-p0-conformance` 的 page-structure 失败是工作树基线已有的 GAP-33 差异，不由本单引入；未把它算作本单通过。
+
+## 7. 多 Bot 名册（bm-profile，P26 additive）
+
+本单元在既有 P26 Bot profile 契约上追加名册 API 和上游规则向量，仍是 additive，未改 P25/P27。实现权威仍是 dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6` 的 `src/main/agents/{store,model}.cjs`；手机端只在「至少保留一个 Bot」上比上游更严。
+
+### 7.1 Public API 与规则
+
+- `BotProfile` 追加 record 字段（JSON 键与上游一致）：`description`（`description`，截断到 2000 个 UTF-16 unit）、`hiddenByUser`（`hidden_by_user`）、`pinned`（`pinned`）、`unreadCount`（`unread_count`，读取与写入都 ≥ 0）、`lastMessageAt`（`last_message_at`，可为 JSON `null`）。
+- `BotRoster { bots, mainBotID, visibleBots }`：`bots` 为插入顺序并含隐藏 Bot；`mainBotID` 是修复后的指针；`visibleBots` 只排除 `hiddenByUser`。
+- `BotProfileStoreError` 追加 `invalidName(String)`、`lastBot`、`unknownBot(String)`。未知 id 的 `setMainBotID`／`deleteBot`／`setHidden`／`markRead`／`incrementUnread`／`touch` 都抛 `unknownBot`，且不改文件。
+- `roster()` 与 `mainBotID()`：指针为空、悬空或指向不存在的 record 时回落到插入顺序的第一个 Bot 并写回；无可回落 Bot 时保留 `nil`。修复同时把主 Bot 置为 `pinned = true`（上游 `setMainAgent` 的自动 pin 语义；读取修复不改变 `updated_at`）。`mainBotID()` 与 `roster()` 共享同一修复路径。
+- `createBot(name:fishColor:fishHairstyle:description:)`：id 为 `agent-` + 16 位小写 hex，冲突时重新生成；名字 trim 后非空且 ≤ 60，否则 `invalidName`；`fishColor`／`fishHairstyle` 为 `nil` 时显式写 `blue`／`long`；`name_explicit = true`；空名册的首个 Bot 成为主 Bot 并 pin。
+- `deleteBot(id:)`：唯一 Bot 抛 `lastBot`；未知 id 抛 `unknownBot`；删除主 Bot（或指针本来悬空）时指针迁移到剩余第一个（插入顺序），新主 Bot pin；返回被删资料与新主指针。手机端不删除最后一个 Bot 是上游没有的额外限制。
+- `setHidden(id:hidden:)`、`markRead(id:)`、`incrementUnread(id:by:)`、`touch(id:at:)`：更新对应字段与 `updated_at`；`incrementUnread` 的 `by` 至少按 1 计；`markRead` 已经是 0 时不写文件也不发事件；`touch(id:at:nil)` 写 JSON `null`。
+- `rosterUpdates()`：订阅先同步收到当前名册，之后每次成功写入推一次；无写入的幂等操作（如已读 0 的 `markRead`）不推。流不丢弃中间的写入。
+- `upsert`：改名走同一 trim／非空／≤ 60 校验；`BotProfilePatch` 追加 `description: String?`（截断 2000）与 `hiddenByUser: Bool?`。`id`、`primary`、`mainAgentId` 不是可写 patch 字段。
+- `bootstrapMainIfNeeded` 不改变既有行为：仍保证 `main` 存在、显式 blue/long，并只在指针缺失时补指针；没有新增 UI 或 data-transfer。
+
+`agents-index.json` 顶层、每条 record、`runtime-settings.json` 顶层与 record 的未知字段继续原样保留；两个文件仍是原子替换和 `completeUntilFirstUserAuthentication`。损坏文件仍先移到 `<name>.corrupt-<ms>`，移动失败则拒绝覆盖。
+
+### 7.2 向量与契约文件
+
+`spec/tools/bot/export-vectors.mjs` 新增 `rosterRules`，由真实 `AgentRecords`／`normalizePatch` 导出：
+
+- `mainPointerRepair`：空指针 → 第一个、悬空指针 → 第一个、合法指针保持、空名册无主指针。
+- `deleteMainMigration`：删主 Bot → 剩余第一个、删非主 Bot 指针不变、删最后一个主 Bot → 剩余第一个。
+- `normalizePatch`：`id`／`primary`／`mainAgentId` 从 patch 中剔除（合法字段如 name／description／fish_color／hidden_by_user 保留）。
+
+`golden/bot-profile.json` 的既有 colors／colorOrderMain／hairstyles／normalizer／seed 不变；仅 `source.files` 追加 `src/main/agents/store.cjs` 并追加 `rosterRules`。schema 追加 `rosterRules` 的形状和 record 的新可选字段（旧 record 不受影响）。重跑导出器时 `bot-profile.json` 应 byte-identical；其他 golden 的 phoneDSH 增量（如 `held-inbox` 的 `deviceTaskResult`、`tool-effects` 的 `nativeMcp`）不由本单元改变。
+
+### 7.3 相容性与实测记录
+
+| Producer → Consumer | 支援方式 |
+| --- | --- |
+| old → new | 旧 record 缺新字段时按 `""`／`false`／`0`／`null` 读取；旧 settings 的 `mainAgentId` 原样使用，缺失时由 `mainBotID()` 修复，不迁移版本。 |
+| new → old | 文件仍是 record schema 3／settings version 1；旧 dsh-bot 可忽略新增的 `rosterRules` 向量字段和 record 可选字段。 |
+| new → new | 名册写入先读后写、原子替换；同一目录的多个 store 实例以文件最新内容为准；每次成功写入发一个 roster 快照。 |
+| rollback | 不新增 durable 序号、不删除 record；回滚到没有名册 API 的 App 时两个 JSON 仍是 dsh-bot 可读格式。 |
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| Bot target build | `swift build --target PhoneDSHBot` | FAIL（本 harness 禁止 SwiftPM 的 manifest sandbox：`sandbox-exec: sandbox_apply: Operation not permitted`）；同命令加 `--disable-sandbox` → PASS |
+| Bot tests | `swift test --filter PhoneDSHBotTests` | 同上被 sandbox 拒绝；`swift test --disable-sandbox --filter PhoneDSHBotTests` → PASS，306 tests／0 failures（`BotRosterTests` 17、`BotProfileGoldenTests` 8、`BotProfileStoreTests` 10） |
+| 导出器语法 | `node --check spec/tools/bot/export-vectors.mjs` | PASS |
+| 上游向量重导 | `node spec/tools/bot/export-vectors.mjs --checkout <upstream> --sha bf4075b0… --out /tmp/…` | PASS；`bot-profile.json` 与仓库 golden byte-identical（其余 golden 的 phone 增量不参与比较） |
+| Schema | `spec/v1/tools/spec_golden.validate_json(golden, schema)` | PASS |
+| Spec／跨树 CI | `CI_PROTOCOL_BASE=dc823973e5bfa9dcb9bab1e0b6c00d35982812e7 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree` | PASS：phone-spec 235 tests；phone-cross-tree 8/8 invariants、87 tests、0 breaking schema finding |
+| Diff hygiene | `git diff --check` | PASS |
+
+Not verified: iOS 模拟器／真机、桌面 dsh-bot 与手机之间的实际资料传输、UI 的添加／隐藏／删除流程；本单元只证明 Swift store 与上游导出向量、schema 和 CI 一致。

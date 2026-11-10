@@ -1,46 +1,46 @@
 {
- "schema": "pdsh.ui.page-structure-spec-required/1",
- "note": "Items the contract needs but the extractor cannot see from the page struct: §1-required rows the baseline only declares in dead code (`specRequired`), and actions rendered by a sibling view struct (`baselineReachable: true`). Each keeps its `File.swift:line` provenance; the `spec-baseline-mismatch` check treats a `specRef` on an entry as the acknowledgement for that §1 entrance. A whole surface that the extractor does not generate at all is registered as its own hand-written contract instead (`pages/preview-surface.json`, see its `handRegistered` block): an entry here is merged into an extracted page, and there is no extracted page to merge into.",
- "entries": [
-  {
-   "page": "chat",
-   "label": "提交回答",
-   "kind": "button",
-   "writes": true,
-   "provenance": "ChatPage.swift:3760",
-   "anchor": "Button(\"提交回答\", systemImage: \"arrow.up\") { submitAnswers() }",
-   "baselineReachable": true,
-   "reason": "`QuestionCard` is a sibling view struct (ChatPage.swift:3727), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
-  },
-  {
-   "page": "chat",
-   "label": "打开会话列表",
-   "kind": "button",
-   "writes": false,
-   "provenance": "ChatPage.swift:253",
-   "anchor": ".accessibilityLabel(\"打开会话列表\")",
-   "baselineReachable": true,
-   "reason": "The drawer button has no visible text: its accessible name is the only label. Without it in the contract, merging the drawer and ⋯ header buttons into one `HeaderAction(label, glyph, …)` would be reported as `extra-action '打开会话列表'`, which is why the page carries two near-duplicate header components."
-  },
-  {
-   "page": "bluetooth-devices",
-   "label": "轻度提醒",
-   "kind": "button",
-   "writes": false,
-   "provenance": "BluetoothDevicesPage.swift:98",
-   "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
-   "baselineReachable": true,
-   "reason": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
-  },
-  {
-   "page": "bluetooth-devices",
-   "label": "高度提醒",
-   "kind": "button",
-   "writes": false,
-   "provenance": "BluetoothDevicesPage.swift:98",
-   "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
-   "baselineReachable": true,
-   "reason": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
-  }
- ]
+  "schema": "pdsh.ui.page-structure-spec-required/1",
+  "note": "Items the contract needs but the extractor cannot see from the page struct: §1-required rows the baseline only declares in dead code (`specRequired`), and actions rendered by a sibling view struct (`baselineReachable: true`). Each keeps its `File.swift:line` provenance; the `spec-baseline-mismatch` check treats a `specRef` on an entry as the acknowledgement for that §1 entrance. A whole surface that the extractor does not generate at all is registered as its own hand-written contract instead (`pages/preview-surface.json`, see its `handRegistered` block): an entry here is merged into an extracted page, and there is no extracted page to merge into.",
+  "entries": [
+    {
+      "page": "chat",
+      "label": "提交回答",
+      "kind": "button",
+      "writes": true,
+      "provenance": "ChatPage.swift:4024",
+      "anchor": "Button(\"提交回答\", systemImage: \"arrow.up\") { submitAnswers() }",
+      "baselineReachable": true,
+      "reason": "`QuestionCard` is a sibling view struct (ChatPage.swift:3991), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
+    },
+    {
+      "page": "chat",
+      "label": "打开会话列表",
+      "kind": "button",
+      "writes": false,
+      "provenance": "ChatPage.swift:271",
+      "anchor": ".accessibilityLabel(\"打开会话列表\")",
+      "baselineReachable": true,
+      "reason": "The drawer button has no visible text: its accessible name is the only label. Without it in the contract, merging the drawer and ⋯ header buttons into one `HeaderAction(label, glyph, …)` would be reported as `extra-action '打开会话列表'`, which is why the page carries two near-duplicate header components."
+    },
+    {
+      "page": "bluetooth-devices",
+      "label": "轻度提醒",
+      "kind": "button",
+      "writes": false,
+      "provenance": "BluetoothDevicesPage.swift:98",
+      "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
+      "baselineReachable": true,
+      "reason": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
+    },
+    {
+      "page": "bluetooth-devices",
+      "label": "高度提醒",
+      "kind": "button",
+      "writes": false,
+      "provenance": "BluetoothDevicesPage.swift:98",
+      "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
+      "baselineReachable": true,
+      "reason": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
+    }
+  ]
 }

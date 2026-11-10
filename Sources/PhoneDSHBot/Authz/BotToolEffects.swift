@@ -150,6 +150,35 @@ public enum BotToolEffectClassifier {
                                     ? "在對話中送出一則訊息\(preview.isEmpty ? "" : "：\(preview)")"
                                     : "Posts one message into the conversation\(preview.isEmpty ? "" : ": \(preview)")",
                                  isMcp: isMcp)
+        case "SendToAgent":
+            let target = clip(firstNonEmpty(args["agent_id"], args["target_id"],
+                                            args["bot_name"], args["agentId"]), max: 120)
+            let preview = clip(firstNonEmpty(args["message"], args["text"]), max: 180)
+            let resource = mergedResource([
+                target.isEmpty ? "dshbot:send-to-agent" : "agent=\(target)",
+                preview.isEmpty ? "" : "message=\(preview)",
+            ])
+            return BotToolEffect(tool: bareName, operation: "dshbot.SendToAgent",
+                                 resource: resource.isEmpty ? "dshbot:send-to-agent" : resource,
+                                 mutability: .externalSend, policy: .auto,
+                                 label: language == .zh ? "傳送訊息給其他 Bot" : "Send a message to another bot",
+                                 detail: language == .zh
+                                    ? "把訊息送給另一個 Bot，對方回覆後會以 agent-comm 行回來；這是對外動作，結果未知時不自動重試。"
+                                    : "Sends a message to another Bot and records the reply as an agent-comm row; this is an external action and must not be retried automatically when the outcome is unknown.",
+                                 isMcp: isMcp)
+        case "CreateTeammate":
+            let name = clip(args["name"], max: 80)
+            let resource = mergedResource([
+                "dshbot:create-teammate", name.isEmpty ? "" : "name=\(name)",
+            ])
+            return BotToolEffect(tool: bareName, operation: "dshbot.CreateTeammate",
+                                 resource: resource.isEmpty ? "dshbot:create-teammate" : resource,
+                                 mutability: .write, policy: .auto,
+                                 label: language == .zh ? "建立隊友 Bot" : "Create a teammate Bot",
+                                 detail: language == .zh
+                                    ? "建立一個有獨立對話與記憶的 Bot；只有主 Bot 可以呼叫。"
+                                    : "Creates a Bot with its own transcript and memory; only the main Bot may call it.",
+                                 isMcp: isMcp)
         case "UpdateRoutine":
             let title = clip(args["title"], max: 80)
             let action = args["action"].map { clip($0, max: 40) } ?? "update"

@@ -106,6 +106,8 @@ targets:
         product: PhoneDSHDeviceTasks
       - package: PhoneDSH
         product: PhoneDSHVenus
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -157,6 +159,8 @@ targets:
       # runnable accelerator set for the production Web surface and the E2E.
       - package: PhoneDSH
         product: PhoneDSHShell
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe.probekit
@@ -215,24 +219,21 @@ targets:
       # The native Daily Brief presentation model is UI-free and lets the suite
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
-      - path: PhoneDSHProbe/NativeConversationModels.swift
+      # NativeConversationModels / NativeTranscriptProjector moved into
+      # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
+      # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
       - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
-      - path: PhoneDSHProbe/NativeBoundedCache.swift
-      - path: PhoneDSHProbe/NativePerfCounters.swift
-      - path: PhoneDSHProbe/NativeStableHash.swift
       - path: PhoneDSHProbe/NativeMarkdownParseCache.swift
       - path: PhoneDSHProbe/NativeTimelineRow.swift
       - path: PhoneDSHProbe/NativeTimelineCache.swift
-      - path: PhoneDSHProbe/NativeDiffCache.swift
       - path: PhoneDSHProbe/NativeRowSummaryCache.swift
       - path: PhoneDSHProbe/NativePlanCard.swift
       - path: PhoneDSHProbe/NativeTurnProcessRow.swift
       - path: PhoneDSHProbe/NativeCodeHighlighter.swift
-      - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
       - path: PhoneDSHProbe/NativeToolTitleTable.swift
@@ -253,6 +254,13 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # The PCLink connection owner is UI-free except for the debug identity
+      # store; the simulator suite drives its foreground wake-through.
+      - path: PhoneDSHProbe/PCLinkWorkspace.swift
+      # The App-side Bot MCP listener supervisor is host-free and links the
+      # real PhoneDSHBot recovery result, so the three lifecycle timings run
+      # against an injected fake listener without constructing ChatModel.
+      - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -280,11 +288,17 @@ targets:
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
       - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
         product: PhoneDSHBLE
       # The simulator suites import the linked shell provider exposed by the
       # shared WebHostConfiguration assembly.
       - package: PhoneDSH
         product: PhoneDSHShell
+      # PCLink D2: the pairing flow and PC backend are driven through the
+      # injected client seam in ProbeKit; the suite also names PCLink types.
+      - package: PhoneDSH
+        product: PhoneDSHPCLink
       - package: SwiftMarkdown
         product: Markdown
     settings:
@@ -335,24 +349,21 @@ targets:
       # production presentation source is compiled into this test module too.
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
-      - path: PhoneDSHProbe/NativeConversationModels.swift
+      # NativeConversationModels / NativeTranscriptProjector moved into
+      # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
+      # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
       - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
-      - path: PhoneDSHProbe/NativeBoundedCache.swift
-      - path: PhoneDSHProbe/NativePerfCounters.swift
-      - path: PhoneDSHProbe/NativeStableHash.swift
       - path: PhoneDSHProbe/NativeMarkdownParseCache.swift
       - path: PhoneDSHProbe/NativeTimelineRow.swift
       - path: PhoneDSHProbe/NativeTimelineCache.swift
-      - path: PhoneDSHProbe/NativeDiffCache.swift
       - path: PhoneDSHProbe/NativeRowSummaryCache.swift
       - path: PhoneDSHProbe/NativePlanCard.swift
       - path: PhoneDSHProbe/NativeTurnProcessRow.swift
       - path: PhoneDSHProbe/NativeCodeHighlighter.swift
-      - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
       - path: PhoneDSHProbe/NativeToolTitleTable.swift
@@ -373,6 +384,11 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      - path: PhoneDSHProbe/PCLinkWorkspace.swift
+      # The App-side Bot MCP listener supervisor is host-free and links the
+      # real PhoneDSHBot recovery result, so the three lifecycle timings run
+      # against an injected fake listener without constructing ChatModel.
+      - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit
@@ -394,6 +410,8 @@ targets:
         product: PhoneDSHAgentCore
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHBot
       - package: PhoneDSH
         product: PhoneDSHBLE
       - package: PhoneDSH

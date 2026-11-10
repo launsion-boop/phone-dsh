@@ -4,6 +4,7 @@
 // sidebar only needs one runloop), a failure rolls back to the old session, and
 // only the last tap may touch the page.
 
+import ProbeKit
 import XCTest
 
 final class HomeDrawerSwitchPolicyTests: XCTestCase {
@@ -108,5 +109,28 @@ final class HomeDrawerSwitchPolicyTests: XCTestCase {
             HomeDrawerSwitchPolicy.displayed(current: open, pending: latest),
             third,
             "the newer tap stays selected while the stale completion is discarded")
+    }
+
+    func testTheOptimisticTargetStaysVisibleWhileTheRecoveryWorkerWaits() {
+        let pending = HomeDrawerSwitchPolicy.Pending(target: other, generation: 4)
+        XCTAssertEqual(
+            HomeDrawerSwitchPolicy.displayed(current: open, pending: pending),
+            other,
+            "the tap frame paints the target before the worker starts")
+        XCTAssertEqual(
+            ChatResumeRecovery.sessionSwitchGate(
+                parked: true, hostLifecycleTransition: false,
+                rebuilding: false, hostAvailable: true, backoffScheduled: false),
+            .waitForRecovery,
+            "the worker waits instead of opening a second pending switch")
+        XCTAssertEqual(
+            ChatResumeRecovery.sessionSwitchGate(
+                parked: false, hostLifecycleTransition: false,
+                rebuilding: false, hostAvailable: true, backoffScheduled: false),
+            .runNow,
+            "after the lifecycle settles the same pending target runs exactly once")
+        XCTAssertFalse(
+            HomeDrawerSwitchPolicy.isLatest(3, latest: pending.generation),
+            "a newer tap supersedes the waiting worker")
     }
 }

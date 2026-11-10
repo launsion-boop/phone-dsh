@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 workspace/1 endpoint inventory",
+  "type": "object",
+  "required": [
+    "v",
+    "suite",
+    "dshTestedRange",
+    "defaultRetry",
+    "endpoints"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "suite": {
+      "const": "workspace/1"
+    },
+    "dshTestedRange": {
+      "const": ">=0.2.2-rc.1 <0.3.0"
+    },
+    "defaultRetry": {
+      "const": "unsafe"
+    },
+    "endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "retry",
+          "phoneOnly"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^\\$?[A-Za-z][A-Za-z0-9.]*(/[A-Za-z][A-Za-z0-9.]*)?$"
+          },
+          "kind": {
+            "enum": [
+              "unary",
+              "stream"
+            ]
+          },
+          "retry": {
+            "enum": [
+              "read",
+              "idempotent",
+              "unsafe"
+            ]
+          },
+          "phoneOnly": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 512
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._/-]+:[0-9]+$"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -7,7 +7,54 @@
 import Foundation
 import OSLog
 import PhoneDSHBLE
+import PhoneDSHLoopback
 import PhoneDSHVenus
+
+/// The app's one native MCP endpoint: `iphone_agent_run` in front of the BLE tools (which fall
+/// through to ADB). Both the Worker's direct `/mcp/native` and the Bot listener's forwarder use this
+/// same instance, so one receipt store and one in-flight task guard serve every caller.
+@MainActor enum PhoneNativeMCP {
+    #if DEBUG
+    /// DEBUG builds record what reaches the native tools (`GET /debug/native-mcp`).
+    static let server: any NativeMCPServing = NativeMCPDebugRecorder(IPhoneAgentMCPServer(
+        fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared))
+    #else
+    static let server: any NativeMCPServing = IPhoneAgentMCPServer(
+        fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared)
+    #endif
+}
+
+#if DEBUG
+/// DEBUG-only: keeps the last 20 native MCP requests (method, tool, whether the journal key
+/// header arrived, arguments) so a developer can see what the Worker actually sent.
+final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
+    static weak var current: NativeMCPDebugRecorder?
+    private let inner: any NativeMCPServing
+    private let lock = NSLock()
+    private var entries: [[String: Any]] = []
+    init(_ inner: any NativeMCPServing) { self.inner = inner; Self.current = self }
+
+    func handle(_ request: LoopbackRequest) async -> NativeMCPResponse {
+        let message = (try? JSONSerialization.jsonObject(with: request.body)) as? [String: Any]
+        let params = message?["params"] as? [String: Any]
+        let args = params?["arguments"].flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+        var entry: [String: Any] = [
+            "at": ISO8601DateFormatter().string(from: Date()), "method": message?["method"] as? String ?? "?",
+            "tool": params?["name"] as? String ?? "",
+            "has_key": request.headers.contains { $0.key.lowercased() == "x-pdsh-idempotency-key" && !$0.value.isEmpty },
+            "headers": request.headers.keys.map { $0.lowercased() }.sorted(),
+            "arguments": args.map { String(decoding: $0.prefix(300), as: UTF8.self) } ?? "",
+        ]
+        let response = await inner.handle(request)
+        entry["status"] = response.status
+        entry["result"] = String(decoding: response.body.prefix(400), as: UTF8.self)
+        lock.withLock { entries.append(entry); if entries.count > 20 { entries.removeFirst() } }
+        return response
+    }
+    func cancelPendingOperations() async { await inner.cancelPendingOperations() }
+    func snapshot() -> [[String: Any]] { lock.withLock { entries } }
+}
+#endif
 
 @MainActor final class IPhoneAgentHost: IPhoneAgentDevice, IPhoneAgentTaskExecuting {
     static let shared = IPhoneAgentHost()
@@ -68,7 +115,19 @@ import PhoneDSHVenus
         screen.start()
         try await hands.ensureHID()
         if screen.currentStats.decodedFrames > 0, (try? await screen.snapshot()) != nil { return }
-        // No picture yet: start mirroring to the board ourselves, then wait for the first frames.
+        // A viewer that just connected gets the board's cached GOP within a moment; wait for it
+        // instead of assuming mirroring is off.
+        let warmup = ContinuousClock.now + .seconds(4)
+        while ContinuousClock.now < warmup {
+            if (try? await screen.snapshot()) != nil { return }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        // Mirroring is on but no picture yet: never touch Control Center, since the mirroring
+        // control there is a toggle and tapping it would end the session.
+        if await hands.mirrorActive() {
+            throw IPhoneAgentError("板子在接收镜像但还没有画面（\(screen.currentStats.status)），请稍后重试")
+        }
+        // No mirror session: start mirroring to the board ourselves, then wait for the first frames.
         try await hands.startMirroring()
         let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {
@@ -207,6 +266,39 @@ import PhoneDSHVenus
 
     func route(_ request: TonoLinkRelayRequest) async -> TonoLinkRelayResponse? {
         switch (request.method, request.path) {
+        case ("POST", "/debug/chat"):
+            // DEBUG: submit one message to the current chat, exactly as the composer does.
+            let text = String(decoding: request.body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return .error(400, "body: message text") }
+            let accepted = await ChatModel.shared.send(text)
+            return .json(200, ["accepted": accepted])
+        case ("GET", "/debug/transcript"):
+            let n = Int(request.queryValue("n") ?? "") ?? 12
+            let items = ChatModel.shared.items.suffix(max(1, min(n, 200))).map { item in
+                ["kind": "\(item.kind)", "title": item.title, "text": String(item.text.prefix(2000))]
+            }
+            return .json(200, ["turn_running": ChatModel.shared.turnRunning, "items": Array(items)])
+        case ("GET", "/debug/ble"):
+            // What the Bluetooth devices page shows, for named or connected devices.
+            let store = BLEDeviceStore.shared
+            let rows = store.devices.filter { $0.name != "未命名 BLE 设备" || $0.state != "未连接" }.map { d -> [String: Any] in
+                ["id": d.id.uuidString, "name": d.name, "state": d.state, "link": d.linkState, "link_id": d.linkIdentity,
+                 "tools": d.linkTools, "granted": d.grantedTools.sorted(), "read": d.allowRead, "alert": d.allowAlert]
+            }
+            return .json(200, ["status": store.status, "trust": store.trustConnectedDevices, "devices": rows])
+        case ("POST", "/debug/ble/scan"):
+            BLEDeviceStore.shared.scan()   // the page's scan button
+            return .json(200, ["ok": true])
+        case ("POST", "/debug/ble/connect"):
+            // The board row's 连接 button: the same store call the page makes.
+            let want = request.queryValue("name") ?? "PhoneAgent"
+            guard let device = BLEDeviceStore.shared.devices.first(where: { $0.name.localizedCaseInsensitiveContains(want) }) else {
+                return .error(404, "no listed device named \(want); POST /debug/ble/scan first")
+            }
+            BLEDeviceStore.shared.connect(device.id)
+            return .json(200, ["id": device.id.uuidString, "name": device.name])
+        case ("GET", "/debug/native-mcp"):
+            return .json(200, ["requests": NativeMCPDebugRecorder.current?.snapshot() ?? []])
         case ("GET", "/agent/status"):
             var status: [String: Any] = ["running": running ?? "", "last": lastResult, "layout": [
                 "assistive_button": [hands.layout.assistiveButton.x, hands.layout.assistiveButton.y]]]

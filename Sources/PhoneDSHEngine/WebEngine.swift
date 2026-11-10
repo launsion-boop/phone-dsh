@@ -38,6 +38,15 @@ public protocol WebEngineControlling: Sendable {
     var isLockdownModeEnabled: Bool { get }
     /// Whether the view is attached to a window with the required visible area.
     var isAttachedWithVisibleArea: Bool { get }
+    /// Whether the hosting window is visible to the user.
+    ///
+    /// macOS: the window's `occlusionState` contains `.visible`. iOS: the app
+    /// is `.active`. `nil` when the view is not in a window or the platform
+    /// has no equivalent signal.
+    var isWindowOcclusionVisible: Bool? { get }
+    /// Re-reads the window attachment/occlusion state before a resume wait
+    /// samples it. Returns whether the view is attached with a visible area.
+    func refreshVisibilityForResume() async -> Bool
     /// Loads the page at `url` from the loopback origin.
     func load(_ url: URL) async throws
     /// Boots the worker entry with the given configuration.
@@ -45,6 +54,49 @@ public protocol WebEngineControlling: Sendable {
     /// Plans a WebContent restart (PLAN §2.5: at most every 2 h at a tool-call
     /// boundary), draining the controller before the view is reconstructed.
     func restart() async throws
+}
+
+extension WebEngineControlling {
+    /// A test double without a window has no occlusion signal; treat that as
+    /// unknown instead of "hidden", matching ``WebEngine/isVisibleForWebKit``.
+    public var isWindowOcclusionVisible: Bool? { nil }
+
+    /// A test double has no window state to refresh.
+    public func refreshVisibilityForResume() async -> Bool {
+        isAttachedWithVisibleArea
+    }
+}
+
+/// Per-phase timings of one ``WebEngineControlling/bootWorker(_:)`` call.
+///
+/// Durations are milliseconds since `bootWorker` started. They are recorded
+/// even when the boot throws, so a resume line can name the phase that stopped
+/// (`navigation` when navigation never finished, `boot-ready` when the page
+/// loaded but never reported ready).
+public struct WebEngineBootPhaseTimings: Equatable, Sendable {
+    /// Main-frame navigation duration in milliseconds, when it completed.
+    public var navigationMilliseconds: Double?
+    /// Boot-ready wall time in milliseconds, when the page reported it.
+    public var bootReadyMilliseconds: Double?
+    /// The furthest phase entered: `navigation`, `boot-ready`, or nil when the
+    /// boot never started.
+    public var reachedPhase: String?
+
+    public init(navigationMilliseconds: Double? = nil,
+                bootReadyMilliseconds: Double? = nil,
+                reachedPhase: String? = nil) {
+        self.navigationMilliseconds = navigationMilliseconds
+        self.bootReadyMilliseconds = bootReadyMilliseconds
+        self.reachedPhase = reachedPhase
+    }
+}
+
+/// Optional timing surface used by the host's resume diagnostic line.
+///
+/// A test engine may omit it; the host then records the whole `bootWorker`
+/// call as the navigation/boot-ready span rather than failing.
+public protocol WebEngineBootPhaseTimingReporting: Sendable {
+    func bootPhaseTimings() -> WebEngineBootPhaseTimings
 }
 
 /// Terminal teardown hook for a handoff, run after the page/Worker was
@@ -138,6 +190,15 @@ public final class WebEngine: NSObject {
     public nonisolated var isVisibleForWebKit: Bool {
         guard readable.isAttachedWithVisibleArea else { return false }
         return readable.isWindowOcclusionVisible ?? true
+    }
+
+    /// Nonisolated bridge used by the facade's resume visibility wait: the
+    /// actual `UIApplication.shared.applicationState` read must run on the UI
+    /// actor, because iOS only updates it around the same scene transition.
+    public nonisolated func refreshVisibilityForResume() async -> Bool {
+        await Task { @WebEngineUIActor in
+            self.refreshAttachmentState()
+        }.value
     }
     /// Capability flags the facade consults before starting the local harness.
     public nonisolated var capabilities: WebEngineCapabilities {
@@ -437,8 +498,34 @@ public final class WebEngine: NSObject {
         warnIfNotVisibleForWebKit()
         let bootID = configuration.bootID ?? WebEngineBootID.make()
         let url = try configuration.makePageURL(bootID: bootID)
-        try await performLoad(url, bootID: bootID)
-        _ = try await waitForBootReady(timeout: configuration.bootTimeout)
+        // Per-phase timings for the host's resume diagnostic line. A throw
+        // still leaves the furthest phase, so the line says where it stopped.
+        let startedAt = Date()
+        readable.setBootPhaseTimings(WebEngineBootPhaseTimings(
+            reachedPhase: "navigation"))
+        do {
+            try await performLoad(url, bootID: bootID)
+        } catch {
+            readable.setBootPhaseTimings(WebEngineBootPhaseTimings(
+                reachedPhase: "navigation"))
+            throw error
+        }
+        let navigation = Date().timeIntervalSince(startedAt) * 1_000
+        readable.setBootPhaseTimings(WebEngineBootPhaseTimings(
+            navigationMilliseconds: navigation,
+            reachedPhase: "boot-ready"))
+        do {
+            _ = try await waitForBootReady(timeout: configuration.bootTimeout)
+        } catch {
+            readable.setBootPhaseTimings(WebEngineBootPhaseTimings(
+                navigationMilliseconds: navigation,
+                reachedPhase: "boot-ready"))
+            throw error
+        }
+        readable.setBootPhaseTimings(WebEngineBootPhaseTimings(
+            navigationMilliseconds: navigation,
+            bootReadyMilliseconds: Date().timeIntervalSince(startedAt) * 1_000,
+            reachedPhase: "boot-ready"))
     }
 
     /// Destroys the live page/Worker and waits for the empty-document
@@ -492,13 +579,15 @@ public final class WebEngine: NSObject {
         refreshAttachmentState()
         guard isAttachedWithVisibleArea else {
             emitConsole(level: .warning,
-                        text: "the WKWebView is not attached to a window with a visible "
+                        text: "webview-visibility=not_attached; "
+                            + "the WKWebView is not attached to a window with a visible "
                             + "area; WebKit throttles or suspends a detached page (PLAN §2.5)")
             return
         }
         guard isWindowOcclusionVisible == false else { return }
         emitConsole(level: .warning,
-                    text: "the WKWebView window is not occlusion-visible; WebKit throttles "
+                    text: "webview-visibility=not_occlusion_visible; "
+                        + "the WKWebView window is not occlusion-visible; WebKit throttles "
                         + "a hidden page (timers, fetch-body reads and Worker scheduling "
                         + "stop). An app that runs its main event loop satisfies this; a "
                         + "macOS XCTest harness must pump AppKit events while it waits "
@@ -789,6 +878,14 @@ extension WebEngine: WebEngineRestartRequesting {}
 extension WebEngine: WebEngineWorkerTerminating {}
 
 extension WebEngine: WebEngineShutdownRequesting {}
+
+extension WebEngine: WebEngineBootPhaseTimingReporting {
+    /// Read off the UI actor: the timing snapshot is lock-protected so the
+    /// host can include it in a failed-resume line without another hop.
+    public nonisolated func bootPhaseTimings() -> WebEngineBootPhaseTimings {
+        readable.bootPhaseTimings
+    }
+}
 
 // MARK: - Supporting types
 

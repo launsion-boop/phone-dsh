@@ -143,6 +143,39 @@ public struct BotMemoryEraseResult: Sendable, Equatable {
     }
 }
 
+/// Result of erasing one whole scope. `botID` identifies the authority that
+/// performed the erase, not a per-Bot filter on user scope: `.user` always
+/// removes the shared user facts that every Bot reads.
+public struct BotMemoryEraseScopeResult: Sendable, Equatable {
+    public let ok: Bool
+    public let error: String?
+    public let scope: BotMemoryScope
+    public let botID: String
+    public let removed: Int
+    public let removedFacts: Int
+    public let factIDs: [String]
+    public let count: Int
+
+    public init(
+        ok: Bool,
+        error: String? = nil,
+        scope: BotMemoryScope,
+        botID: String,
+        removed: Int,
+        factIDs: [String] = [],
+        count: Int
+    ) {
+        self.ok = ok
+        self.error = error
+        self.scope = scope
+        self.botID = botID
+        self.removed = removed
+        self.removedFacts = removed
+        self.factIDs = factIDs
+        self.count = count
+    }
+}
+
 public actor BotMemory {
     private let store: any BotMemoryFactStore
     private let dataRoot: String
@@ -414,53 +447,90 @@ public actor BotMemory {
         )
     }
 
+    /// Erases every durable fact in one scope with text-free tombstones.
+    ///
+    /// - `scope: .agent` affects **only the current Bot**: its private facts
+    ///   disappear and future replay cannot resurrect them. Other Bots' agent
+    ///   facts and the shared user scope are untouched.
+    /// - `scope: .user` affects the **shared user memory** read by every Bot.
+    ///   The current Bot's own agent facts are untouched.
+    ///
+    /// This is the whole-scope version of ``erase(factID:)``. Individual fact
+    /// erasure remains id-addressed and scope-discovering. App-side callers
+    /// should confirm the scope before calling because `user` is visible to all
+    /// Bots.
+    @discardableResult
+    public func eraseAll(scope: BotMemoryScope) async throws -> BotMemoryEraseScopeResult {
+        let removal = try await store.eraseAll(scope: scope)
+        return BotMemoryEraseScopeResult(
+            ok: true,
+            scope: scope,
+            botID: botID,
+            removed: removal.removed.count,
+            factIDs: removal.removed.map(\.factID),
+            count: removal.count
+        )
+    }
+
+    /// Searches memory. With `scope == nil` both stores are searched and the
+    /// merged result reserves a slot for the missing scope (upstream
+    /// `memory.cjs` merge behaviour). With an explicit scope only that store is
+    /// searched, using the full `limit`; filtering a merged top-N would return
+    /// fewer hits than the scope actually has.
     public func recall(
         _ query: String = "",
         limit: Int = 40,
+        scope: BotMemoryScope? = nil,
         includeArchived: Bool = false,
         now explicitNow: Int64? = nil
     ) async throws -> [BotMemoryRecallHit] {
         let nowMS = explicitNow ?? now()
         let maximum = max(0, limit)
-        let agentRanked = BotMemoryRecallIndex(facts: try await store.facts(scope: .agent)).search(
-            query,
-            limit: maximum,
-            now: nowMS,
-            includeArchived: includeArchived
-        )
-        let userRanked = BotMemoryRecallIndex(facts: try await store.facts(scope: .user)).search(
-            query,
-            limit: maximum,
-            now: nowMS,
-            includeArchived: includeArchived
-        )
-        let matchedRecall = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if matchedRecall {
-            let agentIDs = agentRanked.filter { $0.fact.archived != true }.map(\.fact.factID)
-            let userIDs = userRanked.filter { $0.fact.archived != true }.map(\.fact.factID)
-            if !agentIDs.isEmpty {
-                try? await store.touch(factIDs: agentIDs, lastUsedMS: nowMS)
-            }
-            if !userIDs.isEmpty {
-                try? await store.touch(factIDs: userIDs, lastUsedMS: nowMS)
-            }
-        }
-        let agentHits = agentRanked.map {
-            BotMemoryRecallHit(
-                ranked: $0,
-                sourcePrefix: "bot",
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchedRecall = !trimmedQuery.isEmpty
+
+        func ranked(for scope: BotMemoryScope) async throws -> [BotMemoryRankedFact] {
+            BotMemoryRecallIndex(facts: try await store.facts(scope: scope)).search(
+                query,
+                limit: maximum,
                 now: nowMS,
-                lastUsedMS: matchedRecall && $0.fact.archived != true ? nowMS : nil
+                includeArchived: includeArchived
             )
         }
-        let userHits = userRanked.map {
-            BotMemoryRecallHit(
-                ranked: $0,
-                sourcePrefix: "user",
-                now: nowMS,
-                lastUsedMS: matchedRecall && $0.fact.archived != true ? nowMS : nil
-            )
+
+        func touch(_ ranked: [BotMemoryRankedFact]) async throws {
+            guard matchedRecall else { return }
+            let ids = ranked.filter { $0.fact.archived != true }.map(\.fact.factID)
+            guard !ids.isEmpty else { return }
+            try? await store.touch(factIDs: ids, lastUsedMS: nowMS)
         }
+
+        func hits(
+            _ ranked: [BotMemoryRankedFact],
+            sourcePrefix: String
+        ) -> [BotMemoryRecallHit] {
+            ranked.map {
+                BotMemoryRecallHit(
+                    ranked: $0,
+                    sourcePrefix: sourcePrefix,
+                    now: nowMS,
+                    lastUsedMS: matchedRecall && $0.fact.archived != true ? nowMS : nil
+                )
+            }
+        }
+
+        if let scope {
+            let scoped = try await ranked(for: scope)
+            try await touch(scoped)
+            return hits(scoped, sourcePrefix: scope == .agent ? "bot" : "user")
+        }
+
+        let agentRanked = try await ranked(for: .agent)
+        let userRanked = try await ranked(for: .user)
+        try await touch(agentRanked)
+        try await touch(userRanked)
+        let agentHits = hits(agentRanked, sourcePrefix: "bot")
+        let userHits = hits(userRanked, sourcePrefix: "user")
         func sortHits(_ hits: inout [BotMemoryRecallHit]) {
             hits.sort { left, right in
                 if left.score != right.score { return left.score > right.score }

@@ -15,12 +15,20 @@ public actor BotMCPRuntime {
     public let eventWriter: BotMCPEventWriter
     public let approvals: BotApprovalCoordinator
     public let volatileContext: BotVolatileContextProducer
+    /// Compatibility view of the `"main"` executor. Task tools route through
+    /// `taskExecutor(for:)`, never through this property.
     public private(set) var tasks: any BotTaskExecuting
+    /// Compatibility view of `memory(for: "main")`.
     public let memory: BotMemory
     public let routineMachine: RoutineMachine
 
     private let now: @Sendable () -> Int64
+    private let dataRoot: String
     private let memorySource: @Sendable (BotResolvedToolCall) -> BotMemorySourceKind
+    private var taskExecutors: [String: any BotTaskExecuting] = [:]
+    private var memories: [String: BotMemory] = [:]
+    private var teamToolHandlers: [any BotTeamToolHandling] = []
+    private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
     private var registrations: [String: BotAttribution] = [:]
     private var registrationArguments: [String: BotJSONValue] = [:]
     /// Bumped by `workerRestarted()`. Every registration/claim/approval is
@@ -52,11 +60,16 @@ public actor BotMCPRuntime {
         eventWriter = BotMCPEventWriter(eventLog: store, now: now)
         approvals = BotApprovalCoordinator(grants: grants, eventWriter: eventWriter, now: now)
         volatileContext = BotVolatileContextProducer(provider: volatileProvider ?? EmptyBotVolatileContextProvider())
-        tasks = taskExecutor ?? UnimplementedBotTaskExecutor()
-        memory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, now: now),
-            dataRoot: store.fileURL.deletingLastPathComponent().path,
-            botID: "main", now: now)
+        let mainExecutor = taskExecutor ?? UnimplementedBotTaskExecutor()
+        tasks = mainExecutor
+        taskExecutors = ["main": mainExecutor]
+        let dataRoot = store.fileURL.deletingLastPathComponent().path
+        self.dataRoot = dataRoot
+        let mainMemory = BotMemory(
+            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "main", now: now),
+            dataRoot: dataRoot, botID: "main", now: now)
+        memory = mainMemory
+        memories = ["main": mainMemory]
         routineMachine = RoutineMachine(store: routineStore ?? SQLiteRoutineStore(domainStore: store))
         self.memorySource = memorySource ?? { call in
             switch call.principal.kind {
@@ -76,8 +89,138 @@ public actor BotMCPRuntime {
         }
     }
 
+    /// Returns the cached memory authority for one Bot, creating it on first
+    /// use. Agent-scope facts replay only events written by this Bot; user-scope
+    /// facts are shared by every Bot. Historical events with no bot id belong
+    /// to `"main"`.
+    public func memory(for botID: String) -> BotMemory {
+        if let existing = memories[botID] { return existing }
+        let memory = BotMemory(
+            store: SQLiteBotMemoryFactStore(eventLog: store, botID: botID, now: now),
+            dataRoot: dataRoot, botID: botID, now: now)
+        memories[botID] = memory
+        return memory
+    }
+
+    /// Erases every agent-scope fact owned by `botID` and drops its cached
+    /// memory authority. This is the deletion-cascade hook for the Bot roster:
+    /// the shared user scope and every other Bot's agent facts are untouched.
+    /// Tombstones are durable, so a later replay cannot resurrect the facts.
+    ///
+    /// - Returns: the erased count and ids. `count` is the remaining agent-scope
+    ///   fact count observed at the end of the erase.
+    @discardableResult
+    public func deleteBotMemory(for botID: String) async throws -> BotMemoryEraseScopeResult {
+        let result = try await memory(for: botID).eraseAll(scope: .agent)
+        _ = forgetMemory(for: botID)
+        return result
+    }
+
+    /// Drops the cached `BotMemory` authority for `botID` without touching
+    /// durable memory. A later ``memory(for:)`` builds a fresh authority from
+    /// the event log. Use ``deleteBotMemory(for:)`` when the Bot is deleted.
+    ///
+    /// The `memory` compatibility view is not invalidated; it keeps pointing at
+    /// the authority it was created with.
+    @discardableResult
+    public func forgetMemory(for botID: String) -> Bool {
+        memories.removeValue(forKey: botID) != nil
+    }
+
+    /// Routes Task/AwaitTask/StopSubagent for one Bot. Detaching the `"main"`
+    /// executor falls back to the unimplemented executor; another Bot never
+    /// borrows it.
+    public func attachTaskExecutor(_ executor: any BotTaskExecuting, botID: String) {
+        taskExecutors[botID] = executor
+        if botID == "main" { tasks = executor }
+    }
+
+    /// Backward-compatible convenience: the Bot-less method always means the
+    /// `"main"` Bot.
     public func attachTaskExecutor(_ executor: any BotTaskExecuting) {
-        tasks = executor
+        attachTaskExecutor(executor, botID: "main")
+    }
+
+    public func detachTaskExecutor(botID: String) {
+        taskExecutors.removeValue(forKey: botID)
+        if botID == "main" { tasks = UnimplementedBotTaskExecutor() }
+    }
+
+    /// Backward-compatible convenience: the Bot-less method always means the
+    /// `"main"` Bot.
+    public func detachTaskExecutor() {
+        detachTaskExecutor(botID: "main")
+    }
+
+    /// True when a registered team-tool handler claims this bare name. The
+    /// catalog itself is intentionally unchanged in this unit.
+    func handlesTeamTool(_ name: String) -> Bool {
+        guard !Self.isHostBuiltinToolName(name) else { return false }
+        return teamToolHandlers.contains { $0.handles(name) }
+    }
+
+    /// Names the host/Worker already owns outside the Bot catalog (shell, VFS,
+    /// native phone tools). A team handler may never divert them.
+    private static func isHostBuiltinToolName(_ name: String) -> Bool {
+        ["bash", "write", "edit", "phone"].contains(name)
+            || BotDeviceToolProvider.tools.contains(name)
+    }
+
+    /// Registers a team tool surface. New names are routed after normal
+    /// identity attribution and authorization; the existing tool catalog and
+    /// tool list are not modified. When the handler also implements
+    /// ``BotTeamToolCatalogProviding`` and no explicit provider was installed,
+    /// its roster-aware catalog becomes the per-caller `tools/list` source.
+    public func registerTeamTools(_ handler: any BotTeamToolHandling) {
+        teamToolHandlers.append(handler)
+        if toolCatalogProvider == nil, let catalog = handler as? any BotTeamToolCatalogProviding {
+            toolCatalogProvider = { callerBotID in
+                await catalog.toolDefinitions(callerBotID: callerBotID)
+            }
+        }
+    }
+
+    /// Replaces the roster-aware catalog provider. Pass `nil` to fall back to
+    /// the static catalog. The App does not normally need this; registering
+    /// `BotTeamTools` installs its provider automatically.
+    public func setToolCatalogProvider(
+        _ provider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?) {
+        toolCatalogProvider = provider
+    }
+
+    /// Tool definitions for one caller. Without an identified caller (or when
+    /// the provider declines), the historical static catalog is returned so
+    /// standard MCP clients keep their current behaviour. The provider is
+    /// installed by `registerTeamTools`; the App needs no extra wiring.
+    public func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition] {
+        guard let callerBotID, !callerBotID.isEmpty else {
+            return BotToolCatalog.allDefinitions
+        }
+        if let provider = toolCatalogProvider,
+           let definitions = await provider(callerBotID) {
+            return definitions
+        }
+        return BotToolCatalog.allDefinitions
+    }
+
+    /// Resolves the caller Bot from the App-minted MCP session identity. This
+    /// is the same session principal `tools/call` attribution uses; no tool
+    /// arguments or model-supplied Bot id participate.
+    public func callerBotID(forSession sessionID: String?) async -> String? {
+        guard let sessionID, !sessionID.isEmpty else { return nil }
+        return await gateway.tokens.lookupSession(sessionID)?.botId
+    }
+
+    private func teamToolHandler(for name: String) -> (any BotTeamToolHandling)? {
+        teamToolHandlers.first { $0.handles(name) }
+    }
+
+    private func taskExecutor(for botID: String) throws -> any BotTaskExecuting {
+        guard let executor = taskExecutors[botID] else {
+            throw BotMCPError.unavailable(
+                "No task executor is attached for bot \(botID); refusing to use another Bot's executor")
+        }
+        return executor
     }
 
     @discardableResult
@@ -122,7 +265,8 @@ public actor BotMCPRuntime {
         let bareName = bareToolName(name)
         guard BotToolCatalog.isRegistered(bareName)
                 || ["bash", "write", "edit", "phone"].contains(bareName)
-                || BotDeviceToolProvider.tools.contains(bareName) else {
+                || BotDeviceToolProvider.tools.contains(bareName)
+                || handlesTeamTool(bareName) else {
             throw BotMCPError.unknownTool(name)
         }
         let scope = scopedRuntimeID(runtimeId)
@@ -190,8 +334,12 @@ public actor BotMCPRuntime {
         }
         _ = await gateway.cancelToolCalls(runtimeId: previous)
         let cancelled = await approvals.cancelAll(reason: "worker_restarted")
-        if let restarting = tasks as? any BotTaskRestarting {
-            await restarting.workerRestarted()
+        var restarted: Set<ObjectIdentifier> = []
+        for executor in taskExecutors.values {
+            guard restarted.insert(ObjectIdentifier(executor as AnyObject)).inserted else { continue }
+            if let restarting = executor as? any BotTaskRestarting {
+                await restarting.workerRestarted()
+            }
         }
         return cancelled
     }
@@ -272,7 +420,11 @@ public actor BotMCPRuntime {
     public func execute(name: String, arguments: BotJSONValue,
                         context: BotMCPRequestContext) async -> BotMCPCallResult {
         let bareName = bareToolName(name)
-        guard BotToolCatalog.isRegistered(bareName) else { return .failure("unknown_tool", "Unknown tool: \(name)") }
+        let catalogTool = BotToolCatalog.isRegistered(bareName)
+        let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
+        guard catalogTool || teamHandler != nil else {
+            return .failure("unknown_tool", "Unknown tool: \(name)")
+        }
         let scope = scopedRuntimeID(context.runtimeId)
         guard let call = await gateway.resolveToolCall(
             runtimeId: scope, name: bareName, arguments: arguments) else {
@@ -295,6 +447,11 @@ public actor BotMCPRuntime {
             let effect = BotToolEffectClassifier.effect(for: bareName, arguments: arguments)
             if let reason = await authorize(call: call, effect: effect) {
                 return .failure("permission_denied", reason)
+            }
+            if let teamHandler {
+                return await teamHandler.execute(
+                    name: bareName, arguments: arguments,
+                    principal: call.principal, context: context)
             }
             return try await dispatch(name: bareName, arguments: arguments, call: call)
         } catch let error as BotMCPError {
@@ -339,7 +496,7 @@ public actor BotMCPRuntime {
         }
         switch name {
         case "UpdateMemory": return try await updateMemory(arguments, call: call)
-        case "RecallMemory": return try await recallMemory(arguments)
+        case "RecallMemory": return try await recallMemory(arguments, call: call)
         case "Task": return try await startTask(arguments, call: call)
         case "AwaitTask": return try await awaitTask(arguments, call: call)
         case "StopSubagent": return try await stopTask(arguments, call: call)
@@ -353,6 +510,7 @@ public actor BotMCPRuntime {
 
     private func updateMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
+        let memory = memory(for: call.principal.botId)
         let action = string(args["action"]) ?? "write"
         let scope = BotMemoryScope(rawValue: string(args["scope"]) ?? "agent") ?? .agent
         switch action {
@@ -390,14 +548,26 @@ public actor BotMCPRuntime {
         }
     }
 
-    private func recallMemory(_ arguments: BotJSONValue) async throws -> BotMCPCallResult {
+    private func recallMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
+        let memory = memory(for: call.principal.botId)
         let limit = try optionalInt(args["limit"]) ?? 40
         guard (1...50).contains(limit) else { throw BotMCPError.invalidRequest("RecallMemory limit must be 1…50") }
-        let scope = string(args["scope"]) ?? "all"
-        guard ["agent", "user", "all"].contains(scope) else { throw BotMCPError.invalidRequest("invalid memory scope") }
-        var hits = try await memory.recall(string(args["query"]) ?? "", limit: limit)
-        if scope != "all" { hits = hits.filter { $0.scope.rawValue == scope } }
+        let requestedScope = string(args["scope"]) ?? "all"
+        guard ["agent", "user", "all"].contains(requestedScope) else {
+            throw BotMCPError.invalidRequest("invalid memory scope")
+        }
+        // An explicit scope searches only that store with the full limit, as
+        // upstream dshAgent.cjs does. Filtering the merged top-N afterwards
+        // could return fewer hits than that scope actually has.
+        let recallScope: BotMemoryScope?
+        switch requestedScope {
+        case "agent": recallScope = .agent
+        case "user": recallScope = .user
+        default: recallScope = nil
+        }
+        let hits = try await memory.recall(
+            string(args["query"]) ?? "", limit: limit, scope: recallScope)
         return .success(.object([
             "ok": .bool(true), "facts": .array(try hits.map { try encode($0) }), "count": .number(Double(hits.count)),
         ]))
@@ -420,7 +590,7 @@ public actor BotMCPRuntime {
         let request = BotTaskRequest(
             parent: call, title: title, prompt: prompt,
             asynchronous: bool(args["async"]) ?? false, timeoutMs: timeout)
-        let record = try await tasks.start(request: request)
+        let record = try await taskExecutor(for: call.principal.botId).start(request: request)
         // The production task executor persists `task.created` itself, before
         // it starts any work (BotDSHRemoteRuntime.start). Writing a second
         // event here would either race the durable snapshot or leave a crash
@@ -443,7 +613,8 @@ public actor BotMCPRuntime {
         }
         let timeout = try optionalInt(args["timeout_ms"]) ?? 180_000
         guard (1_000...600_000).contains(timeout) else { throw BotMCPError.invalidRequest("AwaitTask timeout_ms must be 1000…600000") }
-        let record = try await tasks.await(taskId: id, timeoutMs: timeout, parent: call)
+        let record = try await taskExecutor(for: call.principal.botId)
+            .await(taskId: id, timeoutMs: timeout, parent: call)
         if ["completed", "failed", "stopped"].contains(record.status) {
             let principal = BotGatewayPrincipal(
                 botId: call.principal.botId, sessionId: record.sessionId, kind: .task, expiresAt: Int64.max)
@@ -459,7 +630,8 @@ public actor BotMCPRuntime {
         guard let id = firstNonEmpty(args["task_id"], args["id"]), !id.isEmpty else {
             throw BotMCPError.invalidRequest("StopSubagent requires task_id")
         }
-        let record = try await tasks.stop(taskId: id, parent: call)
+        let record = try await taskExecutor(for: call.principal.botId)
+            .stop(taskId: id, parent: call)
         let principal = BotGatewayPrincipal(
             botId: call.principal.botId, sessionId: record.sessionId, kind: .task, expiresAt: Int64.max)
         _ = try await eventWriter.append(

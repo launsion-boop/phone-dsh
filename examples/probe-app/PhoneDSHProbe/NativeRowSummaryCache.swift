@@ -6,6 +6,7 @@
 // once and every later body pass (including a re-created row view) hits.
 
 import Foundation
+import ProbeKit
 
 final class NativeRowSummaryCache {
     static let shared = NativeRowSummaryCache()

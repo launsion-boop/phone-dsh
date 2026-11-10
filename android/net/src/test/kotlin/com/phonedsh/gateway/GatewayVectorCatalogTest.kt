@@ -1,7 +1,7 @@
 // phone-dsh — :net tests: the vector catalog is complete and fully green.
 // SPDX-License-Identifier: MIT
 //
-// One aggregate test is the acceptance statement (30/30), the rest stop the
+// One aggregate test is the acceptance statement (31/31), the rest stop the
 // suite from shrinking quietly: a missing file, a renamed id, a rule class with
 // no vector, or a vector that never ran all fail here instead of passing by
 // omission.
@@ -15,7 +15,7 @@ import org.junit.Test
 class GatewayVectorCatalogTest {
 
     @Test
-    fun catalogIsExactlyTheThirtyGoldenVectors() {
+    fun catalogIsExactlyTheGoldenVectors() {
         val vectors = GatewayVectorRunner.loadVectors()
         val ids = vectors.map { it.id }
         assertEquals(

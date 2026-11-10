@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "模型服务",
-    "provenance": "ModelProviderSettingsPage.swift:73",
+    "provenance": "ModelProviderSettingsPage.swift:75",
     "anchor": ".navigationTitle(NativeText(\"模型服务\", \"Model Providers\"))"
   },
   "source": {
     "file": "ModelProviderSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/ModelProviderSettingsPage.swift",
-    "lines": 860,
-    "structLine": 28,
+    "lines": 863,
+    "structLine": 30,
     "renderedFrom": [
       "body",
       "profilesSection",
@@ -52,7 +52,7 @@
           "destination": null,
           "writes": false,
           "condition": "snapshot.profiles.isEmpty",
-          "provenance": "ModelProviderSettingsPage.swift:102",
+          "provenance": "ModelProviderSettingsPage.swift:105",
           "anchor": "ContentUnavailableView(NativeText(\"尚未配置模型服务\", \"No Model Providers\"),",
           "extraction": "syntax"
         },
@@ -67,25 +67,25 @@
           "destination": null,
           "writes": false,
           "condition": "!(snapshot.profiles.isEmpty)",
-          "provenance": "ModelProviderSettingsPage.swift:130",
+          "provenance": "ModelProviderSettingsPage.swift:133",
           "anchor": "Text(profile.displayName.isEmpty ? NativeText(\"模型服务\", \"Model Provider\") : profil",
           "extraction": "syntax",
           "collection": "snapshot.profiles"
         }
       ],
-      "provenance": "ModelProviderSettingsPage.swift:111",
+      "provenance": "ModelProviderSettingsPage.swift:114",
       "anchor": "Text(NativeText(\"服务\", \"Providers\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": null,
         "labelExpr": "errorText",
-        "provenance": "ModelProviderSettingsPage.swift:114",
+        "provenance": "ModelProviderSettingsPage.swift:117",
         "anchor": "Text(errorText).foregroundStyle(.red)"
       }
     },
     {
-      "id": "section-207",
+      "id": "section-210",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -105,7 +105,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ModelProviderSettingsPage.swift:211",
+          "provenance": "ModelProviderSettingsPage.swift:214",
           "anchor": "SettingsRowLabel(title: NativeText(\"添加模型服务\", \"Add Model Provider\"), icon: \"plus\"",
           "extraction": "syntax"
         },
@@ -120,28 +120,28 @@
           "destination": null,
           "writes": false,
           "condition": "let selected = snapshot.selected",
-          "provenance": "ModelProviderSettingsPage.swift:218",
+          "provenance": "ModelProviderSettingsPage.swift:221",
           "anchor": "SettingsRowLabel(title: NativeText(\"编辑默认服务\", \"Edit Default Provider\"), icon: \"sl",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ModelProviderSettingsPage.swift:207",
+      "provenance": "ModelProviderSettingsPage.swift:210",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "添加模型服务",
-        "provenance": "ModelProviderSettingsPage.swift:211"
+        "provenance": "ModelProviderSettingsPage.swift:214"
       },
       "footer": {
         "text": null,
         "labelExpr": "notice",
-        "provenance": "ModelProviderSettingsPage.swift:224",
+        "provenance": "ModelProviderSettingsPage.swift:227",
         "anchor": "Text(notice)"
       }
     },
     {
-      "id": "section-234",
+      "id": "section-237",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -161,23 +161,23 @@
           "destination": null,
           "writes": true,
           "condition": "!model.isStarted",
-          "provenance": "ModelProviderSettingsPage.swift:236",
+          "provenance": "ModelProviderSettingsPage.swift:239",
           "anchor": "Button(NativeText(\"启动本地引擎\", \"Start Local Engine\")) { Task { await model.start() ",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ModelProviderSettingsPage.swift:234",
+      "provenance": "ModelProviderSettingsPage.swift:237",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "启动本地引擎",
-        "provenance": "ModelProviderSettingsPage.swift:236"
+        "provenance": "ModelProviderSettingsPage.swift:239"
       },
       "footer": {
         "text": null,
         "labelExpr": "restartHint",
-        "provenance": "ModelProviderSettingsPage.swift:242",
+        "provenance": "ModelProviderSettingsPage.swift:245",
         "anchor": "Text(restartHint)"
       }
     }
@@ -193,7 +193,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:130",
+      "provenance": "ModelProviderSettingsPage.swift:133",
       "anchor": "Text(profile.displayName.isEmpty ? NativeText(\"模型服务\", \"Model Provider\") : profil",
       "extraction": "syntax"
     },
@@ -207,11 +207,11 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:211",
+      "provenance": "ModelProviderSettingsPage.swift:214",
       "anchor": "SettingsRowLabel(title: NativeText(\"添加模型服务\", \"Add Model Provider\"), icon: \"plus\"",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presents": "sheet-77"
+      "presents": "sheet-80"
     },
     {
       "id": "编辑默认服务",
@@ -223,7 +223,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:218",
+      "provenance": "ModelProviderSettingsPage.swift:221",
       "anchor": "SettingsRowLabel(title: NativeText(\"编辑默认服务\", \"Edit Default Provider\"), icon: \"sl",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -238,7 +238,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:236",
+      "provenance": "ModelProviderSettingsPage.swift:239",
       "anchor": "Button(NativeText(\"启动本地引擎\", \"Start Local Engine\")) { Task { await model.start() ",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -253,7 +253,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:92",
+      "provenance": "ModelProviderSettingsPage.swift:95",
       "anchor": "Button(String(format: NativeText(\"删除 %@\", \"Delete %@\"), profile.displayName), ro",
       "extraction": "syntax"
     },
@@ -267,7 +267,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:93",
+      "provenance": "ModelProviderSettingsPage.swift:96",
       "anchor": "Button(NativeText(\"取消\", \"Cancel\"), role: .cancel) {}",
       "extraction": "syntax"
     },
@@ -281,10 +281,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:168",
+      "provenance": "ModelProviderSettingsPage.swift:171",
       "anchor": "Label(NativeText(\"删除\", \"Delete\"), systemImage: \"trash\")",
       "extraction": "syntax",
-      "presents": "confirmationDialog-88"
+      "presents": "confirmationDialog-91"
     },
     {
       "id": "编辑",
@@ -296,7 +296,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:172",
+      "provenance": "ModelProviderSettingsPage.swift:175",
       "anchor": "Label(NativeText(\"编辑\", \"Edit\"), systemImage: \"pencil\")",
       "extraction": "syntax"
     },
@@ -310,11 +310,11 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:394",
+      "provenance": "ModelProviderSettingsPage.swift:397",
       "anchor": "SettingsRowLabel(title: NativeText(\"粘贴密钥\", \"Paste API key\"), icon: \"doc.on.clipb",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "获取模型",
@@ -326,13 +326,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:410",
+      "provenance": "ModelProviderSettingsPage.swift:413",
       "anchor": "SettingsRowLabel(title: fetchingModels ? \"正在获取模型…\" : \"获取模型\", icon: \"arrow.down.c",
       "extraction": "syntax",
       "labelAlternatives": [
         "正在获取模型…"
       ],
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "默认模型",
@@ -344,7 +344,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:417",
+      "provenance": "ModelProviderSettingsPage.swift:420",
       "anchor": "Picker(NativeText(\"默认模型\", \"Default model\"), selection: $draft.model) {",
       "extraction": "syntax",
       "items": [
@@ -352,7 +352,7 @@
         "Default model"
       ],
       "style": "default",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "高级设置",
@@ -364,10 +364,10 @@
       "writes": false,
       "destination": "advancedSettings",
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:432",
+      "provenance": "ModelProviderSettingsPage.swift:435",
       "anchor": "SettingsRowLabel(title: NativeText(\"高级设置\", \"Advanced settings\"), icon: \"slider.h",
       "extraction": "syntax",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "推理强度",
@@ -379,7 +379,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:482",
+      "provenance": "ModelProviderSettingsPage.swift:485",
       "anchor": "Picker(NativeText(\"推理强度\", \"Reasoning effort\"), selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -389,7 +389,7 @@
         "Default"
       ],
       "style": "default",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "文本输入",
@@ -401,10 +401,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:514",
+      "provenance": "ModelProviderSettingsPage.swift:517",
       "anchor": "Toggle(NativeText(\"文本输入\", \"Text input\"), isOn: $modelDrafts[index].textInput)",
       "extraction": "syntax",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "图片输入",
@@ -416,10 +416,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:515",
+      "provenance": "ModelProviderSettingsPage.swift:518",
       "anchor": "Toggle(NativeText(\"图片输入\", \"Image input\"), isOn: $modelDrafts[index].imageInput)",
       "extraction": "syntax",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "删除这个模型",
@@ -431,11 +431,11 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:516",
+      "provenance": "ModelProviderSettingsPage.swift:519",
       "anchor": "Button(NativeText(\"删除这个模型\", \"Delete This Model\"), role: .destructive) {",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "添加模型",
@@ -447,11 +447,11 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:525",
+      "provenance": "ModelProviderSettingsPage.swift:528",
       "anchor": "SettingsRowLabel(title: NativeText(\"添加模型\", \"Add Model\"), icon: \"plus\")",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "删除已保存的密钥",
@@ -463,10 +463,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:533",
+      "provenance": "ModelProviderSettingsPage.swift:536",
       "anchor": "Toggle(\"删除已保存的密钥\", isOn: $removeStoredKey)",
       "extraction": "syntax",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "测试连接",
@@ -478,13 +478,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:540",
+      "provenance": "ModelProviderSettingsPage.swift:543",
       "anchor": "SettingsRowLabel(title: testing ? \"正在测试…\" : \"测试连接\", icon: \"bolt.horizontal\")",
       "extraction": "syntax",
       "labelAlternatives": [
         "正在测试…"
       ],
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "取消",
@@ -496,10 +496,10 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:451",
+      "provenance": "ModelProviderSettingsPage.swift:454",
       "anchor": "Button(NativeText(\"取消\", \"Cancel\")) { dismiss() }.leadingBarText()",
       "extraction": "syntax",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     },
     {
       "id": "保存",
@@ -511,15 +511,15 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ModelProviderSettingsPage.swift:454",
+      "provenance": "ModelProviderSettingsPage.swift:457",
       "anchor": "Button(NativeText(\"保存\", \"Save\")) { save() }",
       "extraction": "syntax",
-      "presentedBy": "sheet-77"
+      "presentedBy": "sheet-80"
     }
   ],
   "presentations": [
     {
-      "id": "sheet-77",
+      "id": "sheet-80",
       "kind": "sheet",
       "title": null,
       "destination": "ModelProviderEditorPage",
@@ -527,15 +527,15 @@
         "editorSheet"
       ],
       "span": [
-        77,
-        87
+        80,
+        90
       ],
-      "provenance": "ModelProviderSettingsPage.swift:77",
+      "provenance": "ModelProviderSettingsPage.swift:80",
       "anchor": ".sheet(item: $editorSheet, onDismiss: {",
       "triggered": true
     },
     {
-      "id": "confirmationDialog-88",
+      "id": "confirmationDialog-91",
       "kind": "confirmationDialog",
       "title": "删除模型服务？",
       "destination": null,
@@ -543,10 +543,10 @@
         "pendingDelete"
       ],
       "span": [
-        88,
-        94
+        91,
+        97
       ],
-      "provenance": "ModelProviderSettingsPage.swift:88",
+      "provenance": "ModelProviderSettingsPage.swift:91",
       "anchor": ".confirmationDialog(NativeText(\"删除模型服务？\", \"Delete Model Provider?\"),",
       "triggered": true
     }
@@ -559,21 +559,21 @@
         {
           "renders": "尚未配置模型服务",
           "when": "snapshot.profiles.isEmpty",
-          "provenance": "ModelProviderSettingsPage.swift:102",
+          "provenance": "ModelProviderSettingsPage.swift:105",
           "anchor": "ContentUnavailableView(NativeText(\"尚未配置模型服务\", \"No Model Providers\"),"
         },
         {
           "renders": "ContentUnavailableView",
           "when": "snapshot.profiles.isEmpty",
-          "provenance": "ModelProviderSettingsPage.swift:102",
+          "provenance": "ModelProviderSettingsPage.swift:105",
           "anchor": "ContentUnavailableView(NativeText(\"尚未配置模型服务\", \"No Model Providers\"),"
         }
       ],
       "data": [
         {
-          "renders": "服务 | untitled section at 207 | untitled section at 234",
+          "renders": "服务 | untitled section at 210 | untitled section at 237",
           "when": null,
-          "provenance": "ModelProviderSettingsPage.swift:28",
+          "provenance": "ModelProviderSettingsPage.swift:30",
           "anchor": "struct ModelProviderSettingsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -582,13 +582,13 @@
         {
           "renders": "读不到密钥",
           "when": null,
-          "provenance": "ModelProviderSettingsPage.swift:196",
+          "provenance": "ModelProviderSettingsPage.swift:199",
           "anchor": "text = NativeText(\"读不到密钥\", \"Key unavailable\")"
         },
         {
           "renders": "无法读取此设备的密钥，不能删除服务或密钥。请解锁设备后重新载入页面再试。",
           "when": null,
-          "provenance": "ModelProviderSettingsPage.swift:290",
+          "provenance": "ModelProviderSettingsPage.swift:293",
           "anchor": "errorText = NativeText(\"无法读取此设备的密钥，不能删除服务或密钥。请解锁设备后重新载入页面再试。\", \"The key on this "
         }
       ],
@@ -610,28 +610,28 @@
   "subpages": [
     {
       "name": "ModelProviderEditorPage",
-      "line": 305,
+      "line": 308,
       "private": false,
       "embedded": true,
       "sections": [
         {
           "title": "连接信息",
-          "provenance": "ModelProviderSettingsPage.swift:368"
+          "provenance": "ModelProviderSettingsPage.swift:371"
         },
         {
           "title": "选择模型",
-          "provenance": "ModelProviderSettingsPage.swift:405"
+          "provenance": "ModelProviderSettingsPage.swift:408"
         },
         {
           "title": "服务选项",
-          "provenance": "ModelProviderSettingsPage.swift:473"
+          "provenance": "ModelProviderSettingsPage.swift:476"
         },
         {
           "title": "密钥与连接",
-          "provenance": "ModelProviderSettingsPage.swift:529"
+          "provenance": "ModelProviderSettingsPage.swift:532"
         }
       ],
-      "provenance": "ModelProviderSettingsPage.swift:305"
+      "provenance": "ModelProviderSettingsPage.swift:308"
     }
   ],
   "unreachable": [],

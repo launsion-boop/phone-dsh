@@ -124,6 +124,10 @@ public actor LoopbackServer {
     private let channelHandlerFactory: (@Sendable (any ChannelOutbound) -> any ChannelHandling)?
     private let websocketHandler: (@Sendable (WebSocketConnection) async -> Void)?
     private let ackCoalescingInterval: TimeInterval
+    /// Optional per-request timing sink. The host points it at
+    /// `boot-timings.log`; tests collect the lines in memory. `nil` disables
+    /// both the slow-request and the in-flight reporters.
+    private let requestDiagnostics: LoopbackRequestDiagnostics?
     private let forwarder = URLSessionForwarder()
 
     private var listener: LoopbackListener?
@@ -137,7 +141,8 @@ public actor LoopbackServer {
                 channelStateProvider: ChannelHostStateProvider? = nil,
                 channelHandlerFactory: (@Sendable (any ChannelOutbound) -> any ChannelHandling)? = nil,
                 websocketHandler: (@Sendable (WebSocketConnection) async -> Void)? = nil,
-                ackCoalescingInterval: TimeInterval = 0.002) {
+                ackCoalescingInterval: TimeInterval = 0.002,
+                requestDiagnostics: LoopbackRequestDiagnostics? = nil) {
         self.configuration = configuration
         self.routes = routes
         self.routing = routing
@@ -145,6 +150,7 @@ public actor LoopbackServer {
         self.channelHandlerFactory = channelHandlerFactory
         self.websocketHandler = websocketHandler
         self.ackCoalescingInterval = ackCoalescingInterval
+        self.requestDiagnostics = requestDiagnostics
     }
 
     /// The running endpoint, or nil before ``start()``.
@@ -225,23 +231,31 @@ public actor LoopbackServer {
         do {
             while true {
                 guard let request = try await reader.nextRequest() else { break }
+                // One observation per parsed request. The path never carries a
+                // query here: the reader already separated `request.query`.
+                var observation = requestDiagnostics?.begin(method: request.method,
+                                                             path: request.path)
+                var responseStatus = 0
+                defer { observation?.finish(status: responseStatus) }
                 let reply = await route(request)
                 if case .upgrade = reply {
-                    try await writer.write(reply, keepAlive: true)
+                    responseStatus = try await writer.write(reply, keepAlive: true)
+                    observation?.finish(status: responseStatus)
+                    observation = nil
                     let websocket = WebSocketConnection(channel: channel,
                                                        initialBuffer: reader.bufferedBytes)
                     reader.bufferedBytes = Data()
                     await runWebSocket(websocket)
                     return
                 }
-                try await writer.write(reply, keepAlive: request.keepAlive,
-                                       headRequest: request.method == "HEAD")
+                responseStatus = try await writer.write(reply, keepAlive: request.keepAlive,
+                                                        headRequest: request.method == "HEAD")
                 if !request.keepAlive { break }
             }
         } catch let error as HTTPTransportError {
-            try? await writer.write(.json(error.status, code: "bad_request",
-                                          message: error.publicMessage),
-                                    keepAlive: false)
+            _ = try? await writer.write(.json(error.status, code: "bad_request",
+                                              message: error.publicMessage),
+                                        keepAlive: false)
         } catch {
             // The peer went away mid-response. Nothing to report.
         }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import ProbeKit
 import SwiftUI
 
 // Small native token highlighter; unknown grammars remain plain source.

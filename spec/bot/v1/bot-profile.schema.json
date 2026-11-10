@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://phonedsh.dev/spec/bot/v1/bot-profile.schema.json",
   "title": "BotProfileVector v1",
-  "description": "Conformance vector for the dsh-bot Bot profile record (agents-index.json schema 3), the colour/hairstyle order, the null/auto normalizer and the FNV-1a seed. The golden is exported from dsh-bot bf4075b and must not be edited by hand. $defs documents the on-disk record, index and runtime-settings shapes the PhoneDSHBot BotProfileStore reads and writes; those documents keep unknown fields.",
+  "description": "Conformance vector for the dsh-bot Bot profile record (agents-index.json schema 3), the colour/hairstyle order, the null/auto normalizer, the FNV-1a seed and the deterministic roster rules (main-pointer repair, delete migration and normalizePatch identity/pointer stripping). The golden is exported from dsh-bot bf4075b and must not be edited by hand. $defs documents the on-disk record, index and runtime-settings shapes the PhoneDSHBot BotProfileStore reads and writes; those documents keep unknown fields.",
   "type": "object",
   "required": [
     "source",
@@ -12,7 +12,8 @@
     "hairstyles",
     "normalizeFishColor",
     "normalizeFishHairstyle",
-    "seed"
+    "seed",
+    "rosterRules"
   ],
   "properties": {
     "source": {
@@ -122,6 +123,79 @@
         },
         "additionalProperties": false
       }
+    },
+    "rosterRules": {
+      "type": "object",
+      "description": "Deterministic roster rules exported from dsh-bot agents/store.cjs and agents/model.cjs. The Swift BotProfileStore drives these vectors through its real file store.",
+      "required": ["mainPointerRepair", "deleteMainMigration", "normalizePatch"],
+      "additionalProperties": false,
+      "properties": {
+        "mainPointerRepair": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "records", "mainAgentId", "expectedMainAgentId"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "records": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1}
+              },
+              "mainAgentId": {"type": ["string", "null"]},
+              "expectedMainAgentId": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "deleteMainMigration": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name", "records", "mainAgentId", "deleteId",
+              "expectedRemaining", "expectedMainAgentId"
+            ],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "records": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string", "minLength": 1}
+              },
+              "mainAgentId": {"type": ["string", "null"]},
+              "deleteId": {"type": "string", "minLength": 1},
+              "expectedRemaining": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1}
+              },
+              "expectedMainAgentId": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "normalizePatch": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "input", "expected", "droppedKeys"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "input": {"type": "object"},
+              "expected": {"type": "object"},
+              "droppedKeys": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
     }
   },
   "additionalProperties": false,
@@ -150,7 +224,12 @@
         },
         "name_explicit": {"type": "boolean"},
         "created_at": {"type": "integer", "minimum": 0},
-        "updated_at": {"type": "integer", "minimum": 0}
+        "updated_at": {"type": "integer", "minimum": 0},
+        "description": {"type": "string", "maxLength": 2000},
+        "hidden_by_user": {"type": "boolean"},
+        "pinned": {"type": "boolean"},
+        "unread_count": {"type": "integer", "minimum": 0},
+        "last_message_at": {"type": ["integer", "null"]}
       },
       "additionalProperties": true
     },

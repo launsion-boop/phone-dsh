@@ -39,14 +39,22 @@ targets:
     deploymentTarget: '17.0'
     sources:
       - path: Tests
+      - path: Sources/BotTurnProcessShim.swift
       - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotConversationE2ETests.swift
       - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotDSHRemoteRuntimeTests.swift
       - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotRemoteTestSupport.swift
       - path: ../../../../Tests/PhoneDSHBotTests/MCP/BotMCPTestSupport.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProductionServices.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeUnit.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeState.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProfileStorage.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRosterModel.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotAppWiringLogic.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/BotSessionRegistry.swift
       # The App and this E2E build the same production host assembly.
       - path: ../../../../examples/probe-app/ProbeKit/ChatHostConfiguration.swift
     dependencies:
@@ -67,6 +75,8 @@ targets:
         product: PhoneDSHLoopback
       - package: PhoneDSH
         product: PhoneDSHADB
+      - package: PhoneDSH
+        product: PhoneDSHDeviceTasks
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true

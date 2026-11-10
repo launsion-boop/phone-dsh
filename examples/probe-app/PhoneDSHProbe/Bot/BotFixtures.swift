@@ -9,7 +9,8 @@ import SwiftUI
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
-    case empty, runningThinking, runningTool
+    case empty, runningThinking, runningTool, agentComm
+    case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong
 
@@ -19,6 +20,12 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
         .question, .steps, .task, .attachment, .document, .progress,
         .checklist, .link, .approval, .automation, .error, .denial,
     ]
+}
+
+extension BotRuntimeContext {
+    /// Fixture rows carry the historical record id `main`; it is a concrete id
+    /// here, never a production routing default.
+    static let fixture = BotRuntimeContext(botID: "main", botName: "大肥鱼")
 }
 
 enum BotUIFixtures {
@@ -177,6 +184,35 @@ enum BotUIFixtures {
         case .runningThinking, .runningTool:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .agentComm:
+            let outbound = BotUIRow.fixture(
+                id: "comm-outbound", seq: 2, kind: "sendMessage", role: "assistant",
+                body: BotUIBody(type: "text", values: [
+                    "text": "请把发布材料整理成一页。",
+                    "agentComm": .object([
+                        "direction": .string("outbound"),
+                        "targetId": .string("agent-peer"),
+                        "targetName": .string("小海"),
+                        "message": .string("请把发布材料整理成一页。"),
+                        "delivery": .string("now"),
+                    ]),
+                ]))
+            let inbound = BotUIRow.fixture(
+                id: "comm-inbound", seq: 3, kind: "message", role: "user",
+                body: BotUIBody(type: "text", values: [
+                    "text": "已整理好，附件在发布目录。",
+                    "agentComm": .object([
+                        "direction": .string("inbound"),
+                        "fromAgentId": .string("agent-peer"),
+                        "fromAgentName": .string("小海"),
+                        "replyText": .string("已整理好，附件在发布目录。"),
+                    ]),
+                ]))
+            return [
+                BotUIRow.text(id: "comm-user", seq: 1, role: "user",
+                              text: "让小海帮忙整理发布材料。"),
+                outbound, inbound,
+            ]
         case .chat:
             return [
                 BotUIRow.text(id: "chat-user", seq: 1, role: "user", text: "继续整理发布材料，有审批时先告诉我。"),
@@ -202,6 +238,8 @@ enum BotUIFixtures {
             ]
         case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
             return []
+        case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
+            return []
         }
         return [intro, cardRow("card-\(fixture.rawValue)", body: body)]
     }
@@ -212,6 +250,18 @@ enum BotUIFixtures {
             .fixture(name: "验收记录.pdf", size: 12_400, mimeType: "application/pdf", kind: "pdf"),
             .fixture(name: "release-notes.md", size: 3_100, mimeType: "text/markdown", kind: "markdown"),
         ]
+    }
+
+    /// A visibly different peer identity for the agent-comm fixture, so the
+    /// row avatar is proven to come from the other Bot's profile.
+    static func peerAppearance(_ botID: String) -> BotFishAppearance? {
+        guard botID == "agent-peer" else { return nil }
+        var value = BotFishAppearance.classic
+        value.color = .purple
+        value.hairstyle = .twinTail
+        value.autoColor = false
+        value.autoHairstyle = false
+        return value
     }
 
     static func appearance(for fixture: BotUIFixtureCase) -> BotFishAppearance {
@@ -274,6 +324,7 @@ struct BotUIFixtureRootView: View {
         self.diagnostics = diagnostics
         let chat = BotChatModel(
             rows: BotUIFixtures.rows(for: fixture),
+            context: .fixture,
             fixtureHistory: fixture == .failClosed || fixture == .empty
                 ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
             fixtureActions: true
@@ -305,9 +356,15 @@ struct BotUIFixtureRootView: View {
             switch fixture {
             case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
                 BotInfoPage(model: infoModel)
+            case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
+                BotDrawerFixtureRootView(fixture: fixture)
             default:
                 VStack(spacing: 0) {
-                    BotChatPage(model: chatModel, cardActions: cardActions,
+                    BotChatPage(model: chatModel,
+                                isMainBot: fixture == .chat || fixture == .empty
+                                    || fixture == .agentComm || fixture == .reactionLive
+                                    || fixture == .reactionHeader,
+                                cardActions: cardActions,
                                 onOpenInfo: {
                                     infoSection = nil
                                     showInfo = true
@@ -316,6 +373,8 @@ struct BotUIFixtureRootView: View {
                                     infoSection = section
                                     showInfo = true
                                 },
+                                peerAppearance: BotUIFixtures.peerAppearance,
+                                peerIsMainBot: { $0 == "main" },
                                 initialAttachments: fixture == .composerAttachments
                                     ? BotUIFixtures.composerAttachments : [],
                                 initialAttachmentNotice: fixture == .composerAttachments
@@ -351,6 +410,295 @@ struct BotUIFixtureRootView: View {
     }
 }
 
+
+/// Capture-only shell for the four drawer fixtures. It keeps the real
+/// `BotChatPage` + `BotDrawerPanel` + `BotRosterModel` code and reproduces
+/// only NativeShell's slide/scrim mechanics, which the capture target does
+/// not link.
+private struct BotDrawerFixtureRequest: Identifiable {
+    let id = UUID()
+    let botID: String
+}
+
+struct BotDrawerFixtureRootView: View {
+    let fixture: BotUIFixtureCase
+
+    @State private var roster: BotRosterModel?
+    @State private var chatModels: [String: BotChatModel] = [:]
+    @State private var drawerOpen: Bool
+    @State private var dragOffset: CGFloat = 0
+    @State private var showingManage: Bool
+    @State private var appearanceRequest: BotDrawerFixtureRequest?
+    @State private var setupError: String?
+    @State private var loaded = false
+
+    init(fixture: BotUIFixtureCase) {
+        self.fixture = fixture
+        _showingManage = State(initialValue: fixture == .drawerManage)
+        _drawerOpen = State(initialValue: fixture != .reactionHeader)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let insets = proxy.safeAreaInsets
+            ZStack(alignment: .topLeading) {
+                page(size: CGSize(width: proxy.size.width,
+                                  height: max(0, proxy.size.height - insets.top - insets.bottom)))
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
+                if drawerOpen {
+                    Color.black
+                        .opacity(0.28 * progress)
+                        .contentShape(Rectangle())
+                        .onTapGesture { close() }
+                        .gesture(closeDrag)
+                        .transition(.opacity)
+                }
+                BotDrawerPanel(
+                    isOpen: Binding(get: { drawerOpen }, set: { drawerOpen = $0 }),
+                    topInset: insets.top,
+                    bottomInset: insets.bottom,
+                    roster: roster,
+                    error: setupError,
+                    actions: actions,
+                    initiallyShowingAdd: fixture == .drawerAdd,
+                    initialAddName: fixture == .drawerAdd ? String(repeating: "长", count: 61) : "")
+                    .offset(x: drawerOpen ? min(0, dragOffset) : -(320 + 32))
+                    .shadow(color: .black.opacity(drawerOpen ? 0.12 : 0), radius: 20, x: 6)
+                    .simultaneousGesture(drawerOpen ? closeDrag : nil)
+                    .allowsHitTesting(drawerOpen)
+                    .accessibilityHidden(!drawerOpen)
+            }
+            .ignoresSafeArea()
+        }
+        .task { await setup() }
+        .sheet(isPresented: $showingManage) {
+            if let roster {
+                BotManageList(roster: roster, actions: actions)
+            } else {
+                ProgressView("正在准备 Bot…")
+                    .padding()
+            }
+        }
+        .sheet(item: $appearanceRequest) { request in
+            appearancePage(for: request.botID)
+                .homeSheetChrome()
+        }
+    }
+
+    @ViewBuilder
+    private func page(size: CGSize) -> some View {
+        if let roster, let selected = roster.selectedBotID,
+           let model = chatModels[selected] {
+            BotChatPage(
+                model: model,
+                isMainBot: selected == roster.mainBotID,
+                onOpenInfo: {},
+                onOpenInfoSection: { _ in },
+                onSelectBot: { botID in
+                    Task { await roster.select(botID) }
+                },
+                peerAppearance: { roster.appearance(for: $0) },
+                peerIsMainBot: { $0 == roster.mainBotID },
+                peerReaction: { roster.entry(for: $0)?.reaction },
+                openDrawer: {
+                    withAnimation(.easeInOut(duration: 0.28)) { drawerOpen = true }
+                })
+                .id(selected)
+                .frame(width: size.width, height: size.height)
+        } else {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text(setupError ?? "正在准备 Bot…")
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+            }
+            .frame(width: size.width, height: size.height)
+            .background(HomeSpec.page)
+        }
+    }
+
+    @ViewBuilder
+    private func appearancePage(for botID: String) -> some View {
+        if let roster, let profile = roster.profile(for: botID) {
+            let model = BotInfoModel(
+                snapshot: BotInfoSnapshot(botName: profile.name, memories: [], routines: [], approvals: []),
+                appearance: BotFishAppearance.resolve(profile))
+            BotInfoPage(model: model, isMainBot: profile.id == roster.mainBotID)
+        } else {
+            Text("这个 Bot 已经不存在。")
+                .padding()
+        }
+    }
+
+    private var actions: BotDrawerActions {
+        guard let roster else { return BotDrawerActions() }
+        var value = BotDrawerActions()
+        value.select = { botID in
+            Task { await roster.select(botID) }
+        }
+        value.create = { name, color, hairstyle in
+            let created = try await roster.create(
+                name: name, description: "", color: color, hairstyle: hairstyle)
+            await MainActor.run {
+                chatModels[created.id] = BotChatModel(
+                    rows: [], context: BotRuntimeContext(botID: created.id, botName: created.name),
+                    fixtureActions: true)
+            }
+            return created
+        }
+        value.rename = { botID, name in
+            try await roster.rename(botID, to: name)
+        }
+        value.setMain = { botID in
+            await roster.setMain(botID)
+        }
+        value.setHidden = { botID, hidden in
+            await roster.setHidden(botID, hidden: hidden)
+        }
+        value.delete = { botID in
+            _ = try await roster.deleteProfile(botID)
+        }
+        value.manage = { showingManage = true }
+        value.appearance = { botID in
+            if showingManage {
+                showingManage = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(350))
+                    appearanceRequest = BotDrawerFixtureRequest(botID: botID)
+                }
+            } else {
+                appearanceRequest = BotDrawerFixtureRequest(botID: botID)
+            }
+        }
+        value.retry = { Task { await roster.refresh() } }
+        value.close = {
+            withAnimation(.easeInOut(duration: 0.22)) { drawerOpen = false }
+        }
+        return value
+    }
+
+    private var progress: CGFloat {
+        guard drawerOpen else { return 0 }
+        return max(0, 1 + dragOffset / 320)
+    }
+
+    private var closeDrag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                dragOffset = min(0, value.translation.width)
+            }
+            .onEnded { value in
+                let projected = value.predictedEndTranslation.width
+                if value.translation.width < -160 || projected < -160 {
+                    dragOffset = 0
+                    withAnimation(.easeInOut(duration: 0.22)) { drawerOpen = false }
+                } else {
+                    withAnimation(.easeInOut(duration: 0.22)) { dragOffset = 0 }
+                }
+            }
+    }
+
+    private func close() {
+        dragOffset = 0
+        withAnimation(.easeInOut(duration: 0.22)) { drawerOpen = false }
+    }
+
+    @MainActor
+    private func setup() async {
+        guard !loaded else { return }
+        loaded = true
+        do {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("phone-dsh-bot-drawer-\(fixture.rawValue)", isDirectory: true)
+            try? FileManager.default.removeItem(at: directory)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let store = BotProfileStore(directory: directory)
+            let now = Int64(Date().timeIntervalSince1970 * 1_000)
+
+            let main = try await store.createBot(
+                name: "大肥鱼", fishColor: .blue, fishHairstyle: .long,
+                description: "手机上的主 Bot，负责跟进所有任务。")
+            let second = try await store.createBot(
+                name: "小海", fishColor: .purple, fishHairstyle: .twinTail,
+                description: "整理发布材料，先跑完构建再交给我。")
+            let third = try await store.createBot(
+                name: "阿星", fishColor: .green, fishHairstyle: .bob,
+                description: "负责检查截图和长文本。")
+            try await store.incrementUnread(id: second.id, by: 3)
+            try? await store.touch(id: second.id, at: now - 5 * 60 * 1_000)
+            try await store.incrementUnread(id: third.id, by: 120)
+            try? await store.touch(id: third.id, at: now - 2 * 3_600 * 1_000)
+
+            var hidden: BotProfile?
+            if fixture == .drawerManage || fixture == .drawerAdd {
+                hidden = try await store.createBot(
+                    name: "夜航", fishColor: .teal, fishHairstyle: .sideBraid,
+                    description: "一个已经隐藏的 Bot，只在管理列表里出现。")
+                if let hidden { try await store.setHidden(id: hidden.id, hidden: true) }
+            }
+
+            let snapshot = try await store.roster()
+            let defaults = UserDefaults(suiteName: "phone.dsh.bot.drawer.fixture")!
+            defaults.removeObject(forKey: BotSelectionDefaults.key)
+            let roster = BotRosterModel(
+                roster: snapshot, selectedBotID: main.id, store: store,
+                selectionStore: BotSelectionStore(selected: main.id), defaults: defaults)
+            roster.start()
+
+            var models: [String: BotChatModel] = [:]
+            for bot in snapshot.bots {
+                let rows: [BotUIRow] = (fixture == .reactionLive || fixture == .reactionHeader) ? [] : [
+                    BotUIRow.text(id: "drawer-user-\(bot.id)", botID: bot.id, seq: 1,
+                                  role: "user", text: "把今天的发布材料整理一下。"),
+                    BotUIRow.text(id: "drawer-assistant-\(bot.id)", botID: bot.id, seq: 2,
+                                  role: "assistant", text: "好的，我会先核对构建结果，再整理成一页。"),
+                ]
+                let model = BotChatModel(
+                    rows: rows,
+                    context: BotRuntimeContext(botID: bot.id, botName: bot.name),
+                    fixtureActions: true)
+                model.setMainBot(bot.id == snapshot.mainBotID)
+                models[bot.id] = model
+            }
+
+            if (fixture == .reactionLive || fixture == .reactionHeader), let model = models[main.id] {
+                model.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+                model.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                    "callId": .string("fixture-fish-action"),
+                    "name": .string("FishAction"),
+                    "arguments": .string("{\"action\":\"stretching\"}"),
+                ])))
+                roster.setRuntimeState(
+                    BotRosterRuntimeState(
+                        fishState: model.fishState, activity: model.activity,
+                        isRunning: model.runningTurnID != nil,
+                        pendingApprovalCount: model.pendingApprovalCount,
+                        reaction: model.reaction),
+                    for: main.id)
+            } else {
+                roster.setRuntimeState(
+                    BotRosterRuntimeState(
+                        fishState: .working,
+                        activity: BotActivity(status: .toolRunning, detail: "执行指令 · xcodebuild build"),
+                        isRunning: true),
+                    for: main.id)
+            }
+            roster.setRuntimeState(BotRosterRuntimeState(fishState: .idle), for: second.id)
+            roster.setRuntimeState(BotRosterRuntimeState(fishState: .idle), for: third.id)
+            if let hidden {
+                roster.setRuntimeState(BotRosterRuntimeState(fishState: .idle), for: hidden.id)
+            }
+
+            self.roster = roster
+            self.chatModels = models
+        } catch {
+            setupError = "准备 fixture 失败：\(error.localizedDescription)"
+        }
+    }
+}
+
 enum BotUIFixtureCheckError: Error, CustomStringConvertible {
     case failed(String)
     var description: String {
@@ -362,13 +710,18 @@ enum BotUIFixtureCheckError: Error, CustomStringConvertible {
 @MainActor
 enum BotUIFixtureChecks {
     static func run(cardPayloadURL: URL, rowProtocolURL: URL) async throws -> [String] {
+        // Let the first fixture render before the timing-sensitive stream
+        // check. A cold simulator launch spends its first moments loading the
+        // layered avatar, which used to leave too little of the coalescer's
+        // delivery window for its task to run.
+        try await Task.sleep(nanoseconds: 300_000_000)
         var passed: [String] = []
         try checkGoldenCards(at: cardPayloadURL)
         passed.append("shared-card-payload-decoding")
         try checkRowProtocol(at: rowProtocolURL)
         passed.append("shared-row-protocol-decoding")
 
-        let model = BotChatModel(rows: BotUIFixtures.rows(for: .progress), fixtureActions: true)
+        let model = BotChatModel(rows: BotUIFixtures.rows(for: .progress), context: .fixture, fixtureActions: true)
         var updated = BotUIFixtures.rows(for: .progress)[1]
         updated.id = "progress-updated"
         updated.seq = 3
@@ -387,28 +740,272 @@ enum BotUIFixtureChecks {
                     "late stream survived cancellation")
         passed.append("stop-drops-late-output")
 
-        let streamModel = BotChatModel(fixtureActions: true)
+        let streamModel = BotChatModel(context: .fixture, fixtureActions: true)
         streamModel.beginTurn(turnID: "rate-check")
         for index in 0..<20 {
             streamModel.receiveStream(turnID: "rate-check", text: "delta-\(index)")
         }
-        try await Task.sleep(nanoseconds: 350_000_000)
+        try await Task.sleep(nanoseconds: 800_000_000)
         let deliveries = streamModel.actionLog.filter { $0 == "stream" }.count
-        try require((1...4).contains(deliveries), "stream delivered \(deliveries) frames in 350ms")
+        try require((1...8).contains(deliveries), "stream delivered \(deliveries) frames in 800ms")
         try require(streamModel.streamingText == "delta-19", "stream did not retain latest text")
         streamModel.stop()
         passed.append("stream-max-10hz-latest-wins")
 
-        let deepLinkModel = BotChatModel(rows: BotUIFixtures.rows(for: .question), fixtureActions: true)
+        // Bot page visibility: the watch loop reads once on start and once on
+        // resume, but does not poll while the page is hidden. This drives the
+        // real BotChatModel loop, not a copy of its predicate.
+        let watchCounter = BotWatchCounter()
+        let pauseModel = BotChatModel(
+            context: .fixture,
+            driver: BotChatDriver(
+                history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+                watch: { cursor in
+                    await watchCounter.increment()
+                    return BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false)
+                },
+                perform: { _ in .rejected(reason: "fixture") },
+                stopCurrentTurn: { _ in }))
+        var watchTask = Task { await pauseModel.watchLoop() }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let visibleReads = await watchCounter.value
+        try require(visibleReads >= 1, "watch loop did not read on start")
+        pauseModel.setPageActive(false)
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+        let pausedReads = await watchCounter.value
+        pauseModel.setPageActive(false)
+        try await Task.sleep(nanoseconds: 900_000_000)
+        let stillPausedReads = await watchCounter.value
+        try require(stillPausedReads == pausedReads,
+                    "watch loop polled while the Bot page was hidden")
+        watchTask.cancel()
+        pauseModel.setPageActive(true)
+        watchTask = Task { await pauseModel.watchLoop() }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let resumedReads = await watchCounter.value
+        try require(resumedReads > pausedReads,
+                    "watch loop did not catch up immediately on resume")
+        watchTask.cancel()
+        pauseModel.setPageActive(false)
+        passed.append("bot-page-polling-pauses-and-resumes")
+
+        let deepLinkModel = BotChatModel(rows: BotUIFixtures.rows(for: .question), context: .fixture, fixtureActions: true)
         let good = URL(string: "phonedsh://bot/main/row/card-question")!
         let bad = URL(string: "phonedsh://bot/main/row/missing")!
         try require(deepLinkModel.openDeepLink(good) && !deepLinkModel.openDeepLink(bad),
                     "deep link did not resolve exactly")
         passed.append("deep-link-exact-row")
 
-        let hidden = BotChatModel(rows: BotUIFixtures.rows(for: .failClosed), fixtureActions: true)
+        let hidden = BotChatModel(rows: BotUIFixtures.rows(for: .failClosed), context: .fixture, fixtureActions: true)
         try require(hidden.visibleRows.isEmpty, "P1/unknown/incomplete row rendered")
         passed.append("fail-closed-P1-unknown-incomplete")
+
+        // Main-Bot pointer routing: every legacy `main` default is gone.
+        let pointerRoster = BotRoster(bots: [
+            BotProfile(id: "main", name: "旧主 Bot"),
+            BotProfile(id: "agent-b", name: "新主 Bot"),
+        ], mainBotID: "agent-b")
+        try require(BotMainPointerRouting.restoredSelection("main", in: pointerRoster) == "main",
+                    "an existing record id must win over the pointer")
+        try require(BotMainPointerRouting.restoredSelection("missing", in: pointerRoster) == "agent-b",
+                    "dangling selection did not fall back to the main pointer")
+        try require(BotMainPointerRouting.deviceTaskRecipient(in: pointerRoster) == "agent-b",
+                    "device task result did not route to the main pointer")
+        try require(BotMainPointerRouting.defaultRoutineBotID(in: pointerRoster) == "agent-b",
+                    "default routine ownership did not use the main pointer")
+        let noLegacyMainRoster = BotRoster(bots: [
+            BotProfile(id: "agent-a", name: "A"),
+            BotProfile(id: "agent-b", name: "B"),
+        ], mainBotID: "agent-b")
+        try require(BotMainPointerRouting.deepLinkBotID("main", in: noLegacyMainRoster) == "agent-b",
+                    "legacy main deep link did not resolve through the pointer")
+        try require(BotMainPointerRouting.deepLinkBotID("agent-b", in: pointerRoster) == "agent-b",
+                    "existing deep link Bot did not resolve")
+        passed.append("main-pointer-routing")
+
+        // Unread: the selected Bot never bumps itself; the peer does.
+        let outboundRecord = BotTeamAgentCommRecord(
+            rowID: "agent-outbound-x", botID: "main", direction: .outbound,
+            role: "assistant", text: "hi",
+            toAgent: BotAgentRef(id: "agent-b", name: "B"),
+            threadID: "thread-x", requestID: "call-x")
+        try require(BotUnreadRules.recipient(for: outboundRecord) == "agent-b",
+                    "outbound unread recipient is not the target")
+        try require(BotUnreadRules.shouldIncrement(recipient: "agent-b", selectedBotID: "main"),
+                    "non-selected target did not get an unread bump")
+        try require(!BotUnreadRules.shouldIncrement(recipient: "agent-b", selectedBotID: "agent-b"),
+                    "selected target received an unread bump")
+        let inboundRecord = BotTeamAgentCommRecord(
+            rowID: "t1u", botID: "main", direction: .inbound, role: "user", text: "reply",
+            fromAgent: BotAgentRef(id: "agent-b", name: "B"),
+            threadID: "thread-x", requestID: "call-x")
+        try require(BotUnreadRules.recipient(for: inboundRecord) == "main",
+                    "inbound unread recipient is not the sender")
+        try require(BotUnreadRules.shouldIncrementForDelivery(to: "agent-b", selectedBotID: "main"),
+                    "non-selected routine/device delivery did not bump unread")
+        try require(!BotUnreadRules.shouldIncrementForDelivery(to: "main", selectedBotID: "main"),
+                    "selected routine/device delivery bumped unread")
+        passed.append("unread-rules")
+
+        // Team delivery now / busy / queued routing.
+        try require(BotTeamDeliveryPolicy.decide(delivery: "now", targetBusy: false) == .openVisibleTurn,
+                    "idle now delivery did not open a visible turn")
+        try require(BotTeamDeliveryPolicy.decide(delivery: "now", targetBusy: true) == .queueHeldAndWakeAfterBusy,
+                    "busy now delivery did not queue and wake")
+        try require(BotTeamDeliveryPolicy.decide(delivery: "queued", targetBusy: true) == .queueHeldOnly,
+                    "queued delivery woke the target")
+        try require(BotTeamDeliveryPolicy.decide(delivery: "queued", targetBusy: false) == .queueHeldOnly,
+                    "queued delivery opened a turn")
+        passed.append("team-delivery-now-busy-queued")
+
+        // Delete cascade order and rollback: the profile record is last, and a
+        // failure rolls back executed steps in reverse without deleting it.
+        var deletionLog: [String] = []
+        var rollbackLog: [String] = []
+        let deletionPlan = BotDeletionPlan(steps: [
+            BotDeletionStep(name: "abort-turns") {
+                deletionLog.append("abort-turns")
+            } rollback: {
+                rollbackLog.append("abort-turns")
+            },
+            BotDeletionStep(name: "revoke-auth") {
+                deletionLog.append("revoke-auth")
+            } rollback: {
+                rollbackLog.append("revoke-auth")
+            },
+            BotDeletionStep(name: "erase-memory") {
+                deletionLog.append("erase-memory")
+                throw BotUIFixtureCheckError.failed("memory unavailable")
+            },
+            BotDeletionStep(name: "delete-profile") { deletionLog.append("delete-profile") },
+        ])
+        do {
+            _ = try await deletionPlan.run()
+            try require(false, "failing delete plan reported success")
+        } catch let failure as BotDeletionFailure {
+            try require(failure.step == "erase-memory", "delete failure named the wrong step")
+            try require(failure.executed == ["abort-turns", "revoke-auth"],
+                        "delete failure executed list is wrong: \(failure.executed)")
+        }
+        try require(deletionLog == ["abort-turns", "revoke-auth", "erase-memory"],
+                    "delete cascade reached the profile record after a failure: \(deletionLog)")
+        try require(rollbackLog == ["revoke-auth", "abort-turns"],
+                    "delete rollback did not run in reverse: \(rollbackLog)")
+        var successfulLog: [String] = []
+        let successfulPlan = BotDeletionPlan(steps: BotDeletionPlan.orderedStepNames.map { name in
+            BotDeletionStep(name: name) { successfulLog.append(name) }
+        })
+        let completed = try await successfulPlan.run()
+        try require(completed == BotDeletionPlan.orderedStepNames,
+                    "delete cascade order differs from the contract")
+        try require(successfulLog.last == "teardown-caches",
+                    "caches were not torn down after the profile record")
+        passed.append("delete-cascade-order-rollback")
+
+        // Drawer projection: main first, hidden excluded from visibleEntries,
+        // unread unchanged, and the add dialog validation matches the store.
+        let drawerProfiles = [
+            BotProfile(id: "agent-second", name: "小海", unreadCount: 3),
+            BotProfile(id: "agent-main", name: "大肥鱼", pinned: true),
+            BotProfile(id: "agent-hidden", name: "夜航", hiddenByUser: true),
+        ]
+        let drawerRoster = BotRoster(bots: drawerProfiles, mainBotID: "agent-main")
+        let drawerStore = BotProfileStore(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("bot-ui-drawer-check-\(UUID().uuidString)", isDirectory: true))
+        let drawerModel = BotRosterModel(
+            roster: drawerRoster, selectedBotID: "agent-main", store: drawerStore,
+            selectionStore: BotSelectionStore(selected: "agent-main"),
+            defaults: UserDefaults(suiteName: "bot-ui-drawer-check")!)
+        try require(drawerModel.entries.map(\.id) == ["agent-main", "agent-second", "agent-hidden"],
+                    "drawer entries are not main-first insertion order")
+        try require(drawerModel.visibleEntries.map(\.id) == ["agent-main", "agent-second"],
+                    "hidden Bot is still visible in the drawer")
+        try require(BotAddValidation.problem(for: "   ") != nil, "blank name passed validation")
+        try require(BotAddValidation.problem(for: String(repeating: "长", count: 60)) == nil,
+                    "60-character name failed validation")
+        try require(BotAddValidation.problem(for: String(repeating: "长", count: 61)) != nil,
+                    "61-character name passed validation")
+        // The UI test edits the 61-character draft. The same edited value must
+        // stay invalid in both layers: the dialog's predicate and the fixture
+        // create path (which goes through the profile store).
+        let editedTooLong = "小舟" + String(repeating: "长", count: 61)
+        try require(BotAddValidation.problem(for: editedTooLong) != nil,
+                    "edited 63-character name passed UI validation")
+        do {
+            _ = try await drawerModel.create(name: editedTooLong)
+            try require(false, "fixture create accepted an edited 63-character name")
+        } catch let error as BotProfileStoreError {
+            try require(error == .invalidName(editedTooLong),
+                        "fixture create rejected with the wrong error: \(error)")
+        }
+        try require(drawerModel.bots.count == drawerProfiles.count,
+                    "rejected fixture create changed the roster")
+        try require(BotAddValidation.trimmed("  小海 ") == "小海", "name was not trimmed")
+        passed.append("bot-drawer-main-first-hidden-excluded")
+        passed.append("bot-add-validation")
+        passed.append("bot-add-edited-too-long-rejected")
+
+        // FishAction never reaches a process row even though the session log
+        // still holds the real tool/call event.
+        let fishCallEvent: JSONValue = .object([
+            "type": .string("tool/call"),
+            "seq": .number(3),
+            "time": .number(Double(BotLiveFishProjection.now)),
+            "data": .object([
+                "callId": .string("fixture-fish"),
+                "name": .string("FishAction"),
+                "arguments": .string("{\"action\":\"waving\"}"),
+            ]),
+        ])
+        try require(BotTurnProcessProjector.processItems([fishCallEvent]).isEmpty,
+                    "FishAction leaked into the turn process rows")
+        try require(!BotDisplayContract.isToolCallVisible(named: "mcp__phone__FishAction"),
+                    "FishAction qualified name escaped the display contract")
+        passed.append("fish-action-hidden-from-process-rows")
+
+        // Live frame projection: text deltas feed model.delta, a failed turn
+        // feeds error, and a FishAction tool call becomes a visible reaction.
+        var liveFish = BotLiveFishProjection(botID: "agent-main")
+        liveFish.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        liveFish.receive(.streamStart)
+        liveFish.receive(.textDelta("正在整理"))
+        let streaming = liveFish.presentation()
+        try require(streaming.fishState == .speaking,
+                    "textDelta did not reach the director: \(streaming.fishState)")
+        var failingFish = BotLiveFishProjection(botID: "agent-main")
+        failingFish.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        failingFish.receive(.event(BotUIFixtures.liveEvent("turn/end", turn: 1, seq: 2, data: [
+            "reason": .object(["kind": .string("error"), "error": .string("fixture failure")]),
+        ])))
+        let failed = failingFish.presentation()
+        try require(failed.fishState == .sad,
+                    "failed turn did not map to sad (state=\(failed.fishState.rawValue), oneShot=\(failed.oneShot != nil), records=\(failingFish.records.count))")
+        try require(failed.oneShot != nil, "failed turn did not keep a one-shot")
+        var reactionFish = BotLiveFishProjection(botID: "agent-main")
+        reactionFish.receive(.event(fishCallEvent))
+        try require(reactionFish.presentation().reaction?.name == "waving",
+                    "FishAction tool call did not become a reaction")
+        passed.append("live-fish-delta-error-reaction")
+
+        // Agent-comm row minimal rendering and peer switching metadata.
+        let commRow = BotUIRow.fixture(
+            id: "agent-outbound-render", seq: 2, kind: "sendMessage", role: "assistant",
+            body: BotUIBody(type: "text", values: [
+                "text": "帮我看一下这个",
+                "agentComm": .object([
+                    "direction": .string("outbound"),
+                    "targetId": .string("agent-b"),
+                    "targetName": .string("B"),
+                    "message": .string("帮我看一下这个"),
+                ]),
+            ]))
+        let presentation = BotAgentCommRendering.presentation(for: commRow)
+        try require(presentation?.text == "已传消息给 B", "agent-comm row text is wrong")
+        try require(presentation?.peerID == "agent-b", "agent-comm row lost the peer id")
+        try require(BotAgentCommRendering.summaryText(count: 3, peerName: "B").contains("3"),
+                    "agent-comm summary lost the message count")
+        passed.append("agent-comm-row-minimal-render")
 
         let attachmentOnly = BotUIRow.fixture(
             id: "attachment-only", kind: "sendMessage", role: "user",
@@ -491,6 +1088,14 @@ enum BotUIFixtureChecks {
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw BotUIFixtureCheckError.failed(message) }
     }
+}
+
+/// Counts real watch-loop iterations for the visibility pause check without
+/// sharing mutable state across the driver's async closure.
+private actor BotWatchCounter {
+    private(set) var value = 0
+
+    func increment() { value += 1 }
 }
 
 #Preview("Question") { BotUIFixtureRootView(fixture: .question) }

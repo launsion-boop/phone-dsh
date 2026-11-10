@@ -10,6 +10,13 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct ChatPage: View {
+    /// D2: the DSH tab keeps one ChatPage per backend alive. Overrides pin the
+    /// instance to that backend; previews omit them and follow the drawer's
+    /// current model. Declared first so call sites can pass them before the
+    /// existing optional page parameters.
+    var modelOverride: ChatModel? = nil
+    var managementOverride: DSHManagementModel? = nil
+
     var openDrawer: (() -> Void)? = nil
     var drawerExpanded: Bool = false
     /// Optional deep entry used by the preview router/debug route.
@@ -21,12 +28,15 @@ struct ChatPage: View {
     var previewDraft: String? = nil
     #endif
 
-    @State private var model = ChatModel.shared
+    @Environment(\.workspaceModels) private var workspaceModels
+    private var model: ChatModel { modelOverride ?? workspaceModels.currentChat ?? ChatModel.shared }
+    private var management: DSHManagementModel {
+        managementOverride ?? workspaceModels.currentManagement ?? DSHManagementModel.shared
+    }
     @State private var voice = ComposerVoiceInput()
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
     @Environment(\.colorScheme) private var colorScheme
-    @State private var management = DSHManagementModel.shared
     @State private var draft = ""
     #if DEBUG
     @State private var didInjectDebugState = false
@@ -39,7 +49,6 @@ struct ChatPage: View {
     /// `SessionSwitchPresentationPolicy.indicatorDelay` of that start leaves
     /// this false for its whole lifetime and no loading state flashes.
     @State private var showsSessionSwitchIndicator = false
-    @AppStorage("chat.drafts.v1") private var savedDrafts = "{}"
     private var busyEnterMode: String { preferences.busyEnterMode }
     /// Official default is completion-time folding; the `On next message`
     /// option is the iOS adaptation exposed in the header `...` menu.
@@ -278,6 +287,7 @@ struct ChatPage: View {
             .padding(.horizontal, 16)
 
             HeaderActionPill(hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
+                             showsConnect: model.capabilities.phoneOnlyEndpoints,
                              connectIdentifier: "chat.connect-device",
                              menuIdentifier: nil,
                              showsMenuActivityDot: headerActivityRunning,
@@ -349,11 +359,37 @@ struct ChatPage: View {
         NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
         return VStack(spacing: 0) {
             chatHeader
+            // D2: PC-only status strips. They are plain text on purpose: the
+            // offline recovery action lives in the drawer's empty state, and a
+            // new Button here would be a new page-contract action.
+            if model.backendID != .phone {
+                if let warning = workspaceModels.pcLink.versionWarning {
+                    PCVersionWarningBar(warning: warning)
+                        .padding(.horizontal, HomeSpec.chromeInset)
+                        .padding(.bottom, 6)
+                }
+                if !model.isStarted {
+                    Text("电脑离线，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(HomeSpec.userBubble, in: RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, HomeSpec.chromeInset)
+                        .padding(.bottom, 6)
+                }
+            }
             // A failure that belongs to one message is rendered under it; every
             // other failure (send refused, session open, stream error) needed a
-            // surface too — it used to be invisible on this page. The
-            // engine-stopped line is the one exception: the no-engine empty
-            // card below already says it and offers the start button.
+            // surface too — it used to be invisible on this page. The resume
+            // recovery pill is additive: it explains a lifecycle wait, while
+            // the error banner below keeps the failure/queued-action surface.
+            // The engine-stopped line is the one exception to the error banner:
+            // the no-engine empty card already says it and offers the start button.
+            if let recovery = model.recoveryBannerText {
+                recoveryBanner(recovery)
+            }
             if model.failedItemID == nil,
                let error = model.userFacingError,
                ChatEngineStoppedNoticePolicy.shouldShow(
@@ -576,100 +612,17 @@ struct ChatPage: View {
             debugInjectIfReady()
             #endif
         }
-        .onAppear {
-            if let initialPreviewTarget, previewTarget == nil {
-                previewTarget = initialPreviewTarget
+        .onChange(of: model.isStarted) { _, started in
+            // PC reconnect: re-arm the session/adopt the remembered one and
+            // re-read the session list so the drawer is current again.
+            guard model.backendID != .phone else { return }
+            if started {
+                Task { await model.start() }
+                Task { await management.refresh() }
             }
-            #if DEBUG
-            if debugChatState != nil { debugInjectIfReady() }
-            #endif
-            previousSessionKey = sessionKey
-            draft = savedDraft(for: sessionKey)
-            #if DEBUG
-            // 预览:输入框里先放好那段超长文本,验行高和滚动。
-            if let previewDraft, draft.isEmpty { draft = previewDraft }
-            #endif
-            if model.isStarted { Task { await management.refresh() } }
-            // The native surface owns the one host now, so a cold launch
-            // starts it directly instead of waiting for a tap. `autoRecover`
-            // lets a persisted `Failed` controller (D14) be acknowledged once
-            // at launch, so reopening the App is enough to get a working
-            // engine back.
-            if !model.isStarted, !model.busy {
-                #if DEBUG
-                if previewItems == nil && PreviewScreen.requested == nil {
-                    Task { await model.start(autoRecover: true) }
-                }
-                #else
-                Task { await model.start(autoRecover: true) }
-                #endif
-            }
-            // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
-            model.autostartIfRequested()
-#if DEBUG
-            // A deterministic composer draft for screenshot passes
-            // (`PDSH_DEBUG_DRAFT=/c` renders the command menu without typing).
-            if let seeded = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAFT"], draft.isEmpty {
-                draft = seeded
-            }
-            if ProcessInfo.processInfo.environment["PDSH_DEBUG_TOOLRUN"] == "1", model.items.isEmpty {
-                model.debugInjectToolRun()
-            }
-            if ProcessInfo.processInfo.environment["PDSH_DEBUG_START"] == "1" {
-                Task { @MainActor in
-                    await model.start()
-                    try? await Task.sleep(for: .milliseconds(600))
-                    if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
-                        inputFocused = true
-                    }
-                }
-            } else if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(700))
-                    inputFocused = true
-                }
-            }
-            if let sheet = ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET"], !sheet.isEmpty {
-                let delay = Int(ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET_DELAY_MS"] ?? "") ?? 400
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(delay))
-                    switch sheet {
-                    case "settings": showSettings = true
-                    case "sessions": showSessions = true
-                    case "provider": debugSheet = "provider"
-                    case "config": showConfiguration = true
-                    case "workbench": showWorkbench = true
-                    default: break
-                    }
-                }
-            }
-#endif
         }
-        .onChange(of: model.currentSessionID) { _, _ in
-            // A successful selection can update ChatModel from the sidebar's
-            // async task before its completion callback reaches this sheet.
-            // Close from the observed source of truth as well, so restoring a
-            // real session never leaves the user stranded in the sidebar.
-            showSessions = false
-            foldedTurns = []
-            autoFoldedTurns = []
-            manuallyExpandedTurns = []
-            persistDraft(draft, for: previousSessionKey)
-            previousSessionKey = sessionKey
-            draft = savedDraft(for: sessionKey)
-            #if DEBUG
-            // 预览:输入框里先放好那段超长文本,验行高和滚动。
-            if let previewDraft, draft.isEmpty { draft = previewDraft }
-            #endif
-            pendingAttachments.removeAll()
-            attachmentError = nil
-            // Opening another session must show its newest message, not the
-            // top of the transcript.
-            nearBottom = true
-            userScrolledAway = false
-            pendingInitialScroll = true
-            Task { await management.refresh() }
-        }
+        .onAppear { onChatAppear() }
+        .onChange(of: model.currentSessionID) { _, _ in onSessionIdentityChanged() }
         .onChange(of: draft) { _, value in persistDraft(value, for: sessionKey) }
         // Folding timing. `false` keeps the official completion-time default:
         // every eligible closed Turn folds as soon as it ends. `true` is the
@@ -702,16 +655,7 @@ struct ChatPage: View {
             previewTarget = .workspaceFile(match.relativePath)
         }
         .task(id: model.isSessionSwitchWorkStarted) {
-            // The pill is an overlay, not page state: delay it past the common
-            // fast open. The timer starts when the worker begins, after the
-            // drawer close, so that animation is never counted as load time.
-            if model.isSessionSwitchWorkStarted {
-                try? await Task.sleep(for: SessionSwitchPresentationPolicy.indicatorDelay)
-                guard !Task.isCancelled, model.isSessionSwitchWorkStarted else { return }
-                showsSessionSwitchIndicator = true
-            } else if showsSessionSwitchIndicator {
-                showsSessionSwitchIndicator = false
-            }
+            await updateSessionSwitchIndicator()
         }
         .task(id: model.currentSessionID) {
             guard let id = model.currentSessionID else {
@@ -742,13 +686,141 @@ struct ChatPage: View {
         // Perf counters flush every five seconds while the chat page is on
         // screen. DEBUG always enables them; Release needs the
         // `chat.perfCounters` default (off by default, so no Release log).
-        .task {
-            guard NativePerfCounters.isEnabled else { return }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(NativePerfCounters.reportInterval))
-                guard !Task.isCancelled else { return }
-                NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+        .task { await reportPerfCounters() }
+    }
+
+    private func onChatAppear() {
+        if let initialPreviewTarget, previewTarget == nil {
+            previewTarget = initialPreviewTarget
+        }
+        #if DEBUG
+        if debugChatState != nil { debugInjectIfReady() }
+        #endif
+        previousSessionKey = sessionKey
+        draft = savedDraft(for: sessionKey)
+        #if DEBUG
+        // 预览:输入框里先放好那段超长文本,验行高和滚动。
+        if let previewDraft, draft.isEmpty { draft = previewDraft }
+        #endif
+        if model.isStarted { Task { await management.refresh() } }
+        // The native surface owns the one host now, so a cold launch
+        // starts it directly instead of waiting for a tap. `autoRecover`
+        // lets a persisted `Failed` controller (D14) be acknowledged once
+        // at launch, so reopening the App is enough to get a working
+        // engine back.
+        if !model.isStarted, !model.busy {
+            // The hidden phone ChatPage must not boot the phone host while
+            // the drawer is on the PC segment; switching back starts it.
+            let startsNow = model.backendID != .phone || workspaceModels.isPhoneSelected
+            if startsNow {
+                #if DEBUG
+                if previewItems == nil && PreviewScreen.requested == nil {
+                    Task { await model.start(autoRecover: true) }
+                }
+                #else
+                Task { await model.start(autoRecover: true) }
+                #endif
             }
+        }
+        // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
+        model.autostartIfRequested()
+#if DEBUG
+        // A deterministic composer draft for screenshot passes
+        // (`PDSH_DEBUG_DRAFT=/c` renders the command menu without typing).
+        if let seeded = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAFT"], draft.isEmpty {
+            draft = seeded
+        }
+        if ProcessInfo.processInfo.environment["PDSH_DEBUG_TOOLRUN"] == "1", model.items.isEmpty {
+            model.debugInjectToolRun()
+        }
+        if ProcessInfo.processInfo.environment["PDSH_DEBUG_START"] == "1" {
+            Task { @MainActor in
+                await model.start()
+                try? await Task.sleep(for: .milliseconds(600))
+                if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
+                    inputFocused = true
+                }
+            }
+        } else if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(700))
+                inputFocused = true
+            }
+        }
+        if let sheet = ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET"], !sheet.isEmpty {
+            let delay = Int(ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET_DELAY_MS"] ?? "") ?? 400
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(delay))
+                switch sheet {
+                case "settings": showSettings = true
+                case "sessions": showSessions = true
+                case "provider": debugSheet = "provider"
+                case "config": showConfiguration = true
+                case "workbench": showWorkbench = true
+                default: break
+                }
+            }
+        }
+#endif
+
+    }
+
+    private func onSessionIdentityChanged() {
+        // A successful selection can update ChatModel from the sidebar's
+        // async task before its completion callback reaches this sheet.
+        // Close from the observed source of truth as well, so restoring a
+        // real session never leaves the user stranded in the sidebar.
+        showSessions = false
+        foldedTurns = []
+        autoFoldedTurns = []
+        manuallyExpandedTurns = []
+        persistDraft(draft, for: previousSessionKey)
+        previousSessionKey = sessionKey
+        draft = savedDraft(for: sessionKey)
+        #if DEBUG
+        // 预览:输入框里先放好那段超长文本,验行高和滚动。
+        if let previewDraft, draft.isEmpty { draft = previewDraft }
+        #endif
+        pendingAttachments.removeAll()
+        attachmentError = nil
+        // Opening another session must show its newest message, not the
+        // top of the transcript.
+        nearBottom = true
+        userScrolledAway = false
+        // A new session can be shorter than the previous one. Keeping the
+        // old content height made `scrollToTail` believe the transcript
+        // still overflowed and scroll the LazyVStack before the new rows
+        // laid out, leaving the page blank until a manual drag. Drop the
+        // measurements so the first height callback owns the initial jump.
+        scrollTrace.contentHeight = 0
+        scrollTrace.tailOffsetY = 0
+        pendingInitialScroll = true
+        Task { await management.refresh() }
+
+    }
+
+    /// The pill is an overlay, not page state: delay it past the common fast
+    /// open. The timer starts when the worker begins, after the drawer close,
+    /// so that animation is never counted as load time. Kept out of `body` so
+    /// the merged page's modifier chain stays inside the type-checker budget.
+    private func updateSessionSwitchIndicator() async {
+        guard model.isSessionSwitchWorkStarted else {
+            if showsSessionSwitchIndicator { showsSessionSwitchIndicator = false }
+            return
+        }
+        try? await Task.sleep(for: SessionSwitchPresentationPolicy.indicatorDelay)
+        guard !Task.isCancelled, model.isSessionSwitchWorkStarted else { return }
+        showsSessionSwitchIndicator = true
+    }
+
+    /// Kept out of `body`: the loop plus the public counter API otherwise
+    /// pushed the merged page's modifier chain past the type-checker budget.
+    private func reportPerfCounters() async {
+        guard NativePerfCounters.isEnabled else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(NativePerfCounters.reportInterval))
+            guard !Task.isCancelled else { return }
+            NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
         }
     }
 
@@ -1020,6 +1092,33 @@ struct ChatPage: View {
                 }
             }
         }
+    }
+
+    /// One compact tips pill at the top of the chat. The previous recovery UI
+    /// stacked a spinner row, a banner and a separate queued hint, so the top
+    /// of the page shifted and its baseline never lined up. The hint is part of
+    /// the same line now; the progress mark and text share one baseline.
+    private func recoveryBanner(_ message: String) -> some View {
+        HStack(spacing: 7) {
+            ProgressView()
+                .controlSize(.mini)
+                .tint(HomeSpec.textSecondary)
+            Text(ChatResumeRecovery.recoveryTip(
+                message: message,
+                hint: model.recoveryQueuedHint))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(HomeSpec.userBubble, in: Capsule())
+        .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.top, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("chat.recovery-tip")
     }
 
     private func errorBanner(_ message: String) -> some View {
@@ -1298,6 +1397,14 @@ struct ChatPage: View {
                     nearBottom = true
                     scrollToTail(proxy, viewportHeight: viewport.size.height)
                 }
+                .onChange(of: model.isShowingCachedTranscript) { _, showing in
+                    // The cached transcript and the engine transcript have
+                    // different heights; the replacement must anchor again.
+                    guard showing == false, !visibleItems.isEmpty else { return }
+                    pendingInitialScroll = true
+                    scrollTrace.contentHeight = 0
+                    scrollTrace.tailOffsetY = 0
+                }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
                     userScrolledAway = false
@@ -1375,7 +1482,10 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard scrollTrace.contentHeight > viewportHeight + 1 else { return }
+        guard ChatTranscriptTailPolicy.shouldScrollToTail(
+            contentHeight: scrollTrace.contentHeight,
+            viewportHeight: viewportHeight,
+            hasRows: !timelineRows.isEmpty) else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
         if let last = timelineRows.last?.scrollTargetID {
@@ -1411,6 +1521,23 @@ struct ChatPage: View {
         pendingInitialScroll = false
         nearBottom = true
         scrollToTail(proxy, viewportHeight: viewportHeight)
+        // Lazy rows can report their estimated height first. A second pass
+        // after that layout settles lands on the real last row instead of a
+        // blank band below the content.
+        scheduleInitialTailSettle(proxy, viewportHeight: viewportHeight)
+    }
+
+    /// One deferred second scroll after the initial height report. It is
+    /// cancelled by the next follow scroll, so ordinary streaming keeps the
+    /// single debounced path.
+    private func scheduleInitialTailSettle(_ proxy: ScrollViewProxy,
+                                           viewportHeight: CGFloat) {
+        tailScrollTask?.cancel()
+        tailScrollTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(40))
+            guard !Task.isCancelled, followsTail else { return }
+            scrollToTail(proxy, viewportHeight: viewportHeight)
+        }
     }
 
     /// Publishes only real near/follow transitions. The geometry callback runs
@@ -1441,6 +1568,12 @@ struct ChatPage: View {
         }
     }
 
+    /// Whole points for the scroll trace. `Int(_:)` traps on NaN or infinity, which a geometry value
+    /// can be before layout settles; the trace must never crash a streaming turn.
+    static func traceValue(_ value: CGFloat) -> String {
+        value.isFinite && abs(value) < 1e12 ? String(Int(value.rounded())) : String(describing: value)
+    }
+
     /// Follow the tail after the next layout pass.
     ///
     /// Sending a message appends a row and, in the same update, this view asks
@@ -1457,9 +1590,18 @@ struct ChatPage: View {
             guard !Task.isCancelled, followsTail else { return }
             if Date().timeIntervalSince(lastScrollTrace) > 1 {
                 lastScrollTrace = Date()
+                // Layout can briefly report a non-finite geometry during a
+                // rotation/keyboard transition; logging must not trap.
+                func integer(_ value: CGFloat) -> Int {
+                    // `.isFinite` alone is not enough: CGFloat can hold values
+                    // outside Int's range (e.g. a broken measurement sentinel).
+                    guard value.isFinite,
+                          value > CGFloat(Int.min), value < CGFloat(Int.max) else { return -1 }
+                    return Int(value.rounded())
+                }
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Int(scrollTrace.contentHeight)) viewport=\(Int(viewportHeight)) "
-                    + "tail=\(Int(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                    "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(viewportHeight)) "
+                    + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
             model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)
@@ -1511,7 +1653,10 @@ struct ChatPage: View {
     /// - C 两者都好:居中两行文字
     @ViewBuilder
     private func emptyTimeline(viewportHeight: CGFloat) -> some View {
-        if !model.isStarted {
+        if model.backendID != .phone {
+            pcEmptyTimeline
+                .padding(.top, 88)
+        } else if !model.isStarted {
             engineNotStartedState
                 .padding(.top, 88)
         } else if providerNeedsKey {
@@ -1520,6 +1665,26 @@ struct ChatPage: View {
         } else {
             readyState(viewportHeight: viewportHeight)
         }
+    }
+
+    /// PC workspace empty state. The phone's "start engine"/"configure model"
+    /// states do not apply: the computer owns both, and actions live in the
+    /// drawer.
+    private var pcEmptyTimeline: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(model.isStarted ? "这台电脑还没有打开会话" : "电脑离线")
+                .font(.system(size: 17.5, weight: .semibold))
+                .foregroundStyle(HomeSpec.textPrimary)
+            Text(model.isStarted
+                 ? "从会话列表选择会话，或新建一个。"
+                 : "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。")
+                .font(.system(size: 14))
+                .foregroundStyle(HomeSpec.textPlaceholder)
+                .padding(.top, 8)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, HomeSpec.contentInset)
     }
 
     /// A:引擎还没启动。标题 + 说明 + 黑色主按钮,左右按内容边距 20 撑满。
@@ -2324,6 +2489,8 @@ struct ChatPage: View {
                     .padding(.leading, 4)
             }
             Spacer(minLength: 8)
+            PCWorkspaceMenu()
+                .layoutPriority(-1)
             modelMenu
                 .layoutPriority(-1)
             HStack(spacing: 8) {
@@ -2664,6 +2831,10 @@ struct ChatPage: View {
 
     private var composerEnabled: Bool {
         guard model.pendingQuestion == nil, model.pendingPermission == nil, !isSelectingAccessMode else { return false }
+        // During a resume/rebuild the send is queued and delivered afterwards;
+        // the composer must not refuse the person mid-recovery, even if the
+        // stale pre-park turn flag is still set until the resume reconciles it.
+        if model.isHostRecovering { return model.canQueuePromptDuringRecovery }
         if model.turnRunning { return busyEnterMode == "steer" ? model.canSteer : model.canSend }
         return model.canSend || model.canStartBySending
     }
@@ -2866,6 +3037,12 @@ struct ChatPage: View {
     }
 
     private func openWorkspaceResult(_ path: String) {
+        // PC artifacts stay on the computer in v1: no local page origin, no
+        // preview attempt. Show the location placeholder instead.
+        guard model.capabilities.localFilePreview else {
+            attachmentError = "文件在电脑上：v1 不能在手机本地预览或下载。"
+            return
+        }
         let normalized = Self.normalizedWorkspacePath(path)
         guard !normalized.isEmpty, !normalized.split(separator: "/").contains("..") else {
             attachmentError = "这个路径不能预览。"
@@ -3402,19 +3579,16 @@ struct ChatPage: View {
         }
     }
 
+    /// Drafts are keyed by `(BackendID, sessionID)` (P18/§6.2), so the same
+    /// DSH session ID on the phone and the PC never share a draft. The page is
+    /// kept alive per backend, so the in-memory draft is already isolated too.
     private func savedDraft(for key: String) -> String {
-        guard let data = savedDrafts.data(using: .utf8),
-              let values = try? JSONDecoder().decode([String: String].self, from: data) else { return "" }
-        return values[key] ?? ""
+        WorkspaceStorage.draft(for: model.backendID, sessionID: key) ?? ""
     }
 
     private func persistDraft(_ value: String, for key: String) {
         guard !key.isEmpty else { return }
-        var values = (try? JSONDecoder().decode([String: String].self, from: Data(savedDrafts.utf8))) ?? [:]
-        values[key] = value
-        if let data = try? JSONEncoder().encode(values), let string = String(data: data, encoding: .utf8) {
-            savedDrafts = string
-        }
+        WorkspaceStorage.setDraft(value, for: model.backendID, sessionID: key)
     }
 }
 
@@ -4944,6 +5118,15 @@ extension View {
 /// 权限卡本体。真实对话和 `-uiPreview chat.permission` 用同一份画法,
 /// 文案、颜色、按钮尺寸不会两处漂移。
 struct PermissionCardView: View {
+    /// A sandbox upgrade is visible in the host's reason text; this is a
+    /// warning-strength presentation, not a protocol field.
+    static func isSandboxEscalation(_ permission: ChatPermission) -> Bool {
+        let reason = permission.summary.lowercased()
+        let markers = ["danger-full-access", "danger full access", "full-access",
+                       "sandbox upgrade", "escalat", "完全权限", "沙箱升级"]
+        return markers.contains { reason.contains($0) }
+    }
+
     let permission: ChatPermission
     var isBusy: Bool = false
     var onAllow: () -> Void = {}
@@ -4965,6 +5148,17 @@ struct PermissionCardView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
+            }
+            // Sandbox escalation is the one approval that widens what the
+            // agent may touch for the rest of the turn; keep it loud. Multiple
+            // approvals in one turn replace this card one at a time, so the
+            // user answers each one (plan v2 §12.2.1).
+            if Self.isSandboxEscalation(permission) {
+                Label("这次审批可能把沙箱升级到完全权限，请先确认命令和影响。",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(NativePagePalette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Button {
@@ -4997,5 +5191,73 @@ struct PermissionCardView: View {
         .background(NativeChatTheme.selector, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+}
+
+
+// MARK: - PC new-session workspace chip (pclink-pacing)
+
+/// PC new/empty-session workspace chip. It sits on the same control row and
+/// uses the model chip's type/height. The phone has one workspace and never
+/// shows this. Once the current session has a turn the chip still names its
+/// workspace but has no menu.
+private struct PCWorkspaceMenu: View {
+    @Environment(\.workspaceModels) private var models
+
+    private var model: ChatModel { models.currentChat ?? ChatModel.shared }
+    private var management: DSHManagementModel { models.currentManagement ?? DSHManagementModel.shared }
+
+    @ViewBuilder
+    var body: some View {
+        if model.backendID != .phone,
+           let workspaceID = management.currentWorkspaceID ?? management.newSessionWorkspaceID,
+           let workspace = management.workspaces.first(where: { $0.id == workspaceID }) {
+            let title = PCLinkWorkspaceGrouping.title(workspace.title, fallback: "工作区")
+            if management.isCurrentSessionBlank {
+                Menu {
+                    ForEach(management.workspaces) { candidate in
+                        Button {
+                            Task { await management.selectWorkspaceForNewSession(candidate.id) }
+                        } label: {
+                            if candidate.id == workspaceID {
+                                Label(PCLinkWorkspaceGrouping.title(candidate.title, fallback: "工作区"),
+                                      systemImage: "checkmark")
+                            } else {
+                                Text(PCLinkWorkspaceGrouping.title(candidate.title, fallback: "工作区"))
+                            }
+                        }
+                    }
+                } label: {
+                    workspaceNameBlock(title, showsChevron: true)
+                }
+                .disabled(!model.canSend || model.turnRunning)
+                .accessibilityLabel("选择工作区")
+            } else {
+                workspaceNameBlock(title, showsChevron: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("工作区：\(title)")
+                    .accessibilityAddTraits(.isStaticText)
+            }
+        }
+    }
+
+    private func workspaceNameBlock(_ title: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.system(size: 13, weight: .regular))
+            Text(title)
+                .font(.system(size: HomeSpec.bodySize))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(HomeSpec.textSecondary)
+            }
+        }
+        .foregroundStyle(model.canSend ? HomeSpec.textPrimary : HomeSpec.textPlaceholder)
+        .frame(height: HomeSpec.sendButton)
+        .frame(maxWidth: 150)
+        .contentShape(Rectangle())
     }
 }

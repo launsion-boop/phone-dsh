@@ -133,7 +133,7 @@ class GatewayMutationTest {
 
     /** Copies every caller header and strips nothing. */
     private object PassthroughRequestHeaderSanitizer : RequestHeaderSanitizer {
-        override fun sanitize(callerHeaders: Map<String, String>): SanitizedRequestHeaders =
+        override fun sanitize(callerHeaders: Map<String, String>, targetHost: String?): SanitizedRequestHeaders =
             SanitizedRequestHeaders(
                 headers = callerHeaders.mapKeys { it.key.lowercase() },
                 stripped = emptyList(),

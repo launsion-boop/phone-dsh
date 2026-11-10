@@ -13,6 +13,7 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 - 112pt 实时预览（idle，可 poke），使用当前 Bot 资料的外观。
 - 「发型」一行 4 个 40pt 静帧大肥鱼（`long`、`twin-tail`、`bob`、`side-braid`），每个以当前颜色着色；选中的外圈 44pt；accessibility label 用简体 displayName（经典长卷发、高双马尾、短鲍伯、粗侧辫）。
 - 「颜色」15 个 24pt 色点，44pt 点击区，自动换行；选中外圈；accessibility label 用简体 displayName。
+- 该外观选择器抽成 `BotAppearancePicker`，信息页与「添加 Bot」对话框共用同一个组件和同一组 accessibility id 前缀；对话框只保留草稿状态，信息页仍点选即保存。
 - 点选即保存（`BotProfileStore.upsert` 只带改动字段）并全页实时生效；预览、4 个发型缩略图与 Bot 页头部/空状态/状态行同步。
 - 本轮不提供「自动」选项；资料模型的 `nil` 保留给以后的多 Bot 导入。页面不显示自动外观标记，也不伪造未保存状态。
 

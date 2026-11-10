@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: the v1 settings page (MCP/model/Agent preset) always targets the
+// phone backend; a PC workspace shows a "these settings belong to the phone"
+// note instead (plan v2 §6.1).
 // phone-dsh phone DSH — native MCP settings model shared with the simulator
 // suite. It edits the Worker's existing `/dsh/home/mcp.json` registry through
 // the same `phone/mcpList` / `phone/mcpUpsert` / `phone/mcpRemove` Remote

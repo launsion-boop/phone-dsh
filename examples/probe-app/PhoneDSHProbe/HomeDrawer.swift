@@ -15,10 +15,13 @@ struct HomeDrawer: View {
     var bottomInset: CGFloat = 0
     var isPersistent = false
 
-    @State private var management = DSHManagementModel.shared
-    @State private var chat = ChatModel.shared
-    @State private var collapsedFolderIDs = Set(UserDefaults.standard.stringArray(
-        forKey: "phone-dsh.sidebar.collapsed-workspaces") ?? [])
+    @Environment(\.workspaceModels) private var models
+    /// The drawer, ChatPage and SessionsPage read the selected backend's pair;
+    /// the phone singleton is only the fallback for the unpaired PC empty state.
+    private var chat: ChatModel { models.currentChat ?? models.phoneChat }
+    private var management: DSHManagementModel { models.currentManagement ?? models.phoneManagement }
+    @State private var collapsedFolderIDs: Set<String> = []
+    @State private var showPairing = false
 
     @State private var showNewFolder = false
     @State private var newFolderName = ""
@@ -38,17 +41,28 @@ struct HomeDrawer: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     entriesCard
-                    if let message = errorMessage {
-                        errorRow(message)
-                            .transition(.opacity)
-                    }
-                    if Self.foldersEnabled {
-                        folderSectionHeader
-                            .padding(.top, 16)
+                    // pclink-pacing: 手机 | PC sits below the 新会话 pill (it
+                    // used to be above). The selection is persisted (P18) and
+                    // never changes because the PC is down.
+                    PCDrawerSegment()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 10)
+                        .padding(.bottom, 10)
+                    if showsPCState {
+                        PCDrawerStateView(onPair: { showPairing = true })
                     } else {
-                        Color.clear.frame(height: 16)
+                        if let message = errorMessage {
+                            errorRow(message)
+                                .transition(.opacity)
+                        }
+                        if Self.foldersEnabled {
+                            folderSectionHeader
+                                .padding(.top, 16)
+                        } else {
+                            Color.clear.frame(height: 16)
+                        }
+                        folders
                     }
-                    folders
                 }
                 .animation(.easeOut(duration: 0.15), value: errorMessage)
                 .padding(.top, topInset + HomeSpec.navTop)
@@ -71,10 +85,19 @@ struct HomeDrawer: View {
                     .allowsHitTesting(false)
             }
         }
-        .task {
+        .task(id: backendTaskID) {
+            collapsedFolderIDs = WorkspaceStorage.collapsedWorkspaceIDs(for: currentBackendID)
+            // The held list order belongs to this backend (P18: phone and PC may
+            // carry the same session ID); a backend switch adopts a fresh order.
+            sessionOrder.removeAll()
             rememberSessionOrder()
-            await management.refresh()
+            // The unpaired/offline PC segment has no list to read; never call
+            // the phone management under a PC header.
+            if !showsPCState { await management.refresh() }
             rememberSessionOrder()
+        }
+        .sheet(isPresented: $showPairing) {
+            NavigationStack { PCPairingPage() }
         }
         .onChange(of: management.sessions.map(\.id)) { _, _ in rememberSessionOrder() }
         .onChange(of: management.workspaces) { _, _ in rememberSessionOrder() }
@@ -87,6 +110,9 @@ struct HomeDrawer: View {
             }
         }
         .onDisappear { sessionOrder.removeAll() }
+        .onChange(of: models.pcLink.isOnline) { _, online in
+            if online, !showsPCState { Task { await management.refresh() } }
+        }
         .alert("新建文件夹", isPresented: $showNewFolder) {
             TextField("文件夹名称", text: $newFolderName)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -134,6 +160,17 @@ struct HomeDrawer: View {
         } message: { _ in
             Text("里面的会话会留着，只是不再放在这个文件夹里。")
         }
+    }
+
+    private var currentBackendID: BackendID { models.currentBackendID ?? .phone }
+
+    private var showsPCState: Bool {
+        guard !models.isPhoneSelected else { return false }
+        return models.drawerPhase != .ready
+    }
+
+    private var backendTaskID: String {
+        models.currentBackendID?.storageScope ?? "pc:unpaired"
     }
 
     // MARK: - New session
@@ -186,14 +223,27 @@ struct HomeDrawer: View {
     /// A session switch's transient `busy` is not a reason: the capsule stays
     /// disabled for it, but the list must not move for it.
     private var newSessionBlocked: String? {
-        HomeDrawerNewSessionPolicy.reason(
+        if !models.isPhoneSelected {
+            switch models.drawerPhase {
+            case .pair: return "连接电脑后可新建会话"
+            case .offline: return "电脑离线，无法新建会话"
+            case .ready, .phone: break
+            }
+        }
+        return HomeDrawerNewSessionPolicy.reason(
             isStarted: chat.isStarted,
             turnRunning: chat.turnRunning,
             keepingAlive: chat.keepingAlive)?.text
     }
 
     private var newSessionDisabled: Bool {
-        HomeDrawerNewSessionPolicy.isDisabled(
+        if !models.isPhoneSelected {
+            switch models.drawerPhase {
+            case .pair, .offline: return true
+            case .ready, .phone: break
+            }
+        }
+        return HomeDrawerNewSessionPolicy.isDisabled(
             isStarted: chat.isStarted,
             busy: chat.busy,
             turnRunning: chat.turnRunning,
@@ -272,24 +322,83 @@ struct HomeDrawer: View {
     /// The host's current order for one folder, before the drawer's held order.
     private func rawSessions(in folder: ManagedWorkspace) -> [ManagedSession] {
         let own = management.sessions(in: folder)
-        let combined = folder.id == defaultFolder?.id
-            ? own + management.ungroupedSessions
-            : own
-        return pinnedFirst(combined)
+        if models.isPhoneSelected {
+            guard folder.id == defaultFolder?.id else { return pinnedFirst(own) }
+            return pinnedFirst(own + management.ungroupedSessions)
+        }
+        // PC: a session the workspace list has not enrolled yet still belongs
+        // to the workspace whose host path owns its cwd (longest match). This
+        // is what turns the old single "PC 工作区" pile into real groups.
+        let extra = management.ungroupedSessions.filter {
+            management.workspaceID(for: $0) == folder.id
+        }
+        return pinnedFirst(own + extra)
     }
 
     private var defaultFolder: ManagedWorkspace? {
         orderedFolders.first { management.isDefaultWorkspace($0) }
     }
 
+    private var listState: PCDrawerListState {
+        PCLinkDrawerPolicy.listState(isLoading: management.isLoading,
+                                     error: management.error,
+                                     sessionCount: management.activeSessions.count)
+    }
+
+    /// Sessions shown outside a workspace header, before the drawer's held
+    /// order: the phone's default folder rule is unchanged; a PC session joins
+    /// its workspace when `workspace/follow` lists it or its cwd matches a
+    /// workspace path, and only the rest is loose.
     private var rawLooseSessions: [ManagedSession] {
-        defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+        if models.isPhoneSelected {
+            return defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+        }
+        let ungrouped = management.ungroupedSessions
+        guard !orderedFolders.isEmpty else { return pinnedFirst(ungrouped) }
+        return pinnedFirst(ungrouped.filter { management.workspaceID(for: $0) == nil })
+    }
+
+    /// The loose rows in the drawer's held order (#76): a refresh must not
+    /// reorder them under the user's finger.
+    private var looseSessions: [ManagedSession] {
+        inHeldOrder(rawLooseSessions)
+    }
+
+    private var loadingRow: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(NativeText("正在读取 PC 会话…", "Loading PC sessions…"))
+                .font(.system(size: 14))
+                .foregroundStyle(HomeSpec.textPlaceholder)
+        }
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.top, 8)
+        .frame(height: 36)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder
     private var folders: some View {
-        let loose = inHeldOrder(rawLooseSessions)
-        VStack(alignment: .leading, spacing: 4) {
+        let loose = looseSessions
+        LazyVStack(alignment: .leading, spacing: 4) {
+            if !models.isPhoneSelected {
+                switch listState {
+                case .loading:
+                    loadingRow
+                case .error:
+                    // The error row above carries the message and 重试; never
+                    // fall through to the "no PC sessions" empty state.
+                    EmptyView()
+                case .empty:
+                    Text("还没有 PC 会话。点上面的「新会话」在电脑上新建一个。")
+                        .font(.system(size: 14))
+                        .foregroundStyle(HomeSpec.textPlaceholder)
+                        .padding(.horizontal, HomeSpec.contentInset)
+                        .padding(.top, 8)
+                case .rows:
+                    EmptyView()
+                }
+            }
             if Self.foldersEnabled && orderedFolders.isEmpty && loose.isEmpty {
                 Text("还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。")
                     .font(.system(size: 14))
@@ -342,7 +451,17 @@ struct HomeDrawer: View {
     /// The default folder before the host has registered one: same shape,
     /// same name, no folder menu.
     private func looseHeader(count: Int) -> some View {
-        groupHeader(id: Self.looseGroupID, icon: "folder", title: DrawerTitles.defaultFolderName, count: count)
+        let title: String
+        if models.isPhoneSelected {
+            title = DrawerTitles.defaultFolderName
+        } else if orderedFolders.isEmpty {
+            // No workspace baseline yet: keep the old group name as a
+            // degraded fallback rather than inventing a workspace title.
+            title = models.pcWorkspaceTitle
+        } else {
+            title = NativeText("未分组", "Ungrouped")
+        }
+        return groupHeader(id: Self.looseGroupID, icon: "folder", title: title, count: count)
     }
 
     private func groupHeader(id: String, icon: String, title: String, count: Int) -> some View {
@@ -430,6 +549,11 @@ struct HomeDrawer: View {
     private static let looseGroupID = "__loose__"
 
     private func folderTitle(_ folder: ManagedWorkspace) -> String {
+        if !models.isPhoneSelected {
+            // The DSH workspace title is the group name on the PC; the
+            // computer-name suffix would merge every workspace into one.
+            return PCLinkWorkspaceGrouping.title(folder.title, fallback: "工作区")
+        }
         let index = (orderedFolders.firstIndex(where: { $0.id == folder.id }) ?? 0) + 1
         return DrawerTitles.workspaceTitle(folder.title, index: index)
     }
@@ -477,8 +601,7 @@ struct HomeDrawer: View {
     private func toggle(_ id: String) {
         if collapsedFolderIDs.contains(id) { collapsedFolderIDs.remove(id) }
         else { collapsedFolderIDs.insert(id) }
-        UserDefaults.standard.set(Array(collapsedFolderIDs).sorted(),
-                                  forKey: "phone-dsh.sidebar.collapsed-workspaces")
+        WorkspaceStorage.setCollapsedWorkspaceIDs(collapsedFolderIDs, for: currentBackendID)
     }
 
     private func open(_ session: ManagedSession) {
@@ -555,5 +678,47 @@ private struct HomeDrawerRowStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .fill(HomeSpec.userBubble.opacity(configuration.isPressed ? 0.7 : 0)))
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+// MARK: - 手机 | PC segment (P09/P18)
+
+/// 手机 | PC. The selected side persists through P18
+/// (`phone-dsh.drawer.backend`); selecting PC while unpaired opens the pairing
+/// entry but never changes the selection back.
+struct PCDrawerSegment: View {
+    @Environment(\.workspaceModels) private var models
+
+    private var selection: DrawerBackendSetting { models.selected }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            segmentButton(.phone, title: NativeText("手机", "Phone"))
+            segmentButton(.pc, title: "PC")
+        }
+        .padding(2)
+        .background(HomeSpec.userBubble, in: Capsule())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("工作区")
+    }
+
+    private func segmentButton(_ value: DrawerBackendSetting, title: String) -> some View {
+        let selected = selection == value
+        return Button {
+            models.select(value)
+        } label: {
+            Text(title)
+                .font(.system(size: 15, weight: selected ? .semibold : .regular))
+                .foregroundStyle(selected ? HomeSpec.textPrimary : HomeSpec.textSecondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(selected ? HomeSpec.surface : Color.clear, in: Capsule())
+                .overlay(Capsule().strokeBorder(
+                    selected ? HomeSpec.borderList : Color.clear, lineWidth: 0.5))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
 }

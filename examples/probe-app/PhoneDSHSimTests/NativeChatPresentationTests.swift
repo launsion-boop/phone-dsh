@@ -3,6 +3,7 @@
 import Foundation
 import PhoneDSH
 import PhoneDSHAgentCore
+import ProbeKit
 import XCTest
 
 final class NativeChatPresentationTests: XCTestCase {

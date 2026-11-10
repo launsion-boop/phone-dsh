@@ -8,6 +8,7 @@
 // a content hash key.
 
 import Foundation
+import ProbeKit
 
 final class NativeMarkdownParseCache {
     static let shared = NativeMarkdownParseCache()
