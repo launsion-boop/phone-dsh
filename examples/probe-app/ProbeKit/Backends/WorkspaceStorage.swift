@@ -48,6 +48,24 @@ public enum WorkspaceStorageKeys {
     /// fingerprint itself carries the backend scope and session ID.
     public static let retryableRequestIDs = "chat.dsh.retryableRequestIDs"
 
+    /// The phone's session-list snapshot. Bare `ChatSessionSnapshot` value; it
+    /// is not migrated so a rollback keeps reading it
+    /// (PC-20261110-pclink-pc-roster-snapshot).
+    public static let phoneSessionSnapshot = "dsh.management.sessionSnapshot.v1"
+
+    /// The PC's session-list snapshot, one key per paired machine. The value is
+    /// a `CachedSessionSnapshotEnvelope`; readers also accept the bare format.
+    public static let pcSessionSnapshotPrefix = "phone-dsh.pc.session-snapshot."
+
+    /// The roster-cache key for one backend. The phone keeps its historical
+    /// key; a PC is scoped by machineId so two computers cannot share rows.
+    public static func sessionSnapshotKey(for backend: BackendID) -> String {
+        switch backend {
+        case .phone: return phoneSessionSnapshot
+        case .pc(let machineId): return pcSessionSnapshotPrefix + machineId
+        }
+    }
+
     public static func currentSession(for backend: BackendID) -> String {
         currentSessionPrefix + backend.storageScope
     }
@@ -454,6 +472,9 @@ public enum WorkspaceStorage {
             try? fileManager.removeItem(at: directory)
         }
         setLastWorkspaceID(nil, for: backend, defaults: defaults)
+        // The roster cache describes the removed pairing; a stale list must not
+        // come back if the same machine is paired again later.
+        defaults.removeObject(forKey: WorkspaceStorageKeys.sessionSnapshotKey(for: backend))
     }
 
     private static func defaultDocumentsDirectory(_ fileManager: FileManager) -> URL? {
