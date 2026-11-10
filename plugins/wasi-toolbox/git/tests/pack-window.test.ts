@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 /**
  * Pack-reader regressions for the pure-JavaScript zlib codec: a compressed
- * object larger than the pack reader's first read window must grow the window
- * until the stream ends, and an empty blob must not be mistaken for a
+ * object larger than one 64 KiB read chunk must be inflated across several
+ * chunks until its stream ends, and an empty blob must not be mistaken for a
  * two-to-six-byte zlib prefix (fflate answers an empty array for those).
  * @module @phone-dsh/dsh-wasi-toolbox/git/tests/pack-window
  */
@@ -27,7 +27,7 @@ function incompressible(length: number): Uint8Array {
   return bytes
 }
 
-test('a pack object larger than the first read window is inflated by growing it', async () => {
+test('a pack object larger than the first read chunk is inflated across chunks', async () => {
   const temp = tempDirectory()
   try {
     const fs = new NodeGitFs()
@@ -58,6 +58,9 @@ test('an empty blob in a received pack keeps the following object offsets aligne
   const parsed = await parsePack(pack.pack, async () => undefined)
   assert.equal(parsed.packSha, pack.id)
   assert.equal(parsed.objects.length, 2)
-  assert.equal(parsed.objects[0]?.data.byteLength, 0)
-  assert.equal(new TextDecoder().decode(parsed.objects[1]?.data), 'after the empty blob\n')
+  // Metadata is computed from the same stream boundaries: the empty blob's
+  // compressed stream must end exactly where the next object starts, and both
+  // ids must match the writer's.
+  assert.deepEqual(parsed.objects.map(object => object.oid), pack.ids)
+  assert.equal(parsed.objects[0]?.end, parsed.objects[1]?.offset)
 })

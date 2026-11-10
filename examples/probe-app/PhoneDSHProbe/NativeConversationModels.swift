@@ -3,6 +3,26 @@
 import Foundation
 import PhoneDSHAgentCore
 
+/// Process-wide monotonic source for `ChatItem.renderRevision`.
+///
+/// Render caches key on item identity **and** revision. Rebuilding a row from a
+/// snapshot, an authoritative page or a projector restore creates a new value
+/// with the same id, so a per-item counter starting at 0 would let that new
+/// instance hit the old instance's parse/summary/changes entry. Taking a fresh
+/// revision on every construction makes rebuilds miss instead. Value copies
+/// keep their revision, which is correct: they are the same content.
+private enum NativeRenderRevision {
+    private static let lock = NSLock()
+    private static var next = 0
+
+    static func take() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        next &+= 1
+        return next
+    }
+}
+
 // Native projections of DSH's conversation, usage, and deliverable records.
 struct ChatItem: Identifiable, Equatable {
     enum Kind: Equatable {
@@ -42,6 +62,9 @@ struct ChatItem: Identifiable, Equatable {
     var turnUsage: NativeTurnUsage?
     var attachments: [NativeMessageAttachment] = []
     var rawBlock: JSONValue?
+    /// Fresh for every constructed value and bumped whenever a field that feeds
+    /// the Markdown/summary/changes caches changes. Value copies share it.
+    var renderRevision: Int
 
     init(id: String = UUID().uuidString, kind: Kind, title: String, text: String, streaming: Bool = false) {
         self.id = id
@@ -49,6 +72,17 @@ struct ChatItem: Identifiable, Equatable {
         self.title = title
         self.text = text
         self.streaming = streaming
+        self.renderRevision = NativeRenderRevision.take()
+    }
+
+    /// Marks this value's rendered content as changed.
+    ///
+    /// The new revision must come from the same process-wide source as
+    /// construction: a per-item `&+= 1` could land on a value the global source
+    /// later hands to a re-created instance with the same id, making that new
+    /// instance hit this instance's parse/summary/changes entry.
+    mutating func bumpRenderRevision() {
+        renderRevision = NativeRenderRevision.take()
     }
 }
 

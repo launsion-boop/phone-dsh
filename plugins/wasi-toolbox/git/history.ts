@@ -510,7 +510,9 @@ function renderStyleHeader(commit: CommitInfo, style: LogStyle, dateFormat: LogD
         + indentCommitMessage(commit.message)
     case 'raw': {
       const lines = [`commit ${commit.oid}\n`, `tree ${commit.tree}\n`]
-      for (const parent of commit.parents) lines.push(`parent ${parent}\n`)
+      // Git's raw style prints the object's recorded parents even at a
+      // shallow boundary; only traversal and `%P` graft them away.
+      for (const parent of commit.rawParents) lines.push(`parent ${parent}\n`)
       lines.push(`author ${signatureIdentity(commit.author)} ${commit.author.timestamp} ${commit.author.timezone}\n`)
       lines.push(`committer ${signatureIdentity(commit.committer)} ${commit.committer.timestamp} ${commit.committer.timezone}\n\n`)
       lines.push(indentCommitMessage(commit.message))

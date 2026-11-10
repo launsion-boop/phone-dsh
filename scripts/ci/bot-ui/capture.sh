@@ -70,6 +70,7 @@ for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift 
 done
 cp "$ROOT/scripts/ci/bot-ui/CaptureDependencies.swift" "$WORK/Sources/CaptureDependencies.swift"
 cp "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
+cp "$ROOT/scripts/ci/bot-ui/BotFishBench.swift" "$WORK/Sources/BotFishBench.swift"
 cp "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
 
 cat >"$WORK/project.yml" <<YAML
@@ -160,14 +161,19 @@ DESTINATION="platform=iOS Simulator,id=$DEVICE_ID"
 PROJECT="$WORK/PhoneDSHBotUICapture.xcodeproj"
 DERIVED="$WORK/DerivedData"
 
+# The sandboxed SwiftPM plugin server cannot start inside the agent file
+# sandbox; the probe-app build uses the same flag. This only affects local
+# capture runs, not the app or its package graph.
 xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
     -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO build | tee "$OUT/build.log"
+    CODE_SIGNING_ALLOWED=NO \
+    OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' build | tee "$OUT/build.log"
 
 rm -rf "$OUT/BotUI.xcresult"
 xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
     -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO test | tee "$OUT/ui-tests.log"
+    -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO \
+    OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' test | tee "$OUT/ui-tests.log"
 
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 [ -d "$APP" ] || { echo "capture app missing at expected build output" >&2; exit 1; }

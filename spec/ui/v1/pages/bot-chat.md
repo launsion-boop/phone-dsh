@@ -19,25 +19,25 @@
 
 ## 2. 手机尺寸换算
 
-结构、内容模型、空状态、超限处理和交互照 DSH Bot；视觉值只取 phoneDSH `tokens.json`，不复制桌面 CSS 色值或新增第二套 token。用户最新明确要求：所有消息卡片必须比此前紧凑，不能呈现为全宽大窗口。
+结构、内容模型、空状态、超限处理和交互照 DSH Bot；视觉值只取 phoneDSH `tokens.json`，不复制桌面 CSS 色值或新增第二套 token；卡片表面本轮明确收紧为 16pt 圆角与 12pt 内距。用户最新明确要求：所有消息卡片必须比此前紧凑，不能呈现为全宽大窗口。
 
 | DSH Bot 桌面语义 | phoneDSH 手机规则 |
 | --- | --- |
-| 卡片宽 `min(100%,560px,100%-82px)` | 与同一 assistant 回复气泡共享唯一 `BotMessageColumn`。卡片宽度不得超过该回复气泡；使用同一左右 `geometry.cardOuterMarginH` 和最大宽度，不额外增加 16pt 外边距，不使用全屏/居中模态窗口 |
+| 卡片宽 `min(100%,560px,100%-82px)` | 与同一 assistant 回复气泡共享唯一 `BotContentWidth`：列宽的 86%，左对齐；卡片宽度不得超过该回复气泡，内容较窄时按内容宽度、不强行撑满；同一左右 `HomeSpec.contentInset`，不额外增加 16pt 外边距，不使用全屏/居中模态窗口 |
 | 产出卡 r22 | `radius.bubble`（24） |
-| 工作卡 r18 | `radius.listCard`（18） |
+| 工作卡 r18 | 卡片表面 r16（本轮从 `radius.listCard` 18 收紧） |
 | 行内提示 r14 | `radius.card`（12） |
-| 卡片内距 16、密集 14 | 工作卡使用 `geometry.cardPadding`（14）；question/steps 使用 12pt 紧凑内距；外边距只能来自共享回复列，不重复扣除 |
-| 标题 15/500 | `typography.process` 同级的 15pt semibold，不使用更大的页面标题 |
-| 正文 14/20 | `NativeParityTokens.bodySize`（14）及紧凑行高；主要回答正文仍用 `typography.body` |
-| 密集/辅助 13、备注 12 | `typography.secondary` / `typography.caption` |
+| 卡片内距 16、密集 14 | 卡片表面统一 12pt 内距；外边距只能来自共享回复列，不重复扣除 |
+| 标题 15/500 | 卡片标题 15/22 semibold，不使用更大的页面标题 |
+| 正文 14/20 | 卡片正文和列表行 14/20；主要回答正文仍用 `typography.body` |
+| 密集/辅助 13、备注 12 | eyebrow / meta 12/18，仍取 `typography.caption` 层级 |
 | 主、次、文字三按钮层级 | `colors.primaryButton` + `colors.primaryButtonInk`、`colors.sessionSelector` + `colors.sessionPrimary`、透明底 + `colors.sessionSecondary`；触控目标至少 44pt，主要操作按手机视觉动线置于上方 |
 | 成功/进行中/警告/失败/失效 | `colors.sessionSuccess` / `colors.sessionAccent` / `colors.sessionWarning` / `colors.sessionDanger` / `colors.sessionTertiary`；每卡最多两个语义色 |
 | 描边和表面 | `colors.sessionBorderL1/L2`、`colors.surface` / `colors.sessionSelector`；浅色和深色必须使用同一角色 |
 
 桌面 32px 按钮、28px 密集行、40px 选项行在手机上统一提升到至少 44pt 的可点击区域；视觉图标可以更小，但命中区域不得缩小。question/steps 的选项视觉行高为 44 而非 52，行间 4，选项默认透明，不为每项再套一层厚底卡；recommended 才使用轻 tint、细边和推荐徽标。关闭图形可以紧凑，但命中区仍为 44。
 
-所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一回复列宽约束。
+所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
 
 ## 3. 卡片清单
 

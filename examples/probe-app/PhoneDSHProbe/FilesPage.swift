@@ -29,7 +29,7 @@ struct FilesPage: View {
     @State private var showingDemo = false
 
     private var children: [WorkspaceFile] {
-        model.files.filter { file in
+        model.fileIndex.orderedFiles.filter { file in
             guard file.relativePath.hasPrefix(directory) else { return false }
             let tail = String(file.relativePath.dropFirst(directory.count))
             return query.isEmpty ? !tail.contains("/") : tail.localizedCaseInsensitiveContains(query)
@@ -38,7 +38,7 @@ struct FilesPage: View {
 
     private var folders: [String] {
         guard query.isEmpty else { return [] }
-        return Set(model.files.compactMap { file -> String? in
+        return Set(model.fileIndex.orderedFiles.compactMap { file -> String? in
             guard file.relativePath.hasPrefix(directory) else { return nil }
             let tail = String(file.relativePath.dropFirst(directory.count))
             guard let slash = tail.firstIndex(of: "/") else { return nil }
@@ -52,7 +52,7 @@ struct FilesPage: View {
             .navigationBarTitleDisplayMode(.inline)
             .homeGroupedList()
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: NativeText("搜索文件", "Search files"))
-            .refreshable { model.refreshFiles() }
+            .refreshable { await model.refreshFilesAndWait() }
             .task { await openInitialPathIfNeeded() }
             .navigationDestination(item: $previewTarget) { target in
                 PreviewSurface(target: target, isModal: false)
@@ -136,7 +136,7 @@ struct FilesPage: View {
 
     /// Opens the requested file once: lands in its folder and presents it.
     private func openInitialPathIfNeeded() async {
-        model.refreshFiles()
+        await model.refreshFilesAndWait()
         guard !didOpenInitialPath, let initialPath else { return }
         didOpenInitialPath = true
         let normalized = ChatPage.normalizedWorkspacePath(initialPath)
@@ -145,10 +145,7 @@ struct FilesPage: View {
         }
         var match: WorkspaceFile?
         let canonical = normalized.precomposedStringWithCanonicalMapping
-        for candidate in model.files where candidate.relativePath == normalized {
-            match = candidate
-            break
-        }
+        match = model.fileIndex.file(atPath: normalized)
         if match == nil {
             // The list comes from the materialized tree and the requested path
             // from a tool result; a Chinese name can differ only in Unicode

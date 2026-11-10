@@ -4,11 +4,11 @@ import Foundation
 import Markdown
 
 // Native block and inline projections of CommonMark/GFM plus DSH TeX extensions.
-enum NativeMarkdownVariant {
+enum NativeMarkdownVariant: Hashable {
     case body, compact
 }
 
-indirect enum NativeMarkdownInline {
+indirect enum NativeMarkdownInline: Hashable {
     case text(String)
     case strong([NativeMarkdownInline])
     case emphasis([NativeMarkdownInline])

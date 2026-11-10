@@ -98,10 +98,11 @@ export const UNSUPPORTED_VECTORS: readonly LogVector[] = [
   { name: 'diff/binary', args: ['diff', '--binary'] },
   { name: 'diff-tree/copies', args: ['diff-tree', '-C', 'HEAD'] },
   // Remote porcelain options the Worker git does not implement. They must fail
-  // with a usage error naming the option before any repository or network
+  // with a clear error naming the option before any repository or network
   // action, never silently run a different remote command and exit 0.
-  { name: 'clone/single-branch', args: ['clone', '--single-branch', 'https://example.test/repository.git', 'worker-clone'] },
-  { name: 'clone/no-tags', args: ['clone', '--no-tags', 'https://example.test/repository.git', 'worker-clone'] },
+  { name: 'clone/no-single-branch', args: ['clone', '--no-single-branch', 'https://example.test/repository.git', 'worker-clone'] },
+  { name: 'clone/shallow-since', args: ['clone', '--shallow-since', '2020-01-01', 'https://example.test/repository.git', 'worker-clone'] },
+  { name: 'clone/filter', args: ['clone', '--filter=blob:none', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'clone/origin-short', args: ['clone', '-o', 'upstream', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'clone/origin-long', args: ['clone', '--origin', 'upstream', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'fetch/prune', args: ['fetch', '--prune', 'origin'] },
@@ -156,7 +157,7 @@ test('porcelain corpus: unimplemented options fail loud instead of printing a di
       const result = await workerGit(vector.args, fixture.repository, fixture.env)
       assert.notEqual(result.code, 0, `${vector.name}: exits non-zero`)
       assert.equal(result.stdout.byteLength, 0, `${vector.name}: writes nothing to stdout (${JSON.stringify(result.stdout.toString())})`)
-      assert.match(result.stderr.toString(), /unsupported/i, `${vector.name}: names the unsupported option`)
+      assert.match(result.stderr.toString(), /unsupported|not supported/i, `${vector.name}: names the unsupported option`)
     }
   } finally {
     temp.cleanup()

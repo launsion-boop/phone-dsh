@@ -4,6 +4,9 @@ package com.phonedsh.ui.nav
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -133,6 +136,55 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION).assertIsNotEnabled()
         compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION_REASON).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.DRAWER_NEW_BLOCKED_TURN).assertIsDisplayed()
+    }
+
+    @Test fun newSessionReasonAppearsAndDisappearsWithoutMovingTheSessionList() {
+        var reason by mutableStateOf<String?>(null)
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                HomeDrawer(
+                    facts = HomeDrawerFacts(
+                        folders = listOf(
+                            HomeDrawerFolder(
+                                "daily",
+                                "日常",
+                                listOf(HomeDrawerSession("s1", "会话一")),
+                                isDefault = true,
+                            ),
+                        ),
+                        unassignedSessions = emptyList(),
+                        newSessionBlockedReason = reason,
+                    ),
+                    onClose = {},
+                    onCreateSession = { true },
+                )
+            }
+        }
+        compose.waitForIdle()
+        val session = compose.onNodeWithTag(HomeDrawerTags.SESSION_PREFIX + "s1")
+        val topWithoutReason = session.fetchSemanticsNode().boundsInRoot.top
+
+        compose.runOnIdle { reason = UiStrings.DRAWER_NEW_BLOCKED_TURN }
+        compose.waitForIdle()
+        compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION_REASON).assertIsDisplayed()
+        val topWithReason = session.fetchSemanticsNode().boundsInRoot.top
+        assertEquals(
+            "the reason line must not push the first session row down",
+            topWithoutReason,
+            topWithReason,
+            0.01f,
+        )
+
+        compose.runOnIdle { reason = null }
+        compose.waitForIdle()
+        compose.onNodeWithTag(HomeDrawerTags.NEW_SESSION_REASON).assertDoesNotExist()
+        val topAfterRemoval = session.fetchSemanticsNode().boundsInRoot.top
+        assertEquals(
+            "removing the reason line must not pull the first session row up",
+            topWithoutReason,
+            topAfterRemoval,
+            0.01f,
+        )
     }
 
     @Test fun title日常DoesNotTurnACustomFolderIntoTheDefaultOrAbsorbLooseSessions() {

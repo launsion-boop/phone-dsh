@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
@@ -261,21 +261,191 @@ test('remote porcelain: unimplemented options fail loud instead of faking succes
       assert.match(result.stderr.toString(), /unsupported fetch option/, `fetch ${option}: names the option`)
     }
 
-    // `clone` options that change which refs are fetched or the remote name
-    // must not fall through to a full clone under the default name.
-    for (const [option, args] of [
-      ['--single-branch', ['clone', '--single-branch', remote('origin.git'), join(temp.path, 'single')]],
-      ['--no-tags', ['clone', '--no-tags', remote('origin.git'), join(temp.path, 'no-tags')]],
-      ['-o', ['clone', '-o', 'upstream', remote('origin.git'), join(temp.path, 'renamed')]],
-      ['--origin', ['clone', '--origin', 'upstream', remote('origin.git'), join(temp.path, 'renamed-long')]],
+    // `clone` options that change which refs are fetched, the remote name or
+    // the repository shape must not fall through to a different clone.
+    for (const [option, args, code, message] of [
+      ['--no-single-branch', ['clone', '--no-single-branch', remote('origin.git'), join(temp.path, 'no-single')], 128, /--no-single-branch is not supported/],
+      ['--shallow-since', ['clone', '--shallow-since', '2020-01-01', remote('origin.git'), join(temp.path, 'since')], 128, /only --depth <n> is available/],
+      ['--shallow-exclude', ['clone', '--shallow-exclude', 'v1', remote('origin.git'), join(temp.path, 'exclude')], 128, /only --depth <n> is available/],
+      ['--filter', ['clone', '--filter=blob:none', remote('origin.git'), join(temp.path, 'partial')], 128, /partial clone.*--depth <n>/],
+      ['--bare', ['clone', '--bare', remote('origin.git'), join(temp.path, 'bare-clone')], 128, /non-bare/],
+      ['-o', ['clone', '-o', 'upstream', remote('origin.git'), join(temp.path, 'renamed')], 129, /unsupported clone option/],
+      ['--origin', ['clone', '--origin', 'upstream', remote('origin.git'), join(temp.path, 'renamed-long')], 129, /unsupported clone option/],
     ] as const) {
       const result = await workerGit(args, temp.path, networkEnv)
       const target = args[args.length - 1] as string
-      assert.equal(result.code, 129, `clone ${option}: exit 129 (stderr ${JSON.stringify(result.stderr.toString())})`)
+      assert.equal(result.code, code, `clone ${option}: exit ${code} (stderr ${JSON.stringify(result.stderr.toString())})`)
       assert.equal(result.stdout.byteLength, 0, `clone ${option}: prints nothing on stdout`)
-      assert.match(result.stderr.toString(), /unsupported clone option/, `clone ${option}: names the option`)
+      assert.match(result.stderr.toString(), message, `clone ${option}: names the option and the limitation`)
       assert.equal(existsSync(join(target, '.git')), false, `clone ${option}: creates nothing`)
     }
+
+    // Fetch options that would change the shallow boundary or partial-clone
+    // shape are explicit errors that name the supported alternative.
+    for (const [option, args, message] of [
+      ['--unshallow', ['fetch', '--unshallow', 'origin'], /--depth <n>/],
+      ['--shallow-since', ['fetch', '--shallow-since=2020-01-01', 'origin'], /--depth <n>/],
+      ['--shallow-exclude', ['fetch', '--shallow-exclude=v1', 'origin'], /--depth <n>/],
+      ['--filter', ['fetch', '--filter=blob:none', 'origin'], /partial clone.*--depth <n>/],
+    ] as const) {
+      const result = await workerGit(args, work, networkEnv)
+      assert.equal(result.code, 128, `fetch ${option}: exit 128 (stderr ${JSON.stringify(result.stderr.toString())})`)
+      assert.equal(result.stdout.byteLength, 0, `fetch ${option}: prints nothing on stdout`)
+      assert.match(result.stderr.toString(), message, `fetch ${option}: names the supported alternative`)
+      assert.match(result.stderr.toString(), /Nothing was changed/, `fetch ${option}: promises no side effects`)
+    }
+  } finally {
+    if (route !== undefined) await route.close()
+    temp.cleanup()
+  }
+})
+
+test('shallow and single-branch clone/fetch follow git smart HTTP v0', { skip }, async () => {
+  const temp = tempDirectory()
+  let route: HostRoute | undefined
+  try {
+    const environment = fixtureEnvironment(temp.path)
+    const env = environment.env
+    const git = (repository: string, args: readonly string[]): CommandResult => systemGit(args, repository, env)
+    const origin = join(temp.path, 'origin')
+    mkdirSync(origin)
+    git(origin, ['init', '-q', '-b', 'main'])
+    writeFileSync(join(origin, 'a.txt'), 'one\n')
+    git(origin, ['add', '-A'])
+    git(origin, ['commit', '-qm', 'first'])
+    const first = git(origin, ['rev-parse', 'HEAD']).stdout.toString().trim()
+    git(origin, ['tag', 'v1'])
+    git(origin, ['checkout', '-qb', 'feature'])
+    writeFileSync(join(origin, 'feature.txt'), 'feature\n')
+    git(origin, ['add', '-A'])
+    git(origin, ['commit', '-qm', 'feature work'])
+    const featureTip = git(origin, ['rev-parse', 'HEAD']).stdout.toString().trim()
+    git(origin, ['checkout', '-q', 'main'])
+    writeFileSync(join(origin, 'a.txt'), 'two\n')
+    git(origin, ['add', '-A'])
+    git(origin, ['commit', '-qm', 'second'])
+    const second = git(origin, ['rev-parse', 'HEAD']).stdout.toString().trim()
+    git(origin, ['tag', 'v2'])
+    git(origin, ['tag', '-a', '-m', 'annotated tag', 'v2ann'])
+    const bare = join(temp.path, 'bare.git')
+    const bareClone = spawnSync('git', ['clone', '-q', '--bare', origin, bare], { encoding: 'utf8', env: { ...process.env, ...env } })
+    assert.equal(bareClone.status, 0, bareClone.stderr)
+    route = await startHostRoute(new Map([['origin.git', origin], ['bare.git', bare]]), 'test-token')
+    const networkEnv = routeEnvironment(env, route)
+    const remote = (name: string): string => `${route?.origin}/${name}`
+    const worker = (repository: string, args: readonly string[]): Promise<CommandResult> =>
+      workerGit(args, repository, networkEnv)
+    const shallowFile = (repository: string): string => {
+      try {
+        return readFileSync(join(repository, '.git', 'shallow'), 'utf8').trim()
+      } catch {
+        return ''
+      }
+    }
+
+    // `clone --depth 1` fetches one commit, writes `.git/shallow`, and every
+    // traversal sees the boundary as a root.
+    const shallow = join(temp.path, 'shallow')
+    const shallowClone = await worker(temp.path, ['clone', '--depth', '1', remote('origin.git'), shallow])
+    assert.equal(shallowClone.code, 0, shallowClone.stderr.toString())
+    assert.equal(systemGit(['rev-parse', '--is-shallow-repository'], shallow, env).stdout.toString().trim(), 'true')
+    assert.equal(git(shallow, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '1')
+    assert.equal(git(shallow, ['fsck', '--strict']).code, 0, git(shallow, ['fsck', '--strict']).stderr.toString())
+    assert.equal(shallowFile(shallow), second)
+    assert.equal(
+      systemGit(['for-each-ref', '--format=%(refname)', 'refs/tags'], shallow, env).stdout.toString().trim(),
+      'refs/tags/v2\nrefs/tags/v2ann',
+      'only tags that point into the fetched history are created (the annotated tag rides along via include-tag)',
+    )
+    const shallowLog = await worker(shallow, ['log', '--oneline'])
+    assert.equal(shallowLog.code, 0, shallowLog.stderr.toString())
+    assert.equal(shallowLog.stdout.toString(), git(shallow, ['log', '--oneline']).stdout.toString())
+    // `show` on the boundary commit diffs against the empty tree, like git.
+    const shallowShow = await worker(shallow, ['show', '--stat', 'HEAD'])
+    assert.equal(shallowShow.code, 0, shallowShow.stderr.toString())
+    assert.equal(shallowShow.stdout.toString(), git(shallow, ['show', '--stat', 'HEAD']).stdout.toString())
+    const shallowCount = await worker(shallow, ['rev-list', '--count', 'HEAD'])
+    assert.equal(shallowCount.stdout.toString(), '1\n')
+    assert.equal((await worker(shallow, ['status', '--porcelain'])).stdout.toString(), '')
+
+    // Commit and push from the shallow clone: the boundary's missing parent is
+    // never walked, and the bare remote (which has the full history) accepts it.
+    writeFileSync(join(shallow, 'local.txt'), 'local\n')
+    assert.equal((await worker(shallow, ['add', '-A'])).code, 0)
+    assert.equal((await worker(shallow, ['commit', '-m', 'local'])).code, 0)
+    const localHead = git(shallow, ['rev-parse', 'HEAD']).stdout.toString().trim()
+    git(shallow, ['remote', 'add', 'bare', remote('bare.git')])
+    const push = await worker(shallow, ['push', 'bare', 'main'])
+    assert.equal(push.code, 0, push.stderr.toString())
+    assert.equal(git(bare, ['rev-parse', 'refs/heads/main']).stdout.toString().trim(), localHead)
+    assert.equal(git(bare, ['fsck', '--strict']).code, 0)
+    assert.equal(git(bare, ['show', 'main:local.txt']).stdout.toString(), 'local\n')
+
+    // A normal fetch in a shallow repository sends the existing boundary and
+    // keeps it; the remote-tracking ref advances.
+    writeFileSync(join(origin, 'c.txt'), 'third\n')
+    git(origin, ['add', '-A'])
+    git(origin, ['commit', '-qm', 'third'])
+    const third = git(origin, ['rev-parse', 'HEAD']).stdout.toString().trim()
+    const fetch = await worker(shallow, ['fetch', 'origin'])
+    assert.equal(fetch.code, 0, fetch.stderr.toString())
+    assert.equal(git(shallow, ['rev-parse', 'refs/remotes/origin/main']).stdout.toString().trim(), third)
+    assert.equal(git(shallow, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'true')
+    assert.equal(shallowFile(shallow), second)
+    assert.equal(git(shallow, ['fsck', '--strict']).code, 0)
+    const fetchedCount = await worker(shallow, ['rev-list', '--count', 'refs/remotes/origin/main'])
+    assert.equal(fetchedCount.stdout.toString(), '2\n', 'third + the shallow boundary')
+
+    // `fetch --depth N` deepens: the boundary moves from `second` to `first`.
+    const deepen = await worker(shallow, ['fetch', '--depth', '3', 'origin'])
+    assert.equal(deepen.code, 0, deepen.stderr.toString())
+    assert.equal(shallowFile(shallow), first)
+    assert.equal(git(shallow, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '3', 'local commit + second + first')
+    assert.equal(git(shallow, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'true')
+    assert.equal(git(shallow, ['fsck', '--strict']).code, 0)
+
+    // `--depth=1 -b feature` clones only that branch's tip.
+    const feature = join(temp.path, 'feature-shallow')
+    const featureClone = await worker(temp.path, ['clone', '--depth=1', '-b', 'feature', remote('origin.git'), feature])
+    assert.equal(featureClone.code, 0, featureClone.stderr.toString())
+    assert.equal(git(feature, ['symbolic-ref', '--short', 'HEAD']).stdout.toString().trim(), 'feature')
+    assert.equal(shallowFile(feature), featureTip)
+    assert.equal(git(feature, ['config', '--get', 'remote.origin.fetch']).stdout.toString().trim(), '+refs/heads/feature:refs/remotes/origin/feature')
+    assert.equal(git(feature, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'true')
+    assert.equal(git(feature, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '1')
+    assert.equal(git(feature, ['fsck', '--strict']).code, 0)
+
+    // A full `--single-branch` clone has the complete branch history, one
+    // fetch refspec, and only tags reachable from that branch.
+    const single = join(temp.path, 'single')
+    const singleClone = await worker(temp.path, ['clone', '--single-branch', remote('origin.git'), single])
+    assert.equal(singleClone.code, 0, singleClone.stderr.toString())
+    assert.equal(git(single, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'false')
+    assert.equal(git(single, ['config', '--get', 'remote.origin.fetch']).stdout.toString().trim(), '+refs/heads/main:refs/remotes/origin/main')
+    assert.equal(
+      systemGit(['for-each-ref', '--format=%(refname)', 'refs/remotes'], single, env).stdout.toString().trim(),
+      'refs/remotes/origin/main',
+    )
+    assert.equal(
+      systemGit(['for-each-ref', '--format=%(refname)', 'refs/tags'], single, env).stdout.toString().trim(),
+      'refs/tags/v1\nrefs/tags/v2\nrefs/tags/v2ann',
+    )
+    assert.equal(git(single, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '3')
+    assert.equal(git(single, ['fsck', '--strict']).code, 0)
+
+    // `--no-tags` keeps every branch of a full clone but fetches no tags.
+    const noTags = join(temp.path, 'no-tags')
+    const noTagsClone = await worker(temp.path, ['clone', '--no-tags', remote('origin.git'), noTags])
+    assert.equal(noTagsClone.code, 0, noTagsClone.stderr.toString())
+    assert.equal(git(noTags, ['config', '--get', 'remote.origin.tagopt']).stdout.toString().trim(), '--no-tags')
+    assert.equal(systemGit(['for-each-ref', '--format=%(refname)', 'refs/tags'], noTags, env).stdout.toString().trim(), '')
+    assert.equal(
+      git(noTags, ['rev-parse', 'refs/remotes/origin/feature']).stdout.toString().trim(),
+      featureTip,
+      '--no-tags does not restrict branches',
+    )
+    assert.equal(git(noTags, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'false')
+    assert.equal(git(noTags, ['fsck', '--strict']).code, 0)
   } finally {
     if (route !== undefined) await route.close()
     temp.cleanup()
