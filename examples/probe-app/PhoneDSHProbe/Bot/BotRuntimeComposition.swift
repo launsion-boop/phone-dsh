@@ -96,6 +96,11 @@ final class BotRuntimeComposition {
     let agentCommTracker = BotAgentCommTracker()
 
     private var units: [String: BotRuntimeUnit] = [:]
+    /// Optional scheduler test seam. Both stay nil in production, so every
+    /// `RoutineScheduler` keeps its wall-clock default. The eval runner injects
+    /// a controllable clock/sleeper through `prepare(...)`.
+    private let schedulerNow: (@Sendable () -> Int64)?
+    private let schedulerSleep: RoutineScheduler.Sleeper?
     private var routineRouter: BotRoutineOutboxRouter?
     private var host: PhoneDSHHost?
     private var hostTask: Task<Void, Never>?
@@ -152,7 +157,9 @@ final class BotRuntimeComposition {
                         profileStore: BotProfileStore = BotProfileStore(
                             directory: BotProfileStorage.directory()),
                         selectedBotID: String? = nil,
-                        sessionLogURL: URL? = nil) async throws -> Launch {
+                        sessionLogURL: URL? = nil,
+                        now: (@Sendable () -> Int64)? = nil,
+                        sleep: RoutineScheduler.Sleeper? = nil) async throws -> Launch {
         let legacyName = await legacyRenamedName(domain: store)
         var roster = try await profileStore.roster()
         if roster.bots.isEmpty {
@@ -212,7 +219,7 @@ final class BotRuntimeComposition {
         let composition = try await BotRuntimeComposition(
             domain: store, profileStore: profileStore, runtime: runtime,
             handler: handler, server: server, rosterModel: rosterModel,
-            selectionStore: selectionStore)
+            selectionStore: selectionStore, schedulerNow: now, schedulerSleep: sleep)
         composition.routineRouter = BotRoutineOutboxRouter(
             store: store, machine: machine, profileStore: profileStore,
             selectionStore: selectionStore)
@@ -247,7 +254,9 @@ final class BotRuntimeComposition {
     private init(domain: SQLiteDomainStore, profileStore: BotProfileStore,
                  runtime: BotMCPRuntime, handler: BotMCPHandler,
                  server: BotMCPHTTPServer, rosterModel: BotRosterModel,
-                 selectionStore: BotSelectionStore) async throws {
+                 selectionStore: BotSelectionStore,
+                 schedulerNow: (@Sendable () -> Int64)?,
+                 schedulerSleep: RoutineScheduler.Sleeper?) async throws {
         self.domain = domain
         self.profileStore = profileStore
         self.runtime = runtime
@@ -255,6 +264,8 @@ final class BotRuntimeComposition {
         self.server = server
         self.rosterModel = rosterModel
         self.selectionStore = selectionStore
+        self.schedulerNow = schedulerNow
+        self.schedulerSleep = schedulerSleep
         self.outbox = BotProductionEffectRunner(store: domain)
     }
 
@@ -275,7 +286,8 @@ final class BotRuntimeComposition {
         guard let profile else { throw BotTeamHostError.botNotFound(botID) }
         let unit = try await BotRuntimeUnit.make(
             runtime: runtime, handler: handler, store: domain,
-            botID: botID, displayName: profile.name)
+            botID: botID, displayName: profile.name,
+            now: schedulerNow, sleep: schedulerSleep)
         units[botID] = unit
         rosterModel.setRuntimeState(BotRosterRuntimeState(runtimeState: state), for: botID)
         if started, let host {

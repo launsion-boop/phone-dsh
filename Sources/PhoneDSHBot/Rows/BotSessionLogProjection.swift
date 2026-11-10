@@ -2,16 +2,140 @@
 
 import Foundation
 
+/// A DSH surface placement marker (`SurfaceOp` in the pinned DSH session
+/// format). DSH v3/v4 writes exactly two shapes:
+///
+/// - `"append"` — the event joined the model-visible surface at its own log
+///   position.
+/// - `{"op":"replace","startSeq":<int>,"endSeq":<int>}` — the event replaced an
+///   inclusive surface range. Compaction checkpoints and system-prompt head
+///   replacements both use this shape.
+///
+/// Released v0–v2 logs spelled the endpoints `start`/`end`; the v2→v3
+/// migration canonicalises them before v3 admission, so this decoder only
+/// accepts the canonical v3/v4 object. Anything else is an invalid record and
+/// is reported through ``BotDSHSessionLogDiagnostics``.
+public enum BotDSHSurfaceOp: Sendable, Equatable {
+    case append
+    case replace(startSeq: Int, endSeq: Int)
+
+    /// The wire operation name (`append` or `replace`).
+    public var op: String {
+        switch self {
+        case .append: return "append"
+        case .replace: return "replace"
+        }
+    }
+
+    /// The replaced inclusive surface range, or `nil` for an append.
+    public var range: ClosedRange<Int>? {
+        guard case .replace(let startSeq, let endSeq) = self else { return nil }
+        return startSeq...endSeq
+    }
+
+    /// Failable decode from an already-parsed JSON value. Used for the legacy
+    /// `data.surfaceOp` fallback as well as the envelope decoder.
+    public init?(jsonValue: BotJSONValue?) {
+        guard let jsonValue else { return nil }
+        switch jsonValue {
+        case .string("append"):
+            self = .append
+        case .object(let object):
+            guard object.count == 3,
+                  stringValue(object["op"]) == "replace",
+                  let startSeq = intValue(object["startSeq"]),
+                  let endSeq = intValue(object["endSeq"]),
+                  startSeq >= 0, endSeq >= startSeq else { return nil }
+            self = .replace(startSeq: startSeq, endSeq: endSeq)
+        default:
+            return nil
+        }
+    }
+}
+
+extension BotDSHSurfaceOp: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case op, startSeq, endSeq
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(BotJSONValue.self)
+        guard let op = BotDSHSurfaceOp(jsonValue: value) else {
+            throw DecodingError.dataCorruptedError(
+                in: container, debugDescription: "invalid DSH surfaceOp")
+        }
+        self = op
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        switch self {
+        case .append:
+            var container = encoder.singleValueContainer()
+            try container.encode("append")
+        case .replace(let startSeq, let endSeq):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode("replace", forKey: .op)
+            try container.encode(startSeq, forKey: .startSeq)
+            try container.encode(endSeq, forKey: .endSeq)
+        }
+    }
+}
+
+/// One session-log record that could not be decoded and was skipped.
+public struct BotDSHSessionLogSkippedRecord: Sendable, Equatable {
+    /// 1-based physical line number in the JSONL file.
+    public var lineNumber: Int
+    /// The record's `seq` when the surrounding JSON was still readable.
+    public var seq: Int?
+
+    public init(lineNumber: Int, seq: Int?) {
+        self.lineNumber = lineNumber
+        self.seq = seq
+    }
+}
+
+/// Read-only diagnostics for a session-log parse. A damaged record never makes
+/// the whole log unreadable: it is skipped and recorded here.
+public struct BotDSHSessionLogDiagnostics: Sendable, Equatable {
+    public private(set) var skipped: [BotDSHSessionLogSkippedRecord]
+
+    public static let empty = BotDSHSessionLogDiagnostics()
+
+    public init(skipped: [BotDSHSessionLogSkippedRecord] = []) {
+        self.skipped = skipped
+    }
+
+    /// Number of records skipped while parsing the log.
+    public var skippedRecordCount: Int { skipped.count }
+
+    /// `seq` values of the skipped records whose JSON still exposed one.
+    public var skippedSeqs: [Int] { skipped.compactMap(\.seq) }
+}
+
+/// Result of parsing one DSH session JSONL file. The events are usable even
+/// when ``diagnostics`` reports skipped records.
+public struct BotDSHSessionLogParseResult: Sendable, Equatable {
+    public var events: [BotDSHSessionEvent]
+    public var diagnostics: BotDSHSessionLogDiagnostics
+
+    public init(events: [BotDSHSessionEvent],
+                diagnostics: BotDSHSessionLogDiagnostics = .empty) {
+        self.events = events
+        self.diagnostics = diagnostics
+    }
+}
+
 public struct BotDSHSessionEvent: Codable, Sendable, Equatable {
     public var type: String
     public var seq: Int
     public var time: Int64
     public var data: [String: BotJSONValue]
-    public var surfaceOp: String?
+    public var surfaceOp: BotDSHSurfaceOp?
     public var eventID: String?
 
     public init(type: String, seq: Int, time: Int64, data: [String: BotJSONValue] = [:],
-                surfaceOp: String? = nil, eventID: String? = nil) {
+                surfaceOp: BotDSHSurfaceOp? = nil, eventID: String? = nil) {
         self.type = type
         self.seq = seq
         self.time = time
@@ -33,22 +157,44 @@ public struct BotDSHSessionEvent: Codable, Sendable, Equatable {
         let delegationDepth: Int
     }
 
-    public static func parseJSONL(_ data: Data) throws -> [BotDSHSessionEvent] {
+    /// Parses a DSH v4 session JSONL file. The session header is not an event;
+    /// every other line that does not decode as a canonical event (including an
+    /// invalid `surfaceOp` object) is skipped and reported in the returned
+    /// diagnostics instead of failing the whole file.
+    public static func parseJSONL(_ data: Data) -> BotDSHSessionLogParseResult {
         let decoder = JSONDecoder()
+        var events: [BotDSHSessionEvent] = []
+        var skipped: [BotDSHSessionLogSkippedRecord] = []
         var firstRecord = true
-        return try data.split(separator: 0x0A).compactMap { line in
+        for (index, line) in data.split(separator: 0x0A, omittingEmptySubsequences: false).enumerated() {
             let trimmed = line.drop(while: { $0 == 0x20 || $0 == 0x09 || $0 == 0x0D })
-            guard !trimmed.isEmpty else { return nil }
+            guard !trimmed.isEmpty else { continue }
             let record = Data(trimmed)
             if firstRecord {
                 firstRecord = false
                 if let header = try? decoder.decode(SessionHeader.self, from: record),
                    header.type == "session", header.version == 4 {
-                    return nil
+                    continue
                 }
             }
-            return try decoder.decode(BotDSHSessionEvent.self, from: record)
+            do {
+                events.append(try decoder.decode(BotDSHSessionEvent.self, from: record))
+            } catch {
+                skipped.append(BotDSHSessionLogSkippedRecord(
+                    lineNumber: index + 1, seq: skippedSeq(in: record)))
+            }
         }
+        return BotDSHSessionLogParseResult(
+            events: events,
+            diagnostics: BotDSHSessionLogDiagnostics(skipped: skipped))
+    }
+
+    /// Best-effort `seq` for a record that failed to decode. A syntactically
+    /// broken line has no readable seq and remains `nil`.
+    private static func skippedSeq(in record: Data) -> Int? {
+        guard let object = try? JSONSerialization.jsonObject(with: record) as? [String: Any],
+              let number = object["seq"] as? NSNumber else { return nil }
+        return number.intValue
     }
 }
 
@@ -194,7 +340,7 @@ public struct BotSessionLogProjector: Sendable {
             case "user/message":
                 let message = objectValue(event.data["message"]) ?? [:]
                 let role = stringValue(event.data["role"]) ?? stringValue(message["role"])
-                let surfaceOp = event.surfaceOp ?? stringValue(event.data["surfaceOp"])
+                let surfaceOp = event.surfaceOp ?? BotDSHSurfaceOp(jsonValue: event.data["surfaceOp"])
                 let source = objectValue(event.data["source"]) ?? objectValue(message["source"])
                 let sourceKind = source.flatMap { stringValue($0["kind"]) }
                 let rawText = contentText(event.data["content"] ?? message["content"])
@@ -208,7 +354,7 @@ public struct BotSessionLogProjector: Sendable {
                 // The text prefix is only a fallback for pre-source records;
                 // a record that carries `source` is never classified by text.
                 let injected = source == nil && isInjected(rawText)
-                guard role == "user", surfaceOp == "append", !rawText.isEmpty,
+                guard role == "user", surfaceOp == .append, !rawText.isEmpty,
                       !injected, sourceKind == nil || sourceKind == "user" else { continue }
                 // Another Bot's immediate message already has its agent-comm
                 // row; it is not a user bubble.

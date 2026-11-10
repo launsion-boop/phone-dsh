@@ -153,6 +153,11 @@ final class BotEvalRunnerTests: XCTestCase {
             try? FileManager.default.removeItem(at: runRoot)
         }
         try FileManager.default.createDirectory(at: runRoot, withIntermediateDirectories: true)
+        let echo = EvalEchoServer()
+        try echo.start()
+        defer { echo.stop() }
+        let scenario = scenario.resolvingEchoFixture(echo)
+        let schedulerClock = EvalSchedulerClock()
         let workspaceRoot = runRoot.appendingPathComponent("host", isDirectory: true)
         let store = try SQLiteDomainStore(fileURL: runRoot.appendingPathComponent("domain.sqlite"))
         let profileStore = BotProfileStore(directory: runRoot.appendingPathComponent("profiles"))
@@ -197,7 +202,9 @@ final class BotEvalRunnerTests: XCTestCase {
         mock?.script = EvalMockScripts.script(for: scenario.mock)
         let bundle = try Self.bundle()
         let launch = try await BotRuntimeComposition.prepare(
-            store: store, profileStore: profileStore, selectedBotID: "main")
+            store: store, profileStore: profileStore, selectedBotID: "main",
+            now: { schedulerClock.now },
+            sleep: { await schedulerClock.sleep(milliseconds: $0) })
         let mcpPolicy = MCPEgressPolicy()
         guard let serverURL = launch.composition.server.url else {
             throw EvalRunnerError.invalid("Bot MCP server did not publish a URL")
@@ -271,7 +278,7 @@ final class BotEvalRunnerTests: XCTestCase {
                 workspaceRoot: workspaceRoot, resultsDirectory: results,
                 fixturesRoot: fixturesRoot, transcript: transcript,
                 botEvents: botEvents, redactor: redactor,
-                deferredSeeds: deferredSeeds)
+                deferredSeeds: deferredSeeds, schedulerClock: schedulerClock)
             var actionRecords: [[String: Any]] = []
             var fatal: Error?
             for action in scenario.actions {
@@ -322,7 +329,8 @@ final class BotEvalRunnerTests: XCTestCase {
                 toolCalls: calls,
                 memories: memories,
                 workspaces: botWorkspaces,
-                scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true))
+                scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true),
+                echoRequests: echo.requests)
             try FileManager.default.createDirectory(
                 at: snapshot.scratchRoot, withIntermediateDirectories: true)
             var assertionResults: [EvalAssertionResult] = []
@@ -370,6 +378,7 @@ final class BotEvalRunnerTests: XCTestCase {
                 "wall_s": wall, "model_requests": credentialProvider.modelRequests,
             ])
             await launch.composition.stop()
+            schedulerClock.wakeAll()
             composition = nil
             try? await host.stop()
             try? await store.close()
@@ -378,6 +387,7 @@ final class BotEvalRunnerTests: XCTestCase {
             let message = redactor(error.localizedDescription)
             transcript.append(["type": "repeat_error", "repeat": index, "error": message])
             await launch.composition.stop()
+            schedulerClock.wakeAll()
             composition = nil
             try? await host.stop()
             try? await store.close()
@@ -509,10 +519,45 @@ final class BotEvalRunnerTests: XCTestCase {
                 replies: [])
 
         case "advance_clock":
-            throw EvalRunnerError.unimplemented(
-                "advance_clock needs an injectable RoutineScheduler clock; "
-                + "BotRuntimeComposition constructs it with the wall clock. "
-                + "See CONTRACT CHANGE REQUEST in scripts/ci/bot-e2e/EVAL.md")
+            guard let seconds = action.seconds, seconds > 0 else {
+                throw EvalRunnerError.invalid("advance_clock needs positive seconds")
+            }
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            let before = try await BotProductionEventReader.all(domain: context.store)
+            let priorEventIDs = Set(before.map(\.eventId))
+            context.schedulerClock.advance(seconds: Int64(seconds))
+            let due = try await unit.scheduler.queuedRoutines()
+            let dueIDs = Set(due.map(\.id))
+            guard !dueIDs.isEmpty else {
+                return EvalActionOutcome(
+                    status: "ok",
+                    detail: "advanced \(seconds)s; no routine was due",
+                    replies: [])
+            }
+            let deadline = Date().addingTimeInterval(context.actionTimeout(action))
+            var finished: Set<String> = []
+            while Date() < deadline {
+                let events = try await BotProductionEventReader.all(domain: context.store)
+                finished = Set(events.compactMap { event -> String? in
+                    guard event.type == "routine.run_finished",
+                          !priorEventIDs.contains(event.eventId),
+                          let routineID = event.data["routineId"]?.stringValue,
+                          dueIDs.contains(routineID) else { return nil }
+                    return routineID
+                })
+                if finished.count >= dueIDs.count { break }
+                try await harnessWait(0.2)
+            }
+            guard finished.count >= dueIDs.count else {
+                throw EvalRunnerError.timeout(
+                    "advance_clock: due routine(s) \(dueIDs.sorted()) did not finish; "
+                    + "finished \(finished.sorted())")
+            }
+            return EvalActionOutcome(
+                status: "ok",
+                detail: "advanced \(seconds)s; finished \(finished.count) routine(s)",
+                replies: [])
 
         default:
             throw EvalRunnerError.invalid("unknown action \(action.type)")
@@ -640,20 +685,16 @@ final class BotEvalRunnerTests: XCTestCase {
             guard let url = latestSessionLog(
                 workspaceRoot: context.workspaceRoot, sessionID: sessionID) else { continue }
             let data = try Data(contentsOf: url)
-            // Parse the JSONL directly. BotDSHSessionEvent.parseJSONL is the
-            // production row decoder, but a post-restart system/message record
-            // carries a structured `surfaceOp` object that its String? field
-            // cannot decode; that is unrelated to the tool-call evidence this
-            // assertion needs, so do not let it poison the whole run.
-            for line in data.split(separator: 0x0A) {
-                guard let object = try? JSONSerialization.jsonObject(
-                    with: Data(line)) as? [String: Any],
-                    object["type"] as? String == "tool/call",
-                    let payload = object["data"] as? [String: Any] else { continue }
+            // Use the production session-log decoder, the same one the App's
+            // `rebuild()` runs, so this evidence cannot silently diverge from
+            // the UI. Damaged records are skipped by its diagnostics rather
+            // than poisoning the whole tool-call snapshot.
+            let parsed = BotDSHSessionEvent.parseJSONL(data)
+            for event in parsed.events where event.type == "tool/call" {
                 calls.append(EvalToolCallRecord(
                     botID: botID,
-                    name: payload["name"] as? String ?? "",
-                    arguments: payload["arguments"] as? String ?? ""))
+                    name: event.data["name"]?.stringValue ?? "",
+                    arguments: event.data["arguments"]?.stringValue ?? ""))
             }
         }
         return calls

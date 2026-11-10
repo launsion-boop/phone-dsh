@@ -512,7 +512,8 @@ test('the packed image carries browser bundles and gates web tools in every pres
     ))
     const presets = flattenRows(rows).filter(row => row.name === '@deepseek-ai/dsh-agent-preset')
     assert.deepEqual(presets.map(row => row.id).sort(), [
-      'preset-cordis', 'preset-device-task', 'preset-minimal', 'preset-phone', 'preset-ptc', 'preset-standard',
+      'preset-cordis', 'preset-device-task', 'preset-minimal', 'preset-phone', 'preset-phone-bot',
+      'preset-ptc', 'preset-standard',
     ])
     const devicePreset = presets.find(row => row.id === 'preset-device-task')
     assert.deepEqual(devicePreset.config.plugins.map(row => row.name).sort(), [

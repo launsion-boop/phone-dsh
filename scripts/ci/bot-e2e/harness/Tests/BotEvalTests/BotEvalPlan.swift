@@ -78,7 +78,7 @@ struct EvalPlan: Decodable {
         "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
         "workspace_command", "reply_contains", "reply_not_contains",
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
-        "memory_contains", "memory_absent", "approval_count",
+        "memory_contains", "memory_absent", "approval_count", "echo_requests",
     ]
 }
 
@@ -315,11 +315,12 @@ struct EvalAssertion: Decodable {
     var scope: String?
     var tier: String?
     var source: String?
+    var method: String?
     var equals: Int?
     var max: Int?
 
     enum CodingKeys: String, CodingKey {
-        case type, bot, value, path, command, turn, event, name, scope, tier, source, equals, max
+        case type, bot, value, path, command, turn, event, name, scope, tier, source, method, equals, max
         case expectOK = "expect_ok"
         case timeoutS = "timeout_s"
         case whereFields = "where"
@@ -333,7 +334,7 @@ struct EvalAssertion: Decodable {
          whereFields: [String: JSONValue]? = nil, name: String? = nil,
          argumentsContains: String? = nil, payloadContains: String? = nil,
          scope: String? = nil, tier: String? = nil, source: String? = nil,
-         equals: Int? = nil, max: Int? = nil) {
+         method: String? = nil, equals: Int? = nil, max: Int? = nil) {
         self.type = type
         self.bot = bot
         self.expectOK = expectOK
@@ -350,6 +351,7 @@ struct EvalAssertion: Decodable {
         self.scope = scope
         self.tier = tier
         self.source = source
+        self.method = method
         self.equals = equals
         self.max = max
     }
@@ -372,6 +374,7 @@ struct EvalAssertion: Decodable {
         scope = try container.decodeIfPresent(String.self, forKey: .scope)
         tier = try container.decodeIfPresent(String.self, forKey: .tier)
         source = try container.decodeIfPresent(String.self, forKey: .source)
+        method = try container.decodeIfPresent(String.self, forKey: .method)
         equals = try container.decodeIfPresent(Int.self, forKey: .equals)
         max = try container.decodeIfPresent(Int.self, forKey: .max)
     }

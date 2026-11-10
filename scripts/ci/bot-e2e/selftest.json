@@ -5,8 +5,8 @@
   "description": "Every implemented driver action and every assertion in both directions. No model is contacted.",
   "selftest": true,
   "budget": {
-    "max_minutes": 30,
-    "max_model_requests": 160
+    "max_minutes": 60,
+    "max_model_requests": 200
   },
   "scenarios": [
     {
@@ -633,24 +633,173 @@
       ]
     },
     {
-      "id": "BOT-SELFTEST-ADVANCE-CLOCK",
-      "title": "advance_clock is blocked by a missing production seam",
-      "skip": "advance_clock is unimplemented: BotRuntimeComposition constructs RoutineScheduler with the wall clock; see the CONTRACT CHANGE REQUEST in EVAL.md",
+      "id": "BOT-SELFTEST-ECHO-ALLOW",
+      "title": "an allowed loopback echo request reaches the runner fixture",
       "expect": "pass",
       "budget": {
-        "max_minutes": 1,
-        "max_model_requests": 1
+        "max_minutes": 2,
+        "max_model_requests": 4
+      },
+      "workspace": {
+        "bot": "main"
+      },
+      "network": {
+        "allow": [
+          "echo"
+        ]
+      },
+      "mock": {
+        "tools": [
+          {
+            "name": "bash",
+            "arguments": {
+              "command": "curl -sS -X POST ${ECHO_URL}/probe -d ping",
+              "description": "send the self-check echo probe"
+            }
+          }
+        ],
+        "final_text": "SELFTEST_ECHO_ALLOWED"
       },
       "actions": [
         {
-          "type": "advance_clock",
-          "seconds": 60
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "text": "post the loopback echo probe"
         }
       ],
       "assertions": [
         {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "SELFTEST_ECHO_ALLOWED"
+        },
+        {
+          "type": "tool_called",
+          "name": "bash"
+        },
+        {
+          "type": "echo_requests",
+          "method": "POST",
+          "path": "/probe",
+          "equals": 1
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-ECHO-DENY",
+      "title": "an unlisted loopback echo request is not delivered",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 2,
+        "max_model_requests": 4
+      },
+      "workspace": {
+        "bot": "main"
+      },
+      "network": "none",
+      "mock": {
+        "tools": [
+          {
+            "name": "bash",
+            "arguments": {
+              "command": "curl -sS -X POST ${ECHO_URL}/probe -d ping",
+              "description": "send the blocked echo probe"
+            }
+          }
+        ],
+        "final_text": "SELFTEST_ECHO_BLOCKED"
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "text": "post the loopback echo probe without an allow entry"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "SELFTEST_ECHO_BLOCKED"
+        },
+        {
+          "type": "tool_called",
+          "name": "bash"
+        },
+        {
+          "type": "echo_requests",
+          "path": "/probe",
+          "equals": 0
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-ADVANCE-CLOCK",
+      "title": "advance_clock fires a routine against the injected scheduler clock",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 3,
+        "max_model_requests": 6
+      },
+      "workspace": {
+        "bot": "main"
+      },
+      "mock": {
+        "tools": [
+          {
+            "name": "mcp__phone__UpdateRoutine",
+            "arguments": {
+              "action": "create",
+              "title": "SELFTEST_CLOCK_ROUTINE",
+              "prompt": "SELFTEST_CLOCK_PROMPT",
+              "schedule": "@every 1m",
+              "urgent": true,
+              "urgent_reason": "self-check deadline cannot wait for quiet hours"
+            }
+          }
+        ],
+        "prompt_rules": [
+          {
+            "contains": "SELFTEST_CLOCK_PROMPT",
+            "final_text": "SELFTEST_CLOCK_DONE"
+          }
+        ],
+        "final_text": "SELFTEST_CLOCK_READY"
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "text": "create the routine, then advance the scheduler clock"
+        },
+        {
+          "type": "advance_clock",
+          "seconds": 120
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "SELFTEST_CLOCK_READY"
+        },
+        {
           "type": "bot_event",
-          "event": "routine.run_finished"
+          "event": "routine.run_started"
+        },
+        {
+          "type": "bot_event",
+          "event": "routine.run_finished",
+          "payload_contains": "SELFTEST_CLOCK_DONE"
         }
       ]
     }

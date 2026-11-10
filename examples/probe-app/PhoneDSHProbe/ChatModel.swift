@@ -37,7 +37,7 @@ import PhoneDSHVenus
 enum ChatSettings {
     private static let egressKey = "chat.egress.allow"
     /// Hosts the Worker may fetch anonymously through the host gateway (exact host names; the gateway has no wildcard).
-    static let defaultEgressAllow = "wttr.in, api.open-meteo.com, geocoding-api.open-meteo.com, api.github.com, raw.githubusercontent.com, github.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, cdn.jsdelivr.net, unpkg.com, en.wikipedia.org, zh.wikipedia.org, httpbin.org, example.com"
+    static let defaultEgressAllow = "wttr.in, api.open-meteo.com, geocoding-api.open-meteo.com, api.github.com, raw.githubusercontent.com, github.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, cdn.jsdelivr.net, unpkg.com, en.wikipedia.org, zh.wikipedia.org, example.com"
     /// A single `*` admits every host; the gateway and the credential provider both understand it.
     static let allowAllEgress = "*"
     static var egressAllow: String {

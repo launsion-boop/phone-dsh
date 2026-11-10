@@ -32,6 +32,7 @@ struct EvalSnapshot {
     var memories: [String: [BotMemoryFact]]
     var workspaces: [String: URL]
     var scratchRoot: URL
+    var echoRequests: [EvalEchoRequest] = []
 }
 
 struct EvalAssertionResult {
@@ -129,6 +130,25 @@ enum EvalAssertions {
             }
             throw EvalAssertionError.invalid("approval_count needs equals or max")
 
+        case "echo_requests":
+            let method = assertion.method?.uppercased()
+            let matching = snapshot.echoRequests.filter { request in
+                if let method, request.method != method { return false }
+                if let path = assertion.path, request.path != path { return false }
+                return true
+            }
+            if let expected = assertion.equals {
+                return (matching.count == expected,
+                        "echo requests\(echoFilterDescription(assertion)): \(matching.count), "
+                        + "expected exactly \(expected)")
+            }
+            if let maximum = assertion.max {
+                return (matching.count <= maximum,
+                        "echo requests\(echoFilterDescription(assertion)): \(matching.count), "
+                        + "maximum \(maximum)")
+            }
+            throw EvalAssertionError.invalid("echo_requests needs equals or max")
+
         case "file_exists", "no_file", "file_contains", "file_regex", "file_json_path":
             return try evaluateFile(assertion, snapshot: snapshot)
 
@@ -207,6 +227,13 @@ enum EvalAssertions {
             if let source = assertion.source, fact.source?.kind.rawValue != source { return false }
             return true
         }
+    }
+
+    private static func echoFilterDescription(_ assertion: EvalAssertion) -> String {
+        var parts: [String] = []
+        if let method = assertion.method { parts.append("method \(method.uppercased())") }
+        if let path = assertion.path { parts.append("path \(path)") }
+        return parts.isEmpty ? "" : " (\(parts.joined(separator: ", ")))"
     }
 
     static func matchesToolName(_ expected: String, _ actual: String) -> Bool {
