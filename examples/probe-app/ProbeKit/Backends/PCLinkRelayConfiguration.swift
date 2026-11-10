@@ -6,14 +6,11 @@
 import Foundation
 
 public enum PCLinkRelayConfiguration {
-    /// Placeholder only: replace this with the assigned production relay origin
-    /// before shipping. It is deliberately an `https` origin, not a `wss` URL,
-    /// because every PCLink origin field is http(s) and the client derives the
-    /// WebSocket scheme.
-    public static let placeholderOrigin = "https://relay.example.invalid"
+    private static let productionOrigin = "https://pclink.tonoai.cn"
 
-    /// Manual-code pairing has no relay in the code, so it uses this origin.
-    /// A QR/manual URI that carries its own `r=` field wins over this value.
+    /// Manual-code pairing has no relay in the code, so it defaults to the
+    /// production origin. A QR/manual URI that carries its own `r=` field wins
+    /// over this value.
     public static var manualPairingOrigin: String {
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["PDSH_PCLINK_RELAY"],
@@ -21,7 +18,7 @@ public enum PCLinkRelayConfiguration {
             return origin
         }
         #endif
-        return placeholderOrigin
+        return productionOrigin
     }
 
     /// Only a loopback http(s) value is accepted from the DEBUG environment.
