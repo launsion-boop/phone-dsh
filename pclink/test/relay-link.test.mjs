@@ -206,6 +206,25 @@ test('a connect attempt that never authenticates times out and reconnects', () =
   link.stop()
 })
 
+test('relay rate_limited reaches the session-manager hook and the frame consumer', () => {
+  FakeWebSocket.instances = []
+  const limited = []
+  const { link, identity, frames } = makeLink({ onRateLimited: frame => limited.push(frame) })
+  link.start()
+  const socket = FakeWebSocket.instances[0]
+  authenticate(link, socket, identity)
+  socket.message({
+    v: 1, type: 'relay.error', code: 'rate_limited',
+    message: 'pair bandwidth limit', retryAfterMs: 250,
+  })
+  assert.equal(limited.length, 1)
+  assert.equal(limited[0].code, 'rate_limited')
+  assert.equal(limited[0].retryAfterMs, 250)
+  assert.equal(frames.length, 1)
+  assert.equal(frames[0].code, 'rate_limited')
+  link.stop()
+})
+
 test('a replaced relay connection waits at least 30 seconds before reconnecting', () => {
   FakeWebSocket.instances = []
   const { link, identity, timers } = makeLink()

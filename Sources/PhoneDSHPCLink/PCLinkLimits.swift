@@ -9,6 +9,9 @@ public enum PCLinkLimits {
     public static let chunkThresholdBytes = 1 << 20            // 1 MiB
     public static let maxChunkCharacters = 1_500_000
     public static let chunkReassemblyTimeout: TimeInterval = 30
+    /// §3.8 sender pacing reference values (margin under the relay pair limit).
+    public static let sendRateBytesPerSecond: Double = PCLinkOutboundPacer.referenceRateBytesPerSecond
+    public static let sendBurstBytes: Double = PCLinkOutboundPacer.referenceBurstBytes
     public static let softFrameThreshold: UInt64 = 1 << 19     // 524,288
     public static let hardFrameThreshold: UInt64 = 1 << 20     // 1,048,576
     public static let softByteThreshold: UInt64 = 1 << 30      // 1 GiB

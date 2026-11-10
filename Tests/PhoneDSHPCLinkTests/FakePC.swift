@@ -86,6 +86,7 @@ enum FakeDuplex {
 enum FakeCallPolicy: Sendable {
     case normal
     case chunkedResult
+    case partialResultFirst
     case dropFirst
     case relayOfflineFirst
     case relayOfflineWithIDFirst
@@ -232,6 +233,12 @@ actor FakePCServer {
             return .result(result)
         case .chunkedResult:
             return .chunkedResult(result)
+        case .partialResultFirst:
+            if !droppedEndpoints.contains(call.endpoint) {
+                droppedEndpoints.insert(call.endpoint)
+                return .partialResult(result)
+            }
+            return .result(result)
         case .dropFirst:
             if !droppedEndpoints.contains(call.endpoint) {
                 droppedEndpoints.insert(call.endpoint)
@@ -278,6 +285,7 @@ actor FakePCServer {
 enum FakeCallOutcome: Sendable {
     case result(PCLinkJSON)
     case chunkedResult(PCLinkJSON)
+    case partialResult(PCLinkJSON)
     case drop
     case relayOffline(id: String?)
     case rateLimited(retryAfterMs: Int)
@@ -532,6 +540,25 @@ final class FakePCConnection: @unchecked Sendable {
         }
     }
 
+    /// Chunked `rpc.result`; `partial` sends only part 0 with `last:false`
+    /// and then goes silent (receiver timeout test).
+    private func sendResultChunks(_ value: PCLinkJSON, id: String, partial: Bool,
+                                  socket: FakeWebSocket) async {
+        let result = PCLinkJSON.object([
+            "type": .string("rpc.result"), "id": .string(id), "ok": .bool(true),
+            "result": value,
+        ])
+        guard let bytes = try? PCLinkJSONEncoder.encode(result) else { return }
+        let chunks = PCLinkChunking.split(bytes, chunkBytes: 11)
+        for chunk in (partial ? chunks.prefix(1) : chunks[...]) {
+            await sendInner(.object([
+                "type": .string("rpc.result.chunk"), "id": .string(id),
+                "part": .int(Int64(chunk.part)), "last": .bool(chunk.last),
+                "data": .string(chunk.base64URL),
+            ]), socket: socket)
+        }
+    }
+
     private func sendInner(_ inner: PCLinkJSON, socket: FakeWebSocket) async {
         guard let keys, let sid else { return }
         guard let plaintext = try? PCLinkJSONEncoder.encode(inner) else { return }
@@ -577,19 +604,9 @@ final class FakePCConnection: @unchecked Sendable {
                     "result": value,
                 ]), socket: socket)
             case .chunkedResult(let value):
-                let result = PCLinkJSON.object([
-                    "type": .string("rpc.result"), "id": .string(id), "ok": .bool(true),
-                    "result": value,
-                ])
-                let bytes = try? PCLinkJSONEncoder.encode(result)
-                guard let bytes else { return }
-                for chunk in PCLinkChunking.split(bytes, chunkBytes: 11) {
-                    await sendInner(.object([
-                        "type": .string("rpc.result.chunk"), "id": .string(id),
-                        "part": .int(Int64(chunk.part)), "last": .bool(chunk.last),
-                        "data": .string(chunk.base64URL),
-                    ]), socket: socket)
-                }
+                await sendResultChunks(value, id: id, partial: false, socket: socket)
+            case .partialResult(let value):
+                await sendResultChunks(value, id: id, partial: true, socket: socket)
             case .drop:
                 await socket.close(code: 1001, reason: "drop")
                 return

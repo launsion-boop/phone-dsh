@@ -2,12 +2,13 @@
 
 Status: `target` — frozen contract; the B relay is implemented in this branch,
 but P28 stays `target` until the C/D ends and the runtime evidence exist.
-Revision label `pclink-v1.4` (the relay §3.4/§3.5 clarification after
-`pclink-v1.3`; see the change record's revision log). The golden fixture
-revision stays `pclink-v1.3` because no frame, schema or vector byte changed in
-`pclink-v1.4`. The change record is
+Revision label `pclink-v1.5` (sender-side pacing, relay `rate_limited` session
+invalidation and the receiver reassembly timeout after `pclink-v1.4`; see the
+change record's revision log). The golden fixture revision stays `pclink-v1.3`
+because no frame, schema or vector byte changed in `pclink-v1.4`/`pclink-v1.5`.
+The change record is
 [PC-20261109-pclink-v1](../../../docs/protocol-changes/PC-20261109-pclink-v1.md);
-its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.4`.
+its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.5`.
 
 PCLink is the pair of a relay plane and an end-to-end plane between one iPhone
 and one PC running `dsh web` through a PC plugin. It is **not** the DSH Remote
@@ -577,6 +578,75 @@ These are the only relay-plane `type` values in v1; an unregistered type is
 | `relay.pair.close` | both → relay → other | delete the slot |
 | `e2e` | both | AEAD application frame |
 | `e2e.handshake` | both | plaintext bootstrap frame (§5.1) |
+
+### 3.8 Sender-side pacing (`pclink-v1.5`)
+
+The relay's §3.5 pair bucket is a **drop** boundary, not a queue. A sender that
+emits a bulk result faster than the pair rate loses a frame, and a lost `e2e`
+frame breaks the receiver's contiguous `seq` (§5.4) for the rest of that
+session. Each end therefore paces its own E2E application frames **before**
+they reach the relay:
+
+- The accounting unit is the exact UTF-8 byte length of the serialized outer
+  `e2e` frame (the same bytes the relay counts: `from`, `to`, `sid`, `seq`,
+  `type` and the AEAD ciphertext, including the JSON syntax).
+- Every established-session `e2e` frame (`peer.hello`, every `rpc.*` frame,
+  chunk frames, notices and `session.close`) MUST acquire local tokens before
+  it is written. The local bucket rate and burst MUST NOT exceed the §3.5 pair
+  defaults (1 MiB/s, burst 4 MiB); this revision's reference implementation
+  uses **0.9 MiB/s and a 3.5 MiB burst** so that relay overhead and handshake
+  frames fit inside the same relay bucket.
+- Pacing is **queueing, not dropping**. The sender MUST NOT discard, coalesce
+  or reorder a queued frame: sealing assigns `seq`, and one writer seals and
+  enqueues in that order, so the pacer emits in `seq` order (§5.4). A queued
+  frame still belongs to its session and is discarded only if that session is
+  closed before the frame is written.
+- A single frame larger than the burst (an 8 MiB plaintext value can exceed
+  3.5 MiB on the wire) MUST wait until the bucket is full and then **overdraw**,
+  exactly like the relay's `pclink-v1.4` single-frame rule: the balance goes
+  negative and refills at the configured rate. It is never sent early and never
+  split by the pacer (the §6.2 chunking already bounds the frame).
+- `e2e.handshake` frames are small and are separately rate-limited by the relay
+  (§3.5). They MAY bypass the application pacer so a handshake step is not
+  delayed behind an application backlog; their bytes still count against the
+  relay's pair bucket, which the margin above covers.
+- Relay-plane frames (`relay.ping`/`pong`/`allow`/pair messages) are not E2E
+  application frames and are not paced by this bucket.
+
+**Relay `rate_limited`.** A `relay.error{code:"rate_limited"}` caused by the
+pair, daily, slow-receiver, connection or handshake limit carries **no `sid`
+and no peer correlation** (the relay does not echo the dropped frame in v1). A
+sender therefore MUST treat any such error received while it has established
+E2E sessions as evidence that at least one of its own `e2e` frames was dropped:
+
+- It MUST immediately make the affected sessions unusable: stop writing
+  application frames on those sids, abort/reject their streams and calls, and
+  discard the keys. Because the error is uncorrelated and one relay connection
+  may serve several paired peers, a PC MUST invalidate **every** established
+  session on that connection; the phone has at most its one paired sid.
+- Before discarding the keys it SHOULD best-effort send
+  `session.close{code:"rate_limited"}` on each affected sid so the peer learns
+  the session is dead without waiting for its reassembly timeout. The close is
+  one small terminal frame; a sender MAY write it directly, bypassing its
+  application queue, so it is not delayed behind the backlog. It may itself be
+  dropped by the same limit, in which case the receiver's §6.2 chunk timeout is
+  the backstop.
+  No frame may follow the close on that sid, and the sender MUST NOT retry or
+  replay application frames on it.
+- In-flight calls follow §7 **on the caller**: `read` retries automatically on
+  a new session, `idempotent` retries with the same DSH idempotency key
+  (`session/prompt` uses `request.requestId`), and `unsafe` becomes
+  `unknown_outcome`. The PC plugin never replays a call or a result on its own.
+- The caller MUST wait at least `retryAfterMs` before re-handshaking (a missing
+  value means at least 1 000 ms). The phone reconnects and initiates; the PC
+  answers the next `session.init` normally and never dials the phone. A
+  dropped `e2e.handshake` frame is retried only within the §5.1 handshake
+  attempt budget — no E2E session existed, so nothing is invalidated.
+- The conservative all-sessions rule is required because v1 has no
+  correlation: even an error that a relay produced while opening a pairing
+  rendezvous on the same connection is indistinguishable from a dropped
+  application frame. Closing and re-handshaking is safe (it loses no data that
+  §7 cannot retry); continuing on a session with a possible `seq` gap is not.
 
 ## 4. Pairing
 
@@ -1487,11 +1557,19 @@ relay frame limit is independent: an `e2e` frame whose JSON text exceeds 16 MiB
 is `frame_too_large`; the sender must chunk below it.
 
 Reassembly enforces part order, exactly one `last`, no duplicate/missing parts,
-no interleaving of two values on the same stream/id, and a 30-second timeout
-per value. Chunks for **different** `streamId`s may interleave; the receiver
-keys reassembly by `streamId`/`id` and never mixes two values (review M1's
-interleaving vector). A malformed sequence fails that stream/call with
-`bad_frame` and discards the partial value. `rpc.result.chunk` and `rpc.stream.chunk` count as
+no interleaving of two values on the same stream/id, and a **30-second
+inactivity timeout per value** (`pclink-v1.5`). The timeout is measured from
+the last accepted chunk of that value, not from the first: a large result that
+keeps arriving is not failed at 30 seconds total, while a stalled sequence is.
+At the timeout the receiver MUST discard the partial value and fail the
+call/stream; it MUST NOT leave the call/stream pending forever. Failure obeys
+the §7 class of the call/stream: a `read` unary call retries automatically on a
+new session, an `idempotent` call retries with its same DSH idempotency key, an
+`unsafe` call becomes `unknown_outcome`, and a `read`-class stream is closed and
+reopened by its consumer. Chunks for **different** `streamId`s may interleave;
+the receiver keys reassembly by `streamId`/`id` and never mixes two values
+(review M1's interleaving vector). A malformed sequence fails that stream/call
+with `bad_frame` and discards the partial value. `rpc.result.chunk` and `rpc.stream.chunk` count as
 their own plaintext bytes for the 1 GiB rekey counter.
 
 **Backpressure (v1).** There is no credit frame in v1. The PC pulls one DSH
@@ -1836,7 +1914,7 @@ does not prompt for a DSH cookie.
 
 ## 11. Compatibility and versioning
 
-PCLink v1 is the first PCLink version; `pclink-v1.4` is the current revised
+PCLink v1 is the first PCLink version; `pclink-v1.5` is the current revised
 freeze before any implementation is accepted as conformant. There is no old
 PCLink implementation or persisted PCLink data to interoperate with; the pair
 records, `pairs.log`, identity files and admin token are new. The unfrozen

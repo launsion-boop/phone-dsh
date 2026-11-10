@@ -7,6 +7,7 @@
 import PhoneDSHPCLink
 import ProbeKit
 import SwiftUI
+import UIKit
 
 /// The PC list region's empty/offline state. `onPair` opens `PCPairingPage`.
 struct PCDrawerStateView: View {
@@ -18,11 +19,22 @@ struct PCDrawerStateView: View {
         case .phone:
             EmptyView()
         case .pair:
-            stateCard(
-                title: "连接电脑",
-                message: "配对后，这台手机可以在电脑上继续会话：同样的界面，数据来自电脑上的 DSH。",
-                primaryTitle: "连接电脑",
-                primaryAction: onPair)
+            VStack(spacing: 14) {
+                stateCard(
+                    title: "连接电脑",
+                    message: "配对后，这台手机可以在电脑上继续会话：同样的界面，数据来自电脑上的 DSH。",
+                    primaryTitle: "连接电脑",
+                    primaryAction: onPair)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(PCLinkInstallGuide.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                    PCPluginInstallGuide()
+                }
+                .padding(.horizontal, 8)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
         case .offline:
             VStack(spacing: 10) {
                 stateCard(
@@ -193,5 +205,69 @@ private struct PhoneOwnedSettingsNoticeModifier: ViewModifier {
 extension View {
     func phoneOwnedSettingsNotice() -> some View {
         modifier(PhoneOwnedSettingsNoticeModifier())
+    }
+}
+
+
+// MARK: - Install guide (pclink-pacing)
+
+/// The single copy-paste install/pairing guide shown in the PC unpaired empty
+/// state and the pairing page. The strings live in `PCLinkInstallGuide`
+/// (ProbeKit) next to the relay origin configuration, not in this view.
+struct PCPluginInstallGuide: View {
+    @State private var copied: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(PCLinkInstallGuide.requirement)
+                .font(.system(size: 13))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            commandRow(PCLinkInstallGuide.installCommand, label: "安装插件")
+            Text(PCLinkInstallGuide.restartHint)
+                .font(.system(size: 12))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            commandRow(PCLinkInstallGuide.pairingCommand, label: "运行配对")
+        }
+        .padding(12)
+        .background(HomeSpec.userBubble.opacity(0.7),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+    }
+
+    private func commandRow(_ command: String, label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(command)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button {
+                    UIPasteboard.general.string = command
+                    copied = command
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        if copied == command { copied = nil }
+                    }
+                } label: {
+                    Image(systemName: copied == command ? "checkmark" : "doc.on.doc")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(copied == command ? NativePagePalette.success : HomeSpec.textSecondary)
+                        .frame(width: 36, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(copied == command ? "\(label)命令已复制" : "复制\(label)命令")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HomeSpec.surface,
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

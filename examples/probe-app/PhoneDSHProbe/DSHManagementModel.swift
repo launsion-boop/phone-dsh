@@ -155,13 +155,68 @@ final class DSHManagementModel {
     }
 
     var currentWorkspaceID: String? {
-        guard let sessionID = chat.currentSessionID else { return nil }
-        return workspaces.first(where: { $0.sessionIDs.contains(sessionID) })?.id
+        guard let sessionID = chat.currentSessionID,
+              let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
+        return workspaceID(for: session)
     }
     var recentWorkspaceID: String? {
         workspaces.max { lhs, rhs in
             latestActivity(in: lhs) < latestActivity(in: rhs)
         }?.id
+    }
+
+    /// The explicit picker choice for the next PC session; nil means "use the
+    /// P18 last-used value, then the most recent workspace".
+    private(set) var pendingWorkspaceID: String?
+
+    /// The PC new-session default: picker choice → P18 last-used → recent.
+    /// The phone has one workspace and never reads the P18 key.
+    var newSessionWorkspaceID: String? {
+        guard backendID != .phone else { return currentWorkspaceID ?? recentWorkspaceID }
+        return PCLinkWorkspaceSelection.resolve(
+            pending: pendingWorkspaceID,
+            stored: WorkspaceStorage.lastWorkspaceID(for: backendID),
+            recent: recentWorkspaceID,
+            workspaces: workspaces)
+    }
+
+    /// The workspace chip is useful only before the session has a turn. Once
+    /// the first turn exists the selection is fixed for that session.
+    var isCurrentSessionBlank: Bool {
+        guard let sessionID = chat.currentSessionID else { return true }
+        return sessions.first(where: { $0.id == sessionID })?.blank ?? false
+    }
+
+    func workspaceID(for session: ManagedSession) -> String? {
+        PCLinkWorkspaceGrouping.workspaceID(for: session, in: workspaces)
+    }
+
+    /// Choose the workspace for the next/empty PC session and persist it for
+    /// this paired computer (P18). Changing it while a blank session already
+    /// exists opens a fresh blank session in the chosen workspace, so the next
+    /// prompt really runs there; a session with a turn only displays its
+    /// workspace.
+    func selectWorkspaceForNewSession(_ workspaceID: String) async {
+        guard backendID != .phone,
+              workspaces.contains(where: { $0.id == workspaceID }) else { return }
+        pendingWorkspaceID = workspaceID
+        WorkspaceStorage.setLastWorkspaceID(workspaceID, for: backendID)
+        // A fresh page with no DSH session yet: remember the choice; the
+        // drawer's 新会话 creates the session in it.
+        guard let currentID = chat.currentSessionID, isCurrentSessionBlank else { return }
+        let current = sessions.first(where: { $0.id == currentID })
+        let currentWorkspace = current.flatMap { self.workspaceID(for: $0) }
+        guard currentWorkspace != workspaceID else { return }
+        // A blank DSH session cannot move between workspaces; open a new blank
+        // one in the chosen workspace so the next prompt really runs there.
+        _ = await createSession(workspaceID: workspaceID)
+    }
+
+    private func rememberWorkspace(_ workspaceID: String?) {
+        guard backendID != .phone, let workspaceID,
+              workspaces.contains(where: { $0.id == workspaceID }) else { return }
+        pendingWorkspaceID = workspaceID
+        WorkspaceStorage.setLastWorkspaceID(workspaceID, for: backendID)
     }
 
     func refresh() async {
@@ -205,6 +260,17 @@ final class DSHManagementModel {
                 await refreshModelSelection(for: currentSessionID, using: client)
             } else { currentModelSelection = nil }
             await observeWorkspaceState(using: client)
+            // The P18 selection is validated against the live baseline so a
+            // deleted workspace cannot block 新会话 or the picker.
+            if let pending = pendingWorkspaceID,
+               !workspaces.contains(where: { $0.id == pending }) {
+                pendingWorkspaceID = nil
+            }
+            if backendID != .phone,
+               let stored = WorkspaceStorage.lastWorkspaceID(for: backendID),
+               !workspaces.contains(where: { $0.id == stored }) {
+                WorkspaceStorage.setLastWorkspaceID(nil, for: backendID)
+            }
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -216,7 +282,12 @@ final class DSHManagementModel {
             guard !chat.turnRunning && !chat.keepingAlive && !chat.busy else {
                 throw ManagementError.sessionBusy
             }
-            let targetWorkspaceID = workspaceID ?? currentWorkspaceID ?? recentWorkspaceID
+            // PC: the picker/last-used workspace is the default for a new
+            // session, not the workspace of the session being left. Phone:
+            // unchanged (current → recent).
+            let targetWorkspaceID = backendID == .phone
+                ? (workspaceID ?? currentWorkspaceID ?? recentWorkspaceID)
+                : (workspaceID ?? newSessionWorkspaceID)
             if let targetWorkspaceID {
                 guard let transport else { throw ManagementError.notConnected }
                 let result = try await transport.call("session/create", args: .object(["request": .object([
@@ -228,6 +299,7 @@ final class DSHManagementModel {
                     throw ManagementError.openFailed(chat.userFacingError)
                 }
                 notice = "会话已添加到工作区"
+                rememberWorkspace(targetWorkspaceID)
                 await refresh()
                 return id
             }
@@ -389,6 +461,9 @@ final class DSHManagementModel {
             error = chat.userFacingError ?? "无法打开会话 \(session.id.prefix(8))"
             return false
         }
+        // Opening a PC session makes its workspace the next new-session
+        // default (P18); the phone keeps its single workspace.
+        rememberWorkspace(workspaceID(for: session))
         error = nil
         return true
     }

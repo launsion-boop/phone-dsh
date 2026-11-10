@@ -178,6 +178,11 @@ public struct PCLinkClientConfiguration: Sendable {
     public var pairingPromptTimeout: TimeInterval
     public var heartbeatIntervalRange: ClosedRange<TimeInterval>
     public var heartbeatEnabled: Bool
+    /// §3.8 local sender bucket (must stay at/below the relay pair defaults).
+    public var sendRateBytesPerSecond: Double
+    public var sendBurstBytes: Double
+    /// §6.2 receiver reassembly inactivity budget; injectable for tests.
+    public var chunkReassemblyTimeout: TimeInterval
 
     public init(phoneName: String = "iPhone",
                 appName: String = "phoneDSH",
@@ -192,7 +197,10 @@ public struct PCLinkClientConfiguration: Sendable {
                 pairingTimeout: TimeInterval = 120,
                 pairingPromptTimeout: TimeInterval = PCLinkLimits.pairingApprovalTimeout,
                 heartbeatIntervalRange: ClosedRange<TimeInterval> = PCLinkLimits.heartbeatRange,
-                heartbeatEnabled: Bool = true) {
+                heartbeatEnabled: Bool = true,
+                sendRateBytesPerSecond: Double = PCLinkLimits.sendRateBytesPerSecond,
+                sendBurstBytes: Double = PCLinkLimits.sendBurstBytes,
+                chunkReassemblyTimeout: TimeInterval = PCLinkLimits.chunkReassemblyTimeout) {
         self.phoneName = phoneName
         self.appName = appName
         self.appVersion = appVersion
@@ -207,6 +215,9 @@ public struct PCLinkClientConfiguration: Sendable {
         self.pairingPromptTimeout = pairingPromptTimeout
         self.heartbeatIntervalRange = heartbeatIntervalRange
         self.heartbeatEnabled = heartbeatEnabled
+        self.sendRateBytesPerSecond = sendRateBytesPerSecond
+        self.sendBurstBytes = sendBurstBytes
+        self.chunkReassemblyTimeout = chunkReassemblyTimeout
     }
 }
 
@@ -331,6 +342,9 @@ public actor PCLinkClient {
     private var outbound: [Outbound] = []
     private var outboundSignal: AsyncStream<Void>.Continuation?
     private var outboundWriter: Task<Void, Never>?
+    /// §3.8 sender bucket. The outbound writer is its only caller, so the
+    /// bucket cannot let two sealed frames overlap; a queued frame waits.
+    private var sendPacer: PCLinkOutboundPacer
 
     private var relay: PCLinkRelayClient?
     private var relayConsumer: Task<Void, Never>?
@@ -343,8 +357,10 @@ public actor PCLinkClient {
     private var sessionWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var pendingCalls: [String: PendingCall] = [:]
     private var resultChunks: [String: PCLinkChunkReassembler] = [:]
+    private var resultChunkTimeouts: [String: Task<Void, Never>] = [:]
     private var muxes: [UUID: MuxState] = [:]
     private var streamChunks: [String: PCLinkChunkReassembler] = [:]
+    private var streamChunkTimeouts: [String: Task<Void, Never>] = [:]
 
     private var pairingContext: PairingContext?
     private var nextCorrelation = 0
@@ -355,6 +371,9 @@ public actor PCLinkClient {
         self.identityStore = identityStore
         self.pairingStore = pairingStore
         self.configuration = configuration
+        self.sendPacer = PCLinkOutboundPacer(
+            rateBytesPerSecond: configuration.sendRateBytesPerSecond,
+            burstBytes: configuration.sendBurstBytes)
     }
 
     // MARK: Status / streams
@@ -850,6 +869,8 @@ public actor PCLinkClient {
             for mux in oldMuxes.values {
                 mux.continuation.finish()
             }
+            cancelAllChunkTimeouts()
+            resultChunks.removeAll()
             streamChunks.removeAll()
         }
         session = replacement
@@ -925,12 +946,26 @@ public actor PCLinkClient {
     }
 
     private func drainOutbound() async {
-        while !outbound.isEmpty {
+        while !Task.isCancelled, !outbound.isEmpty {
             let item = outbound.removeFirst()
             guard let relay else {
                 item.continuation.resume(throwing: PCLinkError.peerOffline)
                 continue
             }
+            // §3.8: wait for the local per-peer bucket before writing. The
+            // sleep happens inside this single writer, so no later seq can
+            // overtake an older one.
+            let bytes = (try? PCLinkJSONEncoder.encode(item.frame).count) ?? 0
+            let delay = sendPacer.delayBeforeSending(bytes: bytes, at: Date())
+            if delay > 0 {
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                } catch {
+                    item.continuation.resume(throwing: PCLinkError.cancelled)
+                    return
+                }
+            }
+            sendPacer.consume(bytes: bytes, at: Date())
             do {
                 try await relay.send(item.frame)
                 item.continuation.resume()
@@ -1040,10 +1075,18 @@ public actor PCLinkClient {
                 sessionTeardown(reason: error)
                 signalDisconnect()
             case .rateLimited(let retryAfterMs):
-                // §9.1/§3.5: a relay rate limit is temporary. Tear the E2E
-                // session down, wait retryAfterMs, then reconnect; it is not a
-                // terminal error and nothing is blindly resent.
+                // §3.8 (pclink-v1.5): the relay error is uncorrelated, so a
+                // dropped frame means this E2E session's seq may already be
+                // broken. Stop the writer, best-effort tell the PC with a
+                // terminal close (one frame, bypassing the now-empty local
+                // bucket), then wait retryAfterMs and re-handshake. In-flight
+                // calls follow §7 by retry class.
                 retryAfterDelay = retryAfterMs.map { Double($0) / 1000 }
+                failOutbound(error)
+                if let session, session.phase == .established,
+                   let close = try? session.closeFrame(code: "rate_limited") {
+                    try? await relay?.send(close)
+                }
                 failPendingForRelayDrop(sid: context?.sid, id: context?.id,
                                         definiteID: context?.id)
                 sessionTeardown(reason: error)
@@ -1418,6 +1461,7 @@ public actor PCLinkClient {
             }
             if resultChunks[id] != nil {
                 resultChunks.removeValue(forKey: id)
+                cancelResultChunkTimeout(id)
                 failPendingCall(id, error: .badFrame("rpc.result arrived during chunked result"))
                 return
             }
@@ -1433,7 +1477,6 @@ public actor PCLinkClient {
             handleSessionError(.badFrame("rpc.result.chunk malformed"))
             return
         }
-        let starting = resultChunks[id] == nil && part == 0
         var reassembler = resultChunks[id] ?? PCLinkChunkReassembler()
         do {
             let completed = try reassembler.accept(key: "result:\(id)",
@@ -1442,10 +1485,13 @@ public actor PCLinkClient {
                                                    dataBase64: data)
             resultChunks[id] = reassembler
             guard let completed else {
-                if starting { scheduleResultChunkTimeout(id) }
+                // §6.2: the 30 s budget is measured from the last accepted
+                // chunk, so each chunk restarts it.
+                scheduleResultChunkTimeout(id)
                 return
             }
             resultChunks.removeValue(forKey: id)
+            cancelResultChunkTimeout(id)
             guard let json = try? PCLinkJSONParser.parseObject(completed),
                   json["type"]?.stringValue == "rpc.result",
                   json["id"]?.stringValue == id else {
@@ -1455,9 +1501,11 @@ public actor PCLinkClient {
             dispatchResult(json, id: id)
         } catch let error as PCLinkError {
             resultChunks.removeValue(forKey: id)
+            cancelResultChunkTimeout(id)
             failPendingCall(id, error: error)
         } catch {
             resultChunks.removeValue(forKey: id)
+            cancelResultChunkTimeout(id)
             failPendingCall(id, error: .badFrame("chunked rpc.result failed"))
         }
     }
@@ -1511,40 +1559,86 @@ public actor PCLinkClient {
     }
 
     private func scheduleResultChunkTimeout(_ id: String) {
-        Task { [weak self] in
+        cancelResultChunkTimeout(id)
+        resultChunkTimeouts[id] = Task { [weak self] in
+            let timeout = self?.configuration.chunkReassemblyTimeout ?? PCLinkLimits.chunkReassemblyTimeout
             do {
-                try await Task.sleep(nanoseconds: UInt64(PCLinkLimits.chunkReassemblyTimeout * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(max(0.01, timeout) * 1_000_000_000))
             } catch { return }
             await self?.expireResultChunk(id)
         }
     }
 
-    private func expireResultChunk(_ id: String) {
-        guard resultChunks.removeValue(forKey: id) != nil else { return }
-        failPendingCall(id, error: .badFrame("result chunk sequence timed out"))
+    private func cancelResultChunkTimeout(_ id: String) {
+        resultChunkTimeouts.removeValue(forKey: id)?.cancel()
     }
 
-    private func scheduleStreamChunkTimeout(_ streamId: String) {
-        Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(PCLinkLimits.chunkReassemblyTimeout * 1_000_000_000))
-            } catch { return }
-            await self?.expireStreamChunk(streamId)
+    /// §6.2/§7 (pclink-v1.5): a stalled result is a transport failure, not a
+    /// forever-pending call. A read/idempotent call retries through the normal
+    /// `PCLinkSessionLost` path; an unsafe call may have executed, so it is
+    /// `unknown_outcome` and is never blindly resent.
+    private func expireResultChunk(_ id: String) {
+        resultChunkTimeouts.removeValue(forKey: id)
+        guard resultChunks.removeValue(forKey: id) != nil else { return }
+        guard let pending = pendingCalls.removeValue(forKey: id) else { return }
+        switch pending.retry {
+        case .read, .idempotent:
+            pending.continuation?.resume(throwing:
+                PCLinkSessionLost(reason: .sessionExpired("result chunk sequence timed out")))
+        case .unsafe:
+            pending.continuation?.resume(throwing: PCLinkError.unknownOutcome(endpoint: pending.endpoint))
         }
     }
 
-    private func expireStreamChunk(_ wireStreamID: String) {
+    private func scheduleStreamChunkTimeout(_ wireStreamID: String) {
+        cancelStreamChunkTimeout(wireStreamID)
+        streamChunkTimeouts[wireStreamID] = Task { [weak self] in
+            let timeout = self?.configuration.chunkReassemblyTimeout ?? PCLinkLimits.chunkReassemblyTimeout
+            do {
+                try await Task.sleep(nanoseconds: UInt64(max(0.01, timeout) * 1_000_000_000))
+            } catch { return }
+            await self?.expireStreamChunk(wireStreamID)
+        }
+    }
+
+    private func cancelStreamChunkTimeout(_ wireStreamID: String) {
+        streamChunkTimeouts.removeValue(forKey: wireStreamID)?.cancel()
+    }
+
+    /// §6.2/§7 (pclink-v1.5): fail the stalled stream, tell the PC to stop
+    /// producing, and let a read-class consumer reopen it. `gateway/
+    /// service-unavailable` is a local DSH-transport error that
+    /// `DSHRemoteError` classifies as retryable; an unsafe stream is
+    /// `unknown_outcome`.
+    private func expireStreamChunk(_ wireStreamID: String) async {
+        streamChunkTimeouts.removeValue(forKey: wireStreamID)
         guard streamChunks.removeValue(forKey: wireStreamID) != nil else { return }
         guard let muxID = muxForStream(wireStreamID),
               let localID = muxes[muxID]?.wireToLocal[wireStreamID] else { return }
+        let retry = muxes[muxID]?.streams[localID]?.retry ?? .read
+        if let session {
+            try? await sendInner(.object([
+                "type": .string("rpc.stream.cancel"),
+                "streamId": .string(wireStreamID),
+            ]), session: session)
+        }
         emitStreamError(muxID: muxID, wireStreamID: wireStreamID, localStreamID: localID,
-                        error: PCLinkRPCError(code: "bad_frame",
-                                              message: "stream chunk sequence timed out"))
+                        error: PCLinkRPCError(
+                            code: retry == .unsafe ? "unknown_outcome" : "gateway/service-unavailable",
+                            message: "stream chunk sequence timed out"))
     }
 
     private func failPendingCall(_ id: String, error: PCLinkError) {
+        cancelResultChunkTimeout(id)
         guard let pending = pendingCalls.removeValue(forKey: id) else { return }
         pending.continuation?.resume(throwing: error)
+    }
+
+    private func cancelAllChunkTimeouts() {
+        for task in resultChunkTimeouts.values { task.cancel() }
+        resultChunkTimeouts.removeAll()
+        for task in streamChunkTimeouts.values { task.cancel() }
+        streamChunkTimeouts.removeAll()
     }
 
     // MARK: Stream frames
@@ -1564,6 +1658,7 @@ public actor PCLinkClient {
         if let localID { mux.streams.removeValue(forKey: localID) }
         muxes[muxID] = mux
         streamChunks.removeValue(forKey: wireStreamID)
+        cancelStreamChunkTimeout(wireStreamID)
         return localID
     }
 
@@ -1638,7 +1733,6 @@ public actor PCLinkClient {
                                 error: PCLinkRPCError(code: "bad_frame", message: "rpc.stream.chunk shape"))
                 return
             }
-            let starting = streamChunks[wireStreamID] == nil && part == 0
             var reassembler = streamChunks[wireStreamID] ?? PCLinkChunkReassembler()
             do {
                 let completed = try reassembler.accept(key: wireStreamID,
@@ -1646,22 +1740,26 @@ public actor PCLinkClient {
                                                        dataBase64: data)
                 streamChunks[wireStreamID] = reassembler
                 guard let completed else {
-                    if starting { scheduleStreamChunkTimeout(wireStreamID) }
+                    // §6.2: restart the inactivity budget on every chunk.
+                    scheduleStreamChunkTimeout(wireStreamID)
                     return
                 }
                 streamChunks.removeValue(forKey: wireStreamID)
+                cancelStreamChunkTimeout(wireStreamID)
                 guard let value = try? PCLinkJSONParser.parse(value: completed) else {
                     throw PCLinkError.badFrame("stream chunk is not one JSON value")
                 }
                 mux.continuation.yield(.object(["type": .string("item"), "streamId": .string(localID),
                                                 "value": value]))
             } catch let error as PCLinkError {
+                cancelStreamChunkTimeout(wireStreamID)
                 emitStreamError(muxID: muxID, wireStreamID: wireStreamID, localStreamID: localID,
                                 error: PCLinkRPCError(code: error.code, message: error.message))
                 if error.code == "frame_too_large" {
                     await cancelOversizedStream(wireStreamID, session: session)
                 }
             } catch {
+                cancelStreamChunkTimeout(wireStreamID)
                 emitStreamError(muxID: muxID, wireStreamID: wireStreamID, localStreamID: localID,
                                 error: PCLinkRPCError(code: "bad_frame", message: "stream chunk"))
             }
@@ -1951,6 +2049,7 @@ public actor PCLinkClient {
         for stream in mux.streams.values {
             // `streamChunks` is keyed by the wire id, not by `stream:<local>`.
             streamChunks.removeValue(forKey: stream.wireStreamID)
+            cancelStreamChunkTimeout(stream.wireStreamID)
             let inner: PCLinkJSON = .object(["type": .string("rpc.stream.cancel"),
                                              "streamId": .string(stream.wireStreamID)])
             if let session {
@@ -1983,6 +2082,7 @@ public actor PCLinkClient {
         for pending in calls.values {
             pending.continuation?.resume(throwing: PCLinkSessionLost(reason: reason))
         }
+        cancelAllChunkTimeouts()
         resultChunks.removeAll()
         let muxValues = muxes
         muxes.removeAll()

@@ -263,11 +263,112 @@ Protocol impact: P28; P09; P18; P24: none — Package.resolved restored unchange
 
 理由：P28 是 PCLink 客户端会话/流/发送顺序与 relay 事件处理；P09 是「已连接的电脑」配对时间显示与 provenance；P18 是旧草稿格式读取与解除配对后的本地清理/路径校验。契约 revision 保持 `pclink-v1.3`。
 
-### 4.10 合入 main da10d7466（merge-only）
+### 4.10 `pclink-pacing` P18 追加（`pclink-v1.5`）
+
+PC 新會話的工作區選擇需要記住「上次使用的工作區」，這是本單新增的 P18
+持久化鍵，先登記再改代碼：
+
+- **鍵**：`phone-dsh.pc.last-workspace.<machineId>`；`<machineId>` 為配對記錄
+  的 PC machineId（26 字元 base32），與 `BackendID.storageScope` 的
+  `pc:<machineId>` 同源。
+- **值域**：單一 DSH `workspaceId` 字串（伺服器簽發，非使用者文字）；空字串、
+  缺失或該工作區已不在 `workspace/follow` baseline 時，回退到最近活動的工作區
+  （`recentWorkspaceID`），不阻止新建會話。
+- **寫入時機**：只在 PC 分段、新會話/空會話的工作區選擇器變更時寫入；不隨
+  每個會話寫。手機分段不讀不寫本鍵。
+- **清理**：解除配對（`removeLocalData(for: .pc(...))`）時刪除該 machineId 的
+  鍵；不刪除其他 PC 或其他 scope 的鍵。
+- **相容／回滾**：全新鍵，沒有舊 consumer；舊版 App 忽略本鍵，回滾後只失去
+  「上次選擇」，不影響配對、會話或草稿。
+- **實作**：`ProbeKit/Backends/WorkspaceStorage.swift`
+  （`WorkspaceStorageKeys.pcLastWorkspacePrefix` 與存取函式）、
+  `PhoneDSHProbe/ChatPage.swift` 的工作區膠囊、
+  `PhoneDSHProbe/DSHManagementModel.swift` 的 `createSession`。
+- **權威登記**：`spec/README.md` §3.1 P18 行（本單追加句）。
+
+修訂紀錄：`pclink-pacing-r1` 只追加 P18 鍵；P28 的 `pclink-v1.5` 變更見
+`PC-20261109-pclink-v1.md` §4.16。
+
+### 4.11 `pclink-pacing` P09 UI 變更（本輪）
+
+- **分段位置**：`HomeDrawer.body` 的「手机 | PC」由「新会话」上方移到下方；
+  `pages/home-drawer.json` 的 `sectionNote`、`source.renderedFrom`、action
+  provenance 與 note 同步；`spec/ui/v1/README.md` §1 抽屜描述同步。Android
+  仍無 PC 分段，差異留在 GAP-34，`page_structure_check --baseline` 仍為
+  **17**（不新增 baseline/whitelist）。
+- **抽屜讀取狀態**：PC 分段在 `session/list` 進行中顯示「正在读取 PC
+  会话…」；失敗時顯示既有錯誤列（訊息 + 重試），且不再落到「还没有 PC
+  会话」空狀態。規則抽成 `PCLinkDrawerPolicy.listState(isLoading:error:sessionCount:)`，
+  `PCLinkPacingSimTests.testDrawerListStateNeverShowsEmptyWhileLoadingOrAfterAnError` 覆蓋。
+- **大列表**：分組容器由 `VStack` 改為 `LazyVStack`（保留既有 ScrollView、
+  自訂列樣式、contextMenu 與摺疊狀態；未改成 `List`，避免改寫整頁 chrome
+  與 Android 對齊）。3,000+ 行只建立可視列；取捨記錄在此。
+- **PC 工作區分組**：PC 分段不再把全部會話放進「PC 工作區 · <電腦名>」。
+  組名直接用 `workspace/follow` 的 DSH workspace title；`sessionIds` 未收錄
+  的會話按 `cwd` 最長路徑前綴歸組（`PCLinkWorkspaceGrouping`），其餘 PC
+  會話單列「未分组」；手機分段的預設「手机工作区」規則不變。
+  `PCLinkPacingSimTests.testPCWorkspaceGroupingUsesMembershipThenLongestCwd` 覆蓋。
+- **Pin 依據**：DSH 0.2.2 的 Web 新會話由 `workspace/follow` 取得
+  workspace baseline（`packages/api/workspace-controller/src/index.ts` 的
+  `workspace/follow`），再以 `session/create` 的 `request.workspaceId`（或
+  `request.cwd`）建立會話（`packages/api/session-controller/src/index.ts`
+  的 `SessionCreateRequest`；Web e2e 以 `payload.args.request.workspaceId`
+  斷言）。`spec/pclink/v1/endpoints.json` 已列這兩個端點，無需新增重試類別。
+- **PC 新會話工作區選擇器**：`ChatPage` 輸入框工具列（與模型膠囊同一行、
+  同樣式、PC-only）新增工作區膠囊；可選期間為新會話/空白會話，預設
+  P18 `phone-dsh.pc.last-workspace.<machineId>` → 最近活動工作區；選到不同
+  工作區時建立一個新的空白 DSH 會話（空白會話不能在工作區間移動）。第一個
+  回合後只顯示目前工作區、無選單。手機分段不顯示。實現為
+  `PCWorkspaceMenu` 同檔 sibling view；未新增可比較的 Android action，
+  避免把 page-structure ratchet 從 17 變成 18（Android 對等由 GAP-34 追蹤）。
+- **安裝引導**：`PCLinkInstallGuide`（`ProbeKit/Backends/PCLinkRelayConfiguration.swift`，
+  與中繼 origin 同一個配置點）提供唯一命令字串；PC 未配對空狀態與
+  `PCPairingPage` 都渲染同一個 `PCPluginInstallGuide`（等寬命令 + 複製按鈕，
+  文案說明需 DSH 0.2.2+）。`pclink/README.md` 安裝段同步同一條
+  `dsh plugin --profile web add 'github:launsion-boop/phone-dsh#main&path:/pclink'`
+  與 `~/.dsh/profiles/web/node_modules/.bin/pclink pair`。`#main` 在包含
+  `pclink/` 的 PR 合併後才生效；本輪在臨時 `DSH_HOME` 用 PR head commit
+  `fd2b97e98` 的 git spec 實測安裝/啟動/配對（見 §4.11.1）。
+- **P18**：`phone-dsh.pc.last-workspace.<machineId>` 已在 `spec/README.md`
+  §3.1 P18 行與本記錄 §4.10 先行登記；`removeLocalData(for:)` 會刪除該 PC
+  的鍵，其他 PC 與手機鍵不動。
+
+#### 4.11.1 命令 → 結果（本輪）
+
+| 命令 | 結果 | 日誌 |
+| --- | --- | --- |
+| `python3 -B spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | `/tmp/pclink-pacing-extract-check.log` |
+| `python3 -B spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (…)` | `/tmp/pclink-pacing-ui-check.log` |
+| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-34 的 5，未新增 | `/tmp/pclink-pacing-page-check.txt` |
+| ADAPTED `xcodegen generate` + `xcodebuild -scheme PhoneDSHProbe ... build` | **PASS** `** BUILD SUCCEEDED **` | `/tmp/pclink-pacing-build.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHSim ... build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/pclink-pacing-buildtests.log` |
+| ADAPTED `simctl spawn … xctest -XCTest <13 classes>` | **PASS** 94 tests, 0 failures（含新增 `PCLinkPacingSimTests` 5 個） | `/tmp/pclink-pacing-simtests.log` |
+| 臨時 `DSH_HOME`：`dsh plugin --profile web add 'github:launsion-boop/phone-dsh#fd2b97e980956bb1206cd5c5203a51cc32786764&path:/pclink'` | **PASS**：pnpm 安裝 `dsh-pclink`、profile `node_modules/.bin/pclink` 存在、`dsh web`（臨時 home，port 3282）載入插件並連上 port 3280 中繼；`pclink status` 顯示 connected；PhonePeer 以 admin 審批配對後 handshake、`session/list`、`session/create` 均成功 | `/tmp/pclink-install.log`、`/tmp/pclink-install-dsh.log` |
+
+**NOT_RUN**：真機 Keychain/相機、公網 WSS、Android 端（GAP-34）。截圖見 §4.11.2。
+
+#### 4.11.2 截圖
+
+`docs/receipts/pclink-pacing/`（light/dark，模擬器 `620D518D-D125-4154-B1B7-32A65327482B`）：
+
+| 場景 | light | dark |
+| --- | --- | --- |
+| 抽屜新佈局（分段在新會話下方；PC 按 DSH 工作區分組） | `drawer-light.png` | `drawer-dark.png` |
+| PC 新會話工作區選擇器 | `workspace-picker-light.png` | `workspace-picker-dark.png` |
+| 未連接電腦安裝引導（抽屜 empty state） | `install-guide-light.png` | `install-guide-dark.png` |
+| 配對頁安裝引導 | `pairing-guide-light.png` | `pairing-guide-dark.png` |
+
+截圖使用獨立的第二個 App bundle（`dev.phone-dsh.probe.pacing`）與臨時 DSH
+的合成工作區/會話，未顯示使用者真實會話標題；使用者已安裝的 App、配對記錄
+與資料未卸載、未清空、未解除配對（第二個 bundle 已卸載）。靜態截圖沒有展開
+工作區選單（宿主無 accessibility 點擊權限）；選單狀態由
+`PCLinkPacingSimTests` 與頁面契約覆蓋。
+
+### 4.12 合入 main da10d7466（merge-only）
 
 **范围**：`git merge --no-ff --no-commit origin/main`（`origin/main` = `da10d7466`，merge base `627aed35`，分支 head `fd2b97e98`），只做合并、不加功能、不 commit；合并状态留给协调者。14 个冲突文件逐个解决；main 的 #75/#76/#77/#78/#79 语义与 PCLink 的每后端模型、P18 scope、PC 分支全部保留。合并后由协调者提交。
 
-#### 4.10.1 冲突处置
+#### 4.12.1 冲突处置
 
 | 文件 | main（da10d7466） | feat/pclink | 合并方式与理由 |
 | --- | --- | --- | --- |
@@ -276,7 +377,7 @@ Protocol impact: P28; P09; P18; P24: none — Package.resolved restored unchange
 | `HomeDrawer.swift`（4 处） | #76 会话顺序持有（`sessionOrder`/`rememberSessionOrder`/`inHeldOrder`）、`switchingSessionID`/`errorMessage` 切换期抑制、`HomeDrawerNewSessionPolicy`（`busy` 只禁用不显示原因、固定高度原因行） | `手机｜PC` 分段、PC 未配对/离线状态与配对 sheet、按 backend 刷新/折叠、PC 空态与新会话阻止 | `showsPCState` 分支包住 main 的错误行 + 文件夹区；`.task(id: backendTaskID)` 合并 per-backend 刷新与 main 的顺序持有，并在 backend 切换时清空 `sessionOrder`（同 ID 两端不串，P18）；`newSessionBlocked` 先 PC 原因再 `policy.reason`，`newSessionDisabled` 先 PC 相位再 `policy.isDisabled`；`errorMessage` 用 main 的切换期抑制 |
 | `NativeShell.swift` | `@Environment(AppModel.self)`（Bot 离屏/后台暂停） | `@Environment(\.workspaceModels)`（手机/PC 两个 ChatPage 同时存活） | 两个环境值都保留 |
 | `NativeConversationModels.swift` | `NativeRenderRevision` + `renderRevision` + `bumpRenderRevision()` | 类型公开（文件已移入 ProbeKit） | `public var renderRevision` + `public mutating func bumpRenderRevision()`，使 App/测试能用 main 的缓存键；`NativeRenderRevision` 仍为文件私有 |
-| `project.yml`（2 处） | 把新的 perf/render 源文件加入两个测试 target 的显式 sources | 把 `NativeConversationModels`/`NativeTranscriptProjector` 移入 `ProbeKit/Transcript`，测试 target 改 import ProbeKit | 保留 main 的列表但去掉两个已移动文件；perf helpers 按 4.10.2 移入 `ProbeKit/Perf` 并从测试列表移除；`xcodegen generate` PASS |
+| `project.yml`（2 处） | 把新的 perf/render 源文件加入两个测试 target 的显式 sources | 把 `NativeConversationModels`/`NativeTranscriptProjector` 移入 `ProbeKit/Transcript`，测试 target 改 import ProbeKit | 保留 main 的列表但去掉两个已移动文件；perf helpers 按 4.12.2 移入 `ProbeKit/Perf` 并从测试列表移除；`xcodegen generate` PASS |
 | `spec/ui/v1/pages/{chat,egress-allow-list,runtime-details,settings-about,workspace-folders}.json` | main 的页面结构/action 变化 | D2 的 PC 页面与 action | 不手工拼 provenance：解决结构冲突后由 `extract_ios_pages.py --root .` 从合并后的 Swift 整体重生成，`--check` PASS |
 | `spec/ui/v1/pages/_spec-required.json` | 行号随 ChatPage 移动 | D2 的 2 条既有条目 + 格式 | 采用 D2 结构；3 条 `ChatPage.swift` 引用按合并后源码更新为 `3845`/`3812`/`262` |
 | `spec/ui/v1/pages/home-drawer.json` | 原因行固定高度、`newSessionDisabled` 条件、`errorMessage` 抑制、`switchingSessionID` failure 条件 | `手机`/`PC` action、配对 sheet、PC 空态 | 以 D2 的手写契约结构为底，叠加 main 的语义，再按 `anchor` 机械刷新全部 `HomeDrawer.swift:line`；未改 `_baseline.json`/whitelist |
@@ -284,11 +385,11 @@ Protocol impact: P28; P09; P18; P24: none — Package.resolved restored unchange
 
 main 的其余改动（Bot 卡片/鱼渲染缓存、Android P09 行、`plugins/wasi-toolbox/git`、worker-entry、bot-ui 脚本等）自动合并且已复核未覆盖 D2 目录；`spec/README.md` 在 `da10d7466` 上**没有** main 侧改动，D2 的 GAP-34 条目原样保留（main 无 GAP 行可合并）。
 
-#### 4.10.2 编译必需的模块迁移
+#### 4.12.2 编译必需的模块迁移
 
 main 的 `NativeTranscriptProjector` 改为调用 `NativeDiffLineCountsCache`，而 D2 已把 projector 移入 `ProbeKit/Transcript`，App 模块不能反向依赖。按既有 probe-kit 提取方式，把 main 新增的 4 个 UI-free perf helper 移到 `ProbeKit/Perf/`：`NativeDiffCache.swift`、`NativeBoundedCache.swift`、`NativeStableHash.swift`、`NativePerfCounters.swift`，公开 App/测试实际使用的 API（`NativeDiffLineCountsCache`/`NativeChangesCache`/`NativeBoundedCache`/`NativeStableHash`/`NativePerfCounters`），并给 8 个使用方补 `import ProbeKit`。这样 `NativePerfCounters.shared`、diff changes cache 在进程内仍只有一份，不是把同一实现编进两个模块。`xcodegen` 后 App build 与 `build-for-testing` 均 PASS。
 
-#### 4.10.3 P18 检查结论
+#### 4.12.3 P18 检查结论
 
 | main 新增的会话/本地状态 | 是否持久化 | 结论 |
 | --- | --- | --- |
@@ -303,7 +404,7 @@ main 的 `NativeTranscriptProjector` 改为调用 `NativeDiffLineCountsCache`，
 
 **结论**：main 新增的本地状态没有需要本次补 `(BackendID, sessionID)` 键的持久化项；唯一被 main 重新引入的裸 `sessionID` 写入已改回 P18 scoped API。PC 分段下不会扫描手机工作区、不会 attach 手机资源监测、不会把 PC 会话当本地 host 会话处理。**已知缺口：无**（本轮未发现需要登记的新 P18 GAP）。
 
-#### 4.10.4 命令 → 结果（本轮实跑）
+#### 4.12.4 命令 → 结果（本轮实跑）
 
 环境同 §4.5；`PATH=/tmp/node24/bin:$PATH`、`PDSH_NODE=/tmp/node24/bin/node`；模拟器 `620D518D-D125-4154-B1B7-32A65327482B`（只 `simctl spawn xctest`，未安装/卸载/清数据）。
 
@@ -323,7 +424,7 @@ main 的 `NativeTranscriptProjector` 改为调用 `NativeDiffLineCountsCache`，
 
 `Package.resolved` 被 Xcode 自动写入 app 本地 SwiftMath/SwiftMarkdown pin 后已按合并结果（HEAD）还原，未纳入改动。
 
-#### 4.10.5 已知缺口与剩余风险
+#### 4.12.5 已知缺口与剩余风险
 
 1. **合并目标固定为 `da10d7466`**：本会话运行期间 `origin/main` 又被其他 worker 推进（观察到的 `43013ec`＝PR #69，随后远端为 `a3e41f8`）。本单元严格按任务冻结的 `da10d7466` 合并；更新的 main（含 Android PR #69 的 5 个新文件与 `spec/README` GAP-33 关闭）**未合入**，由协调者决定是否再合一次。差异不是本合并丢文件：`da10d7466` 的 35 个新增文件全部在合并结果中。
 2. **`page_structure_check` 17 处**：既有 12（connectors、daily-brief、files、home-drawer 设置、native-automation、session-artifacts、settings 2 sections + 4 actions）+ D2/GAP-34 5（home-drawer 手机/PC、pc-pairing/connected-computer、settings 已连接的电脑）；与 §4.4 完全一致，未关闭、未新增。
@@ -332,7 +433,7 @@ main 的 `NativeTranscriptProjector` 改为调用 `NativeDiffLineCountsCache`，
 5. **未验证**：真实设备、真机 Keychain/相机、公网 WSS、真实 relay+DSH 三端 E2E（本轮未重跑，§4.6.1 的旧证据仍是上一单元）；UI 截图验收未重跑。`xcodebuild test` 仍以同 bundle 的 `simctl spawn` 替代。
 6. **宿主限制**：本 worktree 的 `.git` 元数据在 workspace 外且沙箱只读，无法写 canonical gitdir。为执行真实 merge，worktree 的 `.git` 指针临时指向 `/tmp/pclink-a-merge-git`（含 `commondir`、`MERGE_HEAD`、resolved index；对象写 `/tmp`、读共享对象库）。交接给协调者后：可直接在该 worktree `git commit`（refs/objects 共享），或先 `git add -A` 再提交；提交后可用 `git reset` 刷新原 canonical worktree 的 index。该临时 gitdir 不在提交内容中。
 
-#### 4.10.6 建议的合并提交信息
+#### 4.12.6 建议的合并提交信息
 
 ```text
 Merge origin/main (da10d7466) into feat/pclink
@@ -350,4 +451,5 @@ Protocol impact: P09; P18; P27: none — #75 only renders and caches Bot cards u
 | `pclink-d2-r2` | iOS D2 implementer | 實作後以提取工具更新 provenance；E2E 發現 CCR-1/2/3，未在本地繞過 | P28 C/D owner；android-parity |
 | `pclink-fix1-r1` | PCLink fix1 implementer（iOS/C/D） | 關閉 CCR-1/2/3；配對自動完成並進 PC 工作區；`phone-sdk` filter 加 `PhoneDSHPCLinkTests`；以機械提取更新兩個頁面 provenance；重跑三端 E2E 與 CI | P28 C/D owner；P09 owner；android-parity（頁面 provenance） |
 | `pclink-f2s-r1` | PCLink f2s implementer（iOS/App） | 全分支審查：session 內唯一線上 streamId、單寫者 FIFO、relay.offline/rate_limited/version_unsupported、stop/start、ready 缓存、origin/路徑/快照/日期等 18 項；PCLink v1.3 不變 | P28 D/App owner；P09/P18 owner；android-parity（頁面 provenance） |
+| `pclink-pacing-r1` | P28 contract owner（本單） | P18 追加 `phone-dsh.pc.last-workspace.<machineId>`（PC 新會話上次工作區）；P09「手機\|PC」分段移到新會話下方、抽屜錯誤/加載態、PC 工作區分組、新會話工作區選擇器與安裝引導；P28 升 `pclink-v1.5`（見 `PC-20261109-pclink-v1.md` §4.16） | iOS/App；P09/P18 owner；android-parity（GAP-34 條目如實更新） |
 | `pclink-merge-main-r1` | merge-main implementer（iOS/App） | 合入 `da10d7466`：解決 14 個衝突；保留 #75/#76/#77/#78/#79 與 D2 每後端/P18；main 的裸 current-session 鍵改回 scoped；perf helpers 移入 `ProbeKit/Perf`；頁面契約重生成、`tokens` 語義採 main 並機械刷新 provenance；PCLink v1.3 與 P09/P18 契約值不變 | P09/P18 owner；P28 D/App owner；android-parity（頁面 provenance 與 17 處已登記差異） |

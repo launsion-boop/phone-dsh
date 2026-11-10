@@ -76,6 +76,7 @@ function makeSession(options = {}) {
     log: () => {},
     idleMs: options.idleMs ?? 900_000,
     cancelSettleMs: options.cancelSettleMs ?? 30_000,
+    ...(options.pacing === undefined ? {} : { pacing: options.pacing }),
   })
   return { store, phone: phones[0], phones, records, timers, link, connection, gateway, manager, pcIdentity: store.identity }
 }
@@ -393,7 +394,7 @@ test('oversized unary result becomes frame_too_large without exposing a partial 
   const messages = await waitFor(() => {
     const drained = read()
     return drained.length > 0 ? drained : undefined
-  }, 'oversized result')
+  }, 'oversized result', 15_000)
   assert.equal(messages[0].type, 'rpc.result')
   assert.equal(messages[0].ok, false)
   assert.equal(messages[0].error.code, 'frame_too_large')
@@ -932,4 +933,54 @@ test('every model-evidence invalid vector row is consumed by the real state mach
     }
   }
   assert.equal(seen.size, VECTORS.invalid.filter(row => row.evidence === 'model').length)
+})
+
+test('outbound e2e frames are paced per peer yet written in seq order', async () => {
+  const { manager, link, phones, pcIdentity, timers } = makeSession({
+    pacing: { ratePerSecond: 100, burst: 100 },
+  })
+  const { phoneCrypto } = await completeSession({ manager, link, phoneIdentity: phones[0], pcIdentity })
+  const session = [...manager.sessions.values()][0]
+  for (let index = 0; index < 4; index += 1) {
+    assert.equal(manager.sendInner(session, {
+      type: 'pclink.notice', kind: 'paired', name: 'iPhone',
+      fingerprint: 'aaaa-bbbb-cccc', at: '2026-11-09T00:00:05Z',
+    }), true)
+  }
+  // The phone.hello and notices exceed a 100-byte burst, so some frames wait.
+  timers.advance(60_000)
+  const frames = link.frames('e2e').filter(frame => frame.to === phones[0].machineId)
+  assert.equal(frames.length, 5)
+  const messages = frames.map(frame => parseStrictJsonObject(phoneCrypto.open(frame).plaintext))
+  assert.equal(messages[0].type, 'peer.hello')
+  assert.deepEqual(messages.slice(1).map(message => message.type), Array(4).fill('pclink.notice'))
+  // FrameCrypto.open already rejects a non-contiguous seq; assert the frames
+  // themselves are in increasing order too (the single-writer rule).
+  assert.deepEqual(frames.map(frame => frame.seq), [0, 1, 2, 3, 4])
+})
+
+test('relay rate_limited invalidates every E2E session with a terminal close', async () => {
+  const { manager, link, phones, pcIdentity } = makeSession()
+  const { phoneCrypto, session } = await completeSession({ manager, link, phoneIdentity: phones[0], pcIdentity })
+  const outcome = manager.handleRelayRateLimited({
+    v: 1, type: 'relay.error', code: 'rate_limited',
+    message: 'pair bandwidth limit', retryAfterMs: 250,
+  })
+  assert.deepEqual(outcome, { sessions: 1, retryAfterMs: 250 })
+  assert.equal(manager.sessions.size, 0)
+  assert.equal(session.closed, true)
+  assert.deepEqual(manager.lastRateLimited.retryAfterMs, 250)
+  const messages = link.frames('e2e')
+    .filter(frame => frame.to === phones[0].machineId)
+    .map(frame => parseStrictJsonObject(phoneCrypto.open(frame).plaintext))
+  const close = messages.find(message => message.type === 'session.close')
+  assert.equal(close.code, 'rate_limited')
+  // Nothing may follow the close on that sid.
+  assert.equal(messages.at(-1).type, 'session.close')
+})
+
+test('a rate_limited without retryAfterMs waits at least one second', async () => {
+  const { manager } = makeSession()
+  const outcome = manager.handleRelayRateLimited({ v: 1, type: 'relay.error', code: 'rate_limited' })
+  assert.equal(outcome.retryAfterMs, 1_000)
 })

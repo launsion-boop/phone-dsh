@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "运行状态",
-    "provenance": "ChatPage.swift:4757",
+    "provenance": "ChatPage.swift:4759",
     "anchor": ".navigationTitle(\"运行状态\")"
   },
   "source": {
     "file": "ChatPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
-    "lines": 5016,
-    "structLine": 4684,
+    "lines": 5086,
+    "structLine": 4686,
     "renderedFrom": [
       "body",
       "runtimeRow"
@@ -28,7 +28,7 @@
   },
   "sections": [
     {
-      "id": "section-4724",
+      "id": "section-4726",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -48,18 +48,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ChatPage.swift:4726",
+          "provenance": "ChatPage.swift:4728",
           "anchor": "runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")",
           "extraction": "syntax",
           "template": "runtimeRow"
         }
       ],
-      "provenance": "ChatPage.swift:4724",
+      "provenance": "ChatPage.swift:4726",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "empty",
-        "provenance": "ChatPage.swift:4724"
+        "provenance": "ChatPage.swift:4726"
       }
     },
     {
@@ -83,7 +83,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ChatPage.swift:4731",
+          "provenance": "ChatPage.swift:4733",
           "anchor": "runtimeRow(\"模型调用\", \"\\(model.modelRequests)\")",
           "extraction": "syntax",
           "template": "runtimeRow"
@@ -99,7 +99,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ChatPage.swift:4732",
+          "provenance": "ChatPage.swift:4734",
           "anchor": "runtimeRow(\"输入 Token\", model.inputTokens.formatted())",
           "extraction": "syntax",
           "template": "runtimeRow"
@@ -115,13 +115,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ChatPage.swift:4733",
+          "provenance": "ChatPage.swift:4735",
           "anchor": "runtimeRow(\"输出 Token\", model.outputTokens.formatted())",
           "extraction": "syntax",
           "template": "runtimeRow"
         }
       ],
-      "provenance": "ChatPage.swift:4730",
+      "provenance": "ChatPage.swift:4732",
       "anchor": "Section(\"本次运行\") {",
       "extraction": "syntax"
     },
@@ -146,17 +146,17 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ChatPage.swift:4739",
+          "provenance": "ChatPage.swift:4741",
           "anchor": "Text(model.userFacingError ?? \"最近没有出错\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ChatPage.swift:4737",
+      "provenance": "ChatPage.swift:4739",
       "anchor": "Section(\"最近出错\") {",
       "extraction": "syntax"
     },
     {
-      "id": "section-4743",
+      "id": "section-4745",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -176,7 +176,7 @@
           "destination": null,
           "writes": true,
           "condition": "model.isStarted",
-          "provenance": "ChatPage.swift:4745",
+          "provenance": "ChatPage.swift:4747",
           "anchor": "Button(\"停止本地引擎\", role: .destructive) { confirmingStop = true }",
           "extraction": "syntax"
         },
@@ -191,23 +191,23 @@
           "destination": null,
           "writes": true,
           "condition": "!(model.isStarted)",
-          "provenance": "ChatPage.swift:4747",
+          "provenance": "ChatPage.swift:4749",
           "anchor": "Button(\"启动本地引擎\") { Task { await model.start() } }",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ChatPage.swift:4743",
+      "provenance": "ChatPage.swift:4745",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "停止本地引擎",
-        "provenance": "ChatPage.swift:4745"
+        "provenance": "ChatPage.swift:4747"
       },
       "footer": {
         "text": "停止后,正在跑的任务会停下来,不会再接着做。",
         "labelExpr": null,
-        "provenance": "ChatPage.swift:4753",
+        "provenance": "ChatPage.swift:4755",
         "anchor": "Text(\"停止后,正在跑的任务会停下来,不会再接着做。\")"
       }
     },
@@ -328,11 +328,11 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4745",
+      "provenance": "ChatPage.swift:4747",
       "anchor": "Button(\"停止本地引擎\", role: .destructive) { confirmingStop = true }",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presents": "confirmationDialog-4759"
+      "presents": "confirmationDialog-4761"
     },
     {
       "id": "启动本地引擎",
@@ -344,7 +344,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4747",
+      "provenance": "ChatPage.swift:4749",
       "anchor": "Button(\"启动本地引擎\") { Task { await model.start() } }",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -359,7 +359,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4760",
+      "provenance": "ChatPage.swift:4762",
       "anchor": "Button(\"取消\", role: .cancel) {}",
       "extraction": "syntax"
     },
@@ -373,14 +373,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4761",
+      "provenance": "ChatPage.swift:4763",
       "anchor": "Button(\"停止\", role: .destructive) { Task { await model.stop() } }",
       "extraction": "syntax"
     }
   ],
   "presentations": [
     {
-      "id": "confirmationDialog-4759",
+      "id": "confirmationDialog-4761",
       "kind": "confirmationDialog",
       "title": "停止本地引擎?",
       "destination": null,
@@ -388,10 +388,10 @@
         "confirmingStop"
       ],
       "span": [
-        4759,
-        4762
+        4761,
+        4764
       ],
-      "provenance": "ChatPage.swift:4759",
+      "provenance": "ChatPage.swift:4761",
       "anchor": ".confirmationDialog(\"停止本地引擎?\", isPresented: $confirmingStop, titleVisibility: .v",
       "triggered": true
     }
@@ -404,15 +404,15 @@
         {
           "renders": "最近没有出错",
           "when": null,
-          "provenance": "ChatPage.swift:4739",
+          "provenance": "ChatPage.swift:4741",
           "anchor": "Text(model.userFacingError ?? \"最近没有出错\")"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 4724 | 本次运行 | 最近出错 | untitled section at 4743",
+          "renders": "untitled section at 4726 | 本次运行 | 最近出错 | untitled section at 4745",
           "when": null,
-          "provenance": "ChatPage.swift:4684",
+          "provenance": "ChatPage.swift:4686",
           "anchor": "struct RuntimeDetailsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -421,7 +421,7 @@
         {
           "renders": "最近出错",
           "when": null,
-          "provenance": "ChatPage.swift:4737",
+          "provenance": "ChatPage.swift:4739",
           "anchor": "Section(\"最近出错\") {"
         }
       ],
@@ -430,13 +430,13 @@
         {
           "renders": "停止后,正在跑的任务会停下来,不会再接着做。",
           "when": null,
-          "provenance": "ChatPage.swift:4753",
+          "provenance": "ChatPage.swift:4755",
           "anchor": "Text(\"停止后,正在跑的任务会停下来,不会再接着做。\")"
         },
         {
           "renders": "正在跑的任务会停下来。会话和文件都还在。",
           "when": null,
-          "provenance": "ChatPage.swift:4763",
+          "provenance": "ChatPage.swift:4765",
           "anchor": "Text(\"正在跑的任务会停下来。会话和文件都还在。\")"
         }
       ]
@@ -461,30 +461,30 @@
       "sections": [
         {
           "title": "暂不可用",
-          "provenance": "ChatPage.swift:2388"
+          "provenance": "ChatPage.swift:2390"
         },
         {
           "title": "完全权限",
-          "provenance": "ChatPage.swift:2402"
+          "provenance": "ChatPage.swift:2404"
         },
         {
           "title": "强度",
-          "provenance": "ChatPage.swift:2492"
+          "provenance": "ChatPage.swift:2494"
         },
         {
           "title": "模型",
-          "provenance": "ChatPage.swift:2518"
+          "provenance": "ChatPage.swift:2520"
         }
       ],
       "provenance": "ChatPage.swift:12"
     },
     {
       "name": "CommandExecutionResultPage",
-      "line": 4768,
+      "line": 4770,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "ChatPage.swift:4768"
+      "provenance": "ChatPage.swift:4770"
     }
   ],
   "unreachable": [],

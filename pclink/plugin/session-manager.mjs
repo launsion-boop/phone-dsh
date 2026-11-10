@@ -37,6 +37,7 @@ import {
   validateSessionClose,
 } from '../core/inner.mjs'
 import { parseStrictJsonObject } from '../core/json.mjs'
+import { PacingQueue, PACING_BURST_BYTES, PACING_RATE_BYTES_PER_SEC, RATE_LIMITED_FALLBACK_MS, frameByteLength } from '../core/pacing.mjs'
 import { buildPairingNotice } from '../core/pairing.mjs'
 import { validateE2eFrame, validateE2eHandshakeOuter } from '../core/relay.mjs'
 import { runAsPclinkRemote } from './remote-context.mjs'
@@ -205,6 +206,7 @@ export class SessionManager {
    *   onPeerUnpaired?: (peerMachineId: string) => void,
    *   idleMs?: number,
    *   cancelSettleMs?: number,
+   *   pacing?: {ratePerSecond?: number, burst?: number},
    * }} options Dependencies.
    */
   constructor(options) {
@@ -224,6 +226,11 @@ export class SessionManager {
     this.onPeerUnpaired = options.onPeerUnpaired ?? (() => {})
     this.idleMs = options.idleMs ?? E2E_IDLE_MS
     this.cancelSettleMs = options.cancelSettleMs ?? CANCEL_SETTLE_MS
+    this.pacing = {
+      ratePerSecond: options.pacing?.ratePerSecond ?? PACING_RATE_BYTES_PER_SEC,
+      burst: options.pacing?.burst ?? PACING_BURST_BYTES,
+    }
+    this.pacers = new Map()
     this.sessions = new Map()
     this.pending = new Map()
     this.sidCache = new SidCache({ now: this.timers.now })
@@ -582,13 +589,40 @@ export class SessionManager {
   }
 
   /**
-   * Send one inner message over an established session.
+   * One pacer per relay peer (§3.8). It is the only writer of established
+   * `e2e` frames for that peer; handshake frames bypass it because the relay
+   * limits them separately and their 10 s step budget must not sit behind an
+   * application backlog.
+   * @param {string} peerMachineId Peer machineId.
+   * @returns {PacingQueue} that peer's queue.
+   */
+  pacerFor(peerMachineId) {
+    let pacer = this.pacers.get(peerMachineId)
+    if (pacer === undefined) {
+      pacer = new PacingQueue({
+        send: frame => this.link.send(frame),
+        timers: this.timers,
+        ratePerSecond: this.pacing.ratePerSecond,
+        burst: this.pacing.burst,
+        measure: frameByteLength,
+        log: this.log,
+      })
+      this.pacers.set(peerMachineId, pacer)
+    }
+    return pacer
+  }
+
+  /**
+   * Send one inner message over an established session. The frame is sealed
+   * (which assigns `seq`) and queued synchronously, so the pacer's order is
+   * the seq order; it may be written later when the peer bucket is empty.
    * @param {Record<string, unknown>} session Session record.
    * @param {Record<string, unknown>} message Inner message.
-   * @returns {boolean} true when written.
+   * @param {{terminal?: boolean}} [options] A terminal `session.close`.
+   * @returns {boolean} true when queued.
    */
-  sendInner(session, message) {
-    if (session.closed) return false
+  sendInner(session, message, options = {}) {
+    if (session.closed && options.terminal !== true) return false
     let frame
     try {
       frame = session.frameCrypto.seal(encodeInnerMessage(message))
@@ -598,12 +632,16 @@ export class SessionManager {
       this.closeSession(session, code, error.message, { sendClose: false })
       return false
     }
-    const sent = this.link.send(frame)
-    if (sent) {
+    const queued = this.pacerFor(session.peerMachineId).enqueue(frame, {
+      session,
+      terminal: options.terminal === true,
+      label: message.type,
+    })
+    if (queued) {
       session.lastActivity = this.timers.now()
       this.resetIdle(session)
     }
-    return sent
+    return queued
   }
 
   /**
@@ -764,14 +802,20 @@ export class SessionManager {
    */
   closeSession(session, code, message, options = {}) {
     if (session.closed) return
+    const pacer = this.pacers.get(session.peerMachineId)
     if (options.sendClose === true) {
+      // Never write a data frame after the close, and never queue the close
+      // behind the backlog it is meant to unblock: drop this session's queued
+      // frames, then put the terminal close at the head of the peer queue.
+      pacer?.dropSession(session)
       const close = { type: 'session.close', code, ...(message === undefined ? {} : { message: message.slice(0, 512) }) }
       try {
-        const frame = session.frameCrypto.seal(encodeInnerMessage(close))
-        this.link.send(frame)
+        this.sendInner(session, close, { terminal: true })
       } catch {
         // The hard cap / closed keys make the best-effort close impossible.
       }
+    } else {
+      pacer?.dropSession(session)
     }
     session.closed = true
     session.established = false
@@ -797,6 +841,28 @@ export class SessionManager {
       const session = this.sessions.get(frame.sid)
       if (session !== undefined) this.closeSession(session, 'session_expired', 'relay reported peer offline', { sendClose: false })
     }
+  }
+
+  /**
+   * A relay `rate_limited` is uncorrelated (no sid/peer), so every established
+   * session on this connection may have a `seq` gap (§3.8, pclink-v1.5). Close
+   * all of them, best-effort notify each phone, and let the phone re-handshake
+   * after `retryAfterMs`. The PC never replays a call or result.
+   * @param {Record<string, unknown>} frame `relay.error` frame.
+   * @returns {{sessions: number, retryAfterMs: number}} what was invalidated.
+   */
+  handleRelayRateLimited(frame) {
+    const retryAfterMs = Number.isInteger(frame.retryAfterMs) && frame.retryAfterMs >= 0
+      ? frame.retryAfterMs
+      : RATE_LIMITED_FALLBACK_MS
+    this.lastRateLimited = { at: this.timers.now(), retryAfterMs }
+    for (const pending of [...this.pending.values()]) this.dropPending(pending, 'rejected')
+    const sessions = [...this.sessions.values()]
+    for (const session of sessions) {
+      this.closeSession(session, 'rate_limited', 'relay dropped an E2E frame; re-handshake after retryAfterMs', { sendClose: true })
+    }
+    this.log(`relay rate limited retryAfter=${String(retryAfterMs)}ms; invalidated ${String(sessions.length)} session(s)`)
+    return { sessions: sessions.length, retryAfterMs }
   }
 
   async handleCall(session, message) {
@@ -1055,6 +1121,7 @@ export class SessionManager {
       this.closeSession(session, 'session_expired', 'relay connection lost', { sendClose: false })
     }
     for (const pending of [...this.pending.values()]) this.dropPending(pending, 'rejected')
+    for (const pacer of this.pacers.values()) pacer.clear()
   }
 
   /** Abort every pending handshake (rotate-identity/unpair-all). */

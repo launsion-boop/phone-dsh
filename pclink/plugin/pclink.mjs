@@ -90,6 +90,7 @@ export class PclinkRuntime {
       allowlist: () => this.store.allowlist(),
       onFrame: frame => this.handleRelayFrame(frame),
       onState: state => this.handleRelayState(state),
+      onRateLimited: frame => this.sessions?.handleRelayRateLimited(frame),
       WebSocketCtor: this.WebSocketCtor,
       timers: this.timers,
       random: this.random,
@@ -185,6 +186,8 @@ export class PclinkRuntime {
         case 'relay.error':
           this.log(`relay error ${String(frame.code)} ${String(frame.message ?? '')}`)
           if (frame.code === 'rendezvous_expired' || frame.code === 'rendezvous_exhausted') this.pairing.handleRelayError(frame.code)
+          // A rate_limited is delivered to SessionManager through the
+          // RelayLink `onRateLimited` hook (pclink-v1.5 §3.8), not here.
           return
         case 'e2e.handshake':
           this.sessions.handleHandshake(frame)

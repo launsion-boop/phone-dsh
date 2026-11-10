@@ -35,6 +35,15 @@ public enum WorkspaceStorageKeys {
     /// Set to true by the one-time migration. Not a feature flag.
     public static let scopeMigrationMarker = "phone-dsh.storage.scope-migration.v1"
 
+    /// P18 (pclink-pacing): the last DSH workspace the user chose for a new PC
+    /// session, one key per paired PC machine. Value: one workspaceId string.
+    public static let pcLastWorkspacePrefix = "phone-dsh.pc.last-workspace."
+
+    public static func pcLastWorkspace(for backend: BackendID) -> String? {
+        guard case .pc(let machineId) = backend, !machineId.isEmpty else { return nil }
+        return pcLastWorkspacePrefix + machineId
+    }
+
     /// Content fingerprints → DSH requestId. Kept unscoped on disk; the
     /// fingerprint itself carries the backend scope and session ID.
     public static let retryableRequestIDs = "chat.dsh.retryableRequestIDs"
@@ -388,6 +397,29 @@ public enum WorkspaceStorage {
         defaults.set(values.sorted(), forKey: WorkspaceStorageKeys.collapsedWorkspaces)
     }
 
+    // MARK: PC new-session workspace (pclink-pacing, P18)
+
+    /// The last workspace chosen for a new PC session. The phone backend never
+    /// reads or writes this key (it has one workspace).
+    public static func lastWorkspaceID(for backend: BackendID,
+                                       defaults: UserDefaults = .standard) -> String? {
+        guard let key = WorkspaceStorageKeys.pcLastWorkspace(for: backend) else { return nil }
+        let raw = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (raw?.isEmpty ?? true) ? nil : raw
+    }
+
+    public static func setLastWorkspaceID(_ workspaceID: String?,
+                                          for backend: BackendID,
+                                          defaults: UserDefaults = .standard) {
+        guard let key = WorkspaceStorageKeys.pcLastWorkspace(for: backend) else { return }
+        let trimmed = workspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            defaults.set(trimmed, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     // MARK: Transcript snapshots
 
     /// The DSH sessionId charset. A PC-issued id is concatenated into a file
@@ -421,6 +453,7 @@ public enum WorkspaceStorage {
                                                     documentsDirectory: documents)
             try? fileManager.removeItem(at: directory)
         }
+        setLastWorkspaceID(nil, for: backend, defaults: defaults)
     }
 
     private static func defaultDocumentsDirectory(_ fileManager: FileManager) -> URL? {
