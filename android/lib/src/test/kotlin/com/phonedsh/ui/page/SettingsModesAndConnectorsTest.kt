@@ -32,11 +32,12 @@ class SettingsModesAndConnectorsTest {
         onNavigate: (SettingsDestination) -> Unit = {},
         onBack: () -> Unit = {},
         scheduleCount: Int? = null,
+        tonoAccount: TonoAccountFacts? = null,
     ) {
         compose.setContent {
             PdshTheme {
                 SettingsPage(
-                    state = SettingsScreenState.from(zh).copy(scheduleCount = scheduleCount),
+                    state = SettingsScreenState.from(zh).copy(scheduleCount = scheduleCount, tonoAccount = tonoAccount),
                     onNavigate = onNavigate,
                     onToggleBackgroundKeepAlive = {},
                     onSelectBusyEnterMode = {},
@@ -79,6 +80,23 @@ class SettingsModesAndConnectorsTest {
         )
         // The six titled groups belong to the sheet and the pushed 设置 page.
         compose.onNodeWithTag(UiPageTags.SETTINGS_INDEX_GROUP_PREFIX + "modelsAgents").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the me tab opens the account and says whether it is signed in`() {
+        val opened = mutableListOf<SettingsDestination>()
+        showSettings(SettingsPageMode.TAB, onNavigate = { opened += it }, tonoAccount = TonoAccountFacts(available = true))
+
+        compose.onNodeWithText("未登录 · 点此登录").assertIsDisplayed()
+        compose.onNodeWithTag(row("me.tonoAccount")).performClick()
+        assertEquals(listOf(SettingsDestination.TONO_ACCOUNT), opened)
+    }
+
+    @Test
+    fun `the me tab shows the signed-in phone tail`() {
+        showSettings(SettingsPageMode.TAB, tonoAccount = TonoAccountFacts(available = true, signedIn = true, phoneHint = "1234"))
+
+        compose.onNodeWithText("尾号 1234").assertIsDisplayed()
     }
 
     @Test
