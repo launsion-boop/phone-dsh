@@ -587,12 +587,9 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         XCTAssertEqual(afterBackground, 2, "background does not start a second connection")
     }
 
-    // The placeholder is an http(s) origin; a DEBUG loopback value is
-    // normalized to http and PCLinkValidation derives the ws URL (§3.1).
-    func testRelayPlaceholderOriginAndLoopbackNormalization() throws {
-        XCTAssertEqual(PCLinkRelayConfiguration.placeholderOrigin,
-                       "https://relay.example.invalid")
-        XCTAssertTrue(PCLinkRelayConfiguration.placeholderOrigin.hasPrefix("https://"))
+    func testManualPairingProductionOriginAndLoopbackNormalization() throws {
+        let origin = PCLinkRelayConfiguration.manualPairingOrigin
+        XCTAssertEqual(origin, "https://pclink.tonoai.cn")
         XCTAssertEqual(PCLinkRelayConfiguration.normalizedLoopbackOrigin("http://127.0.0.1:3240"),
                        "http://127.0.0.1:3240")
         XCTAssertEqual(PCLinkRelayConfiguration.normalizedLoopbackOrigin("ws://127.0.0.1:3240"),
@@ -603,8 +600,8 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
         XCTAssertNil(PCLinkRelayConfiguration.normalizedLoopbackOrigin("wss://relay.example"))
         let ws = try PCLinkValidation.websocketURL(for: "http://127.0.0.1:3240")
         XCTAssertEqual(ws.absoluteString, "ws://127.0.0.1:3240/")
-        let wss = try PCLinkValidation.websocketURL(for: "https://relay.example")
-        XCTAssertEqual(wss.absoluteString, "wss://relay.example/")
+        let wss = try PCLinkValidation.websocketURL(for: origin)
+        XCTAssertEqual(wss.absoluteString, "wss://pclink.tonoai.cn/")
     }
 
     // PDSH_DEBUG_DRAWER is a DEBUG-only default; the production branch returns
