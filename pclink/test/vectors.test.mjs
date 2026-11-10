@@ -67,7 +67,7 @@ const pc = testIdentity(VECTORS.labels.pcIdentity)
 
 test('golden format and labels', () => {
   assert.equal(VECTORS.format, 'pclink-v1-vectors')
-  assert.equal(VECTORS.revision, 'pclink-v1.3')
+  assert.equal(VECTORS.revision, 'pclink-v1.6')
   assert.equal(VECTORS.suite, 'pclink-x25519-ed25519-chacha20poly1305-1')
 })
 
@@ -438,7 +438,7 @@ test('pairing: audit pair entry, record hash and usable/revoked evaluation', () 
   assert.equal(evaluateRecordAudit(VECTORS.resources.confirm_recheck.revoked.record, VECTORS.resources.confirm_recheck.revoked.audit).reason, 'revoked')
 })
 
-test('pairing: approval fingerprint normalization, wrong phone blocked', () => {
+test('pairing: fingerprint normalization is display/unpair-target only', () => {
   const approval = VECTORS.pairing.approval
   for (const input of approval.accepted_inputs) {
     assert.equal(normalizeFingerprintInput(input), approval.peerMachineId.slice(0, 12))

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PCLink v1 phone pairing record",
   "type": "object",
-  "$comment": "The phone allows exactly one record. approvedAt/approvedVia are PC-side facts; the phone's approval is its own pairing action.",
+  "$comment": "The phone allows exactly one record. approvedAt/approvedVia are PC-side facts and are forbidden here; the optional pairingMode is the phone user's own action (qr/manual) for display.",
   "required": [
     "peerMachineId",
     "peerPublicKey",
@@ -50,6 +50,14 @@
           ]
         }
       }
+    },
+    "pairingMode": {
+      "type": "string",
+      "enum": [
+        "qr",
+        "manual"
+      ],
+      "$comment": "Phone-side display metadata: the pairing action the user performed. Not an approval field; absent in old records."
     }
   }
 }

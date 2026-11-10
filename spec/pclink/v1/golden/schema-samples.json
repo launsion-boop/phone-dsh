@@ -132,7 +132,7 @@
           "mode": "relay"
         },
         "approvedAt": "2026-11-09T00:00:05Z",
-        "approvedVia": "cli"
+        "approvedVia": "qr"
       }
     },
     {
@@ -146,7 +146,8 @@
         "relayOrigin": "https://relay.example",
         "connection": {
           "mode": "relay"
-        }
+        },
+        "pairingMode": "qr"
       }
     },
     {
@@ -387,6 +388,10 @@
           "mode": "qr",
           "expiresAt": "2026-11-09T00:05:00Z",
           "peerName": "iPhone"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       }
     },
@@ -414,7 +419,27 @@
           "peerName": "iPhone",
           "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
           "peerFingerprint": "7gdx-eack-pmfr"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
+      }
+    },
+    {
+      "schema": "pairing-record.schema.json",
+      "name": "pc-record-legacy-cli",
+      "value": {
+        "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
       }
     }
   ],
@@ -620,7 +645,7 @@
         "connection": {
           "mode": "relay"
         },
-        "approvedVia": "cli"
+        "approvedVia": "qr"
       },
       "reason": "approvedAt and approvedVia are a pair"
     },
@@ -800,6 +825,10 @@
           "expiresAt": "2026-11-09T00:05:00Z",
           "peerName": "iPhone",
           "peerFingerprint": "7gdx-eack-pmfr"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "reason": "awaiting_approval must not expose the pending peer fingerprint"
@@ -827,6 +856,10 @@
           "expiresAt": "2026-11-09T00:05:00Z",
           "peerName": "iPhone",
           "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "reason": "awaiting_approval must not expose the pending peer machineId"

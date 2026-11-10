@@ -3,7 +3,7 @@
 PCLink pairs one iPhone with one PC running `dsh web`. The phone gets the DSH
 owner API through the PC plugin; every end-to-end payload is encrypted and
 authenticated before it reaches the untrusted relay. The frozen contract is
-`spec/pclink/v1/README.md` (revision `pclink-v1.5`). This tree is the **C end**:
+`spec/pclink/v1/README.md` (revision `pclink-v1.6`). This tree is the **C end**:
 `dsh-pclink` (Cordis plugin), `npx pclink` CLI and the shared Node core. It has
 no npm runtime dependencies beyond Node built-ins.
 
@@ -26,26 +26,31 @@ What each step does, and what a failure looks like:
 
 1. **Environment.** Refuses Windows explicitly (v1 is macOS/Linux only). Checks
    Node.js 22+, pnpm and `dsh` (`DSH_BIN` or `PATH`), then runs `dsh -V`. A dsh
-   outside `>=0.2.2-rc.1 <0.3.0` produces a warning and one `[y/N]` question;
-   `N` cancels without installing. No TTY means an immediate error — pairing
-   approval can never be automated.
+   outside `>=0.2.2-rc.1 <0.3.0` produces a warning and an Enter-to-continue
+   prompt (Ctrl-C cancels; no Y/n). A TTY is still required for the QR and for
+   the upgrade restart question, but pairing itself reads no input.
 2. **Plugin.** Runs `dsh plugin --profile web add <spec>`. If pnpm reports a
    build-script approval, the terminal prompt is inherited from `/dev/tty`;
    approve it and rerun the same command. A failed install prints the pnpm
    output and exits non-zero.
-3. **Load.** The `web` profile uses live patch reload (`dsh-base` enables the
-   HMR configuration watcher), so the plugin usually appears without a restart;
-   the script waits for `$DSH_HOME/pclink/admin.json` and a successful
-   `pclink status`. If the profile declares `patchReload: "startup"` (or no
-   reload is observed), it prints the exact restart command for launchd
-   (`ai.deepseek.dsh`), a systemd user unit, or a foreground `dsh web`, asks the
-   operator to restart once, then waits again. It never executes a restart of a
-   service it did not start.
+3. **Load/upgrade.** The `web` profile uses live patch reload (`dsh-base`
+   enables the HMR configuration watcher), so a fresh install usually appears
+   without a restart; the script waits for `$DSH_HOME/pclink/admin.json` and a
+   successful `pclink status`. For an **upgrade**, it records the running
+   plugin's `plugin.version`/`packageSha256` from the admin status (or treats a
+   pre-v1.6 `status` without `plugin` as an untracked old build), compares that
+   with the post-`dsh plugin add` on-disk build, and when a plugin was already
+   running it asks **once** `[Y/n]` to restart now. A detected launchd
+   `ai.deepseek.dsh` or systemd user unit is restarted and then verified by the
+   new version/SHA, not just an open admin port. With no service manager it
+   prints the exact `dsh web --no-open`/service command and waits for Enter,
+   then verifies the same way. It never silently claims an upgrade is live.
 4. **Pair.** Executes the profile-installed CLI, not a hard-coded
    `~/.dsh` path: `<DSH_HOME>/profiles/web/node_modules/.bin/pclink pair`.
-   stdin/stdout are `/dev/tty`, so `curl | bash` still gets the QR and the
-   fingerprint prompt. The operator types the fingerprint shown on the phone;
-   the script never approves on its own.
+   stdout is `/dev/tty` so `curl | bash` still gets the QR, but pairing reads no
+   stdin and requires no TTY: the phone scans the QR (or types the manual code)
+   and the PC approves the verified `pair.auth` automatically. The script never
+   asks for a fingerprint.
 
 The installable package root is **`pclink/`** because it carries `core/`,
 `plugin/` and `cli/`. `dsh plugin` forwards to pnpm, whose git subdirectory
@@ -88,23 +93,32 @@ pclink unpair --all
 pclink rotate-identity
 ```
 
-Both paths require the compare-the-phone approval:
+Both paths are approved by **possession of the one-time secret displayed on the
+PC screen** (v1.6 user decision, 2026-11-10):
 
-1. the phone reads the PC public key from the QR/manual code and displays its
-   **own** `machineId[0:12]` fingerprint as `xxxx-xxxx-xxxx`;
-2. the PC CLI/Web UI shows only the verified phone name and asks the operator to
-   type the fingerprint from the phone screen;
-3. the plugin derives the phone machineId from the verified `pair.auth` public
-   key and compares it. A mismatch sends
-   `relay.pair.close{reason:"auth_failed"}`, destroys the single-use slot and
-   writes nothing;
-4. only after `pair.final` does the PC append the `pair` audit line and replace
+1. the phone joins the QR/manual rendezvous and sends a MACed `pair.auth` under
+   the one-time secret;
+2. the PC verifies the MAC, origin, key-derived machineId and name, records
+   `approvedAt`/`approvedVia` (`qr`/`manual`) and sends `pair.confirm`
+   immediately — there is no fingerprint prompt and no `awaiting_approval`;
+3. only after `pair.final` does the PC append the `pair` audit line and replace
    `pairs.json`. A storage failure sends `relay.pair.close{reason:"storage"}`.
 
-`pclink pair` requires a TTY. `y`/`N`, Enter, redirected stdin, `--yes` or a
-non-TTY stdin never approve. The phone's own fingerprint is the only one the
-operator compares; the PC never prints the pending peer's machineId,
-publicKey or fingerprint while approval is pending.
+The pending peer's machineId/publicKey/fingerprint remain hidden from `status`
+until the record is durable. The accepted residual risk is that someone who can
+see/photograph the PC screen within the 300 s single-use slot can join first;
+the terminal and `status` print `已配对：<name>（<fingerprint>）` plus the revoke
+command, `pairs.log` records the approval mode/hash, and other paired phones get
+`pclink.notice{kind:"paired"}`. The App's "已连接的电脑" page shows this
+phone's own fingerprint, pairing mode and time for later verification. A
+pre-v1.6 PC can still require compare-the-phone; a new App displays the
+mode-neutral "如果这台电脑仍要求确认，请在电脑上完成确认。" while waiting.
+
+`pclink pair` does not require a TTY and never reads a fingerprint. It polls
+status and retries a transient admin timeout/connection failure inside the
+five-minute deadline (the plugin can be busy while `dsh web` restarts); a
+terminal pairing state or a non-retryable error ends it. On success it prints
+`配对完成：<name>（<fingerprint>）` and `pclink unpair <machineId>`.
 
 The terminal QR renderer needs no external package: `core/qr.mjs` implements
 Byte mode, ECC M and automatic versions 1–40, and `pclink pair` renders the
@@ -122,7 +136,7 @@ the normal `/api` carrier:
 
 - `POST /api/pclink.admin/status`
 - `POST /api/pclink.admin/pair`
-- `POST /api/pclink.admin/pair/approve`
+- `POST /api/pclink.admin/pair/approve` (deprecated compatibility route; a v1.6 PC returns `unavailable` because no pairing enters `awaiting_approval`)
 - `POST /api/pclink.admin/pair/cancel`
 - `POST /api/pclink.admin/unpair`
 - `POST /api/pclink.admin/rotate-identity`
@@ -198,11 +212,13 @@ replace (temp file in the same directory, fsync, rename, directory fsync):
 - The relay is untrusted: it sees outer headers, machineIds, roles, pairing
   public keys/names/MACs and byte lengths, but not end-to-end plaintext.
   PCLink v1 provides no identity hiding.
-- Approval is a human process, not a hardware boundary. A same-user PC process,
-  a pty that bypasses the TTY check, or an agent on an already-paired phone
-  with PC shell can still drive the flow. The audit log, the paired notice,
-  `pairs.log` and the source-Peer admin fence raise the cost and improve
-  detection.
+- Approval is possession of the one-time screen secret, not a hardware
+  boundary: anyone who can see/photograph the PC screen while the single-use
+  300 s slot is open can join first. A same-user PC process, a screen observer
+  or an agent on an already-paired phone with PC shell can still drive the
+  flow. The audit log, the paired notice, the terminal/status
+  `已配对：<name>（<fingerprint>）` readout, `pairs.log` and the source-Peer
+  admin fence raise the cost and improve detection.
 - **Stolen or lost phone:** revoke **all** pairings, then run
   `pclink rotate-identity`. A phone-only local removal is not authoritative.
   Every phone must re-pair after rotation. A phone that is offline during
@@ -228,8 +244,8 @@ plugin/   Cordis bundle (`inject=['connection']`): relay supervisor,
           pairing state machine, per-session owner Peer + shared fetch,
           unary/stream forwarding, chunking/backpressure/cancel, admin
           plane/loopback server, owner `/api/pclink.admin/*` routes
-cli/      `pclink` bin: install, pair (built-in QR + TTY compare-the-phone),
-          status, unpair, rotate-identity; prints the package SHA-256
+cli/      `pclink` bin: install, pair (built-in QR, no TTY/fingerprint),
+          status [--json], unpair, rotate-identity; prints the package SHA-256
 test/     node:test suites plus a test-only relay double and phone client;
           the integration test boots the real pinned `dsh web`; the QR suite
           pins a module-for-module v1-M reference and a v9-M pair URI, and
@@ -268,7 +284,7 @@ npm ci
 npm test
 ```
 
-`npm test` runs 90+ `node:test` cases: the full golden vector document and every
+`npm test` runs 130+ `node:test` cases: the full golden vector document and every
 invalid crypto/model row through the real codecs/state machines, every schema
 sample through the shared validator, plugin pairing/admin/unpair/fail-closed
 tests, CLI TTY/install planning, the QR encoder against a pinned independent
@@ -292,8 +308,8 @@ run:
    test relay double, and pins the session permission preset;
 3. boots `dsh web` with `DSH_HOME` pointing at the temp home and
    `DSH_PERMISSION_MODE=workspace-write`, then drives a core-based phone
-   through wrong-fingerprint approval (slot voided), QR pairing through the real
-   TTY-gated CLI path, handshake, `session/list`, `session/create`, stream
+   through QR pairing with no operator input (the verified `pair.auth` is the
+   approval), the deprecated approve route, handshake, `session/list`, `session/create`, stream
    cancel, the owner `/api/pclink.admin/status` route, remote
    `pclink.admin/*` rejection, unpair (session close `unpaired`, relay allowlist
    update) and a signed `unpaired` reject.

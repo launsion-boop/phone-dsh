@@ -28,7 +28,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = resolve(HERE, '..')
 const GOLDEN = 'golden/pclink-v1-vectors.json'
 const SUITE = 'pclink-x25519-ed25519-chacha20poly1305-1'
-const REVISION = 'pclink-v1.3'
+const REVISION = 'pclink-v1.6'
 const DOMAIN = {
   relayAuth: 'pclink-v1/relay-auth',
   pair: 'pclink-v1/pair',
@@ -650,7 +650,7 @@ function generate() {
     relayOrigin: pairingOrigin,
     connection: { mode: 'relay' },
     approvedAt,
-    approvedVia: 'cli',
+    approvedVia: 'qr',
   }
   const phoneRecord = {
     peerMachineId: pcMachine,
@@ -659,12 +659,13 @@ function generate() {
     pairedAt,
     relayOrigin: pairingOrigin,
     connection: { mode: 'relay' },
+    pairingMode: 'qr',
   }
   const recordSha256 = hex(sha256(utf8(canonicalJson(pcRecord))))
   const pairEntry = {
     v: 1, event: 'pair', peerMachineId: phoneMachine,
     peerPublicKey: b64u(phonePub), recordSha256,
-    approvedAt, approvedVia: 'cli', at: approvalAt,
+    approvedAt, approvedVia: 'qr', at: approvalAt,
   }
   const unpairEntry = { v: 1, event: 'unpair', peerMachineId: phoneMachine, at: '2026-11-09T01:00:00Z' }
   const fingerprint = `${phoneMachine.slice(0, 4)}-${phoneMachine.slice(4, 8)}-${phoneMachine.slice(8, 12)}`
@@ -890,8 +891,9 @@ function generate() {
     },
     unpair_abort: { handshake_in_progress: true, unpair: true, expected: 'abort' },
     approval: {
-      blocked: { approved: false, expected: 'blocked' },
-      confirm_sent: { approved: true, expected: 'confirm_sent' },
+      auto_qr: { mode: 'qr', approved: true, expected: 'confirm_sent' },
+      auto_manual: { mode: 'manual', approved: true, expected: 'confirm_sent' },
+      bad_mode: { mode: 'future', approved: true, expected: 'bad_frame' },
     },
     admin_peer: {
       rule: 'the /api/pclink.admin/* handler decides by the request source Peer, not by the endpoint string; the forwarder prefix check is a fast path only',
@@ -1005,11 +1007,15 @@ function generate() {
     record: pcRecord, audit: [pairEntry, unpairEntry], expected: 'revoked',
   })
   add({
-    case: 'pairing-awaiting-approval-no-confirm', kind: 'approval',
-    approved: false, expected: 'blocked',
+    case: 'pairing-auto-approved-qr', kind: 'approval',
+    mode: 'qr', approved: true, expected: 'confirm_sent',
   })
   add({
-    case: 'approval-wrong-phone-fingerprint', kind: 'fingerprint',
+    case: 'pairing-auto-approved-manual', kind: 'approval',
+    mode: 'manual', approved: true, expected: 'confirm_sent',
+  })
+  add({
+    case: 'fingerprint-unpair-target-wrong', kind: 'fingerprint',
     public_key: b64u(phonePub), entered: wrongFingerprint, expected: 'blocked',
   })
   add({
@@ -1198,7 +1204,8 @@ function generate() {
 
   // The boolean state-machine rows are counted separately from crypto rows.
   const MODEL_CASES = new Set([
-    'pairing-awaiting-approval-no-confirm',
+    'pairing-auto-approved-qr',
+    'pairing-auto-approved-manual',
     'status-awaiting-approval-hides-fingerprint',
     'unapproved-record-rejected',
     'revoked-record-rejected',
@@ -1315,8 +1322,9 @@ function generate() {
         accepted_inputs: fingerprintInputs,
         rejected_input: wrongFingerprint,
         approvedAt,
-        approvedVia: 'cli',
-        rule: 'machineId[0:12] grouped xxxx-xxxx-xxxx; 60-bit fingerprint typed from the phone screen',
+        approvedVia: 'qr',
+        auto_approval: { qr: 'confirm_sent', manual: 'confirm_sent' },
+        rule: 'v1.6: the verified pair.auth proves possession of the one-time screen secret and is approved automatically; the fingerprint is display/unpair-target normalization only',
       },
       audit: {
         pair_entry: pairEntry,
@@ -1986,7 +1994,7 @@ function checkerLoadRecord(record, audit) {
   if (latest.event !== 'pair') return 'unapproved'
   if (latest.peerPublicKey !== record.peerPublicKey) return 'unapproved'
   if (latest.recordSha256 !== checkerHex(checkerSha256(checkerUtf8(checkerCanonicalJson(record))))) return 'unapproved'
-  if (typeof record.approvedAt !== 'string' || !['cli', 'webui'].includes(record.approvedVia)) return 'unapproved'
+  if (typeof record.approvedAt !== 'string' || !['qr', 'manual', 'cli', 'webui'].includes(record.approvedVia)) return 'unapproved'
   return 'usable'
 }
 function checkerApplyReject(row) {
@@ -1995,8 +2003,9 @@ function checkerApplyReject(row) {
   if (row.code !== 'unpaired') return 'keep_record'
   return 'prompt'
 }
-function checkerApproval(approved) {
-  return approved ? 'confirm_sent' : 'blocked'
+function checkerApproval(row) {
+  if (row.mode !== 'qr' && row.mode !== 'manual') return 'bad_frame'
+  return row.approved === true ? 'confirm_sent' : 'blocked'
 }
 function checkerSlot(row) {
   if (row.matched) return 'exhausted'
@@ -2283,7 +2292,7 @@ function checkVectors(doc) {
   assertCheck(checkerConfirmRecheck(resources.confirm_recheck.revoked.record, resources.confirm_recheck.revoked.audit) === resources.confirm_recheck.revoked.expected, 'resources: confirm revoked')
   assertCheck(checkerUnpairAbort(resources.unpair_abort.handshake_in_progress, resources.unpair_abort.unpair) === resources.unpair_abort.expected, 'resources: unpair abort')
   for (const entry of Object.values(resources.approval)) {
-    assertCheck(checkerApproval(entry.approved) === entry.expected, 'resources: approval')
+    assertCheck(checkerApproval(entry) === entry.expected, 'resources: approval')
   }
   for (const entry of resources.admin_peer.cases) {
     assertCheck(checkerAdminPeer(entry.source) === entry.expected, `resources: admin peer ${entry.source} ${entry.endpoint}`)
@@ -2391,7 +2400,7 @@ function checkVectors(doc) {
   assertCheck(pairing.records.phone.peerPublicKey === doc.identities.pc.public_key, 'pairing: phone record key')
   assertCheck(pairing.records.pc.peerMachineId === doc.identities.phone.machine_id, 'pairing: pc record peer')
   assertCheck(pairing.records.pc.peerPublicKey === doc.identities.phone.public_key, 'pairing: pc record key')
-  assertCheck(pairing.records.pc.approvedVia === 'cli' && typeof pairing.records.pc.approvedAt === 'string', 'pairing: pc approval fields')
+  assertCheck(['qr', 'manual'].includes(pairing.records.pc.approvedVia) && typeof pairing.records.pc.approvedAt === 'string', 'pairing: pc approval fields')
   assertCheck(!('approvedVia' in pairing.records.phone) && !('approvedAt' in pairing.records.phone), 'pairing: phone record has no PC approval')
   const recordSha = checkerHex(checkerSha256(checkerUtf8(checkerCanonicalJson(pairing.records.pc))))
   assertCheck(recordSha === pairing.audit.record_sha256, 'pairing: record sha256')
@@ -2474,7 +2483,7 @@ function checkInvalid(doc, row) {
       return
     }
     case 'approval': {
-      const verdict = checkerApproval(row.approved)
+      const verdict = checkerApproval(row)
       if (verdict !== row.expected) throw new CheckError(`${row.case}: ${verdict} != ${row.expected}`)
       return
     }

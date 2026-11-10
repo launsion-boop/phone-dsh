@@ -32,6 +32,7 @@ function collector() {
 function statusWithPairs(extra = {}) {
   return {
     v: 1,
+    plugin: { version: '0.2.0', packageSha256: 'a'.repeat(64) },
     identity: { machineId: '7gdxeackpmfrjk3ylal74yyubv', publicKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', name: 'My PC' },
     relay: { origin: 'https://relay.example', state: 'connected' },
     pairs: [{
@@ -39,7 +40,7 @@ function statusWithPairs(extra = {}) {
       peerName: 'iPhone',
       pairedAt: '2026-11-09T00:00:00Z',
       approvedAt: '2026-11-09T00:00:05Z',
-      approvedVia: 'cli',
+      approvedVia: 'qr',
       online: true,
       usable: true,
     }],
@@ -48,7 +49,7 @@ function statusWithPairs(extra = {}) {
   }
 }
 
-test('runPair approves only after a TTY fingerprint prompt and prints no PC-side fingerprint', async () => {
+test('runPair completes from the phone scan without a TTY, fingerprint or ask', async () => {
   const output = collector()
   const calls = []
   let statusCalls = 0
@@ -58,55 +59,80 @@ test('runPair approves only after a TTY fingerprint prompt and prints no PC-side
       statusCalls += 1
       return statusCalls >= 2
         ? statusWithPairs({ pairing: { id: 'p1', state: 'completed', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone', peerMachineId: 'gewra3lzquaxpctdtkvzv2drdp', peerFingerprint: 'gewr-a3lz-quax' } })
-        : statusWithPairs({ pairing: { id: 'p1', state: 'awaiting_approval', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } })
+        : statusWithPairs({ pairing: { id: 'p1', state: 'joined', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } })
     },
-    approve: async (id, fingerprint) => { calls.push(['approve', id, fingerprint]); return { v: 1, approved: true } },
+    approve: async () => { calls.push('approve'); return { v: 1, approved: true } },
     cancel: async id => { calls.push(['cancel', id]); return { v: 1, cancelled: true } },
   }
   const result = await runPair({
-    client, mode: 'qr', output, stdinIsTTY: true, pollMs: 1,
-    ask: async prompt => { calls.push(['ask', prompt]); return 'GEWR-A3LZ-QUAX' },
+    client, mode: 'qr', output, pollMs: 1,
+    // Deliberately no stdinIsTTY/ask: pairing never reads them.
   })
   assert.equal(result.pairing.state, 'completed')
-  assert.deepEqual(calls.find(call => call[0] === 'approve'), ['approve', 'p1', 'GEWR-A3LZ-QUAX'])
-  assert.match(output.text, /iPhone/)
-  const beforeCompletion = output.text.split('配对完成')[0]
-  assert.equal(beforeCompletion.includes('gewr-a3lz-quax'), false)
+  assert.equal(calls.some(call => call[0] === 'approve'), false)
+  assert.deepEqual(calls.find(call => call[0] === 'pair'), ['pair', { mode: 'qr' }])
+  assert.match(output.text, /配对完成：iPhone（gewr-a3lz-quax）/)
+  assert.match(output.text, /撤销这台手机：pclink unpair gewra3lzquaxpctdtkvzv2drdp/)
   assert.match(output.text, /此手机将能完整操作/)
 })
 
-test('runPair without a TTY fails before opening a pairing slot', async () => {
+test('runPair retries one transient admin timeout inside the deadline', async () => {
   const output = collector()
-  const calls = []
-  const client = {
-    pair: async () => {
-      calls.push('pair')
-      return { v: 1, pairing: { id: 'p1', mode: 'qr', qrURI: 'pclink://pair?x', expiresAt: '2026-11-09T00:05:00Z' } }
-    },
-    status: async () => {
-      calls.push('status')
-      return statusWithPairs({ pairing: { id: 'p1', state: 'awaiting_approval', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } })
-    },
-    cancel: async () => { calls.push('cancel'); return { v: 1, cancelled: true } },
-    approve: async () => { calls.push('approve'); return { approved: true } },
-  }
-  await assert.rejects(() => runPair({ client, output, stdinIsTTY: false, pollMs: 1, ask: async () => 'nope' }), error => error.code === 'unavailable')
-  // No slot was opened and no phone can join a pairing that this process
-  // could never approve.
-  assert.deepEqual(calls, [])
-})
-
-test('runPair propagates a fingerprint mismatch as auth_failed', async () => {
-  const output = collector()
-  const calls = []
+  let statusCalls = 0
   const client = {
     pair: async () => ({ v: 1, pairing: { id: 'p1', mode: 'manual', manualCode: '18DJ-RFAE-BXG7-30MK', expiresAt: '2026-11-09T00:05:00Z' } }),
-    status: async () => statusWithPairs({ pairing: { id: 'p1', state: 'awaiting_approval', mode: 'manual', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } }),
-    approve: async () => ({ v: 1, approved: false, error: { code: 'auth_failed', message: 'mismatch' } }),
-    cancel: async () => { calls.push('cancel'); return { v: 1, cancelled: true } },
+    status: async () => {
+      statusCalls += 1
+      if (statusCalls === 1) {
+        const error = new Error('The operation was aborted due to timeout')
+        error.code = 'unavailable'
+        throw error
+      }
+      return statusWithPairs({ pairing: { id: 'p1', state: 'completed', mode: 'manual', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone', peerMachineId: 'gewra3lzquaxpctdtkvzv2drdp', peerFingerprint: 'gewr-a3lz-quax' } })
+    },
+    cancel: async () => ({ v: 1, cancelled: true }),
   }
-  await assert.rejects(() => runPair({ client, output, stdinIsTTY: true, pollMs: 1, ask: async () => '2222-2222-2222' }), error => error.code === 'auth_failed')
-  assert.equal(calls.length, 0)
+  const result = await runPair({ client, mode: 'manual', output, pollMs: 1, timeoutMs: 5_000 })
+  assert.equal(result.pairing.state, 'completed')
+  assert.equal(statusCalls, 2)
+  assert.match(output.text, /等待插件响应/)
+  assert.match(output.text, /配对完成/)
+})
+
+test('runPair still fails on a terminal pairing failure or a non-transient error', async () => {
+  const output = collector()
+  const failed = {
+    pair: async () => ({ v: 1, pairing: { id: 'p1', mode: 'qr', qrURI: 'pclink://pair?x', expiresAt: '2026-11-09T00:05:00Z' } }),
+    status: async () => statusWithPairs({ pairing: { id: 'p1', state: 'failed', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', error: 'auth_failed' } }),
+    cancel: async () => ({ v: 1, cancelled: true }),
+  }
+  await assert.rejects(() => runPair({ client: failed, mode: 'qr', output, pollMs: 1 }), error => error.code === 'auth_failed')
+
+  const badFrame = {
+    pair: async () => ({ v: 1, pairing: { id: 'p1', mode: 'qr', qrURI: 'pclink://pair?x', expiresAt: '2026-11-09T00:05:00Z' } }),
+    status: async () => { const error = new Error('bad frame'); error.code = 'bad_frame'; throw error },
+    cancel: async () => ({ v: 1, cancelled: true }),
+  }
+  await assert.rejects(() => runPair({ client: badFrame, mode: 'qr', output, pollMs: 1 }), error => error.code === 'bad_frame')
+})
+
+test('runPair tolerates a legacy pre-v1.6 awaiting_approval status without a prompt', async () => {
+  const output = collector()
+  let calls = 0
+  const client = {
+    pair: async () => ({ v: 1, pairing: { id: 'p1', mode: 'qr', qrURI: 'pclink://pair?x', expiresAt: '2026-11-09T00:05:00Z' } }),
+    status: async () => {
+      calls += 1
+      return calls === 1
+        ? statusWithPairs({ pairing: { id: 'p1', state: 'awaiting_approval', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone' } })
+        : statusWithPairs({ pairing: { id: 'p1', state: 'completed', mode: 'qr', expiresAt: '2026-11-09T00:05:00Z', peerName: 'iPhone', peerMachineId: 'gewra3lzquaxpctdtkvzv2drdp', peerFingerprint: 'gewr-a3lz-quax' } })
+    },
+    cancel: async () => ({ v: 1, cancelled: true }),
+  }
+  const result = await runPair({ client, mode: 'qr', output, pollMs: 1 })
+  assert.equal(result.pairing.state, 'completed')
+  assert.match(output.text, /旧版配对流程/)
+  assert.match(output.text, /配对完成/)
 })
 
 test('renderQrCode prefers qrencode and falls back to the bundled encoder', () => {
@@ -166,7 +192,7 @@ test('printStatus lists pairs, redacted pending state and warnings', () => {
   const output = collector()
   printStatus(statusWithPairs({ pairing: { id: 'p', state: 'awaiting_approval', mode: 'qr', expiresAt: 'x', peerName: 'iPhone' }, warnings: ['最近配对：iPhone'] }), output)
   assert.match(output.text, /gewr-a3lz-quax/)
-  assert.match(output.text, /等待批准，手机名称 iPhone/)
+  assert.match(output.text, /旧版 PC 流程等待本机操作员确认，手机名称 iPhone/)
   assert.equal(output.text.includes('peerFingerprint'), false)
   assert.match(output.text, /警告：最近配对/)
 })

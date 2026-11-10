@@ -214,25 +214,8 @@ test('PCLink C integration: pair, handshake, DSH calls/streams/prompt/approval, 
     console.log(`[integration] phone relay ready ${phoneIdentity.machineId}`)
 
     await t.test('pairing, owner admin route, handshake and session bootstrap', async () => {
-      // 1. A wrong fingerprint destroys the slot and never writes a record.
-      const firstPair = await client.pair({ mode: 'qr' })
-      const firstPhonePair = phone.pairWithQr(firstPair.pairing.qrURI).then(() => 'paired', error => error.code ?? error.message)
-      const awaiting = await waitFor(async () => {
-        const current = await client.status()
-        return current.pairing?.state === 'awaiting_approval' ? current : undefined
-      }, 'awaiting_approval', 30_000, 100)
-      assert.equal(awaiting.pairing.peerName, 'Test iPhone')
-      for (const forbidden of ['peerMachineId', 'peerFingerprint', 'peerPublicKey']) {
-        assert.equal(JSON.stringify(awaiting).includes(forbidden), false, forbidden)
-      }
-      const wrong = await client.approve(firstPair.pairing.id, '2222-2222-2222')
-      assert.equal(wrong.approved, false)
-      assert.equal(wrong.error.code, 'auth_failed')
-      assert.equal(await firstPhonePair, 'auth_failed')
-      assert.equal((await client.status()).pairs.length, 0)
-      console.log('[integration] wrong-fingerprint approval voided the slot')
-
-      // 2. Pair through the real TTY-gated CLI path; the injected ask stands in for the operator.
+      // 1. The phone scans the QR; the verified pair.auth is the approval
+      // (§4.4 v1.6). The CLI only polls, prints the completion and revoke line.
       let started
       let startedResolve
       const startedPromise = new Promise(resolveStarted => { startedResolve = resolveStarted })
@@ -247,18 +230,22 @@ test('PCLink C integration: pair, handshake, DSH calls/streams/prompt/approval, 
         client: wrapped,
         mode: 'qr',
         output: cliOutput,
-        stdinIsTTY: true,
         pollMs: 100,
-        ask: async () => fingerprintOf(phoneIdentity.machineId),
       })
       await startedPromise
       const phonePair = await phone.pairWithQr(started.pairing.qrURI).catch(error => {
         throw new Error(`phone pairing failed: ${error.message}\nCLI:\n${cliOutput.text}`)
       })
       await pairPromise
+      assert.match(cliOutput.text, /配对完成/)
+      assert.match(cliOutput.text, /撤销这台手机/)
+      cliOutputText = cliOutput.text
+      console.log(`[integration] pairing auto-approved via QR (${phonePair.record.peerName})`)
+
       pairedStatus = await client.status()
       assert.equal(pairedStatus.pairs.length, 1)
       assert.equal(pairedStatus.pairs[0].peerMachineId, phoneIdentity.machineId)
+      assert.equal(pairedStatus.pairs[0].approvedVia, 'qr')
       assert.match(cliOutput.text, /配对完成/)
       cliOutputText = cliOutput.text
       console.log(`[integration] pairing completed via CLI (${phonePair.record.peerName})`)
@@ -271,6 +258,7 @@ test('PCLink C integration: pair, handshake, DSH calls/streams/prompt/approval, 
       })
       assert.equal(cliStatus.status, 0, cliStatus.stderr)
       assert.match(cliStatus.stdout, /已配对手机/)
+      assert.match(cliStatus.stdout, /插件：0\.2\.0/)
       assert.match(cliStatus.stdout, new RegExp(phoneIdentity.machineId))
 
       // 3. E2E handshake with the pinned QR key, then real DSH calls.
