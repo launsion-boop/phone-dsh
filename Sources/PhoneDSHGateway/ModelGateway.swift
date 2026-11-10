@@ -444,12 +444,13 @@ public actor ModelGateway {
     private nonisolated let credentialProvider: any CredentialProvider
     private nonisolated let officialDeepSeekWebCredentialProvider: (any CredentialProvider)?
     private nonisolated let egressAuthorizer: (any EgressHostAuthorizing)?
+    /// spec/v1/tono-account.md §5: which origins get the 401/503 inspection.
+    private nonisolated let cloudResponsePolicy: TonoCloudResponsePolicy
     private nonisolated let responseLog: (any ResponseLogging)?
     private nonisolated let responseOutcomeHandler: (@Sendable (GatewayResponseReceipt) -> Void)?
     private nonisolated let clock: any GatewayClock
     private nonisolated let hostRules: [GatewayHostRule]
     private nonisolated let coordinator: GatewaySessionCoordinator
-    private nonisolated let session: URLSession
     private nonisolated let metricsStore = GatewayMetricsStore()
     private nonisolated let replayWindow = GatewayReplayWindow()
 
@@ -466,14 +467,20 @@ public actor ModelGateway {
     ///     (committed/replayed/resumed). It receives only the response key,
     ///     status, body size and disposition, never the body or credentials.
     ///   - clock: Retry/backoff clock.
+    ///   - cloudResponsePolicy: The origins whose 401 `credential_expired` /
+    ///     503 `identity_unavailable` answers are re-sent
+    ///     (spec/v1/tono-account.md §5). Production keeps the default.
     public init(configuration: ModelGatewayConfiguration,
                 credentialProvider: any CredentialProvider,
                 responseLog: (any ResponseLogging)? = nil,
                 responseOutcomeHandler: (@Sendable (GatewayResponseReceipt) -> Void)? = nil,
                 clock: any GatewayClock = SystemGatewayClock(),
                 egressAuthorizer: (any EgressHostAuthorizing)? = nil,
-                officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil) {
+                officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil,
+                upstreamDiagnostics: GatewayUpstreamDiagnostics = .standardError,
+                cloudResponsePolicy: TonoCloudResponsePolicy = .production) {
         self.configuration = configuration
+        self.cloudResponsePolicy = cloudResponsePolicy
         self.credentialProvider = credentialProvider
         self.officialDeepSeekWebCredentialProvider = officialDeepSeekWebCredentialProvider
         self.responseLog = responseLog
@@ -484,13 +491,15 @@ public actor ModelGateway {
         self.hostRules = rules
         let coordinator = GatewaySessionCoordinator(allowedHosts: rules,
                                                     egressAuthorizer: egressAuthorizer,
-                                                    refusesOfficialWebRedirects: officialDeepSeekWebCredentialProvider != nil)
+                                                    refusesOfficialWebRedirects: officialDeepSeekWebCredentialProvider != nil,
+                                                    diagnostics: upstreamDiagnostics)
         self.coordinator = coordinator
-        self.session = coordinator.makeSession(timeout: configuration.upstreamRequestTimeout)
+        _ = coordinator.makeSession(timeout: configuration.upstreamRequestTimeout)
     }
 
     deinit {
-        session.invalidateAndCancel()
+        // Idempotent: shutdown() already did this on the normal path.
+        coordinator.invalidate()
     }
 
     // MARK: - Replay window (owned by the host state machine)
@@ -547,6 +556,7 @@ public actor ModelGateway {
         prewarmTasks.removeAll { $0.state == .completed || $0.state == .canceling }
         for rule in hostRules {
             guard let url = rule.prewarmURL() else { continue }
+            guard let session = coordinator.session(for: url) else { continue }
             var request = URLRequest(url: url)
             request.httpMethod = "HEAD"
             request.timeoutInterval = min(configuration.upstreamRequestTimeout, 15)
@@ -555,6 +565,39 @@ public actor ModelGateway {
             prewarmTasks.append(task)
             task.resume()
         }
+    }
+
+    /// Replaces the one upstream URLSession before a park/resume boot.
+    ///
+    /// A parked Worker keeps the gateway and its URLSession alive. The HTTP/2
+    /// connection pool can be stale after the process was suspended (`network`
+    /// changes, a closed NAT mapping), and a request on that pool only fails
+    /// after `timeoutIntervalForRequest`/`waitsForConnectivity` expires. The
+    /// resume path hands the fresh boot a fresh pool and prewarms it. The
+    /// gateway is not shut down, so request handling keeps its normal errors
+    /// and replay window.
+    ///
+    /// In-flight work was already drained/cancelled before the park; the old
+    /// session is invalidated with `invalidateAndCancel()` so the stale
+    /// connection cannot survive in a retained pool. `finishTasksAndInvalidate`
+    /// would leave exactly that pool alive for the duration of the stall.
+    public func rebuildSessionForResume() {
+        guard !isShutdown else { return }
+        prewarmTasks.forEach { $0.cancel() }
+        prewarmTasks.removeAll()
+        coordinator.replaceSession(timeout: configuration.upstreamRequestTimeout)
+        prewarm()
+    }
+
+    /// Internal observation point for the resume regression: the session a
+    /// request made after this call would use.
+    nonisolated func currentSessionForTesting() -> URLSession? {
+        coordinator.session()
+    }
+
+    /// Internal observation point for the loopback fast-fail regression.
+    nonisolated func currentLocalSessionForTesting() -> URLSession? {
+        coordinator.localSession()
     }
 
     /// Cancels in-flight work and invalidates the one URLSession. Idempotent.
@@ -670,20 +713,36 @@ public actor ModelGateway {
         // the static allow-list. Capture the admission once per exchange; a
         // revoked grant must not turn an in-flight response ordinary.
         let admittedByMCPGrant = egressAuthorizer?.allowsEgressHost(url) ?? false
+        // spec/v1/tono-account.md §5: the cloud origin's own rejections are
+        // re-sent outside the backoff budget, with their own small counters.
+        let inspectsCloudAnswers = webProvider == nil && cloudResponsePolicy.applies(to: url)
+        var credentialRetries = 0
+        var identityRetries = 0
+        var policyResend = false
+        var resolvedForResend: Credential?
 
         while true {
-            attemptNumber += 1
+            if policyResend {
+                policyResend = false
+            } else {
+                attemptNumber += 1
+            }
             let credential: Credential
-            do {
-                credential = try await (webProvider ?? credentialProvider).credential(
-                    for: ModelGatewayCredentialRouting.scope(for: url))
-                if webProvider != nil && (credential.kind != .bearer || credential.value.isEmpty) {
+            if let resolved = resolvedForResend {
+                credential = resolved
+                resolvedForResend = nil
+            } else {
+                do {
+                    credential = try await (webProvider ?? credentialProvider).credential(
+                        for: ModelGatewayCredentialRouting.scope(for: url))
+                    if webProvider != nil && (credential.kind != .bearer || credential.value.isEmpty) {
+                        downstream.finish(throwing: ModelGatewayError.credentialUnavailable)
+                        return
+                    }
+                } catch {
                     downstream.finish(throwing: ModelGatewayError.credentialUnavailable)
                     return
                 }
-            } catch {
-                downstream.finish(throwing: ModelGatewayError.credentialUnavailable)
-                return
             }
 
             // MCP is a property of the call, not of the credential kind. A
@@ -718,8 +777,60 @@ public actor ModelGateway {
             var shouldRetry = false
             var sensitiveMode: SensitiveResponseMode = .ordinary
             var sensitiveBuffer = Data()
+            var events = attempt.events.makeAsyncIterator()
+            var replayedEvents: [UpstreamAttemptEvent] = []
 
-            attemptLoop: for await event in attempt.events {
+            if inspectsCloudAnswers {
+                let inspection = await Self.inspectCloudAnswer(&events,
+                                                               url: url,
+                                                               policy: cloudResponsePolicy)
+                switch inspection.decision {
+                case .refreshRetry where carriesHostCredential
+                    && credentialRetries < TonoCloudResponsePolicy.credentialRetryMax
+                    && !downstream.isCancelled:
+                    credentialRetries += 1
+                    let scope = ModelGatewayCredentialRouting.scope(for: url)
+                    await credentialProvider.invalidate(credential, for: scope)
+                    if let fresh = try? await credentialProvider.credential(for: scope),
+                       Self.credentialCarriesSecret(fresh),
+                       Self.credentialSecretValues(fresh) != redactedValues {
+                        attempt.cancel()
+                        metricsStore.recordRetry()
+                        resolvedForResend = fresh
+                        policyResend = true
+                        continue
+                    }
+                    // Same value, an API key or a failed refresh: the original
+                    // 401 goes to the Worker unchanged.
+                    replayedEvents = inspection.consumed
+                case .retryAfter(let delay)
+                    where identityRetries < TonoCloudResponsePolicy.identityRetryMax
+                    && !downstream.isCancelled:
+                    identityRetries += 1
+                    attempt.cancel()
+                    metricsStore.recordRetry()
+                    do {
+                        try await clock.sleep(for: delay)
+                    } catch {
+                        downstream.finish(throwing: ModelGatewayError.upstreamFailed("retry cancelled"))
+                        return
+                    }
+                    policyResend = true
+                    continue
+                default:
+                    replayedEvents = inspection.consumed
+                }
+            }
+
+            attemptLoop: while true {
+                let event: UpstreamAttemptEvent
+                if !replayedEvents.isEmpty {
+                    event = replayedEvents.removeFirst()
+                } else if let next = await events.next() {
+                    event = next
+                } else {
+                    break attemptLoop
+                }
                 switch event {
                 case .response(let status, let headers):
                     guard !headReceived else { continue }
@@ -931,6 +1042,42 @@ public actor ModelGateway {
             downstream.finish()
             return
         }
+    }
+
+    // MARK: - Cloud-origin inspection
+
+    /// Reads a 401/503 answer from an inspected origin far enough to decide
+    /// (spec/v1/tono-account.md §5). Every consumed event is returned so a
+    /// forwarded answer reaches the Worker byte-identical; any other first
+    /// event is returned untouched for the ordinary loop.
+    private nonisolated static func inspectCloudAnswer(
+        _ events: inout AsyncStream<UpstreamAttemptEvent>.Iterator,
+        url: URL,
+        policy: TonoCloudResponsePolicy
+    ) async -> (decision: TonoCloudResponsePolicy.Decision, consumed: [UpstreamAttemptEvent]) {
+        guard let first = await events.next() else { return (.forward, []) }
+        guard case .response(let status, let headers) = first,
+              policy.inspects(url: url, status: status) else {
+            return (.forward, [first])
+        }
+        var consumed = [first]
+        var body = Data()
+        while let event = await events.next() {
+            consumed.append(event)
+            switch event {
+            case .response:
+                continue
+            case .data(let data):
+                body.append(data)
+                if body.count > TonoCloudResponsePolicy.inspectBodyLimit {
+                    return (.forward, consumed)
+                }
+            case .finished(let error):
+                guard error == nil else { return (.forward, consumed) }
+                return (policy.decide(url: url, status: status, headers: headers, body: body), consumed)
+            }
+        }
+        return (.forward, consumed)
     }
 
     // MARK: - Resumed delivery

@@ -98,6 +98,7 @@ targets:
           - "Bot/BotProductionServices.swift"
           - "Bot/BotProductionUIAdapters.swift"
           - "Bot/BotRuntimeComposition.swift"
+          - "Bot/BotRuntimeUnit.swift"
           - "Bot/BotRuntimeEffects.swift"
       - path: BotFish
         type: folder

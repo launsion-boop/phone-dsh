@@ -79,13 +79,46 @@ public enum BotDisplayContract {
     public static let hidden = "hidden"
     public static let p1CardTypes: Set<BotWidgetCardType> = [.table, .callout, .info, .payload, .library]
 
+    /// Cosmetic tool invocations never enter the transcript's tool list.
+    /// Upstream hides every `tool-call` row; phoneDSH keeps its process rows
+    /// for real work but must exclude the Agent's fish gestures so a wink or a
+    /// bow is not presented as task progress. `FishAction` is the only
+    /// advertisement-only tool today; the check also accepts the
+    /// `mcp__phone__`/`mcp__dshbot__` prefixed names.
+    public static let hiddenToolNames: Set<String> = [BotToolCatalog.fishActionName]
+
+    public static func isToolCallVisible(named name: String) -> Bool {
+        !hiddenToolNames.contains(name.components(separatedBy: "__").last ?? name)
+    }
+
+    public static func visibleToolCallNames(_ names: [String]) -> [String] {
+        names.filter { isToolCallVisible(named: $0) }
+    }
+
     public static func project(_ input: [String: BotJSONValue],
                                profile: BotDisplayProfile = .phoneP0) -> BotDisplayProjection {
         let kind = BotRowJSON.string(input, "kind") ?? "message"
         switch kind {
         case "message":
+            if let direction = agentCommDirection(input) {
+                let role = BotRowJSON.string(input, "role")
+                // Only the sender-side exchange collapses into one comm row.
+                // The target's `incoming` user row and its `reply` assistant
+                // row stay normal bubbles, exactly like upstream.
+                guard direction == .outbound || direction == .inbound else {
+                    let hasBody = hasText(input, keys: ["text", "content"])
+                        || hasText(input, keys: ["replyText"])
+                    let isUser = role == "user"
+                    return projection("bubble", hasBody,
+                                      BotWireRecord(kind: isUser ? "message" : "send-message",
+                                                    type: "text", role: role))
+                }
+                let hasBody = hasText(input, keys: ["text", "content", "replyText"])
+                return projection("agent-comm", hasBody,
+                                  BotWireRecord(kind: "message", type: "text", role: role))
+            }
             if input["toAgent"] != nil || input["fromAgent"] != nil || BotRowJSON.bool(input, "agentComm") == true {
-                return projection("agent-comm", hasText(input, keys: ["text", "content"]),
+                return projection("agent-comm", hasText(input, keys: ["text", "content", "replyText"]),
                                   BotWireRecord(kind: "message", type: "text", role: BotRowJSON.string(input, "role")))
             }
             let role = BotRowJSON.string(input, "role")
@@ -122,6 +155,9 @@ public enum BotDisplayContract {
             return projection(visible ? "notice" : hidden, visible && hasText(input, keys: ["text"]),
                               BotWireRecord(kind: "event", type: "notice"))
         case "tool-call":
+            // Every tool-call row is hidden by the upstream contract. The
+            // name-aware helper above exists for the mobile process list, which
+            // renders dots for real tools but must never show FishAction.
             return projection(hidden, false, BotWireRecord(kind: "event", type: "tool-call"))
         case "deleted":
             return projection(hidden, false, BotWireRecord(kind: "event", type: "deleted"))
@@ -221,7 +257,7 @@ public enum BotDisplayContract {
         default:
             return projection(hidden, false, BotWireRecord(kind: "send-message", type: "widget"))
         }
-        if profile == .phoneP0 && (p1CardTypes.rawValues.contains(rawType) || rawType == "team-bot") {
+        if profile == .phoneP0 && p1CardTypes.rawValues.contains(rawType) {
             return projection(hidden, false, BotWireRecord(kind: "send-message", type: wireType))
         }
         return projection(surface, hasData, BotWireRecord(kind: "send-message", type: wireType))
@@ -236,6 +272,19 @@ public enum BotDisplayContract {
         case "team-bot": return "team-bot"
         default: return nil
         }
+    }
+
+    /// The upstream `agentComm.direction` object wins. Rows written before that
+    /// object existed derive the direction from `fromAgent`/`toAgent`.
+    private static func agentCommDirection(_ input: [String: BotJSONValue]) -> BotAgentCommDirection? {
+        if let object = BotRowJSON.object(input["agentComm"]),
+           let raw = BotRowJSON.string(object, "direction"),
+           let direction = BotAgentCommDirection(rawValue: raw) {
+            return direction
+        }
+        if input["fromAgent"] != nil { return .inbound }
+        if input["toAgent"] != nil { return .outbound }
+        return nil
     }
 
     private static func hasText(_ input: [String: BotJSONValue], keys: [String]) -> Bool {

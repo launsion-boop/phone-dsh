@@ -134,6 +134,7 @@ struct SettingsPage: View {
         Section(NativeText("模型与智能体", "Models and agents")) {
             if includesProviders {
                 link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
+                link(NativeText("Tono 账号", "Tono account"), icon: "person.crop.circle") { TonoAccountPage() }
             }
             link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") {
                 NativeAgentPresetsPage(onOpenSession: openedPresetSession)

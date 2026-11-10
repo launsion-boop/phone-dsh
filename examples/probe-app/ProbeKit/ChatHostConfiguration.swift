@@ -23,7 +23,17 @@ public enum ChatHostConfiguration {
     public static let defaultDrainDeadline: TimeInterval = 20
     public static let defaultHelloTimeout: TimeInterval = 600
     public static let defaultBootTimeout: TimeInterval = 600
-    public static let defaultResumeWatchdogTimeout: TimeInterval = defaultHelloTimeout + 60
+    /// Resume-only budgets. A cold start keeps the 600 s ceiling (measured
+    /// 1–2 s on the phone); a foreground resume must fail inside a bound the
+    /// App can recover from. 30 s is 15–30× the observed cold-boot time.
+    public static let defaultResumeBootReadyTimeout: TimeInterval = 30
+    public static let defaultResumeHelloTimeout: TimeInterval = 30
+    public static let defaultResumeVisibilityTimeout: TimeInterval = 5
+    /// Matches the host resume budgets plus 10 s of teardown/rebuild slack. The
+    /// App watchdog only releases the marker when the host's own bounds failed.
+    public static let defaultResumeWatchdogTimeout: TimeInterval =
+        defaultResumeBootReadyTimeout + defaultResumeHelloTimeout
+            + defaultResumeVisibilityTimeout + 10
     public static let defaultTurnInactivityTimeout: TimeInterval = 1_800
     public static let defaultShellTimeoutMs: UInt64 = 600_000
     public static let defaultOfficeInteractionTimeout: TimeInterval = 600
@@ -76,6 +86,9 @@ public enum ChatHostConfiguration {
                             workerPlaceholderKey: String = ChatHostConfiguration.workerPlaceholderKey,
                             drainDeadline: TimeInterval = ChatHostConfiguration.defaultDrainDeadline,
                             helloTimeout: TimeInterval = ChatHostConfiguration.defaultHelloTimeout,
+                            resumeBootReadyTimeout: TimeInterval = ChatHostConfiguration.defaultResumeBootReadyTimeout,
+                            resumeHelloTimeout: TimeInterval = ChatHostConfiguration.defaultResumeHelloTimeout,
+                            resumeVisibilityTimeout: TimeInterval = ChatHostConfiguration.defaultResumeVisibilityTimeout,
                             deviceTier: DeviceTier = .default)
         -> PhoneDSHConfiguration {
         let hostRule = modelHostRule(for: modelBaseURL) ?? modelBaseURL.absoluteString
@@ -89,7 +102,10 @@ public enum ChatHostConfiguration {
             egressAllowHosts: egressHosts,
             credentialProvider: credentialProvider,
             drainDeadline: drainDeadline,
-            helloTimeout: helloTimeout)
+            helloTimeout: helloTimeout,
+            resumeBootReadyTimeout: resumeBootReadyTimeout,
+            resumeHelloTimeout: resumeHelloTimeout,
+            resumeVisibilityTimeout: resumeVisibilityTimeout)
         configuration.turnInactivityTimeout = defaultTurnInactivityTimeout
         configuration.engine.bootTimeout = defaultBootTimeout
         configuration.engine.environment = [
@@ -123,7 +139,10 @@ public enum ChatHostConfiguration {
         workerEnvironment: [String: String],
         nativeMCP: (any NativeMCPServing)? = nil,
         drainDeadline: TimeInterval = ChatHostConfiguration.defaultDrainDeadline,
-        helloTimeout: TimeInterval = ChatHostConfiguration.defaultHelloTimeout
+        helloTimeout: TimeInterval = ChatHostConfiguration.defaultHelloTimeout,
+        resumeBootReadyTimeout: TimeInterval = ChatHostConfiguration.defaultResumeBootReadyTimeout,
+        resumeHelloTimeout: TimeInterval = ChatHostConfiguration.defaultResumeHelloTimeout,
+        resumeVisibilityTimeout: TimeInterval = ChatHostConfiguration.defaultResumeVisibilityTimeout
     ) -> PhoneDSHConfiguration {
         var configuration = PhoneDSHConfiguration(
             workspaceRoot: workspaceRoot,
@@ -137,7 +156,10 @@ public enum ChatHostConfiguration {
             credentialProvider: credentialProvider,
             egressAuthorizer: egressAuthorizer,
             drainDeadline: drainDeadline,
-            helloTimeout: helloTimeout)
+            helloTimeout: helloTimeout,
+            resumeBootReadyTimeout: resumeBootReadyTimeout,
+            resumeHelloTimeout: resumeHelloTimeout,
+            resumeVisibilityTimeout: resumeVisibilityTimeout)
         configuration.turnInactivityTimeout = defaultTurnInactivityTimeout
         configuration.nativeMCP = nativeMCP
         configuration.engine.bootTimeout = defaultBootTimeout

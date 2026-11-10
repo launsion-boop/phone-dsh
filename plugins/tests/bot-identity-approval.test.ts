@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -13,6 +12,7 @@ import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../
 import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
+import { readBotGoldenMerged } from './bot-golden.ts'
 
 const WORKBENCH_SESSION = 'session-workbench'
 
@@ -334,10 +334,9 @@ test('identity unknown_tool fails closed for every registration-required tool', 
 })
 
 test('BLE native-MCP effects match the shared golden and stay ask-gated', async () => {
-  const golden = JSON.parse(fs.readFileSync(
-    new URL('../../spec/bot/v1/golden/tool-effects.json', import.meta.url), 'utf8')) as {
-      nativeMcp: Array<{ name: string, args: Record<string, unknown>, policy: string, effect: ApprovalEffect }>
-    }
+  const golden = readBotGoldenMerged('tool-effects') as {
+    nativeMcp: Array<{ name: string, args: Record<string, unknown>, policy: string, effect: ApprovalEffect }>
+  }
   const entries = golden.nativeMcp
   assert.deepEqual(
     entries.map(entry => entry.name).sort(),
@@ -546,6 +545,63 @@ test('native phone tools and unrelated built-ins neither register nor ask for ap
       assert.equal(result.isError, false)
     }
     assert.equal(registrations, 0)
+    assert.equal(approvals, 0)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('team tools are auto-audited and never ask for another approval card', async () => {
+  assert.equal(phoneEffectsForApproval('mcp__phone__SendToAgent', {
+    agent_id: 'bot-b', message: 'hello', priority: true,
+  }).length, 0)
+  assert.equal(phoneEffectsForApproval('mcp__phone__CreateTeammate', {
+    name: 'Builder',
+  }).length, 0)
+  assert.equal(needsStructuralApproval('mcp__phone__SendToAgent'), true)
+  assert.equal(needsStructuralApproval('mcp__phone__CreateTeammate'), true)
+
+  const ctx = await mount()
+  let approvals = 0
+  try {
+    registerProbe(ctx, 'mcp__phone__SendToAgent')
+    registerProbe(ctx, 'mcp__phone__CreateTeammate')
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => { approvals += 1; return { ok: true, allowed: true } },
+    })
+    for (const [name, args] of [
+      ['mcp__phone__SendToAgent', { agent_id: 'bot-b', message: 'hello', priority: true }],
+      ['mcp__phone__CreateTeammate', { name: 'Builder' }],
+    ] as const) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`team-${name}`), name, arguments: args,
+        signal: new AbortController().signal, agent: agent(),
+      })
+      assert.equal(result.isError, false, `${name} must execute without approval`)
+    }
+    assert.equal(approvals, 0)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('FishAction is cosmetic, auto-policy and never asks for an approval card', async () => {
+  assert.equal(phoneEffectsForApproval('mcp__phone__FishAction', { action: 'happy' }).length, 0)
+  assert.equal(needsStructuralApproval('mcp__phone__FishAction'), true)
+
+  const ctx = await mount()
+  let approvals = 0
+  try {
+    registerProbe(ctx, 'mcp__phone__FishAction')
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => { approvals += 1; return { ok: true, allowed: true } },
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('fish-happy'), name: 'mcp__phone__FishAction',
+      arguments: { action: 'happy' },
+      signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, false)
     assert.equal(approvals, 0)
   } finally {
     await ctx.fiber.dispose()

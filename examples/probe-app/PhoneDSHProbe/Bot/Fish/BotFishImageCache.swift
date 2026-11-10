@@ -38,19 +38,21 @@ final class BotFishImageCache {
         return image
     }
 
-    /// Scales a full 512px source-space layer and crops the 416px circle
-    /// framing used by the avatar. The result is exactly `pixelSide` pixels,
-    /// which is the same size the renderer's canvas uses, so drawing it costs
-    /// a copy instead of a resample.
-    func croppedLayer(_ source: CGImage, key: String, pixelSide: Int) -> CGImage? {
+    /// Scales a full 512px source-space layer and crops the circle framing
+    /// used by the avatar: 416px at (48, 30) normally, 448px at (32, 10) when
+    /// the crown needs the extra top clearance. The result is exactly
+    /// `pixelSide` pixels, which is the same size the renderer's canvas uses,
+    /// so drawing it costs a copy instead of a resample.
+    func croppedLayer(_ source: CGImage, key: String, pixelSide: Int,
+                      cropOrigin: CGPoint = BotFishRenderer.cropOrigin,
+                      cropSide: CGFloat = BotFishRenderer.cropSide) -> CGImage? {
         cached(key) {
-            guard pixelSide > 0,
+            guard pixelSide > 0, cropSide > 0,
                   let context = BotFishImageCache.makeContext(width: pixelSide, height: pixelSide)
             else { return nil }
-            let scale = CGFloat(pixelSide) / BotFishRenderer.cropSide
+            let scale = CGFloat(pixelSide) / cropSide
             context.scaleBy(x: scale, y: scale)
-            context.translateBy(x: -BotFishRenderer.cropOrigin.x,
-                                y: -BotFishRenderer.cropOrigin.y)
+            context.translateBy(x: -cropOrigin.x, y: -cropOrigin.y)
             BotFishImageCache.drawUpright(source,
                                           in: CGRect(x: 0, y: 0,
                                                      width: BotFishRenderer.size,

@@ -101,6 +101,10 @@ class GatewaySession(
     private val responseHeaders: ResponseHeaderSanitizer = DenylistResponseHeaderSanitizer(),
     val responseLog: ResponseLog = ResponseLog(quotaBytes),
     private val maxRedirects: Int = DEFAULT_MAX_REDIRECTS,
+    /** spec/v1/tono-account.md §5: which origins get the 401/503 inspection. */
+    private val cloudPolicy: TonoCloudResponsePolicy = TonoCloudResponsePolicy.PRODUCTION,
+    /** Waits for a `Retry-After`; tests record instead of sleeping. */
+    private val sleeper: (Long) -> Unit = { millis -> Thread.sleep(millis) },
 ) {
     fun exchange(request: GatewayRequest): GatewayOutcome {
         val method = request.method.trim().uppercase()
@@ -120,7 +124,7 @@ class GatewaySession(
         val scopes = ArrayList<CredentialScope>(1)
         val scope = CredentialScope.of(url)
         scopes.add(scope)
-        val credential = try {
+        var credential = try {
             credentialProvider.resolve(scope)
         } catch (exception: CredentialUnavailableException) {
             // The provider's text is not forwarded: it can carry the key or an
@@ -129,9 +133,11 @@ class GatewaySession(
         }
 
         val sanitized = requestHeaders.sanitize(request.headers, url.host)
-        val outbound = LinkedHashMap(sanitized.headers)
+        var outbound = LinkedHashMap(sanitized.headers)
         credential.applyTo(outbound)
-        val secrets = credential.secretValues()
+        var secrets = credential.secretValues()
+        var credentialRetries = 0
+        var identityRetries = 0
         val credentialScope = if (credential.carriesSecret) url.credentialOriginScope else null
         val sensitive = sensitiveCalls.isSensitive(request.headers, credential, egress.admitsMcpGrant(url))
 
@@ -214,6 +220,36 @@ class GatewaySession(
                     }
                 }
             } else {
+                // spec/v1/tono-account.md §5: the cloud origin's own rejections
+                // are re-sent with their own small budgets; anything else is
+                // forwarded exactly as before.
+                when (val decision = cloudPolicy.decide(currentUrl.raw, response.status, response.headers, response.body)) {
+                    TonoCloudResponsePolicy.Decision.RefreshRetry ->
+                        if (credential.carriesSecret && credentialRetries < TonoCloudResponsePolicy.CREDENTIAL_RETRY_MAX) {
+                            credentialRetries++
+                            credentialProvider.invalidate(credential, scope)
+                            scopes.add(scope)
+                            val fresh = try {
+                                credentialProvider.resolve(scope)
+                            } catch (_: CredentialUnavailableException) {
+                                null
+                            }
+                            if (fresh != null && fresh.carriesSecret && fresh.secretValues() != secrets) {
+                                credential = fresh
+                                outbound = LinkedHashMap(sanitized.headers)
+                                fresh.applyTo(outbound)
+                                secrets = fresh.secretValues()
+                                continue
+                            }
+                        }
+                    is TonoCloudResponsePolicy.Decision.RetryAfter ->
+                        if (identityRetries < TonoCloudResponsePolicy.IDENTITY_RETRY_MAX) {
+                            identityRetries++
+                            sleeper(decision.seconds * 1_000L)
+                            continue
+                        }
+                    TonoCloudResponsePolicy.Decision.Forward -> Unit
+                }
                 return forwarded(
                     response = response,
                     contactedUrl = currentUrl,

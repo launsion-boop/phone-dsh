@@ -361,6 +361,9 @@ final class ChatModel {
     private(set) var goal: HarnessGoal?
     private(set) var busy = false
     private(set) var turnRunning = false
+    /// Any Bot page turn (selected or a team/routine delivery) participates in
+    /// the same background keep-alive decision as the DSH turn.
+    private(set) var botTurnsRunning = false
     /// Bumped on every turn boundary. The composer queue re-reads the durable
     /// inbox from this even when `turnRunning` flips false→true between two
     /// observations and no intermediate render is guaranteed.
@@ -548,6 +551,8 @@ final class ChatModel {
 
     private var host: PhoneDSHHost?
     private var botLaunch: BotRuntimeComposition.Launch?
+    /// Heals the App-owned Bot MCP listener before foreground/resume/cold boot.
+    private var botListenerSupervisor: BotMCPListenerSupervisor?
     /// UI-visible Bot runtime state; set by the composition whenever the Host
     /// rebinds, a recovery fails, or the runtime stops.
     private(set) var botRuntimeState: BotRuntimeState = .idle
@@ -578,6 +583,29 @@ final class ChatModel {
     private var transcriptThroughSeq: Int?
     private var transcriptBeforeSeq: Int?
     private var hostLifecycleTransition = false
+    /// App-side resume recovery state. `engineRebuildInProgress` is separate
+    /// from `hostLifecycleTransition` because the one automatic rebuild runs
+    /// after the host already released its resume gate.
+    private var engineRebuildInProgress = false
+    private var resumeAutoRebuildsUsed = 0
+    private var resumeSlowNotice = false
+    private var resumeSlowTask: Task<Void, Never>?
+    /// The in-flight resume's wall-clock backstop. It is cancelled when the
+    /// App leaves the foreground because the host cancels the resume itself;
+    /// a frozen timer must not fire later and rebuild a healthy boot.
+    private var resumeWatchdogTask: Task<Void, Never>?
+    /// Scene phase as last delivered to the App. Used to decide whether a
+    /// cancelled resume should immediately re-arm or wait for the next active.
+    private var appIsActive = true
+    private var recoveryFlushTask: Task<Void, Never>?
+    /// What the person asked for while the engine was recovering. These are
+    /// applied after the resume/rebuild succeeds instead of being refused.
+    private var pendingSessionSwitch: ChatPendingSessionSwitch?
+    private var queuedPromptsDuringRecovery: [(text: String,
+                                               attachments: [HarnessAttachment],
+                                               itemID: String?)] = []
+    private var hostResumeWatchdogTimeout =
+        ChatHostConfiguration.defaultResumeWatchdogTimeout
     /// One automatic session re-open after a recovery left the open session
     /// without its DSH history. At most one task exists; a park, a manual
     /// switch or a session change abandons it through `sessionReloadToken`.
@@ -625,6 +653,7 @@ final class ChatModel {
 
     var displayStatus: String {
         if eventStreamRecovering { return "重新同步中" }
+        if isHostRecovering { return "恢复中" }
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
         if isReloadingSession { return "重新加载中" }
@@ -636,6 +665,44 @@ final class ChatModel {
         return "未连接"
     }
     var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
+
+    /// True while a park/resume/rebuild is in flight; the page shows
+    /// 「引擎恢复中…」 instead of an English refusal.
+    var isHostRecovering: Bool {
+        ChatResumeRecovery.isRecovering(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress)
+    }
+
+    /// Top-of-chat banner text while the engine is recovering.
+    var recoveryBannerText: String? {
+        ChatResumeRecovery.bannerText(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress,
+            slow: resumeSlowNotice)
+    }
+
+    /// The light hint next to the banner for actions that were queued.
+    var recoveryQueuedHint: String? {
+        if pendingSessionSwitch != nil { return ChatResumeRecovery.queuedSessionHint }
+        if queuedPromptsDuringRecovery.isEmpty == false {
+            return ChatResumeRecovery.queuedPromptHint
+        }
+        return nil
+    }
+
+    /// The composer accepts a send while recovering and queues it. This is a
+    /// separate predicate from `canSend`: the message is not sent yet.
+    var canQueuePromptDuringRecovery: Bool {
+        (ChatResumeRecovery.shouldQueuePrompt(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress)
+            || (host == nil && backoffRetryTask != nil))
+            && !isReloadingSession
+    }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -994,10 +1061,14 @@ final class ChatModel {
         let budgets: BudgetTable
         let selectedProfile: ProviderProfile?
         let egressHosts: Set<String>
+        let resumeWatchdogTimeout: TimeInterval
     }
 
     private func prepareBotRuntime() async -> Bool {
         if let launch = botLaunch {
+            if botListenerSupervisor == nil {
+                botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
+            }
             botRuntimeState = launch.composition.state
             return true
         }
@@ -1009,6 +1080,7 @@ final class ChatModel {
                 self?.botRuntimeState = state
             }
             botLaunch = launch
+            botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
             botRuntimeState = launch.composition.state
             return true
         } catch {
@@ -1034,10 +1106,38 @@ final class ChatModel {
         do {
             try await composition.start(host: host)
             botRuntimeState = composition.state
+            startBotTurnPolling()
         } catch {
             botRuntimeState = composition.state
             reportError("Bot 大脑连接失败：\(error.localizedDescription)")
         }
+    }
+
+    /// Observes the roster's live running flag. The Bot page and the DSH page
+    /// live in one process, so the silent audio session must not stop while
+    /// any Bot is still working. This is event-driven: the composition tick
+    /// only calls back when `anyBotRunning` actually changes, so an idle Bot
+    /// roster never wakes ChatModel on a timer.
+    private func startBotTurnPolling() {
+        guard let roster = botRuntime?.rosterModel else { return }
+        roster.onAnyBotRunningChange = { [weak self] running in
+            Task { @MainActor [weak self] in self?.applyBotTurnsRunning(running) }
+        }
+        applyBotTurnsRunning(roster.anyBotRunning)
+    }
+
+    private func applyBotTurnsRunning(_ running: Bool) {
+        guard running != botTurnsRunning else { return }
+        botTurnsRunning = running
+        syncIdleTimer()
+        if !running, !turnRunning, keepingAlive {
+            Task { await self.finishBackgroundKeepAlive() }
+        }
+    }
+
+    private func stopBotTurnPolling() {
+        botRuntime?.rosterModel.onAnyBotRunningChange = nil
+        botTurnsRunning = false
     }
 
     /// Boots the host and adopts the persisted session. Launching and sending
@@ -1058,7 +1158,11 @@ final class ChatModel {
         busy = true
         defer { busy = false }
         guard await prepareBotRuntime() else { return }
+        // Every Host build reads the Bot MCP URL into the Worker environment;
+        // heal a reaped listener before that snapshot is taken.
+        _ = await botListenerSupervisor?.willStartEngine()
         guard let launch = makeHostLaunch() else { return }
+        hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
         // in the background and replaces it when the host history arrives.
         restoreCachedTranscriptIfAvailable()
@@ -1091,6 +1195,9 @@ final class ChatModel {
             }
             failedHost = launch.host
             engineNeedsReset = true
+            // The host failed its boot; release the page it created so the
+            // next start does not stack a second WKWebView in the anchor.
+            anchor.shutdown()
             if autoRecover, !autoRecoveryAttempted {
                 autoRecoveryAttempted = true
                 Task { @MainActor [weak self] in
@@ -1129,15 +1236,20 @@ final class ChatModel {
                 self.statusLine = "正在自动启动引擎…"
                 self.appendStatus("Engine backoff elapsed; retrying start()")
                 await self.start(autoRecover: false, backoffRetry: true)
+                // A rebuild that hit the persisted Backoff window finishes
+                // here; apply the queued session switch/prompts now.
+                self.scheduleRecoveryQueueFlush()
             }
         case .waitForManualStart(let remaining):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
+            engineNeedsReset = true
             let seconds = max(1, Int(ceil(remaining)))
             statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动"
             appendStatus("Engine backoff deadline is far away; automatic retry disabled")
         case .exhausted(let attempts):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
-            reportError("引擎自动重试 \(attempts) 次仍未启动，请手动启动")
+            engineNeedsReset = true
+            reportError("引擎自动重试 \(attempts) 次仍未启动，请点击「重新启动引擎」")
         }
     }
 
@@ -1153,13 +1265,13 @@ final class ChatModel {
             return nil
         }
         guard anchor.isInWindow else {
-            reportError("The page anchor is not in a window yet; try again")
+            reportError("页面还没进入窗口，请稍后重试")
             return nil
         }
         do {
             try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
         } catch {
-            reportError("Cannot create the workspace: \(error)")
+            reportError("无法创建会话工作区：\(error)")
             return nil
         }
 
@@ -1295,10 +1407,15 @@ final class ChatModel {
         let host = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
             await anchor.makeEngine(configuration)
         })
+        botListenerSupervisor?.recordHostBuild()
         return HostLaunch(host: host,
                           budgets: configuration.budgets,
                           selectedProfile: selectedProfile,
-                          egressHosts: egressHosts)
+                          egressHosts: egressHosts,
+                          resumeWatchdogTimeout:
+                            configuration.resumeBootReadyTimeout
+                                + configuration.resumeHelloTimeout
+                                + configuration.resumeVisibilityTimeout + 10)
     }
 
     private func restartEngineWhenIdle() async {
@@ -1331,7 +1448,15 @@ final class ChatModel {
     /// ``failedHost`` and ``engineNeedsReset`` stays true.
     func restartEngine() async {
         cancelBackoffRetry()
-        guard host == nil, !busy else { return }
+        guard !busy else { return }
+        // The manual button after a failed resume may still hold the Backoff
+        // host. Treat it as the failed incarnation so the button really stops
+        // it, clears its WKWebView and cold-boots a fresh one.
+        if host != nil, engineNeedsReset {
+            failedHost = host
+            host = nil
+        }
+        guard host == nil else { return }
         guard let failed = failedHost else {
             await start()
             return
@@ -1346,11 +1471,16 @@ final class ChatModel {
             reportError("引擎无法重新启动：\(Self.condensed(String(describing: error)))")
             return
         }
+        anchor.shutdown()
         // Build the replacement first: `makeHostLaunch` can refuse (bundle
         // missing, anchor not in a window) and clearing the reset state before
         // that would drop the only path back to a working engine.
         guard await prepareBotRuntime() else { return }
+        // Every Host build reads the Bot MCP URL into the Worker environment;
+        // heal a reaped listener before that snapshot is taken.
+        _ = await botListenerSupervisor?.willStartEngine()
         guard let launch = makeHostLaunch() else { return }
+        hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         failedHost = nil
         engineNeedsReset = false
         restoreCachedTranscriptIfAvailable()
@@ -1447,7 +1577,7 @@ final class ChatModel {
                 isShowingCachedTranscript = false
                 persistTranscriptSnapshot()
             } catch {
-                reportError("Session opened, but its DSH history could not be loaded: \(error)")
+                reportError("会话已打开，但读取历史失败：\(Self.condensed(String(describing: error)))")
                 transcriptReady = false
                 refreshFiles()
                 // A park during this load is the evidence case: the host will
@@ -1471,9 +1601,12 @@ final class ChatModel {
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
             appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress hosts=\(egressHosts.count)")
         } catch {
-            reportError("Session failed: \(error)")
+            reportError("会话打开失败：\(Self.condensed(String(describing: error)))")
         }
         refreshFiles()
+        // Actions requested while the engine was recovering are applied once
+        // the session is actually open.
+        scheduleRecoveryQueueFlush()
     }
 
     /// Apply the selected provider's model and reasoning effort to the DSH
@@ -1510,7 +1643,7 @@ final class ChatModel {
     /// Resumes an existing DSH session by its server-issued identifier.
     func selectSession(_ id: String) async {
         let requested = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requested.isEmpty else { reportError("Session ID cannot be empty"); return }
+        guard !requested.isEmpty else { reportError("会话 ID 不能为空"); return }
         await openManagedSession(id: requested)
     }
 
@@ -1523,14 +1656,29 @@ final class ChatModel {
             reportError("设备会话只能以只读监视方式打开")
             return false
         }
-        guard let host else { reportError("Start the host before opening a session"); return false }
+        // A switch during recovery is remembered, not refused. The banner says
+        // 「恢复完成后自动切换」; `flushPendingRecoveryUIActions` performs it.
+        if ChatResumeRecovery.shouldQueueSessionSwitch(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress)
+            || (host == nil && backoffRetryTask != nil) {
+            pendingSessionSwitch = ChatPendingSessionSwitch(id: id, preset: preset)
+            appendStatus("Session switch queued until the engine finishes recovering")
+            scheduleRecoveryQueueFlush()
+            return true
+        }
+        guard let host else {
+            reportError("引擎还没启动，请稍后重试")
+            return false
+        }
         guard !busy else { return false }
         guard !hostLifecycleTransition else {
-            reportError("Wait for the host to finish pausing or resuming before switching sessions")
+            reportError("引擎正在暂停或恢复，请稍候再切换会话")
             return false
         }
         guard !turnRunning && !keepingAlive && pendingQuestion == nil && pendingPermission == nil else {
-            reportError("Finish the current turn and answer pending requests before switching sessions")
+            reportError("请先等待当前回合结束并处理待确认请求，再切换会话")
             return false
         }
         busy = true
@@ -1551,7 +1699,7 @@ final class ChatModel {
         } catch is CancellationError {
             return false
         } catch {
-            reportError("Could not \(id == nil ? "create" : "resume") session: \(error)")
+            reportError("无法\(id == nil ? "创建" : "恢复")会话：\(Self.condensed(String(describing: error)))")
             return false
         }
     }
@@ -1692,7 +1840,7 @@ final class ChatModel {
                     // still needs that text if the retries do not recover it.
                     statusLine = existing
                 } else {
-                    reportError("Could not reload the session: \(error)")
+                    reportError("无法重新加载会话：\(Self.condensed(String(describing: error)))")
                 }
                 guard ChatSessionReload.canRetryAfterFailure(
                     retriesUsed: retriesUsed,
@@ -1839,6 +1987,7 @@ final class ChatModel {
         cancelBackoffRetry()
         cancelSessionReload()
         guard let host else {
+            stopBotTurnPolling()
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
                 botRuntimeState = composition.state
@@ -1846,7 +1995,7 @@ final class ChatModel {
             return
         }
         guard !busy && !hostLifecycleTransition else {
-            reportError("Wait for the current host operation to finish before stopping")
+            reportError("引擎操作尚未完成，请稍候再停止")
             return
         }
         busy = true
@@ -1858,11 +2007,13 @@ final class ChatModel {
         transcriptReady = false
         pendingPermission = nil; pendingQuestion = nil
         availableAccessModes = []; currentAccessMode = nil; accessModeError = nil; accessModeLoading = false
+        stopBotTurnPolling()
         await botLaunch?.composition.stop()
         if let composition = botLaunch?.composition {
             botRuntimeState = composition.state
         }
-        do { try await host.stop() } catch { reportError("Stop reported: \(error)") }
+        do { try await host.stop() } catch { reportError("停止时报告错误：\(Self.condensed(String(describing: error)))") }
+        anchor.shutdown()
         hostEventTask?.cancel(); hostEventTask = nil
         self.host = nil
         startedAt = nil
@@ -1924,12 +2075,30 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        appIsActive = phase == .active
         // Leaving the foreground drops a pending D24 retry; the person will
         // start the engine explicitly when they come back.
-        if phase == .background { cancelBackoffRetry() }
+        if let host, phase == .active || phase == .background {
+            // The App's real scene phase is the authority for resume
+            // cancellation; the host's own platform observer only keeps the
+            // background-boot gate truthful. `.inactive` is a transient
+            // interruption (call/dialog/app switcher), so it must not cancel
+            // a resume that is about to become active again.
+            await host.setForeground(phase == .active)
+        }
+        if phase == .background {
+            cancelBackoffRetry()
+            // The host cancels the in-flight resume and releases its gate.
+            // This timer would otherwise fire while the App is frozen and
+            // rebuild an engine that is already back in a clean state.
+            resumeWatchdogTask?.cancel()
+            resumeWatchdogTask = nil
+        }
         guard let host else { return }
         switch phase {
         case .background:
+            // The next foreground return gets its own one automatic rebuild.
+            resumeAutoRebuildsUsed = 0
             if hostLifecycleTransition {
                 foregroundResumeRequested = false
                 backgroundParkRequested = true
@@ -1939,7 +2108,7 @@ final class ChatModel {
             beginBackgroundTask()
             // A running turn is kept alive (the user's task continues); an idle
             // host is parked as before, which costs no battery.
-            if backgroundKeepAlive && turnRunning {
+            if backgroundKeepAlive && (turnRunning || botTurnsRunning) {
                 keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
                 do {
                     try keepAlive.start()
@@ -1953,6 +2122,17 @@ final class ChatModel {
             }
             await parkHost(host)
         case .active:
+            // iOS may have reaped the Bot MCP listener while suspended. Heal it
+            // before deciding whether this foreground return can continue the
+            // existing Host.
+            _ = await botListenerSupervisor?.foregroundBecameActive()
+            if let supervisor = botListenerSupervisor,
+               !supervisor.hostEndpointIsCurrent,
+               !hostLifecycleTransition, !engineRebuildInProgress {
+                appendStatus("Bot MCP listener recovered on a new port; rebuilding the engine so the Worker gets the new URL")
+                await rebuildEngineForMCPListenerChange(previousHost: host)
+                return
+            }
             if keepingAlive {
                 stopBackgroundHeartbeat()
                 keepAlive.stop()
@@ -1999,7 +2179,7 @@ final class ChatModel {
             appendStatus("Host parked; resume by returning to the app")
         } catch {
             parked = false
-            reportError("Park failed: \(error)")
+            reportError("引擎暂停失败：\(error)")
         }
         endBackgroundTask()
         let shouldResume = foregroundResumeRequested
@@ -2025,14 +2205,28 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
-        // See parkHost: the flag must never stay set. A resume waits for the
-        // host's own 240 s hello timeout, so the watchdog clears only past it.
-        let watchdog = transitionWatchdog(seconds: 300, label: "Host resume")
-        defer {
-            watchdog.cancel()
-            hostLifecycleTransition = false
+        // The Worker booted with the URL captured at Host construction. If the
+        // listener had to move to a new port, resuming would just replay the
+        // old, dead URL; rebuild instead so the next Worker receives the new
+        // environment. A same-port rebind keeps the URL valid and resumes.
+        if let supervisor = botListenerSupervisor {
+            _ = await supervisor.willResumeHost()
+            if !supervisor.hostEndpointIsCurrent {
+                hostLifecycleTransition = false
+                appendStatus("Bot MCP listener recovered on a new port; rebuilding instead of resuming the old Worker URL")
+                await rebuildEngineForMCPListenerChange(previousHost: host)
+                return
+            }
         }
+        beginResumeRecoveryObservation()
+        // The host owns the short resume budgets. This watchdog is only the
+        // last resort behind them; when it fires it starts the same automatic
+        // rebuild instead of merely releasing the flag.
+        let watchdog = resumeWatchdog(host: host)
+        resumeWatchdogTask = watchdog
         var didResume = false
+        var rebuildNeeded = false
+        var resumeWasCancelled = false
         do {
             try await host.resume()
             parked = false
@@ -2041,22 +2235,259 @@ final class ChatModel {
             refreshFiles()
             await reconcileTurnStateAfterResume()
         } catch {
-            reportError("Resume failed: \(error)")
+            if Self.isResumeCancelled(error) {
+                // The App went to the background. The host released its gate
+                // and tore down the half-booted page; stay parked so the next
+                // active phase starts a fresh resume instead of rebuilding.
+                resumeWasCancelled = true
+                parked = true
+                resumeSlowNotice = false
+                appendStatus("App left the foreground; the resume was cancelled and will restart on return")
+            } else {
+                appendStatus("Host resume failed: \(NativeLogRedaction.error(error))")
+                if !engineRebuildInProgress {
+                    switch ChatResumeRecovery.decision(
+                        afterResumeFailure: resumeAutoRebuildsUsed) {
+                    case .rebuildEngine:
+                        resumeAutoRebuildsUsed += 1
+                        resumeSlowNotice = true
+                        rebuildNeeded = true
+                    case .offerManualRestart:
+                        reportEngineRecoveryFailure()
+                    }
+                }
+            }
         }
+        watchdog.cancel()
+        resumeWatchdogTask = nil
         let shouldPark = backgroundParkRequested
+        let shouldRetry = resumeWasCancelled && foregroundResumeRequested && appIsActive
         foregroundResumeRequested = false
         backgroundParkRequested = false
         // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
-        if shouldPark && !parked {
+        if rebuildNeeded {
+            await rebuildEngineAfterResumeFailure(previousHost: host)
+        } else {
+            endResumeRecoveryObservation()
+        }
+        if shouldPark && !parked && !engineRebuildInProgress {
             await parkHost(host)
+        } else if shouldRetry {
+            await resumeHost(host)
         } else if didResume {
             // The history load may have died while the host was parking; the
             // resume is now the point where that session can be re-opened.
             scheduleSessionReload(reason: "host resumed without a transcript",
                                   requireForeground: true)
+            scheduleRecoveryQueueFlush()
         }
     }
+
+    /// The old 300 s watchdog only cleared `hostLifecycleTransition`, which left
+    /// an unusable App. This one starts the one automatic rebuild when the
+    /// host's own resume bounds failed to return.
+    private static func isResumeCancelled(_ error: Error) -> Bool {
+        if let error = error as? PhoneDSHError, case .resumeCancelled = error {
+            return true
+        }
+        return false
+    }
+
+    private func resumeWatchdog(host: PhoneDSHHost) -> Task<Void, Never> {
+        let seconds = max(1, Int(ceil(hostResumeWatchdogTimeout)))
+        return Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            guard !Task.isCancelled, let self, self.hostLifecycleTransition else { return }
+            self.appendStatus("Host resume watchdog expired; starting the automatic rebuild")
+            self.hostLifecycleTransition = false
+            guard self.resumeAutoRebuildsUsed
+                    < ChatResumeRecovery.maximumAutomaticRebuilds else {
+                self.reportEngineRecoveryFailure()
+                return
+            }
+            self.resumeAutoRebuildsUsed += 1
+            self.resumeSlowNotice = true
+            await self.rebuildEngineAfterResumeFailure(previousHost: host)
+        }
+    }
+
+    private func beginResumeRecoveryObservation() {
+        resumeSlowTask?.cancel()
+        resumeSlowNotice = false
+        resumeSlowTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: .milliseconds(Int(ChatResumeRecovery.slowThreshold * 1_000)))
+            guard !Task.isCancelled, let self, self.isHostRecovering else { return }
+            self.resumeSlowNotice = true
+        }
+    }
+
+    private func endResumeRecoveryObservation() {
+        resumeSlowTask?.cancel()
+        resumeSlowTask = nil
+        resumeSlowNotice = false
+    }
+
+    private func reportEngineRecoveryFailure() {
+        resumeSlowNotice = false
+        engineNeedsReset = true
+        reportError(ChatResumeRecovery.manualRestartText)
+    }
+
+    /// One full engine rebuild after a failed resume: stop the old host, drop
+    /// its WKWebView, cold-boot `start()` and re-open the session the person was
+    /// looking at. The old host's `stop()` is retried briefly because a watchdog
+    /// may fire while the host is still finishing its own resume teardown.
+    private func rebuildEngineAfterResumeFailure(previousHost: PhoneDSHHost) async {
+        await rebuildEngine(previousHost: previousHost,
+                            status: ChatResumeRecovery.slowText,
+                            reason: "Resume did not finish; rebuilding the engine once")
+    }
+
+    /// A listener rebind that changed the port invalidates the URL the current
+    /// Host captured for its Worker. Cold-boot a replacement instead of
+    /// resuming or retrying an incarnation that can only reach a dead port.
+    private func rebuildEngineForMCPListenerChange(previousHost: PhoneDSHHost) async {
+        await rebuildEngine(previousHost: previousHost,
+                            status: "重启引擎…",
+                            reason: "Bot MCP listener recovered on a new port; rebuilding so the Worker gets the new URL")
+    }
+
+    private func rebuildEngine(previousHost: PhoneDSHHost,
+                               status: String,
+                               reason: String) async {
+        guard !engineRebuildInProgress else { return }
+        engineRebuildInProgress = true
+        resumeSlowNotice = true
+        let desiredSessionID = sessionID
+        statusLine = status
+        appendStatus(reason)
+        defer { engineRebuildInProgress = false }
+        var stopped = false
+        var lastStopError: Error?
+        for attempt in 0..<3 {
+            do {
+                try await previousHost.stop()
+                stopped = true
+                break
+            } catch {
+                lastStopError = error
+                appendStatus("Engine rebuild is waiting for the host gate (attempt \(attempt + 1))")
+                try? await Task.sleep(for: .milliseconds(750))
+            }
+        }
+        guard stopped else {
+            resumeSlowNotice = false
+            engineNeedsReset = true
+            let detail = Self.condensed(lastStopError.map { String(describing: $0) } ?? "unknown")
+            let message = "引擎恢复失败：旧引擎未能停止（\(detail)）。"
+                + "请点击「重新启动引擎」重试。"
+            reportError(message)
+            if host != nil, failedHost == nil {
+                failedHost = host
+                host = nil
+            }
+            return
+        }
+        // The host now shuts its engine down on every release path; the anchor
+        // is the App's second owner and must drop the old view as well.
+        anchor.shutdown()
+        discardRuntimeForEngineRebuild()
+        if let desiredSessionID {
+            UserDefaults.standard.set(desiredSessionID,
+                                      forKey: Self.currentSessionDefaultsKey)
+        }
+        await start(autoRecover: false)
+        if host == nil && backoffRetryTask == nil {
+            reportEngineRecoveryFailure()
+        }
+        scheduleRecoveryQueueFlush()
+    }
+
+    /// Clears the App-side host state without reporting a normal stop; the
+    /// wanted session stays in UserDefaults so `start()`'s adoption re-opens it.
+    private func discardRuntimeForEngineRebuild() {
+        cancelSessionReload()
+        pumpTask?.cancel(); pumpTask = nil
+        eventStreamRecovering = false
+        hostEventTask?.cancel(); hostEventTask = nil
+        host = nil
+        failedHost = nil
+        engineNeedsReset = false
+        harness = nil
+        sessionID = nil
+        transcriptReady = false
+        pendingPermission = nil
+        pendingQuestion = nil
+        availableAccessModes = []
+        currentAccessMode = nil
+        accessModeError = nil
+        accessModeLoading = false
+        startedAt = nil
+        turnRunning = false
+        parked = false
+        foregroundResumeRequested = false
+        backgroundParkRequested = false
+        if keepingAlive {
+            stopBackgroundHeartbeat()
+            keepAlive.stop()
+            keepingAlive = false
+            endBackgroundTask()
+        }
+        syncIdleTimer()
+    }
+
+    /// Applies the session switch and prompts that arrived while recovering.
+    /// A failed rebuild leaves them queued; the manual start path calls this
+    /// again through `adoptRunningHost`.
+    private func flushPendingRecoveryUIActions() async {
+        guard !isHostRecovering, !busy, host != nil else {
+            // A failed rebuild leaves the actions queued; the next successful
+            // adoption schedules this again. Do not spin while there is no host.
+            if host != nil { scheduleRecoveryQueueFlush() }
+            return
+        }
+        let switchTarget = pendingSessionSwitch
+        pendingSessionSwitch = nil
+        if let switchTarget {
+            _ = await openManagedSession(id: switchTarget.id,
+                                         preset: switchTarget.preset)
+        }
+        let prompts = queuedPromptsDuringRecovery
+        queuedPromptsDuringRecovery.removeAll()
+        for prompt in prompts {
+            _ = await send(prompt.text,
+                           attachments: prompt.attachments,
+                           reusing: prompt.itemID)
+        }
+    }
+
+    private func scheduleRecoveryQueueFlush() {
+        guard pendingSessionSwitch != nil || !queuedPromptsDuringRecovery.isEmpty else {
+            recoveryFlushTask?.cancel()
+            recoveryFlushTask = nil
+            return
+        }
+        guard recoveryFlushTask == nil else { return }
+        // Nothing can consume the queue until a host exists or a rebuild/backoff
+        // is in flight; adoption calls this again.
+        guard host != nil || engineRebuildInProgress || backoffRetryTask != nil else { return }
+        recoveryFlushTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<300 {
+                if !self.busy && !self.engineRebuildInProgress
+                    && !self.hostLifecycleTransition && !self.parked
+                    && self.host != nil {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            self.recoveryFlushTask = nil
+            await self.flushPendingRecoveryUIActions()
+        }
+    }
+
 
     /// Releases a latched host transition after a bound the host's own
     /// drain/hello timeouts cannot exceed, so a wedged host fails loud on the
@@ -2100,7 +2531,7 @@ final class ChatModel {
     /// The turn finished while the app was hidden: release the audio session
     /// and park the idle host so the keep-alive never outlives the work.
     private func finishBackgroundKeepAlive() async {
-        guard keepingAlive, let host else { return }
+        guard keepingAlive, !turnRunning, !botTurnsRunning, let host else { return }
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false
@@ -2152,7 +2583,7 @@ final class ChatModel {
     /// Keeps the screen on while a turn runs so auto-lock does not park the
     /// host in the middle of a long task.
     private func syncIdleTimer() {
-        UIApplication.shared.isIdleTimerDisabled = turnRunning && host != nil
+        UIApplication.shared.isIdleTimerDisabled = (turnRunning || botTurnsRunning) && host != nil
     }
 
     private func observeHost(_ host: PhoneDSHHost) {
@@ -2170,11 +2601,27 @@ final class ChatModel {
                     // look like a model-service error, so keep the host event
                     // fingerprint for correlation; the raw text stays on screen.
                     Self.appendDiagnostic("host error: \(NativeLogRedaction.value(message))")
-                    self.reportError("引擎报错：\(Self.condensed(message))")
+                    if self.isHostRecovering {
+                        // A resume timeout is expected on the rebuild path; its
+                        // English engine text must not become the user-facing
+                        // error. The rebuild either clears it or shows the
+                        // explicit Chinese manual-restart message.
+                        self.appendStatus("Host error during recovery; the rebuild owns the outcome")
+                    } else {
+                        self.reportError("引擎报错：\(Self.condensed(message))")
+                    }
                 case .webContentTerminated(let count):
                     self.restartPolicySawTermination = true
                     self.resourceMeter.recordWebContentTermination()
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
+                case .console(let payload):
+                    // The engine's visibility warning is a static diagnostic.
+                    // Only the enum token reaches the status log: no paths, no
+                    // page content.
+                    if let token = ChatResumeRecovery.visibilityToken(
+                        fromConsoleText: payload.text) {
+                        self.appendStatus("webview-visibility=\(token)")
+                    }
                 case .restarted:
                     self.restartPolicyHighSamples = 0
                     self.restartPolicySawTermination = false
@@ -2194,6 +2641,7 @@ final class ChatModel {
 
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
+        anchor.shutdown()
         cancelBackoffRetry()
         cancelSessionReload()
         pumpTask?.cancel(); pumpTask = nil
@@ -2300,6 +2748,18 @@ final class ChatModel {
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty || !attachments.isEmpty else { return false }
+        // A send while the engine is recovering (or being rebuilt) is queued;
+        // it is never dropped and the person never sees an English refusal.
+        if ChatResumeRecovery.shouldQueuePrompt(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress)
+            || (host == nil && backoffRetryTask != nil) {
+            queuedPromptsDuringRecovery.append((prompt, attachments, itemID))
+            appendStatus("Prompt queued until the engine finishes recovering")
+            scheduleRecoveryQueueFlush()
+            return true
+        }
         // Sending is the clearest signal that the engine is wanted. Boot it
         // here (the transcript stays visible from the cache meanwhile) instead
         // of silently dropping the message because nothing is running.
@@ -2335,7 +2795,7 @@ final class ChatModel {
         } catch {
             Self.persistStatus("latency client-observed phase=prompt-rpc-failed request=\(requestID) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - dispatchStart) * 1000))")
             syncIdleTimer()
-            reportError("Prompt failed: \(error)")
+            reportError("消息发送失败：\(Self.condensed(String(describing: error)))")
             return false
         }
     }
@@ -2357,7 +2817,7 @@ final class ChatModel {
             clearError()
             return true
         } catch {
-            reportError("Steer failed: \(error)")
+            reportError("补充说明发送失败：\(Self.condensed(String(describing: error)))")
             return false
         }
     }
@@ -2432,7 +2892,7 @@ final class ChatModel {
             clearError()
             appendStatus("Permission for \(permission.tool): \(decision.rawValue)")
         } catch {
-            reportError("Permission response failed: \(error)")
+            reportError("权限回复发送失败：\(Self.condensed(String(describing: error)))")
         }
     }
 
@@ -2444,7 +2904,7 @@ final class ChatModel {
             clearError()
             appendStatus("Answered the agent's question")
         } catch {
-            reportError("Question response failed: \(error)")
+            reportError("问题回复发送失败：\(Self.condensed(String(describing: error)))")
         }
     }
 
@@ -2942,7 +3402,9 @@ final class ChatModel {
         syncIdleTimer()
         persistTranscriptSnapshot()
         scheduleNativeMetricsRefresh()
-        if !turnRunning, keepingAlive { Task { await self.finishBackgroundKeepAlive() } }
+        if !turnRunning, !botTurnsRunning, keepingAlive {
+            Task { await self.finishBackgroundKeepAlive() }
+        }
         return history.after
     }
 
@@ -3159,7 +3621,7 @@ final class ChatModel {
             }
             refreshFiles()
             Task { await self.refreshGoal() }
-            if keepingAlive { Task { await self.finishBackgroundKeepAlive() } }
+            if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }
             statusLine = "\(phase) step \(step)\(total.map { " of \($0)" } ?? "")"
@@ -3181,7 +3643,7 @@ final class ChatModel {
             items.append(item)
         case .sessionStatus(let status):
             if status.lowercased().hasPrefix("error:") {
-                reportError("Session: \(status)")
+                reportError("会话状态：\(status)")
             } else {
                 statusLine = "Session: \(status)"
             }

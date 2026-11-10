@@ -109,6 +109,7 @@ import com.phonedsh.ui.page.SessionsPage
 import com.phonedsh.ui.page.SessionsScreenState
 import com.phonedsh.ui.page.SessionWorkspace
 import com.phonedsh.ui.page.SettingsPage
+import com.phonedsh.ui.page.SettingsPageMode
 import com.phonedsh.ui.page.ArchivedSessionsPage
 import com.phonedsh.ui.page.ArchivedSessionsPageState
 import com.phonedsh.ui.page.SessionRunStatus
@@ -484,7 +485,12 @@ public fun PdshNavHost(
             PdshRoute.Configuration -> ConfigurationRoute(
                 facts, onBack, onNavigate, onHostAction, onConfigurationWrite,
             )
-            PdshRoute.Settings -> SettingsRoute(
+            PdshRoute.Settings, PdshRoute.MeTab, PdshRoute.SettingsMore -> SettingsRoute(
+                mode = when (route) {
+                    PdshRoute.MeTab -> SettingsPageMode.TAB
+                    PdshRoute.SettingsMore -> SettingsPageMode.MORE
+                    else -> SettingsPageMode.SHEET
+                },
                 facts = facts,
                 onBack = onBack,
                 onNavigate = onNavigate,
@@ -498,6 +504,19 @@ public fun PdshNavHost(
                 onPhonePermissionSettings = onPhonePermissionSettings,
                 agentPresets = agentPresets,
                 agentPresetActions = agentPresetActions,
+            )
+            PdshRoute.Discover -> com.phonedsh.ui.page.ConnectorsPage(
+                onOpen = { connector ->
+                    when (connector) {
+                        com.phonedsh.ui.page.DiscoverConnector.DEVICES -> onNavigate(PdshRoute.Bluetooth)
+                        com.phonedsh.ui.page.DiscoverConnector.WEB_SEARCH -> onNavigate(PdshRoute.WebSearch)
+                        com.phonedsh.ui.page.DiscoverConnector.MCP -> onNavigate(PdshRoute.Mcp)
+                        // The example connector's sheet action is a disabled 即将支持.
+                        com.phonedsh.ui.page.DiscoverConnector.GMAIL -> Unit
+                    }
+                },
+                onOpenPluginsTools = { onNavigate(PdshRoute.Configuration) },
+                languageId = facts.settings.preferences.language?.id,
             )
             PdshRoute.ModelProvider -> ModelProviderRoute(facts, onBack, onHostAction, backLevel = backLevel)
             PdshRoute.WebSearch -> WebSearchRoute(facts, onBack, onHostAction)
@@ -515,6 +534,13 @@ public fun PdshNavHost(
                 onSave = { onHostAction(PdshHostAction.AndroidAdbSave(it)) },
                 onCheck = { onHostAction(PdshHostAction.AndroidAdbCheck(it)) },
                 onCancel = { onHostAction(PdshHostAction.AndroidAdbCancel) },
+            )
+            PdshRoute.TonoAccount -> com.phonedsh.ui.page.TonoAccountPage(
+                facts = facts.tonoAccount,
+                onBack = onBack,
+                onRequestCode = { onHostAction(PdshHostAction.TonoAccountRequestCode(it)) },
+                onSignIn = { onHostAction(PdshHostAction.TonoAccountSignIn(it)) },
+                onSignOut = { onHostAction(PdshHostAction.TonoAccountSignOut) },
             )
             is PdshRoute.McpEditor -> McpEditorRoute(route, facts, onBack, onHostAction)
             PdshRoute.Runtime -> RuntimeRoute(facts, onBack, onHostAction, backLevel)
@@ -1395,6 +1421,7 @@ private fun ExportRoute(onBack: () -> Unit) {
 
 @Composable
 private fun SettingsRoute(
+    mode: SettingsPageMode,
     facts: PdshNavFacts,
     onBack: () -> Unit,
     onNavigate: (PdshRoute) -> Unit,
@@ -1498,7 +1525,9 @@ private fun SettingsRoute(
         )
     } else {
         SettingsPage(
-            state = SettingsScreenState.from(settings),
+            state = SettingsScreenState.from(settings)
+                .copy(scheduleCount = facts.automation.snapshot?.schedules?.size),
+            mode = mode,
             backLevel = backLevel,
             licenseEntries = facts.licenses?.map { license ->
                 com.phonedsh.ui.page.AndroidLicenseNotice(

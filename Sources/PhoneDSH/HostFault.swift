@@ -130,6 +130,19 @@ extension HostFault: CustomStringConvertible {
         return false
     }
 
+    /// Whether this fault came from the D15 handoff/reclaim path.
+    ///
+    /// The handoff owns its two-phase engine stop: it calls `terminateWorker`
+    /// and `shutdownWorker` itself and the regressions assert the exact
+    /// sequence, including "no shutdown after a refused/cancelled stop". A
+    /// generic failure teardown must not add a second shutdown call there.
+    public var isHandoff: Bool {
+        switch self {
+        case .boot(.handoff), .workspace(.handoff): return true
+        default: return false
+        }
+    }
+
     /// Short scope label for diagnostics (`boot` / `workspace`).
     public var scope: String {
         switch self {
@@ -267,6 +280,8 @@ private extension HostFault {
 
     static func classify(phone error: PhoneDSHError) -> HostFault? {
         switch error {
+        case .resumeCancelled:
+            return nil
         case .startTimedOut, .engineNotAttached, .notStarted, .invalidState,
              .channelUnavailable, .invalidResponse:
             // HELLO timeout, a WebView that is not attached yet, a call-order

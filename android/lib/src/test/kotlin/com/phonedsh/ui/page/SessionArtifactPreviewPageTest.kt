@@ -106,7 +106,7 @@ class SessionArtifactPreviewPageTest {
         compose.onNodeWithText(UiStrings.ARTIFACTS_NO_PREVIEW).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.ARTIFACTS_NO_PREVIEW_HINT).assertIsDisplayed()
         compose.onNodeWithText(UiStrings.ARTIFACTS_PREVIEW_PLATFORM_NOTE).assertIsDisplayed()
-        // The list's own rows and the sheet's 完成 give way to the subpage.
+        // The list's own rows give way to the subpage; neither has a 完成 (PR #60).
         compose.onNodeWithTag(UiPageTags.ARTIFACTS_LIST).assertDoesNotExist()
         compose.onNodeWithText(UiStrings.DEVICE_DONE).assertDoesNotExist()
         // `.toolbar { ShareLink … }` (`:310`).
@@ -123,7 +123,8 @@ class SessionArtifactPreviewPageTest {
         compose.onNodeWithText(PAGE_BACK_GLYPH).performClick()
         assertEquals(1, closed)
         compose.runOnIdle {
-            compose.onNodeWithText(UiStrings.DEVICE_DONE).assertIsDisplayed()
+            compose.onNodeWithTag(UiPageTags.ARTIFACTS_LIST).assertIsDisplayed()
+            compose.onNodeWithText(UiStrings.DEVICE_DONE).assertDoesNotExist()
         }
     }
 

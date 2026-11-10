@@ -7,6 +7,21 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 OUT="$ROOT/scripts/ci/bot-ui/artifacts"
 APPEARANCES="light,dark"
 DEVICE_ID="${BOT_UI_DEVICE_ID:-}"
+# The sandboxed SwiftPM plugin server cannot start inside the agent file
+# sandbox, so the default matches benchmark.sh and the probe-app build. An
+# environment override keeps a fully sandboxed CI run possible.
+SWIFT_FLAGS=("OTHER_SWIFT_FLAGS=\$(inherited) -disable-sandbox")
+if [ -n "${BOT_UI_OTHER_SWIFT_FLAGS:-}" ]; then
+    SWIFT_FLAGS=("OTHER_SWIFT_FLAGS=${BOT_UI_OTHER_SWIFT_FLAGS}")
+fi
+# A DSH work-tree sandbox can build and launch the app but cannot start the
+# XCUITest runner (Pseudo Terminal Setup Error). In that case the fixtures'
+# own conformance checks still run via simctl launch; the interaction test is
+# recorded as NOT_RUN instead of a pass.
+RUN_UI_TESTS=1
+if [ "${BOT_UI_SKIP_UI_TESTS:-0}" = "1" ]; then
+    RUN_UI_TESTS=0
+fi
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -106,6 +121,7 @@ targets:
           - "Bot/BotProductionServices.swift"
           - "Bot/BotProductionUIAdapters.swift"
           - "Bot/BotRuntimeComposition.swift"
+          - "Bot/BotRuntimeUnit.swift"
           - "Bot/BotRuntimeEffects.swift"
       # Layered 大肥鱼 art, copied with the same "BotFish/..." layout as the
       # probe app so BotFishAssets loads it unchanged.
@@ -161,23 +177,27 @@ DESTINATION="platform=iOS Simulator,id=$DEVICE_ID"
 PROJECT="$WORK/PhoneDSHBotUICapture.xcodeproj"
 DERIVED="$WORK/DerivedData"
 
-# The sandboxed SwiftPM plugin server cannot start inside the agent file
-# sandbox; the probe-app build uses the same flag. This only affects local
-# capture runs, not the app or its package graph.
 xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
     -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO \
-    OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' build | tee "$OUT/build.log"
+    CODE_SIGNING_ALLOWED=NO ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} build | tee "$OUT/build.log"
 
-rm -rf "$OUT/BotUI.xcresult"
-xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
-    -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO \
-    OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' test | tee "$OUT/ui-tests.log"
+if [ "$RUN_UI_TESTS" = 1 ]; then
+    rm -rf "$OUT/BotUI.xcresult"
+    xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
+        -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
+        -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO ${SWIFT_FLAGS[@]+"${SWIFT_FLAGS[@]}"} test | tee "$OUT/ui-tests.log"
+else
+    echo "BOT_UI_SKIP_UI_TESTS=1: XCUITest runner skipped; fixtures run via simctl launch" | tee "$OUT/ui-tests.log"
+fi
 
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 [ -d "$APP" ] || { echo "capture app missing at expected build output" >&2; exit 1; }
+# Reinstall from a clean data container so the first launch always writes a
+# fresh conformance JSON, then wait for that file below instead of accepting a
+# previous run's result.
+xcrun simctl uninstall "$DEVICE_ID" dev.phone-dsh.bot-ui.capture >/dev/null 2>&1 || true
 xcrun simctl install "$DEVICE_ID" "$APP"
+CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" dev.phone-dsh.bot-ui.capture data)
 
 # Keep the capture list in step with `BotUIFixtureCase` without a second
 # hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`,
@@ -236,7 +256,10 @@ for APPEARANCE in $APPEARANCE_LIST; do
             sleep 2
         fi
         if [ "$CHECKED" = 0 ]; then
-            CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" dev.phone-dsh.bot-ui.capture data)
+            for _ in $(seq 1 75); do
+                [ -s "$CONTAINER/Documents/bot-ui-checks.json" ] && break
+                sleep 0.2
+            done
             python3 - "$CONTAINER/Documents/bot-ui-checks.json" <<'PY'
 import json
 import sys
@@ -266,12 +289,13 @@ PY
     done
 done
 
-python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" <<'PY'
+if [ "$RUN_UI_TESTS" = 1 ]; then INTERACTIONS="PASS"; else INTERACTIONS="NOT_RUN"; fi
+python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" "$INTERACTIONS" <<'PY'
 import hashlib
 import json
 import os
 import sys
-out, appearances, device, case_list = sys.argv[1:]
+out, appearances, device, case_list, interactions = sys.argv[1:]
 cases = case_list.split()
 shots = []
 bursts = []
@@ -298,7 +322,7 @@ result = {
     "evidence": "iOS Simulator; XCUIApplication interaction tests and simctl screen captures",
     "deviceID": device,
     "conformance": "PASS",
-    "interactions": "PASS",
+    "interactions": interactions,
     "screenshots": shots,
     "bursts": {
         "states": ["thinking", "working", "speaking", "alerting", "celebrate"],

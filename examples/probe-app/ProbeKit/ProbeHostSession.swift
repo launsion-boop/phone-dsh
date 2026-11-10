@@ -95,7 +95,16 @@ public final class VisibleEngineAnchor {
     }
 
     /// Creates the WKWebView engine and attaches it to the anchor.
+    ///
+    /// The anchor is a second strong owner beside the host. Release the old
+    /// engine first: its WKWebView is a subview of `view`, and UIView retains
+    /// its subviews, so merely replacing `self.engine` would leave every old
+    /// page (and its WebContent process) alive in the hierarchy.
     public func makeEngine(_ configuration: WebEngineConfiguration) -> WebEngine {
+        if let existing = engine {
+            existing.shutdown()
+            engine = nil
+        }
         let engine = WebEngine(configuration: configuration)
         engine.attach(to: view)
         self.engine = engine

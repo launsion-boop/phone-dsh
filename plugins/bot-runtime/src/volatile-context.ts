@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import { createPhoneVolatileContextSource } from './volatile-mcp.ts'
+import { BOT_SESSION_PREFIX } from './bot-sessions.ts'
 
 export const VOLATILE_BLOCK_ORDER = Object.freeze([
   'variant',
@@ -34,6 +35,41 @@ export interface VolatileContextConfig {
   readonly source?: VolatileContextSource
   readonly now?: () => Date
   readonly lang?: () => PromptLang
+  /**
+   * Agent preset the App-minted Bot sessions (`gb-*`) must run. The session
+   * is still blank in `agent/created`, so selecting here lands before the
+   * first turn and leaves the DSH workbench's `standard` default untouched.
+   * Empty/absent means no selection is attempted.
+   */
+  readonly botAgentPreset?: string
+}
+
+/** Structural view of the DSH agent-preset registry, kept dependency-free. */
+export interface BotAgentPresetSelector {
+  select(agent: Agent, agentPreset: string): Promise<string>
+}
+
+/**
+ * Select `agentPreset` for one freshly created Bot session. A session that
+ * already started its first turn cannot change composition (`agent-preset/locked`);
+ * that is a normal recovered session, not a failure. Every other error is
+ * rethrown so a miscomposed image fails closed instead of silently keeping
+ * the workbench's full tool surface.
+ */
+export async function selectBotAgentPreset(
+  presets: BotAgentPresetSelector | undefined,
+  agent: Agent,
+  agentPreset: string,
+): Promise<boolean> {
+  const preset = agentPreset.trim()
+  if (presets === undefined || preset === '' || !agent.id.startsWith(BOT_SESSION_PREFIX)) return false
+  try {
+    await presets.select(agent, preset)
+    return true
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'agent-preset/locked') return false
+    throw error
+  }
 }
 
 export interface VolatileBlock {
@@ -127,6 +163,18 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
   const source = config.source ?? createPhoneVolatileContextSource(ctx)
   const now = config.now ?? (() => new Date())
   const lang = config.lang ?? (() => resolvePromptLang())
+  const botAgentPreset = typeof config.botAgentPreset === 'string' ? config.botAgentPreset.trim() : ''
+
+  if (botAgentPreset !== '') {
+    ctx.on('agent/created', async ({ agent }) => {
+      const presets = ctx.get('agentPresets') as BotAgentPresetSelector | undefined
+      if (presets === undefined) {
+        if (!agent.id.startsWith(BOT_SESSION_PREFIX)) return
+        throw new Error(`botAgentPreset "${botAgentPreset}" is configured but the agentPresets service is not mounted`)
+      }
+      await selectBotAgentPreset(presets, agent, botAgentPreset)
+    })
+  }
 
   const snapshotFor = (context: BotAssembleContext): VolatileSnapshot => {
     const sessionId = sessionIdFor(context)

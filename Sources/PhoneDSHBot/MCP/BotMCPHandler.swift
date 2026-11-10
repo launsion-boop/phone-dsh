@@ -15,6 +15,13 @@ public protocol BotNativeMCPForwarding: Sendable {
 
 public actor BotMCPHandler {
     public static let protocolVersions = ["2025-11-25", "2025-06-18", "2025-03-26"]
+    /// Optional HTTP header carrying the App-minted MCP session id. The MCP
+    /// `tools/list` request has no tool-call identity of its own, so a caller
+    /// that wants the roster-aware catalog names the same session principal
+    /// that `tools/call` attribution uses. Requests without the header (a
+    /// standard MCP client, or the Worker's one global list) keep the static
+    /// catalog.
+    public static let callerSessionHeader = "x-pdsh-bot-session"
 
     private let runtime: BotMCPRuntime
     private let runtimeId: String
@@ -50,7 +57,10 @@ public actor BotMCPHandler {
         case "ping": return result(id, .object([:]))
         case "tools/list":
             do {
-                var tools = try BotToolCatalog.allDefinitions.map(encode)
+                let callerSession = Self.header(headers, Self.callerSessionHeader)
+                let callerBotID = await runtime.callerBotID(forSession: callerSession)
+                let definitions = await runtime.toolDefinitions(callerBotID: callerBotID)
+                var tools = try definitions.map(encode)
                 var names = Set(tools.compactMap { $0["name"]?.stringValue })
                 if let native = await nativeTools() {
                     for tool in native where names.insert(tool["name"]?.stringValue ?? "").inserted {
@@ -68,7 +78,9 @@ public actor BotMCPHandler {
             let arguments = object["arguments"] ?? .object([:])
             guard case .object = arguments else { return rpcError(id, code: -32602, message: "arguments must be an object") }
             let bareName = Self.bareToolName(name)
-            guard BotToolCatalog.isRegistered(bareName) else {
+            let catalogTool = BotToolCatalog.isRegistered(bareName)
+            let teamTool = catalogTool ? false : await runtime.handlesTeamTool(bareName)
+            guard catalogTool || teamTool else {
                 if let forwarded = await forwardNative(method: method, params: params, id: id,
                                                        headers: headers) {
                     return forwarded
@@ -227,6 +239,21 @@ public actor BotMCPHandler {
     private static func bareToolName(_ name: String) -> String {
         guard name.hasPrefix("mcp__") else { return name }
         return name.components(separatedBy: "__").last ?? name
+    }
+
+    /// Header lookup is case-insensitive because direct callers may not have
+    /// normalized the dictionary the way the HTTP server does.
+    private static func header(_ headers: [String: String], _ name: String) -> String? {
+        if let value = headers[name] { return trimmedHeader(value) }
+        for (key, value) in headers where key.caseInsensitiveCompare(name) == .orderedSame {
+            return trimmedHeader(value)
+        }
+        return nil
+    }
+
+    private static func trimmedHeader(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func effect(_ value: BotJSONValue) -> BotToolEffect? {

@@ -55,6 +55,7 @@
 package com.phonedsh.probe
 
 import android.content.Context
+import com.phonedsh.account.TonoAccountKeySource
 import com.phonedsh.gateway.CredentialUnavailableException
 import com.phonedsh.gateway.GatewayCredentialProvider
 import com.phonedsh.gateway.ModelEndpoint
@@ -207,7 +208,13 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
         account: String = ACCOUNT,
     ): GatewayCredentialProvider? {
         val endpoint = ModelEndpoint.parse(baseUrl) ?: return null
-        return ModelGatewayCredentialProvider(endpoint, ModelKeySource { readKey(account) }, anonymousHosts)
+        val stored = ModelKeySource { readKey(account) }
+        // spec/v1/tono-account.md §4: a signed-in account replaces the key for the
+        // cloud origin only; every other endpoint keeps exactly the stored key.
+        val keys = TonoAccountHost.activeSession()
+            ?.let { TonoAccountKeySource.overlay(endpoint.origin, it, stored) }
+            ?: stored
+        return ModelGatewayCredentialProvider(endpoint, keys, anonymousHosts)
     }
 
     /**
