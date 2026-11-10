@@ -476,9 +476,21 @@ struct BotChatDriver {
 }
 
 struct BotRuntimeContext: Equatable {
-    var botID: String = "main"
-    var botName: String = "大肥鱼"
+    var botID: String
+    var botName: String
     var followingCount: Int?
+
+    init(botID: String, botName: String, followingCount: Int? = nil) {
+        self.botID = botID
+        self.botName = botName
+        self.followingCount = followingCount
+    }
+
+    /// The context of the roster's main Bot pointer, never a literal id.
+    static func mainBot(in roster: BotRoster) -> BotRuntimeContext? {
+        guard let bot = BotMainPointerRouting.mainBot(in: roster) else { return nil }
+        return BotRuntimeContext(botID: bot.id, botName: bot.name)
+    }
 }
 
 struct BotDeepLink: Equatable {

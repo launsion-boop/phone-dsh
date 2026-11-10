@@ -348,9 +348,15 @@ public enum HeldMessages {
                 let text = escapedHeldField(item.text)
                 lines.append("- [device-task] \(title) · task \(taskID) · \(status): \(text)")
             default:
+                // Bot names, ids, titles and text are model-supplied and must
+                // not forge a second bullet or close the held block.
                 let at = RoutineScheduleMath.formatMinute(item.createdAt, timezone: timezone) ?? "—"
-                let title = item.title.map { " — \($0)" } ?? ""
-                lines.append("- [agent] \(item.fromAgentName) (id: \(item.fromAgentId ?? ""))\(title) · \(at) · msg \(item.id): \(item.text)")
+                let name = escapedHeldField(item.fromAgentName)
+                let fromID = escapedHeldField(item.fromAgentId ?? "")
+                let title = item.title.map { " — \(escapedHeldField($0))" } ?? ""
+                let itemID = escapedHeldField(item.id)
+                let text = escapedHeldField(item.text)
+                lines.append("- [agent] \(name) (id: \(fromID))\(title) · \(at) · msg \(itemID): \(text)")
             }
         }
         lines.append("</held_agent_messages>")

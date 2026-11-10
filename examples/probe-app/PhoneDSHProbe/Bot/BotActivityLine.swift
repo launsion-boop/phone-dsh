@@ -11,10 +11,12 @@ struct BotActivityLine: View {
     let activity: BotActivity
     let fishState: BotFishLifecycle
     var appearance: BotFishAppearance = .classic
+    var reaction: BotFishReaction?
 
     static let fishSize: CGFloat = 28
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.botPageActive) private var pageActive
     @State private var index = 0
     @State private var rotationTask: Task<Void, Never>?
 
@@ -33,7 +35,7 @@ struct BotActivityLine: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            BotActivityFloatingFish(state: fishState, appearance: appearance)
+            BotActivityFloatingFish(state: fishState, appearance: appearance, reaction: reaction)
                 .accessibilityHidden(true)
             BotActivityShimmerText(text: text)
         }
@@ -50,6 +52,7 @@ struct BotActivityLine: View {
         }
         .onChange(of: activity.status) { _, _ in resetRotation() }
         .onChange(of: activity.detail) { _, _ in resetRotation() }
+        .onChange(of: pageActive) { _, _ in resetRotation() }
     }
 
     private func resetRotation() {
@@ -60,7 +63,7 @@ struct BotActivityLine: View {
     private func startRotation() {
         rotationTask?.cancel()
         rotationTask = nil
-        guard activity.detail.isEmpty else { return }
+        guard activity.detail.isEmpty, pageActive else { return }
         rotationTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 2_400_000_000)
@@ -76,23 +79,27 @@ struct BotActivityLine: View {
 private struct BotActivityFloatingFish: View {
     let state: BotFishLifecycle
     let appearance: BotFishAppearance
+    let reaction: BotFishReaction?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.botPageActive) private var pageActive
     @State private var up = false
 
     var body: some View {
-        BotFishView(state: state, size: BotActivityLine.fishSize, appearance: appearance)
-            .offset(y: reduceMotion ? 0 : (up ? -2 : 1))
-            .scaleEffect(reduceMotion ? 1 : (up ? 1.04 : 0.98))
+        BotFishView(state: state, size: BotActivityLine.fishSize,
+                    appearance: appearance, reaction: reaction)
+            .offset(y: reduceMotion || !pageActive ? 0 : (up ? -2 : 1))
+            .scaleEffect(reduceMotion || !pageActive ? 1 : (up ? 1.04 : 0.98))
             .onAppear { start() }
             .onChange(of: reduceMotion) { _, _ in start() }
+            .onChange(of: pageActive) { _, _ in start() }
     }
 
     private func start() {
         var reset = Transaction()
         reset.disablesAnimations = true
         withTransaction(reset) { up = false }
-        guard !reduceMotion else { return }
+        guard !reduceMotion, pageActive else { return }
         withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
             up = true
         }
@@ -106,6 +113,7 @@ private struct BotActivityShimmerText: View {
     let text: String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.botPageActive) private var pageActive
     @State private var phase: CGFloat = -1
     @State private var dim = false
 
@@ -123,10 +131,11 @@ private struct BotActivityShimmerText: View {
         }
         .frame(height: 20, alignment: .leading)
         .clipped()
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: text)
-        .opacity(reduceMotion ? 1 : (dim ? 0.55 : 1))
+        .animation(reduceMotion || !pageActive ? nil : .easeInOut(duration: 0.35), value: text)
+        .opacity(reduceMotion || !pageActive ? 1 : (dim ? 0.55 : 1))
         .onAppear { restart() }
         .onChange(of: reduceMotion) { _, _ in restart() }
+        .onChange(of: pageActive) { _, _ in restart() }
     }
 
     private func line(_ value: String) -> some View {
@@ -136,7 +145,7 @@ private struct BotActivityShimmerText: View {
             .truncationMode(.tail)
             .foregroundStyle(HomeSpec.textSecondary)
             .overlay(alignment: .leading) {
-                if !reduceMotion {
+                if !reduceMotion && pageActive {
                     Text(value)
                         .font(.system(size: 14))
                         .lineLimit(1)
@@ -173,7 +182,7 @@ private struct BotActivityShimmerText: View {
             phase = -1
             dim = false
         }
-        guard !reduceMotion else { return }
+        guard !reduceMotion, pageActive else { return }
         withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
             phase = 1
         }

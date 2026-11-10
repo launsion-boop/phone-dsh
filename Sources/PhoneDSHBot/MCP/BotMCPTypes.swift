@@ -117,6 +117,26 @@ public actor EmptyBotVolatileContextProvider: BotVolatileContextProviding {
     }
 }
 
+/// Host-registered team tools (for example agent-to-agent messaging). The
+/// runtime keeps the existing tool catalog untouched; a registered handler is
+/// consulted only for names the catalog does not advertise, after the normal
+/// identity registration and authorization path.
+public protocol BotTeamToolHandling: Sendable {
+    func handles(_ toolName: String) -> Bool
+    func execute(name: String, arguments: BotJSONValue,
+                 principal: BotGatewayPrincipal,
+                 context: BotMCPRequestContext) async -> BotMCPCallResult
+}
+
+/// Optional team-handler hook that supplies the roster-aware tool catalog.
+/// The runtime uses it for the MCP `tools/list` response once a caller is
+/// identified, so registering the team tools is enough for the App to get a
+/// per-caller catalog without additional wiring. Returning `nil` keeps the
+/// static catalog for that request.
+public protocol BotTeamToolCatalogProviding: Sendable {
+    func toolDefinitions(callerBotID: String?) async -> [BotMCPToolDefinition]?
+}
+
 public protocol BotTaskExecuting: Actor {
     func start(request: BotTaskRequest) async throws -> BotTaskRecord
     func await(taskId: String, timeoutMs: Int, parent: BotResolvedToolCall) async throws -> BotTaskRecord

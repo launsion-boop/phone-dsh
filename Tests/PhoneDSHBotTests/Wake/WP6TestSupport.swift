@@ -16,9 +16,7 @@ func wp6RepoRoot() throws -> URL {
 }
 
 func wp6Golden(_ name: String) throws -> [String: Any] {
-    let url = try wp6RepoRoot().appendingPathComponent("spec/bot/v1/golden/\(name).json")
-    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
-    return try XCTUnwrap(object as? [String: Any])
+    try BotGoldenFixture.mergedObject(name)
 }
 
 func wp6Encode<T: Encodable>(_ value: T) throws -> Data {

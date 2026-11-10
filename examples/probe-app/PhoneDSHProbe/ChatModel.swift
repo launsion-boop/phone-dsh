@@ -361,6 +361,9 @@ final class ChatModel {
     private(set) var goal: HarnessGoal?
     private(set) var busy = false
     private(set) var turnRunning = false
+    /// Any Bot page turn (selected or a team/routine delivery) participates in
+    /// the same background keep-alive decision as the DSH turn.
+    private(set) var botTurnsRunning = false
     /// Bumped on every turn boundary. The composer queue re-reads the durable
     /// inbox from this even when `turnRunning` flips false→true between two
     /// observations and no intermediate render is guaranteed.
@@ -1034,10 +1037,38 @@ final class ChatModel {
         do {
             try await composition.start(host: host)
             botRuntimeState = composition.state
+            startBotTurnPolling()
         } catch {
             botRuntimeState = composition.state
             reportError("Bot 大脑连接失败：\(error.localizedDescription)")
         }
+    }
+
+    /// Observes the roster's live running flag. The Bot page and the DSH page
+    /// live in one process, so the silent audio session must not stop while
+    /// any Bot is still working. This is event-driven: the composition tick
+    /// only calls back when `anyBotRunning` actually changes, so an idle Bot
+    /// roster never wakes ChatModel on a timer.
+    private func startBotTurnPolling() {
+        guard let roster = botRuntime?.rosterModel else { return }
+        roster.onAnyBotRunningChange = { [weak self] running in
+            Task { @MainActor [weak self] in self?.applyBotTurnsRunning(running) }
+        }
+        applyBotTurnsRunning(roster.anyBotRunning)
+    }
+
+    private func applyBotTurnsRunning(_ running: Bool) {
+        guard running != botTurnsRunning else { return }
+        botTurnsRunning = running
+        syncIdleTimer()
+        if !running, !turnRunning, keepingAlive {
+            Task { await self.finishBackgroundKeepAlive() }
+        }
+    }
+
+    private func stopBotTurnPolling() {
+        botRuntime?.rosterModel.onAnyBotRunningChange = nil
+        botTurnsRunning = false
     }
 
     /// Boots the host and adopts the persisted session. Launching and sending
@@ -1839,6 +1870,7 @@ final class ChatModel {
         cancelBackoffRetry()
         cancelSessionReload()
         guard let host else {
+            stopBotTurnPolling()
             await botLaunch?.composition.stop()
             if let composition = botLaunch?.composition {
                 botRuntimeState = composition.state
@@ -1858,6 +1890,7 @@ final class ChatModel {
         transcriptReady = false
         pendingPermission = nil; pendingQuestion = nil
         availableAccessModes = []; currentAccessMode = nil; accessModeError = nil; accessModeLoading = false
+        stopBotTurnPolling()
         await botLaunch?.composition.stop()
         if let composition = botLaunch?.composition {
             botRuntimeState = composition.state
@@ -1939,7 +1972,7 @@ final class ChatModel {
             beginBackgroundTask()
             // A running turn is kept alive (the user's task continues); an idle
             // host is parked as before, which costs no battery.
-            if backgroundKeepAlive && turnRunning {
+            if backgroundKeepAlive && (turnRunning || botTurnsRunning) {
                 keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
                 do {
                     try keepAlive.start()
@@ -2100,7 +2133,7 @@ final class ChatModel {
     /// The turn finished while the app was hidden: release the audio session
     /// and park the idle host so the keep-alive never outlives the work.
     private func finishBackgroundKeepAlive() async {
-        guard keepingAlive, let host else { return }
+        guard keepingAlive, !turnRunning, !botTurnsRunning, let host else { return }
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false
@@ -2152,7 +2185,7 @@ final class ChatModel {
     /// Keeps the screen on while a turn runs so auto-lock does not park the
     /// host in the middle of a long task.
     private func syncIdleTimer() {
-        UIApplication.shared.isIdleTimerDisabled = turnRunning && host != nil
+        UIApplication.shared.isIdleTimerDisabled = (turnRunning || botTurnsRunning) && host != nil
     }
 
     private func observeHost(_ host: PhoneDSHHost) {
@@ -2942,7 +2975,9 @@ final class ChatModel {
         syncIdleTimer()
         persistTranscriptSnapshot()
         scheduleNativeMetricsRefresh()
-        if !turnRunning, keepingAlive { Task { await self.finishBackgroundKeepAlive() } }
+        if !turnRunning, !botTurnsRunning, keepingAlive {
+            Task { await self.finishBackgroundKeepAlive() }
+        }
         return history.after
     }
 
@@ -3159,7 +3194,7 @@ final class ChatModel {
             }
             refreshFiles()
             Task { await self.refreshGoal() }
-            if keepingAlive { Task { await self.finishBackgroundKeepAlive() } }
+            if keepingAlive, !botTurnsRunning { Task { await self.finishBackgroundKeepAlive() } }
         case .progress(let phase, let step, let total):
             if phase == "step" { activeStep = step }
             statusLine = "\(phase) step \(step)\(total.map { " of \($0)" } ?? "")"

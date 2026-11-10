@@ -21,10 +21,14 @@ enum BotFishBenchmark {
         let state: BotFishLifecycle
         let displayScale: CGFloat
         let frames: Int
+        var crowned = false
+        var reaction: BotFishReaction?
     }
 
-    static let framesPerConfiguration = 300
+    static let framesPerConfiguration = 3000
 
+    /// The regression set compared with `origin/main` (32/96pt idle and
+    /// working) plus the two main-Bot crown sizes.
     static func configurations(frames: Int = framesPerConfiguration) -> [Configuration] {
         [
             Configuration(name: "32pt-idle", size: 32, state: .idle,
@@ -35,12 +39,39 @@ enum BotFishBenchmark {
                           displayScale: 3, frames: frames),
             Configuration(name: "96pt-working", size: 96, state: .working,
                           displayScale: 3, frames: frames),
+            Configuration(name: "32pt-crowned-working", size: 32, state: .working,
+                          displayScale: 3, frames: frames, crowned: true),
+            Configuration(name: "96pt-crowned-idle", size: 96, state: .idle,
+                          displayScale: 3, frames: frames, crowned: true),
+        ]
+    }
+
+    /// One-shot reactions are measured over their own playback window instead
+    /// of the full 300-frame lifecycle run: the first measured frame starts the
+    /// reaction, the rest re-use the same id exactly like a real view.
+    static func reactionConfigurations(frames: Int = framesPerConfiguration) -> [Configuration] {
+        func make(_ name: String, size: CGFloat, kind: BotFishReactionKind,
+                  frames: Int, duration: Int64) -> Configuration {
+            let reaction = BotFishReaction(
+                id: "bench-\(name)", kind: kind, name: name,
+                startedAt: 0, durationMs: duration)
+            return Configuration(name: "\(Int(size))pt-\(name)", size: size, state: .idle,
+                                 displayScale: 3, frames: frames, reaction: reaction)
+        }
+        let actionFrames = min(frames, 48)
+        let expressionFrames = min(frames, 120)
+        return [
+            make("waving", size: 32, kind: .action, frames: actionFrames, duration: 1_600),
+            make("waving", size: 96, kind: .action, frames: actionFrames, duration: 1_600),
+            make("happy", size: 32, kind: .expression, frames: expressionFrames, duration: 4_000),
+            make("happy", size: 96, kind: .expression, frames: expressionFrames, duration: 4_000),
         ]
     }
 
     static func runAll(frames: Int = framesPerConfiguration) -> [String: Any] {
         var results: [[String: Any]] = []
-        for configuration in configurations(frames: frames) {
+        for configuration in configurations(frames: frames)
+            + reactionConfigurations(frames: frames) {
             results.append(run(configuration))
         }
         let arguments = ProcessInfo.processInfo.arguments
@@ -74,7 +105,7 @@ enum BotFishBenchmark {
                                state: configuration.state, still: false, reduced: false,
                                size: configuration.size,
                                displayScale: configuration.displayScale,
-                               appearance: .classic)
+                               appearance: .classic, crowned: configuration.crowned)
         }
 
         var renderedFrames = 0
@@ -87,7 +118,9 @@ enum BotFishBenchmark {
                                        state: configuration.state, still: false, reduced: false,
                                        size: configuration.size,
                                        displayScale: configuration.displayScale,
-                                       appearance: .classic)
+                                       appearance: .classic,
+                                       crowned: configuration.crowned,
+                                       reaction: configuration.reaction)
             renderTime += CACurrentMediaTime() - frameStart
             if image != nil { renderedFrames += 1 }
         }
@@ -98,6 +131,8 @@ enum BotFishBenchmark {
             "sizePt": Double(configuration.size),
             "state": configuration.state.rawValue,
             "displayScale": Double(configuration.displayScale),
+            "crowned": configuration.crowned,
+            "reaction": configuration.reaction?.name ?? "",
             "frames": configuration.frames,
             "renderedFrames": renderedFrames,
             "totalMs": elapsed * 1000,

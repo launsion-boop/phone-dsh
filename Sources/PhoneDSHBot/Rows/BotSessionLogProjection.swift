@@ -364,6 +364,7 @@ public struct BotSessionLogProjector: Sendable {
                 continue
             }
             let supported = ["card.presented", "ui.send_to_user", "ui.notice", "ui.system_event",
+                             "agent.comm",
                              "approval.requested", "approval.decided", "task.created", "task.started", "task.updated",
                              "task.stop_requested", "task.settled", "task.resumed", "conversation.automation_run",
                              "routine.run_started", "routine.run_finished", "bot.greeting_seeded"]
@@ -426,6 +427,20 @@ public struct BotSessionLogProjector: Sendable {
                 let runID = nonEmpty(payload, "runID") ?? nonEmpty(payload, "runId") ?? event.runId
                 if let runID { id = nonEmpty(payload, "id") ?? "e-\(botID)-automation-\(runID)" }
                 body = BotRowBody(type: .automation, additionalProperties: fieldsFrom(payload))
+            } else if event.type == "agent.comm" {
+                let comm = objectValue(payload["agentComm"]) ?? [:]
+                let direction = nonEmpty(comm, "direction") ?? nonEmpty(payload, "direction")
+                role = nonEmpty(payload, "role")
+                    ?? ((direction == "inbound" || direction == "incoming") ? "user" : "assistant")
+                kind = role == "user" ? .message : .sendMessage
+                var fields = fieldsFrom(payload)
+                if fields["agentComm"] == nil, !comm.isEmpty { fields["agentComm"] = .object(comm) }
+                if fields["text"] == nil,
+                   let text = nonEmpty(comm, "message") ?? nonEmpty(comm, "replyText")
+                    ?? nonEmpty(payload, "message") ?? nonEmpty(payload, "replyText") {
+                    fields["text"] = .string(text)
+                }
+                body = BotRowBody(type: .text, additionalProperties: fields)
             } else if event.type == "bot.greeting_seeded" {
                 role = "assistant"
                 var fields = fieldsFrom(payload)
@@ -438,7 +453,9 @@ public struct BotSessionLogProjector: Sendable {
             if body.type == .text {
                 role = role ?? nonEmpty(payload, "role") ?? "assistant"
                 kind = role == "user" ? .message : .sendMessage
-                guard nonEmpty(payload, "text") != nil || nonEmpty(payload, "content") != nil else { continue }
+                guard nonEmpty(body.additionalProperties, "text") != nil
+                        || nonEmpty(body.additionalProperties, "content") != nil
+                        || nonEmpty(body.additionalProperties, "replyText") != nil else { continue }
             }
             let draft = BotRowDraft(id: id, seq: entrySeq(event.time, event.commitSeq ?? 0), kind: kind,
                                     role: role, body: body, provenance: provenance, createdAt: event.time)
