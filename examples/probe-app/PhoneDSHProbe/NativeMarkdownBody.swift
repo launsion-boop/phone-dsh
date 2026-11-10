@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
+import ProbeKit
+import SwiftMath
 import SwiftUI
 import UIKit
-import SwiftMath
 
 struct NativeMarkdownBody: View {
     let markdown: String

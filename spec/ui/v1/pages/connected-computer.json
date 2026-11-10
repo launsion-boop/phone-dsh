@@ -1,0 +1,582 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "ConnectedComputerPage",
+  "pageId": "connected-computer",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "已连接的电脑",
+    "provenance": "ConnectedComputerPage.swift:31",
+    "anchor": ".navigationTitle(\"已连接的电脑\")"
+  },
+  "source": {
+    "file": "ConnectedComputerPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/ConnectedComputerPage.swift",
+    "lines": 171,
+    "structLine": 10,
+    "renderedFrom": [
+      "body",
+      "connectedSection",
+      "row",
+      "securitySection",
+      "actionsSection",
+      "emptySection"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "ConnectedComputerPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "电脑",
+      "title": "电脑",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "电脑名称",
+          "label": "电脑名称",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "record.peerName",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:64",
+          "anchor": "row(\"电脑名称\", record.peerName)",
+          "extraction": "syntax",
+          "template": "row"
+        },
+        {
+          "id": "dsh-版本",
+          "label": "DSH 版本",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "dshVersionText",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:65",
+          "anchor": "row(\"DSH 版本\", dshVersionText)",
+          "extraction": "syntax",
+          "template": "row"
+        },
+        {
+          "id": "在线状态",
+          "label": "在线状态",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:67",
+          "anchor": "Text(\"在线状态\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "custom-70",
+          "label": null,
+          "labelExpr": "Circle",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:70",
+          "anchor": "Circle()",
+          "extraction": "manual",
+          "template": "Circle"
+        },
+        {
+          "id": "text-73",
+          "label": null,
+          "labelExpr": "connectionText",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:73",
+          "anchor": "Text(connectionText)",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-79",
+          "label": null,
+          "labelExpr": "PCLinkWorkspaceText.longOffline",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "models.pcLink.longOffline",
+          "provenance": "ConnectedComputerPage.swift:79",
+          "anchor": "Text(PCLinkWorkspaceText.longOffline)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "ConnectedComputerPage.swift:85",
+      "anchor": "Text(\"电脑\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": null,
+        "labelExpr": "warning.message",
+        "provenance": "ConnectedComputerPage.swift:90",
+        "anchor": "Text(warning.message)"
+      }
+    },
+    {
+      "id": "本机",
+      "title": "本机",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "本机指纹",
+          "label": "本机指纹",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "models.pcLink.ownFingerprint",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:101",
+          "anchor": "row(\"本机指纹\", models.pcLink.ownFingerprint)",
+          "extraction": "syntax",
+          "template": "row"
+        },
+        {
+          "id": "中继",
+          "label": "中继",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "record.relayOrigin",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:102",
+          "anchor": "row(\"中继\", record.relayOrigin)",
+          "extraction": "syntax",
+          "template": "row"
+        },
+        {
+          "id": "配对时间",
+          "label": "配对时间",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "PCLinkWorkspaceText.pairedAtDisplay(record.pairedAt)",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:103",
+          "anchor": "row(\"配对时间\", PCLinkWorkspaceText.pairedAtDisplay(record.pairedAt))",
+          "extraction": "syntax",
+          "template": "row"
+        }
+      ],
+      "provenance": "ConnectedComputerPage.swift:105",
+      "anchor": "Text(\"本机\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "电脑只显示手机名称并要求输入本机指纹批准；指纹不符的配对会被作废。",
+        "labelExpr": null,
+        "provenance": "ConnectedComputerPage.swift:107",
+        "anchor": "Text(\"电脑只显示手机名称并要求输入本机指纹批准；指纹不符的配对会被作废。\")"
+      }
+    },
+    {
+      "id": "section-112",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "配对新电脑",
+          "label": "配对新电脑",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:113",
+          "anchor": "Button(\"配对新电脑\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "解除配对",
+          "label": "解除配对",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:117",
+          "anchor": "Button(\"解除配对\", role: .destructive) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ConnectedComputerPage.swift:112",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "配对新电脑",
+        "provenance": "ConnectedComputerPage.swift:113"
+      }
+    },
+    {
+      "id": "section-125",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "还没有连接电脑",
+          "label": "还没有连接电脑",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:127",
+          "anchor": "Text(\"还没有连接电脑\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "在电脑上运行-pclink-pair-打开配对-然后用这台手机扫码或粘贴配对链接",
+          "label": "在电脑上运行 pclink pair 打开配对，然后用这台手机扫码或粘贴配对链接。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:129",
+          "anchor": "Text(\"在电脑上运行 pclink pair 打开配对，然后用这台手机扫码或粘贴配对链接。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "连接电脑",
+          "label": "连接电脑",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "ConnectedComputerPage.swift:133",
+          "anchor": "Button(\"连接电脑\") { showPairing = true }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "ConnectedComputerPage.swift:125",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "连接电脑",
+        "provenance": "ConnectedComputerPage.swift:133"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "配对新电脑",
+      "label": "配对新电脑",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showAlreadyPaired = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:113",
+      "anchor": "Button(\"配对新电脑\") {",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "alert-48"
+    },
+    {
+      "id": "解除配对",
+      "label": "解除配对",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmUnpair = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:117",
+      "anchor": "Button(\"解除配对\", role: .destructive) {",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "alert-37"
+    },
+    {
+      "id": "连接电脑",
+      "label": "连接电脑",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showPairing = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:133",
+      "anchor": "Button(\"连接电脑\") { showPairing = true }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-34"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:38",
+      "anchor": "Button(\"取消\", role: .cancel) {}",
+      "extraction": "syntax"
+    },
+    {
+      "id": "解除配对",
+      "label": "解除配对",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ Task { do { try await models.pcLink.unpair() } catch { unpairError = error.localizedDescription } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:39",
+      "anchor": "Button(\"解除配对\", role: .destructive) {",
+      "extraction": "syntax",
+      "presents": "alert-54"
+    },
+    {
+      "id": "知道了",
+      "label": "知道了",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:49",
+      "anchor": "Button(\"知道了\", role: .cancel) {}",
+      "extraction": "syntax"
+    },
+    {
+      "id": "解除当前配对",
+      "label": "解除当前配对",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ confirmUnpair = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:50",
+      "anchor": "Button(\"解除当前配对\") { confirmUnpair = true }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "知道了",
+      "label": "知道了",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ unpairError = nil",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "ConnectedComputerPage.swift:56",
+      "anchor": "Button(\"知道了\", role: .cancel) { unpairError = nil }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-34",
+      "kind": "sheet",
+      "title": null,
+      "destination": "PCPairingPage",
+      "triggerBindings": [
+        "showPairing"
+      ],
+      "span": [
+        34,
+        36
+      ],
+      "provenance": "ConnectedComputerPage.swift:34",
+      "anchor": ".sheet(isPresented: $showPairing) {",
+      "triggered": true
+    },
+    {
+      "id": "alert-37",
+      "kind": "alert",
+      "title": "解除配对？",
+      "destination": null,
+      "triggerBindings": [
+        "confirmUnpair"
+      ],
+      "span": [
+        37,
+        45
+      ],
+      "provenance": "ConnectedComputerPage.swift:37",
+      "anchor": ".alert(\"解除配对？\", isPresented: $confirmUnpair) {",
+      "triggered": true
+    },
+    {
+      "id": "alert-48",
+      "kind": "alert",
+      "title": "这台手机已经配对了一台电脑",
+      "destination": null,
+      "triggerBindings": [
+        "showAlreadyPaired"
+      ],
+      "span": [
+        48,
+        51
+      ],
+      "provenance": "ConnectedComputerPage.swift:48",
+      "anchor": ".alert(\"这台手机已经配对了一台电脑\", isPresented: $showAlreadyPaired) {",
+      "triggered": true
+    },
+    {
+      "id": "alert-54",
+      "kind": "alert",
+      "title": "解除没有完成",
+      "destination": null,
+      "triggerBindings": [
+        "unpairError"
+      ],
+      "span": [
+        54,
+        57
+      ],
+      "provenance": "ConnectedComputerPage.swift:54",
+      "anchor": ".alert(\"解除没有完成\", isPresented: Binding(",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "解除没有完成",
+          "when": null,
+          "provenance": "ConnectedComputerPage.swift:54",
+          "anchor": ".alert(\"解除没有完成\", isPresented: Binding("
+        },
+        {
+          "renders": "还没有连接电脑",
+          "when": null,
+          "provenance": "ConnectedComputerPage.swift:127",
+          "anchor": "Text(\"还没有连接电脑\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "电脑 | 本机 | untitled section at 112 | untitled section at 125",
+          "when": null,
+          "provenance": "ConnectedComputerPage.swift:10",
+          "anchor": "struct ConnectedComputerPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [
+        {
+          "renders": "—",
+          "when": null,
+          "provenance": "ConnectedComputerPage.swift:148",
+          "anchor": "Text(value.isEmpty ? \"—\" : value)"
+        }
+      ],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 1,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 4,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 4,
+    "warnings": []
+  }
+}

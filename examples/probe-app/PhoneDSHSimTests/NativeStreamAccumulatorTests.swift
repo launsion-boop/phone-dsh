@@ -3,6 +3,7 @@
 // S1-C.1: draining coalesced streamed text at any cadence must produce exactly
 // the transcript that applying every delta one by one would produce.
 
+import ProbeKit
 import XCTest
 
 final class NativeStreamAccumulatorTests: XCTestCase {

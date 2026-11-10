@@ -22,10 +22,18 @@ import PhoneDSHVenus
 struct PhoneDSHProbeApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = AppModel()
+    @State private var workspaceModels = WorkspaceModels.shared
     @State private var preferences = NativeChatPreferences.shared
 
     init() {
+        // P18/D2: copy legacy bare-sessionID stores into the phone scope once.
+        // The old keys stay readable so a rollback still finds the pre-D2 data.
+        WorkspaceStorageMigration.runIfNeeded()
         #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["PDSH_APPEARANCE"],
+           let value = NativeAppearance(rawValue: raw) {
+            NativeChatPreferences.shared.setAppearance(value)
+        }
         Self.seedProviderFromEnvironment()
         Self.seedVisionFromFile()
         #endif
@@ -39,6 +47,7 @@ struct PhoneDSHProbeApp: App {
                 // turns the page background black under a light layout.
                 .preferredColorScheme(preferences.appearance.colorScheme)
                 .environment(model)
+                .environment(\.workspaceModels, workspaceModels)
                 // Single scene-phase observer. Chat keep-alive / park / resume
                 // and the background-matrix runner each receive the phase once.
                 // RootView and ChatPage do not observe scene phase.
@@ -53,6 +62,12 @@ struct PhoneDSHProbeApp: App {
                             newPhase,
                             chat: { phase in
                                 await ChatModel.shared.scenePhaseChanged(phase)
+                                // The PC backend is a separate ChatModel; the
+                                // foreground must also wake PCLinkClient and
+                                // refill the follow stream.
+                                if phase == .active {
+                                    await workspaceModels.scenePhaseChanged(true)
+                                }
                             },
                             backgroundMatrix: { phase in
                                 await model.scenePhaseChanged(phase)
@@ -70,7 +85,16 @@ struct PhoneDSHProbeApp: App {
                     // The user's own boards: connected once means trusted, and they reconnect by themselves.
                     BLEDeviceStore.shared.trustConnectedDevices = true
                     BLEDeviceStore.shared.reconnectRemembered()
-                    await ChatModel.shared.start()
+                    await workspaceModels.startAtLaunch()
+                    #if DEBUG
+                    PCLinkDebugAutomation.shared.start(models: workspaceModels)
+                    #endif
+                    // Boot the phone engine only for the phone segment; the
+                    // PC workspace starts its relay connection instead and the
+                    // phone starts lazily when the user switches back.
+                    if workspaceModels.isPhoneSelected {
+                        await ChatModel.shared.start()
+                    }
                 }
                 #if DEBUG
                 .task { await Self.bleAutoconnect() }

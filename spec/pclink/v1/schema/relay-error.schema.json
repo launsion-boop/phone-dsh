@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 relay.error",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "code"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "type": {
+      "const": "relay.error"
+    },
+    "code": {
+      "enum": [
+        "unavailable",
+        "unpaired",
+        "auth_failed",
+        "replaced",
+        "session_expired",
+        "replay",
+        "bad_frame",
+        "frame_too_large",
+        "rate_limited",
+        "version_unsupported",
+        "rendezvous_expired",
+        "rendezvous_exhausted"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 0,
+      "maxLength": 2048
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+    },
+    "streamId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+    },
+    "sid": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "retryAfterMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 86400000
+    }
+  }
+}

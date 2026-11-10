@@ -894,12 +894,32 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
 
     private func remoteSessionCwd(_ sessionId: String) async -> String? {
         do {
-            let list = try await transport.call("session/list", args: .object([:]))
+            // DSH 0.2.2-rc.1's gateway requires the reserved `_request` member
+            // for `session/list` (assertExactArguments); a bare `{}` is
+            // arguments-invalid and used to be swallowed here.
+            let list = try await transport.call("session/list", args: .object(["_request": .object([:])]))
             for item in list["items"]?.arrayValue ?? [] where item["sessionId"]?.stringValue == sessionId {
                 return item["cwd"]?.stringValue
             }
-        } catch {}
+        } catch {
+            await recordDiagnostic(
+                "session/list cwd lookup failed for \(sessionId): \(error)", sessionId: sessionId)
+        }
         return nil
+    }
+
+    /// Diagnostics go to the Bot journal's ephemeral `runtime.stderr` buffer,
+    /// the same event writer this runtime already uses; no durable event,
+    /// schema, or wire field is introduced.
+    private func recordDiagnostic(_ message: String, sessionId: String) async {
+        let principal = BotGatewayPrincipal(
+            botId: botId, sessionId: sessionId, kind: .chat, expiresAt: Int64.max)
+        _ = try? await runtime.eventWriter.append(
+            type: "runtime.stderr", principal: principal,
+            data: .object([
+                "source": .string("BotDSHRemoteRuntime.remoteSessionCwd"),
+                "message": .string(message),
+            ]))
     }
 
     private func isSessionCwdConflict(_ error: Error) -> Bool {

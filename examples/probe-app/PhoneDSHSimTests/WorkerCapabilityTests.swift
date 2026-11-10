@@ -142,14 +142,14 @@ final class PhoneDSHWorkerCapabilityTests: XCTestCase {
                 args: .object(["request": .object(["sessionId": .string(session.id)])]))
             let projectedPresetBefore = projection["values"]?["agentPreset"]?.stringValue ?? ""
             try await simWait(timeout: 30, label: "session/list has the created Session projection") {
-                let list = try await transport.call("session/list", args: .object([:]))
+                let list = try await transport.call("session/list", args: .object(["_request": .object([:])]))
                 guard let row = (list["items"]?.arrayValue ?? []).first(where: {
                     $0["sessionId"]?.stringValue == session.id
                 }) else { return false }
                 return row["cwd"]?.stringValue == "/dsh/workspace"
                     && row["projections"]?["values"]?["agentPreset"]?.stringValue == "standard"
             }
-            let list = try await transport.call("session/list", args: .object([:]))
+            let list = try await transport.call("session/list", args: .object(["_request": .object([:])]))
             let listedSession = (list["items"]?.arrayValue ?? []).first {
                 $0["sessionId"]?.stringValue == session.id
             }

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 admin.json (CLI to plugin loopback carrier)",
+  "type": "object",
+  "required": [
+    "v",
+    "port",
+    "token"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 49152,
+      "maximum": 65535
+    },
+    "token": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

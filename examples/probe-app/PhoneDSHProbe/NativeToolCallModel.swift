@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+import ProbeKit
 import Foundation
 import PhoneDSHAgentCore
 import ProbeKit

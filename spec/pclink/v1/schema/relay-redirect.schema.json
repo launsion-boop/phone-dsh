@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 relay.redirect (reserved)",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "url"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "type": {
+      "const": "relay.redirect"
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+    }
+  }
+}

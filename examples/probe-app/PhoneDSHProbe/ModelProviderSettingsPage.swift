@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: model-provider settings belong to the phone backend in v1
+// (plan v2 §6.1); they are not a PC workspace setting.
 // phone-dsh phone DSH — native model/API provider configuration.
 //
 // The profile list and every edit are backed by PhoneModelProviderSettings:
@@ -72,6 +74,7 @@ struct ModelProviderSettingsPage: View {
         .homeGroupedList()
         .navigationTitle(NativeText("模型服务", "Model Providers"))
         .navigationBarTitleDisplayMode(.inline)
+        .phoneOwnedSettingsNotice()
         .task { reload() }
         .onChange(of: hostRunning) { _, _ in reload() }
         .sheet(item: $editorSheet, onDismiss: {

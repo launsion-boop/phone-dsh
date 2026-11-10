@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Calm, provenance-preserving presentation for injected DSH context.
 
+import ProbeKit
 import SwiftUI
 import UIKit
 
