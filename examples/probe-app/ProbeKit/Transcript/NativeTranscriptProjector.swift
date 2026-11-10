@@ -228,6 +228,7 @@ public enum NativeTranscriptProjector {
             accepted.attachments = echo.attachments
         }
         for index in matches.dropFirst().reversed() { items.remove(at: index) }
+        accepted.bumpRenderRevision()
         items[first] = accepted
     }
 
@@ -334,20 +335,16 @@ public enum NativeTranscriptProjector {
         return parts.joined(separator: "\n")
     }
 
+    /// Cached line-count diff. Small inputs still use the original LCS table;
+    /// anything above 300 lines on either side is counted without allocating
+    /// the O(m×n) table (the 5000×5000 edit used to need ~200 MB).
+    static func lineCounts(old: String?, new: String) -> (added: Int, deleted: Int) {
+        let counts = NativeDiffLineCountsCache.shared.counts(old: old, new: new)
+        return (counts.added, counts.deleted)
+    }
+
     private static func nativeLineCounts(old: String?, new: String) -> (added: Int, deleted: Int) {
-        let oldLines = (old ?? "").components(separatedBy: .newlines)
-        let newLines = new.components(separatedBy: .newlines)
-        var table = Array(repeating: Array(repeating: 0, count: newLines.count + 1), count: oldLines.count + 1)
-        if oldLines.count > 0, newLines.count > 0 {
-            for i in stride(from: oldLines.count - 1, through: 0, by: -1) {
-                for j in stride(from: newLines.count - 1, through: 0, by: -1) {
-                    table[i][j] = oldLines[i] == newLines[j]
-                        ? table[i + 1][j + 1] + 1 : max(table[i + 1][j], table[i][j + 1])
-                }
-            }
-        }
-        let common = table[0][0]
-        return (newLines.count - common, oldLines.count - common)
+        lineCounts(old: old, new: new)
     }
 }
 

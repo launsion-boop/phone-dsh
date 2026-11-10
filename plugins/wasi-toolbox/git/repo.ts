@@ -101,6 +101,12 @@ export interface Repository {
   readonly odb: ObjectDatabase
   /** Absolute index path (`GIT_INDEX_FILE` overrides). */
   readonly indexPath: string
+  /**
+   * Commits named by `.git/shallow`: they are history roots. Every traversal
+   * goes through {@link readCommit}, which grafts their parents away, so a
+   * shallow clone's missing ancestors never surface as failures.
+   */
+  readonly shallow: ReadonlySet<string>
 }
 
 /** Read a text file, returning undefined when it is missing. */
@@ -153,7 +159,44 @@ export function gitPath(repo: Pick<Repository, 'gitDir' | 'commonDir'>, name: st
   const shared = name === 'objects' || name.startsWith('objects/') || name === 'packed-refs'
     || name === 'refs' || name.startsWith('refs/') || name === 'info/exclude'
     || name === 'info/refs' || name === 'config' || name === 'hooks' || name.startsWith('hooks/')
+    || name === 'shallow'
   return `${shared ? repo.commonDir : repo.gitDir}/${name}`
+}
+
+/** Path of the shallow boundary list (shared through the common dir). */
+export function shallowPath(commonDir: string): string {
+  return `${commonDir}/shallow`
+}
+
+/** Read `.git/shallow`: one 40-hex commit id per line, absent when full. */
+export async function readShallow(fs: GitFs, commonDir: string): Promise<ReadonlySet<string>> {
+  let text: string
+  try {
+    text = decodeText(await fs.readFile(shallowPath(commonDir)))
+  } catch (error) {
+    if (isErrno(error, 'ENOENT', 'ENOTDIR')) return new Set()
+    throw error
+  }
+  const shallow = new Set<string>()
+  for (const line of text.split('\n')) {
+    const value = line.trim().toLowerCase()
+    if (/^[0-9a-f]{40}$/.test(value)) shallow.add(value)
+  }
+  return shallow
+}
+
+/** Write `.git/shallow`, deleting the file when no boundary remains. */
+export async function writeShallow(fs: GitFs, commonDir: string, shallow: ReadonlySet<string>): Promise<void> {
+  if (shallow.size === 0) {
+    try {
+      await fs.rm(shallowPath(commonDir))
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT', 'ENOTDIR')) throw error
+    }
+    return
+  }
+  const sorted = [...shallow].sort()
+  await fs.writeFile(shallowPath(commonDir), `${sorted.join('\n')}\n`)
 }
 
 /**
@@ -222,6 +265,7 @@ export async function discoverRepository(
   const indexPath = env.GIT_INDEX_FILE !== undefined && env.GIT_INDEX_FILE !== ''
     ? resolvePath(cwd, env.GIT_INDEX_FILE)
     : `${gitDir}/index`
+  const shallow = await readShallow(fs, commonDir)
   return {
     fs,
     cwd: resolvePath(cwd, '.'),
@@ -233,6 +277,7 @@ export async function discoverRepository(
     env: { ...env },
     odb: new ObjectDatabase(fs, { primary: objectDirectory, alternates }),
     indexPath,
+    shallow,
   }
 }
 
@@ -452,7 +497,14 @@ export async function deleteBranch(repository: Repository, name: string): Promis
 export interface CommitInfo {
   readonly oid: string
   readonly tree: string
+  /** Parents revision traversal may walk (empty at a shallow boundary). */
   readonly parents: readonly string[]
+  /**
+   * Parents exactly as the commit object records them. `--pretty=raw` prints
+   * these even for a shallow boundary, as git does; `%P` and every walk use
+   * the grafted {@link parents}.
+   */
+  readonly rawParents: readonly string[]
   readonly author: Signature
   readonly committer: Signature
   readonly message: string
@@ -466,24 +518,30 @@ export interface Signature {
   readonly timezone: string
 }
 
-/** Parse a commit object. */
-export function parseCommit(oid: string, raw: Uint8Array): CommitInfo {
+/**
+ * Parse a commit object.
+ * @param shallow - commits whose recorded parents must be grafted away.
+ */
+export function parseCommit(oid: string, raw: Uint8Array, shallow: ReadonlySet<string> = new Set()): CommitInfo {
   const text = decodeText(raw)
   const separator = text.indexOf('\n\n')
   const headerText = separator < 0 ? text : text.slice(0, separator)
   const message = separator < 0 ? '' : text.slice(separator + 2)
   let tree = ''
-  const parents: string[] = []
+  const rawParents: string[] = []
   let author: Signature = { name: '', email: '', timestamp: 0, timezone: '+0000' }
   let committer: Signature = author
   for (const line of headerText.split('\n')) {
     if (line.startsWith(' ')) continue
     if (line.startsWith('tree ')) tree = line.slice(5).trim()
-    else if (line.startsWith('parent ')) parents.push(line.slice(7).trim())
+    else if (line.startsWith('parent ')) rawParents.push(line.slice(7).trim())
     else if (line.startsWith('author ')) author = parseSignature(line.slice(7))
     else if (line.startsWith('committer ')) committer = parseSignature(line.slice(10))
   }
-  return { oid, tree, parents, author, committer, message }
+  // `git log` treats a shallow boundary as a root commit: it never walks the
+  // recorded parent, which a partial clone does not have.
+  const parents = shallow.has(oid) ? [] : rawParents
+  return { oid, tree, parents, rawParents, author, committer, message }
 }
 
 /** Parse `Name <email> 1700000000 +0000`. */
@@ -502,7 +560,7 @@ export function parseSignature(text: string): Signature {
 export async function readCommit(repository: Repository, oid: string): Promise<CommitInfo> {
   const object = await repository.odb.read(oid)
   if (object.type !== 'commit') throw fatal(`object ${oid} is a ${object.type}, not a commit`)
-  return parseCommit(oid, object.data)
+  return parseCommit(oid, object.data, repository.shallow)
 }
 
 /** Resolve an abbreviated object id against loose objects and packs. */

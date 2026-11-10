@@ -30,6 +30,15 @@ struct HomeDrawer: View {
     @State private var deleteFolder: ManagedWorkspace?
     @State private var renameText = ""
     @State private var archivedToast = false
+    /// Session order held for as long as the drawer is open. A switch refreshes
+    /// `management.sessions` (newest first); applying that reorder under the
+    /// user's finger would move the row they just tapped. The fresh order is
+    /// adopted on the next open.
+    @State private var sessionOrder: [String] = []
+    /// The row whose switch is in flight. Transient host/read failures during
+    /// that window must not insert the failure row and shift the list; a real
+    /// failure is shown once the switch finishes.
+    @State private var switchingSessionID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,8 +53,9 @@ struct HomeDrawer: View {
                     if showsPCState {
                         PCDrawerStateView(onPair: { showPairing = true })
                     } else {
-                        if let message = management.error ?? chat.userFacingError {
+                        if let message = errorMessage {
                             errorRow(message)
+                                .transition(.opacity)
                         }
                         if Self.foldersEnabled {
                             folderSectionHeader
@@ -56,6 +66,7 @@ struct HomeDrawer: View {
                         folders
                     }
                 }
+                .animation(.easeOut(duration: 0.15), value: errorMessage)
                 .padding(.top, topInset + HomeSpec.navTop)
                 .padding(.bottom, bottomInset + 24)
             }
@@ -78,13 +89,29 @@ struct HomeDrawer: View {
         }
         .task(id: backendTaskID) {
             collapsedFolderIDs = WorkspaceStorage.collapsedWorkspaceIDs(for: currentBackendID)
+            // The held list order belongs to this backend (P18: phone and PC may
+            // carry the same session ID); a backend switch adopts a fresh order.
+            sessionOrder.removeAll()
+            rememberSessionOrder()
             // The unpaired/offline PC segment has no list to read; never call
             // the phone management under a PC header.
             if !showsPCState { await management.refresh() }
+            rememberSessionOrder()
         }
         .sheet(isPresented: $showPairing) {
             NavigationStack { PCPairingPage() }
         }
+        .onChange(of: management.sessions.map(\.id)) { _, _ in rememberSessionOrder() }
+        .onChange(of: management.workspaces) { _, _ in rememberSessionOrder() }
+        .onChange(of: isOpen) { _, open in
+            // Keep the held order through the close animation; a fresh order is
+            // adopted only when the drawer opens again.
+            if open {
+                sessionOrder.removeAll()
+                rememberSessionOrder()
+            }
+        }
+        .onDisappear { sessionOrder.removeAll() }
         .onChange(of: models.pcLink.isOnline) { _, online in
             if online, !showsPCState { Task { await management.refresh() } }
         }
@@ -153,7 +180,9 @@ struct HomeDrawer: View {
     /// The drawer's one filled control: a full-width white capsule with the
     /// "new conversation" glyph centred with its label. When the engine cannot
     /// take a new session, the whole capsule disables and the reason moves
-    /// below it instead of sitting on the row's trailing edge.
+    /// below it instead of sitting on the row's trailing edge. The reason row
+    /// is always laid out at one line's height, so its appearance cannot push
+    /// the folder/session list down.
     private var entriesCard: some View {
         VStack(spacing: 6) {
             Button {
@@ -165,7 +194,7 @@ struct HomeDrawer: View {
                     Text(NativeText("新会话", "New Session"))
                         .font(.system(size: 17, weight: .medium))
                 }
-                .foregroundStyle(newSessionBlocked == nil ? HomeSpec.textPrimary : HomeSpec.textPlaceholder)
+                .foregroundStyle(newSessionDisabled ? HomeSpec.textPlaceholder : HomeSpec.textPrimary)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(HomeSpec.surface, in: Capsule())
@@ -173,20 +202,28 @@ struct HomeDrawer: View {
                 .contentShape(Capsule())
             }
             .buttonStyle(HomeDrawerPillStyle())
-            .disabled(newSessionBlocked != nil)
+            .disabled(newSessionDisabled)
             .accessibilityLabel(NativeText("新会话", "New Session"))
-            if let reason = newSessionBlocked {
-                Text(reason)
-                    .font(.system(size: 13))
-                    .foregroundStyle(HomeSpec.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
+            ZStack {
+                if let reason = newSessionBlocked {
+                    Text(reason)
+                        .font(.system(size: 13))
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: HomeDrawerNewSessionPolicy.reasonLineHeight)
+            .animation(.easeOut(duration: 0.15), value: newSessionBlocked)
         }
         .padding(.horizontal, 16)
     }
 
     /// Why 新会话 is unavailable, in a few words; nil when it can be pressed.
+    /// A session switch's transient `busy` is not a reason: the capsule stays
+    /// disabled for it, but the list must not move for it.
     private var newSessionBlocked: String? {
         if !models.isPhoneSelected {
             switch models.drawerPhase {
@@ -195,11 +232,31 @@ struct HomeDrawer: View {
             case .ready, .phone: break
             }
         }
-        if !chat.isStarted { return NativeText("引擎未启动", "Engine not started") }
-        if chat.busy || chat.turnRunning || chat.keepingAlive {
-            return NativeText("本轮结束后可用", "Available after this turn")
+        return HomeDrawerNewSessionPolicy.reason(
+            isStarted: chat.isStarted,
+            turnRunning: chat.turnRunning,
+            keepingAlive: chat.keepingAlive)?.text
+    }
+
+    private var newSessionDisabled: Bool {
+        if !models.isPhoneSelected {
+            switch models.drawerPhase {
+            case .pair, .offline: return true
+            case .ready, .phone: break
+            }
         }
-        return nil
+        return HomeDrawerNewSessionPolicy.isDisabled(
+            isStarted: chat.isStarted,
+            busy: chat.busy,
+            turnRunning: chat.turnRunning,
+            keepingAlive: chat.keepingAlive)
+    }
+
+    /// A transient failure while the tapped session opens is suppressed until
+    /// the switch settles; the drawer closes on success and shows a real
+    /// failure afterwards.
+    private var errorMessage: String? {
+        switchingSessionID == nil ? management.error ?? chat.userFacingError : nil
     }
 
     private func errorRow(_ message: String) -> some View {
@@ -261,18 +318,29 @@ struct HomeDrawer: View {
     /// belong to the default one (手机工作区 / Phone Workspace). With no default
     /// folder registered yet they still show as that group, never as "unfiled".
     private func sessions(in folder: ManagedWorkspace) -> [ManagedSession] {
+        inHeldOrder(rawSessions(in: folder))
+    }
+
+    /// The host's current order for one folder, before the drawer's held order.
+    private func rawSessions(in folder: ManagedWorkspace) -> [ManagedSession] {
         let own = management.sessions(in: folder)
-        guard folder.id == defaultFolder?.id else { return pinnedFirst(own) }
-        return pinnedFirst(own + management.ungroupedSessions)
+        let combined = folder.id == defaultFolder?.id
+            ? own + management.ungroupedSessions
+            : own
+        return pinnedFirst(combined)
     }
 
     private var defaultFolder: ManagedWorkspace? {
         orderedFolders.first { management.isDefaultWorkspace($0) }
     }
 
+    private var rawLooseSessions: [ManagedSession] {
+        defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+    }
+
     @ViewBuilder
     private var folders: some View {
-        let loose = defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+        let loose = inHeldOrder(rawLooseSessions)
         VStack(alignment: .leading, spacing: 4) {
             if !models.isPhoneSelected, orderedFolders.isEmpty, management.activeSessions.isEmpty {
                 Text("还没有 PC 会话。点上面的「新会话」在电脑上新建一个。")
@@ -378,16 +446,22 @@ struct HomeDrawer: View {
                     .foregroundStyle(HomeSpec.textPrimary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                if session.running {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(HomeSpec.textSecondary)
-                } else {
-                    Text(SessionTime.relative(session.updatedAt))
-                        .font(.system(size: 13))
-                        .foregroundStyle(HomeSpec.textPlaceholder)
-                        .lineLimit(1)
+                Group {
+                    if session.running {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(HomeSpec.textSecondary)
+                    } else {
+                        Text(SessionTime.relative(session.updatedAt))
+                            .font(.system(size: 13))
+                            .foregroundStyle(HomeSpec.textPlaceholder)
+                            .lineLimit(1)
+                    }
                 }
+                // A running spinner and a relative time have different widths;
+                // reserving one trailing slot keeps the title from reflowing
+                // when a row starts or finishes a turn.
+                .frame(width: 64, alignment: .trailing)
             }
             .padding(.leading, 42)
             .padding(.trailing, 12)
@@ -435,6 +509,30 @@ struct HomeDrawer: View {
         }.map(\.element)
     }
 
+    /// Keeps the first-seen order while the drawer is open; sessions that
+    /// appear later are appended after it. `sessions` is newest-first after a
+    /// refresh, so without this hold a switch that bumped the selected
+    /// session's `updatedAt` would reorder the list under the tap.
+    private func inHeldOrder(_ sessions: [ManagedSession]) -> [ManagedSession] {
+        guard !sessionOrder.isEmpty else { return sessions }
+        let rank = Dictionary(uniqueKeysWithValues: sessionOrder.enumerated()
+            .map { ($0.element, $0.offset) })
+        return sessions.enumerated().sorted { lhs, rhs in
+            let left = rank[lhs.element.id] ?? Int.max
+            let right = rank[rhs.element.id] ?? Int.max
+            return left == right ? lhs.offset < rhs.offset : left < right
+        }.map(\.element)
+    }
+
+    private func rememberSessionOrder() {
+        let known = Set(sessionOrder)
+        let displayed = rawLooseSessions.map(\.id)
+            + orderedFolders.flatMap { rawSessions(in: $0).map(\.id) }
+        let additions = displayed.filter { !known.contains($0) }
+        guard !additions.isEmpty else { return }
+        sessionOrder.append(contentsOf: additions)
+    }
+
     private func isExpanded(_ id: String) -> Bool { !collapsedFolderIDs.contains(id) }
 
     private func toggle(_ id: String) {
@@ -444,7 +542,13 @@ struct HomeDrawer: View {
     }
 
     private func open(_ session: ManagedSession) {
-        Task { if await management.select(session) { close() } }
+        guard switchingSessionID == nil else { return }
+        switchingSessionID = session.id
+        Task {
+            let opened = await management.select(session)
+            switchingSessionID = nil
+            if opened { close() }
+        }
     }
 
     /// Archive; when it is the open session the chat page detaches and a

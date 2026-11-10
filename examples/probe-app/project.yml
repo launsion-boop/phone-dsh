@@ -220,7 +220,20 @@ targets:
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
-      # ProbeKit/Transcript; the test targets import ProbeKit instead.
+      # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
+      # the test targets import ProbeKit instead.
+      - path: PhoneDSHProbe/NativeStreamAccumulator.swift
+      - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeLogRedaction.swift
+      - path: PhoneDSHProbe/WorkspaceFileIndex.swift
+      - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
+      - path: PhoneDSHProbe/NativeMarkdownParseCache.swift
+      - path: PhoneDSHProbe/NativeTimelineRow.swift
+      - path: PhoneDSHProbe/NativeTimelineCache.swift
+      - path: PhoneDSHProbe/NativeRowSummaryCache.swift
+      - path: PhoneDSHProbe/NativePlanCard.swift
+      - path: PhoneDSHProbe/NativeTurnProcessRow.swift
+      - path: PhoneDSHProbe/NativeCodeHighlighter.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
       - path: PhoneDSHProbe/NativeToolTitleTable.swift
@@ -233,6 +246,7 @@ targets:
       - path: PhoneDSHProbe/NativeParityTokens.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
+      - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
@@ -327,7 +341,20 @@ targets:
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
       # NativeConversationModels / NativeTranscriptProjector moved into
-      # ProbeKit/Transcript; the test targets import ProbeKit instead.
+      # ProbeKit/Transcript, and the perf helpers into ProbeKit/Perf;
+      # the test targets import ProbeKit instead.
+      - path: PhoneDSHProbe/NativeStreamAccumulator.swift
+      - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeLogRedaction.swift
+      - path: PhoneDSHProbe/WorkspaceFileIndex.swift
+      - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
+      - path: PhoneDSHProbe/NativeMarkdownParseCache.swift
+      - path: PhoneDSHProbe/NativeTimelineRow.swift
+      - path: PhoneDSHProbe/NativeTimelineCache.swift
+      - path: PhoneDSHProbe/NativeRowSummaryCache.swift
+      - path: PhoneDSHProbe/NativePlanCard.swift
+      - path: PhoneDSHProbe/NativeTurnProcessRow.swift
+      - path: PhoneDSHProbe/NativeCodeHighlighter.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
       - path: PhoneDSHProbe/NativeToolTitleTable.swift
@@ -340,6 +367,7 @@ targets:
       - path: PhoneDSHProbe/NativeParityTokens.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
+      - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift

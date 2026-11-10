@@ -7,6 +7,8 @@ struct NativeDisclosureRow<Content: View>: View {
     let icon: NativeChatIcon.Name
     let title: String
     var summary: String = ""
+    /// Small non-blocking badge after the title (e.g. `可能较重`).
+    var hint: String? = nil
     var running = false
     var expandable = true
     var showsSummaryWhenExpanded = false
@@ -39,6 +41,16 @@ struct NativeDisclosureRow<Content: View>: View {
                     Text(title)
                         .font(font)
                         .fixedSize(horizontal: true, vertical: false)
+                    if let hint, !hint.isEmpty {
+                        Text(hint)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(NativeParityTokens.labelTertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(NativeParityTokens.borderL1, in: Capsule())
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityLabel("该操作可能较重")
+                    }
                     if !summary.isEmpty && (showsSummaryWhenExpanded || !expanded) {
                         Circle()
                             .fill(HomeSpec.textPlaceholder)
@@ -71,8 +83,7 @@ struct NativeThinkingRow: View {
     @State private var preferences = NativeChatPreferences.shared
 
     private var summary: String {
-        let raw = item.streaming ? Self.streamingSummary(item.text) : (item.text.components(separatedBy: "\n").first ?? "")
-        return raw.replacingOccurrences(of: "**", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        NativeRowSummaryCache.shared.thinkingSummary(for: item)
     }
 
     static func streamingSummary(_ text: String) -> String {
@@ -89,7 +100,8 @@ struct NativeThinkingRow: View {
     var body: some View {
         NativeDisclosureRow(icon: .think, title: "思考", summary: summary,
                             running: item.streaming, expanded: $expanded) {
-            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text, variant: .compact)
+            NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text, variant: .compact,
+                               cacheItemID: item.id, cacheRevision: item.renderRevision)
                 .padding(.leading, 22)
                 .padding(.vertical, 4)
         }

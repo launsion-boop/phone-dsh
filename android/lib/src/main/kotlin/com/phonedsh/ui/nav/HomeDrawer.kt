@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.nav
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -44,6 +48,7 @@ import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -142,6 +147,32 @@ public fun HomeDrawer(
     val coroutineScope = rememberCoroutineScope()
     val initialFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { initialFocus.requestFocus() } }
+
+    // A switch may make the host reorder its refreshed session list (for
+    // example by touching the opened session's timestamp). Hold the order the
+    // drawer first showed so the row under the finger cannot move; ids that
+    // appear later are appended. The state dies with the drawer, so the next
+    // open adopts the host's fresh order.
+    var heldSessionOrder by remember { mutableStateOf(emptyList<String>()) }
+    val currentSessionIds = remember(facts.folders, facts.unassignedSessions) {
+        (facts.folders.orEmpty().flatMap { folder -> folder.sessions.map { it.id } } +
+            facts.unassignedSessions.orEmpty().map { it.id }).distinct()
+    }
+    val (stableSessionIds, nextHeldSessionOrder) = remember(heldSessionOrder, currentSessionIds) {
+        homeDrawerStableSessionOrder(heldSessionOrder, currentSessionIds)
+    }
+    SideEffect {
+        if (nextHeldSessionOrder != heldSessionOrder) heldSessionOrder = nextHeldSessionOrder
+    }
+    val sessionRank = remember(stableSessionIds) {
+        stableSessionIds.withIndex().associate { (index, id) -> id to index }
+    }
+    val stableFolders = facts.folders?.map { folder ->
+        folder.copy(sessions = homeDrawerSessionsInHeldOrder(folder.sessions, sessionRank))
+    }
+    val stableLoose = facts.unassignedSessions?.let {
+        homeDrawerSessionsInHeldOrder(it, sessionRank)
+    }
 
     LaunchedEffect(isOpen) {
         operationEpoch++
@@ -335,13 +366,13 @@ public fun HomeDrawer(
                             Text(newSessionLabel, style = type.body.copy(fontSize = 17.sp, fontWeight = FontWeight.Medium))
                         }
                     }
-                    if (blockedReason != null) {
-                        Text(
-                            blockedReason,
-                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-                                .testTag(HomeDrawerTags.NEW_SESSION_REASON),
+                    Box(
+                        Modifier.fillMaxWidth().padding(top = 6.dp).height(DRAWER_NEW_SESSION_REASON_HEIGHT),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        NewSessionReasonLine(
+                            reason = blockedReason,
                             style = type.caption.copy(fontSize = 13.sp, color = tokens.colors.textSecondary),
-                            textAlign = TextAlign.Center,
                         )
                     }
                 }
@@ -376,14 +407,14 @@ public fun HomeDrawer(
                     }
                 }
                 Column(Modifier.padding(horizontal = SessionsMetrics.rowInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val folders = facts.folders
+                    val folders = stableFolders
                     if (folders == null) {
                         Text("文件夹列表未知", Modifier.padding(horizontal = HomeMetrics.CONTENT_INSET_PT.dp, vertical = 8.dp), style = type.secondary.copy(color = tokens.colors.textSecondary))
-                    } else if (DRAWER_FOLDERS_ENABLED && folders.isEmpty() && facts.unassignedSessions.isNullOrEmpty()) {
+                    } else if (DRAWER_FOLDERS_ENABLED && folders.isEmpty() && stableLoose.isNullOrEmpty()) {
                         Text("还没有文件夹。点右上角的 + 新建一个，文件夹用于整理会话；文件仍使用工作区。", Modifier.padding(horizontal = HomeMetrics.CONTENT_INSET_PT.dp, vertical = 8.dp), style = type.secondary.copy(color = tokens.colors.textSubtle))
                     }
                     val defaultFolder = folders?.firstOrNull { it.isDefault }
-                    val loose = facts.unassignedSessions
+                    val loose = stableLoose
                     val looseTitle = drawerDefaultFolderTitle(facts.languageId)
                     if (folders == null && loose != null && loose.isNotEmpty()) {
                         FolderGroup("__unknown_folder__", looseTitle, loose, state,
@@ -409,9 +440,12 @@ public fun HomeDrawer(
                         // The iOS drawer renders unassigned rows inside a known
                         // default folder, but ownership remains unassigned in the
                         // host store and is not rewritten by this presentation.
-                        val sessions = if (folder === defaultFolder || folder.id == defaultFolder?.id) {
-                            folder.sessions + (loose ?: emptyList())
-                        } else folder.sessions
+                        val sessions = homeDrawerSessionsInHeldOrder(
+                            if (folder === defaultFolder || folder.id == defaultFolder?.id) {
+                                folder.sessions + (loose ?: emptyList())
+                            } else folder.sessions,
+                            sessionRank,
+                        )
                         val folderIndex = (folders.orEmpty().indexOfFirst { it.id == folder.id } + 1).coerceAtLeast(1)
                         val folderTitle = if (folder.isDefault) {
                             workspaceTitle(folder.title, folderIndex, facts.languageId)
@@ -504,6 +538,10 @@ public fun HomeDrawer(
  */
 internal const val DRAWER_FOLDERS_ENABLED: Boolean = false
 
+/** One 13sp reason line, laid out even when there is no reason to show. */
+private val DRAWER_NEW_SESSION_REASON_HEIGHT = 20.dp
+private const val DRAWER_NEW_SESSION_REASON_FADE_MS = 150
+
 public object HomeDrawerTags {
     public const val PANEL = "home.drawer.panel"
     public const val SCRIM = "home.drawer.scrim"
@@ -584,9 +622,14 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
                 }
                 .testTag(HomeDrawerTags.SESSION_PREFIX + session.id).padding(start = 42.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(session.title?.takeIf { it.isNotBlank() } ?: "新会话", Modifier.weight(1f), style = type.body.copy(color = tokens.colors.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (pendingArchive) CircularProgressIndicator(Modifier.size(14.dp).testTag(HomeDrawerTags.ARCHIVE_PENDING_PREFIX + session.id), strokeWidth = 1.5.dp)
-                else if (session.running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                else session.relativeTime?.let { Text(it, style = type.caption.copy(color = tokens.colors.textPlaceholder), maxLines = 1) }
+                // A running spinner and a relative time have different widths;
+                // reserving one trailing slot keeps the title from reflowing
+                // when a row starts or finishes a turn.
+                Box(Modifier.width(64.dp), contentAlignment = Alignment.CenterEnd) {
+                    if (pendingArchive) CircularProgressIndicator(Modifier.size(14.dp).testTag(HomeDrawerTags.ARCHIVE_PENDING_PREFIX + session.id), strokeWidth = 1.5.dp)
+                    else if (session.running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                    else session.relativeTime?.let { Text(it, style = type.caption.copy(color = tokens.colors.textPlaceholder), maxLines = 1) }
+                }
         // The 240dp popup cap is an approximate viewport guard, not a HomeSpec
         // token or pixel-parity claim; narrow split views and enlarged text may wrap.
         DropdownMenu(menu, { menu = false }, modifier = Modifier.widthIn(max = 240.dp),
@@ -624,6 +667,24 @@ private fun SettingsBar(engine: HomeDrawerEngineState, page: Color, onOpen: (() 
         }, CircleShape))
         Spacer(Modifier.width(6.dp)); Text(engine.label, style = LocalUiType.current.listItem.copy(color = secondary, lineHeight = TextUnit.Unspecified), maxLines = 1)
         Spacer(Modifier.width(8.dp)); PdshIconView(PdshIcon.CHEVRON_RIGHT, 12.dp, muted, null)
+    }
+}
+
+/** The reason line fades in and out inside a fixed-height slot; no reason = no node. */
+@Composable
+private fun NewSessionReasonLine(reason: String?, style: TextStyle) {
+    AnimatedVisibility(
+        visible = reason != null,
+        enter = fadeIn(animationSpec = tween(durationMillis = DRAWER_NEW_SESSION_REASON_FADE_MS)),
+        exit = fadeOut(animationSpec = tween(durationMillis = DRAWER_NEW_SESSION_REASON_FADE_MS)),
+    ) {
+        Text(
+            reason.orEmpty(),
+            modifier = Modifier.fillMaxWidth().testTag(HomeDrawerTags.NEW_SESSION_REASON),
+            style = style,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+        )
     }
 }
 

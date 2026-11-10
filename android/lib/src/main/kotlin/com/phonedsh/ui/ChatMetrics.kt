@@ -92,10 +92,6 @@ public object ChatMetrics {
     /** PR22 has no header hairline: the nav row floats on the page. Source: `ChatPage.swift:384` (`.background(HomeSpec.page)`). Confidence: exact. */
     public const val HEADER_DIVIDER_PT: Float = 0f
 
-    /** Folder glyph-to-label gap. Source: `ChatPage.swift:221`. Confidence: exact. */
-    public const val HOME_HEADER_FOLDER_GAP_PT: Int = 6
-    /** Folder glyph in the HomeSpec session subtitle. Source: `ChatPage.swift:223-224`. Confidence: exact. */
-    public const val HOME_HEADER_FOLDER_ICON_PT: Int = 13
     /** More SF Symbol size and weight are represented by the bold registry vector. Source: `ChatPage.swift:329`. Confidence: exact. */
     public const val CHAT_HEADER_MORE_ICON_PT: Int = 18
     /** Vertical text gap in system-event message rows. Source: `NativeMessageRows.swift:113`. Confidence: exact. */

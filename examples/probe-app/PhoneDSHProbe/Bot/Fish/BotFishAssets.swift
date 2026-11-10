@@ -197,24 +197,24 @@ final class BotFishAssets {
     }
 
     /// Returns the LUT-tinted body at the nearest display-size bucket. The
-    /// returned bitmap is in the 512px source space, so callers keep the
-    /// upstream coordinates and only the (hairstyle, colour, size)
-    /// rasterisation is shared process-wide.
+    /// bitmap is in the 512px source space and is shared process-wide; the
+    /// renderer scales the circle crop to its output pixels once per
+    /// `(hairstyle, colour, size)` through `BotFishImageCache`.
     func bodyLayer(hairstyle: BotFishHairstyle, palette: BotFishPalette,
-                   pixelSide: CGFloat) -> UIImage? {
+                   pixelSide: CGFloat) -> CGImage? {
         guard let layers = layers(for: hairstyle) else { return nil }
         let fullSourceSide = max(1, pixelSide * BotFishRenderer.size / BotFishRenderer.cropSide)
         let bucket = Self.sizeBucket(for: fullSourceSide)
         let key = "\(hairstyle.rawValue):\(palette.id)@\(bucket)"
         tintedBodyLock.lock()
         defer { tintedBodyLock.unlock() }
-        if let cached = tintedBodies[key] { return cached }
+        if let cached = tintedBodies[key] { return cached.cgImage }
         guard let image = Self.tintBody(layers.lumaBody, palette: palette,
                                         width: bucket, height: bucket) else {
             return nil
         }
         tintedBodies[key] = image
-        return image
+        return image.cgImage
     }
 
     private static func sizeBucket(for pixelSide: CGFloat) -> Int {

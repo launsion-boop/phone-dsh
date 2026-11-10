@@ -128,9 +128,6 @@ struct ChatPage: View {
     @State private var isSelectingAccessMode = false
     @State private var attachmentError: String?
     @State private var nearBottom = true
-    /// Measured transcript height; the scroll helpers use it to refuse a
-    /// scroll into empty space.
-    @State private var transcriptContentHeight: CGFloat = 0
     /// Set when a session opens; the next transcript layout jumps to the tail
     /// without animation so history loading never leaves the view at the top.
     @State private var pendingInitialScroll = false
@@ -140,10 +137,14 @@ struct ChatPage: View {
     /// never means the person scrolled away. iOS 18+ reports it.
     @State private var userScrolling = false
     @State private var tracksScrollPhase = false
-    /// Last measured tail offset, kept outside `@State`: it changes on every
-    /// scroll frame and only feeds the diagnostic line, so it must not
-    /// invalidate the transcript view.
-    private let scrollTrace = ScrollTraceBox()
+    /// Last measured tail offset and content height, kept outside `@State`:
+    /// they change on every scroll frame and only feed scroll decisions and the
+    /// diagnostic line, so they must not invalidate the transcript view.
+    @State private var scrollTrace = ScrollTraceBox()
+    /// Cached transcript rows/facts keyed by the items revision. A reference
+    /// box in `@State` so the cache survives view reconstruction without
+    /// publishing updates while the body reads it.
+    @State private var timelineCache = NativeTimelineCache()
     @State private var lastScrollTrace = Date.distantPast
     @State private var pasteLimitNoticed = false
     @State private var stopping = false
@@ -152,6 +153,20 @@ struct ChatPage: View {
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
     @State private var loadingEarlierTranscript = false
+    /// The red banner's reason signature the person chose to continue past.
+    /// A changed reason set shows the banner again (S1-D.1).
+    @State private var dismissedRedReasons: String?
+
+    /// The App-layer resource band (display only; host policy is separate).
+    private var resourceLevel: ResourceLevel { model.resourceMeter.level }
+    private var resourceReasons: [ResourceReasonHit] { model.resourceMeter.reasons }
+    private var showsResourceBanners: Bool { model.turnRunning && model.resourceMeter.isTurnActive }
+    /// A red banner is dismissed for this turn only while its reasons are
+    /// unchanged; a new reason reopens it.
+    private var redResourceSignature: String {
+        resourceReasons.filter { $0.level == .red }
+            .map { $0.reason.rawValue }.sorted().joined(separator: ",")
+    }
 
     private var providerNeedsKey: Bool {
         guard let profile = (try? PhoneModelProviderSettings.shared.load())?.selected else { return true }
@@ -168,12 +183,37 @@ struct ChatPage: View {
         }
         return title
     }
-    private var visibleItems: [ChatItem] {
+    /// The raw transcript input. The timeline cache filters `.status`, folds
+    /// and groups it once per revision; every body pass then reads the cached
+    /// snapshot.
+    private var timelineSourceItems: [ChatItem] {
         #if DEBUG
         if let previewItems { return previewItems }
         #endif
-        return model.items.filter { $0.kind != .status }
+        return model.items
     }
+    private var timelineSourceRevision: Int {
+        #if DEBUG
+        if let previewItems {
+            var hash = previewItems.count
+            for item in previewItems {
+                hash = hash &* 31 &+ item.id.hashValue &+ item.renderRevision &+ item.text.utf8.count
+            }
+            return hash
+        }
+        #endif
+        return model.itemsRevision
+    }
+    private var timelineSnapshot: NativeTimelineSnapshot {
+        timelineCache.snapshot(items: timelineSourceItems,
+                               itemsRevision: timelineSourceRevision,
+                               foldedTurns: foldedTurns,
+                               endReasons: model.turnEndReasons,
+                               startTimes: model.turnStartTimes,
+                               endTimes: model.turnEndTimes)
+    }
+    private var visibleItems: [ChatItem] { timelineSnapshot.visibleItems }
+    private var timelineRows: [NativeTranscriptRow] { timelineSnapshot.rows }
     /// A running turn or a live subagent/background job puts a small spinner
     /// on the consolidated settings button.
     private var headerActivityRunning: Bool {
@@ -200,9 +240,7 @@ struct ChatPage: View {
         }
     }
 
-    private var transcriptScrollSignature: String {
-        "\(visibleItems.map(\.id).joined(separator: ","))|\(visibleItems.last?.text ?? "")"
-    }
+    private var transcriptScrollSignature: String { timelineSnapshot.scrollSignature }
     /// 首页页头(HomeSpec):不画底条,浮在页面上。左边 44 圆按钮开会话列表,
     /// 标题块从 x 76 起(16 + 44 + 16),右边 92×44 胶囊放新建对话和更多。
     private var chatHeader: some View {
@@ -224,25 +262,14 @@ struct ChatPage: View {
             .accessibilityLabel("打开会话列表")
 
             Button { beginRename() } label: {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(sessionTitle)
-                        .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
-                        .foregroundStyle(HomeSpec.textPrimary)
-                        .frame(height: HomeSpec.navTitleLine)
-                    HStack(spacing: 6) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13, weight: .regular))
-                            .frame(width: 16, height: 16)
-                        Text(projectSubtitle)
-                            .font(.system(size: HomeSpec.navSubtitleSize))
-                    }
-                    .foregroundStyle(HomeSpec.textSubtle)
-                    .frame(height: HomeSpec.navSubtitleLine)
-                }
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                Text(sessionTitle)
+                    .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: HomeSpec.navButton)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(model.currentSessionID == nil)
@@ -262,21 +289,6 @@ struct ChatPage: View {
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
         .frame(height: HomeSpec.navTop + HomeSpec.navButton)
-    }
-
-    /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「手机工作区」。
-    private var projectSubtitle: String {
-        guard let id = model.currentSessionID,
-              let workspace = management.workspaces.first(where: { $0.sessionIDs.contains(id) })
-        else {
-            return model.backendID == .phone
-                ? DrawerTitles.defaultFolderName
-                : workspaceModels.pcWorkspaceTitle
-        }
-        if model.backendID != .phone, management.isDefaultWorkspace(workspace) {
-            return workspaceModels.pcWorkspaceTitle
-        }
-        return DrawerTitles.workspaceTitle(workspace.title, index: 1)
     }
 
     @ViewBuilder
@@ -334,7 +346,9 @@ struct ChatPage: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        NativePerfCounters.shared.bodyRendered()
+        NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+        return VStack(spacing: 0) {
             chatHeader
             // D2: PC-only status strips. They are plain text on purpose: the
             // offline recovery action lives in the drawer's empty state, and a
@@ -364,6 +378,7 @@ struct ChatPage: View {
                 errorBanner(error)
             }
             if let error = model.commandsError { commandErrorBanner(error) }
+            resourceBanner
             cardsRegion
             transcript
         }
@@ -377,6 +392,12 @@ struct ChatPage: View {
                 questionTakeover(question)
             } else {
                 composer
+            }
+        }
+        .onChange(of: model.turnRunning) { _, running in
+            if running {
+                dismissedRedReasons = nil
+                model.flushStreamingText()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -512,7 +533,7 @@ struct ChatPage: View {
             NavigationStack {
                 ScrollView {
                     NativeMarkdownBody(markdown: plan.markdown, streaming: false,
-                                       workspaceFiles: model.files, onOpenFile: openWorkspaceResult)
+                                       fileIndex: model.fileIndex, onOpenFile: openWorkspaceResult)
                         .font(NativeChatTheme.bodyFont())
                         .lineSpacing(NativeChatTheme.bodyLineSpacing)
                         .padding(NativeParityTokens.transcriptSide)
@@ -704,7 +725,7 @@ struct ChatPage: View {
         // a path the person already tapped as soon as it appears.
         .onChange(of: model.files) { _, files in
             guard let pending = pendingPreviewPath else { return }
-            guard let match = files.first(where: { $0.relativePath == pending })
+            guard let match = model.fileIndex.file(atPath: pending)
                 ?? Self.uniqueBasenameMatch(pending, in: files) else { return }
             pendingPreviewPath = nil
             attachmentError = nil
@@ -736,6 +757,21 @@ struct ChatPage: View {
                 await refreshComposerQueue()
             }
         }
+        // Perf counters flush every five seconds while the chat page is on
+        // screen. DEBUG always enables them; Release needs the
+        // `chat.perfCounters` default (off by default, so no Release log).
+        .task { await reportPerfCounters() }
+    }
+
+    /// Kept out of `body`: the loop plus the public counter API otherwise
+    /// pushed the merged page's modifier chain past the type-checker budget.
+    private func reportPerfCounters() async {
+        guard NativePerfCounters.isEnabled else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(NativePerfCounters.reportInterval))
+            guard !Task.isCancelled else { return }
+            NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+        }
     }
 
     /// Home rhythm (HomeSpec): 16pt after a user bubble, 20pt between every
@@ -746,76 +782,6 @@ struct ChatPage: View {
             return HomeSpec.paragraphGap
         }
         return HomeSpec.blockGap
-    }
-
-    /// Reasoning, tool calls and tool results share one process-group row.
-    private static func isProcessKind(_ kind: ChatItem.Kind) -> Bool {
-        switch kind {
-        case .reasoning, .toolCall, .toolResult: return true
-        default: return false
-        }
-    }
-
-    private var timelineRows: [NativeTranscriptRow] {
-        var rows: [NativeTranscriptRow] = []
-        var lastTurn: Int?
-        var pendingTurnControl: Int?
-        let answerIDs: [Int: String] = Dictionary(
-            grouping: visibleItems.filter { $0.turn != nil && $0.kind == .assistant },
-            by: { $0.turn! }).compactMapValues { $0.last?.id }
-        let rowItems = visibleItems.filter { item in
-            guard let turn = item.turn, foldedTurns.contains(turn),
-                  let answerID = answerIDs[turn] else { return true }
-            if item.kind == .user || item.kind == .context { return true }
-            return item.id == answerID
-        }
-        for item in rowItems {
-            // A new prompt closes the previous Turn's tail above itself. User
-            // rows often carry no turn number, so waiting for the next Turn's
-            // first answer row would drop that tail under the new bubble.
-            if item.kind == .user, let previous = lastTurn, item.turn != previous,
-               let state = model.turnProcessState(for: previous), state != .running {
-                rows.append(.turnTail(previous))
-                lastTurn = nil
-            }
-            if let turn = item.turn, turn != lastTurn {
-                if let previous = lastTurn, previous != turn,
-                   model.turnProcessState(for: previous) != nil {
-                    rows.append(.turnTail(previous))
-                }
-                lastTurn = turn
-                pendingTurnControl = model.turnProcessState(for: turn) != nil ? turn : nil
-            }
-            // The official control row sits after the Turn's input and before
-            // its process (controlAnchorSeq - 0.1), so defer it past user /
-            // trigger rows instead of placing it above the prompt.
-            if let pending = pendingTurnControl,
-               item.kind != .user, item.kind != .context {
-                rows.append(.turnProcess(pending))
-                pendingTurnControl = nil
-            }
-            if item.kind == .context {
-                if case .contexts(let previous)? = rows.last {
-                    rows[rows.count - 1] = .contexts(previous + [item])
-                } else {
-                    rows.append(.contexts([item]))
-                }
-            } else if Self.isProcessKind(item.kind) {
-                // A turn's reasoning/tool activity is process, not content: one
-                // row for the whole run, opened on demand.
-                if case .tools(let previous)? = rows.last {
-                    rows[rows.count - 1] = .tools(previous + [item])
-                } else {
-                    rows.append(.tools([item]))
-                }
-            } else {
-                rows.append(.item(item))
-            }
-        }
-        if let lastTurn, model.turnProcessState(for: lastTurn) != nil {
-            rows.append(.turnTail(lastTurn))
-        }
-        return rows
     }
 
     /// Official turn-tail: the action row is anchored after every content and
@@ -906,10 +872,7 @@ struct ChatPage: View {
     /// Identity of the user/steering/trigger inputs. Appending one (a send, a
     /// steer, or a producer trigger) is what lets on-next-message folding run;
     /// streamed assistant deltas must not re-run it.
-    private var inputRowSignature: String {
-        let inputs = visibleItems.filter { $0.kind == .user || $0.kind == .context }
-        return "\(inputs.count)|\(inputs.last?.id ?? "-")"
-    }
+    private var inputRowSignature: String { timelineSnapshot.inputRowSignature }
 
     /// The card area never takes more than 40% of the screen, scrolls inside
     /// itself when it has more, and folds to one line while the keyboard is up
@@ -1047,6 +1010,40 @@ struct ChatPage: View {
     #endif
 
     /// 「没发出去」+ 间距 +「重试」;中间不加标点,也不补半句原因。
+    /// The yellow/red resource banner stack (S1-C.3 / D.1).
+    ///
+    /// The banner itself is a sibling view struct: its iOS-only presentation is
+    /// not part of the cross-platform page contract the extractor compares with
+    /// Android (the same seam `QuestionCard` uses). Yellow is informational and
+    /// expands inline; red offers continue/stop. The generic handoff entry is
+    /// intentionally absent.
+    @ViewBuilder
+    private var resourceBanner: some View {
+        if showsResourceBanners {
+            switch resourceLevel {
+            case .green:
+                EmptyView()
+            case .yellow:
+                ResourceStatusBanner(level: .yellow, reasons: resourceReasons,
+                                     onContinue: {}, onStop: {})
+            case .red:
+                if dismissedRedReasons != redResourceSignature {
+                    ResourceStatusBanner(
+                        level: .red,
+                        reasons: resourceReasons.filter { $0.level == .red },
+                        onContinue: { dismissedRedReasons = redResourceSignature },
+                        onStop: {
+                            let signature = redResourceSignature
+                            Task {
+                                await model.cancelTurn()
+                                dismissedRedReasons = signature
+                            }
+                        })
+                }
+            }
+        }
+    }
+
     private func errorBanner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(message)
@@ -1172,13 +1169,21 @@ struct ChatPage: View {
                             .padding(.vertical, 4)
                         }
                         if visibleItems.isEmpty { emptyTimeline(viewportHeight: viewport.size.height) }
-                        let rows = timelineRows
+                        let snapshot = timelineSnapshot
+                        let rows = snapshot.rows
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                             Group {
                             switch row {
                             case .item(let item):
+                                let facts: NativeTimelineTurnFacts = {
+                                    guard let turn = item.turn else { return .empty }
+                                    return snapshot.turnFacts[turn] ?? .empty
+                                }()
                                 VStack(alignment: .leading, spacing: 0) {
-                                    ChatMessageRow(item: item, allItems: visibleItems, workspaceFiles: model.files,
+                                    ChatMessageRow(item: item, fileIndex: model.fileIndex,
+                                                   isTurnClosingAssistant: facts.closingAssistantID == item.id,
+                                                   submittedPlans: facts.plans,
+                                                   turnChanges: facts.changes,
                                                    onOpenFile: openWorkspaceResult,
                                                    onOpenPlan: { plan, markdown in
                                                        previewPlan = NativePlanPreview(
@@ -1187,14 +1192,11 @@ struct ChatPage: View {
                                     queueLine(for: item)
                                     failureLineIfNeeded(for: item)
                                 }
-                                .id(item.id)
                             case .contexts(let items):
                                 NativeContextSourceGroup(items: items)
-                                    .id("context-\(items.first?.id ?? "empty")")
                             case .tools(let items):
-                                ToolRunRow(items: items, workspaceFiles: model.files,
+                                ToolRunRow(items: items,
                                            onOpenFile: openWorkspaceResult)
-                                    .id("tool-run-\(items.first?.id ?? "empty")")
                             case .turnProcess(let turn):
                                 if let state = model.turnProcessState(for: turn) {
                                     NativeTurnProcessRow(
@@ -1217,6 +1219,10 @@ struct ChatPage: View {
                             }
                             }
                             .padding(.top, Self.spacing(before: index, in: rows))
+                            // One id for ForEach and scrollTo: context rows used
+                            // to expose `context-…` inside a `context-group-…`
+                            // identity, so the last row could not be targeted.
+                            .id(row.scrollTargetID)
                         }
                         if model.turnRunning, !visibleItems.isEmpty {
                             NativeRunningStatus(startedAt: model.activeTurnStartedAt,
@@ -1224,12 +1230,21 @@ struct ChatPage: View {
                                 .padding(.top, HomeSpec.blockGap)
                                 .id("running-status")
                         }
-                        GeometryReader { tail in
-                            Color.clear.preference(key: TranscriptTailPreference.self,
-                                                   value: tail.frame(in: .named("chat-transcript")).minY)
+                        if #available(iOS 18.0, *) {
+                            // `onScrollGeometryChange` below replaces both
+                            // preference probes on iOS 18, but ScrollViewProxy
+                            // still needs a target when `timelineRows` is empty.
+                            Color.clear
+                                .frame(height: 1)
+                                .id("transcript-tail")
+                        } else {
+                            GeometryReader { tail in
+                                Color.clear.preference(key: TranscriptTailPreference.self,
+                                                       value: tail.frame(in: .named("chat-transcript")).minY)
+                            }
+                            .frame(height: 1)
+                            .id("transcript-tail")
                         }
-                        .frame(height: 1)
-                        .id("transcript-tail")
                     }
                     // Home content column: 20pt margins, screen width − 40.
                     .padding(.horizontal, HomeSpec.contentInset)
@@ -1237,12 +1252,17 @@ struct ChatPage: View {
                     // Room for the "回到最新" pill (28pt tall) so it never sits
                     // on top of the last rows.
                     .padding(.bottom, 48)
-                    .background(
-                        GeometryReader { content in
-                            Color.clear.preference(
-                                key: TranscriptContentHeightPreference.self,
-                                value: content.size.height)
-                        })
+                    .background {
+                        if #available(iOS 18.0, *) {
+                            EmptyView()
+                        } else {
+                            GeometryReader { content in
+                                Color.clear.preference(
+                                    key: TranscriptContentHeightPreference.self,
+                                    value: content.size.height)
+                            }
+                        }
+                    }
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
@@ -1250,45 +1270,32 @@ struct ChatPage: View {
                                                     isSupported: $tracksScrollPhase))
                 .defaultScrollAnchor(.bottom)
                 .scrollBounceBehavior(.basedOnSize)
+                .modifier(TranscriptScrollGeometryObserver(
+                    trace: scrollTrace,
+                    onContentHeightChange: { height in
+                        contentHeightDidChange(height, proxy: proxy,
+                                               viewportHeight: viewport.size.height)
+                    },
+                    onTailMetrics: { tailY, measuredViewport in
+                        applyTailMetrics(tailY: tailY, viewportHeight: measuredViewport)
+                    }))
                 .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
-                    // The lazy stack reports a growing height while rows
-                    // materialize, and every write here invalidates this view:
-                    // a sub-pixel difference used to start layout again, which
-                    // reported another height. Only a real change publishes.
-                    if abs(transcriptContentHeight - height) > 0.5 {
-                        transcriptContentHeight = height
-                    }
+                    // iOS 17 fallback only; no producer exists on iOS 18.
+                    handleScrollContentHeight(height, proxy: proxy,
+                                              viewportHeight: viewport.size.height)
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
+                    // iOS 17 fallback only.
+                    guard tailY.isFinite else { return }
                     scrollTrace.tailOffsetY = tailY
-                    // Past the content (a blank viewport) is not "near the
-                    // bottom"; neither may a lazy estimate silently re-enable
-                    // following while the reader is far above the tail.
-                    // The preference fires on every scroll frame; publish only
-                    // real transitions so following does not cause layout loops.
-                    let near = tailY >= -1 && tailY <= viewport.size.height + 44
-                    if nearBottom != near { nearBottom = near }
-                    if tracksScrollPhase {
-                        // Follow mode belongs to the person: drag away to stop
-                        // it, drag back to the tail to resume it.
-                        if userScrolling {
-                            let away = !near
-                            if userScrolledAway != away { userScrolledAway = away }
-                        }
-                    } else {
-                        let away = tailY > viewport.size.height + 44
-                        if userScrolledAway != away { userScrolledAway = away }
-                    }
-                    if near && transcriptContentHeight <= viewport.size.height + 1 {
-                        if userScrolledAway { userScrolledAway = false }
-                    }
+                    applyTailMetrics(tailY: tailY, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
                     if pendingInitialScroll, !visibleItems.isEmpty {
                         // Wait for the measured content height: scrolling
                         // before the layout is known cannot prove the content
                         // overflows, and the height change consumes this below.
-                        guard transcriptContentHeight > 0 else { return }
+                        guard scrollTrace.contentHeight > 0 else { return }
                         pendingInitialScroll = false
                         nearBottom = true
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
@@ -1299,24 +1306,7 @@ struct ChatPage: View {
                 }
                 .onChange(of: model.isTranscriptReady) { _, ready in
                     guard ready, pendingInitialScroll, !visibleItems.isEmpty,
-                          transcriptContentHeight > 0 else { return }
-                    pendingInitialScroll = false
-                    nearBottom = true
-                    scrollToTail(proxy, viewportHeight: viewport.size.height)
-                }
-                .onChange(of: transcriptContentHeight) { _, height in
-                    // A freshly opened session measures its history after the
-                    // first layout; the pending jump lands here.
-                    guard height > 0, !visibleItems.isEmpty else { return }
-                    guard pendingInitialScroll else {
-                        // Rows that grow without changing the signature (a
-                        // list card opening, a tool finishing) keep the tail
-                        // in view while following.
-                        if followsTail, !loadingEarlierTranscript {
-                            scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
-                        }
-                        return
-                    }
+                          scrollTrace.contentHeight > 0 else { return }
                     pendingInitialScroll = false
                     nearBottom = true
                     scrollToTail(proxy, viewportHeight: viewport.size.height)
@@ -1382,14 +1372,70 @@ struct ChatPage: View {
     /// overshoots into empty space (the blank page). The last row is a real,
     /// laid-out frame; the lazy tail anchor can be scrolled past its estimate.
     private func scrollToTail(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
-        guard transcriptContentHeight.isFinite, viewportHeight.isFinite,
-              transcriptContentHeight > viewportHeight + 1 else { return }
+        guard scrollTrace.contentHeight.isFinite, viewportHeight.isFinite,
+              scrollTrace.contentHeight > viewportHeight + 1 else { return }
         // The last row may be a folded tool-run group, not the last message;
         // scroll to the row that is actually last.
-        if let last = timelineRows.last?.id {
+        if let last = timelineRows.last?.scrollTargetID {
             proxy.scrollTo(last, anchor: .bottom)
         } else {
             proxy.scrollTo("transcript-tail", anchor: .bottom)
+        }
+    }
+
+    /// Receives the measured content height from the iOS 17 preference
+    /// fallback. The height itself lives in the reference box, so this only
+    /// writes `@State` when a pending initial jump or a follow-the-tail scroll
+    /// is actually due.
+    private func handleScrollContentHeight(_ height: CGFloat, proxy: ScrollViewProxy,
+                                           viewportHeight: CGFloat) {
+        guard height.isFinite, height > 0 else { return }
+        guard abs(scrollTrace.contentHeight - height) > 0.5 else { return }
+        scrollTrace.contentHeight = height
+        contentHeightDidChange(height, proxy: proxy, viewportHeight: viewportHeight)
+    }
+
+    private func contentHeightDidChange(_ height: CGFloat, proxy: ScrollViewProxy,
+                                        viewportHeight: CGFloat) {
+        guard height.isFinite, height > 0, !visibleItems.isEmpty else { return }
+        guard pendingInitialScroll else {
+            // Rows that grow without changing the signature (a list card
+            // opening, a tool finishing) keep the tail in view while following.
+            if followsTail, !loadingEarlierTranscript {
+                scheduleTailScroll(proxy, viewportHeight: viewportHeight)
+            }
+            return
+        }
+        pendingInitialScroll = false
+        nearBottom = true
+        scrollToTail(proxy, viewportHeight: viewportHeight)
+    }
+
+    /// Publishes only real near/follow transitions. The geometry callback runs
+    /// on every scroll frame; `nearBottom` and `userScrolledAway` drive the
+    /// "回到最新" pill, so sub-pixel changes must stay in the reference box.
+    private func applyTailMetrics(tailY: CGFloat, viewportHeight: CGFloat) {
+        scrollTrace.tailOffsetY = tailY
+        let near = tailY >= -1 && tailY <= viewportHeight + 44
+        if nearBottom != near {
+            nearBottom = near
+            // Scrolling to the bottom shows the newest text immediately; the
+            // throttled flush must not leave the live tail one beat behind.
+            if near { model.flushStreamingText() }
+        }
+        if tracksScrollPhase {
+            // Follow mode belongs to the person: drag away to stop it, drag
+            // back to the tail to resume it.
+            if userScrolling {
+                let away = !near
+                if userScrolledAway != away { userScrolledAway = away }
+            }
+        } else {
+            let away = tailY > viewportHeight + 44
+            if userScrolledAway != away { userScrolledAway = away }
+        }
+        if near && scrollTrace.contentHeight <= viewportHeight + 1 {
+            if userScrolledAway { userScrolledAway = false }
         }
     }
 
@@ -1419,9 +1465,10 @@ struct ChatPage: View {
                     return Int(value.rounded())
                 }
                 ChatModel.appendDiagnostic(
-                    "scroll tail content=\(integer(transcriptContentHeight)) viewport=\(integer(viewportHeight)) "
+                    "scroll tail content=\(integer(scrollTrace.contentHeight)) viewport=\(integer(viewportHeight)) "
                     + "tail=\(integer(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
             }
+            model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
     }
@@ -2681,7 +2728,7 @@ struct ChatPage: View {
                         model.markSteered(itemID: id)
                     } else if wasRunning {
                         model.markQueued(itemID: id, requestID: model.lastPromptRequestID)
-                        ChatModel.appendDiagnostic("queued: \(text.prefix(40))")
+                        ChatModel.appendDiagnostic(NativeLogRedaction.queued(text))
                     }
                 }
                 pendingAttachments.removeAll()
@@ -2823,17 +2870,20 @@ struct ChatPage: View {
             return
         }
         // A tool can write a file seconds before its bytes are materialized
-        // here; the cached list is therefore a hint, not the authority. Refresh
-        // and retry, then fall back to a unique basename match before saying
-        // anything failed.
-        if !model.files.contains(where: { $0.relativePath == normalized }) {
+        // here; the cached list is therefore a hint, not the authority. The
+        // refresh is now asynchronous, so the miss path below deliberately
+        // opens the waiting preview and leaves `pendingPreviewPath` set: the
+        // page's `.onChange(of: model.files)` opens it when a later scan lands,
+        // and PreviewSurface has its own bounded retry. No synchronous read
+        // depends on the post-refresh list here.
+        if model.fileIndex.file(atPath: normalized) == nil {
             model.refreshFiles()
         }
         // The tool result and the file list can disagree only in Unicode
         // normalization (a Chinese name written NFC, listed NFD); try the
         // canonical spelling before falling back to a unique basename.
         let canonical = normalized.precomposedStringWithCanonicalMapping
-        if let match = model.files.first(where: { $0.relativePath == normalized })
+        if let match = model.fileIndex.file(atPath: normalized)
             ?? model.files.first(where: { $0.relativePath.precomposedStringWithCanonicalMapping == canonical })
             ?? (normalized.contains("/") ? nil : Self.uniqueBasenameMatch(normalized, in: model.files)) {
             // One tap: open the preview directly. The preview model owns the
@@ -3136,7 +3186,7 @@ struct ChatPage: View {
 
     private var referenceFiles: [WorkspaceFile] {
         guard let token = referenceToken else { return [] }
-        return model.files.filter { token.isEmpty || $0.relativePath.localizedCaseInsensitiveContains(token) }.prefix(6).map { $0 }
+        return WorkspaceFileQueryCache.shared.search(in: model.fileIndex, token: token, limit: 6)
     }
 
     private var referenceSessions: [ManagedSession] {
@@ -3700,10 +3750,48 @@ private struct ScrollInteractionObserver: ViewModifier {
     }
 }
 
-/// Holds the last measured tail offset for the scroll diagnostic without
-/// invalidating the transcript view on every scroll frame.
+/// Holds the last measured tail offset and content height for scroll decisions
+/// and the diagnostic without invalidating the transcript view on every frame.
 final class ScrollTraceBox {
     var tailOffsetY: CGFloat = 0
+    var contentHeight: CGFloat = 0
+}
+
+private struct TranscriptScrollMetrics: Equatable {
+    var contentHeight: CGFloat
+    var tailY: CGFloat
+    var viewportHeight: CGFloat
+}
+
+/// iOS 18 scroll geometry. Replaces the content-height and tail preference
+/// probes so scroll frames never write `@State` unless near/follow changes.
+/// iOS 17 keeps the preference fallback attached to the transcript.
+private struct TranscriptScrollGeometryObserver: ViewModifier {
+    let trace: ScrollTraceBox
+    let onContentHeightChange: (CGFloat) -> Void
+    let onTailMetrics: (CGFloat, CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
+                TranscriptScrollMetrics(
+                    contentHeight: geometry.contentSize.height,
+                    // Distance from the visible top to the content tail. At the
+                    // bottom this is approximately the viewport height, which
+                    // keeps the old preference's near test unchanged.
+                    tailY: geometry.contentSize.height - geometry.contentOffset.y,
+                    viewportHeight: geometry.containerSize.height)
+            } action: { _, metrics in
+                if abs(trace.contentHeight - metrics.contentHeight) > 0.5 {
+                    trace.contentHeight = metrics.contentHeight
+                    onContentHeightChange(metrics.contentHeight)
+                }
+                onTailMetrics(metrics.tailY, metrics.viewportHeight)
+            }
+        } else {
+            content
+        }
+    }
 }
 
 private struct TranscriptTailPreference: PreferenceKey {
@@ -3933,8 +4021,10 @@ private struct NativePlanPreview: Identifiable {
 
 private struct ChatMessageRow: View {
     let item: ChatItem
-    let allItems: [ChatItem]
-    var workspaceFiles: [WorkspaceFile]
+    var fileIndex: WorkspaceFileIndex = .empty
+    var isTurnClosingAssistant = false
+    var submittedPlans: [NativeTimelinePlanEntry] = []
+    var turnChanges: NativeChangedFiles?
     var onOpenFile: (String) -> Void
     var onOpenPlan: (NativePlanCardData, String) -> Void = { _, _ in }
 
@@ -4004,8 +4094,9 @@ private struct ChatMessageRow: View {
     private var assistantBody: some View {
         VStack(alignment: .leading, spacing: 6) {
             NativeMarkdownBody(markdown: item.text.isEmpty ? "…" : item.text,
-                               streaming: item.streaming, workspaceFiles: workspaceFiles,
-                               onOpenFile: onOpenFile)
+                               streaming: item.streaming, fileIndex: fileIndex,
+                               onOpenFile: onOpenFile,
+                               cacheItemID: item.id, cacheRevision: item.renderRevision)
                 .font(NativeChatTheme.bodyFont())
                 // Official assistant body is 14/24; SwiftUI's default leading
                 // is ~17, so add the official 10px leading delta explicitly.
@@ -4015,15 +4106,15 @@ private struct ChatMessageRow: View {
                     onOpenFile(path)
                     return .handled
                 })
-            if isTurnClosingAssistant, let turn = item.turn {
-                if let changes = NativeTranscriptProjector.changes(forTurn: turn, in: allItems) {
+            if isTurnClosingAssistant, item.turn != nil {
+                if let changes = turnChanges {
                     NativeChangedFilesCard(changes: changes, onOpenFile: onOpenFile)
                 }
                 if !submittedPlans.isEmpty {
                     VStack(alignment: .leading, spacing: NativePlanCard.stackSpacing) {
-                        ForEach(submittedPlans, id: \.0.id) { plan, markdown in
-                            NativePlanCard(plan: plan) {
-                                onOpenPlan(plan, markdown)
+                        ForEach(submittedPlans, id: \.plan.id) { entry in
+                            NativePlanCard(plan: entry.plan) {
+                                onOpenPlan(entry.plan, entry.markdown)
                             }
                         }
                     }
@@ -4032,24 +4123,6 @@ private struct ChatMessageRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var isTurnClosingAssistant: Bool {
-        guard let turn = item.turn, !item.streaming else { return false }
-        return allItems.last(where: { $0.turn == turn && $0.kind == .assistant })?.id == item.id
-    }
-
-    /// Official `submitted-plan` nodes: every `exit_plan_mode` call whose args
-    /// carry a `# ` headed plan, in invocation order for this Turn.
-    private var submittedPlans: [(NativePlanCardData, String)] {
-        guard let turn = item.turn else { return [] }
-        return allItems.compactMap { row in
-            guard row.turn == turn, row.toolName == "exit_plan_mode",
-                  let markdown = row.arguments?["plan"]?.stringValue,
-                  let plan = NativePlanCardData(id: row.callID ?? row.id, markdown: markdown)
-            else { return nil }
-            return (plan, markdown)
-        }
     }
 
     private static func assistantText(forTurn turn: Int, in items: [ChatItem]) -> String {
@@ -4079,10 +4152,112 @@ private struct ChatMessageRow: View {
 
 }
 
+/// The App's resource banner (S1-C.3 / D.1).
+///
+/// Kept outside `ChatPage` on purpose: the cross-platform page contract
+/// compares `*Page` structs with the Android screens, and this banner is an
+/// iOS-only runtime-degradation surface, not a product row Android owes.
+private struct ResourceStatusBanner: View {
+    let level: ResourceLevel
+    let reasons: [ResourceReasonHit]
+    let onContinue: () -> Void
+    let onStop: () -> Void
+    @State private var showsReasons = false
+
+    var body: some View {
+        switch level {
+        case .green:
+            EmptyView()
+        case .yellow:
+            yellowBanner
+        case .red:
+            redBanner
+        }
+    }
+
+    private var yellowBanner: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "thermometer.medium")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(ChatPage.warning)
+                Text("手机负载较高，已进入省电模式")
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                Spacer(minLength: 8)
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) { showsReasons.toggle() }
+                } label: {
+                    Text(showsReasons ? "收起" : "原因")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(ChatPage.warning)
+                        .frame(minHeight: 28)
+                }
+                .buttonStyle(.plain)
+            }
+            if showsReasons {
+                ForEach(reasons, id: \.reason.rawValue) { reason in
+                    Text("· \(reason.displayText)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(HomeSpec.textTertiary)
+                        .padding(.leading, 21)
+                }
+            }
+        }
+        .padding(.horizontal, HomeSpec.chromeInset)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ChatPage.warning.opacity(0.08))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("手机负载较高，已进入省电模式")
+    }
+
+    private var redBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ChatPage.danger)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("手机资源紧张")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ChatPage.danger)
+                    ForEach(reasons, id: \.reason.rawValue) { reason in
+                        Text("· \(reason.displayText)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            HStack(spacing: 16) {
+                Button("继续", action: onContinue)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .buttonStyle(.plain)
+                Button("停止本轮", action: onStop)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ChatPage.danger)
+                    .buttonStyle(.plain)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 22)
+        }
+        .padding(.horizontal, HomeSpec.chromeInset)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ChatPage.danger.opacity(0.09))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(ChatPage.danger.opacity(0.25)).frame(height: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("手机资源紧张，请选择继续或停止本轮")
+    }
+}
+
 /// Shared with the Bot page, which draws its tool steps the same way.
 struct ToolRunRow: View {
     let items: [ChatItem]
-    var workspaceFiles: [WorkspaceFile] = []
     var onOpenFile: (String) -> Void = { _ in }
     @State private var expanded = true
     @State private var scrollMetrics = ProcessScrollMetrics()
@@ -4371,11 +4546,11 @@ private struct FlatDisclosureStyle: DisclosureGroupStyle {
 
 private struct WorkspaceOutputReferences: View {
     let text: String
-    let files: [WorkspaceFile]
+    let fileIndex: WorkspaceFileIndex
     let onOpenFile: (String) -> Void
 
     private var referencedFiles: [WorkspaceFile] {
-        files.filter { text.localizedStandardContains($0.relativePath) }.prefix(6).map { $0 }
+        WorkspaceFileQueryCache.shared.references(in: fileIndex, text: text, limit: 6)
     }
 
     var body: some View {
@@ -4400,6 +4575,61 @@ private struct WorkspaceOutputReferences: View {
             }
             .padding(.top, 4)
         }
+    }
+}
+
+/// Bounded cache for the two workspace-wide text searches that cannot be
+/// answered by the index's dictionary lookups. Their keys carry the index
+/// revision, so rebuilding the file list invalidates every entry; the
+/// count/cost bounds mirror the other render caches and keep long command
+/// output from pinning unbounded memory.
+private final class WorkspaceFileQueryCache {
+    static let shared = WorkspaceFileQueryCache()
+
+    private struct SearchKey: Hashable {
+        let revision: Int
+        let token: String
+        let limit: Int
+    }
+
+    private struct ReferencesKey: Hashable {
+        let revision: Int
+        let textHash: UInt64
+        let textLength: Int
+        let limit: Int
+    }
+
+    private let searchResults: NativeBoundedCache<SearchKey, [WorkspaceFile]>
+    private let referenceResults: NativeBoundedCache<ReferencesKey, [WorkspaceFile]>
+
+    init() {
+        searchResults = NativeBoundedCache(name: "WorkspaceFileSearchCache",
+                                           countLimit: 64,
+                                           totalCostLimit: 1_000_000)
+        referenceResults = NativeBoundedCache(name: "WorkspaceFileReferenceCache",
+                                              countLimit: 32,
+                                              totalCostLimit: 4_000_000)
+    }
+
+    func search(in index: WorkspaceFileIndex, token: String, limit: Int) -> [WorkspaceFile] {
+        let key = SearchKey(revision: index.revision, token: token, limit: limit)
+        if let cached = searchResults.value(forKey: key) { return cached }
+        let files = index.files(matchingCaseInsensitive: token, limit: limit)
+        searchResults.insert(files, forKey: key,
+                             cost: token.utf8.count + files.count * 128)
+        return files
+    }
+
+    func references(in index: WorkspaceFileIndex, text: String, limit: Int) -> [WorkspaceFile] {
+        let key = ReferencesKey(revision: index.revision,
+                                textHash: NativeStableHash.fnv1a64(text),
+                                textLength: text.utf8.count,
+                                limit: limit)
+        if let cached = referenceResults.value(forKey: key) { return cached }
+        let files = index.filesReferenced(in: text, limit: limit)
+        referenceResults.insert(files, forKey: key,
+                                cost: text.utf8.count * 2 + files.count * 128)
+        return files
     }
 }
 
@@ -4557,7 +4787,7 @@ private struct CommandExecutionResultPage: View {
                         .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: 12))
                     if let text = execution.text, !text.isEmpty {
                         MarkdownContent(text: text, onOpenFile: onOpenFile)
-                        WorkspaceOutputReferences(text: text, files: model.files, onOpenFile: onOpenFile)
+                        WorkspaceOutputReferences(text: text, fileIndex: model.fileIndex, onOpenFile: onOpenFile)
                     } else {
                         Text("这次没有更多输出。")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -4640,7 +4870,7 @@ private struct NativeTrajectoryRow: View {
             VStack(alignment: .leading, spacing: 10) {
                 if !entry.preview.isEmpty {
                     MarkdownContent(text: entry.preview, onOpenFile: onOpenFile)
-                    WorkspaceOutputReferences(text: entry.preview, files: ChatModel.shared.files, onOpenFile: onOpenFile)
+                    WorkspaceOutputReferences(text: entry.preview, fileIndex: ChatModel.shared.fileIndex, onOpenFile: onOpenFile)
                 }
                 Text(payloadText)
                     .font(.system(.caption, design: .monospaced))
