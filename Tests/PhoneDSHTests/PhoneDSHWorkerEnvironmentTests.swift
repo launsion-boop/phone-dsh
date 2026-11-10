@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // The Worker environment the host injects at boot (D24): the egress
 // allow-list reaches the Worker's capability manifest as `PDSH_EGRESS_ALLOW`
-// so the agent knows which hosts `curl` may reach without probing.
+// so the agent knows which hosts `curl` may reach without probing, and the
+// trusted MCP clients receive this host run's `PDSH_MCP_EGRESS_TOKEN`.
 
 import Foundation
 import XCTest
@@ -59,5 +60,44 @@ final class PhoneDSHWorkerEnvironmentTests: XCTestCase {
         var environment: [String: String] = [:]
         PhoneDSHHost.applyConfiguredMCPEnvironment(&environment, endpoint: endpoint, nativeMCP: nil)
         XCTAssertTrue(environment.isEmpty)
+    }
+
+    // MARK: - MCP egress credential
+
+    func testHostGeneratesALowercaseHex128BitEgressTokenPerIncarnation() throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let configuration = try fixture.configuration()
+        let first = PhoneDSHHost(configuration: configuration)
+        let second = PhoneDSHHost(configuration: configuration)
+
+        XCTAssertEqual(first.mcpEgressToken.count, 32,
+                       "16 random bytes encode as 32 lowercase hex characters")
+        XCTAssertNotNil(first.mcpEgressToken.range(
+            of: "^[0-9a-f]{32}$", options: .regularExpression))
+        XCTAssertNotEqual(first.mcpEgressToken, second.mcpEgressToken,
+                          "each host incarnation gets its own credential")
+        XCTAssertEqual(first.mcpEgressToken, first.mcpEgressToken,
+                       "one host run keeps one value across Worker restarts/rebuilds")
+    }
+
+    func testWorkerEnvironmentDeliversTheEgressTokenAndAppCannotReplaceIt() {
+        let endpoint = LoopbackEndpoint(baseURL: URL(string: "http://127.0.0.1:41000")!,
+                                        token: "loopback-token")
+        let environment = PhoneDSHHost.workerEnvironment(
+            endpoint: endpoint,
+            channelPath: "/channel",
+            mcpEgressToken: "0123456789abcdef0123456789abcdef",
+            overrides: [
+                PhoneDSHWorkerEnvironment.mcpEgressToken: "app-supplied-value",
+                "DSH_TELEMETRY_DISABLED": "1",
+            ])
+
+        XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.mcpEgressToken],
+                       "0123456789abcdef0123456789abcdef",
+                       "the host's validated value is authoritative")
+        XCTAssertEqual(environment["DSH_TELEMETRY_DISABLED"], "1")
+        XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.channelToken], "loopback-token")
+        XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.launchToken], "loopback-token")
     }
 }

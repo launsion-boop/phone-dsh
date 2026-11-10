@@ -653,6 +653,8 @@
     # catalog and forwards the native Android tools. The Authorization header
     # is the documented non-secret placeholder; the host injects the real
     # bearer at its /v1/http egress and strips the Worker value.
+    # X-PDSH-MCP-Egress carries this host run's trusted-client credential; an
+    # absent/empty value omits the header so the host fails the request closed.
     - id: mcp-phone
       name: '@deepseek-ai/dsh-mcp-client'
       disabled: !!js "!process.env.PDSH_PHONE_MCP_URL"
@@ -661,8 +663,7 @@
         transport: streamable-http
         toolCallTimeoutMs: 130000
         url: !!js "process.env.PDSH_PHONE_MCP_URL ?? 'http://127.0.0.1:1/mcp'"
-        headers:
-          Authorization: !!js "`Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`"
+        headers: !!js "({ Authorization: `Bearer ${process.env.PDSH_PHONE_MCP_TOKEN ?? ''}`, ...(process.env.PDSH_MCP_EGRESS_TOKEN ? { 'X-PDSH-MCP-Egress': process.env.PDSH_MCP_EGRESS_TOKEN } : {}) })"
         failOnStartupError: false
 
     # ── phone public surfaces over the same Worker/session/VFS ──────────────

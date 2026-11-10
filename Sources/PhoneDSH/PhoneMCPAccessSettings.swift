@@ -91,6 +91,29 @@ public enum PhoneMCPAccessError: Error, LocalizedError, Equatable, Sendable {
     }
 }
 
+/// One host-run MCP egress credential.
+///
+/// The value is generated once per host run from the system CSPRNG, encoded as
+/// lowercase hex (128 bits, 32 characters), delivered to the Worker through the
+/// same `?env=` boot map as `PDSH_CHANNEL_TOKEN`, and kept in host memory only.
+/// It is never the loopback/channel token, the Bot bearer or a placeholder
+/// (spec/bot/v1/mcp-endpoint.md §1.1).
+public enum MCPEgressCredential {
+    /// Number of random bytes; 16 bytes is the contract's 128-bit minimum.
+    public static let byteCount = 16
+
+    /// One fresh lowercase-hex credential.
+    public static func make() -> String {
+        var generator = SystemRandomNumberGenerator()
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(byteCount)
+        for _ in 0..<byteCount {
+            bytes.append(UInt8.random(in: UInt8.min...UInt8.max, using: &generator))
+        }
+        return bytes.map { String(format: "%02x", $0) }.joined()
+    }
+}
+
 /// Build the host launch credential provider and admission policy.
 public enum MCPHostConfiguration {
     /// Wrap the model/search provider with the exact MCP router.
@@ -117,7 +140,7 @@ public enum MCPHostConfiguration {
 /// router. It starts empty and is updated in place when the user adds, edits
 /// or removes an MCP server, so no host restart is needed merely to admit a
 /// newly added endpoint.
-public final class MCPEgressPolicy: EgressHostAuthorizing, @unchecked Sendable {
+public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating, @unchecked Sendable {
     struct Route: Equatable, Sendable {
         var serverName: String
         var scheme: String
@@ -129,8 +152,61 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, @unchecked Sendable {
 
     private let lock = NSLock()
     private var routes: [String: Route] = [:]
+    /// Host-run MCP egress credential. It is written by the host at start and
+    /// read by the gateway gate; it is never persisted or logged.
+    private var mcpEgressToken: String?
 
     public init() {}
+
+    /// Installs this host run's `PDSH_MCP_EGRESS_TOKEN`. A later host start
+    /// replaces it; the router itself is not part of any persisted document.
+    public func setMCPEgressToken(_ token: String) {
+        lock.lock()
+        mcpEgressToken = token
+        lock.unlock()
+    }
+
+    /// Gateway gate for every exact MCP route. A route with no installed
+    /// credential fails closed rather than admitting the request without one.
+    public func admitsMCPEgress(to url: URL, headers: [String: String]) -> Bool {
+        guard route(for: url) != nil else { return true }
+        lock.lock()
+        let token = mcpEgressToken
+        lock.unlock()
+        guard let token, !token.isEmpty else { return false }
+        return Self.constantTimeEquals(
+            Self.headerValue(NamedHeader.mcpEgress, in: headers), token)
+    }
+
+    enum NamedHeader {
+        static let mcpEgress = "x-pdsh-mcp-egress"
+    }
+
+    /// Case-insensitive header lookup; the value comparison stays byte-exact.
+    static func headerValue(_ name: String, in headers: [String: String]) -> String? {
+        let lowered = name.lowercased()
+        for (candidate, value) in headers where candidate.lowercased() == lowered {
+            return value
+        }
+        return nil
+    }
+
+    /// Length-independent byte comparison. An absent or empty value never
+    /// matches; the loop covers `max(count)` bytes so a length difference is
+    /// folded into the result instead of returning early.
+    static func constantTimeEquals(_ lhs: String?, _ rhs: String) -> Bool {
+        guard let lhs, !lhs.isEmpty, !rhs.isEmpty else { return false }
+        let left = Array(lhs.utf8)
+        let right = Array(rhs.utf8)
+        var difference = UInt8(truncatingIfNeeded: left.count ^ right.count)
+        let count = max(left.count, right.count)
+        for index in 0..<count {
+            let a = index < left.count ? left[index] : 0
+            let b = index < right.count ? right[index] : 0
+            difference |= a ^ b
+        }
+        return difference == 0
+    }
 
     /// Runtime URLs currently admitted (no header values).
     public var authorizedURLs: [String] {

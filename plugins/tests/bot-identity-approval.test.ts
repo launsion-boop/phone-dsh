@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -9,7 +11,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
 import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../bot-runtime/src/identity-bridge.ts'
-import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval } from '../bot-runtime/src/approval-gate.ts'
+import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval, postApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
 import { readBotGoldenMerged } from './bot-golden.ts'
@@ -605,5 +607,82 @@ test('FishAction is cosmetic, auto-policy and never asks for an approval card', 
     assert.equal(approvals, 0)
   } finally {
     await ctx.fiber.dispose()
+  }
+})
+
+test('identity, cancel and approval requests carry the host egress credential', async () => {
+  const seen: { path: string; headers: Record<string, string | string[] | undefined> }[] = []
+  const server = createServer((request, response) => {
+    seen.push({ path: request.url ?? '/', headers: request.headers })
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(request.url === '/identity/register'
+      ? '{"ok":true,"id":"egress-registration"}'
+      : '{"ok":true,"allowed":true}')
+  })
+  const origin = await new Promise<string>((accept, refuse) => {
+    server.once('error', refuse)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address() as AddressInfo
+      accept(`http://127.0.0.1:${String(address.port)}`)
+    })
+  })
+  const previous = {
+    PDSH_PHONE_MCP_URL: process.env.PDSH_PHONE_MCP_URL,
+    PDSH_PHONE_MCP_TOKEN: process.env.PDSH_PHONE_MCP_TOKEN,
+    PDSH_MCP_EGRESS_TOKEN: process.env.PDSH_MCP_EGRESS_TOKEN,
+  }
+  process.env.PDSH_PHONE_MCP_URL = `${origin}/mcp`
+  process.env.PDSH_PHONE_MCP_TOKEN = 'bot-bearer-placeholder'
+  process.env.PDSH_MCP_EGRESS_TOKEN = 'identity-egress-fixture'
+  const ctx = await mount()
+  try {
+    registerProbe(ctx, 'bash')
+    // No request/cancel override: the production fetch path must add the
+    // header on register, cancel and the shared postApproval transport.
+    await ctx.plugin(dshbotIdentityBridge)
+    await ctx.plugin(dshbotApprovalGate)
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('egress-bash'),
+      name: 'bash', arguments: { command: 'rm -rf /tmp/wpf1-egress' },
+      signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, false)
+    for (const path of ['/identity/register', '/approval', '/identity/cancel']) {
+      const entry = seen.find(candidate => candidate.path === path)
+      assert.ok(entry, `${path} must be called: ${JSON.stringify(seen.map(item => item.path))}`)
+      assert.equal(entry.headers['x-pdsh-mcp-egress'], 'identity-egress-fixture',
+        `${path} must carry the trusted-client egress credential`)
+    }
+  } finally {
+    await ctx.fiber.dispose()
+    server.close()
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('the shared approval transport omits the egress header when the value is empty', async () => {
+  const previous = process.env.PDSH_MCP_EGRESS_TOKEN
+  const headers: Headers[] = []
+  const originalFetch = globalThis.fetch
+  process.env.PDSH_MCP_EGRESS_TOKEN = ''
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    headers.push(new Headers(init?.headers))
+    return new Response('{"ok":true,"allowed":true}', {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+  try {
+    const outcome = await postApproval('http://127.0.0.1:9/approval', 'bearer', {})
+    assert.equal(outcome.ok, true)
+    assert.equal(headers[0]?.get('x-pdsh-mcp-egress'), null,
+      'an empty environment value must omit the header (host fails closed)')
+    assert.equal(headers[0]?.get('authorization'), 'Bearer bearer')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (previous === undefined) delete process.env.PDSH_MCP_EGRESS_TOKEN
+    else process.env.PDSH_MCP_EGRESS_TOKEN = previous
   }
 })

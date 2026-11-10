@@ -127,6 +127,11 @@ export function createKeyedMutex() {
 async function postJson(url: string, token: string, payload: Record<string, unknown>, timeoutMs: number, signal?: AbortSignal): Promise<IdentityRegistration> {
   if (!url) throw new Error('[identity-bridge] App MCP URL is not configured')
   if (!token) throw new Error('[identity-bridge] App MCP token is not configured')
+  // The host-issued per-run MCP egress credential. Absent or empty means the
+  // header is omitted and the host rejects the request (fail closed); it is
+  // never replaced by a placeholder or another token.
+  const egressToken = String(process.env.PDSH_MCP_EGRESS_TOKEN ?? '')
+  const egress: Record<string, string> = egressToken === '' ? {} : { 'X-PDSH-MCP-Egress': egressToken }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error('identity registration timed out')), timeoutMs)
   const abort = (): void => controller.abort(signal?.reason)
@@ -134,7 +139,7 @@ async function postJson(url: string, token: string, payload: Record<string, unkn
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...egress },
       body: JSON.stringify(payload),
       signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })

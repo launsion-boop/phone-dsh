@@ -123,6 +123,41 @@ test('the per-session catalog request carries the App session and parses tools/l
   assert.deepEqual(parsed, { tools: [{ name: 'SendToAgent', description: 'ok' }] })
 })
 
+test('the catalog request carries the host egress credential only when configured', async () => {
+  const previous = process.env.PDSH_MCP_EGRESS_TOKEN
+  const calls: { headers: Headers }[] = []
+  const request = createCallerCatalogRequest({
+    url: 'http://127.0.0.1:9/mcp',
+    token: 'placeholder',
+    fetch: (async (_url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ headers: new Headers(init?.headers) })
+      return {
+        ok: true,
+        async json() { return { result: { tools: [] } } },
+      } as unknown as Response
+    }) as typeof fetch,
+  })
+  try {
+    process.env.PDSH_MCP_EGRESS_TOKEN = 'caller-catalog-fixture-egress'
+    await request('gb-bot-b', { timeoutMs: 1_000 })
+    assert.equal(calls[0]?.headers.get('x-pdsh-mcp-egress'),
+      'caller-catalog-fixture-egress', 'the trusted catalog client sends the egress credential')
+
+    process.env.PDSH_MCP_EGRESS_TOKEN = ''
+    await request('gb-bot-b', { timeoutMs: 1_000 })
+    assert.equal(calls[1]?.headers.get('x-pdsh-mcp-egress'), null,
+      'an empty environment value omits the header and fails closed at the host')
+
+    delete process.env.PDSH_MCP_EGRESS_TOKEN
+    await request('gb-bot-b', { timeoutMs: 1_000 })
+    assert.equal(calls[2]?.headers.get('x-pdsh-mcp-egress'), null,
+      'a missing environment value omits the header and fails closed at the host')
+  } finally {
+    if (previous === undefined) delete process.env.PDSH_MCP_EGRESS_TOKEN
+    else process.env.PDSH_MCP_EGRESS_TOKEN = previous
+  }
+})
+
 test('the mounted bridge applies the per-caller catalog per Bot session', async () => {
   const ctx = await mountRuntime()
   const requested: string[] = []

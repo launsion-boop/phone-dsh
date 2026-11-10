@@ -41,6 +41,7 @@ const root = resolve(here, '..')
 const CHANNEL_TOKEN = 'wp3-fixture-channel-token'
 const LAUNCH_TOKEN = 'wp3-fixture-launch-token'
 const PHONE_MCP_TOKEN = 'wp3-fixture-phone-mcp-token'
+const EGRESS_TOKEN = 'wp3-fixture-egress-token'
 const BOT_TOKEN = 'wp3-fixture-bot-bearer'
 const MCP_ROUTES = new Set(['/mcp', '/identity/register', '/identity/cancel', '/approval'])
 
@@ -52,6 +53,7 @@ interface Seen {
   readonly authorization: string | undefined
   readonly body: string
   readonly target?: string
+  readonly egress: string | undefined
 }
 
 interface LoopbackPair {
@@ -108,6 +110,9 @@ async function startLoopbackPair(): Promise<LoopbackPair> {
       seen.push({
         route: 'bot', method: request.method ?? 'GET', url, path: url,
         authorization: request.headers.authorization, body,
+        egress: request.headers['x-pdsh-mcp-egress'] === undefined
+          ? undefined
+          : String(request.headers['x-pdsh-mcp-egress']),
       })
       if (request.headers.authorization !== `Bearer ${BOT_TOKEN}`) {
         reply(response, 401, '{"error":"unauthorized"}')
@@ -147,6 +152,9 @@ async function startLoopbackPair(): Promise<LoopbackPair> {
       seen.push({
         route: 'host', method: request.method ?? 'GET', url, path: url,
         authorization: request.headers.authorization, body, target,
+        egress: request.headers['x-pdsh-mcp-egress'] === undefined
+          ? undefined
+          : String(request.headers['x-pdsh-mcp-egress']),
       })
       if (request.method !== 'POST' || url !== '/v1/http') {
         reply(response, 404, '{"error":"not_found"}')
@@ -167,6 +175,14 @@ async function startLoopbackPair(): Promise<LoopbackPair> {
         // The production gateway answers 403 `forbidden`; the shim maps that
         // to exit 22 without reading the body.
         reply(response, 403, '{"error":"forbidden"}')
+        return
+      }
+      // WPF1 host gate: the four Bot routes require the per-run egress
+      // credential. Model-written curl never has it, so the fixture answers the
+      // frozen 403 before injecting the Bot bearer or contacting the listener.
+      if (request.headers['x-pdsh-mcp-egress'] !== EGRESS_TOKEN) {
+        reply(response, 403, '{"error":{"code":"mcp_egress_forbidden",'
+          + '"message":"the MCP egress credential is missing or invalid"}}')
         return
       }
       const upstream = await fetch(parsed, {
@@ -216,10 +232,12 @@ async function withTokenEnvironment<T>(body: () => Promise<T>): Promise<T> {
     PDSH_CHANNEL_TOKEN: process.env.PDSH_CHANNEL_TOKEN,
     PDSH_DSH_LAUNCH_TOKEN: process.env.PDSH_DSH_LAUNCH_TOKEN,
     PDSH_PHONE_MCP_TOKEN: process.env.PDSH_PHONE_MCP_TOKEN,
+    PDSH_MCP_EGRESS_TOKEN: process.env.PDSH_MCP_EGRESS_TOKEN,
   }
   process.env.PDSH_CHANNEL_TOKEN = CHANNEL_TOKEN
   process.env.PDSH_DSH_LAUNCH_TOKEN = LAUNCH_TOKEN
   process.env.PDSH_PHONE_MCP_TOKEN = PHONE_MCP_TOKEN
+  process.env.PDSH_MCP_EGRESS_TOKEN = EGRESS_TOKEN
   try {
     return await body()
   } finally {
@@ -246,6 +264,8 @@ test('Q1: the bash child environment carries no PDSH token value', async () => {
         'subprocess-xl.localEnvironment must scrub PDSH_DSH_LAUNCH_TOKEN')
       assert.equal(env.PDSH_PHONE_MCP_TOKEN, undefined,
         'subprocess-xl.localEnvironment must scrub PDSH_PHONE_MCP_TOKEN')
+      assert.equal(env.PDSH_MCP_EGRESS_TOKEN, undefined,
+        'subprocess-xl.localEnvironment must scrub PDSH_MCP_EGRESS_TOKEN')
 
       const shell = new WorkerShell({
         fs: new VfsFileSystem({ root: scratch.root }),
@@ -265,7 +285,7 @@ test('Q1: the bash child environment carries no PDSH token value', async () => {
       assert.equal(result.stdout.includes('PDSH_CHANNEL_TOKEN'), false,
         'no Worker-visible file may publish the token name/value')
       assert.equal(result.aborted, false)
-      for (const secret of [CHANNEL_TOKEN, LAUNCH_TOKEN, PHONE_MCP_TOKEN]) {
+      for (const secret of [CHANNEL_TOKEN, LAUNCH_TOKEN, PHONE_MCP_TOKEN, EGRESS_TOKEN]) {
         assert.equal(result.stdout.includes(secret), false,
           `the bash output leaked a token: ${result.stdout}`)
         assert.equal(result.stderr.includes(secret), false,
@@ -299,7 +319,7 @@ test('Q2: the host policy still rejects a non-MCP target (regression)', async ()
   }
 })
 
-test('Q2 known failure: model-written curl reaches the four Bot MCP routes', { todo: 'WP3 Q2: host egress admits the Bot MCP routes with the injected bearer' }, async () => {
+test('Q2: model-written curl cannot reach the four Bot MCP routes without the egress credential', async () => {
   const pair = await startLoopbackPair()
   const scratch = scratchRoot()
   try {
@@ -318,11 +338,18 @@ test('Q2 known failure: model-written curl reaches the four Bot MCP routes', { t
         { origin: pair.hostOrigin, token: CHANNEL_TOKEN })
       results.push({ path, ...result })
     }
-    // The security contract under test: the host must NOT admit a target that
-    // the Worker reached around its Bot MCP client.
-    const reached = results.filter(result => result.exitCode === 0).map(result => result.path)
-    assert.deepEqual(reached, [], `model-written curl reached ${JSON.stringify(reached)}; `
-      + `results=${JSON.stringify(results)}; seen=${JSON.stringify(pair.seen)}`)
+    // The model-written shim carries no X-PDSH-MCP-Egress and must be refused
+    // at the host before the Bot bearer is injected or the listener is reached.
+    for (const result of results) {
+      assert.equal(result.exitCode, 22,
+        `${result.path} must be refused: ${JSON.stringify(result)}`)
+    }
+    assert.deepEqual(pair.seen.filter(entry => entry.route === 'bot'), [],
+      `the Bot listener must not see a model-written request: ${JSON.stringify(pair.seen)}`)
+    const host = pair.seen.filter(entry => entry.route === 'host')
+    assert.equal(host.length, MCP_ROUTES.size, JSON.stringify(pair.seen))
+    assert.equal(host.every(entry => entry.egress === undefined), true,
+      'the curl shim must not synthesize the egress credential')
   } finally {
     scratch.cleanup()
     await pair.close()
@@ -383,7 +410,7 @@ test('Q1/Q2: git can reach /v1/http but exact-path admission blocks the Bot MCP 
       assert.notEqual(result.exitCode, 0, result.stdout)
       // The npm-vendored git client does not implement GIT_TRACE_CURL, so the
       // token is not printed even though the transport used it.
-      for (const secret of [CHANNEL_TOKEN, LAUNCH_TOKEN, PHONE_MCP_TOKEN]) {
+      for (const secret of [CHANNEL_TOKEN, LAUNCH_TOKEN, PHONE_MCP_TOKEN, EGRESS_TOKEN]) {
         assert.equal(`${result.stdout}${result.stderr}`.includes(secret), false,
           'git diagnostics must not print a token')
       }
@@ -392,6 +419,8 @@ test('Q1/Q2: git can reach /v1/http but exact-path admission blocks the Bot MCP 
       assert.equal(host[0]!.authorization, `Bearer ${CHANNEL_TOKEN}`,
         'the git transport used the real Worker process token')
       assert.equal(host[0]!.target?.includes('/info/refs'), true)
+      assert.equal(host[0]!.egress, undefined,
+        'the git smart-HTTP transport must not synthesize the egress credential')
       assert.equal(pair.seen.filter(entry => entry.route === 'bot').length, 0,
         'the exact-path MCP policy must reject the git smart-HTTP path')
       assert.match(result.stderr, /host allow-list rejected/u)
@@ -442,6 +471,8 @@ test('WASI python: the guest environment never carries the loopback token', asyn
   assert.equal(seen[0]!.url, `http://127.0.0.1:1${PDSH_HTTP_ROUTE}`)
   assert.equal(seen[0]!.headers.get('authorization'), `Bearer ${CHANNEL_TOKEN}`)
   assert.equal(seen[0]!.headers.get('x-pdsh-target-url'), 'http://127.0.0.1:9/identity/register')
+  assert.equal(seen[0]!.headers.get('x-pdsh-mcp-egress'), undefined,
+    'the WASI XHR bridge must not synthesize the trusted-client egress credential')
   // The Python guest's own default environment is built by resolvePythonHttpRoute
   // and must not publish the token; the bridge, not the guest, carries it.
   const { resolvePythonHttpRoute } = await import('../worker-entry/src/python-toolbox.ts')
@@ -516,6 +547,7 @@ test('PTC: the QuickJS workflow guest has no fetch, process or environment', { t
       worker: typeof Worker,
       env: (() => { try { return typeof globalThis.process.env } catch { return 'blocked' } })(),
       token: (() => { try { return typeof globalThis.process.env.PDSH_CHANNEL_TOKEN } catch { return 'blocked' } })(),
+      egressToken: (() => { try { return typeof globalThis.process.env.PDSH_MCP_EGRESS_TOKEN } catch { return 'blocked' } })(),
       escape: (() => {
         try { return typeof ({}).constructor.constructor('return process')() }
         catch { return 'blocked' }
@@ -529,6 +561,7 @@ test('PTC: the QuickJS workflow guest has no fetch, process or environment', { t
       worker: 'undefined',
       env: 'blocked',
       token: 'blocked',
+      egressToken: 'blocked',
       escape: 'blocked',
     })
   } finally {

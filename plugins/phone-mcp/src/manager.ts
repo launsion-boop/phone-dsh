@@ -159,7 +159,21 @@ function headerSecrets(config: Pick<McpServerConfig, 'headersFromEnv' | 'hostMan
     const value = env[envName]
     if (typeof value === 'string' && value.length > 0) secrets.push(value)
   }
+  // The trusted-client egress credential is a request header this process
+  // adds on its own; keep it out of the same diagnostics as the values above.
+  const egress = env.PDSH_MCP_EGRESS_TOKEN
+  if (typeof egress === 'string' && egress.length > 0) secrets.push(egress)
   return secrets
+}
+
+/**
+ * The host-issued per-run MCP egress credential for every mount this manager
+ * creates. Missing or empty returns no header, so the host rejects the mount's
+ * requests (fail closed) instead of the processor borrowing another token.
+ */
+function mcpEgressHeader(env: NodeJS.ProcessEnv): Record<string, string> {
+  const token = String(env.PDSH_MCP_EGRESS_TOKEN ?? '')
+  return token === '' ? {} : { 'X-PDSH-MCP-Egress': token }
 }
 
 function sanitizeLogValue(value: unknown, secrets: readonly string[]): unknown {
@@ -532,6 +546,13 @@ export class PhoneMcpManager {
   private async mount(config: McpServerConfig): Promise<Mount> {
     this.assertUsable()
     const headers = resolveHeaders(config, this.env)
+    // The host injects the real upstream credential only after validating this
+    // per-run header. It is added after the user/env map so a user row cannot
+    // override the trusted value; the empty case omits it (fail closed).
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'x-pdsh-mcp-egress') delete headers[name]
+    }
+    Object.assign(headers, mcpEgressHeader(this.env))
     const secrets = Object.values(headers)
     const ownedTools = new Set<string>()
     const clientConfig: McpClientConfig = {

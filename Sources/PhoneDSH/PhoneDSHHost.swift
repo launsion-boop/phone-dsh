@@ -72,6 +72,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private let reclaimTokenStore: any HandoffReclaimTokenStore
     private let bootID: String
     private let sessionEpoch: UInt64 = 1
+    /// The one MCP egress credential of this host incarnation
+    /// (`PDSH_MCP_EGRESS_TOKEN`). Generated once at object creation, delivered
+    /// with every Worker boot of this host run, and never rotated by a Worker
+    /// restart or engine rebuild. It lives in host memory only.
+    nonisolated let mcpEgressToken: String = MCPEgressCredential.make()
     /// Turn-inactivity counters shared by every supervised harness this host
     /// hands out (G2-FIX-12). It holds no session or credential state.
     private let inactivityLedger: PhoneDSHTurnInactivityLedger
@@ -1407,6 +1412,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     ///   expect an interrupted step to stay open until the run reconciles it.
     private func bootRuntime(_ runtime: RuntimeServices,
                              reconcileOrphans: Bool = false) async throws {
+        installMCPEgressCredential()
         // `userReset()` and `resume()` reuse a live runtime, so the pre-start
         // guard in `beginStart()` alone is not enough: a persisted unresolved
         // CAS intent must also keep this path closed. A definite-rejection
@@ -2975,6 +2981,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         }
         var bootOutcome = "failed"
         defer { writeBootTimings(bootOutcome) }
+        installMCPEgressCredential()
         // Fail closed before any WAL/manifest work if a previous generation CAS
         // is unresolved. A new process cannot distinguish "the CAS never
         // arrived" from "the remote owns it and the response was lost", so it
@@ -3453,6 +3460,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         var environment = Self.workerEnvironment(
             endpoint: endpoint,
             channelPath: engineConfiguration.channelPath,
+            mcpEgressToken: mcpEgressToken,
             overrides: configuration.engine.environment)
         Self.applyConfiguredMCPEnvironment(&environment, endpoint: endpoint,
                                            nativeMCP: configuration.nativeMCP)
@@ -3502,14 +3510,26 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         return entries.isEmpty ? nil : entries.joined(separator: ",")
     }
 
+    /// Installs this host run's egress credential on the exact-route policy
+    /// that the gateway consults. The policy is the one object that both
+    /// authorises MCP credential injection and checks the hop header; a host
+    /// without an MCP policy leaves the gate with nothing to protect.
+    private func installMCPEgressCredential() {
+        (configuration.egressAuthorizer as? any MCPEgressGating)?
+            .setMCPEgressToken(mcpEgressToken)
+    }
+
     /// The D24 Worker environment injected into the page's `?env=` boot input.
     ///
     /// `PDSH_DSH_LAUNCH_TOKEN` is the token the resident phone surface expects;
     /// the channel/gateway values are the llm-bridge route the Worker uses to
-    /// reach `/v1/http`. The App's own entries are merged last so an explicit
-    /// override is possible.
+    /// reach `/v1/http`. `PDSH_MCP_EGRESS_TOKEN` is this host run's trusted-MCP
+    /// egress credential (spec/bot/v1/mcp-endpoint.md §1.1); it is written after
+    /// the App overrides so the value the host validates cannot be replaced by a
+    /// persisted/App-supplied one. The App's other entries are merged before it.
     static func workerEnvironment(endpoint: LoopbackEndpoint,
                                   channelPath: String,
+                                  mcpEgressToken: String,
                                   overrides: [String: String]) -> [String: String] {
         let origin = endpoint.baseURL.absoluteString
         var environment: [String: String] = [
@@ -3520,6 +3540,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             PhoneDSHWorkerEnvironment.gatewayURL: origin,
         ]
         environment.merge(overrides) { _, app in app }
+        environment[PhoneDSHWorkerEnvironment.mcpEgressToken] = mcpEgressToken
         return environment
     }
 

@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: MIT
 //
-// WPF0 verification for the "Bot identity impersonation" fix package:
-// does the host inject a user-configured MCP connector credential when the
-// request comes from the model-written `curl` path?
+// WPF1 verification for the "Bot identity impersonation" fix package:
+// the host must require the per-run `X-PDSH-MCP-Egress` credential on every
+// exact MCP route before resolving or injecting a credential, and must not
+// forward that header upstream.
 //
 // These tests drive the real `PhoneMCPAccessSettings` -> `MCPEgressPolicy` ->
-// `PhoneMCPCredentialProvider` -> `ModelGateway` chain, with a real loopback
-// HTTP upstream. The only fixture is the credential value and the local
-// upstream; nothing is asserted from reading the implementation.
-//
-// The known-failure test states the post-fix behaviour ("should be rejected")
-// and is expected to fail on the current baseline. WPF1 removes the
-// `XCTExpectFailure` marker and makes it a normal passing regression.
+// `PhoneMCPCredentialProvider` -> `ModelGateway` chain, a real loopback HTTP
+// upstream and the real `/v1/http` writer. The egress suites in
+// `spec/bot/v1/golden/mcp-egress.phone.json` drive `ModelGateway.mcpEgressAdmitted`
+// and the loopback failure envelope.
 
 import Foundation
 import Network
 import XCTest
 import PhoneDSHAgentCore
-import PhoneDSHGateway
+@testable import PhoneDSHGateway
+import PhoneDSHLoopback
 @testable import PhoneDSH
 
 final class BotMCPEgressCredentialInjectionTests: XCTestCase {
     private static let connectorURL = "https://connector.example.test/mcp"
     private static let connectorAuthorization = "Bearer wpf0-fixture-user-connector-token"
     private static let connectorKey = "wpf0-fixture-connector-key"
+    private static let egressToken = "wpf0-fixture-egress-token"
 
     // MARK: - Fixtures
 
@@ -238,6 +238,34 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
         func invalidate(_ credential: Credential, for scope: CredentialScope) async {}
     }
 
+    /// Wraps a provider and records whether credential resolution was reached.
+    private final class CountingCredentialProvider: CredentialProvider, @unchecked Sendable {
+        private let base: any CredentialProvider
+        private let lock = NSLock()
+        private var calls = 0
+
+        init(base: any CredentialProvider) {
+            self.base = base
+        }
+
+        var credentialCalls: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return calls
+        }
+
+        func credential(for scope: CredentialScope) async throws -> Credential {
+            lock.lock()
+            calls += 1
+            lock.unlock()
+            return try await base.credential(for: scope)
+        }
+
+        func invalidate(_ credential: Credential, for scope: CredentialScope) async {
+            await base.invalidate(credential, for: scope)
+        }
+    }
+
     private final class CollectFailure: Error {}
 
     private func makeSettings() -> PhoneMCPAccessSettings {
@@ -246,9 +274,15 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
     }
 
     private func makeGateway(policy: MCPEgressPolicy,
-                             provider: any CredentialProvider) -> ModelGateway {
+                             provider: any CredentialProvider,
+                             mcpEgressToken: String? = BotMCPEgressCredentialInjectionTests.egressToken,
+                             responseLog: (any ResponseLogging)? = nil,
+                             allowedUpstreamHosts: Set<String> = []) -> ModelGateway {
+        if let mcpEgressToken {
+            policy.setMCPEgressToken(mcpEgressToken)
+        }
         let configuration = ModelGatewayConfiguration(
-            allowedUpstreamHosts: [],
+            allowedUpstreamHosts: allowedUpstreamHosts,
             responseLogQuotaBytes: 1_000_000,
             backoff: ModelGatewayBackoffPolicy(initialDelay: 0,
                                                multiplier: 2,
@@ -258,6 +292,7 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
             upstreamRequestTimeout: 10)
         return ModelGateway(configuration: configuration,
                             credentialProvider: provider,
+                            responseLog: responseLog,
                             egressAuthorizer: policy)
     }
 
@@ -275,6 +310,17 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
         }
         guard let status else { throw CollectFailure() }
         return (status, headers, body)
+    }
+
+    /// Collects the pre-head failure of one gateway exchange.
+    private func collectFailure(_ gateway: ModelGateway,
+                                _ request: GatewayRequest) async throws -> Error {
+        do {
+            _ = try await collect(gateway, request)
+            throw CollectFailure()
+        } catch let error as ModelGatewayError {
+            return error
+        }
     }
 
     // MARK: - Tests
@@ -314,10 +360,10 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
 
     /// The verification the fix package asked for: a Worker request shaped like
     /// the model-written `curl` shim (loopback `Authorization` plus an arbitrary
-    /// body) targets exactly the user's connector URL. Today the host injects
-    /// the stored connector credential and forwards the request. After WPF1 the
-    /// missing `X-PDSH-MCP-Egress` value must produce a pre-upstream 403.
-    func testKnownFailureModelWrittenRequestGetsTheUserConnectorCredential() async throws {
+    /// body) targets exactly the user's connector URL without the egress
+    /// credential. The host must answer 403 `mcp_egress_forbidden` before it
+    /// resolves the stored connector header or contacts the upstream.
+    func testModelWrittenRequestWithoutEgressCredentialIsRejectedBeforeCredentialResolution() async throws {
         let upstream = try LoopbackUpstream()
         let port = try await upstream.start()
         defer { upstream.stop() }
@@ -341,7 +387,8 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
 
         var plan = ModelProviderLaunchPlan()
         let policy = MCPHostConfiguration.apply(to: &plan, settings: settings)
-        let gateway = makeGateway(policy: policy, provider: plan.credentialProvider)
+        let counting = CountingCredentialProvider(base: plan.credentialProvider)
+        let gateway = makeGateway(policy: policy, provider: counting)
         addTeardownBlock { await gateway.shutdown() }
 
         let target = try XCTUnwrap(URL(string: localURL))
@@ -354,21 +401,326 @@ final class BotMCPEgressCredentialInjectionTests: XCTestCase {
                 "content-type": "application/json",
             ],
             body: Data(#"{"jsonrpc":"2.0","id":"wpf0","method":"tools/call"}"#.utf8))
-        let (status, headers, _) = try await collect(gateway, request)
+        let error = try await collectFailure(gateway, request)
+        XCTAssertEqual(error as? ModelGatewayError, .mcpEgressForbidden)
+        XCTAssertEqual(counting.credentialCalls, 0,
+                       "a rejected request must not resolve any credential")
+        XCTAssertEqual(upstream.requests.count, 0,
+                       "a rejected request must not reach the connector")
+        let failure = HTTPEgressFailure(error: error)
+        XCTAssertEqual(failure.status, 403)
+        XCTAssertEqual(failure.code, "mcp_egress_forbidden")
+        XCTAssertEqual(String(decoding: failure.encodedBody(), as: UTF8.self),
+                       #"{"error":{"code":"mcp_egress_forbidden","message":"the MCP egress credential is missing or invalid"}}"#)
+    }
 
-        XCTExpectFailure("WPF0 connector inference: the host injects the user's connector "
-            + "credential for a model-written /v1/http request") {
-            XCTAssertEqual(status, 403,
-                           "a request without the egress credential must be rejected at egress")
-            XCTAssertEqual(headers["x-pdsh-proxy-error"], "mcp_egress_forbidden",
-                           "the rejection must carry the stable egress error code")
-            XCTAssertEqual(upstream.requests.count, 0,
-                           "a rejected request must not reach the connector")
-            let seen = upstream.requests.first
-            XCTAssertNil(seen?.headers["authorization"],
-                         "the host injected the user's connector Authorization: \(seen?.headers ?? [:])")
-            XCTAssertNil(seen?.headers["x-connector-key"],
-                         "the host injected the user's connector header: \(seen?.headers ?? [:])")
+    /// A trusted Bot client's request reaches the upstream with the host
+    /// credential and without the hop header.
+    func testBotRouteWithCorrectEgressCredentialInjectsBotBearerAndStripsTheHeader() async throws {
+        let upstream = try LoopbackUpstream()
+        let port = try await upstream.start()
+        defer { upstream.stop() }
+        let localURL = "http://127.0.0.1:\(port)/mcp"
+        let botBearer = "Bearer wpf1-fixture-bot-bearer"
+
+        let policy = MCPEgressPolicy()
+        try policy.grantBotRuntimeEndpoint(try XCTUnwrap(URL(string: localURL)),
+                                           token: "wpf1-fixture-bot-bearer")
+        let gateway = makeGateway(
+            policy: policy,
+            provider: PhoneMCPCredentialProvider(policy: policy,
+                                                 base: NoneCredentialProvider()))
+        addTeardownBlock { await gateway.shutdown() }
+
+        let target = try XCTUnwrap(URL(string: localURL))
+        let body = Data(#"{"jsonrpc":"2.0","id":"wpf1","method":"tools/list"}"#.utf8)
+        // The same Bot route without the hop credential is refused before any
+        // upstream contact; the correct request below is the only one seen.
+        let rejected = try await collectFailure(
+            gateway,
+            GatewayRequest(method: "POST",
+                           url: target,
+                           headers: [
+                               "authorization": "Bearer phone-host-injects-bot-mcp-token",
+                               "content-type": "application/json",
+                           ],
+                           body: body))
+        XCTAssertEqual(rejected as? ModelGatewayError, .mcpEgressForbidden)
+        XCTAssertEqual(upstream.requests.count, 0)
+
+        let request = GatewayRequest(
+            method: "POST",
+            url: target,
+            headers: [
+                "authorization": "Bearer phone-host-injects-bot-mcp-token",
+                "content-type": "application/json",
+                GatewayRequest.mcpEgressHeader: Self.egressToken,
+            ],
+            body: body)
+        let (status, _, _) = try await collect(gateway, request)
+        XCTAssertEqual(status, 200)
+        let seen = try XCTUnwrap(upstream.requests.first)
+        XCTAssertEqual(seen.headers["authorization"], botBearer,
+                       "the host injects the Bot bearer for the exact route")
+        XCTAssertNil(seen.headers["x-pdsh-mcp-egress"],
+                     "the egress credential must never reach the upstream")
+    }
+
+    /// A trusted user-connector client's request gets the stored header map,
+    /// and the hop header is stripped before the upstream request.
+    func testUserConnectorWithCorrectEgressCredentialInjectsStoredHeadersAndStripsTheHeader() async throws {
+        let upstream = try LoopbackUpstream()
+        let port = try await upstream.start()
+        defer { upstream.stop() }
+        let localURL = "http://127.0.0.1:\(port)/mcp"
+        let settings = makeSettings()
+        let grant = try settings.grant(
+            serverName: "local-connector",
+            url: localURL,
+            headers: ["Authorization", "X-Connector-Key"],
+            values: [
+                "Authorization": Self.connectorAuthorization,
+                "X-Connector-Key": Self.connectorKey,
+            ])
+        try settings.commitGrant(serverName: grant.serverName,
+                                 expectedURL: grant.url,
+                                 expectedHeaders: grant.headers)
+        var plan = ModelProviderLaunchPlan()
+        let policy = MCPHostConfiguration.apply(to: &plan, settings: settings)
+        let gateway = makeGateway(policy: policy, provider: plan.credentialProvider)
+        addTeardownBlock { await gateway.shutdown() }
+
+        let request = GatewayRequest(
+            method: "POST",
+            url: try XCTUnwrap(URL(string: localURL)),
+            headers: [
+                "content-type": "application/json",
+                "X-PDSH-MCP-EGRESS": Self.egressToken,
+            ],
+            body: Data(#"{"jsonrpc":"2.0","id":"wpf1","method":"tools/list"}"#.utf8))
+        let (status, _, _) = try await collect(gateway, request)
+        XCTAssertEqual(status, 200)
+        let seen = try XCTUnwrap(upstream.requests.first)
+        XCTAssertEqual(seen.headers["authorization"], Self.connectorAuthorization)
+        XCTAssertEqual(seen.headers["x-connector-key"], Self.connectorKey)
+        XCTAssertNil(seen.headers["x-pdsh-mcp-egress"],
+                     "the egress credential must never reach the connector")
+    }
+
+    /// The real `/v1/http` writer emits the frozen 403 envelope and writes no
+    /// response-log entry. The target is an authorized exact route that is not
+    /// listening, so a missing gate would surface a 502 instead.
+    func testLoopbackHTTPEgressWritesTheFrozenForbiddenEnvelopeWithoutAResponseLogEntry() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wpf1-response-log-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let responseLog = try ResponseLog(root: root, quotaBytes: 1_000_000)
+
+        let policy = MCPEgressPolicy()
+        try policy.grant(serverName: "dead-connector",
+                         url: try XCTUnwrap(URL(string: "http://127.0.0.1:9/mcp")),
+                         headers: ["authorization": "Bearer fixture"])
+        let gateway = makeGateway(
+            policy: policy,
+            provider: PhoneMCPCredentialProvider(policy: policy,
+                                                 base: NoneCredentialProvider()),
+            responseLog: responseLog)
+        addTeardownBlock { await gateway.shutdown() }
+
+        let loopback = LoopbackServer(
+            configuration: LoopbackConfiguration(token: "wpf1-loopback-token"),
+            routes: LoopbackRoutes(httpEgress: PhoneDSHGatewayEgress(gateway: gateway)))
+        let endpoint = try await loopback.start()
+        defer { Task { await loopback.stop() } }
+
+        var request = URLRequest(url: endpoint.baseURL.appendingPathComponent("v1/http"))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(endpoint.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("http://127.0.0.1:9/mcp", forHTTPHeaderField: "X-PDSH-Target-URL")
+        request.setValue("POST", forHTTPHeaderField: "X-PDSH-Target-Method")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(#"{"jsonrpc":"2.0","id":"wpf1","method":"tools/call"}"#.utf8)
+        let (body, response) = try await URLSession.shared.data(for: request)
+        let http = try XCTUnwrap(response as? HTTPURLResponse)
+        XCTAssertEqual(http.statusCode, 403)
+        XCTAssertEqual(http.value(forHTTPHeaderField: "X-PDSH-Proxy-Error"),
+                       "mcp_egress_forbidden")
+        XCTAssertEqual(http.value(forHTTPHeaderField: "Content-Type"),
+                       "application/json; charset=utf-8")
+        XCTAssertEqual(String(decoding: body, as: UTF8.self),
+                       #"{"error":{"code":"mcp_egress_forbidden","message":"the MCP egress credential is missing or invalid"}}"#)
+        let logged = await responseLog.totalBytes()
+        XCTAssertEqual(logged, 0,
+                       "a pre-credential egress rejection must not write the response log")
+    }
+
+    /// The frozen vector has correct-value cases for three of the four Bot
+    /// paths; this drives the fourth (`/identity/cancel`) through the same real
+    /// policy/gate so "Bot four routes" is covered without editing the spec.
+    func testAllFourBotRoutesRequireAndAcceptTheEgressCredential() async throws {
+        let policy = MCPEgressPolicy()
+        try policy.grantBotRuntimeEndpoint(
+            try XCTUnwrap(URL(string: "http://127.0.0.1:8787/mcp")))
+        let counting = CountingCredentialProvider(base: NoneCredentialProvider())
+        let gateway = makeGateway(policy: policy, provider: counting)
+        addTeardownBlock { await gateway.shutdown() }
+
+        for path in ["mcp", "identity/register", "identity/cancel", "approval"] {
+            let url = try XCTUnwrap(URL(string: "http://127.0.0.1:8787/\(path)"))
+            XCTAssertTrue(gateway.mcpEgressAdmitted(
+                GatewayRequest(method: "POST", url: url,
+                               headers: [GatewayRequest.mcpEgressHeader: Self.egressToken])),
+                path)
+            XCTAssertFalse(gateway.mcpEgressAdmitted(
+                GatewayRequest(method: "POST", url: url)), path)
+            let error = try await collectFailure(
+                gateway, GatewayRequest(method: "POST", url: url))
+            XCTAssertEqual(error as? ModelGatewayError, .mcpEgressForbidden, path)
         }
+        XCTAssertEqual(counting.credentialCalls, 0)
+    }
+
+    /// A target outside every exact MCP route keeps the pre-WPF1 behaviour: no
+    /// egress header is required and the allowed host is reached normally.
+    func testNonMCPWhitelistedTargetIsUnaffectedByTheGate() async throws {
+        let upstream = try LoopbackUpstream()
+        let port = try await upstream.start()
+        defer { upstream.stop() }
+        let localURL = "http://127.0.0.1:\(port)/v1/messages"
+        let policy = MCPEgressPolicy()
+        let gateway = makeGateway(
+            policy: policy,
+            provider: NoneCredentialProvider(),
+            allowedUpstreamHosts: ["127.0.0.1:\(port)"])
+        addTeardownBlock { await gateway.shutdown() }
+
+        let (status, _, _) = try await collect(
+            gateway,
+            GatewayRequest(method: "POST",
+                           url: try XCTUnwrap(URL(string: localURL)),
+                           headers: ["content-type": "application/json"],
+                           body: Data("{}".utf8)))
+        XCTAssertEqual(status, 200)
+        XCTAssertEqual(upstream.requests.count, 1,
+                       "a non-MCP allowed host must still be reachable without the header")
+        XCTAssertNil(upstream.requests.first?.headers["x-pdsh-mcp-egress"])
+    }
+
+    // MARK: - Contract vectors
+
+    private struct EgressVectorRoute: Decodable {
+        let kind: String
+        let url: String
+    }
+
+    private struct EgressVectorExpect: Decodable {
+        let admitted: Bool?
+        let status: Int?
+        let error: String?
+    }
+
+    private struct EgressVectorCase: Decodable {
+        let suite: String
+        let name: String
+        let target: String?
+        let headers: [String: String]?
+        let expect: EgressVectorExpect
+    }
+
+    private struct EgressVector: Decodable {
+        let egressToken: String
+        let egressRoutes: [EgressVectorRoute]
+        let valid: [EgressVectorCase]
+        let invalid: [EgressVectorCase]
+    }
+
+    private static func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // PhoneDSHTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // repository
+    }
+
+    /// Every `egress` case in the frozen vector drives the real
+    /// `MCPEgressPolicy` exact-route predicate and the real gateway gate; the
+    /// invalid cases also drive the loopback failure mapping.
+    func testEgressVectorsDriveTheRealHostGateAndFailureEnvelope() async throws {
+        let file = Self.repositoryRoot()
+            .appendingPathComponent("spec/bot/v1/golden/mcp-egress.phone.json")
+        let vector = try JSONDecoder().decode(EgressVector.self,
+                                              from: try Data(contentsOf: file))
+        XCTAssertEqual(vector.egressToken, Self.egressToken)
+
+        let policy = MCPEgressPolicy()
+        for route in vector.egressRoutes {
+            let url = try XCTUnwrap(URL(string: route.url), route.url)
+            switch route.kind {
+            case "bot":
+                // `grantBotRuntimeEndpoint` takes the `/mcp` endpoint and
+                // derives the four exact paths from its parent.
+                var components = try XCTUnwrap(
+                    URLComponents(url: url, resolvingAgainstBaseURL: false))
+                components.path = "/mcp"
+                components.query = nil
+                try policy.grantBotRuntimeEndpoint(try XCTUnwrap(components.url))
+            case "user":
+                try policy.grant(serverName: "vector-\(url.host ?? "user")",
+                                 url: url,
+                                 headers: ["authorization": "Bearer fixture"])
+            default:
+                XCTFail("unknown egress route kind \(route.kind)")
+            }
+        }
+        XCTAssertTrue(policy.allowsEgressHost(
+            try XCTUnwrap(URL(string: "http://127.0.0.1:8787/mcp"))))
+        XCTAssertTrue(policy.allowsEgressHost(
+            try XCTUnwrap(URL(string: "https://connector.example.test/mcp?session=wpf0"))))
+
+        let counting = CountingCredentialProvider(base: NoneCredentialProvider())
+        let gateway = makeGateway(policy: policy,
+                                  provider: counting,
+                                  mcpEgressToken: vector.egressToken)
+        addTeardownBlock { await gateway.shutdown() }
+
+        var validCount = 0
+        for testCase in vector.valid where testCase.suite == "egress" {
+            validCount += 1
+            let url = try XCTUnwrap(URL(string: testCase.target ?? ""), testCase.name)
+            let request = GatewayRequest(method: "POST",
+                                         url: url,
+                                         headers: testCase.headers ?? [:])
+            XCTAssertEqual(testCase.expect.admitted, true, testCase.name)
+            XCTAssertTrue(gateway.mcpEgressAdmitted(request), testCase.name)
+            // The gate's scope is the policy's exact route set, not the path
+            // suffix: an identical-shaped sibling/port is outside it.
+            if !policy.allowsEgressHost(url) {
+                XCTAssertTrue(gateway.mcpEgressAdmitted(
+                    GatewayRequest(method: "POST", url: url)), testCase.name)
+            }
+        }
+        XCTAssertEqual(validCount, 9)
+
+        var invalidCount = 0
+        for testCase in vector.invalid where testCase.suite == "egress" {
+            invalidCount += 1
+            let url = try XCTUnwrap(URL(string: testCase.target ?? ""), testCase.name)
+            let request = GatewayRequest(method: "POST",
+                                         url: url,
+                                         headers: testCase.headers ?? [:])
+            XCTAssertEqual(testCase.expect.admitted, false, testCase.name)
+            XCTAssertFalse(gateway.mcpEgressAdmitted(request), testCase.name)
+            let error = try await collectFailure(gateway, request)
+            XCTAssertEqual(error as? ModelGatewayError, .mcpEgressForbidden, testCase.name)
+            let failure = HTTPEgressFailure(error: error)
+            XCTAssertEqual(failure.status, testCase.expect.status, testCase.name)
+            XCTAssertEqual(failure.code, testCase.expect.error, testCase.name)
+            XCTAssertEqual(String(decoding: failure.encodedBody(), as: UTF8.self),
+                           #"{"error":{"code":"mcp_egress_forbidden","message":"the MCP egress credential is missing or invalid"}}"#,
+                           testCase.name)
+        }
+        XCTAssertEqual(invalidCount, 10)
+        XCTAssertEqual(counting.credentialCalls, 0,
+                       "no invalid vector may resolve a credential")
     }
 }
