@@ -9,6 +9,13 @@
  * the real file on every run and differs only in TTY redirections; it is not a
  * checked-in alternate script.
  *
+ * A read-only fd 3 still displays a prompt on macOS bash 3.2 but makes
+ * `printf >&3` return 1, which `set -e` used to turn into a silent exit right
+ * after "现在重启？[Y/n]". Static checks always pin `exec 3<>/dev/tty`, and the
+ * upgrade-prompt test runs the unmodified script on a real pty when expect (or
+ * script) can allocate one. When openpty is denied, that test skips with an
+ * explicit reminder that the coordinator must rerun it on a real terminal.
+ *
  * The script tests always run through `/bin/bash`. Where that is macOS bash
  * 3.2 and an en_US.UTF-8 locale exists, every run also exports LANG/LC_ALL
  * en_US.UTF-8: bash 3.2 treats the first byte of a following multibyte
@@ -71,10 +78,11 @@ function executable(path, text) {
 /** Build a copy of install.sh with the controlling terminal replaced by files. */
 function ttylessCopy(root) {
   let text = readFileSync(INSTALL, 'utf8')
-  assert.ok(text.includes('exec 3</dev/tty'))
+  assert.ok(text.includes('exec 3<>/dev/tty'))
   text = text
     .replace('if ! { : </dev/tty; } 2>/dev/null; then', 'if false; then')
-    .replace('exec 3</dev/tty', 'exec 3<"$PCLINK_TEST_TTY_IN"')
+    .replace('if [ ! -w /dev/tty ]; then', 'if false; then')
+    .replace('exec 3<>/dev/tty', 'exec 3<>"$PCLINK_TEST_TTY_IN"')
     .replaceAll('<&3', '<"$PCLINK_TEST_TTY_IN"')
     .replaceAll('>&3', '>>"$PCLINK_TEST_TTY_OUT"')
     .replaceAll('< /dev/tty', '<"$PCLINK_TEST_TTY_IN"')
@@ -93,6 +101,74 @@ function baseEnv(bin) {
     DSH_HOME: join(dirname(bin), 'dsh'),
     PCLINK_PLUGIN_SPEC: '/nonexistent/pclink',
   }
+}
+
+/** Path of a host command, or undefined when PATH does not provide it. */
+function commandPath(name) {
+  const result = spawnSync('/bin/sh', ['-c', `command -v ${name}`], { encoding: 'utf8' })
+  if (result.status !== 0) return undefined
+  return result.stdout.trim() || undefined
+}
+
+/** The body of a top-level shell function, so a test can drive the real code. */
+function extractFunction(name) {
+  const source = readFileSync(INSTALL, 'utf8')
+  const pattern = new RegExp(`^${name}\\(\\) \\{\\n([\\s\\S]*?)^\\}\\n`, 'm')
+  const match = pattern.exec(source)
+  assert.ok(match, `${name}() must remain extractable for regression tests`)
+  return match[1]
+}
+
+const EXPECT = commandPath('expect')
+const SCRIPT = commandPath('script')
+
+/** argv for `script` with a real pty on macOS/BSD and GNU/Linux. */
+function scriptPtyArgs(commandLine) {
+  return process.platform === 'darwin'
+    ? ['-q', '/dev/null', '/bin/bash', '-c', commandLine]
+    : ['-q', '-e', '-c', commandLine, '/dev/null']
+}
+
+let ptyBackendCache
+/**
+ * A real pty is required to reproduce the read-only-fd-3 bug. Some sandboxes
+ * deny openpty(3); in that case the test skips and the static checks below stay
+ * in force. The coordinator must rerun this suite on a host with a real pty.
+ */
+function ptyBackend() {
+  if (ptyBackendCache !== undefined) return ptyBackendCache
+  if (EXPECT !== undefined) {
+    const code = [
+      'set timeout 10',
+      // The marker must not appear literally in the echoed spawn line.
+      "spawn /bin/sh -c {printf 'PTY_%s' OK}",
+      'expect {',
+      '  "PTY_OK" { exit 0 }',
+      '  eof { exit 3 }',
+      '  timeout { exit 4 }',
+      '}',
+    ].join('\n')
+    const result = spawnSync(EXPECT, ['-c', code], { encoding: 'utf8', timeout: 20000 })
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    if (result.status === 0 && output.includes('PTY_OK') && !/openpty|no more ptys|Operation not permitted/i.test(output)) {
+      ptyBackendCache = { kind: 'expect', command: EXPECT }
+      return ptyBackendCache
+    }
+  }
+  if (SCRIPT !== undefined) {
+    const result = spawnSync(SCRIPT, scriptPtyArgs('printf PTY_OK'), {
+      encoding: 'utf8',
+      input: '',
+      timeout: 20000,
+    })
+    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+    if (result.status === 0 && output.includes('PTY_OK') && !/openpty|no more ptys|Operation not permitted/i.test(output)) {
+      ptyBackendCache = { kind: 'script', command: SCRIPT }
+      return ptyBackendCache
+    }
+  }
+  ptyBackendCache = null
+  return ptyBackendCache
 }
 
 test('install.sh refuses to run without a controlling terminal (curl | bash)', () => {
@@ -121,6 +197,102 @@ test('install.sh refuses Windows before any prompt', () => {
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Windows 不在 PCLink v1 范围内/)
+})
+
+test('install.sh opens /dev/tty read-write so prompts can be written on a real terminal', () => {
+  // macOS bash 3.2 shows a prompt from a read-only fd 3 but returns 1 from
+  // `printf ... >&3`; with `set -e` that aborts the installer right after the
+  // restart question is printed. FIFO/file stand-ins never reproduced it.
+  const source = readFileSync(INSTALL, 'utf8')
+  assert.equal(source.includes('exec 3</dev/tty'), false, 'fd 3 must not be opened read-only')
+  assert.ok(source.includes('exec 3<>/dev/tty'), 'fd 3 must be opened read-write')
+  assert.match(source, /if \[ ! -w \/dev\/tty \]; then/, 'the top-level check must test terminal writability')
+  const ask = extractFunction('ask')
+  assert.match(ask, /if ! printf '%s' "\$1" >&3; then/, 'ask must handle a failed prompt write')
+  assert.match(ask, /die /, 'a failed prompt write must produce an explicit error')
+})
+
+test('ask fails loudly instead of being killed by set -e when fd 3 is not writable', () => {
+  const root = tempDir('pclink-ask-readonly-')
+  const input = join(root, 'readonly.txt')
+  writeFileSync(input, '')
+  const script = [
+    'set -eu',
+    'die() { printf "错误：%s\\n" "$*" >&2; exit 1; }',
+    'ask() {',
+    extractFunction('ask'),
+    '}',
+    'exec 3<"$1"',
+    'ask "PROMPT? "',
+    'printf "REPLY=%s\\n" "${REPLY}"',
+  ].join('\n')
+  const result = spawnBash(['-c', script, 'pclink-ask-readonly', input], { encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /不能写入终端/)
+  assert.equal(result.stdout.includes('REPLY='), false, 'a failed prompt must not be treated as an answer')
+})
+
+test('real pty: the upgrade restart question waits for n and the installer continues', (t) => {
+  const backend = ptyBackend()
+  if (backend === null) {
+    t.skip('no working real pty (openpty denied); the static checks cover the read-write fd, and the coordinator must rerun this test with expect/script on a real terminal')
+    return
+  }
+  const root = tempDir('pclink-upgrade-pty-')
+  // A launchd kind produces the reported "现在重启？[Y/n]" question. Answering
+  // n must print the manual restart command, wait for Enter, then finish.
+  const fixture = upgradeFixture(root, { withLaunchd: true, flipAfterCalls: 2 })
+  const env = bashUtf8Env({
+    ...baseEnv(fixture.bin),
+    HOME: fixture.home,
+    DSH_HOME: fixture.dshHome,
+    DSH_BIN: join(fixture.bin, 'dsh'),
+    PCLINK_PLUGIN_SPEC: '/nonexistent/pclink',
+    PCLINK_INSTALL_PATH: INSTALL,
+  })
+  let result
+  if (backend.kind === 'expect') {
+    const tcl = join(root, 'install.exp')
+    writeFileSync(tcl, `set timeout 120
+spawn /bin/bash -c {cat "$PCLINK_INSTALL_PATH" | /bin/bash; printf '\\n__PCLINK_INSTALL_RC__=%s\\n' "$?"}
+expect {
+  -re {\\[Y/n\\]} { send "n\\r" }
+  eof { puts "PTY_RESULT=EOF_BEFORE_PROMPT"; exit 3 }
+  timeout { puts "PTY_RESULT=TIMEOUT_BEFORE_PROMPT"; exit 4 }
+}
+expect {
+  -re {launchctl kickstart} { send "\\r" }
+  eof { puts "PTY_RESULT=EOF_BEFORE_RESTART_COMMAND"; exit 5 }
+  timeout { puts "PTY_RESULT=TIMEOUT_BEFORE_RESTART_COMMAND"; exit 6 }
+}
+expect {
+  -re {__PCLINK_INSTALL_RC__=0} { puts "PTY_RESULT=OK" }
+  -re {__PCLINK_INSTALL_RC__=[1-9]} { puts "PTY_RESULT=INSTALL_RC_NONZERO"; exit 9 }
+  eof { puts "PTY_RESULT=EOF_WITHOUT_RC"; exit 7 }
+  timeout { puts "PTY_RESULT=TIMEOUT_AT_END"; exit 8 }
+}
+expect eof
+`)
+    result = spawnSync(backend.command, ['-f', tcl], {
+      encoding: 'utf8',
+      env,
+      timeout: 180000,
+    })
+  } else {
+    result = spawnSync(backend.command, scriptPtyArgs('cat "$PCLINK_INSTALL_PATH" | /bin/bash; printf \'\\n__PCLINK_INSTALL_RC__=%s\\n\' "$?"'), {
+      encoding: 'utf8',
+      env,
+      input: 'n\n\n',
+      timeout: 180000,
+    })
+  }
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
+  assert.equal(result.status, 0, output)
+  assert.match(output, /需要重启 dsh web 以加载新版本，现在重启？\[Y\/n\]/)
+  assert.match(output, /launchctl kickstart/)
+  assert.match(output, /__PCLINK_INSTALL_RC__=0/)
+  assert.equal(output.includes('安装未完成（退出码 1）'), false, 'answering n must not abort the installer')
+  assert.match(readFileSync(`${fixture.pclink}.pair.log`, 'utf8'), /pair/)
 })
 
 test('version_in_range accepts >=0.2.2-rc.1 <0.3.0 and rejects the rest', () => {

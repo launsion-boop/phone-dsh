@@ -66,13 +66,18 @@ esac
 if ! { : </dev/tty; } 2>/dev/null; then
   die '安装需要终端（TTY）：请在终端里运行这条命令，不要接管道重定向或放到 CI。配对本身只扫码，不需要输入指纹，但升级重启的确认需要终端。'
 fi
-exec 3</dev/tty
-if ! printf '' >&3 2>/dev/null; then
+if [ ! -w /dev/tty ]; then
   die '不能写入终端（/dev/tty）：请直接在交互式终端运行这条命令。'
 fi
+# Open read-write on purpose. A read-only fd 3 still displays a prompt on
+# macOS but makes `printf ... >&3` return 1, and `set -e` would abort at the
+# first question. `ask` below still reports that failure explicitly.
+exec 3<>/dev/tty
 
 ask() {
-  printf '%s' "$1" >&3
+  if ! printf '%s' "$1" >&3; then
+    die '不能写入终端（/dev/tty）：请直接在交互式终端运行这条命令。'
+  fi
   REPLY=''
   IFS= read -r REPLY <&3 || REPLY=''
 }
