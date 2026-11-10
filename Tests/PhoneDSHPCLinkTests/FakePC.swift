@@ -757,6 +757,16 @@ final class FakeRelayNetwork: PCLinkWebSocketFactory, @unchecked Sendable {
     let origin: String
     let clientSendHook: (@Sendable (String) async -> Void)?
 
+    private let dialLock = NSLock()
+    private var dialFailures = 0
+    private var dials = 0
+
+    /// Dial count observed under the lock (tests assert the reconnect count).
+    var dialCount: Int {
+        dialLock.lock(); defer { dialLock.unlock() }
+        return dials
+    }
+
     init(server: FakePCServer, phoneIdentity: PCLinkIdentity, origin: String,
          clientSendHook: (@Sendable (String) async -> Void)? = nil) {
         self.server = server
@@ -765,7 +775,23 @@ final class FakeRelayNetwork: PCLinkWebSocketFactory, @unchecked Sendable {
         self.clientSendHook = clientSendHook
     }
 
+    /// Fail the next `count` dials with a retryable network error. Drives the
+    /// reconnect backoff without touching the fake PC's call policies.
+    func failNextDials(_ count: Int) {
+        dialLock.lock(); defer { dialLock.unlock() }
+        dialFailures = count
+    }
+
+    private func takeDialFailure() -> Bool {
+        dialLock.lock(); defer { dialLock.unlock() }
+        dials += 1
+        guard dialFailures > 0 else { return false }
+        dialFailures -= 1
+        return true
+    }
+
     func connect(to url: URL) async throws -> any PCLinkWebSocket {
+        if takeDialFailure() { throw PCLinkError.unavailable("dial refused by test") }
         let pair = FakeDuplex.make(clientSendHook: clientSendHook)
         let connection = FakePCConnection(server: server, phoneIdentity: phoneIdentity,
                                           origin: origin)

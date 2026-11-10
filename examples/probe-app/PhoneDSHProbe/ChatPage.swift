@@ -346,6 +346,14 @@ struct ChatPage: View {
         }
     }
 
+    /// PC strip copy: a resume in flight is not an offline PC.
+    private var pcStatusStripText: String {
+        if case .connecting = model.pcConnection {
+            return "正在连接电脑，发送暂时停用。草稿保留在 PC 工作区，不会自动切回手机。"
+        }
+        return "电脑离线，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。"
+    }
+
     private var latestToolFailure: ChatItem? {
         guard let lastResult = model.items.last(where: { item in
             if case .toolResult = item.kind { return true }
@@ -369,7 +377,10 @@ struct ChatPage: View {
                         .padding(.bottom, 6)
                 }
                 if !model.isStarted {
-                    Text("电脑离线，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。")
+                    // `connecting` is a bounded resume the phone started on
+                    // foreground return; only a failed dial is an offline PC
+                    // (§10, PC-20261110-pclink-foreground-resume-presence).
+                    Text(pcStatusStripText)
                         .font(.system(size: 12))
                         .foregroundStyle(HomeSpec.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1672,12 +1683,10 @@ struct ChatPage: View {
     /// drawer.
     private var pcEmptyTimeline: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(model.isStarted ? "这台电脑还没有打开会话" : "电脑离线")
+            Text(pcEmptyTitle)
                 .font(.system(size: 17.5, weight: .semibold))
                 .foregroundStyle(HomeSpec.textPrimary)
-            Text(model.isStarted
-                 ? "从会话列表选择会话，或新建一个。"
-                 : "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。")
+            Text(pcEmptyMessage)
                 .font(.system(size: 14))
                 .foregroundStyle(HomeSpec.textPlaceholder)
                 .padding(.top, 8)
@@ -1685,6 +1694,22 @@ struct ChatPage: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, HomeSpec.contentInset)
+    }
+
+    /// A resume the phone started on foreground return is not an offline PC
+    /// (§10, PC-20261110-pclink-foreground-resume-presence).
+    private var pcEmptyTitle: String {
+        if model.isStarted { return "这台电脑还没有打开会话" }
+        if case .connecting = model.pcConnection { return "正在连接电脑" }
+        return "电脑离线"
+    }
+
+    private var pcEmptyMessage: String {
+        if model.isStarted { return "从会话列表选择会话，或新建一个。" }
+        if case .connecting = model.pcConnection {
+            return "正在重新连上这台电脑，连上后会回到上次的会话。"
+        }
+        return "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。"
     }
 
     /// A:引擎还没启动。标题 + 说明 + 黑色主按钮,左右按内容边距 20 撑满。

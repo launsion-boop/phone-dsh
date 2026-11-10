@@ -226,6 +226,7 @@ struct HomeDrawer: View {
         if !models.isPhoneSelected {
             switch models.drawerPhase {
             case .pair: return "连接电脑后可新建会话"
+            case .connecting: return "正在连接电脑"
             case .offline: return "电脑离线，无法新建会话"
             case .ready, .phone: break
             }
@@ -239,7 +240,7 @@ struct HomeDrawer: View {
     private var newSessionDisabled: Bool {
         if !models.isPhoneSelected {
             switch models.drawerPhase {
-            case .pair, .offline: return true
+            case .pair, .connecting, .offline: return true
             case .ready, .phone: break
             }
         }

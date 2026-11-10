@@ -334,6 +334,11 @@ public actor PCLinkClient {
     private var attempt = 0
     private var onlineSince: Date?
     private var terminalError: PCLinkError?
+    /// Set by `foregroundResumed()`: the next dial was started by the user, not
+    /// by a failure, so the wait keeps `connecting` instead of `offline`
+    /// (§10, PC-20261110-pclink-foreground-resume-presence). Consumed once by
+    /// `runOneConnection` and cleared at the top of every loop iteration.
+    private var userResume = false
     /// A relay `rate_limited` delay that supersedes the normal backoff on the
     /// next reconnect (§9.1). Cleared when consumed.
     private var retryAfterDelay: TimeInterval?
@@ -511,20 +516,44 @@ public actor PCLinkClient {
     /// fresh connection (the old connection loop re-handshakes and stream
     /// consumers resynchronize). Terminal pairing/protocol states are left
     /// alone; `auth_failed` must not auto-retry (§9.1).
+    ///
+    /// A resume the user caused is not a failed attempt (§10,
+    /// PC-20261110-pclink-foreground-resume-presence):
+    /// the failure streak is capped at the second backoff step and the state
+    /// stays `connecting`, so the PC segment never presents "电脑离线" for a
+    /// reconnect the phone started itself.
     public func foregroundResumed() async {
         guard userWantsConnection, record != nil else { return }
         switch effectiveState() {
         case .online, .versionWarning:
             lastError = nil
+            attempt = min(attempt, 1)
+            userResume = true
+            // Tear down while still `online`: `teardownConnection` relabels a
+            // `connecting` state as offline, and this teardown is the resume
+            // itself, not a failure.
             await teardownConnection(error: nil)
             signalDisconnect()
-            setState(.offline(.network))
+            setState(.connecting)
             startConnectionLoopIfNeeded()
         case .offline(.authenticationFailed), .offline(.versionUnsupported),
              .offline(.protocolError), .offline(.unpairedPrompt):
             return
         default:
-            try? await start()
+            // A resume while already offline retries with the same cap: the
+            // user acted, so the next dial must not wait for the streak.
+            let previous = effectiveState()
+            attempt = min(attempt, 1)
+            userResume = true
+            setState(.connecting)
+            do {
+                try await start()
+            } catch {
+                // A storage/identity failure never starts a loop; keeping
+                // `connecting` would leave the drawer waiting forever.
+                userResume = false
+                setState(previous)
+            }
         }
     }
 
@@ -547,6 +576,7 @@ public actor PCLinkClient {
     private func performStop() async {
         userWantsConnection = false
         stopped = true
+        userResume = false
         connectionGeneration += 1
         let oldTask = connectionTask
         connectionTask = nil
@@ -621,6 +651,9 @@ public actor PCLinkClient {
                 setState(.unpaired(staleRecord == nil ? .noRecord : .staleRecord))
                 return
             }
+            // A resume flag only covers the dial that immediately follows the
+            // user's foreground return; never let it leak into a later failure.
+            userResume = false
             setState(.connecting)
             terminalError = nil
             do {
@@ -682,10 +715,20 @@ public actor PCLinkClient {
             let backoff = configuration.reconnectPolicy.delay(attempt: attempt)
             let delay = max(backoff, retryAfterDelay ?? 0)
             retryAfterDelay = nil
-            do {
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            } catch {
-                return
+            // The wait is sliced so a phone-initiated resume can cut it short
+            // (§10, PC-20261110-pclink-foreground-resume-presence): a user who
+            // brings the App back must not sit out a failure backoff measured
+            // in tens of seconds while the drawer says "电脑离线".
+            var remaining = delay
+            while remaining > 0 {
+                if userResume { break }
+                let slice = min(0.1, remaining)
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(slice * 1_000_000_000))
+                } catch {
+                    return
+                }
+                remaining -= slice
             }
         }
     }
@@ -729,7 +772,15 @@ public actor PCLinkClient {
         if let lastError, !lastError.isRetryable, lastError != .peerOffline {
             throw lastError
         }
-        setState(.offline(.network))
+        if userResume {
+            // The user restarted this dial; the loop re-dials within the capped
+            // delay, so the wait stays `connecting` and never claims the PC went
+            // offline (§10).
+            userResume = false
+            setState(.connecting)
+        } else {
+            setState(.offline(.network))
+        }
     }
 
     private func waitForDisconnect() async {

@@ -28,6 +28,19 @@ struct PCDrawerStateView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 20)
+        case .connecting:
+            // The phone re-dials on every foreground return; that bounded
+            // resume is not "电脑离线" (§10, PC-20261110). No button: a dial is
+            // already in flight, and a retry here would start a second one.
+            VStack(spacing: 10) {
+                stateCard(
+                    title: "正在连接电脑",
+                    message: PCLinkWorkspaceText.resumeConnecting,
+                    primaryTitle: nil,
+                    primaryAction: {})
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 20)
         case .offline:
             VStack(spacing: 10) {
                 stateCard(
@@ -61,7 +74,7 @@ struct PCDrawerStateView: View {
     }
 
     private func stateCard(title: String?, message: String,
-                           primaryTitle: String, primaryAction: @escaping () -> Void) -> some View {
+                           primaryTitle: String?, primaryAction: @escaping () -> Void) -> some View {
         VStack(spacing: 12) {
             if let title {
                 Text(title)
@@ -73,13 +86,15 @@ struct PCDrawerStateView: View {
                 .foregroundStyle(HomeSpec.textSecondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Button(primaryTitle, action: primaryAction)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(HomeSpec.primaryButtonInk)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background(HomeSpec.primaryButton, in: Capsule())
-                .buttonStyle(.plain)
+            if let primaryTitle {
+                Button(primaryTitle, action: primaryAction)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(HomeSpec.primaryButtonInk)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(HomeSpec.primaryButton, in: Capsule())
+                    .buttonStyle(.plain)
+            }
         }
         .padding(20)
         .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
