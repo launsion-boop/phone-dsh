@@ -819,6 +819,92 @@ actor PhoneDSHChannelCoordinator {
             expectedBootID: nil)
     }
 
+    /// Installs the identity barrier for one new Worker process and closes the
+    /// previous incarnation's sockets.
+    ///
+    /// D6 defines `boot_id` per Worker process. The caller generates a fresh id
+    /// for this boot and passes every retired id here; the barrier then refuses
+    /// a late HELLO or reconnect from any of them and requires the replacement
+    /// id, session epoch and fence baseline. This is the identity check a
+    /// resume otherwise lacks: the old Worker and the new one share the host,
+    /// port and session epoch, so only a per-process boot id distinguishes
+    /// them.
+    ///
+    /// - Parameters:
+    ///   - expectedBootID: the fresh Worker boot id for this boot.
+    ///   - retiring: every Worker boot id that must no longer connect.
+    ///   - sessionEpoch: the host session incarnation the replacement echoes.
+    ///   - fence: the host's current fence baseline.
+    func beginWorkerBoot(expectedBootID: String,
+                         retiring: Set<String>,
+                         sessionEpoch: UInt64,
+                         fence: Fence?) async {
+        let previousHellos = hellos
+        let inheritedBootIDs = rebootBarrier?.retiredBootIDs ?? []
+        let retiredBootIDs = retiring
+            .union(inheritedBootIDs)
+            .union(previousHellos.values.map(\.bootID))
+        let inheritedConnections = rebootBarrier?.retiredConnectionIDs ?? []
+        let retiredConnections = Set(connections.keys).union(inheritedConnections)
+        rebootBarrier = RebootBarrier(
+            retiredBootIDs: retiredBootIDs,
+            retiredConnectionIDs: retiredConnections,
+            baselineSessionEpoch: sessionEpoch,
+            baselineFence: fence,
+            expectedBootID: expectedBootID)
+        var closed = 0
+        for _ in 0..<4 {
+            let removed = Array(connections.values)
+            let removedHellos = hellos
+            connections.removeAll()
+            nonQuiescentConnections.removeAll()
+            latestConnectionID = nil
+            hellos.removeAll()
+            guard !removed.isEmpty else { break }
+            if var barrier = rebootBarrier {
+                for connection in removed {
+                    barrier.retiredConnectionIDs.insert(connection.id)
+                    if let hello = removedHellos[connection.id] {
+                        barrier.retiredBootIDs.insert(hello.bootID)
+                    }
+                }
+                rebootBarrier = barrier
+            }
+            for connection in removed {
+                await closeAndWait(connection, code: 1008)
+                closed += 1
+            }
+        }
+        // A waiter from the previous incarnation can never be satisfied by the
+        // replacement's HELLO; wake it so the caller re-arms with the new id.
+        let helloWaiters = self.helloWaiters
+        self.helloWaiters.removeAll()
+        for waiter in helloWaiters { waiter.continuation.resume(returning: nil) }
+        _ = closed
+    }
+
+    /// Clears the replacement barrier after the new HELLO passed every identity
+    /// check and the lease was verified. Later reconnects are normal channel
+    /// recovery again.
+    func finishWorkerBoot() {
+        rebootBarrier = nil
+    }
+
+    /// Closes one old connection and waits (bounded) for its receive loop to
+    /// finish. The socket cancel is asynchronous; starting the replacement
+    /// Worker while the old receive loop still owns a frame is exactly the
+    /// stale-connection race the resume barrier exists to remove.
+    private func closeAndWait(_ connection: PhoneDSHConnection,
+                              code: Int,
+                              budget: TimeInterval = 0.25) async {
+        await connection.server.close(code: code)
+        let deadline = Date().addingTimeInterval(max(0, budget))
+        while Date() < deadline {
+            if await connection.server.hasFinishedReceiveLoop() { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
     /// Forgets the previous run's connections before a resume and closes their
     /// sockets. Counters are kept: diagnostics reports how many connections
     /// this host has seen.
@@ -870,7 +956,8 @@ actor PhoneDSHChannelCoordinator {
                 rebootBarrier = barrier
             }
             for connection in removed {
-                await connection.server.close(
+                await closeAndWait(
+                    connection,
                     code: retiringCurrentIncarnation ? 1008 : 1000)
                 closed += 1
             }
@@ -960,17 +1047,23 @@ actor PhoneDSHChannelHandler: ChannelHandling {
     private let coordinator: PhoneDSHChannelCoordinator
     private let stepMachine: StepMachine
     private let eventBus: PhoneDSHEventBus
+    /// Optional sink for the reserved `pdsh-boot-phase` console line. The host
+    /// installs it so Worker-side phases land in `boot-timings.log`; tests and
+    /// other hosts leave it nil.
+    private let bootPhaseRecorder: (@Sendable (PhoneDSHBootPhase) -> Void)?
 
     init(connection: PhoneDSHConnection,
          delegate: any ChannelHandling,
          coordinator: PhoneDSHChannelCoordinator,
          stepMachine: StepMachine,
-         eventBus: PhoneDSHEventBus) {
+         eventBus: PhoneDSHEventBus,
+         bootPhaseRecorder: (@Sendable (PhoneDSHBootPhase) -> Void)? = nil) {
         self.connection = connection
         self.delegate = delegate
         self.coordinator = coordinator
         self.stepMachine = stepMachine
         self.eventBus = eventBus
+        self.bootPhaseRecorder = bootPhaseRecorder
     }
 
     func handleHello(_ payload: HelloPayload) async throws {
@@ -1044,6 +1137,9 @@ actor PhoneDSHChannelHandler: ChannelHandling {
     }
 
     func handleConsole(_ payload: ConsolePayload) async throws {
+        if let phase = PhoneDSHBootPhase.parse(payload.text) {
+            bootPhaseRecorder?(phase)
+        }
         eventBus.send(.console(payload))
         try await delegate.handleConsole(payload)
     }

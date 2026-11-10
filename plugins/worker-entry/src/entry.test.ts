@@ -596,6 +596,55 @@ test('startPhoneWorker installs channel globals, mirrors LIFECYCLE/FENCE and pos
   }
 })
 
+test('startPhoneWorker leaves an llm-bridge fetch replacement installed', async () => {
+  const pair = connectPair()
+  const vfs = createTestVfs()
+  const originalFetch = globalThis.fetch
+  let replacementCalls = 0
+  const replacement = (async () => {
+    replacementCalls += 1
+    return new Response('llm-bridge')
+  }) as typeof fetch
+  const host: PhoneWorkerHostLike = {
+    handleMessage: () => {},
+    start: async () => {
+      // P27: llm-bridge replaces the global while the plugins activate. The
+      // boot diagnostic wrapper must not restore over this replacement.
+      globalThis.fetch = replacement
+    },
+    vfs,
+  }
+  const runtime: PhoneWorkerRuntime = {
+    createHost: () => host,
+    whenRequestListener: async () => ((_req, res) => {
+      (res as { end: (body?: string) => void }).end('ok')
+    }),
+    createChannel: () => pair.worker,
+    synthesize: testSynthesize,
+  }
+  const handle = await startPhoneWorker({
+    channelURL: 'ws://127.0.0.1:1/channel',
+    token: 'token',
+    imageURL: 'image.tar.gz',
+    overlayURLs: [],
+    fence: { owner: 'phone', generation: 1n, wal_seq: 1n },
+    bootId: '00112233445566778899aabbccddee00',
+    sessionEpoch: 1n,
+    runtime,
+    pagePost: () => {},
+  })
+  try {
+    assert.equal(globalThis.fetch, replacement,
+      'the boot diagnostic disposer must not overwrite llm-bridge transport')
+    const response = await globalThis.fetch('http://127.0.0.1/v1/http')
+    assert.equal(await response.text(), 'llm-bridge')
+    assert.equal(replacementCalls, 1)
+  } finally {
+    globalThis.fetch = originalFetch
+    await handle.stop()
+  }
+})
+
 test('bootFromInit redacts image token/env from CONSOLE and page errors', async () => {
   const pair = connectPair()
   const hostFrames = collect(pair.host)

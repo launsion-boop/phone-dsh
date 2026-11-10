@@ -143,6 +143,13 @@ final class DSHManagementModel {
     private var transport: (any DSHRemoteTransport)?
     private var workspaceMux: (any DSHMuxConnection)?
     private var workspaceTask: Task<Void, Never>?
+    /// Last successful `session/list` projection, restored on launch and after
+    /// a park so the drawer and the chat title never wait for the engine.
+    private static let cachedSnapshotKey = "dsh.management.sessionSnapshot.v1"
+
+    private init() {
+        restoreCachedSnapshot()
+    }
 
     var activeSessions: [ManagedSession] { sessions.filter { !archivedIDs.contains($0.id) } }
     var archivedSessions: [ManagedSession] { sessions.filter { archivedIDs.contains($0.id) } }
@@ -174,8 +181,9 @@ final class DSHManagementModel {
         #endif
         guard !isLoading else { return }
         guard ChatModel.shared.isStarted else {
-            sessions = []
-            archivedIDs = []
+            // The engine is booting/rebuilding: keep the last snapshot visible
+            // (the title row and drawer render from it) instead of blanking.
+            restoreCachedSnapshot()
             error = nil
             return
         }
@@ -204,10 +212,60 @@ final class DSHManagementModel {
                 await refreshModelSelection(for: currentSessionID, using: client)
             } else { currentModelSelection = nil }
             await observeWorkspaceState(using: client)
+            persistCachedSnapshot()
             error = nil
         } catch {
+            // A failed refresh is not a reason to erase the usable snapshot;
+            // the next successful engine answer replaces it.
+            if sessions.isEmpty { restoreCachedSnapshot() }
             self.error = error.localizedDescription
         }
+    }
+
+    /// Restores the last successful session/list projection. Safe to call
+    /// repeatedly; an empty or corrupt snapshot leaves the live values alone.
+    private func restoreCachedSnapshot() {
+        guard let data = UserDefaults.standard.data(forKey: Self.cachedSnapshotKey),
+              let snapshot = ChatSessionSnapshot.decode(data),
+              snapshot.isEmpty == false else { return }
+        sessions = snapshot.sessions.map { row in
+            ManagedSession(
+                id: row.id, title: row.title,
+                updatedAt: Date(timeIntervalSince1970: row.updatedAtMilliseconds / 1_000),
+                running: row.running, blank: row.blank, cwd: row.cwd,
+                parentSessionID: row.parentSessionID,
+                searchSnippet: row.searchSnippet)
+        }
+        workspaces = snapshot.workspaces.map { row in
+            ManagedWorkspace(id: row.id, title: row.title, path: row.path,
+                             sessionIDs: row.sessionIDs)
+        }
+        workspaceOrder = snapshot.workspaceOrder
+        pinnedSessionIDs = snapshot.pinnedSessionIDs
+        archivedIDs = Set(snapshot.archivedIDs)
+    }
+
+    /// Persists the last engine projection only after a successful refresh, so
+    /// a failed call never overwrites good cache with a partial list.
+    private func persistCachedSnapshot() {
+        let snapshot = ChatSessionSnapshot(
+            sessions: sessions.map { row in
+                ChatSessionSnapshot.Session(
+                    id: row.id, title: row.title,
+                    updatedAtMilliseconds: row.updatedAt.timeIntervalSince1970 * 1_000,
+                    running: row.running, blank: row.blank, cwd: row.cwd,
+                    parentSessionID: row.parentSessionID,
+                    searchSnippet: row.searchSnippet)
+            },
+            workspaces: workspaces.map { row in
+                ChatSessionSnapshot.Workspace(id: row.id, title: row.title,
+                                              path: row.path, sessionIDs: row.sessionIDs)
+            },
+            workspaceOrder: workspaceOrder,
+            pinnedSessionIDs: pinnedSessionIDs,
+            archivedIDs: Array(archivedIDs))
+        guard snapshot.isEmpty == false, let data = snapshot.encoded() else { return }
+        UserDefaults.standard.set(data, forKey: Self.cachedSnapshotKey)
     }
 
     func createSession(workspaceID: String? = nil) async -> String? {
