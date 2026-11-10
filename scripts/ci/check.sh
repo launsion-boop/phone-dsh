@@ -24,7 +24,7 @@ CI_TMP=${CI_TMP%/}/phone-dsh-ci
 IDF_VERSION_WANT=${CI_IDF_VERSION:-5.5.2}
 IOS_RUNTIME=${CI_IOS_RUNTIME:-26.5}
 
-STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-compat phone-plugins phone-bundle-fresh phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-android-structure phone-android-tests phone-android-release phone-xcode-resolve"
+STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-compat phone-plugins phone-bundle-fresh phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-bot-eval-catalog phone-android-structure phone-android-tests phone-android-release phone-xcode-resolve"
 
 stage_desc() {
     case "$1" in
@@ -42,6 +42,7 @@ stage_desc() {
         phone-license)         echo "SPDX MIT headers and plugins package licenses" ;;
         phone-modules)         echo "Package.swift dependency map of the 8 phone-DSH modules (SKIP without PhoneWire)" ;;
         phone-gate-contracts)  echo "Python regressions for scenario batch/evidence and gate contracts" ;;
+        phone-bot-eval-catalog) echo "Bot eval catalog schema/plan/gate regressions + selftest catalog and eval.sh syntax (no Worker, no model)" ;;
         phone-android-structure) echo "android/tools structure_check (11 checks, incl. nested-comments and the two 16 KB page-alignment gates) + its tool unit tests + the packaged-APK 16 KB gate's mutation suite" ;;
         phone-android-tests)   echo "cargo build -p pdsh-jni, then every test-bearing Gradle module's JVM tests; 0 tests counted = FAIL" ;;
         phone-rust-tests)      echo "cargo test --workspace over shell/: the host read policy, the WAL planner and the accelerators; the JVM suite exercises them through JNI, but the authoritative policy tests live only here" ;;
@@ -357,6 +358,17 @@ stage_phone_gate_contracts() {
     "$PYTHON" "$ROOT/scripts/ci/test_rust_stage.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/test_p0_completeness.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/selftest.py" || return 1
+}
+
+stage_phone_bot_eval_catalog() {
+    [ -f "$ROOT/scripts/ci/bot-e2e/eval_catalog_test.py" ] || {
+        echo "missing scripts/ci/bot-e2e/eval_catalog_test.py"
+        return 1
+    }
+    "$PYTHON" "$ROOT/scripts/ci/bot-e2e/eval_catalog_test.py" || return 1
+    "$PYTHON" "$ROOT/scripts/ci/bot-e2e/eval_catalog.py" validate \
+        --catalog "$ROOT/scripts/ci/bot-e2e/selftest.json" --selftest || return 1
+    bash -n "$ROOT/scripts/ci/bot-e2e/eval.sh" || return 1
 }
 
 # ------------------------------------------------------------- android helpers

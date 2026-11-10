@@ -1,0 +1,658 @@
+{
+  "$comment": "SPDX-License-Identifier: MIT; mock-upstream self-check catalog",
+  "version": 1,
+  "generated_by": "WP1 eval runner self-check",
+  "description": "Every implemented driver action and every assertion in both directions. No model is contacted.",
+  "selftest": true,
+  "budget": {
+    "max_minutes": 30,
+    "max_model_requests": 160
+  },
+  "scenarios": [
+    {
+      "id": "BOT-SELFTEST-CORE",
+      "title": "Core actions and assertions (expected PASS)",
+      "user_story": "One scripted turn writes memory, defines a routine and runs bash; the assertions cover every file, event, tool, reply and memory predicate in the positive direction.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "workspace": {
+        "bot": "main",
+        "fixture": "selftest",
+        "files": {
+          "input.txt": "SELFTEST_INPUT"
+        }
+      },
+      "mock": {
+        "tools": [
+          {
+            "name": "mcp__phone__UpdateMemory",
+            "arguments": {
+              "action": "write",
+              "fact": "SELFTEST_MEMORY",
+              "scope": "user",
+              "tier": "profile"
+            }
+          },
+          {
+            "name": "mcp__phone__UpdateRoutine",
+            "arguments": {
+              "action": "create",
+              "title": "SELFTEST_ROUTINE",
+              "prompt": "SELFTEST_ROUTINE_PROMPT",
+              "schedule": "@every 1m"
+            }
+          },
+          {
+            "name": "bash",
+            "arguments": {
+              "command": "printf SELFTEST_TOOL > tool.txt",
+              "description": "write the self-check marker"
+            }
+          }
+        ],
+        "final_text": "SELFTEST_REPLY"
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "run the core self check"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "SELFTEST_REPLY"
+        },
+        {
+          "type": "reply_not_contains",
+          "turn": 1,
+          "value": "NEVER_IN_REPLY"
+        },
+        {
+          "type": "bot_event",
+          "event": "conversation.assistant_message",
+          "where": {
+            "text": "SELFTEST_REPLY"
+          }
+        },
+        {
+          "type": "no_bot_event",
+          "event": "routine.run_finished"
+        },
+        {
+          "type": "tool_called",
+          "name": "UpdateMemory"
+        },
+        {
+          "type": "tool_called",
+          "name": "bash"
+        },
+        {
+          "type": "no_tool_call",
+          "name": "NeverCalled"
+        },
+        {
+          "type": "memory_contains",
+          "value": "SELFTEST_MEMORY",
+          "scope": "user",
+          "tier": "profile",
+          "source": "user-turn"
+        },
+        {
+          "type": "memory_absent",
+          "value": "NEVER_IN_MEMORY"
+        },
+        {
+          "type": "file_exists",
+          "path": "input.txt"
+        },
+        {
+          "type": "file_exists",
+          "path": "tool.txt"
+        },
+        {
+          "type": "file_contains",
+          "path": "tool.txt",
+          "value": "SELFTEST_TOOL"
+        },
+        {
+          "type": "file_contains",
+          "path": "README.md",
+          "value": "SELFTEST_FIXTURE"
+        },
+        {
+          "type": "no_file",
+          "path": "absent.txt"
+        },
+        {
+          "type": "workspace_command",
+          "command": "test -f tool.txt && grep -q SELFTEST_TOOL tool.txt"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.written",
+          "where": {
+            "text": "SELFTEST_MEMORY",
+            "scope": "user"
+          }
+        },
+        {
+          "type": "bot_event",
+          "event": "routine.defined"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.written",
+          "payload_contains": "SELFTEST_MEMORY"
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-BOT-HELD",
+      "title": "create_bot and seed_held_item deliver to a named Bot (expected PASS)",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "mock": {
+        "final_text": "HELD_MISSING",
+        "prompt_rules": [
+          {
+            "contains": "SELFTEST_HELD_ITEM",
+            "final_text": "HELD_SEEN"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "create_bot",
+          "alias": "side",
+          "name": "Side Bot",
+          "description": "self-check fixture"
+        },
+        {
+          "type": "seed_held_item",
+          "bot": "side",
+          "kind": "eval-fixture",
+          "title": "Held fixture",
+          "text": "SELFTEST_HELD_ITEM"
+        },
+        {
+          "type": "user_message",
+          "bot": "side",
+          "text": "what did you receive?"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "bot": "side",
+          "value": "HELD_SEEN"
+        },
+        {
+          "type": "bot_event",
+          "bot": "side",
+          "event": "comm.inbound"
+        },
+        {
+          "type": "bot_event",
+          "bot": "side",
+          "event": "conversation.assistant_message",
+          "where": {
+            "text": "HELD_SEEN"
+          }
+        },
+        {
+          "type": "no_bot_event",
+          "bot": "main",
+          "event": "conversation.assistant_message"
+        },
+        {
+          "type": "no_tool_call",
+          "bot": "side",
+          "name": "bash"
+        },
+        {
+          "type": "memory_absent",
+          "bot": "side",
+          "value": "SELFTEST_HELD_ITEM"
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-CARD",
+      "title": "ui_action answers a presented card (expected PASS)",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "actions": [
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "ask me a question",
+          "mock": {
+            "tool": {
+              "name": "mcp__phone__ask_user",
+              "arguments": {
+                "question": "Pick one",
+                "options": [
+                  {
+                    "label": "Alpha",
+                    "value": "CARD_ALPHA"
+                  },
+                  {
+                    "label": "Beta",
+                    "value": "CARD_BETA"
+                  }
+                ]
+              }
+            },
+            "final_text": "CARD_ASKED"
+          }
+        },
+        {
+          "type": "ui_action",
+          "bot": "main",
+          "kind": "card_answer",
+          "card": "latest",
+          "option": 0,
+          "mock": {
+            "final_text": "CARD_ANSWERED"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "bot_event",
+          "event": "card.presented",
+          "where": {
+            "cardType": "question"
+          }
+        },
+        {
+          "type": "bot_event",
+          "event": "card.answered"
+        },
+        {
+          "type": "reply_contains",
+          "value": "CARD_ANSWERED"
+        },
+        {
+          "type": "tool_called",
+          "name": "ask_user"
+        },
+        {
+          "type": "no_tool_call",
+          "name": "bash"
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-APPROVAL",
+      "title": "approval_policy denies a per-tool request (expected PASS)",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once",
+          "rules": [
+            {
+              "tool": "RequestApproval",
+              "decision": "deny"
+            }
+          ]
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "request an approval",
+          "mock": {
+            "tool": {
+              "name": "mcp__phone__RequestApproval",
+              "arguments": {
+                "action": "delete self-check fixture",
+                "detail": "self-check",
+                "command": ""
+              }
+            },
+            "final_text": "AFTER_APPROVAL"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "AFTER_APPROVAL"
+        },
+        {
+          "type": "approval_count",
+          "equals": 1
+        },
+        {
+          "type": "bot_event",
+          "event": "approval.requested"
+        },
+        {
+          "type": "bot_event",
+          "event": "approval.decided",
+          "where": {
+            "decision": "deny"
+          }
+        },
+        {
+          "type": "tool_called",
+          "name": "RequestApproval"
+        },
+        {
+          "type": "no_tool_call",
+          "name": "bash"
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-MEMORY-ERASE",
+      "title": "ui_action erases and forgets memories (expected PASS)",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "mock": {
+        "tools": [
+          {
+            "name": "mcp__phone__UpdateMemory",
+            "arguments": {
+              "action": "write",
+              "fact": "FORGET_AGENT",
+              "scope": "agent"
+            }
+          },
+          {
+            "name": "mcp__phone__UpdateMemory",
+            "arguments": {
+              "action": "write",
+              "fact": "FORGET_SINGLE",
+              "scope": "agent"
+            }
+          },
+          {
+            "name": "mcp__phone__UpdateMemory",
+            "arguments": {
+              "action": "write",
+              "fact": "FORGET_USER",
+              "scope": "user"
+            }
+          }
+        ],
+        "final_text": "MEMORIES_WRITTEN"
+      },
+      "actions": [
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "remember three words"
+        },
+        {
+          "type": "ui_action",
+          "bot": "main",
+          "kind": "forget_memory",
+          "fact_contains": "FORGET_SINGLE"
+        },
+        {
+          "type": "ui_action",
+          "bot": "main",
+          "kind": "erase_memory"
+        },
+        {
+          "type": "ui_action",
+          "bot": "main",
+          "kind": "erase_shared_memory"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "memory_absent",
+          "value": "FORGET_AGENT",
+          "scope": "agent"
+        },
+        {
+          "type": "memory_absent",
+          "value": "FORGET_SINGLE",
+          "scope": "agent"
+        },
+        {
+          "type": "memory_absent",
+          "value": "FORGET_USER",
+          "scope": "user"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.forgotten"
+        },
+        {
+          "type": "reply_contains",
+          "value": "MEMORIES_WRITTEN"
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-RESTART",
+      "title": "restart_worker keeps the same Bot session (expected PASS)",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 5,
+        "max_model_requests": 20
+      },
+      "actions": [
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "before restart",
+          "mock": {
+            "final_text": "BEFORE_RESTART"
+          }
+        },
+        {
+          "type": "restart_worker",
+          "mode": "planned_restart"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "after restart",
+          "mock": {
+            "final_text": "AFTER_RESTART"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 2,
+          "value": "AFTER_RESTART"
+        },
+        {
+          "type": "reply_not_contains",
+          "turn": 2,
+          "value": "BEFORE_RESTART"
+        },
+        {
+          "type": "bot_event",
+          "event": "conversation.assistant_message",
+          "where": {
+            "text": "AFTER_RESTART"
+          }
+        },
+        {
+          "type": "no_bot_event",
+          "event": "conversation.assistant_message",
+          "where": {
+            "text": "NOT_A_REPLY"
+          }
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-EXPECT-FAIL",
+      "title": "Every assertion in the negative direction (expected controlled FAIL)",
+      "expect": "fail",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "workspace": {
+        "bot": "main",
+        "fixture": "selftest",
+        "files": {
+          "input.txt": "SELFTEST_INPUT"
+        }
+      },
+      "mock": {
+        "tools": [
+          {
+            "name": "mcp__phone__UpdateMemory",
+            "arguments": {
+              "action": "write",
+              "fact": "SELFTEST_MEMORY",
+              "scope": "user",
+              "tier": "profile"
+            }
+          },
+          {
+            "name": "bash",
+            "arguments": {
+              "command": "printf SELFTEST_TOOL > tool.txt",
+              "description": "write the self-check marker"
+            }
+          }
+        ],
+        "final_text": "SELFTEST_REPLY"
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "run the failing self check"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "NOT_IN_REPLY",
+          "expect_ok": false
+        },
+        {
+          "type": "reply_not_contains",
+          "turn": 1,
+          "value": "SELFTEST_REPLY",
+          "expect_ok": false
+        },
+        {
+          "type": "bot_event",
+          "event": "never.happened",
+          "expect_ok": false
+        },
+        {
+          "type": "no_bot_event",
+          "event": "memory.written",
+          "expect_ok": false
+        },
+        {
+          "type": "tool_called",
+          "name": "NeverCalled",
+          "expect_ok": false
+        },
+        {
+          "type": "no_tool_call",
+          "name": "bash",
+          "expect_ok": false
+        },
+        {
+          "type": "memory_contains",
+          "value": "NOT_IN_MEMORY",
+          "expect_ok": false
+        },
+        {
+          "type": "memory_absent",
+          "value": "SELFTEST_MEMORY",
+          "expect_ok": false
+        },
+        {
+          "type": "approval_count",
+          "equals": 1,
+          "expect_ok": false
+        },
+        {
+          "type": "file_exists",
+          "path": "missing.txt",
+          "expect_ok": false
+        },
+        {
+          "type": "no_file",
+          "path": "tool.txt",
+          "expect_ok": false
+        },
+        {
+          "type": "file_contains",
+          "path": "tool.txt",
+          "value": "WRONG",
+          "expect_ok": false
+        },
+        {
+          "type": "workspace_command",
+          "command": "exit 3",
+          "expect_ok": false
+        },
+        {
+          "type": "no_bot_event",
+          "event": "memory.written",
+          "payload_contains": "SELFTEST_MEMORY",
+          "expect_ok": false
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-ADVANCE-CLOCK",
+      "title": "advance_clock is blocked by a missing production seam",
+      "skip": "advance_clock is unimplemented: BotRuntimeComposition constructs RoutineScheduler with the wall clock; see the CONTRACT CHANGE REQUEST in EVAL.md",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 1,
+        "max_model_requests": 1
+      },
+      "actions": [
+        {
+          "type": "advance_clock",
+          "seconds": 60
+        }
+      ],
+      "assertions": [
+        {
+          "type": "bot_event",
+          "event": "routine.run_finished"
+        }
+      ]
+    }
+  ]
+}
