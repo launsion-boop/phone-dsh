@@ -1348,11 +1348,7 @@ final class ChatModel {
     private func startPCModel() async {
         guard let pcRuntime else { return }
         guard pcRuntime.connection().isOnline else {
-            if case .connecting = pcRuntime.connection() {
-                statusLine = "正在连接电脑…"
-            } else {
-                statusLine = "电脑离线"
-            }
+            statusLine = "电脑离线"
             return
         }
         guard !busy, sessionID == nil else { return }
@@ -4145,13 +4141,6 @@ final class ChatModel {
 
     // MARK: - Launch transcript snapshot
 
-    private struct CachedTranscriptItem: Codable {
-        var id: String
-        var kind: String
-        var title: String
-        var text: String
-    }
-
     private func snapshotURL(for sessionID: String) -> URL? {
         WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
@@ -4196,29 +4185,41 @@ final class ChatModel {
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
               let sessionID = WorkspaceStorage.currentSessionID(for: backendID) else { return }
-        var data: Data?
-        for url in [snapshotURL(for: sessionID),
-                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
-            .compactMap({ $0 }) {
-            if let stored = try? Data(contentsOf: url) { data = stored; break }
-        }
-        guard let data,
-              let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
-              !cached.isEmpty else { return }
+        guard let cached = readCachedTranscript(sessionID: sessionID) else { return }
         flushStreamingText()
-        items = cached.compactMap { item in
-            guard let kind = Self.chatKind(from: item.kind) else { return nil }
-            return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
-        }
+        items = Self.chatItems(from: cached.items)
         guard !items.isEmpty else { return }
         isShowingCachedTranscript = true
         statusLine = "显示上次对话，引擎在后台启动…"
     }
 
+    /// Reads one session's cached tail. The envelope carries the scope, so a
+    /// file that belongs to another backend or session is ignored rather than
+    /// painted (P18). The phone's pre-envelope bare array still decodes.
+    private func readCachedTranscript(sessionID: String) -> CachedTranscriptSnapshot? {
+        for url in [snapshotURL(for: sessionID),
+                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
+            .compactMap({ $0 }) {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            if let snapshot = CachedTranscriptCodec.decode(data, backend: backendID,
+                                                           sessionID: sessionID) {
+                return snapshot
+            }
+        }
+        return nil
+    }
+
+    private static func chatItems(from cached: [CachedTranscriptItem]) -> [ChatItem] {
+        cached.compactMap { item in
+            guard let kind = chatKind(from: item.kind) else { return nil }
+            return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
+        }
+    }
+
     /// Saves the settled items so the next launch can paint immediately.
     private func persistTranscriptSnapshot() {
         guard !isShowingCachedTranscript, let sessionID else { return }
-        let settled = items.filter { !$0.streaming }.suffix(400)
+        let settled = items.filter { !$0.streaming }
         guard !settled.isEmpty else { return }
         let cached = settled.map { item in
             CachedTranscriptItem(id: item.id,
@@ -4226,11 +4227,20 @@ final class ChatModel {
                                  title: item.title,
                                  text: item.text)
         }
-        guard let data = try? JSONEncoder().encode(cached) else { return }
+        guard let data = CachedTranscriptCodec.encode(items: cached, backend: backendID,
+                                                      sessionID: sessionID, lastSeq: lastSeq)
+        else { return }
         guard let url = snapshotURL(for: sessionID) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
+        let directory = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        WorkspaceStorage.excludeFromBackup(directory)
         try? data.write(to: url, options: .atomic)
+        // The cache is rebuildable: bound it off the main thread so a long
+        // history of opened sessions cannot grow without limit (P18).
+        let backend = backendID
+        Task.detached(priority: .utility) {
+            WorkspaceStorage.evictTranscriptSnapshots(for: backend, keeping: sessionID)
+        }
     }
 
     /// One short line of a raw host message (the full text stays in

@@ -510,6 +510,48 @@ public enum WorkspaceStorage {
             .appendingPathComponent("\(sessionID).json")
     }
 
+    /// Marks the snapshot tree as rebuildable local data so it is never part of
+    /// an iCloud or Finder backup (P05/P17 backup attributes, P18 cache).
+    public static func excludeFromBackup(_ url: URL) {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var target = url
+        try? target.setResourceValues(values)
+    }
+
+    /// Keeps the transcript cache bounded: one file per session and at most
+    /// `limit` files overall. `currentSessionID` is never evicted, so reopening
+    /// the same session always has a tail to paint even when it is older than
+    /// the other cached sessions. Eviction runs off the main thread.
+    public static func evictTranscriptSnapshots(for backend: BackendID,
+                                                documentsDirectory: URL? = nil,
+                                                fileManager: FileManager = .default,
+                                                keeping currentSessionID: String? = nil,
+                                                limit: Int = 200) {
+        guard limit > 0 else { return }
+        let documents = documentsDirectory
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let directory = transcriptsDirectoryURL(for: backend, documentsDirectory: documents)
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+        guard let entries = try? fileManager.contentsOfDirectory(at: directory,
+                                                                 includingPropertiesForKeys: keys,
+                                                                 options: [.skipsHiddenFiles])
+        else { return }
+        let json = entries.filter { $0.pathExtension == "json" }
+        guard json.count > limit else { return }
+        let ordered = json.sorted { lhs, rhs in
+            let left = (try? lhs.resourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast
+            let right = (try? rhs.resourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast
+            return left < right
+        }
+        let protectedName = currentSessionID.map { "\($0).json" }
+        var excess = json.count - limit
+        for url in ordered where excess > 0 {
+            if url.lastPathComponent == protectedName { continue }
+            if (try? fileManager.removeItem(at: url)) != nil { excess -= 1 }
+        }
+    }
+
     /// Legacy snapshot path for the phone scope; read-only fallback so a build
     /// that has not migrated yet can still paint the cached transcript.
     public static func legacyTranscriptSnapshotURL(for backend: BackendID,

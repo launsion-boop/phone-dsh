@@ -89,6 +89,9 @@ final class PCLinkWorkspace {
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var offlineSince: Date?
     @ObservationIgnored private var longOfflineTask: Task<Void, Never>?
+    /// Last transition written to the diagnostics log, so a steady state does
+    /// not spam it.
+    @ObservationIgnored private var loggedPresenceKey: String?
 
     init(client: any PCLinkClientProtocol) {
         self.client = client
@@ -241,6 +244,7 @@ final class PCLinkWorkspace {
 
     private func apply(_ state: PCLinkClientState) {
         connection = PCWorkspaceConnection(state)
+        recordPresence(connection)
         switch connection {
         case .online, .versionWarning:
             offlineSince = nil
@@ -254,6 +258,36 @@ final class PCLinkWorkspace {
         case .unpaired, .connecting:
             break
         }
+    }
+
+    /// One line per projected presence change. The file is the only way to
+    /// answer "the drawer said the PC was offline while it was working" from a
+    /// device, so it records the state, the reason case and how long the phone
+    /// had been without a connection (PC-20261110-pclink-workspace-cache).
+    private func recordPresence(_ connection: PCWorkspaceConnection) {
+        let state: String
+        var reason: String?
+        switch connection {
+        case .online, .versionWarning:
+            state = "online"
+        case .connecting:
+            state = "reconnecting"
+        case .offline(let offline):
+            state = "offline"
+            reason = PCLinkDiagnosticsLog.reasonName(offline)
+        case .unpaired:
+            state = "unpaired"
+        }
+        guard state != "unpaired" else { return }
+        let key = state + "/" + (reason ?? "-")
+        guard key != loggedPresenceKey else { return }
+        loggedPresenceKey = key
+        var detail: String?
+        if state == "online", let offlineSince {
+            detail = String(format: "gap=%.1fs", Date().timeIntervalSince(offlineSince))
+        }
+        PCLinkDiagnosticsLog.append(PCLinkDiagnosticEvent(state: state, reason: reason,
+                                                         detail: detail))
     }
 
     private func armLongOfflineTimerIfNeeded() {
@@ -270,6 +304,7 @@ final class PCLinkWorkspace {
     private func refreshStatus() async {
         status = await client.status()
         connection = PCWorkspaceConnection(status.state)
+        recordPresence(connection)
         if status.pcUnpairedPrompt == nil { suppressedUnpairedPrompt = false }
         if status.record == nil {
             longOffline = false

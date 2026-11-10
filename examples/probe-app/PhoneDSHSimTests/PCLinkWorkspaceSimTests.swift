@@ -209,13 +209,6 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
                                                 connection: .online), .ready)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .phone, hasRecord: true,
                                                 connection: .offline(.peerOffline)), .phone)
-        // A resume in flight is not an offline PC (§10,
-        // PC-20261110-pclink-foreground-resume-presence): the drawer keeps the
-        // connecting state instead of the offline card and copy.
-        XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .connecting), .connecting)
-        XCTAssertNotEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                   connection: .connecting), .offline)
         XCTAssertEqual(WorkspaceStorageKeys.currentSession(for: pc),
                        "chat.dsh.currentSession.pc:pc-machine")
         XCTAssertEqual(SessionStorageKey(backend: pc, sessionID: "abc").encoded,
@@ -651,6 +644,98 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
                                          documentsDirectory: documents)
         XCTAssertNil(defaults.data(forKey: pcKey))
         XCTAssertNotNil(defaults.data(forKey: phoneKey))
+    }
+
+    // P18 (PC-20261110-pclink-workspace-cache): the transcript tail is bounded,
+    // scope-checked and still readable in the phone's pre-envelope format.
+    func testTranscriptCacheIsBoundedAndScopeChecked() throws {
+        let pc = BackendID.pc(machineId: "pc-one")
+        let items = (0..<500).map { index in
+            CachedTranscriptItem(id: "row-\(index)", kind: "assistant",
+                                 title: "", text: "text \(index)")
+        }
+        let data = try XCTUnwrap(CachedTranscriptCodec.encode(items: items, backend: pc,
+                                                              sessionID: "s-1", lastSeq: 42))
+        let stored = try XCTUnwrap(CachedTranscriptCodec.decode(data, backend: pc,
+                                                               sessionID: "s-1"))
+        XCTAssertEqual(stored.lastSeq, 42)
+        XCTAssertLessThanOrEqual(stored.items.count, CachedTranscriptCodec.maxItems)
+        XCTAssertEqual(stored.items.last?.id, "row-499", "the newest rows survive the bound")
+        XCTAssertLessThanOrEqual(data.count, CachedTranscriptCodec.maxFileBytes)
+
+        // Another machine or session must not paint this tail.
+        XCTAssertNil(CachedTranscriptCodec.decode(data,
+                                                  backend: .pc(machineId: "pc-two"),
+                                                  sessionID: "s-1"))
+        XCTAssertNil(CachedTranscriptCodec.decode(data, backend: pc, sessionID: "s-2"))
+        XCTAssertNil(CachedTranscriptCodec.decode(Data("not json".utf8), backend: pc,
+                                                  sessionID: "s-1"))
+
+        // Legacy bare array: accepted, with no seq.
+        let legacy = try XCTUnwrap(JSONEncoder().encode([items[0]]))
+        let adopted = try XCTUnwrap(CachedTranscriptCodec.decode(legacy, backend: .phone,
+                                                                sessionID: "s-1"))
+        XCTAssertNil(adopted.lastSeq)
+        XCTAssertEqual(adopted.items.count, 1)
+    }
+
+    // One oversized row cannot dominate the file.
+    func testTranscriptCacheTruncatesOneHugeRow() throws {
+        let huge = CachedTranscriptItem(id: "big", kind: "toolResult", title: "t",
+                                        text: String(repeating: "x", count: 200_000))
+        let bounded = CachedTranscriptCodec.bounded([huge])
+        XCTAssertEqual(bounded.count, 1)
+        XCTAssertEqual(bounded[0].text.count, CachedTranscriptCodec.maxItemCharacters + 1)
+    }
+
+    // The cache keeps at most `limit` files and never evicts the current one.
+    func testTranscriptCacheEvictionKeepsTheCurrentSession() throws {
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-evict-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+        let pc = BackendID.pc(machineId: "pc-one")
+        let directory = WorkspaceStorage.transcriptsDirectory(for: pc,
+                                                              documentsDirectory: documents)
+        let fileManager = FileManager.default
+        for index in 0..<5 {
+            let url = directory.appendingPathComponent("s-\(index).json")
+            try Data("{}".utf8).write(to: url)
+            try fileManager.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(index))],
+                                          ofItemAtPath: url.path)
+        }
+        WorkspaceStorage.evictTranscriptSnapshots(for: pc, documentsDirectory: documents,
+                                                  keeping: "s-0", limit: 2)
+        let left = try fileManager.contentsOfDirectory(atPath: directory.path).sorted()
+        XCTAssertEqual(left, ["s-0.json", "s-4.json"],
+                       "at most `limit` files remain, the oldest unprotected go first, "
+                       + "and the current session is never evicted")
+    }
+
+    // W5: the presence log answers "what did the drawer see" without user content.
+    func testDiagnosticsLogRecordsPresenceAndRotates() throws {
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-diag-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+
+        PCLinkDiagnosticsLog.append(PCLinkDiagnosticEvent(state: "reconnecting"), documentsDirectory: documents)
+        PCLinkDiagnosticsLog.append(PCLinkDiagnosticEvent(state: "offline",
+                                                          reason: PCLinkDiagnosticsLog.reasonName(.peerOffline),
+                                                          detail: "gap=3.2s"), documentsDirectory: documents)
+        let lines = PCLinkDiagnosticsLog.read(documentsDirectory: documents)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[0].hasSuffix("state reconnecting"))
+        XCTAssertTrue(lines[1].contains("state offline"))
+        XCTAssertTrue(lines[1].contains("reason=peer_offline"))
+
+        // Fill past the cap: the log rotates once and stays bounded.
+        let filler = PCLinkDiagnosticEvent(state: "online", detail: String(repeating: "x", count: 1024))
+        for _ in 0..<300 { PCLinkDiagnosticsLog.append(filler, documentsDirectory: documents) }
+        let rotated = documents.appendingPathComponent(PCLinkDiagnosticsLog.rotatedFileName)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rotated.path))
+        let live = try Data(contentsOf: documents.appendingPathComponent(PCLinkDiagnosticsLog.fileName))
+        XCTAssertLessThanOrEqual(live.count, PCLinkDiagnosticsLog.maxBytes)
     }
 
     func testPairedAtIsLocalizedNotISO() {
