@@ -428,12 +428,7 @@ struct NativeToolCardIOSection: View {
                 .foregroundStyle(NativeParityTokens.labelCaption)
                 .fixedSize(horizontal: true, vertical: false)
             ScrollView(.vertical) {
-                Text(text)
-                    .font(.system(size: NativeToolCardMetrics.ioFontSize, design: .monospaced))
-                    .lineSpacing(NativeToolCardMetrics.ioLineSpacing)
-                    .foregroundStyle(isError ? NativeParityTokens.error : NativeParityTokens.labelSecondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                NativeToolOutputText(text: text, isError: isError)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: NativeToolCardMetrics.ioMaxHeight)
