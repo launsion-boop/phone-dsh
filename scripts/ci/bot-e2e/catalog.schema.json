@@ -170,6 +170,7 @@
           "additionalProperties": false,
           "properties": {
             "allow": {
+              "description": "Bare host or host:port. The reserved entry \"echo\" admits the runner's loopback echo fixture on its actual port.",
               "type": "array",
               "items": {
                 "type": "string",
@@ -990,6 +991,43 @@
             },
             "description": {
               "type": "string"
+            },
+            "equals": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "echo_requests"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "method": {
+              "type": "string",
+              "pattern": "^[A-Za-z]+$"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
             },
             "equals": {
               "type": "integer",

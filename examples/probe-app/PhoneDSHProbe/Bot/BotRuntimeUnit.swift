@@ -61,7 +61,9 @@ final class BotRuntimeUnit {
 
     static func make(runtime: BotMCPRuntime, handler: BotMCPHandler,
                      store: SQLiteDomainStore, botID: String,
-                     displayName: String) async throws -> BotRuntimeUnit {
+                     displayName: String,
+                     now: (@Sendable () -> Int64)? = nil,
+                     sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
         let environment = BotProductionEnvironment(
@@ -94,6 +96,15 @@ final class BotRuntimeUnit {
             cancelRunner: { [remote] cancellation in await remote.cancelRoutine(cancellation) },
             available: { [remote] _ in await remote.isAvailable() },
             busy: { [remote] _ in await remote.isMainTurnBusy() },
+            // Defaults intentionally mirror `RoutineScheduler.init`; the eval
+            // runner injects a controllable clock/sleeper through the production
+            // composition. Production callers pass neither and keep the wall
+            // clock.
+            now: now ?? { Int64(Date().timeIntervalSince1970 * 1000) },
+            sleep: sleep ?? { milliseconds in
+                guard milliseconds > 0 else { return }
+                try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
+            },
             leaseOwner: "bot-runtime-composition")
         return BotRuntimeUnit(
             botID: botID, environment: environment, remote: remote,

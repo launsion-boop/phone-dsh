@@ -23,6 +23,7 @@ final class EvalRunContext {
     let botEvents: EvalJSONLWriter
     let redactor: (String) -> String
     let deferredSeeds: [EvalSeed]
+    let schedulerClock: EvalSchedulerClock
 
     var aliases: [String: String] = [:]
     var policy = EvalApprovalPolicy(defaultDecision: "manual", rules: [])
@@ -36,7 +37,7 @@ final class EvalRunContext {
          credentialProvider: EvalModelCredentialProvider, workspaceRoot: URL,
          resultsDirectory: URL, fixturesRoot: URL, transcript: EvalJSONLWriter,
          botEvents: EvalJSONLWriter, redactor: @escaping (String) -> String,
-         deferredSeeds: [EvalSeed]) {
+         deferredSeeds: [EvalSeed], schedulerClock: EvalSchedulerClock) {
         self.scenario = scenario
         self.plan = plan
         self.composition = composition
@@ -51,6 +52,7 @@ final class EvalRunContext {
         self.botEvents = botEvents
         self.redactor = redactor
         self.deferredSeeds = deferredSeeds
+        self.schedulerClock = schedulerClock
         self.mainBotID = composition.rosterModel.mainBotID
             ?? composition.rosterModel.bots.first?.id
             ?? "main"

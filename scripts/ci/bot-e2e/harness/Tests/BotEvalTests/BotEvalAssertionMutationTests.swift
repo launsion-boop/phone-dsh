@@ -57,7 +57,8 @@ final class BotEvalAssertionMutationTests: XCTestCase {
                 botID: "main", name: "mcp__phone__bash", arguments: #"{"command":"printf hi"}"#)],
             memories: ["main": [memory], "bot-side": []],
             workspaces: ["main": workspace, "bot-side": workspace],
-            scratchRoot: root.appendingPathComponent("scratch", isDirectory: true))
+            scratchRoot: root.appendingPathComponent("scratch", isDirectory: true),
+            echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")])
         try FileManager.default.createDirectory(
             at: snapshot.scratchRoot, withIntermediateDirectories: true)
 
@@ -90,6 +91,10 @@ final class BotEvalAssertionMutationTests: XCTestCase {
              EvalAssertion(type: "approval_count", equals: 0)),
             (EvalAssertion(type: "approval_count", max: 1),
              EvalAssertion(type: "approval_count", max: 0)),
+            (EvalAssertion(type: "echo_requests", path: "/probe", method: "POST", equals: 1),
+             EvalAssertion(type: "echo_requests", path: "/probe", method: "GET", equals: 1)),
+            (EvalAssertion(type: "echo_requests", path: "/absent", equals: 0),
+             EvalAssertion(type: "echo_requests", path: "/probe", equals: 0)),
             (EvalAssertion(type: "file_exists", path: "a.txt"),
              EvalAssertion(type: "file_exists", path: "missing.txt")),
             (EvalAssertion(type: "no_file", path: "missing.txt"),

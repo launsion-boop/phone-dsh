@@ -44,7 +44,7 @@ SUPPORTED_ASSERTIONS = {
     "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
     "workspace_command", "reply_contains", "reply_not_contains",
     "bot_event", "no_bot_event", "tool_called", "no_tool_call",
-    "memory_contains", "memory_absent", "approval_count",
+    "memory_contains", "memory_absent", "approval_count", "echo_requests",
 }
 UI_KINDS = {
     "card_answer", "card_dismiss", "approval", "erase_memory",
@@ -274,7 +274,7 @@ def _check_assertion(errors, path, assertion):
     if kind not in SUPPORTED_ASSERTIONS:
         _error(errors, path, f"unsupported assertion type {kind!r}")
         return
-    if "path" in assertion:
+    if kind in ("file_exists", "no_file", "file_contains", "file_regex", "file_json_path"):
         _check_relative_path(errors, f"{path}.path", assertion.get("path"))
     if kind in ("file_contains", "file_regex", "file_json_path") and "value" not in assertion:
         _error(errors, path, f"{kind} requires value")
@@ -289,11 +289,15 @@ def _check_assertion(errors, path, assertion):
         _error(errors, path, f"{kind} with an empty value needs scope, tier or source")
     if kind in ("tool_called", "no_tool_call") and not assertion.get("name"):
         _error(errors, path, f"{kind} requires name")
-    if kind == "approval_count":
+    if kind in ("approval_count", "echo_requests"):
         has_equals = "equals" in assertion
         has_max = "max" in assertion
         if has_equals == has_max:
-            _error(errors, path, "approval_count requires exactly one of equals or max")
+            _error(errors, path, f"{kind} requires exactly one of equals or max")
+    if kind == "echo_requests" and "method" in assertion:
+        method = assertion.get("method")
+        if not isinstance(method, str) or not method.isalpha():
+            _error(errors, path, "echo_requests method must be an alphabetic HTTP method")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:
@@ -387,9 +391,10 @@ def validate_catalog(catalog, fixtures_root: Path, selftest=False):
         for perturbation_index, perturbation in enumerate(scenario.get("perturbations") or []):
             at = perturbation.get("at", "")
             if at.startswith("minute:"):
-                # The runner cannot advance the scheduler clock (see EVAL.md /
-                # CONTRACT CHANGE REQUEST); the plan records a skip instead of
-                # silently running a different scenario.
+                # Minute-based perturbations still have no production seam;
+                # the plan records a skip instead of silently running a
+                # different scenario. The explicit `advance_clock` action is
+                # the supported scheduler-clock fixture.
                 pass
     budget = catalog.get("budget")
     if budget is not None:
