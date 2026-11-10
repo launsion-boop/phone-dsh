@@ -4,6 +4,8 @@
 
 把 DeepSeek Harness 变成手机的一等运行时。
 
+**[在 App Store 下载 iPhone 版](https://apps.apple.com/app/phone-dsh/id6828310755)**
+
 [English](README.en.md) · [Android 版本](#android-版本) · [架构说明](docs/architecture.md) · [协议基线与协作](spec/README.md) · [协议规范](spec/v1/README.md)
 
 <p align="center">

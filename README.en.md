@@ -4,6 +4,8 @@
 
 Run DeepSeek Harness, unmodified, on your phone.
 
+**[Download for iPhone on the App Store](https://apps.apple.com/app/phone-dsh/id6828310755)**
+
 [简体中文](README.md) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
 
 <p align="center">
