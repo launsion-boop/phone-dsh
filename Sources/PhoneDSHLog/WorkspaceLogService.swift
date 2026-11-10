@@ -396,11 +396,25 @@ public actor WorkspaceLog: WorkspaceLogging {
         // O(1) and the cache file is only ever replaced by an atomic rename,
         // never modified in place.
         try Self.materializeBootOverlay(cache: cacheURL, boot: bootURL)
+        // Both files are derived from the materialized tree and are rebuilt on
+        // demand; they must not be uploaded as part of the device backup.
+        Self.excludeFromBackup(cacheURL)
+        Self.excludeFromBackup(bootURL)
         Self.pruneBootOverlays(root: paths.root, keeping: [cacheURL, bootURL])
         return bootURL
     }
 
     // MARK: - Boot overlay cache
+
+    /// Marks an overlay tar as excluded from iCloud/device backup. The overlay
+    /// is derived state (wal.md §8), so a restore can rebuild it; a refusal is
+    /// best effort and changes no overlay behaviour.
+    private static func excludeFromBackup(_ url: URL) {
+        var target = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? target.setResourceValues(values)
+    }
 
     private static let overlayCacheFileName = "overlay-cache.tar"
     private static let overlayCacheSidecarFileName = "overlay-cache.json"

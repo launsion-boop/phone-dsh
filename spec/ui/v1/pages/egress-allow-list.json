@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "网络访问",
-    "provenance": "NativeShell.swift:553",
+    "provenance": "NativeShell.swift:603",
     "anchor": ".navigationTitle(\"网络访问\")"
   },
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1086,
-    "structLine": 463,
+    "lines": 1136,
+    "structLine": 513,
     "renderedFrom": [
       "body",
       "addDialog"
@@ -28,7 +28,7 @@
   },
   "sections": [
     {
-      "id": "section-485",
+      "id": "section-535",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -48,23 +48,23 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "NativeShell.swift:486",
+          "provenance": "NativeShell.swift:536",
           "anchor": "Toggle(\"允许连任何网站\", isOn: allowAllBinding)",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:485",
+      "provenance": "NativeShell.swift:535",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "允许连任何网站",
-        "provenance": "NativeShell.swift:486"
+        "provenance": "NativeShell.swift:536"
       },
       "footer": {
         "text": "打开之后,下面这些地址就不起作用了。",
         "labelExpr": null,
-        "provenance": "NativeShell.swift:489",
+        "provenance": "NativeShell.swift:539",
         "anchor": "Text(\"打开之后,下面这些地址就不起作用了。\")"
       }
     },
@@ -89,7 +89,7 @@
           "destination": null,
           "writes": false,
           "condition": "hosts.isEmpty",
-          "provenance": "NativeShell.swift:494",
+          "provenance": "NativeShell.swift:544",
           "anchor": "Text(allowAll ? \"现在全部能连。\" : \"还没有地址,现在连不出去。\")",
           "extraction": "syntax"
         },
@@ -104,12 +104,12 @@
           "destination": null,
           "writes": false,
           "condition": "hosts.isEmpty",
-          "provenance": "NativeShell.swift:500",
+          "provenance": "NativeShell.swift:550",
           "anchor": "Text(\"恢复成默认的\")",
           "extraction": "syntax"
         },
         {
-          "id": "text-506",
+          "id": "text-556",
           "label": null,
           "labelExpr": "host",
           "kind": "text",
@@ -119,7 +119,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(hosts.isEmpty)",
-          "provenance": "NativeShell.swift:506",
+          "provenance": "NativeShell.swift:556",
           "anchor": "Text(host)",
           "extraction": "manual",
           "collection": "hosts, id: \\.self"
@@ -135,12 +135,12 @@
           "destination": null,
           "writes": true,
           "condition": "!allowAll",
-          "provenance": "NativeShell.swift:528",
+          "provenance": "NativeShell.swift:578",
           "anchor": "Text(\"添加地址\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:536",
+      "provenance": "NativeShell.swift:586",
       "anchor": "Text(\"地址\")",
       "extraction": "syntax",
       "hasHeader": true
@@ -178,7 +178,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:486",
+      "provenance": "NativeShell.swift:536",
       "anchor": "Toggle(\"允许连任何网站\", isOn: allowAllBinding)",
       "extraction": "syntax"
     },
@@ -192,7 +192,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:500",
+      "provenance": "NativeShell.swift:550",
       "anchor": "Text(\"恢复成默认的\")",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -207,13 +207,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:528",
+      "provenance": "NativeShell.swift:578",
       "anchor": "Text(\"添加地址\")",
       "extraction": "syntax",
       "labelAlternatives": []
     },
     {
-      "id": "gesture-664",
+      "id": "gesture-714",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -222,7 +222,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:664",
+      "provenance": "NativeShell.swift:714",
       "anchor": ".onTapGesture { adding = false }",
       "extraction": "syntax"
     },
@@ -236,7 +236,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:512",
+      "provenance": "NativeShell.swift:562",
       "anchor": "Button(\"删除这个地址\", role: .destructive) {",
       "extraction": "syntax"
     },
@@ -250,7 +250,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:680",
+      "provenance": "NativeShell.swift:730",
       "anchor": "Button(\"取消\") { adding = false }",
       "extraction": "syntax"
     },
@@ -264,7 +264,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:683",
+      "provenance": "NativeShell.swift:733",
       "anchor": "Button(\"添加\") { submitDraft() }",
       "extraction": "syntax"
     }
@@ -278,15 +278,15 @@
         {
           "renders": "还没有地址,现在连不出去。",
           "when": "hosts.isEmpty",
-          "provenance": "NativeShell.swift:494",
+          "provenance": "NativeShell.swift:544",
           "anchor": "Text(allowAll ? \"现在全部能连。\" : \"还没有地址,现在连不出去。\")"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 485 | 地址",
+          "renders": "untitled section at 535 | 地址",
           "when": null,
-          "provenance": "NativeShell.swift:463",
+          "provenance": "NativeShell.swift:513",
           "anchor": "struct EgressAllowListPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -311,19 +311,19 @@
   "subpages": [
     {
       "name": "WorkspaceFoldersPage",
-      "line": 339,
+      "line": 389,
       "private": false,
       "embedded": false,
       "sections": [],
-      "provenance": "NativeShell.swift:339"
+      "provenance": "NativeShell.swift:389"
     },
     {
       "name": "SettingsAboutPage",
-      "line": 914,
+      "line": 964,
       "private": false,
       "embedded": false,
       "sections": [],
-      "provenance": "NativeShell.swift:914"
+      "provenance": "NativeShell.swift:964"
     }
   ],
   "unreachable": [],

@@ -6,6 +6,7 @@
 
 import Foundation
 import PhoneDSHBot
+import SwiftUI
 import UIKit
 
 enum BotFishFaceKey: Hashable, CaseIterable {
@@ -236,8 +237,8 @@ final class BotFishStateMachine {
             elapsed += dt
         }
 
-        if state == .idle, reaction == nil, time - idleEntered >= 3000, time >= nextIdleAt,
-           playing, !reduced, !isStatic {
+        if state == .idle, reaction == nil, time - idleEntered >= 3000,
+           time >= nextIdleAt, playing, !reduced, !isStatic {
             if random() < 0.6 {
                 blink()
             } else {
@@ -383,15 +384,31 @@ final class BotFishStateMachine {
     }
 }
 
+/// One display-ready frame. The two layers are already at the output pixel
+/// size; the pose is applied by SwiftUI on the GPU.
+struct BotFishFrame {
+    var base: Image
+    var face: Image
+    var baseID: ObjectIdentifier
+    var faceID: ObjectIdentifier
+    var pose: BotFishPose = BotFishPose()
+    var alpha: Double = 1
+}
+
 /// Owns the state machine and the Core Graphics renderer for one avatar view.
 final class BotFishEngine {
     private let machine: BotFishStateMachine
     private let renderer = BotFishRenderer()
     private var lastTimestamp: TimeInterval?
     private var configuredState: BotFishLifecycle?
+    private(set) var currentFrame: BotFishFrame?
     private var configuredReactionID: String?
-    private(set) var currentImage: UIImage?
-    private(set) var hasRendered = false
+
+    /// 0.25 output pixel, matching the renderer's pose quantisation. Scale is
+    /// quantised so the edge of the crop moves by the same threshold; roll
+    /// uses the 0.1° requested by the acceptance criteria.
+    private static let offsetQuantum: CGFloat = 0.25
+    private static let rollQuantum = 0.1
 
     init() {
         machine = BotFishStateMachine()
@@ -399,7 +416,6 @@ final class BotFishEngine {
     }
 
     var needsAnimation: Bool { machine.needsAnimation }
-    var isReactionActive: Bool { machine.hasActiveReaction }
 
     func configure(state: BotFishLifecycle, still: Bool, reduced: Bool,
                    reaction: BotFishReaction? = nil) {
@@ -408,11 +424,9 @@ final class BotFishEngine {
         if configuredState != state {
             configuredState = state
             machine.setState(state)
-            hasRendered = false
         }
         if machine.isStatic != still || machine.reduced != reduced {
             machine.updateFlags(isStatic: still, reduced: reduced)
-            hasRendered = false
         }
         // Dedupe by reaction id: SwiftUI can re-render or rebuild the view for
         // unrelated inputs, but one Agent call must play exactly once.
@@ -423,7 +437,6 @@ final class BotFishEngine {
             } else {
                 machine.clearReaction()
             }
-            hasRendered = false
         }
     }
 
@@ -431,17 +444,68 @@ final class BotFishEngine {
                  size: CGFloat, displayScale: CGFloat,
                  appearance: BotFishAppearance = .classic,
                  crowned: Bool = false,
-                 reaction: BotFishReaction? = nil) -> UIImage? {
+                 reaction: BotFishReaction? = nil) -> BotFishFrame? {
         configure(state: state, still: still, reduced: reduced, reaction: reaction)
         let timestamp = date.timeIntervalSinceReferenceDate
         let delta = lastTimestamp.map { min(100, max(0, (timestamp - $0) * 1000)) } ?? 0
         lastTimestamp = timestamp
-        let params = machine.step(delta)
-        currentImage = renderer.render(params, time: machine.time,
-                                       size: size, displayScale: displayScale,
-                                       appearance: appearance, crowned: crowned)
-        hasRendered = true
-        return currentImage
+        var params = machine.step(delta)
+
+        // Small avatars get the upstream 2.2× readable-motion boost. The
+        // boost is part of the pose now, so it no longer forces a repaint.
+        let boost = BotFishRenderer.motionBoost(for: size)
+        params.motionScale = boost
+        if boost > 1 {
+            params.x = BotFishMath.clamp(params.x * boost,
+                                         -BotFishRenderer.motionBoostMaxTranslation,
+                                         BotFishRenderer.motionBoostMaxTranslation)
+            params.y = BotFishMath.clamp(params.y * boost,
+                                         -BotFishRenderer.motionBoostMaxTranslation,
+                                         BotFishRenderer.motionBoostMaxTranslation)
+            params.roll = BotFishMath.clamp(params.roll * boost,
+                                            -BotFishRenderer.motionBoostMaxRoll,
+                                            BotFishRenderer.motionBoostMaxRoll)
+        }
+
+        let target = BotFishRenderer.pixelSide(size: size, displayScale: displayScale)
+        guard let prepared = renderer.prepare(params, time: machine.time, size: size,
+                                              displayScale: displayScale,
+                                              appearance: appearance,
+                                              crowned: crowned) else {
+            return currentFrame
+        }
+        let baseID = ObjectIdentifier(prepared.base)
+        let faceID = ObjectIdentifier(prepared.face)
+        let pose = Self.pose(params, size: size, pixelSide: target, crowned: crowned)
+        let alpha = Self.quantisedAlpha(params.alpha)
+        if var frame = currentFrame {
+            var changed = false
+            if frame.baseID != baseID {
+                frame.base = Image(decorative: prepared.base, scale: 1, orientation: .up)
+                frame.baseID = baseID
+                changed = true
+            }
+            if frame.faceID != faceID {
+                frame.face = Image(decorative: prepared.face, scale: 1, orientation: .up)
+                frame.faceID = faceID
+                changed = true
+            }
+            if frame.pose != pose {
+                frame.pose = pose
+                changed = true
+            }
+            if frame.alpha != alpha {
+                frame.alpha = alpha
+                changed = true
+            }
+            if changed { currentFrame = frame }
+        } else {
+            currentFrame = BotFishFrame(
+                base: Image(decorative: prepared.base, scale: 1, orientation: .up),
+                face: Image(decorative: prepared.face, scale: 1, orientation: .up),
+                baseID: baseID, faceID: faceID, pose: pose, alpha: alpha)
+        }
+        return currentFrame
     }
 
     func poke() {
@@ -450,5 +514,31 @@ final class BotFishEngine {
 
     func resetClock() {
         lastTimestamp = nil
+    }
+
+    private static func pose(_ p: BotFishParams, size: CGFloat,
+                             pixelSide: Int, crowned: Bool) -> BotFishPose {
+        let target = CGFloat(max(1, pixelSide))
+        let cropSide = crowned ? BotFishRenderer.crownedCropSide : BotFishRenderer.cropSide
+        let pixelScale = target / cropSide
+        let pointsPerPixel = max(1, size) / target
+        func offset(_ value: Double) -> CGFloat {
+            let pixels = CGFloat(value) * pixelScale
+            return (pixels / offsetQuantum).rounded() * offsetQuantum * pointsPerPixel
+        }
+        let scaleQuantum = 0.5 / target
+        func scale(_ value: Double) -> Double {
+            (value / Double(scaleQuantum)).rounded() * Double(scaleQuantum)
+        }
+        return BotFishPose(
+            offsetX: offset(p.x),
+            offsetY: offset(p.y),
+            roll: (p.roll / rollQuantum).rounded() * rollQuantum,
+            scaleX: scale(p.sx * p.morphX),
+            scaleY: scale(p.sy * p.morphY))
+    }
+
+    private static func quantisedAlpha(_ value: Double) -> Double {
+        (BotFishMath.clamp(value, 0, 1) * 64).rounded() / 64
     }
 }

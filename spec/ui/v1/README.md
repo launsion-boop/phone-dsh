@@ -48,8 +48,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 
 `tokens.json` 是生成 Kotlin 的唯一来源；`golden/tokens.golden.json` 只是 schema 示例。来源分级：
 **HomeSpec 主题色/字号/行高/间距来自 `HomeSpec.swift`；PR22 仍在用的组件色/字号/几何来自其当前
-`NativeParityTokens.swift`、`Components.swift` 等 owning 文件；旧名只通过 `aliases` 指向规范 leaf**，不复制第二张表；
-取不到就记 `unmeasured`，不写假值。Swift 只进入已复核的 JSON provenance，生成器不再并行解析 Swift/HTML。
+`NativeParityTokens.swift`、`Components.swift` 等 owning 文件；旧名只通过 `aliases` 指向规范 leaf**，不复制第二张表；取不到就记 `unmeasured`，不写假值。Swift 只进入已复核的 JSON provenance，生成器不再并行解析 Swift/HTML。
 
 ## 1. 页面清单
 
@@ -76,6 +75,8 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ModelProviderSettingsPage | 模型服务、密钥、编解码 | 设置 › 模型服务；Chat 起手卡/启动失败横幅 | push；编辑子页 ModelProviderEditorPage | must |
 | SSHSettingsPage | 已保存 SSH 连接、凭据与服务器指纹 | 设置 › 权限与隐私 › SSH 主机 | push；编辑子页 SSHConnectionEditor；私钥保存到 Keychain | must |
 | AndroidADBSettingsPage | Android TCP/IP ADB 连接、保存、测试与停止 | 设置 › 权限与隐私 › Android ADB | push；保存立即生效，测试需 Android 调试授权 | must |
+| VisionSettingsPage | UI-Venus 视觉模型：HTTPS OpenAI 兼容接口、模型名与密钥（Keychain），列出服务端模型；`iphone_agent_run` 读取此配置，见 [TonoLink 板子](../../device/v1/tonolink-board.md) | 设置 › 权限与隐私 › 视觉模型 | push；保存立即生效，换接口必须重填密钥 | later |
+| TonoLinkUSBOTAPage | **仅 DEBUG**：TonoLink 板子 USB/BLE 固件更新与开发者 Wi-Fi relay（无认证，见 [TonoLink 板子 §5](../../device/v1/tonolink-board.md)）；Release 不编译 | 设置 › 权限与隐私 › 板子固件（USB）（仅 DEBUG） | push；relay 只在打开开关期间监听 | later |
 | SessionArtifactsPage | 本会话产物、未归属产物与预览 | 页头 `⋯` →「产物」 | sheet；预览子页 SessionArtifactPreviewPage | must |
 | SessionArtifactPreviewPage | 单个产物的内容预览 | SessionArtifactsPage 的行点击 | 内嵌 sheet，不单独成页 | must |
 | NativeDeviceConnectionPage | 已配对的真机连接与传输能力 | 页头设备按钮 →「设备连接」 | sheet；行打开 NativeDeviceSessionPage | must |
@@ -216,7 +217,7 @@ Parity is asserted on **two different object graphs**，混用两者就是端口
 | `colors.textPrimary` | `#1A1A1A` | `#F2F2F2` | 主文字 |
 | `colors.textSecondary` | `#555555` | `#B8B8BD` | 过程行/次要文字 |
 | `colors.textTertiary` | `#717171` | `#9C9CA2` | 列表卡步骤行 |
-| `colors.textSubtle` | `#7D7D7D` | `#8E8E93` | 导航副标题 |
+| `colors.textSubtle` | `#7D7D7D` | `#8E8E93` | 导航/页面副标题 |
 | `colors.textPlaceholder` | `#888888` | `#7C7C82` | 时间戳/占位值 |
 | `colors.inputPlaceholder` | `#8B8B8B` | `#7C7C82` | 输入占位 |
 | `colors.iconMuted` | `#A9A9A9` | `#6C6C70` | 禁用图标 |
@@ -274,7 +275,7 @@ PR22 home 也没有 Tab 栏，按未测处理。
 
 | 配对 | 类 | 实测（light / dark） | owner | reviewBy | 为什么低于 AA |
 |---|---|---|---|---|---|
-| `textSubtle/page` | 文本 | **3.84** / 5.83 | iOS UI owner | 2027-03-31 | 导航副标题 14.5pt，PR22 原值 |
+| `textSubtle/page` | 文本 | **3.84** / 5.83 | iOS UI owner | 2027-03-31 | 页面/抽屉辅助文字 14.5pt，PR22 原值 |
 | `textPlaceholder/surface` | 文本 | **3.54** / **4.10** | iOS UI owner | 2027-03-31 | 时间戳/占位值，两种外观都低于 4.5 |
 | `inputPlaceholder/surface` | 文本 | **3.41** / **4.10** | iOS UI owner | 2027-03-31 | composer 占位文字，PR22 原值 |
 | `iconMuted/userBubble` | 非文本 | **1.92** / **2.67** | iOS UI owner | 2027-03-31 | 禁用发送图标，未达 3.0 |

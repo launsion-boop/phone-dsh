@@ -23,6 +23,50 @@
    "owner": "ui-contract",
    "reviewBy": "2027-06-30",
    "reason": "The iOS export names iPhone Worker 限制; Android carries the same section under the platform-appropriate noun (see the android half of this pair)."
+  },
+  {
+   "page": "vision-settings",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "id": "vision-settings-ios-only",
+   "reason": "UI-Venus settings configure iphone_agent_run, which the Android host does not serve.",
+   "side": "ios-only",
+   "platformRef": "platform.tonolink-iphone-agent",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "tono-link-usbota",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "id": "tono-link-usbota-ios-only",
+   "reason": "DEBUG-only TonoLink board firmware and relay page for an iPhone-attached board.",
+   "side": "ios-only",
+   "platformRef": "platform.tonolink-iphone-agent",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "settings",
+   "kind": "missing-action",
+   "name": "视觉模型",
+   "id": "settings-vision-models-ios-only",
+   "reason": "Entry to the iOS-only UI-Venus settings page.",
+   "side": "ios-only",
+   "platformRef": "platform.tonolink-iphone-agent",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "settings",
+   "kind": "missing-action",
+   "name": "板子固件（USB）",
+   "id": "settings-board-firmware-ios-only",
+   "reason": "DEBUG-only entry to the TonoLink board page.",
+   "side": "ios-only",
+   "platformRef": "platform.tonolink-iphone-agent",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
   }
  ]
 }

@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "字号",
-    "provenance": "SettingsPage.swift:435",
+    "provenance": "SettingsPage.swift:439",
     "anchor": ".navigationTitle(NativeText(\"字号\", \"Text size\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 629,
-    "structLine": 425,
+    "lines": 633,
+    "structLine": 429,
     "renderedFrom": [
       "body",
       "section"
@@ -38,7 +38,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-442",
+          "id": "custom-446",
           "label": null,
           "labelExpr": "Stepper",
           "kind": "custom",
@@ -48,7 +48,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:442",
+          "provenance": "SettingsPage.swift:446",
           "anchor": "Stepper(value: Binding(get: { size }, set: { preferences.setFontSize(role, $0) }",
           "extraction": "manual",
           "template": "Stepper"
@@ -64,19 +64,19 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:446",
+          "provenance": "SettingsPage.swift:450",
           "anchor": "TextField(NativeText(\"字体（留空使用系统默认）\", \"Font family (system default)\"), text: Bind",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:430",
+      "provenance": "SettingsPage.swift:434",
       "anchor": "section(.text, NativeText(\"会话内容\", \"Conversation\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "未安装字体 %@，将使用系统回退字体",
         "labelExpr": null,
-        "provenance": "SettingsPage.swift:455",
+        "provenance": "SettingsPage.swift:459",
         "anchor": "Text(String(format: NativeText(\"未安装字体 %@，将使用系统回退字体\", \"Font %@ is unavailable; sy"
       }
     },
@@ -91,7 +91,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-442",
+          "id": "custom-446",
           "label": null,
           "labelExpr": "Stepper",
           "kind": "custom",
@@ -101,7 +101,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:442",
+          "provenance": "SettingsPage.swift:446",
           "anchor": "Stepper(value: Binding(get: { size }, set: { preferences.setFontSize(role, $0) }",
           "extraction": "manual",
           "template": "Stepper"
@@ -117,19 +117,19 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:446",
+          "provenance": "SettingsPage.swift:450",
           "anchor": "TextField(NativeText(\"字体（留空使用系统默认）\", \"Font family (system default)\"), text: Bind",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:431",
+      "provenance": "SettingsPage.swift:435",
       "anchor": "section(.code, NativeText(\"代码\", \"Code\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "未安装字体 %@，将使用系统回退字体",
         "labelExpr": null,
-        "provenance": "SettingsPage.swift:455",
+        "provenance": "SettingsPage.swift:459",
         "anchor": "Text(String(format: NativeText(\"未安装字体 %@，将使用系统回退字体\", \"Font %@ is unavailable; sy"
       }
     },
@@ -144,7 +144,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "custom-442",
+          "id": "custom-446",
           "label": null,
           "labelExpr": "Stepper",
           "kind": "custom",
@@ -154,7 +154,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "SettingsPage.swift:442",
+          "provenance": "SettingsPage.swift:446",
           "anchor": "Stepper(value: Binding(get: { size }, set: { preferences.setFontSize(role, $0) }",
           "extraction": "manual",
           "template": "Stepper"
@@ -170,19 +170,19 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:446",
+          "provenance": "SettingsPage.swift:450",
           "anchor": "TextField(NativeText(\"字体（留空使用系统默认）\", \"Font family (system default)\"), text: Bind",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:432",
+      "provenance": "SettingsPage.swift:436",
       "anchor": "section(.terminal, NativeText(\"终端\", \"Terminal\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "未安装字体 %@，将使用系统回退字体",
         "labelExpr": null,
-        "provenance": "SettingsPage.swift:455",
+        "provenance": "SettingsPage.swift:459",
         "anchor": "Text(String(format: NativeText(\"未安装字体 %@，将使用系统回退字体\", \"Font %@ is unavailable; sy"
       }
     }
@@ -198,7 +198,7 @@
         {
           "renders": "会话内容 | 代码 | 终端",
           "when": null,
-          "provenance": "SettingsPage.swift:425",
+          "provenance": "SettingsPage.swift:429",
           "anchor": "private struct FontSizeSettingsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -238,68 +238,68 @@
         },
         {
           "title": "对话",
-          "provenance": "SettingsPage.swift:166"
+          "provenance": "SettingsPage.swift:170"
         },
         {
           "title": "会话与文件",
-          "provenance": "SettingsPage.swift:193"
+          "provenance": "SettingsPage.swift:197"
         },
         {
           "title": "引擎",
-          "provenance": "SettingsPage.swift:203"
+          "provenance": "SettingsPage.swift:207"
         },
         {
           "title": "关于",
-          "provenance": "SettingsPage.swift:220"
+          "provenance": "SettingsPage.swift:224"
         }
       ],
       "provenance": "SettingsPage.swift:52"
     },
     {
       "name": "ConversationSettingsPage",
-      "line": 463,
+      "line": 467,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "工作步骤",
-          "provenance": "SettingsPage.swift:468"
+          "provenance": "SettingsPage.swift:472"
         },
         {
           "title": "发送与用量",
-          "provenance": "SettingsPage.swift:487"
+          "provenance": "SettingsPage.swift:491"
         }
       ],
-      "provenance": "SettingsPage.swift:463"
+      "provenance": "SettingsPage.swift:467"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 512,
+      "line": 516,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:512"
+      "provenance": "SettingsPage.swift:516"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 574,
+      "line": 578,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:579"
+          "provenance": "SettingsPage.swift:583"
         }
       ],
-      "provenance": "SettingsPage.swift:574"
+      "provenance": "SettingsPage.swift:578"
     },
     {
       "name": "LicensesPage",
-      "line": 612,
+      "line": 616,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:612"
+      "provenance": "SettingsPage.swift:616"
     }
   ],
   "unreachable": [],

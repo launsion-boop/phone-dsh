@@ -232,7 +232,7 @@ final class BotFishAssets {
     /// upstream coordinates and only the (hairstyle, crown, colour, size)
     /// rasterisation is shared process-wide.
     func bodyLayer(hairstyle: BotFishHairstyle, palette: BotFishPalette,
-                   pixelSide: CGFloat, crowned: Bool = false) -> UIImage? {
+                   pixelSide: CGFloat, crowned: Bool = false) -> CGImage? {
         guard let layers = layers(for: hairstyle, crowned: crowned) else { return nil }
         let cropSide = crowned ? BotFishRenderer.crownedCropSide : BotFishRenderer.cropSide
         let fullSourceSide = max(1, pixelSide * BotFishRenderer.size / cropSide)
@@ -240,13 +240,13 @@ final class BotFishAssets {
         let key = "\(hairstyle.rawValue):\(crowned ? "crowned" : "plain"):\(palette.id)@\(bucket)"
         tintedBodyLock.lock()
         defer { tintedBodyLock.unlock() }
-        if let cached = tintedBodies[key] { return cached }
+        if let cached = tintedBodies[key] { return cached.cgImage }
         guard let image = Self.tintBody(layers.lumaBody, palette: palette,
                                         width: bucket, height: bucket) else {
             return nil
         }
         tintedBodies[key] = image
-        return image
+        return image.cgImage
     }
 
     private static func sizeBucket(for pixelSide: CGFloat) -> Int {

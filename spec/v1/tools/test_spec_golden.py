@@ -320,6 +320,25 @@ class GoldenCheckerTests(unittest.TestCase):
         completed = run_checker(self.copy)
         self.assert_fails(completed, "epoch-close mseq must equal durable_upto (D7)")
 
+    def test_wal_lifecycle_dropped_segment_mutation_fails(self) -> None:
+        path = self.copy / "golden/wal/lifecycle/unclosed-epoch-below-watermark.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc["expected"]["dropped_segments"] = []
+        self.write_json("golden/wal/lifecycle/unclosed-epoch-below-watermark.json", doc)
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "expected.dropped_segments")
+
+    def test_wal_lifecycle_missing_vector_fails(self) -> None:
+        (
+            self.copy
+            / "golden"
+            / "wal"
+            / "lifecycle"
+            / "unlisted-stale-relisted.json"
+        ).unlink()
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "required lifecycle vectors are missing")
+
     def test_wal_missing_appended_write_fails(self) -> None:
         def remove_append(doc) -> None:
             record = doc["records"][1]

@@ -104,6 +104,8 @@ targets:
         product: PhoneDSHBLE
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHVenus
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -227,6 +229,7 @@ targets:
       - path: PhoneDSHProbe/NativeParityTokens.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
+      - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
@@ -327,6 +330,7 @@ targets:
       - path: PhoneDSHProbe/NativeParityTokens.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
+      - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift

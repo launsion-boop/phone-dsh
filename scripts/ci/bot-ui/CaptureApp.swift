@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import UIKit
 
 @main
 struct PhoneDSHBotUICaptureApp: App {
+    /// Evidence-only: keep the process runnable for ~30s after backgrounding
+    /// so the performance run can prove the fish timeline is parked instead
+    /// of being suspended by iOS. This does not ship in the probe app.
+    @State private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private let fixture: BotUIFixtureCase
     private let gallery: Bool
     private let dynamic: Bool
     private let appearanceGallery: Bool
     private let diagnostics: Bool
+    private let benchmark: Bool
     private let appearance: String
 
     init() {
@@ -20,13 +26,20 @@ struct PhoneDSHBotUICaptureApp: App {
         appearanceGallery = fixtureName == "appearanceGrid"
         fixture = BotUIFixtureCase(rawValue: fixtureName) ?? .chat
         diagnostics = arguments.contains("-BotUIDiagnostics")
+        benchmark = arguments.contains("-BotFishBench")
         appearance = Self.value(named: "-BotUIAppearance", in: arguments) ?? "light"
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if gallery {
+                if benchmark {
+                    #if DEBUG
+                    BotFishBenchmarkView()
+                    #else
+                    Text("benchmark is only available in DEBUG")
+                    #endif
+                } else if gallery {
                     #if DEBUG
                     BotFishGalleryView()
                     #else
@@ -50,6 +63,19 @@ struct PhoneDSHBotUICaptureApp: App {
             }
             .preferredColorScheme(appearance == "dark" ? .dark : .light)
             .task { await runConformanceChecks() }
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIApplication.didEnterBackgroundNotification)) { _ in
+                beginEvidenceBackgroundTask()
+            }
+        }
+    }
+
+    private func beginEvidenceBackgroundTask() {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "BotFishCaptureEvidence") {
+            UIApplication.shared.endBackgroundTask(backgroundTask)
+            backgroundTask = .invalid
         }
     }
 

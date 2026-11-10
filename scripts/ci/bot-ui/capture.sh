@@ -7,9 +7,10 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 OUT="$ROOT/scripts/ci/bot-ui/artifacts"
 APPEARANCES="light,dark"
 DEVICE_ID="${BOT_UI_DEVICE_ID:-}"
-# CI environments that cannot use SwiftPM/macro-plugin nested sandboxes set
-# this to "$(inherited) -disable-sandbox". Normal local runs leave it empty.
-SWIFT_FLAGS=()
+# The sandboxed SwiftPM plugin server cannot start inside the agent file
+# sandbox, so the default matches benchmark.sh and the probe-app build. An
+# environment override keeps a fully sandboxed CI run possible.
+SWIFT_FLAGS=("OTHER_SWIFT_FLAGS=\$(inherited) -disable-sandbox")
 if [ -n "${BOT_UI_OTHER_SWIFT_FLAGS:-}" ]; then
     SWIFT_FLAGS=("OTHER_SWIFT_FLAGS=${BOT_UI_OTHER_SWIFT_FLAGS}")
 fi
@@ -84,6 +85,7 @@ for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift 
 done
 cp "$ROOT/scripts/ci/bot-ui/CaptureDependencies.swift" "$WORK/Sources/CaptureDependencies.swift"
 cp "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
+cp "$ROOT/scripts/ci/bot-ui/BotFishBench.swift" "$WORK/Sources/BotFishBench.swift"
 cp "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
 
 cat >"$WORK/project.yml" <<YAML
