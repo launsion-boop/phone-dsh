@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertAny
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -87,12 +88,13 @@ class ChatPageTest {
     // ---------------------------------------------------------------- head
 
     @Test
-    fun `the page head shows the session title and the run status word`() {
-        // ChatPage.swift `chatHeaderTitleRow` + NativeDeviceEntryIcon.
-        show(state(case = "chat-basic"), title = "会话甲", folderSubtitle = "项目资料")
+    fun `the page head shows only the session title and the run status word`() {
+        // ChatPage.swift `chatHeader` + NativeDeviceEntryIcon.
+        show(state(case = "chat-basic"), title = "会话甲")
         compose.onNodeWithTag(UiPageTags.CHAT_HEADER_TITLE).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.CHAT_HEADER_TITLE).assertContentDescriptionEquals("会话甲")
         compose.onNodeWithText("会话甲").assertIsDisplayed()
-        compose.onNodeWithText("项目资料").assertIsDisplayed()
+        compose.onNodeWithText("项目资料").assertDoesNotExist()
         compose.onNodeWithTag("pdsh.chat.header.device").assertIsDisplayed()
         compose.onNodeWithText(UiStrings.RUN_STATUS_STARTED).assertDoesNotExist()
     }
@@ -1068,7 +1070,6 @@ class ChatPageTest {
     private fun show(
         state: ChatScreenState,
         title: String = "",
-        folderSubtitle: String? = null,
         onDraftChange: (String) -> Unit = {},
         onSend: () -> Unit = {},
         onStop: () -> Unit = {},
@@ -1126,7 +1127,6 @@ class ChatPageTest {
                     onRetry = onRetry,
                     onOpenSessions = {},
                     title = title,
-                    folderSubtitle = folderSubtitle,
                     onGoalPause = onGoalPause,
                     onGoalResume = onGoalResume,
                     onGoalClear = onGoalClear,

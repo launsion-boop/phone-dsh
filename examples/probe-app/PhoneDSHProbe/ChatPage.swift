@@ -253,25 +253,14 @@ struct ChatPage: View {
             .accessibilityLabel("打开会话列表")
 
             Button { beginRename() } label: {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(sessionTitle)
-                        .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
-                        .foregroundStyle(HomeSpec.textPrimary)
-                        .frame(height: HomeSpec.navTitleLine)
-                    HStack(spacing: 6) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 13, weight: .regular))
-                            .frame(width: 16, height: 16)
-                        Text(projectSubtitle)
-                            .font(.system(size: HomeSpec.navSubtitleSize))
-                    }
-                    .foregroundStyle(HomeSpec.textSubtle)
-                    .frame(height: HomeSpec.navSubtitleLine)
-                }
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                Text(sessionTitle)
+                    .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: HomeSpec.navButton)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(model.currentSessionID == nil)
@@ -290,14 +279,6 @@ struct ChatPage: View {
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
         .frame(height: HomeSpec.navTop + HomeSpec.navButton)
-    }
-
-    /// 副标题是会话所属的文件夹。每个会话都有文件夹:不在任何文件夹里的就算在默认的「手机工作区」。
-    private var projectSubtitle: String {
-        guard let id = model.currentSessionID,
-              let workspace = management.workspaces.first(where: { $0.sessionIDs.contains(id) })
-        else { return DrawerTitles.defaultFolderName }
-        return DrawerTitles.workspaceTitle(workspace.title, index: 1)
     }
 
     @ViewBuilder

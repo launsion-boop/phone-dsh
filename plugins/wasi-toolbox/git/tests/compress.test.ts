@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { crc32, deflate, inflate } from '../compress.ts'
+import { ZlibInflateStream, adler32, crc32, deflate, inflate, inflateWithConsumed } from '../compress.ts'
 import { encodeText } from '../fs.ts'
 
 /** Standard CRC-32 (IEEE 802.3) check value for `"123456789"`. */
@@ -50,6 +50,48 @@ test('deflate/inflate round-trips empty, text and binary payloads', () => {
     assert.equal((((compressed[0] as number) << 8) | (compressed[1] as number)) % 31, 0)
     assert.deepEqual(inflate(compressed), payload)
   }
+})
+
+test('inflateWithConsumed reports the zlib stream length, including trailing bytes', () => {
+  for (const payload of [
+    new Uint8Array(0),
+    encodeText('hello wall\n'),
+    Uint8Array.from({ length: 200_000 }, (_, index) => (index * 37 + 11) & 0xff),
+  ]) {
+    const compressed = deflate(payload)
+    const result = inflateWithConsumed(compressed)
+    assert.deepEqual(result.data, payload)
+    assert.equal(result.consumed, compressed.byteLength)
+    // The same answer when the pack keeps the next object after the stream.
+    const padded = new Uint8Array(compressed.byteLength + 13)
+    padded.set(compressed)
+    padded.set([1, 2, 3], compressed.byteLength)
+    assert.equal(inflateWithConsumed(padded).consumed, compressed.byteLength)
+  }
+  // Streaming one byte at a time must reach the same boundary.
+  const payload = encodeText('split across many pushes\n'.repeat(200))
+  const compressed = deflate(payload)
+  const stream = new ZlibInflateStream()
+  let ended = false
+  for (let index = 0; index < compressed.byteLength; index += 1) {
+    ended = stream.push(compressed.subarray(index, index + 1))
+  }
+  assert.equal(ended, true)
+  const result = stream.finish()
+  assert.deepEqual(result.data, payload)
+  assert.equal(result.consumed, compressed.byteLength)
+})
+
+test('inflateWithConsumed rejects truncated and checksum-corrupt streams', () => {
+  const compressed = deflate(encodeText('the quick brown fox'))
+  for (const cut of [1, 2, 3, 4, 5, 8]) {
+    assert.throws(() => inflateWithConsumed(compressed.subarray(0, compressed.byteLength - cut)), /truncated zlib stream/)
+  }
+  const corrupt = new Uint8Array(compressed)
+  corrupt[corrupt.byteLength - 1] = (corrupt[corrupt.byteLength - 1] as number) ^ 0xff
+  assert.throws(() => inflateWithConsumed(corrupt), /invalid zlib checksum/)
+  assert.equal(adler32(new Uint8Array(0)), 1)
+  assert.equal(adler32(encodeText('Wikipedia')), 0x11e60398)
 })
 
 test('inflate rejects prefixes and truncated streams instead of guessing', () => {

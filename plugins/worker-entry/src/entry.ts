@@ -73,6 +73,7 @@ import {
   createTunnelMuxSessionFactory, createTunnelPort,
   type WorkerEntryTunnelPort,
 } from './mux-tunnel.ts'
+import { installBootFetchDiagnostics } from './boot-fetch-diagnostics.ts'
 import {
   bootFailureError,
   bootTransportSecretValues,
@@ -161,6 +162,31 @@ function logBootPhase(phase: string): void {
   }
   try {
     console.info(`pdsh-boot-phase scope=worker phase=${phase} active_ms=${String(Math.max(0, Math.round(active)))}`)
+  } catch {
+    // Observability must never fail the boot.
+  }
+}
+
+/**
+ * Emit one bounded fetch diagnostic through the same reserved console shape.
+ * `path` is already query-free and bounded by the diagnostics module; no
+ * header, cookie or body reaches this line.
+ */
+function logBootFetchDiagnostic(phase: string, path: string, elapsedMs?: number): void {
+  let active = 0
+  try {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      active = performance.now()
+    }
+  } catch {
+    active = 0
+  }
+  const elapsed = elapsedMs === undefined
+    ? ''
+    : ` elapsed_ms=${String(Math.max(0, Math.round(elapsedMs)))}`
+  try {
+    console.info(`pdsh-boot-phase scope=worker phase=${phase} `
+      + `active_ms=${String(Math.max(0, Math.round(active)))} path=${path}${elapsed}`)
   } catch {
     // Observability must never fail the boot.
   }
@@ -544,6 +570,14 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     // app-boot from reporting that bundle as skipped on every boot; deployment
     // overlays are applied after it and therefore still win.
     const profileOverlay = await createPhoneProfileOverlay()
+    // Temporary evidence for the `host.start()` stall: DSH's model-list/MCP
+    // fetches go through the page gateway, and a slow one is exactly the
+    // request the console has never shown. Disposed right after start(); a
+    // later llm-bridge replacement (P27) is never overwritten.
+    const disposeBootFetchDiagnostics = installBootFetchDiagnostics({
+      emit: (phase, path, elapsedMs) => logBootFetchDiagnostic(phase, path, elapsedMs),
+    })
+    disposers.push(disposeBootFetchDiagnostics)
     const host = runtime.createHost({
       image: normalized.imageURL,
       overlays: [profileOverlay, ...normalized.overlayURLs],
@@ -556,6 +590,9 @@ async function startPhoneWorkerInternal(options: PhoneWorkerOptions): Promise<Ph
     for (const pending of pendingPageFrames.splice(0)) host.handleMessage(pending)
     await host.start()
     hostStarted = true
+    // Restore the platform fetch (or leave llm-bridge's replacement in
+    // place) before the P27 model-route guard wraps whatever is current.
+    disposeBootFetchDiagnostics()
     logBootPhase('host-started')
     // P27: arm the model-route refusal **after** the tree booted. `llm-bridge`
     // may replace `globalThis.fetch` with its own transport while the plugins

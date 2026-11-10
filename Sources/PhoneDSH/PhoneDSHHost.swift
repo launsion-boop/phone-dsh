@@ -614,6 +614,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             if continuesInterruptedBoot == false {
                 _ = try await runtime.machine.handle(.scenePhase(.active))
             }
+            // A parked host kept this runtime and its one gateway URLSession.
+            // Give the resumed Worker a fresh, prewarmed connection pool so a
+            // dead HTTP/2 connection cannot hold `host.start()` for the whole
+            // upstream timeout. The gateway is not shut down.
+            await runtime.gateway.rebuildSessionForResume()
             try await bootRuntime(runtime, resume: ResumeBootPlan(
                 bootReadyTimeout: configuration.resumeBootReadyTimeout,
                 helloTimeout: configuration.resumeHelloTimeout,
@@ -3551,6 +3556,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             let responseLog = try? ModelGateway.makeResponseLog(
                 configuration: gatewayConfiguration,
                 workspaceRoot: configuration.workspaceRoot)
+            // The same boot-timings file carries the loopback and gateway
+            // timing lines: a resume stall is diagnosed from one artifact.
+            let gatewayDiagnostics = GatewayUpstreamDiagnostics(
+                sink: { [bootPhaseRecorder = self.bootPhaseRecorder] line in
+                    bootPhaseRecorder.recordDiagnostic(line)
+                })
             let gateway = ModelGateway(configuration: gatewayConfiguration,
                                        credentialProvider: configuration.credentialProvider,
                                        responseLog: responseLog,
@@ -3560,7 +3571,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 eventBus.send(.gatewayResponse(receipt))
             },
                                        egressAuthorizer: configuration.egressAuthorizer,
-                                       officialDeepSeekWebCredentialProvider: configuration.officialDeepSeekWebCredentialProvider)
+                                       officialDeepSeekWebCredentialProvider: configuration.officialDeepSeekWebCredentialProvider,
+                                       upstreamDiagnostics: gatewayDiagnostics)
             let coordinator = PhoneDSHChannelCoordinator(eventBus: eventBus)
             // D15: build the facade handoff owner over this exact live log,
             // fence authority and controller. A host without a configured
@@ -3809,6 +3821,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         let eventBus = self.eventBus
         let bootID = self.bootID
         let sessionEpoch = self.sessionEpoch
+        // Loopback timing evidence lands in the same `boot-timings.log` the
+        // Worker phase recorder owns: those two streams are read together.
+        let requestDiagnostics = LoopbackRequestDiagnostics(
+            sink: { [bootPhaseRecorder = self.bootPhaseRecorder] line in
+                bootPhaseRecorder.recordDiagnostic(line)
+            })
         return LoopbackServer(
             configuration: configuration.loopback,
             routes: routes,
@@ -3855,7 +3873,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                                               bootPhaseRecorder: { [bootPhaseRecorder = self.bootPhaseRecorder] phase in
                                                   bootPhaseRecorder.record(phase)
                                               })
-            })
+            },
+            requestDiagnostics: requestDiagnostics)
     }
 
     private func makeEngineConfiguration(endpoint: LoopbackEndpoint,

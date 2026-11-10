@@ -208,6 +208,15 @@ private struct GatewayCredentialRedirect: Sendable {
     let credential: Credential
 }
 
+/// One upstream attempt's timing record. Host-only by construction: the path
+/// and query never enter this struct.
+private struct GatewayUpstreamTiming {
+    let host: String
+    let startedAt: TimeInterval
+    var firstByteAt: TimeInterval?
+    var status: Int?
+}
+
 /// URLSession delegate shared by every gateway request. URLSession retains the
 /// delegate, so the session must be invalidated in `ModelGateway.shutdown()`.
 final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate,
@@ -215,9 +224,14 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
     private let rules: [GatewayHostRule]
     private let egressAuthorizer: (any EgressHostAuthorizing)?
     private let refusesOfficialWebRedirects: Bool
+    private let diagnostics: GatewayUpstreamDiagnostics
+    /// Injected so a resume regression can observe that the old session was
+    /// actually invalidated instead of only dereferenced.
+    private let sessionInvalidator: @Sendable (URLSession) -> Void
     private let lock = NSLock()
     private var attempts: [Int: UpstreamAttempt] = [:]
     private var credentialRedirects: [Int: GatewayCredentialRedirect] = [:]
+    private var timings: [Int: GatewayUpstreamTiming] = [:]
     private var sessionStorage: URLSession?
     private var lastReuse: Bool?
     private var shutDown = false
@@ -225,10 +239,16 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
 
     init(allowedHosts: [GatewayHostRule],
          egressAuthorizer: (any EgressHostAuthorizing)? = nil,
-         refusesOfficialWebRedirects: Bool = false) {
+         refusesOfficialWebRedirects: Bool = false,
+         diagnostics: GatewayUpstreamDiagnostics = .standardError,
+         sessionInvalidator: @escaping @Sendable (URLSession) -> Void = {
+             $0.invalidateAndCancel()
+         }) {
         self.rules = allowedHosts
         self.egressAuthorizer = egressAuthorizer
         self.refusesOfficialWebRedirects = refusesOfficialWebRedirects
+        self.diagnostics = diagnostics
+        self.sessionInvalidator = sessionInvalidator
         let queue = OperationQueue()
         queue.name = "phone-dsh.phone-gateway.session"
         queue.maxConcurrentOperationCount = 1
@@ -238,6 +258,38 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
     }
 
     func makeSession(timeout: TimeInterval) -> URLSession {
+        let session = buildSession(timeout: timeout)
+        lock.lock()
+        sessionStorage = session
+        lock.unlock()
+        return session
+    }
+
+    /// Swaps the one URLSession without entering the gateway's shutdown state.
+    ///
+    /// The new session is built before the lock is taken, so a concurrent
+    /// `begin` sees exactly the old session or exactly the new one. The old
+    /// session is invalidated after the swap: a request already on the wire is
+    /// cancelled (park drained/cancelled them), while every new request uses
+    /// the fresh, prewarmed pool.
+    @discardableResult
+    func replaceSession(timeout: TimeInterval) -> URLSession? {
+        lock.lock()
+        guard !shutDown else {
+            lock.unlock()
+            return nil
+        }
+        let old = sessionStorage
+        let session = buildSession(timeout: timeout)
+        sessionStorage = session
+        lock.unlock()
+        if let old, old !== session {
+            sessionInvalidator(old)
+        }
+        return session
+    }
+
+    private func buildSession(timeout: TimeInterval) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         // A model request that finds the radio down waits for connectivity
         // instead of failing the turn; the caller can still cancel the stream.
@@ -251,11 +303,7 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = max(600, timeout)
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
-        lock.lock()
-        sessionStorage = session
-        lock.unlock()
-        return session
+        return URLSession(configuration: configuration, delegate: self, delegateQueue: delegateQueue)
     }
 
     func session() -> URLSession? {
@@ -270,7 +318,7 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         sessionStorage = nil
         shutDown = true
         lock.unlock()
-        session?.invalidateAndCancel()
+        if let session { sessionInvalidator(session) }
     }
 
     var isShutDown: Bool {
@@ -283,14 +331,20 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
                carriesHostCredential: Bool = false,
                credential: Credential? = nil) -> UpstreamAttempt {
         let attempt = UpstreamAttempt()
-        guard let session = session() else {
+        // Hold the lock across session lookup and task creation so a resume
+        // session swap cannot invalidate the session between the two.
+        lock.lock()
+        guard let session = sessionStorage else {
+            lock.unlock()
             attempt.complete(error: URLError(.cannotConnectToHost))
             return attempt
         }
         let task = session.dataTask(with: request)
         attempt.attach(task)
-        lock.lock()
         attempts[task.taskIdentifier] = attempt
+        timings[task.taskIdentifier] = GatewayUpstreamTiming(
+            host: request.url?.host ?? "unknown",
+            startedAt: diagnostics.now())
         if carriesHostCredential, let url = request.url,
            let scope = GatewayCredentialRedirectScope(url),
            let credential {
@@ -334,17 +388,39 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         for (name, value) in http.allHeaderFields {
             headers[String(describing: name).lowercased()] = String(describing: value)
         }
+        recordFirstByte(for: dataTask, status: http.statusCode)
         attempt.receive(response: http.statusCode, headers: headers)
         completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        recordFirstByte(for: dataTask, status: nil)
         attempt(for: dataTask)?.receive(data: data)
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let attempt = removeAttempt(for: task)
+        let timing = removeTiming(for: task)
+        if let timing {
+            let now = diagnostics.now()
+            diagnostics.recordCompletion(
+                host: timing.host,
+                elapsedMilliseconds: max(0, (now - timing.startedAt) * 1_000),
+                firstByteMilliseconds: timing.firstByteAt.map { max(0, ($0 - timing.startedAt) * 1_000) },
+                status: timing.status,
+                error: error)
+        }
         attempt?.complete(error: error)
+    }
+
+    /// Fires before URLSession gives up on a dead radio/connection path. Only
+    /// the host is logged: the path and query stay out of the diagnostic.
+    func urlSession(_ session: URLSession,
+                    taskIsWaitingForConnectivity task: URLSessionTask) {
+        let host = task.currentRequest?.url?.host
+            ?? task.originalRequest?.url?.host
+            ?? "unknown"
+        diagnostics.recordWaitingForConnectivity(host: host)
     }
 
     func urlSession(_ session: URLSession,
@@ -413,6 +489,25 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         guard leftPort == rightPort else { return false }
         return ModelGatewayCredentialRouting.normalizedPath(lhs)
             == ModelGatewayCredentialRouting.normalizedPath(rhs)
+    }
+
+    private func recordFirstByte(for task: URLSessionTask, status: Int?) {
+        let now = diagnostics.now()
+        lock.lock()
+        guard var timing = timings[task.taskIdentifier] else {
+            lock.unlock()
+            return
+        }
+        if timing.firstByteAt == nil { timing.firstByteAt = now }
+        if let status { timing.status = status }
+        timings[task.taskIdentifier] = timing
+        lock.unlock()
+    }
+
+    private func removeTiming(for task: URLSessionTask) -> GatewayUpstreamTiming? {
+        lock.lock()
+        defer { lock.unlock() }
+        return timings.removeValue(forKey: task.taskIdentifier)
     }
 
     private func attempt(for task: URLSessionTask) -> UpstreamAttempt? {

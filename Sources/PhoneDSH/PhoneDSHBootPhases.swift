@@ -22,11 +22,19 @@ public struct PhoneDSHBootPhase: Equatable, Sendable {
     public var phase: String
     /// Active (monotonic) milliseconds reported by the producer.
     public var activeMilliseconds: Double
+    /// Query-free Worker-side path for the two fetch diagnostics. Nil for every
+    /// pre-existing phase.
+    public var path: String?
+    /// Completed fetch duration for `slow-fetch`. Nil for `fetch-inflight`.
+    public var elapsedMilliseconds: Double?
 
-    public init(scope: String, phase: String, activeMilliseconds: Double) {
+    public init(scope: String, phase: String, activeMilliseconds: Double,
+                path: String? = nil, elapsedMilliseconds: Double? = nil) {
         self.scope = scope
         self.phase = phase
         self.activeMilliseconds = max(0, activeMilliseconds)
+        self.path = path
+        self.elapsedMilliseconds = elapsedMilliseconds
     }
 
     /// Parses the reserved console line. Returns nil for every unrelated line
@@ -39,6 +47,8 @@ public struct PhoneDSHBootPhase: Equatable, Sendable {
         var scope: String?
         var phase: String?
         var active: Double?
+        var path: String?
+        var elapsed: Double?
         for field in body.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
             guard let equals = field.firstIndex(of: "=") else { return nil }
             let name = field[..<equals]
@@ -53,16 +63,52 @@ public struct PhoneDSHBootPhase: Equatable, Sendable {
                     return nil
                 }
                 active = min(number, 24 * 60 * 60 * 1_000)
+            case "path":
+                guard let token = boundedPath(String(value)) else { return nil }
+                path = token
+            case "elapsed_ms":
+                guard let number = Double(value), number.isFinite, number >= 0 else {
+                    return nil
+                }
+                elapsed = min(number, 24 * 60 * 60 * 1_000)
             default:
-                // The reserved line has exactly these three fields. A line that
+                // The reserved line has exactly these fields. A line that
                 // carries anything else is not one of our producers, so it
                 // must not become a boot-phase record.
                 return nil
             }
         }
         guard let scope, let phase, let active else { return nil }
+        // Only the two fetch diagnostics may carry the optional path/elapsed
+        // fields. Existing phases keep their exact three-field shape.
+        if path != nil || elapsed != nil {
+            guard phase == "slow-fetch" || phase == "fetch-inflight" else {
+                return nil
+            }
+        }
+        if phase == "slow-fetch" {
+            guard path != nil, elapsed != nil else { return nil }
+        } else if phase == "fetch-inflight" {
+            guard path != nil else { return nil }
+        }
         return PhoneDSHBootPhase(scope: scope, phase: phase,
-                                 activeMilliseconds: active)
+                                 activeMilliseconds: active,
+                                 path: path,
+                                 elapsedMilliseconds: elapsed)
+    }
+
+    /// A diagnostic path is bounded, starts at `/`, and cannot carry a query,
+    /// fragment, whitespace or control character.
+    private static func boundedPath(_ raw: String) -> String? {
+        guard raw.hasPrefix("/"), raw.count <= 200,
+              raw.contains("?") == false, raw.contains("#") == false,
+              raw.unicodeScalars.allSatisfy({
+                  !CharacterSet.whitespacesAndNewlines.contains($0)
+                      && !CharacterSet.controlCharacters.contains($0)
+              }) else {
+            return nil
+        }
+        return raw
     }
 
     private static func boundedToken(_ raw: String) -> String? {
@@ -115,6 +161,21 @@ final class PhoneDSHBootPhaseRecorder: @unchecked Sendable {
         Self.append(line, to: fileURL)
     }
 
+    /// Appends one already-formatted diagnostic line (loopback slow request,
+    /// gateway upstream). The recorder owns the file URL; the caller never
+    /// needs the workspace path. A line is written immediately so a later
+    /// boot failure cannot erase it.
+    func recordDiagnostic(_ line: String) {
+        lock.lock()
+        let fileURL = self.fileURL
+        lock.unlock()
+        guard let fileURL else { return }
+        let bounded = line
+            .replacingOccurrences(of: "\r", with: "")
+            .replacingOccurrences(of: "\n", with: "")
+        Self.append(bounded + "\n", to: fileURL)
+    }
+
     /// Number of recorded phases (test seam).
     var recordedCount: Int {
         lock.lock()
@@ -124,10 +185,15 @@ final class PhoneDSHBootPhaseRecorder: @unchecked Sendable {
 
     static func line(phase: PhoneDSHBootPhase, bootID: String,
                      wallMilliseconds: Double, timestamp: Date) -> String {
-        "worker-phases \(ISO8601DateFormatter().string(from: timestamp)) "
+        var line = "worker-phases \(ISO8601DateFormatter().string(from: timestamp)) "
             + "boot=\(bootID) scope=\(phase.scope) phase=\(phase.phase) "
             + "active_ms=\(Int(phase.activeMilliseconds.rounded())) "
-            + "wall_ms=\(Int(max(0, wallMilliseconds).rounded()))\n"
+            + "wall_ms=\(Int(max(0, wallMilliseconds).rounded()))"
+        if let path = phase.path { line += " path=\(path)" }
+        if let elapsed = phase.elapsedMilliseconds {
+            line += " elapsed_ms=\(Int(max(0, elapsed).rounded()))"
+        }
+        return line + "\n"
     }
 
     static func append(_ line: String, to url: URL) {

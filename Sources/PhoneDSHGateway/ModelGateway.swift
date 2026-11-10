@@ -449,7 +449,6 @@ public actor ModelGateway {
     private nonisolated let clock: any GatewayClock
     private nonisolated let hostRules: [GatewayHostRule]
     private nonisolated let coordinator: GatewaySessionCoordinator
-    private nonisolated let session: URLSession
     private nonisolated let metricsStore = GatewayMetricsStore()
     private nonisolated let replayWindow = GatewayReplayWindow()
 
@@ -472,7 +471,8 @@ public actor ModelGateway {
                 responseOutcomeHandler: (@Sendable (GatewayResponseReceipt) -> Void)? = nil,
                 clock: any GatewayClock = SystemGatewayClock(),
                 egressAuthorizer: (any EgressHostAuthorizing)? = nil,
-                officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil) {
+                officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil,
+                upstreamDiagnostics: GatewayUpstreamDiagnostics = .standardError) {
         self.configuration = configuration
         self.credentialProvider = credentialProvider
         self.officialDeepSeekWebCredentialProvider = officialDeepSeekWebCredentialProvider
@@ -484,13 +484,15 @@ public actor ModelGateway {
         self.hostRules = rules
         let coordinator = GatewaySessionCoordinator(allowedHosts: rules,
                                                     egressAuthorizer: egressAuthorizer,
-                                                    refusesOfficialWebRedirects: officialDeepSeekWebCredentialProvider != nil)
+                                                    refusesOfficialWebRedirects: officialDeepSeekWebCredentialProvider != nil,
+                                                    diagnostics: upstreamDiagnostics)
         self.coordinator = coordinator
-        self.session = coordinator.makeSession(timeout: configuration.upstreamRequestTimeout)
+        _ = coordinator.makeSession(timeout: configuration.upstreamRequestTimeout)
     }
 
     deinit {
-        session.invalidateAndCancel()
+        // Idempotent: shutdown() already did this on the normal path.
+        coordinator.invalidate()
     }
 
     // MARK: - Replay window (owned by the host state machine)
@@ -545,6 +547,7 @@ public actor ModelGateway {
     public func prewarm() {
         guard !isShutdown else { return }
         prewarmTasks.removeAll { $0.state == .completed || $0.state == .canceling }
+        guard let session = coordinator.session() else { return }
         for rule in hostRules {
             guard let url = rule.prewarmURL() else { continue }
             var request = URLRequest(url: url)
@@ -555,6 +558,34 @@ public actor ModelGateway {
             prewarmTasks.append(task)
             task.resume()
         }
+    }
+
+    /// Replaces the one upstream URLSession before a park/resume boot.
+    ///
+    /// A parked Worker keeps the gateway and its URLSession alive. The HTTP/2
+    /// connection pool can be stale after the process was suspended (`network`
+    /// changes, a closed NAT mapping), and a request on that pool only fails
+    /// after `timeoutIntervalForRequest`/`waitsForConnectivity` expires. The
+    /// resume path hands the fresh boot a fresh pool and prewarms it. The
+    /// gateway is not shut down, so request handling keeps its normal errors
+    /// and replay window.
+    ///
+    /// In-flight work was already drained/cancelled before the park; the old
+    /// session is invalidated with `invalidateAndCancel()` so the stale
+    /// connection cannot survive in a retained pool. `finishTasksAndInvalidate`
+    /// would leave exactly that pool alive for the duration of the stall.
+    public func rebuildSessionForResume() {
+        guard !isShutdown else { return }
+        prewarmTasks.forEach { $0.cancel() }
+        prewarmTasks.removeAll()
+        coordinator.replaceSession(timeout: configuration.upstreamRequestTimeout)
+        prewarm()
+    }
+
+    /// Internal observation point for the resume regression: the session a
+    /// request made after this call would use.
+    nonisolated func currentSessionForTesting() -> URLSession? {
+        coordinator.session()
     }
 
     /// Cancels in-flight work and invalidates the one URLSession. Idempotent.
