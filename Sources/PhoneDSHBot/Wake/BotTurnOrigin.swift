@@ -25,6 +25,7 @@ public struct BotTurnOrigin: Sendable, Equatable {
     /// conformance tests instead of a second hand-written expectation list.
     static let prefixes: [(prefix: String, kind: BotTurnOriginKind)] = [
         ("user-action:", .user),
+        ("card-answer:", .user),
         ("bot-", .user),
         ("held:", .held),
         ("agent:", .agent),
@@ -95,6 +96,12 @@ public struct BotTurnOrigin: Sendable, Equatable {
 
     public static func userActionRequestId(nonce: String) -> String {
         "user-action:\(nonce)"
+    }
+
+    /// A card tap is a real user action: the option value is sent as an
+    /// ordinary chat message and the host stamps `owner_direct`.
+    public static func cardAnswerRequestId(nonce: String) -> String {
+        "card-answer:\(nonce)"
     }
 
     public static func visibleRequestId(uuid: UUID = UUID()) -> String {

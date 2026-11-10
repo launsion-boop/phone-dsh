@@ -40,6 +40,23 @@ final class BotSessionLogProjectionTurnOriginTests: XCTestCase {
         XCTAssertEqual(row.body["text"], .string("and my question"))
     }
 
+    func testCardAnswerIsAUserTurnAndCardDismissedIsUnknown() throws {
+        let answer = try XCTUnwrap(project([
+            RowTestSupport.dshText(seq: 1, time: 1_000, role: "user", text: "library",
+                                   sourceKind: "user", rpcId: "card-answer:answer-1"),
+        ]).first)
+        XCTAssertEqual(answer.body["text"], .string("library"))
+        XCTAssertEqual(BotTurnOrigin(rpcId: "card-answer:answer-1").kind, .user)
+
+        let text = "<held_agent_messages>\n- [card-dismissed] q: no\n</held_agent_messages>\ndismissed item id"
+        let dismissed = try XCTUnwrap(project([
+            RowTestSupport.dshText(seq: 2, time: 1_001, role: "user", text: text,
+                                   sourceKind: "user", rpcId: "card-dismissed:card-1"),
+        ]).first)
+        XCTAssertEqual(dismissed.body["text"], .string(text))
+        XCTAssertEqual(BotTurnOrigin(rpcId: "card-dismissed:card-1").kind, .unknown)
+    }
+
     func testAgentOriginDoesNotProjectAsAUserBubble() throws {
         let rows = project([
             RowTestSupport.dshText(seq: 1, time: 1_000, role: "user",

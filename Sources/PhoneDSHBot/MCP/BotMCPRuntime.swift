@@ -512,20 +512,16 @@ public actor BotMCPRuntime {
         }
     }
 
-    /// Turn origin decides the memory trust; the session kind is only the
-    /// fallback for a caller that began a turn without one. `join` can only
+    /// Turn origin decides the memory trust. A turn without a registered
+    /// origin is `unknown` and keeps the lowest trust (`agent-message`); the
+    /// session kind is not a fallback. For a registered origin, `join` can only
     /// downgrade from `userTurn`, so a stale origin can never upgrade the
     /// session-derived source.
     private func memorySourceKind(for call: BotResolvedToolCall) -> BotMemorySourceKind {
-        let mapped = memorySource(call)
-        if let origin = turnOrigins[call.sessionId] {
-            var state = BotMemorySourceState(kind: mapped)
-            state.join(origin.memorySource)
-            return state.kind
-        }
-        if hiddenTextSessions.contains(call.sessionId) { return .hiddenWake }
-        if heldMessageSessions.contains(call.sessionId) { return .agentMessage }
-        return mapped
+        guard let origin = turnOrigins[call.sessionId] else { return .agentMessage }
+        var state = BotMemorySourceState(kind: memorySource(call))
+        state.join(origin.memorySource)
+        return state.kind
     }
 
     private func updateMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {

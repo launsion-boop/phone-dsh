@@ -26,6 +26,12 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-task-1", kind: .task)
+        // The cross-session identity issue exists during an active user turn.
+        // A turn with no registered origin is now unknown and already rejected,
+        // so register the user source this spike is about.
+        await fixture.runtime.beginTurn(
+            sessionId: "gb-main", hidden: false,
+            origin: BotTurnOrigin(rpcId: "user-action:wp3-q3-impersonate"))
         let started = try await spikeStartServer(fixture, token: token)
         defer { started.server.stop() }
 

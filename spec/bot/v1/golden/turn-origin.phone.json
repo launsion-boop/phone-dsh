@@ -10,12 +10,21 @@
   "delta": [
     "source.rpcId prefix -> turn origin, hidden, held block and memory source (P26/P27, PC-20261110-bot-turn-origin)",
     "valid: every row of the turn-origin table plus both task-wake prefixes",
-    "invalid: empty, prefix-only, case-shifted, embedded, whitespace-only payload, missing/null and legacy bare tool call ids must resolve to unknown (visible, agent-message)"
+    "card-answer:<nonce> is a card-tap user turn (visible, no held block, user-turn); card-dismissed:<cardID> is a held inbox item id and stays unknown",
+    "invalid: empty, prefix-only, case-shifted, embedded, whitespace-only payload, missing/null, card-answer lookalikes, card-dismissed held item ids and legacy bare tool call ids must resolve to unknown (visible, agent-message)"
   ],
   "valid": [
     {
       "name": "user-action-nonce",
       "rpcId": "user-action:4f8c2a1d9e0b",
+      "origin": "user",
+      "hidden": false,
+      "held": false,
+      "memorySource": "user-turn"
+    },
+    {
+      "name": "card-answer-nonce",
+      "rpcId": "card-answer:6d1f0c9a7b3e",
       "origin": "user",
       "hidden": false,
       "held": false,
@@ -98,6 +107,56 @@
       "held": false,
       "memorySource": "agent-message",
       "reason": "a bare prefix has no payload and is not a host-constructed request id"
+    },
+    {
+      "name": "prefix-only-card-answer",
+      "rpcId": "card-answer:",
+      "boundary": "prefix-only",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "a bare card-answer prefix has no nonce and is not a host-constructed request id"
+    },
+    {
+      "name": "card-answer-no-colon",
+      "rpcId": "card-answer",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "the colon is part of the card-answer: prefix"
+    },
+    {
+      "name": "uppercase-card-answer",
+      "rpcId": "Card-Answer:x",
+      "boundary": "case",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "prefix matching is ASCII case-sensitive"
+    },
+    {
+      "name": "card-answered-lookalike",
+      "rpcId": "card-answered:x",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "card-answered: is not the card-answer: delimiter"
+    },
+    {
+      "name": "card-dismissed-held-item",
+      "rpcId": "card-dismissed:card-1",
+      "boundary": "unknown",
+      "origin": "unknown",
+      "hidden": false,
+      "held": false,
+      "memorySource": "agent-message",
+      "reason": "card-dismissed:<cardID> is a held inbox item id, not a session/prompt request id"
     },
     {
       "name": "prefix-only-bot",

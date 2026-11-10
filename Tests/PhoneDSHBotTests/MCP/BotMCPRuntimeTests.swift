@@ -386,6 +386,57 @@ final class BotMCPRuntimeTests: XCTestCase {
         XCTAssertEqual(facts.first { $0.text == "prefers short summaries" }?.source?.kind, .userTurn)
     }
 
+    func testCardAnswerTurnWritesSharedMemoryAsUserTurn() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await fixture.runtime.beginTurn(
+            sessionId: "gb-main", hidden: false,
+            origin: BotTurnOrigin(rpcId: BotTurnOrigin.cardAnswerRequestId(nonce: "answer-1")))
+        await fixture.runtime.updateTurn(sessionId: "gb-main", turnId: "43")
+        let shared = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
+            "action": .string("write"), "scope": .string("user"),
+            "fact": .string("card answer user fact"),
+        ]))
+        XCTAssertEqual(shared.structuredContent?["ok"], .bool(true),
+                       String(describing: shared.structuredContent))
+        let profile = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
+            "action": .string("write"), "scope": .string("user"), "tier": .string("profile"),
+            "fact": .string("card answer profile fact"),
+        ]))
+        XCTAssertEqual(profile.structuredContent?["ok"], .bool(true),
+                       String(describing: profile.structuredContent))
+
+        let store = SQLiteBotMemoryFactStore(eventLog: fixture.store, now: { 1_000 })
+        let facts = try await store.facts(scope: .user)
+        XCTAssertEqual(Set(facts.map(\.text)), ["card answer user fact", "card answer profile fact"])
+        XCTAssertTrue(facts.allSatisfy { $0.source?.kind == .userTurn })
+        XCTAssertTrue(facts.allSatisfy { $0.source?.turnID == "43" })
+    }
+
+    func testTurnWithoutRegisteredOriginCannotWriteSharedMemory() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await fixture.runtime.beginTurn(sessionId: "gb-main", hidden: false)
+        let shared = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
+            "action": .string("write"), "scope": .string("user"), "fact": .string("no origin claim"),
+        ]))
+        XCTAssertEqual(shared.structuredContent?["ok"], .bool(false))
+        XCTAssertEqual(shared.structuredContent?["error"]?.stringValue?
+            .contains(BotMemorySourceKind.agentMessage.rawValue) == true, true)
+
+        let own = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
+            "action": .string("write"), "scope": .string("agent"), "fact": .string("no origin private"),
+        ]))
+        XCTAssertEqual(own.structuredContent?["ok"], .bool(true))
+        let store = SQLiteBotMemoryFactStore(eventLog: fixture.store, now: { 1_000 })
+        let facts = try await store.facts(scope: .agent)
+        XCTAssertEqual(facts.first?.source?.kind, .agentMessage)
+        let userFacts = try await store.facts(scope: .user)
+        XCTAssertTrue(userFacts.isEmpty)
+    }
+
     func testAgentTurnCannotWriteSharedMemoryButCanWriteItsOwnAgentScope() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
