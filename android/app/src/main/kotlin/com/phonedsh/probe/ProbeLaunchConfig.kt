@@ -83,6 +83,7 @@
 package com.phonedsh.probe
 
 import android.content.Intent
+import com.phonedsh.account.TonoAccountKeySource
 import com.phonedsh.dsh.host.HostBudgetTier
 import com.phonedsh.gateway.GatewayCredentialProvider
 import com.phonedsh.gateway.GatewayHostRule
@@ -212,10 +213,16 @@ internal data class ProbeLaunchConfig(
         // state variable below is the honest part of the answer. A Worker that needs the real
         // credential asks the host for it one request at a time at the network edge.
         env.put(DEEPSEEK_API_KEY, WORKER_KEY_PLACEHOLDER)
-        when (val state = credentialAccount?.let { ApiKeyStore.activeState(it) } ?: ApiKeyState.Absent) {
-            is ApiKeyState.Valid -> env.put(MODEL_KEY_STATE, KEY_STATE_CONFIGURED)
-            ApiKeyState.Absent -> env.put(MODEL_KEY_STATE, KEY_STATE_ABSENT)
-            is ApiKeyState.Invalid, is ApiKeyState.Unreadable -> env.put(MODEL_KEY_STATE, KEY_STATE_INVALID)
+        // spec/v1/tono-account.md §4: a signed-in account is the cloud origin's credential.
+        val accountCovers = base != null && TonoAccountKeySource.usesAccount(base, TonoAccountHost.activeSession())
+        if (accountCovers) {
+            env.put(MODEL_KEY_STATE, KEY_STATE_CONFIGURED)
+        } else {
+            when (credentialAccount?.let { ApiKeyStore.activeState(it) } ?: ApiKeyState.Absent) {
+                is ApiKeyState.Valid -> env.put(MODEL_KEY_STATE, KEY_STATE_CONFIGURED)
+                ApiKeyState.Absent -> env.put(MODEL_KEY_STATE, KEY_STATE_ABSENT)
+                is ApiKeyState.Invalid, is ApiKeyState.Unreadable -> env.put(MODEL_KEY_STATE, KEY_STATE_INVALID)
+            }
         }
         // The endpoint facts stay gated: they are only true when the launch named a base URL.
         if (base != null) {

@@ -236,6 +236,9 @@ internal fun HostShell(
     // Android ADB: the process-owned native android_* tool host (native-mcp.md).
     val androidAdb = remember { AndroidAdbHost.get(context) }
     val androidAdbFacts by androidAdb.facts.collectAsState()
+    // Tono 账号: the process-owned cloud account session (tono-account.md).
+    val tonoAccount = remember { TonoAccountHost.get(context) }
+    val tonoAccountFacts by tonoAccount.facts.collectAsState()
     // 局域网设备 on the MCP page: the user-started mDNS browse (lan-mcp.md).
     val lanDiscovery = remember { AndroidLanDiscovery.get(context) }
     val lanFacts by lanDiscovery.facts.collectAsState()
@@ -808,7 +811,7 @@ internal fun HostShell(
     // platform really carries this app's back gesture through the invoker. It is
     // measured by the back callback (one gesture moves it), so it is applied here
     // rather than inside the remembered walk.
-    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, lan = lanFacts)
+    val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, tonoAccount = tonoAccountFacts, lan = lanFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
         if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
     }
@@ -967,6 +970,9 @@ internal fun HostShell(
                             } else if (action.wire.startsWith("androidAdb.")) {
                                 // The page owns its 连接状态 line; no host note.
                                 androidAdb.handle(action)
+                            } else if (action.wire.startsWith("tonoAccount.")) {
+                                // The page owns its status line; no host note.
+                                tonoAccount.handle(action)
                             } else if (action is PdshHostAction.LanScan) {
                                 // The page owns its status line; no host note.
                                 lanDiscovery.handle(action)
@@ -1732,6 +1738,9 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.AndroidAdbSave -> "保存 Android ADB"
     is PdshHostAction.AndroidAdbCheck -> "测试 Android ADB 连接"
     PdshHostAction.AndroidAdbCancel -> "停止当前 Android 操作"
+    is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
+    is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
+    PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
     is PdshHostAction.SaveMcpServer -> "保存 MCP 服务器"
     PdshHostAction.StopRuntime -> "停止本地引擎"
     PdshHostAction.RestartRuntime -> "启动本地引擎"
@@ -1782,6 +1791,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     PdshRoute.Bluetooth -> null
     PdshRoute.Ssh, is PdshRoute.SshEditor -> null
     PdshRoute.AndroidAdb -> null
+    PdshRoute.TonoAccount -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null

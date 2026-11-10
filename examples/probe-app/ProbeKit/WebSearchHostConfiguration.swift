@@ -129,7 +129,9 @@ public enum WebSearchHostConfiguration {
                     followsModelSearch: true,
                     officialDeepSeekWebCredentialProvider: webProvider)
             case .searchAPI:
-                guard snapshot.hasCredential else {
+                // spec/v1/tono-account.md §4: a signed-in account stands in
+                // for the stored key when the base is the cloud origin.
+                guard snapshot.hasCredential || settings.usesAccountCredential(snapshot) else {
                     return WebSearchHostLaunchPlan(credentialProvider: modelProvider, mode: .searchAPI)
                 }
                 return WebSearchHostLaunchPlan(

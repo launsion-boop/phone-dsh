@@ -239,6 +239,9 @@ public enum class SettingsDestination {
 
     /** Android ADB: the LAN ADB target of the native android_* tools (`spec/v1/native-mcp.md`). */
     ANDROID_ADB,
+
+    /** Tono 账号: SMS sign-in for the phoneDSH cloud service (`spec/v1/tono-account.md`). */
+    TONO_ACCOUNT,
     WEB_SEARCH,
     EGRESS,
     PLUGIN_CONFIGURATION,
@@ -1387,6 +1390,7 @@ private fun SettingsIndexList(
         ), modes = TAB_ONLY),
         SettingsIndexSection("modelsAgents", native(UiStrings.SETTINGS_SECTION_MODELS_AGENTS, UiStrings.SETTINGS_SECTION_MODELS_AGENTS_EN), listOf(
             SettingsIndexEntry("modelProvider", native("模型服务", UiStrings.MODEL_PROVIDER_TITLE_EN), com.phonedsh.ui.icon.PdshIcon.CPU, providerValue, callback = { onNavigate(SettingsDestination.MODEL_PROVIDER) }, modes = SHEET_ONLY),
+            SettingsIndexEntry("tonoAccount", native("Tono 账号", "Tono account"), com.phonedsh.ui.icon.PdshIcon.PEOPLE, callback = { onNavigate(SettingsDestination.TONO_ACCOUNT) }, modes = SHEET_ONLY),
             SettingsIndexEntry("agentPresets", native("Agent 预设", "Agent presets"), com.phonedsh.ui.icon.PdshIcon.PEOPLE,
                 value = if (onOpenAgentPresets == null) UiStrings.UNAVAILABLE else null,
                 enabled = onOpenAgentPresets != null, callback = onOpenAgentPresets),

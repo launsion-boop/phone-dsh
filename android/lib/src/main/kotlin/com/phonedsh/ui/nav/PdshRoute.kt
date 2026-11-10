@@ -158,6 +158,11 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
+    /** 设置行「Tono 账号」; §1: push. SMS sign-in for the cloud service (tono-account.md). */
+    public data object TonoAccount : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
     /**
      * The MCP server editor, opened from [Mcp]'s list.
      *
@@ -484,6 +489,7 @@ public object PdshSettingsRows {
         SettingsDestination.SSH -> PdshRoute.Ssh
         SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
         SettingsDestination.ANDROID_ADB -> PdshRoute.AndroidAdb
+        SettingsDestination.TONO_ACCOUNT -> PdshRoute.TonoAccount
         SettingsDestination.EGRESS -> PdshRoute.Egress
         SettingsDestination.PLUGIN_CONFIGURATION -> PdshRoute.Configuration
         SettingsDestination.COMMAND -> PdshRoute.Tools

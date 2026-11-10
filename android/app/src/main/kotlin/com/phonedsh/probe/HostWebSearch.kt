@@ -8,6 +8,7 @@
 
 package com.phonedsh.probe
 
+import com.phonedsh.account.TonoAccountKeySource
 import com.phonedsh.ui.nav.PdshHostAction
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.WebSearchFacts
@@ -68,6 +69,7 @@ internal fun webSearchFacts(
     val plan = WebSearchLaunchPlan.resolve(
         settings = read,
         independentKey = { keyState },
+        accountCovers = { base -> TonoAccountKeySource.usesAccount(base, TonoAccountHost.activeSession()) },
         proxyRequested = proxyRequested,
         official = { null },
     )
