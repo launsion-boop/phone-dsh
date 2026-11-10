@@ -116,6 +116,12 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
 
     var createCount: Int { lock.withLock { createdIDs.count } }
 
+    /// CWD used for a session that this transport created (or one explicitly
+    /// seeded through `setSessionCWD`).
+    func createdCwd(_ sessionId: String) -> String? {
+        lock.withLock { sessionCwds[sessionId] }
+    }
+
     func setSessionCWD(_ sessionId: String, cwd: String) {
         lock.withLock { sessionCwds[sessionId] = cwd }
     }

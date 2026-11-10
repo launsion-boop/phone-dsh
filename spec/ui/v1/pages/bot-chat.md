@@ -6,9 +6,9 @@
 
 ## 1. 页面与 session
 
-- 首屏为单栏主 Bot 对话。顶栏采用 Grok 式：整屏水平居中的头像胶囊（32pt 实时大肥鱼 + 17pt semibold Bot 名 + 14pt 活动小图标），点按打开 `BotInfoPage`（id `bot.info.open`）；右侧是与 DSH 页共享的 92×44「连接设备 + …」胶囊（`bot.connect-device`、`bot.header.menu`），连接设备打开与 DSH 页相同的 `NativeDeviceConnectionPage`。左侧不放按钮（tab 根页面无返回）。Bot 设置入口只在「…」菜单内：菜单顶部是不可点的「跟进中 N · 需要你处理 M」说明行，下面是 Bot 信息与设置、记忆、例行任务、审批记录；「需要你处理」大于 0 时头像胶囊右上角显示 6pt 提示圆点。名字过长按尾部截断，不能与右侧胶囊重叠。
+- 首屏为单栏主 Bot 对话。顶栏采用 Grok 式：左侧是 44pt 圆形「打开 Bot 列表」入口（`bot.drawer.open`，与 DSH 页左上角会话抽屉按钮同款样式/位置，见 `bot-drawer.md`）；整屏水平居中的头像胶囊（32pt 实时大肥鱼 + 17pt semibold Bot 名 + 14pt 活动小图标），点按打开 `BotInfoPage`（id `bot.info.open`）；右侧是与 DSH 页共享的 92×44「连接设备 + …」胶囊（`bot.connect-device`、`bot.header.menu`），连接设备打开与 DSH 页相同的 `NativeDeviceConnectionPage`。Bot 设置入口只在「…」菜单内：菜单顶部是不可点的「跟进中 N · 需要你处理 M」说明行，下面是 Bot 信息与设置、记忆、例行任务、审批记录；「需要你处理」大于 0 时头像胶囊右上角显示 6pt 提示圆点。名字过长按尾部截断，不能与右侧胶囊重叠。主 Bot 的头像胶囊与空状态头像带皇冠；头部、空状态、状态行和侧边栏行共享同一 `reaction:`。
 - 14pt 活动小图标固定在名字右侧、胶囊内部：thinking 或尚无正文的 streaming 显示三个依次起伏的点（1.2s 循环，透明度 .35→1→.35，相邻错开 .2s）；tool-running 显示铅笔（`pencil`，透明度 .72↔1，1.4s）；有待审批时显示红色「!」；空闲不显示。reduce motion 时静止在全不透明状态。图标不新增点击目标，整颗胶囊仍打开 Bot 信息。
-- 大肥鱼头像是 dsh-bot 分层渲染器的 SwiftUI/Canvas 移植，由当前 Bot 的真实运行时事件驱动（`BotFishLifecycle` 全部状态，见 §4）；不是按状态切整张静态 PNG。素材授权已明确；使用 `public/assets/fish` 同构的 512×512 RGBA PNG/JSON，`bot/fish` 渲染器在 Swift 中执行模型、弹簧、表情 sprite 与装饰，不运行 JavaScript。主 Bot 的皇冠身份由真实 principal 决定，不能按名称伪造。
+- 大肥鱼头像是 dsh-bot 分层渲染器的 SwiftUI/Canvas 移植，由当前 Bot 的真实运行时事件驱动（`BotFishLifecycle` 全部状态，见 §4）；不是按状态切整张静态 PNG。素材授权已明确；使用 `public/assets/fish` 同构的 512×512 RGBA PNG/JSON，`bot/fish` 渲染器在 Swift 中执行模型、弹簧、表情 sprite 与装饰，不运行 JavaScript。主 Bot 的皇冠身份由真实 principal 决定，不能按名称伪造。`FishAction` 工具调用只生成该 Bot 的一次性 `BotFishReaction`，叠加在 lifecycle 之上；它不出现在过程行或回合工具列表。agent-comm 行的小头像使用对方 Bot 的外观，对方是主 Bot 时带皇冠。
 - 空状态在消息区可用高度内垂直、水平居中：96pt 实时大肥鱼（可戳）、标题「嗨，我是 {name}」15/22 semibold、正文 13/18 次要色居中，间距 12。id `bot.chat.empty`。
 - 每个 Bot 只有一条连续主对话；无新建对话、对话列表、回滚和删除单条。向上滚动调用 `history(before:)`。
 - 用户消息可带附件：输入框左侧「+」选择照片或文件，生成 chip；发送时先写入该 Bot 的 DSH 工作区，用户行在正文气泡内显示附件卡片（名字、大小、类型）。附件是消息内容的一部分，不是新会话或新页面。
@@ -71,7 +71,8 @@ question/steps 选项为整行可点并支持 recommended，提交时只使用�
 
 | 区域 | 结构 | accessibility id |
 | --- | --- | --- |
-| 居中 Bot 胶囊 | 32pt `BotFishView` + 17pt semibold 名字 + 14pt 活动小图标（三点 / 铅笔 / 红色「!」；空闲隐藏），44pt 高白色 Capsule；右上 6pt 提示圆点 | `bot.info.open` |
+| 左侧抽屉入口 | 44pt 圆形白色按钮，两条黑 Capsule 线，16pt 左边距；点按按 `selectedTab` 打开 Bot 列表抽屉 | `bot.drawer.open` |
+| 居中 Bot 胶囊 | 32pt `BotFishView`（主 Bot 皇冠，可带 `reaction:`）+ 17pt semibold 名字 + 14pt 活动小图标（三点 / 铅笔 / 红色「!」；空闲隐藏），44pt 高白色 Capsule；右上 6pt 提示圆点 | `bot.info.open` |
 | 右侧共享胶囊 | 与 DSH 页同一 `HeaderActionPill`：连接设备（在线 6pt 圆点）+「…」菜单 | `bot.connect-device`、`bot.header.menu` |
 | 空状态 | 96pt 动态大肥鱼，标题 15/22 semibold，正文 13/18，间距 12，可用高度居中 | `bot.chat.empty` |
 | 工作状态行 | 28pt 浮动大肥鱼 + 14/20 单行文字（切换淡入淡出、静止时呼吸）+ shimmer，输入框上方左对齐 | `bot.activity.line` |

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "vector": "held-inbox.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": "held-inbox.json",
+  "delta": [
+    "device-task-result: read-only terminal notice for a delegated device task (P07/P26)",
+    "agent-held: bot-to-bot queued message carrying escaped sender, title and thread fields"
+  ],
+  "valid": {
+    "deviceTaskResult": {
+      "id": "device-task-result-443716d6b62e747de90b8ee72498833b947f63a972784863e3aa93bb61563435",
+      "kind": "device-task-result",
+      "title": "厨房传感器",
+      "text": "Goal: 检查厨房温度\nResult: 当前 23°C，处于目标区间。",
+      "requestId": "device-task:443716d6b62e747de90b8ee72498833b947f63a972784863e3aa93bb61563435",
+      "createdAt": 1760000003000,
+      "fromAgentId": null,
+      "fromAgentName": "",
+      "threadId": null,
+      "state": "pending",
+      "taskId": "task-1",
+      "status": "completed"
+    },
+    "agentHeld": {
+      "id": "held-agent-1",
+      "kind": "agent-held",
+      "fromAgentId": "agent-b",
+      "fromAgentName": "研究员",
+      "title": "温度调查",
+      "text": "请查一下厨房温度",
+      "requestId": "req-agent-1",
+      "threadId": "agent-outbound-abc@5:agent-comm",
+      "createdAt": 1760000001000,
+      "state": "pending"
+    }
+  },
+  "invalid": [
+    {
+      "id": "device-task-result-invalid",
+      "kind": "device-task-result",
+      "title": "厨房传感器",
+      "text": "Goal: 检查厨房温度\nResult: 当前 23°C，处于目标区间。",
+      "requestId": "device-task:invalid",
+      "createdAt": 1760000003000,
+      "state": "pending",
+      "taskId": "task-1",
+      "status": "timeout",
+      "reason": "invalid_status"
+    }
+  ]
+}

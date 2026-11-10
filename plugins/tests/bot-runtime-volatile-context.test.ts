@@ -38,6 +38,33 @@ test('volatile blocks preserve variant, time, persona, memory, automation order 
   assert.ok(positions.every((position, index) => position >= 0 && (index === 0 || position > positions[index - 1]!)))
 })
 
+test('the configured Bot preset is selected for gb- sessions before their first turn', async () => {
+  const ctx = new Context()
+  const selected: [string, string][] = []
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    ctx.provide('agentPresets', {
+      async select(subject: Agent, preset: string) {
+        selected.push([subject.id, preset])
+        return preset
+      },
+    })
+    await ctx.plugin(dshbotVolatileContext, {
+      botAgentPreset: 'phone-bot',
+      now: () => new Date('2026-11-06T08:09:59.900Z'),
+      lang: () => 'en' as const,
+      source: async () => ({}),
+    })
+    await ctx.serial('agent/created', { agent: agent('gb-agent-a'), source: 'startup' })
+    await ctx.serial('agent/created', { agent: agent('session-workbench'), source: 'startup' })
+    assert.deepEqual(selected, [['gb-agent-a', 'phone-bot']])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('the real SystemPrompt registry refreshes an App-hosted snapshot before every assembly', async () => {
   const ctx = new Context()
   const calls: string[] = []

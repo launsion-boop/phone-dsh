@@ -5,7 +5,8 @@
     "files": [
       "src/main/agents/model.cjs",
       "src/renderer/lib/fish/model.js",
-      "src/renderer/lib/characterEngine.js"
+      "src/renderer/lib/characterEngine.js",
+      "src/main/agents/store.cjs"
     ]
   },
   "recordSchemaVersion": 3,
@@ -255,5 +256,126 @@
       "hex": "#1C1C1C",
       "hairstyle": "twin-tail"
     }
-  ]
+  ],
+  "rosterRules": {
+    "mainPointerRepair": [
+      {
+        "name": "empty_pointer_uses_first_bot",
+        "records": [
+          "agent-a",
+          "agent-b"
+        ],
+        "mainAgentId": null,
+        "expectedMainAgentId": "agent-a"
+      },
+      {
+        "name": "dangling_pointer_uses_first_bot",
+        "records": [
+          "agent-a",
+          "agent-b"
+        ],
+        "mainAgentId": "agent-gone",
+        "expectedMainAgentId": "agent-a"
+      },
+      {
+        "name": "valid_pointer_is_kept",
+        "records": [
+          "agent-a",
+          "agent-b"
+        ],
+        "mainAgentId": "agent-b",
+        "expectedMainAgentId": "agent-b"
+      },
+      {
+        "name": "empty_roster_has_no_main",
+        "records": [],
+        "mainAgentId": null,
+        "expectedMainAgentId": null
+      }
+    ],
+    "deleteMainMigration": [
+      {
+        "name": "deleting_main_moves_pointer_to_first_remaining",
+        "records": [
+          "agent-a",
+          "agent-b",
+          "agent-c"
+        ],
+        "mainAgentId": "agent-b",
+        "deleteId": "agent-b",
+        "expectedRemaining": [
+          "agent-a",
+          "agent-c"
+        ],
+        "expectedMainAgentId": "agent-a"
+      },
+      {
+        "name": "deleting_non_main_keeps_pointer",
+        "records": [
+          "agent-a",
+          "agent-b",
+          "agent-c"
+        ],
+        "mainAgentId": "agent-c",
+        "deleteId": "agent-b",
+        "expectedRemaining": [
+          "agent-a",
+          "agent-c"
+        ],
+        "expectedMainAgentId": "agent-c"
+      },
+      {
+        "name": "deleting_last_main_uses_first_remaining",
+        "records": [
+          "agent-a",
+          "agent-b"
+        ],
+        "mainAgentId": "agent-b",
+        "deleteId": "agent-b",
+        "expectedRemaining": [
+          "agent-a"
+        ],
+        "expectedMainAgentId": "agent-a"
+      }
+    ],
+    "normalizePatch": [
+      {
+        "name": "identity_and_pointer_are_dropped",
+        "input": {
+          "id": "agent-injected",
+          "primary": true,
+          "mainAgentId": "agent-injected",
+          "name": "  换名  ",
+          "description": "新的描述",
+          "fish_color": "BLUE",
+          "hidden_by_user": true
+        },
+        "expected": {
+          "name": "换名",
+          "description": "新的描述",
+          "fish_color": "blue",
+          "hidden_by_user": true
+        },
+        "droppedKeys": [
+          "id",
+          "primary",
+          "mainAgentId"
+        ]
+      },
+      {
+        "name": "pointer_only_patch_is_empty",
+        "input": {
+          "id": "agent-injected",
+          "primary": false,
+          "mainAgentId": "agent-injected"
+        },
+        "expected": {},
+        "droppedKeys": [
+          "id",
+          "primary",
+          "mainAgentId"
+        ]
+      }
+    ]
+  }
 }

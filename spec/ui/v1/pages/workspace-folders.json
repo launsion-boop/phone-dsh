@@ -7,14 +7,14 @@
   "sectionNote": "flat List: one NavigationLink per workspace + one empty-state block; no group header",
   "title": {
     "text": "工作文件夹",
-    "provenance": "NativeShell.swift:465",
+    "provenance": "NativeShell.swift:506",
     "anchor": ".navigationTitle(\"工作文件夹\")"
   },
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1164,
-    "structLine": 410,
+    "lines": 1205,
+    "structLine": 451,
     "renderedFrom": [
       "body"
     ],
@@ -27,7 +27,7 @@
   },
   "sections": [
     {
-      "id": "single-region-410",
+      "id": "single-region-451",
       "kind": "single-region",
       "title": null,
       "titleTemplate": null,
@@ -37,7 +37,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "navigation-418",
+          "id": "navigation-459",
           "label": null,
           "labelExpr": "Self.displayName(workspace)",
           "kind": "navigation",
@@ -47,7 +47,7 @@
           "destination": "FilesPage",
           "writes": false,
           "condition": null,
-          "provenance": "NativeShell.swift:418",
+          "provenance": "NativeShell.swift:459",
           "anchor": "NavigationLink {",
           "extraction": "manual",
           "collection": "management.workspaces"
@@ -63,7 +63,7 @@
           "destination": null,
           "writes": false,
           "condition": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:439",
+          "provenance": "NativeShell.swift:480",
           "anchor": "Text(\"还没有工作文件夹\")",
           "extraction": "syntax"
         },
@@ -78,7 +78,7 @@
           "destination": null,
           "writes": false,
           "condition": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:441",
+          "provenance": "NativeShell.swift:482",
           "anchor": "Text(\"会话把生成的文件放在文件夹里。新建一个文件夹给它用。\")",
           "extraction": "syntax"
         },
@@ -93,12 +93,12 @@
           "destination": null,
           "writes": true,
           "condition": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:448",
+          "provenance": "NativeShell.swift:489",
           "anchor": "Text(\"添加工作文件夹\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "NativeShell.swift:410",
+      "provenance": "NativeShell.swift:451",
       "anchor": "struct WorkspaceFoldersPage: View {",
       "criterion": {
         "kind": "single-region"
@@ -118,10 +118,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:448",
+      "provenance": "NativeShell.swift:489",
       "anchor": "Text(\"添加工作文件夹\")",
       "extraction": "syntax",
-      "presents": "alert-474"
+      "presents": "alert-515"
     },
     {
       "id": "添加",
@@ -133,7 +133,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:469",
+      "provenance": "NativeShell.swift:510",
       "anchor": "Button(\"添加\") { showingNewWorkspace = true }",
       "extraction": "syntax"
     },
@@ -147,7 +147,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:477",
+      "provenance": "NativeShell.swift:518",
       "anchor": "Button(\"取消\", role: .cancel) { newWorkspaceName = \"\" }",
       "extraction": "syntax"
     },
@@ -161,12 +161,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "NativeShell.swift:478",
+      "provenance": "NativeShell.swift:519",
       "anchor": "Button(\"创建\") {",
       "extraction": "syntax"
     },
     {
-      "id": "navigation-418",
+      "id": "navigation-459",
       "label": null,
       "labelExpr": "Self.displayName(workspace)",
       "kind": "navigation",
@@ -175,7 +175,7 @@
       "writes": false,
       "destination": "FilesPage",
       "condition": null,
-      "provenance": "NativeShell.swift:418",
+      "provenance": "NativeShell.swift:459",
       "anchor": "NavigationLink {",
       "extraction": "manual"
     },
@@ -224,7 +224,7 @@
   ],
   "presentations": [
     {
-      "id": "alert-474",
+      "id": "alert-515",
       "kind": "alert",
       "title": "新建工作文件夹",
       "destination": null,
@@ -232,10 +232,10 @@
         "showingNewWorkspace"
       ],
       "span": [
-        474,
-        483
+        515,
+        524
       ],
-      "provenance": "NativeShell.swift:474",
+      "provenance": "NativeShell.swift:515",
       "anchor": ".alert(\"新建工作文件夹\", isPresented: $showingNewWorkspace) {",
       "triggered": true
     }
@@ -248,15 +248,15 @@
         {
           "renders": "还没有工作文件夹",
           "when": "management.workspaces.isEmpty",
-          "provenance": "NativeShell.swift:439",
+          "provenance": "NativeShell.swift:480",
           "anchor": "Text(\"还没有工作文件夹\")"
         }
       ],
       "data": [
         {
-          "renders": "untitled section at 410",
+          "renders": "untitled section at 451",
           "when": null,
-          "provenance": "NativeShell.swift:410",
+          "provenance": "NativeShell.swift:451",
           "anchor": "struct WorkspaceFoldersPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -281,24 +281,24 @@
   "subpages": [
     {
       "name": "EgressAllowListPage",
-      "line": 534,
+      "line": 575,
       "private": false,
       "embedded": false,
       "sections": [
         {
           "title": "地址",
-          "provenance": "NativeShell.swift:563"
+          "provenance": "NativeShell.swift:604"
         }
       ],
-      "provenance": "NativeShell.swift:534"
+      "provenance": "NativeShell.swift:575"
     },
     {
       "name": "SettingsAboutPage",
-      "line": 992,
+      "line": 1033,
       "private": false,
       "embedded": false,
       "sections": [],
-      "provenance": "NativeShell.swift:992"
+      "provenance": "NativeShell.swift:1033"
     }
   ],
   "unreachable": [],

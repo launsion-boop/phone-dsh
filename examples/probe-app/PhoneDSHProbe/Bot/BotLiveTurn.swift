@@ -8,13 +8,7 @@
 import ProbeKit
 import Foundation
 import PhoneDSHAgentCore
-
-/// One live frame of the main chat turn (`BotLiveTurnFrame` in the runtime).
-enum BotLiveFrame {
-    case streamStart
-    case textDelta(String)
-    case event(JSONValue)
-}
+import PhoneDSHBot
 
 /// The tool steps of one finished turn, for the folded process row.
 struct BotTurnProcess: Equatable {
@@ -85,7 +79,7 @@ enum BotTurnProcessProjector {
         let bare = (item.toolName ?? "").components(separatedBy: "__").last ?? ""
         if bare == "ask_user" || bare == "show_next_steps" { return false }
         if bare.split(separator: ".").last == "RequestApproval" { return false }
-        return true
+        return BotDisplayContract.isToolCallVisible(named: bare)
     }
 
     private static func userText(_ data: JSONValue) -> String {

@@ -1,22 +1,30 @@
 // SPDX-License-Identifier: MIT
 
 // Shared, lazily loaded 大肥鱼 layers. The per-hairstyle grayscale `body.png`
-// is tinted through the upstream LUT once per (hairstyle, colour, display-size
-// bucket) and cached for the whole process: every `BotFishView` instance paints
-// from the same decoded layers without allocating or re-tinting a 512×512
-// bitmap per frame.
+// is tinted through the upstream LUT once per (hairstyle, crowned, colour,
+// display-size bucket) and cached for the whole process: every `BotFishView`
+// instance paints from the same decoded layers without allocating or
+// re-tinting a 512×512 bitmap per frame. Crown overlays are decoded lazily too.
 
 import Foundation
 import PhoneDSHBot
 import UIKit
 
 /// The three per-hairstyle layers. `long` uses the classic `BotFish/base`
-/// folder; the other styles use `BotFish/hair/<style>`. Eyes, iris, blush and
-/// the expressive sprites are shared across every hairstyle.
+/// folder; the other styles use `BotFish/hair/<style>`. A crowned Bot uses the
+/// matching `BotFish/crowned/...` trio instead; eyes, iris, blush and the
+/// expressive sprites remain shared across every hairstyle and crown state.
 struct BotFishHairLayers {
     let lumaBody: UIImage
     let fixed: UIImage
     let faceMask: UIImage
+}
+
+/// Upstream `crownStyle`: `gold` is the default, `crystal` is the alternate
+/// overlay. The crown is loaded lazily and shared process-wide.
+enum BotFishCrownStyle: String, CaseIterable {
+    case gold
+    case crystal
 }
 
 struct BotFishPalette {
@@ -101,15 +109,18 @@ final class BotFishAssets {
     /// 12 pre-cropped 256×128 cells in row-major grid order.
     let mouthCels: [UIImage]
 
-    /// The visible circle crops 416 of the 512px source. A tinted body at a
-    /// 512-space raster side therefore reaches `pixelSide * 512 / 416` pixels;
-    /// round that up to a small bucket so a 32pt header avatar and a 96pt
-    /// empty-state avatar share one cache entry per process.
+    /// The visible circle crops 416 of the 512px source (448 when crowned). A
+    /// tinted body at a 512-space raster side therefore reaches
+    /// `pixelSide * 512 / cropSide` pixels; round that up to a small bucket so
+    /// a 32pt header avatar and a 96pt empty-state avatar share one cache
+    /// entry per process.
     private static let sizeBuckets = [32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048]
     private var tintedBodies: [String: UIImage] = [:]
     private let tintedBodyLock = NSLock()
     private var hairstyleLayers: [String: BotFishHairLayers] = [:]
     private let hairstyleLock = NSLock()
+    private var crownLayers: [BotFishCrownStyle: UIImage] = [:]
+    private let crownLock = NSLock()
 
     static let shared: BotFishAssets? = load()
 
@@ -141,15 +152,23 @@ final class BotFishAssets {
                              expressiveEyes: expressiveEyes, expressiveMouths: expressiveMouths)
     }
 
-    /// Loads (and caches) the body/fixed/face-mask trio for one hairstyle.
-    /// `long` is the classic `BotFish/base` set; the rest live under
-    /// `BotFish/hair/<style>`, matching the upstream `HAIRSTYLES[].path`.
-    func layers(for hairstyle: BotFishHairstyle) -> BotFishHairLayers? {
-        let key = hairstyle.rawValue
+    /// Loads (and caches) the body/fixed/face-mask trio for one hairstyle and
+    /// crown state. Plain `long` is the classic `BotFish/base` set; the other
+    /// plain styles live under `BotFish/hair/<style>`. Crowned variants mirror
+    /// upstream's `crownPath`: `crowned/long` for the classic cut and
+    /// `crowned/<style>` for the v3 cuts.
+    func layers(for hairstyle: BotFishHairstyle, crowned: Bool = false) -> BotFishHairLayers? {
+        let key = "\(hairstyle.rawValue):\(crowned ? "crowned" : "plain")"
         hairstyleLock.lock()
         defer { hairstyleLock.unlock() }
         if let cached = hairstyleLayers[key] { return cached }
-        let folder = hairstyle == .long ? "base" : "hair/\(key)"
+        let folder: String
+        switch (hairstyle, crowned) {
+        case (.long, false): folder = "base"
+        case (.long, true): folder = "crowned/long"
+        case (_, false): folder = "hair/\(hairstyle.rawValue)"
+        case (_, true): folder = "crowned/\(hairstyle.rawValue)"
+        }
         guard let luma = Self.image("body", folder: folder),
               let fixed = Self.image("fixed", folder: folder),
               let faceMask = Self.image("face-mask", folder: folder)
@@ -157,6 +176,18 @@ final class BotFishAssets {
         let layers = BotFishHairLayers(lumaBody: luma, fixed: fixed, faceMask: faceMask)
         hairstyleLayers[key] = layers
         return layers
+    }
+
+    /// Loads (and caches) one crown overlay on first use. Every crowned view
+    /// shares the decoded image; no crown is decoded for plain avatars.
+    func crown(for style: BotFishCrownStyle) -> UIImage? {
+        crownLock.lock()
+        defer { crownLock.unlock() }
+        if let cached = crownLayers[style] { return cached }
+        let name = style == .gold ? "crown" : "crown-crystal"
+        guard let image = Self.image(name, folder: "overlays") else { return nil }
+        crownLayers[style] = image
+        return image
     }
 
     private static func image(_ name: String, folder: String) -> UIImage? {
@@ -197,15 +228,16 @@ final class BotFishAssets {
     }
 
     /// Returns the LUT-tinted body at the nearest display-size bucket. The
-    /// bitmap is in the 512px source space and is shared process-wide; the
-    /// renderer scales the circle crop to its output pixels once per
-    /// `(hairstyle, colour, size)` through `BotFishImageCache`.
+    /// returned bitmap is in the 512px source space, so callers keep the
+    /// upstream coordinates and only the (hairstyle, crown, colour, size)
+    /// rasterisation is shared process-wide.
     func bodyLayer(hairstyle: BotFishHairstyle, palette: BotFishPalette,
-                   pixelSide: CGFloat) -> CGImage? {
-        guard let layers = layers(for: hairstyle) else { return nil }
-        let fullSourceSide = max(1, pixelSide * BotFishRenderer.size / BotFishRenderer.cropSide)
+                   pixelSide: CGFloat, crowned: Bool = false) -> CGImage? {
+        guard let layers = layers(for: hairstyle, crowned: crowned) else { return nil }
+        let cropSide = crowned ? BotFishRenderer.crownedCropSide : BotFishRenderer.cropSide
+        let fullSourceSide = max(1, pixelSide * BotFishRenderer.size / cropSide)
         let bucket = Self.sizeBucket(for: fullSourceSide)
-        let key = "\(hairstyle.rawValue):\(palette.id)@\(bucket)"
+        let key = "\(hairstyle.rawValue):\(crowned ? "crowned" : "plain"):\(palette.id)@\(bucket)"
         tintedBodyLock.lock()
         defer { tintedBodyLock.unlock() }
         if let cached = tintedBodies[key] { return cached.cgImage }

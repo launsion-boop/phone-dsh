@@ -517,6 +517,100 @@ Protocol impact: P09; P18; P27: none — #75 only renders and caches Bot cards u
 4. **#70 沒有 simulator 測試類**：新增的 iOS 測試是 SwiftPM target 的 `TonoAccountSessionTests`、`TonoCloudResponsePolicyTests`；本輪以 `swift test` 實跑，沒有把它們混入 `simctl spawn` 的 24 類。
 5. **main 已前進**：本單只合 `a3e41f853`；之後 main 再前進需另一次合併。
 
+### 4.14 合入 main 31c0cab73（#84 bot-multi，merge-only）
+
+**範圍**：`git merge --no-ff --no-commit origin/main`（`origin/main` = `31c0cab73`，merge base `a3e41f853`，分支 head `c961a47c5`），只做合併、不加功能、不 commit；合併狀態留給協調者。#84 的意圖（`31c0cab73^2` 提交訊息）：多 Bot 能力對齊 DSH bot——Bot 列表側邊欄、創建與管理、Bot 間通信、主 Bot 皇冠、表情反應；共 30 個 commit、153 個檔案。7 個衝突檔；`Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift`、`examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift`、`spec/registry.json`、`Tests/PhoneDSHBotTests/MCP/BotRemoteTestSupport.swift` 為自動合併，逐項複核。
+
+#### 4.14.1 衝突處置
+
+| 檔案 | main（31c0cab73，#84） | feat/pclink | 合併方式與理由 |
+| --- | --- | --- | --- |
+| `examples/probe-app/PhoneDSHProbe/ChatModel.swift`（2 處） | `startBotTurnPolling`／`applyBotTurnsRunning`／`stopBotTurnPolling` 與 `botTurnsRunning`；後台 keep-alive 條件改為 `(turnRunning || botTurnsRunning)`，空閒計時器與 `finishBackgroundKeepAlive` 同條件 | `startPCModel`（PC 啟動、離線不落回手機）；`beginKeepAlive()` 統一設定 `keepAlive.onEvent` 並啟動音訊 | 第一個衝突是兩邊在同一插入點新增不同方法：`startPCModel` 與 Bot polling 方法全部保留，各自閉合。第二個衝突取 #84 的 `(turnRunning || botTurnsRunning)` 條件，動詞體保留 feat/pclink 的 `try beginKeepAlive()`（它已設定 `onEvent`），刪掉 #84 內聯的重複 `keepAlive.onEvent`，避免同一個回調被覆寫兩次 |
+| `examples/probe-app/PhoneDSHProbe/NativeShell.swift`（1 處） | `@Environment(AppModel.self) private var appModel`；`botPageActive` 與 Bot 抽屜／大肥魚共用同一暫停值 | `@Environment(\.workspaceModels) private var models`；`ChatModel.shared` 改名為 `model` 的 AppModel 環境值 | 兩個環境值都保留：`models`（每個 backend 的 ChatPage 同時存活）與 `appModel`（#84 新增的 `botPageActive` 全檔引用）。AppModel 屬性名採用 #84 的 `appModel`，不再保留 feat/pclink 的 `model`，避免同一環境聲明兩次 |
+| `scripts/ci/check.sh`（2 處） | `phone-spec` 描述加入 Bot golden split/manifest；stage 內新增 `validate_vectors.py` 與 `check_golden.py --root` | `phone-spec` 描述加入 PCLink v1 vectors；stage 內新增 `check_samples.py` 與 `vectors.mjs --check`（Node 缺失 SKIP）；`phone-sdk` 的 `sdk_filter` 加 `PhoneDSHPCLinkTests` | 描述行合併兩邊文字；stage 內兩組檢查全部保留（先 spec unittest／Bot golden，再 PCLink schema／Node vectors），並保留 feat/pclink 的 `|| return 1`。`sdk_filter` 由自動合併保留 PCLink 類；`bash -n` 與 `--list` 均 PASS |
+| `spec/README.md`（1 處） | P26 的 prose 改為多 Bot／Team 工具邊界；P26／P27 trigger 加 `spec/bot/v1/golden/*.phone.json` | P28 PCLink 列（P 表與 trigger 表） | trigger 表衝突取 #84 的 P26／P27 新 glob，並在其後保留 P28 列；P26 prose 自動合併保留 #84 語義。P 表與 GAP 表無其他衝突：#84 沒有新增 GAP；main 的 tono-account 仍為 **GAP-34**，PCLink 的 Android 抽屜 PC 工作區仍為 **GAP-35**，不讓號 |
+| `spec/ui/v1/pages/egress-allow-list.json`（24 處）、`settings-about.json`（17 處）、`workspace-folders.json`（21 處） | NativeShell 抽屜／Bot 抽屜改寫造成 `provenance`／`id` 行號位移 | D2 的 PC 頁面與 action | 衝突全部是行號 provenance，不手工拼接：先解決 Swift，再由 `python3 spec/ui/v1/tools/extract_ios_pages.py --root .` 從合併後源碼整體重生成；`--check` PASS（46 pages、179 sections、531 rows、377 actions） |
+| `spec/registry.json`（自動合併） | #84 的 P26／P27 phone overlay glob 與 P26 prose | P28 與 D2 P18 evidence | 不手工改；由 `registry_build.py --root . --write` 重建，`--check` 與 `registry_check.py` 均 PASS（28 contracts、486 path/glob references） |
+
+自動合併複核（兩邊都改過的檔案）：
+
+| 檔案 | 兩邊改動 | 合併結果 |
+| --- | --- | --- |
+| `Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift` | feat/pclink：`session/list` 補 `_request` 並把 cwd lookup 失敗寫 `runtime.stderr`；#84：多 observer `subscribeLiveFrames`／`liveFrames`、held inbox wake、`parentBotId` task 隔離、per-Bot executor | 兩組改動並存（`session/list` 帶 `_request` + 診斷；live observer 字典與兼容 `setLiveObserver`；`wakeWithHeldMessages`；`snapshot.parentBotId == botId`），無互相覆寫 |
+| `examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift` | feat/pclink：`import ProbeKit`；#84：`import PhoneDSHBot` + `BotDisplayContract.isToolCallVisible` | 兩個 import 與 #84 的可見性判定都保留 |
+| `Tests/PhoneDSHBotTests/MCP/BotRemoteTestSupport.swift` | feat/pclink：`failSessionList`／`sessionListArguments`；#84：`createdCwd` | 三個測試支援 API 全部保留 |
+| `spec/registry.json` | 見上表 | 生成器重建，無手寫 |
+
+#### 4.14.2 #84 與 PC 後端的交互檢查（D2 約定：Bot 固定手機）
+
+| 檢查項 | 事實 | 結論 |
+| --- | --- | --- |
+| Bot runtime 歸屬 | `ChatModel.shared` 是手機單例；`ChatModel(pcRuntime:)` 不建立 `botLaunch`，`startPCModel` 在 `prepareBotRuntime` 之前返回；PC 的 `stop()`／`scenePhaseChanged()` 在 Bot 清理之前提前返回；`BotProductionPage` 固定 `ChatModel.shared`；`botRuntime` 註釋明寫 PHONE-ONLY | PC 後端不會啟動、停止或讀取手機 Bot runtime；#84 的多實例（`BotRuntimeUnit`、`BotRosterModel`、`BotTeamHost`）只在手機側 |
+| #84 新增持久狀態 | `BotSessionRegistry`（`phoneDSH.botSession.registry.v1`，`gb-` 前綴 session）、`BotSelectionDefaults.key`（`phoneDSH.bot.selectedBotID`）、`BotProfileStorage`（Application Support `PhoneDSHBot/`，agents-index／runtime-settings）、每 Bot memory SQLite、held inbox／team 狀態 | 寫入端只有手機 Bot runtime；讀取端是 Bot 表面與 `DSHManagementModel` 的 Bot 路徑／session 排除（同一 read point）。PC 模型沒有 botLaunch、不呼叫 `prepareBotRuntime`、不寫 Bot 狀態；沒有新增 `(BackendID, sessionID)` 鍵，`phone-dsh.drawer.backend`／PC scoped 鍵不變；不需要 P18 遷移，也不存在 PC 與 Bot 狀態互相覆寫的路徑 |
+| Bot session 過濾 | `DSHManagementModel.refresh()` 以 `phoneOnlyFilters = backendID == .phone` 決定是否對 `session/list` 套用 `BotSessionRegistry` 與 device-session 過濾；手機的單一讀取點仍丟棄 `gb-`／已登記 Bot id；`decodeWorkspace`／`applyWorkspaceBaseline`／`upsertWorkspace` 的 `/dsh/workspace/.dshbot` 路徑與 workspace 內 Bot session id 排除不區分 backend | 手機 Bot 會話在 DSH 頁仍隱藏；PC 的 `session/list` 來自 PC transport，不套手機 Bot registry，所以手機 Bot 會話不會漏到 PC；PC 分段仍共用 Bot workspace/session 排除，`.dshbot` 私有工作區不會露出。**Bot 會話過濾在 PC 分段仍隱藏** |
+| PCLink 每後端模型 | `WorkspaceModels`／`pcChat`／`pcManagement` 未改；`pcRuntime`、`pcOnline` 仍在 `canSend`／`canSteer`／`canStartBySending`；`startPCModel`、P18 `WorkspaceStorage` scoped keys、`localFilePreview` 門控的檔案刷新、PC `scenePhaseChanged` 走 PCLink／`foregroundResumed`、PC 不啟用 `ResourceMeter` | 全部保留；24 個 simulator 類（含 `PCLinkWorkspaceSimTests`、`PCLinkPacingSimTests`）與 SwiftPM `PhoneDSHPCLinkTests` 均 PASS |
+
+**結論**：#84 的 Bot 多實例／多會話與 PCLink 的每後端模型互不干擾；Bot 固定手機後端，PC 不啟動 Bot runtime、不寫 Bot 持久狀態、session list 不套手機 Bot registry，但 Bot 私有 workspace/session 排除在 PC 分段仍生效；Bot 會話在手機與 PC 分段都不會出現在 DSH 會話清單。未發現需要新登記的 P18/GAP；既有 GAP-35 的 page-structure 條數不變。
+
+#### 4.14.3 GAP-35 與 page-structure 實測
+
+`python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` → **FAIL (7)**，與合併前相同：main 既有剩餘 **1** 處 + GAP-35 的 PCLink 條目 **6** 處：
+
+| 歸屬 | 差異 | 條數 |
+| --- | --- | --- |
+| GAP-32(d)（main 既有） | `files` missing-action「完成」 | 1 |
+| GAP-35（PCLink） | `home-drawer` missing-action「手机」 | 1 |
+| GAP-35（PCLink） | `home-drawer` missing-action「PC」 | 1 |
+| GAP-35（PCLink） | `pc-pairing` missing-section `<android-screen>` | 1 |
+| GAP-35（PCLink） | `connected-computer` missing-section `<android-screen>` | 1 |
+| GAP-35（PCLink） | `settings` missing-action「已连接的电脑」 | 1 |
+| GAP-35（PCLink） | `settings` missing-section「已连接的电脑」（該分組 first-clickable-row 判據行） | 1 |
+
+#84 沒有新增 Android 頁面契約，也沒有改 GAP-35 的六條；未加 whitelist、未改 `_baseline.json`。
+
+#### 4.14.4 命令 → 結果（本輪實跑）
+
+環境：`PATH=/tmp/node24/bin:$PATH`、`PDSH_NODE=/tmp/node24/bin/node`；模擬器 `620D518D-D125-4154-B1B7-32A65327482B`（只 `simctl spawn xctest`，未安裝／卸載／清資料；為執行 spawn 先 boot，未動 App 資料）。
+
+| 命令 | 結果 | 證據 |
+| --- | --- | --- |
+| `swift build --disable-sandbox` | **PASS** `Build complete! (14.34s)` | `/tmp/pclink-mm3-swift-build.log` |
+| `swift test --disable-sandbox --filter PhoneDSHPCLinkTests` | **PASS** 70 tests, 1 skipped, 0 failures | `/tmp/pclink-mm3-swift-test-pclink.log` |
+| `swift test --disable-sandbox --filter '<22 個 #84 新增/修改 PhoneDSHBotTests 類>'` | **PASS** 132 tests, 0 failures（含 `BotFishActionEffectTests`、`BotRosterTests`、`BotRuntimeMultiplexingTests`、`BotTeamToolsTests`、`BotMemoryIsolationTests` 等） | `/tmp/pclink-mm3-swift-test-bot.log` |
+| `cd examples/probe-app && xcodegen generate` | **PASS** | `/tmp/pclink-mm3-xcodegen.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHProbe … build CODE_SIGNING_ALLOWED=NO`（`/tmp/pclink-mm3-dd`、`CFFIXED_USER_HOME=/tmp/pclink-mm3-home`、`-disable-sandbox`） | **PASS** `** BUILD SUCCEEDED **` | `/tmp/pclink-mm3-xcodebuild.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHSim … build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/pclink-mm3-xcodebuild-tests.log` |
+| ADAPTED `simctl spawn … xctest -XCTest '<上輪 24 類>' PhoneDSHSimTests.xctest` | **PASS** 174 tests, 0 failures（含 `PCLinkWorkspaceSimTests`、`PCLinkPacingSimTests`；#84 沒有新增／修改 SimTests 類） | `/tmp/pclink-mm3-simtests.log` |
+| `cd relay && npm test` | **PASS** 65 tests, 0 fail | `/tmp/pclink-mm3-relay-test.log` |
+| `cd pclink && PCLINK_SKIP_MODEL=1 npm test` | **PASS** 131 tests, 130 pass, 1 skipped, 0 fail | `/tmp/pclink-mm3-pclink-test.log` |
+| `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main)`（解析為 `a3e41f853`）`PDSH_NODE=/tmp/node24/bin/node bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-modules` | `phone-spec` **PASS**（含 Bot golden 27 files、PCLink samples/vectors）；`phone-cross-tree` **PASS**（8/8 invariants、registry、schema diff）；`phone-modules` **PASS**；`phone-p0-conformance` **FAIL**，唯一原因是 `page-structure: FAIL (7)`（1 + 6 已逐條登記）；`CI GATE: FAIL` | `/tmp/pclink-mm3-ci.log`、`/tmp/pclink-mm3-ci-final.log` |
+| `python3 spec/tools/registry_build.py --root . --write` / `--check` | **PASS** byte-identical；`registry_check.py` PASS（28 contracts、486 refs） | 終端 |
+| `python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | 終端 |
+| `python3 spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (5 files, 13 contrast pairs, 6 deferred AA pairs, 1 unmeasured tokens, 0 unmeasured surface items, 50 geometry tokens)` | 終端 |
+| `bash -n scripts/ci/check.sh` / `bash scripts/ci/check.sh --list` | **PASS** | `/tmp/pclink-mm3-check-list.log` |
+| `git show HEAD:Package.resolved > Package.resolved` | 已還原；`git status` 無 `Package.resolved` 變更 | 終端 |
+| 全倉衝突標記掃描 | **無** `<<<<<<<`／`=======`／`>>>>>>>` | 終端 |
+
+**ADAPTED**：xcodebuild 走本機模擬器；`simctl spawn` 為同 bundle 的回退路徑。**NOT_RUN**：Android Gradle、真機、真實 relay+DSH 三端 E2E、公網 WSS、`xcodebuild test`、Bot UI 截圖、`scripts/ci/bot-e2e`。
+
+#### 4.14.5 剩餘風險
+
+1. **`phone-p0-conformance` 仍 FAIL (7)**：全部是已逐條登記的 GAP-32(d) 1 + GAP-35 6；本輪按任務不加 whitelist、不改 `_baseline.json`。Android 對等由 android-parity owner 關閉。
+2. **#84 的 Bot 多實例只由 SwiftPM/模擬器測試覆蓋**：`scripts/ci/bot-ui` 截圖、`scripts/ci/bot-e2e` 的 `BotChatModelTests`、真 Worker/真 DSH 的 team/held inbox/routine 路徑未在本輪重跑；不能把這些當作 runtime E2E 證據。
+3. **未跑 Android**：GAP-35 的 6 條仍是 iOS 契約側記錄；Android 端未編譯或測試。
+4. **main 已前進**：合併期間觀察到 `origin/main` = `218d3cddf`（#80 resume-reliability，已含 #84）；本單嚴格只合任務凍結的 `31c0cab73`，未把 #80 合入。`CI_PROTOCOL_BASE` 仍解析為 `a3e41f853`（merge base 未變）。合入 main 前需在最新 main（`218d3cddf`）上再合一次或確認協調者已另行處理 #80。
+5. **模擬器狀態**：為 `simctl spawn` boot 了 `620D518D-…`；未安裝、卸載或清除 App 資料。
+
+#### 4.14.6 建議的合併提交信息
+
+```text
+Merge origin/main (31c0cab73, #84 bot-multi) into feat/pclink
+
+Protocol impact: P09; P16; P25; P26; P27; P18: none — #84's new Bot selection/registry/profile state is phone-only (written by the phone Bot runtime; PC never writes it), and no new (BackendID, sessionID) key or migration is introduced; P28: none — no spec/pclink/**, relay/**, pclink/** or Sources/PhoneDSHPCLink change in #84 or in conflict resolution; P24: none — Package.resolved restored to HEAD; P12: none — no Package.swift/native ABI change; P06: none — reuses the existing AgentHarness and host event semantics; P14: none — the Bot remote runtime reuses the existing DSHRemoteTransport/mux; P01/P02/P04/P05/P10/P11/P13/P15/P17: none — merge only, no relay wire, WAL, bridge, loopback HTTP or plugin protocol change.
+```
+
+理由：P09 是頁面契約重生成與 `NativeShell`／`ChatModel` 合併；P16 是 #84 的 `plugins/profile/phone.worker.cordis.patch.yml` `phone-bot` preset；P25／P26／P27 是 #84 的 Bot golden／row／tool surface；P18／P28 經 §4.14.2 檢查後不改契約。
+
 ## 5. 修訂紀錄
 
 | revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
@@ -528,3 +622,4 @@ Protocol impact: P09; P18; P27: none — #75 only renders and caches Bot cards u
 | `pclink-pacing-r1` | P28 contract owner（本單） | P18 追加 `phone-dsh.pc.last-workspace.<machineId>`（PC 新會話上次工作區）；P09「手機\|PC」分段移到新會話下方、抽屜錯誤/加載態、PC 工作區分組、新會話工作區選擇器與安裝引導；P28 升 `pclink-v1.5`（見 `PC-20261109-pclink-v1.md` §4.16） | iOS/App；P09/P18 owner；android-parity（GAP-35 條目如實更新） |
 | `pclink-merge-main-r1` | merge-main implementer（iOS/App） | 合入 `da10d7466`：解決 14 個衝突；保留 #75/#76/#77/#78/#79 與 D2 每後端/P18；main 的裸 current-session 鍵改回 scoped；perf helpers 移入 `ProbeKit/Perf`；頁面契約重生成、`tokens` 語義採 main 並機械刷新 provenance；PCLink v1.3 與 P09/P18 契約值不變 | P09/P18 owner；P28 D/App owner；android-parity（頁面 provenance 與 17 處已登記差異） |
 | `pclink-merge-main2-r1` | merge-main2 implementer（iOS/App） | 合入 `a3e41f853`（#69、#70）：解決 8 個衝突；P18/P05 兩端條目並存；GAP-33 採關閉記錄、GAP-35 保留 PCLink 6 條並實測 1+6=7、main 的 tono-account 條目保持 GAP-34（與 origin/main 一致）；registry 由生成器重建；頁面契約由提取器重生成；#70 tono 賬號按 §4.13.3 檢查（app 級持久化，不按 P18 scope） | P09/P18/P05 owner；P28 D/App owner；android-parity（GAP-35 6 條） |
+| `pclink-merge-main3-r1` | merge-main3 implementer（iOS/App） | 合入 `31c0cab73`（#84 bot-multi）：解決 7 個衝突；#84 的多 Bot 實例／會話／持久狀態與 PCLink 每後端模型並存；Bot 固定手機；PC session list 不套 Bot registry，Bot workspace/session 排除仍生效；GAP-35 仍 1+6=7、tono-account 保持 GAP-34；registry 與頁面契約由生成器重建 | P09/P16/P25/P26/P27 owner；P28 D/App owner；android-parity（GAP-35 6 條） |
