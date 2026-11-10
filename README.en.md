@@ -6,7 +6,10 @@ Run DeepSeek Harness, unmodified, on your phone.
 
 [简体中文](README.md) · [Android](#android-version) · [Architecture](docs/architecture.md) · [Protocol baseline & collaboration](spec/README.md) · [Protocol spec](spec/v1/README.md)
 
-<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="Phone DSH generating a PDF and reporting progress in the native chat"></p>
+<p align="center">
+  <img src="docs/assets/screenshot-bot-chat.png" width="260" alt="The main Bot chat on iPhone with the message composer at the bottom">
+  <img src="docs/assets/screenshot-bot-info.png" width="260" alt="The Bot info page on iPhone with name, hairstyle, and hair color controls">
+</p>
 
 > The mascot is fan artwork of the DeepSeek assistant character, used as project branding. It is not an official DeepSeek asset, it is not covered by the MIT licence (see [NOTICE](NOTICE)), and this project is not affiliated with DeepSeek.
 
@@ -44,31 +47,15 @@ Without this split, the official DSH plugin tree (model adapters, tools, sub-age
 
 ## Architecture
 
-```text
-┌───────────────────────────────────────────────────┐
-│ iPhone app (one process)                          │
-│                                                   │
-│ Swift host: PhoneDSHHost                          │
-│  ├─ LoopbackServer   127.0.0.1, one origin        │
-│  ├─ WorkspaceLog     WAL + materialized copy      │
-│  ├─ ModelGateway     credentials, SSE, retry      │
-│  └─ Controller, WebEngine, ExecProvider           │
-│                │                                  │
-│                │ loopback HTTP + ordered WS       │
-│                ▼                                  │
-│ WKWebView (web process)                           │
-│  └─ Web Worker                                    │
-│      └─ DSH webworker-runtime                     │
-│          ├─ in-memory VFS (authority)             │
-│          ├─ bash, git, python3, file tools        │
-│          └─ capability manifest                   │
-└──────────────────────┬────────────────────────────┘
-                       │ /v1/http, host-injected key, allow-list
-                       ▼
-                model provider (DeepSeek, ...)
-```
+![Phone DSH architecture. The native host and Web Worker share a loopback origin. The host connects to model providers and remote MCP servers.](docs/assets/architecture-en.svg)
 
-The app and the Worker meet at one origin. The page and static assets are served over HTTP; side effects travel over one ordered binary WebSocket (`VFS`, `EXEC`, `JOURNAL`, `API`, `LIFECYCLE`, `CONSOLE`, `FENCE` and the rest); model and MCP traffic goes to `/v1/http`, the only path that leaves the device. The WAL is the recovery log, never a second writer: while the Worker runs, its in-memory VFS is the authority. See [docs/architecture.md](docs/architecture.md) for the persistence model, the frame contract and the failure modes.
+The app and the Worker meet at one origin. The page and static assets are served over HTTP; side effects travel over one ordered binary WebSocket (`VFS`, `EXEC`, `JOURNAL`, `API`, `LIFECYCLE`, `CONSOLE`, `FENCE` and the rest); requests to model providers and remote MCP servers use the host's `/v1/http` gateway. The WAL is the recovery log, never a second writer: while the Worker runs, its in-memory VFS is the authority. See [docs/architecture.md](docs/architecture.md) for the persistence model, the frame contract and the failure modes.
+
+### Phone, Worker, and device plane
+
+![Device plane. A BLE or LAN connector links peripherals to the native host. Each device reuses its own fixed DSH session.](docs/assets/device-plane-en.svg)
+
+The connector reports device state. The phone shows each device session in a read-only view, separate from regular chats, and distinguishes device events from user messages. Device writes require a capability grant.
 
 ## xz-shell
 

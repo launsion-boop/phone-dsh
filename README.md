@@ -6,7 +6,10 @@
 
 [English](README.en.md) · [Android 版本](#android-版本) · [架构说明](docs/architecture.md) · [协议基线与协作](spec/README.md) · [协议规范](spec/v1/README.md)
 
-<p align="center"><img src="docs/assets/screenshot-chat.jpg" width="300" alt="原生对话：模型生成 PDF 后汇报结果"></p>
+<p align="center">
+  <img src="docs/assets/screenshot-bot-chat.png" width="260" alt="iPhone 上的大肥鱼 Bot 对话页，底部有消息输入框">
+  <img src="docs/assets/screenshot-bot-info.png" width="260" alt="iPhone 上的 Bot 信息页，可编辑名称、发型和发色">
+</p>
 
 > 吉祥物是 DeepSeek 助手的同人创作，作为项目形象使用；它不是 DeepSeek 官方素材，也不在 MIT 许可范围内（见 [NOTICE](NOTICE)），本项目与 DeepSeek 官方无隶属关系。
 
@@ -43,55 +46,13 @@ DSH 版本钉在 [`plugins/dsh-pin.json`](plugins/dsh-pin.json)：`0.2.2-rc.1`�
 
 ## 架构
 
-```text
-┌───────────────────────────────────────────────────┐
-│ iPhone app (one process)                          │
-│                                                   │
-│ Swift host: PhoneDSHHost                          │
-│  ├─ LoopbackServer   127.0.0.1, one origin        │
-│  ├─ WorkspaceLog     WAL + materialized copy      │
-│  ├─ ModelGateway     credentials, SSE, retry      │
-│  └─ Controller, WebEngine, ExecProvider           │
-│                │                                  │
-│                │ loopback HTTP + ordered WS       │
-│                ▼                                  │
-│ WKWebView (web process)                           │
-│  └─ Web Worker                                    │
-│      └─ DSH webworker-runtime                     │
-│          ├─ in-memory VFS (authority)             │
-│          ├─ bash, git, python3, file tools        │
-│          └─ capability manifest                   │
-└──────────────────────┬────────────────────────────┘
-                       │ /v1/http, host-injected key, allow-list
-                       ▼
-                model provider (DeepSeek, ...)
-```
+![Phone DSH 架构图。原生宿主和 Web Worker 通过同一回环源通信，模型和远程 MCP 由宿主联网。](docs/assets/architecture-zh.svg)
 
-App 与 Worker 在一个源上碰面。页面和静态资源走 HTTP；副作用走一条有序二进制 WebSocket（`VFS`、`EXEC`、`JOURNAL`、`API`、`LIFECYCLE`、`CONSOLE`、`FENCE` 等）；模型与 MCP 流量走 `/v1/http`，这是唯一离开设备的路径。WAL 是恢复日志，不是第二个写者：Worker 运行时，内存 VFS 才是权威。持久化模型、帧契约与失败模式见 [docs/architecture.md](docs/architecture.md)。
+App 与 Worker 在一个源上碰面。页面和静态资源走 HTTP；副作用走一条有序二进制 WebSocket（`VFS`、`EXEC`、`JOURNAL`、`API`、`LIFECYCLE`、`CONSOLE`、`FENCE` 等）；模型和远程 MCP 的上游请求通过宿主的 `/v1/http` 网关。WAL 是恢复日志，不是第二个写者：Worker 运行时，内存 VFS 才是权威。持久化模型、帧契约与失败模式见 [docs/architecture.md](docs/architecture.md)。
 
 ### 手机、Worker 与设备平面
 
-```text
-┌──────────────────────────── 手机（一个 App 进程） ────────────────────────────┐
-│                                                                              │
-│  Native Host（Swift / Kotlin）                                                │
-│   ├─ Loopback + WAL + ModelGateway + Credentials + Lifecycle                 │
-│   ├─ Phone capability bridge（通讯录/日历/照片/定位/通知/文件…）              │
-│   ├─ DeviceSessionCoordinator（deviceID → 固定 DSH sessionID）              │
-│   └─ BLE / LAN connector 适配层（真实传输可替换，页面不伪造在线设备）         │
-│                              │                                               │
-│                              │ same-origin HTTP + ordered WebSocket           │
-│                              ▼                                               │
-│  WKWebView / Web Worker（DSH 原样运行）                                      │
-│   ├─ in-memory VFS + bash/git/python/file tools                              │
-│   └─ plugins / subagents / session persistence                               │
-└──────────────────────────────┬───────────────────────────────────────────────┘
-                               │ /v1/http（宿主注入凭据、allow-list）
-                               ▼
-                    model provider / MCP servers
-
-外设 ── BLE / 局域网 ──► connector ──► DeviceSessionCoordinator ──► 同一个固定 Session
-```
+![设备平面。BLE 或局域网外设通过连接器接入宿主，每台设备复用自己的固定 DSH 会话。](docs/assets/device-plane-zh.svg)
 
 - **宿主/Worker 边界**：WebView 保不住的权威（日志、回环源、凭据、生命周期、设备映射）留在原生进程；DSH 插件树和工具执行留在 Worker，避免为手机重写一套 DSH。
 - **资源边界**：内存、热、后台排空、工具调用边界重启都由宿主状态机管理；失败是显式的，不会静默重新放行。
