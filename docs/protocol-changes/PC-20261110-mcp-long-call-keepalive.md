@@ -10,7 +10,7 @@ base: 6f4bed1f
 contract_revision: spec/bot/v1/mcp-endpoint.md §2 "Long tool calls" + spec/v1/golden/mcp-long-call/cases.json; spec/v1/native-mcp.md iPhone agent tool; spec/README.md GAP-36 @ this PR head
 ```
 
-Protocol impact: P05; P26; P25: none — BotMCPHTTPServer.swift changes only the HTTP answer form of /mcp, no BotEvent is written or read differently; P27: none — PC Link is untouched, the listener file is shared but its PC paths are unchanged
+Protocol impact: P05; P26; P09: none — IPhoneAgentHost.swift gains one DEBUG recorder field, no page or copy changes; P25: none — BotMCPHTTPServer.swift changes only the HTTP answer form of /mcp, no BotEvent is written or read differently; P27: none — PC Link is untouched, the listener file and IPhoneAgentHost.swift are shared but their PC paths are unchanged
 
 P05 — native tool calls through the host egress may now carry an SSE body with keepalive comments (the gateway already streamed and sanitized event streams; a regression proves keepalives pass unchanged); GAP-36 records that `/mcp/native` still answers JSON only. P26 — the Bot MCP listener's `/mcp` answers a long single `tools/call` as SSE.
 
@@ -42,7 +42,10 @@ P05 — native tool calls through the host egress may now carry an SSE body with
 
 ## 4. 证据
 
-见 PR。
+- Swift：`swift test --filter 'BotMCPLongCallTests|BotMCPHTTPTests|BotMCPNativeForwardingTests'` → 15 passed（新增 5：共享决策表、常量、真实 HTTP 下慢调用 = SSE 头 + ≥1 个 keepalive + 恰好一个 message 事件且 data 为一行、快调用仍 JSON、不接受 SSE 的客户端仍 JSON）；`swift test --filter SensitiveSSEKeepaliveTests` → 2 passed（keepalive 经凭据过滤原样、即时转发；之后的 message 仍脱敏）。
+- `check.sh --only phone-spec,phone-cross-tree` → PASS；`protocol_impact.py` → PASS。
+- 设备（longshu 上的 iPhone，镜像到 PhoneAgent-7356）：Worker 的 MCP 客户端实际发送 `Accept: application/json, text/event-stream`（DEBUG 记录器），故超过 5 s 的调用都走 SSE；`iphone_agent_run` 17 s（打开设置）与 58 s（15 步）两次都把结果送回模型，模型据实报告。
+- 未验证：设备上超过 60 s 的单次调用（UI 代理 15 步上限约 60 s，造不出更长的真实调用；>60 s 由 HTTP 测试覆盖帧格式，空闲计时器以到达字节计）；`/mcp/native`（GAP-36）。
 
 ## 5. 修订纪录
 
