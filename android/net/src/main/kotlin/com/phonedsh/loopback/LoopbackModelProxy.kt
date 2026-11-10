@@ -34,6 +34,7 @@ import com.phonedsh.gateway.GatewayPaths
 import com.phonedsh.gateway.GatewayUrls
 import com.phonedsh.gateway.ModelEndpoint
 import com.phonedsh.gateway.ModelProtocolRoute
+import com.phonedsh.gateway.TonoCloudResponsePolicy
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -53,6 +54,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -74,6 +76,10 @@ class LoopbackModelProxy(
     private val readTimeoutMillis: Int = DEFAULT_READ_TIMEOUT_MILLIS,
     private val maxDurationMillis: Long = DEFAULT_MAX_DURATION_MILLIS,
     private val maxRequestBodyBytes: Long = DEFAULT_MAX_REQUEST_BODY_BYTES,
+    /** spec/v1/tono-account.md §5: which origins get the 401/503 inspection. */
+    private val cloudPolicy: TonoCloudResponsePolicy = TonoCloudResponsePolicy.PRODUCTION,
+    /** Waits for a `Retry-After`; tests record instead of sleeping. */
+    private val sleeper: suspend (Long) -> Unit = { millis -> delay(millis) },
 ) {
     /** Convenience form for a host that only has the configured base URL string. */
     constructor(
@@ -144,8 +150,9 @@ class LoopbackModelProxy(
             return
         }
         val scope = CredentialScope.of(target)
-        val credential = try {
-            credentialProvider.resolve(scope)
+        // A refreshable source (the tono-account session) may do network I/O.
+        var credential = try {
+            withContext(Dispatchers.IO) { credentialProvider.resolve(scope) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -159,20 +166,67 @@ class LoopbackModelProxy(
             )
             return
         }
-        val outbound = LinkedHashMap(requestHeaders.sanitize(callerHeaders(call)).headers)
+        val callerOutbound = LinkedHashMap(requestHeaders.sanitize(callerHeaders(call)).headers)
         // A Worker credential, whatever its spelling, never reaches the origin.
-        for (name in WORKER_CREDENTIAL_HEADERS) outbound.remove(name)
-        credential.applyTo(outbound)
+        for (name in WORKER_CREDENTIAL_HEADERS) callerOutbound.remove(name)
         // The body is streamed back verbatim, so the upstream must not compress it.
-        outbound["accept-encoding"] = "identity"
+        callerOutbound["accept-encoding"] = "identity"
 
-        val exchange = try {
-            withContext(Dispatchers.IO) { openUpstream(method, targetText + querySuffix(call), outbound, body) }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            respondFailure(call, 502, "transport_failure", "upstream", "the upstream request failed")
-            return
+        var credentialRetries = 0
+        var identityRetries = 0
+        // An inspected request is sent with a buffered body: the JDK connection
+        // drops a 401 body in fixed-length streaming mode (HttpRetryException),
+        // and §5 must read it. Every other request keeps streaming.
+        val inspected = cloudPolicy.applies(targetText)
+        var exchange: Exchange
+        while (true) {
+            val outbound = LinkedHashMap(callerOutbound)
+            credential.applyTo(outbound)
+            exchange = try {
+                withContext(Dispatchers.IO) {
+                    openUpstream(method, targetText + querySuffix(call), outbound, body, streamBody = !inspected)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                respondFailure(call, 502, "transport_failure", "upstream", "the upstream request failed")
+                return
+            }
+            // spec/v1/tono-account.md §5: the cloud origin's own rejections are
+            // re-sent with their own budgets; anything else keeps the surface below.
+            if (!cloudPolicy.inspects(targetText, exchange.status)) break
+            val answer = withContext(Dispatchers.IO) { readErrorBody(exchange) }
+            val decision = answer?.let { cloudPolicy.decide(targetText, exchange.status, exchange.headers, it) }
+                ?: TonoCloudResponsePolicy.Decision.Forward
+            when (decision) {
+                TonoCloudResponsePolicy.Decision.RefreshRetry ->
+                    if (credential.carriesSecret && credentialRetries < TonoCloudResponsePolicy.CREDENTIAL_RETRY_MAX) {
+                        credentialRetries++
+                        val rejected = credential
+                        val fresh = withContext(Dispatchers.IO) {
+                            credentialProvider.invalidate(rejected, scope)
+                            try {
+                                credentialProvider.resolve(scope)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                        if (fresh != null && fresh.carriesSecret && fresh.secretValues() != rejected.secretValues()) {
+                            exchange.close()
+                            credential = fresh
+                            continue
+                        }
+                    }
+                is TonoCloudResponsePolicy.Decision.RetryAfter ->
+                    if (identityRetries < TonoCloudResponsePolicy.IDENTITY_RETRY_MAX) {
+                        identityRetries++
+                        exchange.close()
+                        sleeper(decision.seconds * 1_000L)
+                        continue
+                    }
+                TonoCloudResponsePolicy.Decision.Forward -> Unit
+            }
+            break
         }
         try {
             when {
@@ -208,6 +262,7 @@ class LoopbackModelProxy(
         url: String,
         headers: Map<String, String>,
         body: ByteArray,
+        streamBody: Boolean = true,
     ): Exchange {
         val connection = try {
             URI(url).toURL().openConnection() as HttpURLConnection
@@ -225,7 +280,7 @@ class LoopbackModelProxy(
             }
             if (method == POST_METHOD) {
                 connection.doOutput = true
-                connection.setFixedLengthStreamingMode(body.size)
+                if (streamBody) connection.setFixedLengthStreamingMode(body.size)
                 connection.outputStream.use { it.write(body) }
             }
             val status = connection.responseCode
@@ -295,6 +350,18 @@ class LoopbackModelProxy(
                 }
             }
         }
+    }
+
+    /**
+     * Reads at most [TonoCloudResponsePolicy.INSPECT_BODY_LIMIT] + 1 bytes of an
+     * error answer; `null` when it could not be read. A longer body decides
+     * `Forward` in the policy.
+     */
+    private fun readErrorBody(exchange: Exchange): ByteArray? = try {
+        val stream = exchange.connection.errorStream ?: exchange.connection.inputStream
+        stream?.use { it.readNBytes(TonoCloudResponsePolicy.INSPECT_BODY_LIMIT + 1) } ?: ByteArray(0)
+    } catch (_: Exception) {
+        null
     }
 
     // ---------------------------------------------------------------- request

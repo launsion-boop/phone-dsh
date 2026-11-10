@@ -267,6 +267,16 @@ PATH_PROJECTIONS['P08']['evidence'].extend(['android/tools/structure_check.py', 
 PATH_PROJECTIONS['P12']['evidence'].extend(['android/tools/structure_check.py', 'android/tools/test_structure_check.py'])
 PATH_PROJECTIONS['P18']['authority'].append('harmony/entry/src/main/ets/host/HostPersistence.ets')
 PATH_PROJECTIONS['P18']['authority'].append('spec/device/v1/legacy-identity-preferences.md')
+# tono-account user credential (PC-20261108-tono-account-login): one clause, two contracts.
+PATH_PROJECTIONS['P05']['authority'].extend(['spec/v1/tono-account.md', 'spec/v1/golden/tono-account'])
+PATH_PROJECTIONS['P05']['ends']['Swift'].append('Sources/PhoneDSH/TonoAccount')
+PATH_PROJECTIONS['P05']['evidence'].extend(['Tests/PhoneDSHGatewayTests/TonoCloudResponsePolicyTests.swift',
+                                            'android/net/src/test/kotlin/com/phonedsh/account/TonoAccountCasesTest.kt'])
+PATH_PROJECTIONS['P18']['authority'].append('spec/v1/tono-account.md')
+PATH_PROJECTIONS['P18']['ends']['Swift'].append('Sources/PhoneDSH/TonoAccount')
+PATH_PROJECTIONS['P18']['ends']['Kotlin'] = ['android/net/src/main/kotlin/com/phonedsh/account']
+PATH_PROJECTIONS['P18']['evidence'].extend(['Tests/PhoneDSHTests/TonoAccountSessionTests.swift',
+                                            'android/net/src/test/kotlin/com/phonedsh/account/TonoAccountSessionTest.kt'])
 PATH_PROJECTIONS['P18']['ends']['Swift'].append('Sources/PhoneDSHBLE/BLEIdentity.swift')
 PATH_PROJECTIONS['P18']['evidence'].append('Tests/PhoneDSHBLETests/BLEIdentityTests.swift')
 PATH_PROJECTIONS['P07']['authority'].append('spec/device/v1/ble-secure-session.md')

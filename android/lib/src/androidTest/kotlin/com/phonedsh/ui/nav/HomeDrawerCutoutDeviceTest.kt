@@ -47,32 +47,24 @@ class HomeDrawerCutoutDeviceTest {
     val compose = createAndroidComposeRule<ScreenshotActivity>()
 
     @Test
-    fun drawerPanelMeasures320DpAndFooterSettingsIsVisibleAndTouchReachable() {
-        val settingsOpened = AtomicInteger()
+    fun drawerPanelMeasures320DpAndHasNoSettingsFooter() {
         mount(
             facts = HomeDrawerFacts(
                 folders = listOf(HomeDrawerFolder("folder-a", "Research")),
                 unassignedSessions = emptyList(),
                 engine = HomeDrawerEngineState.READY,
             ),
-            onOpenSettings = { settingsOpened.incrementAndGet() },
         )
         val panel = compose.onNodeWithTag(HomeDrawerTags.PANEL)
         panel.assertIsDisplayed()
-        compose.onNodeWithTag(HomeDrawerTags.SETTINGS).assertIsDisplayed()
-        compose.onNodeWithText("设置").assertIsDisplayed()
+        // PR #60: the drawer's pinned 设置 bar is gone; settings is the 我的 tab.
+        compose.onNodeWithText("设置").assertDoesNotExist()
 
         val density = compose.activity.resources.displayMetrics.density
         val screen = compose.activity.resources.displayMetrics
         val panelBounds = panel.fetchSemanticsNode().boundsInRoot
-        val settingsBounds = compose.onNodeWithTag(HomeDrawerTags.SETTINGS).fetchSemanticsNode().boundsInRoot
         assertEquals("drawer panel must be the source's 320pt width", 320f, panelBounds.width / density, 1f)
-        assertTrue("footer settings must fit inside the panel", settingsBounds.bottom <= panelBounds.bottom)
-        savePanelEvidence(panelBounds, settingsBounds, screen.widthPixels, screen.heightPixels, density)
-
-        // Route through the actual touch target, not a semantics click.
-        compose.onNodeWithTag(HomeDrawerTags.SETTINGS).performTouchInput { click() }
-        compose.runOnIdle { assertEquals(1, settingsOpened.get()) }
+        savePanelEvidence(panelBounds, screen.widthPixels, screen.heightPixels, density)
     }
 
     @Test
@@ -218,7 +210,7 @@ class HomeDrawerCutoutDeviceTest {
         compose.onNodeWithTag(sessionTag).performTouchInput { longClick() }
         compose.onNodeWithText("归档").performTouchInput { click() }
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("已归档，可在 设置 › 已归档会话 里找回").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("已归档，可在 我的 › 已归档会话 里找回").fetchSemanticsNodes().isNotEmpty()
         }
         assertEquals(2, archiveRequests.size)
         assertEquals("session-9", archiveRequests.last().sessionId)
@@ -240,7 +232,6 @@ class HomeDrawerCutoutDeviceTest {
         onArchiveSession: HomeDrawerArchiveAction? = null,
         onCreateSessionInFolder: (suspend (String) -> Boolean)? = null,
         onRetry: (() -> Unit)? = null,
-        onOpenSettings: (() -> Unit)? = null,
     ) {
         compose.setContent {
             PdshTheme(darkTheme = true) {
@@ -253,7 +244,6 @@ class HomeDrawerCutoutDeviceTest {
                         onArchiveSession = onArchiveSession,
                         onCreateSessionInFolder = onCreateSessionInFolder,
                         onRetry = onRetry,
-                        onOpenSettings = onOpenSettings,
                     )
                 }
             }
@@ -263,7 +253,6 @@ class HomeDrawerCutoutDeviceTest {
 
     private fun savePanelEvidence(
         panelBounds: androidx.compose.ui.geometry.Rect,
-        settingsBounds: androidx.compose.ui.geometry.Rect,
         widthPx: Int,
         heightPx: Int,
         density: Float,
@@ -275,7 +264,6 @@ class HomeDrawerCutoutDeviceTest {
             """screen=${widthPx}x$heightPx density=$density
 panelBoundsPx=$panelBounds
 panelWidthDp=${panelBounds.width / density}
-settingsBoundsPx=$settingsBounds
 """,
         )
         val bitmap: Bitmap = compose.onNodeWithTag(HomeDrawerTags.PANEL).captureToImage().asAndroidBitmap()

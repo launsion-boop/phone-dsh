@@ -895,7 +895,13 @@ private fun LazyListScope.issuesBlock(state: DailyBriefScreenState) {
     }
 }
 
-/** The baseline's add-source form: two fields, the footer and two actions. */
+/**
+ * The baseline's add-source form: two fields, the footer and 添加.
+ *
+ * PR #60 removed the editor's 取消 (`DailyBriefPage.swift:213`): the sheet is
+ * dismissed by its own gesture. The bottom sheet's swipe, scrim tap and system
+ * back are that gesture here ([onDismiss]).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddSourceDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
@@ -951,12 +957,6 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Un
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.testTag(UiPageTags.BRIEF_SOURCE_ADD_CANCEL),
-                ) {
-                    Text(text = UiStrings.DAILY_BRIEF_CANCEL)
-                }
                 TextButton(
                     onClick = { onAdd(name, url) },
                     enabled = url.isNotBlank(),

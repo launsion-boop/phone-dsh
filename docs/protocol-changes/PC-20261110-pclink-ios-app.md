@@ -15,12 +15,12 @@ contract_revision: spec/ui/v1/pages/home-drawer.json@pclink-d2-r1
 ## 1. 識別與角色
 
 - 具體 trigger → 現況 → 期望：
-  - **P09**：`HomeDrawer` 只有手機工作區；新增「手機 | PC」分段、PC 未配對／離線空狀態、配對頁、已連接的電腦頁、PC 能力隱藏與版本提示。Android 無對應實作，按 GAP-34 只記錄。
+  - **P09**：`HomeDrawer` 只有手機工作區；新增「手機 | PC」分段、PC 未配對／離線空狀態、配對頁、已連接的電腦頁、PC 能力隱藏與版本提示。Android 無對應實作，按 GAP-35 只記錄。
   - **P18**：會話、草稿、標題提示、轉錄快照與收合文件夾仍以裸 `sessionID` 儲存；PC 與手機可能出現同 ID。改為 `<BackendID.storageScope>／<sessionID>`，並新增 `phone-dsh.drawer.backend`（`phone`/`pc`，缺省 `phone`）。舊資料一次性複製到 `phone`，舊鍵保留。
   - **P28**：不修改 `spec/pclink/**`；App 以現有 `PCLinkClient`／`RelayDSHTransport`／`DSHRemoteHarness` 接線。
 - 協調者兼 contract owner（P09/P18/P28 本單）：iOS D2 實作者。
 - Owning spec：P09 `spec/ui/v1/README.md`、`spec/ui/v1/pages/**`、`spec/ui/v1/tokens.json`；P18 `spec/README.md` §3.1 P18 行；P28 `spec/pclink/v1/README.md`（本單只消費）。
-- 受影響 producer／consumer：iOS App（consumer，`examples/probe-app/**`）；Android（未實作，GAP-34）；PC plugin／relay（不改，既有 consumer）。
+- 受影響 producer／consumer：iOS App（consumer，`examples/probe-app/**`）；Android（未實作，GAP-35）；PC plugin／relay（不改，既有 consumer）。
 
 ## 2. 契約 delta
 
@@ -48,7 +48,7 @@ contract_revision: spec/ui/v1/pages/home-drawer.json@pclink-d2-r1
 
 - P18 權威登記：`spec/README.md` §3.1 P18 行（`phone-dsh.drawer.backend` 值域、`<scope>／<sessionID>` 鍵、遷移與回滾）。
 - P09：`spec/ui/v1/pages/home-drawer.json`（手機／PC actions）、新增 `pc-pairing.json`、`connected-computer.json`、`settings` 的「已連接的電腦」action；`spec/ui/v1/README.md` §1 頁面清單補兩個新頁。
-- GAP-34：`spec/README.md` §7 如實登記 **12 + 5 = 17** 處基線外差異（見 §4.4）。
+- GAP-35：`spec/README.md` §7 如實登記 **12 + 5 = 17** 處基線外差異（見 §4.4）。
 - 產生器鏡像：`spec/registry.json` 由 `registry_build.py --write` 重新產生（P18 row 變更的必要鏡像；超出「只改 spec/README.md + spec/ui」的字面路徑清單，見 §4.7 範圍說明）。
 
 ### 4.2 實現端與路徑
@@ -78,12 +78,14 @@ contract_revision: spec/ui/v1/pages/home-drawer.json@pclink-d2-r1
 - Bot runtime、`DeviceTaskManager`、設備會話、MCP/模型/Agent 預設仍固定手機；設定頁在 PC 分段顯示「這些設定屬於手機」的 safe-area 提示。
 - PC 產物引用走 `openWorkspaceResult` 的 `localFilePreview == false` 分支，只提示「在電腦上」。
 
-### 4.4 GAP-34 實際新增
+### 4.4 GAP-35 實際新增
+
+> 本節是 D2 當時（main `da10d7466` 之前）的記錄。合入 `a3e41f853`（#69、#70）後的新數字與逐條歸屬見 §4.13.2；舊「12 + 5 = 17」已被 **1 + 6 = 7** 取代。
 
 `python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` → **FAIL (17)**：
 
 - 既有 12 處：`connectors` missing-section；`daily-brief` extra-action「取消」；`files` missing-action「完成」；`home-drawer` extra-action「設置」；`native-automation` missing-action「完成」；`session-artifacts` extra-action「完成」；`settings` 2 missing-section + 4 missing-action。
-- 本單新增 5 處（全部在 GAP-34）：
+- 本單新增 5 處（全部在 GAP-35）：
   1. `home-drawer` missing-action「手機」；
   2. `home-drawer` missing-action「PC」；
   3. `pc-pairing` missing-section `<android-screen>`；
@@ -105,7 +107,7 @@ contract_revision: spec/ui/v1/pages/home-drawer.json@pclink-d2-r1
 | ADAPTED `simctl spawn … xctest -XCTest PCLinkWorkspaceSimTests,ProbeKitHistoryTests,ProbeKitManagementTests,ProbeKitBackendTests,MessageFeedbackTests,ChatInputRecoveryTests,NativeChatPresentationTests,ChatWorkflowTests,ChatEventPumpTests,ComposerQueueTests,ProbeScenePhaseForwardingTests,PhoneAudioSessionLeaseTests` | **PASS** 79 tests, 0 failures（含新增 9 個） | `/tmp/pclink-d2-xctest-final.log` |
 | `python3 -B spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | 終端 |
 | `python3 -B spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (…13 contrast pairs…)` | 終端 |
-| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-34 新增 5 | `/tmp/pclink-d2-pagecheck-final.txt` |
+| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-35 新增 5 | `/tmp/pclink-d2-pagecheck-final.txt` |
 | `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main) bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance` | `phone-spec` **PASS**；`phone-cross-tree` **PASS**；`phone-p0-conformance` **FAIL**，唯一失敗是上述 17 處 page-structure | `/tmp/pclink-d2-ci-final.log` |
 
 ### 4.5.1 pclink-fix1 修復驗證（本次）
@@ -124,7 +126,7 @@ contract_revision: spec/ui/v1/pages/home-drawer.json@pclink-d2-r1
 | ADAPTED `simctl spawn … xctest -XCTest PCLinkWorkspaceSimTests,ProbeKitHistoryTests,…,PhoneAudioSessionLeaseTests` | **PASS** 80 tests, 0 failures（含新增 pairing-stream 1 個） | `/tmp/pclink-fix1-xctest-final.log` |
 | `python3 -B spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | 終端 |
 | `python3 -B spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (…13 contrast pairs…)` | 終端 |
-| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-34 5，與 §4.4 完全一致（pc-pairing / connected-computer 之名稱因 provenance 重新產生而變，條數不變） | `/tmp/pclink-fix1-ci-p0.log` |
+| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-35 5，與 §4.4 完全一致（pc-pairing / connected-computer 之名稱因 provenance 重新產生而變，條數不變） | `/tmp/pclink-fix1-ci-p0.log` |
 | `CI_PROTOCOL_BASE=627aed351484f98fc9e29c4f238937e6c818c8cf PDSH_NODE=/tmp/node24/bin/node bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-sdk,phone-modules` | `phone-spec` **PASS**、`phone-cross-tree` **PASS**、`phone-p0-conformance` **FAIL**（僅上述 17 處 page-structure）、`phone-modules` **PASS**、`phone-sdk` **FAIL（宿主限制，非 PhoneWire SKIP）**：`swift test` 的 SwiftPM manifest 呼叫 `sandbox-exec` 被宿主拒絕（`sandbox_apply: Operation not permitted`），與 §4.5 的「SwiftPM 需 `-disable-sandbox`」一致；同一工作樹的 `swift test --disable-sandbox --filter PhoneDSHPCLinkTests` 已 **PASS** | `/tmp/pclink-fix1-ci-final.log`：`CI GATE: FAIL`，唯一非預期失敗是 phone-sdk 的宿主 sandbox |
 
 ### 4.6 真實三端 E2E（模擬器 + 本機中繼 + 真 DSH 0.2.2）
@@ -249,7 +251,7 @@ Base `2fc4dbf29`，分支 `fix/pclink-f2-swift`，脏工作树，未 commit。�
 | ADAPTED `simctl spawn … xctest -XCTest PCLinkWorkspaceSimTests,ProbeKitHistoryTests,ProbeKitManagementTests,ProbeKitBackendTests,MessageFeedbackTests,ChatInputRecoveryTests,NativeChatPresentationTests,ChatWorkflowTests,ChatEventPumpTests,ComposerQueueTests,ProbeScenePhaseForwardingTests,PhoneAudioSessionLeaseTests` | **PASS** 89 tests, 0 failures | `/tmp/pclink-f2-simtests-final.log` |
 | `python3 -B spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | `/tmp/pclink-f2-extract-check3.log` |
 | `python3 -B spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (13 contrast pairs, 6 deferred AA pairs…)` | `/tmp/pclink-f2-ui-check3.log` |
-| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-34 的 5，与 §4.4 一致 | `/tmp/pclink-f2-page-check3.log` |
+| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-35 的 5，与 §4.4 一致 | `/tmp/pclink-f2-page-check3.log` |
 
 **NOT_RUN**：真实 relay + 真 DSH 的三端 E2E（本轮未重跑）、真机 Keychain/相机、公网 WSS、`xcodebuild test`（改用同 bundle 的 `simctl spawn`）、Release 配置的独立构建。**ADAPTED**：xcodebuild 走本机模拟器与 `-disable-sandbox`；`simctl spawn` 为同 bundle 的既有回退路径。`Package.resolved` 被 Xcode 改写后已按 HEAD 恢复，未纳入改动。
 
@@ -294,7 +296,7 @@ PC 新會話的工作區選擇需要記住「上次使用的工作區」，這�
 - **分段位置**：`HomeDrawer.body` 的「手机 | PC」由「新会话」上方移到下方；
   `pages/home-drawer.json` 的 `sectionNote`、`source.renderedFrom`、action
   provenance 與 note 同步；`spec/ui/v1/README.md` §1 抽屜描述同步。Android
-  仍無 PC 分段，差異留在 GAP-34，`page_structure_check --baseline` 仍為
+  仍無 PC 分段，差異留在 GAP-35，`page_structure_check --baseline` 仍為
   **17**（不新增 baseline/whitelist）。
 - **抽屜讀取狀態**：PC 分段在 `session/list` 進行中顯示「正在读取 PC
   会话…」；失敗時顯示既有錯誤列（訊息 + 重試），且不再落到「还没有 PC
@@ -320,7 +322,7 @@ PC 新會話的工作區選擇需要記住「上次使用的工作區」，這�
   工作區時建立一個新的空白 DSH 會話（空白會話不能在工作區間移動）。第一個
   回合後只顯示目前工作區、無選單。手機分段不顯示。實現為
   `PCWorkspaceMenu` 同檔 sibling view；未新增可比較的 Android action，
-  避免把 page-structure ratchet 從 17 變成 18（Android 對等由 GAP-34 追蹤）。
+  避免把 page-structure ratchet 從 17 變成 18（Android 對等由 GAP-35 追蹤）。
 - **安裝引導**：`PCLinkInstallGuide`（`ProbeKit/Backends/PCLinkRelayConfiguration.swift`，
   與中繼 origin 同一個配置點）提供唯一命令字串；PC 未配對空狀態與
   `PCPairingPage` 都渲染同一個 `PCPluginInstallGuide`（等寬命令 + 複製按鈕，
@@ -339,13 +341,13 @@ PC 新會話的工作區選擇需要記住「上次使用的工作區」，這�
 | --- | --- | --- |
 | `python3 -B spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | `/tmp/pclink-pacing-extract-check.log` |
 | `python3 -B spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (…)` | `/tmp/pclink-pacing-ui-check.log` |
-| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-34 的 5，未新增 | `/tmp/pclink-pacing-page-check.txt` |
+| `python3 -B spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (17)**：既有 12 + GAP-35 的 5，未新增 | `/tmp/pclink-pacing-page-check.txt` |
 | ADAPTED `xcodegen generate` + `xcodebuild -scheme PhoneDSHProbe ... build` | **PASS** `** BUILD SUCCEEDED **` | `/tmp/pclink-pacing-build.log` |
 | ADAPTED `xcodebuild -scheme PhoneDSHSim ... build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/pclink-pacing-buildtests.log` |
 | ADAPTED `simctl spawn … xctest -XCTest <13 classes>` | **PASS** 94 tests, 0 failures（含新增 `PCLinkPacingSimTests` 5 個） | `/tmp/pclink-pacing-simtests.log` |
 | 臨時 `DSH_HOME`：`dsh plugin --profile web add 'github:launsion-boop/phone-dsh#fd2b97e980956bb1206cd5c5203a51cc32786764&path:/pclink'` | **PASS**：pnpm 安裝 `dsh-pclink`、profile `node_modules/.bin/pclink` 存在、`dsh web`（臨時 home，port 3282）載入插件並連上 port 3280 中繼；`pclink status` 顯示 connected；PhonePeer 以 admin 審批配對後 handshake、`session/list`、`session/create` 均成功 | `/tmp/pclink-install.log`、`/tmp/pclink-install-dsh.log` |
 
-**NOT_RUN**：真機 Keychain/相機、公網 WSS、Android 端（GAP-34）。截圖見 §4.11.2。
+**NOT_RUN**：真機 Keychain/相機、公網 WSS、Android 端（GAP-35）。截圖見 §4.11.2。
 
 #### 4.11.2 截圖
 
@@ -383,7 +385,7 @@ PC 新會話的工作區選擇需要記住「上次使用的工作區」，這�
 | `spec/ui/v1/pages/home-drawer.json` | 原因行固定高度、`newSessionDisabled` 条件、`errorMessage` 抑制、`switchingSessionID` failure 条件 | `手机`/`PC` action、配对 sheet、PC 空态 | 以 D2 的手写契约结构为底，叠加 main 的语义，再按 `anchor` 机械刷新全部 `HomeDrawer.swift:line`；未改 `_baseline.json`/whitelist |
 | `spec/ui/v1/tokens.json` | `textSubtle`/`navSubtitle` 改为页面/抽屉弱化文字（title-only 后聊天页头不再有副标题）；`textSubtle/page` 对比度站点改 `HomeSpec.swift:34`；大量行号 | D2 的行号更新 | 采用 main 的语义，所有 `file:line`（含 notes/sites）用 main→合并树的机械行映射刷新，再按 `ui_check.py` 的 expect/值判据逐条校验；`ui_check` PASS |
 
-main 的其余改动（Bot 卡片/鱼渲染缓存、Android P09 行、`plugins/wasi-toolbox/git`、worker-entry、bot-ui 脚本等）自动合并且已复核未覆盖 D2 目录；`spec/README.md` 在 `da10d7466` 上**没有** main 侧改动，D2 的 GAP-34 条目原样保留（main 无 GAP 行可合并）。
+main 的其余改动（Bot 卡片/鱼渲染缓存、Android P09 行、`plugins/wasi-toolbox/git`、worker-entry、bot-ui 脚本等）自动合并且已复核未覆盖 D2 目录；`spec/README.md` 在 `da10d7466` 上**没有** main 侧改动，D2 的 GAP-35 条目原样保留（main 无 GAP 行可合并）。
 
 #### 4.12.2 编译必需的模块迁移
 
@@ -416,7 +418,7 @@ main 的 `NativeTranscriptProjector` 改为调用 `NativeDiffLineCountsCache`，
 | ADAPTED `xcodebuild -scheme PhoneDSHProbe … build CODE_SIGNING_ALLOWED=NO`（`/tmp/pclink-merge-dd`、`CFFIXED_USER_HOME=/tmp/pclink-merge-home`、`-disable-sandbox`） | **PASS** `** BUILD SUCCEEDED **` | `/tmp/pclink-merge-xcodebuild-final.log` |
 | ADAPTED `xcodebuild -scheme PhoneDSHSim … build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/pclink-merge-buildtests-final.log` |
 | ADAPTED `simctl spawn … xctest -XCTest` 13 个 PCLink 类 + 10 个 main 新增/修改类（`PCLinkWorkspaceSimTests,ProbeKitHistoryTests,ProbeKitManagementTests,ProbeKitBackendTests,MessageFeedbackTests,ChatInputRecoveryTests,NativeChatPresentationTests,ChatWorkflowTests,ChatEventPumpTests,ComposerQueueTests,ProbeScenePhaseForwardingTests,PhoneAudioSessionLeaseTests,UnpairedPCHeaderStructureTests,ChatBackoffRetryTests,ChatSessionReloadTests,HeavyOperationHintTests,HomeDrawerNewSessionPolicyTests,LogRedactionTests,NativeRenderPerformanceTests,NativeStreamAccumulatorTests,ResourceLevelTests,WorkspaceFileIndexTests,WorkspaceFileRefreshTests`） | **PASS** 169 tests, 0 failures | `/tmp/pclink-merge-simtests-final.log` |
-| `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main) PDSH_NODE=/tmp/node24/bin/node bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-modules` | `phone-spec` **PASS**；`phone-cross-tree` **PASS**；`phone-modules` **PASS**；`phone-p0-conformance` **FAIL**，唯一原因是 `page-structure: FAIL (17)`（既有 12 + GAP-34 5，全部已逐条登记，未加 whitelist/未改 `_baseline.json`） | `/tmp/pclink-merge-ci.log`、`/tmp/pclink-merge-pagestructure3.log` |
+| `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main) PDSH_NODE=/tmp/node24/bin/node bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-modules` | `phone-spec` **PASS**；`phone-cross-tree` **PASS**；`phone-modules` **PASS**；`phone-p0-conformance` **FAIL**，唯一原因是 `page-structure: FAIL (17)`（既有 12 + GAP-35 5，全部已逐条登记，未加 whitelist/未改 `_baseline.json`） | `/tmp/pclink-merge-ci.log`、`/tmp/pclink-merge-pagestructure3.log` |
 | `python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date` | 终端 |
 | `python3 spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (5 files, 13 contrast pairs, 6 deferred AA pairs, 1 unmeasured tokens, 0 unmeasured surface items, 50 geometry tokens)` | 终端 |
 | `cd relay && npm test` | **PASS** 65 tests, 0 fail | `/tmp/pclink-merge-relay-test.log` |
@@ -427,7 +429,7 @@ main 的 `NativeTranscriptProjector` 改为调用 `NativeDiffLineCountsCache`，
 #### 4.12.5 已知缺口与剩余风险
 
 1. **合并目标固定为 `da10d7466`**：本会话运行期间 `origin/main` 又被其他 worker 推进（观察到的 `43013ec`＝PR #69，随后远端为 `a3e41f8`）。本单元严格按任务冻结的 `da10d7466` 合并；更新的 main（含 Android PR #69 的 5 个新文件与 `spec/README` GAP-33 关闭）**未合入**，由协调者决定是否再合一次。差异不是本合并丢文件：`da10d7466` 的 35 个新增文件全部在合并结果中。
-2. **`page_structure_check` 17 处**：既有 12（connectors、daily-brief、files、home-drawer 设置、native-automation、session-artifacts、settings 2 sections + 4 actions）+ D2/GAP-34 5（home-drawer 手机/PC、pc-pairing/connected-computer、settings 已连接的电脑）；与 §4.4 完全一致，未关闭、未新增。
+2. **`page_structure_check` 17 处**：既有 12（connectors、daily-brief、files、home-drawer 设置、native-automation、session-artifacts、settings 2 sections + 4 actions）+ D2/GAP-35 5（home-drawer 手机/PC、pc-pairing/connected-computer、settings 已连接的电脑）；与 §4.4 完全一致，未关闭、未新增。
 3. **PC 副标题移除**：main #77 的 title-only 与 D2 的 PC 副标题直接冲突，取 main 的标题修复；PC 工作区名仍在抽屉分段与 `PC 工作区 · <电脑名>` 分组。不是信息丢失，但 PC 聊天页头不再显示文件夹副标题。
 4. **模块迁移**：`NativeBoundedCache`/`NativeStableHash`/`NativePerfCounters`/`NativeDiffCache` 从 `PhoneDSHProbe/` 移到 `ProbeKit/Perf/`，公开 API 比 main 宽（App+测试需要）。若后续有文件按旧路径引用，`project.yml` 的测试 target 列表已同步移除；单一共享实例不变。
 5. **未验证**：真实设备、真机 Keychain/相机、公网 WSS、真实 relay+DSH 三端 E2E（本轮未重跑，§4.6.1 的旧证据仍是上一单元）；UI 截图验收未重跑。`xcodebuild test` 仍以同 bundle 的 `simctl spawn` 替代。
@@ -443,13 +445,86 @@ Protocol impact: P09; P18; P27: none — #75 only renders and caches Bot cards u
 
 理由：P09 是 `spec/ui/v1/**` 重新生成与 `home-drawer`/`tokens` 合并；P18 是把 main 新引入的裸当前会话键改回 scoped API 并确认 PC 不误扫/误测；其余为合并带入的既有实现，wire 契约不变。契约 revision 保持 `pclink-v1.3`。
 
+### 4.13 合入 main a3e41f853（#69、#70，merge-only）
+
+**範圍**：`git merge --no-ff --no-commit origin/main`（`origin/main` = `a3e41f853`，merge base `da10d7466`，分支 head `7c7a14f04`），只做合併、不加功能、不 commit；合併狀態留給協調者。8 個衝突檔：`spec/README.md`、`spec/registry.json`、`spec/ui/v1/pages/{archived-sessions,conversation-settings,font-size-settings,licenses,permission-defaults,settings}.json`；`examples/probe-app/PhoneDSHProbe/SettingsPage.swift`、`spec/ui/v1/README.md`、`spec/tools/{cross_check,registry_build}.py` 為自動合併，逐項複核後保留雙方語義。
+
+#### 4.13.1 衝突處置
+
+| 檔案 | main（a3e41f853） | feat/pclink | 合併方式與理由 |
+| --- | --- | --- | --- |
+| `spec/README.md` §3 P18 | 權威欄新增 `tono-account` 會話記錄（`spec/v1/tono-account.md` §3） | D2 `phone-dsh.drawer.backend`、scoped 鍵與 v1.5 `phone-dsh.pc.last-workspace.<machineId>` | 兩邊條目都保留：權威欄採 main，evidence 欄保留 PCLink D2/v1.5 追加句；沒有刪除任一端的契約 |
+| `spec/README.md` §7 GAP | GAP-33 關閉（#69），並新增 tono-account 上游細節 GAP-34 | GAP-33 僅記錄、GAP-35 = PCLink Android 抽屜 PC 工作區 | GAP-33 採 main 的關閉記錄；main 已發布的 tono-account **GAP-34 保持不變**（`spec/v1/tono-account.md` 與 `PC-20261108-tono-account-login.md` 與 origin/main 一致）；PCLink 的 Android 抽屜 PC 工作區條目與其編號衝突，改為 **GAP-35**（§4.13.2 的 page-structure 6 條同屬 GAP-35） |
+| `spec/README.md` §3 P05/P28 | P05 加入 tono-account 權威與 golden | P28 PCLink 列（main 無此列） | P05/P28 由自動合併保留；P28 列與 §4 trigger 仍以 `spec/pclink/v1/**` 為準，本輪不改 PCLink 契約 |
+| `spec/registry.json` | — | — | 不手工拼接；先解決 README，再 `python3 spec/tools/registry_build.py --root . --write` 重建（28 contracts、484 path/glob refs），`--check` 與 `registry_check.py` 均 PASS |
+| `spec/ui/v1/pages/*.json`（6 個衝突檔） | #69 的 SettingsPage 重構 provenance | PCLink 的 PC 頁與 action | 不手工拼 provenance；由 `extract_ios_pages.py --root .` 從合併後 Swift 整體重生成，`--check` PASS。`settings.json` 同時含 PCLink `已连接的电脑` 與 #70 `Tono 账号` 入口 |
+| `SettingsPage.swift`（自動合併） | #69 `SettingsPageMode`、新的我的/設置分組；#70 `Tono 账号` link | D2 `已连接的电脑` + `connectedComputerValue` | 自動合併保留兩者：`modelsSection(includesProviders:)` 的 Tono 账号（sheet）與 `tabSections` 的已连接的电脑（我的）；`spec/ui/v1/README.md` 同時保留兩個頁面描述 |
+| `spec/tools/*`（自動合併） | #70 的 tono golden reader / registry projections | P28 的 pclink golden reader / projections | 雙方新增項都保留，無重複 ID；由 phone-spec/phone-cross-tree 驗證 |
+
+> GAP 編號：main 的 tono-account GAP-34 已發布、編號不改；PCLink 的 Android 抽屜 PC 工作區條目與其編號衝突，PCLink 條目改為 GAP-35。本單歷史記錄中的 PCLink 條目編號已同步改為 GAP-35。
+
+#### 4.13.2 GAP-35 與 page-structure 實測
+
+`python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` → **FAIL (7)**，即 main 既有剩餘 **1** 處 + GAP-35 的 PCLink 條目 **6** 處：
+
+| 歸屬 | 差異 | 條數 |
+| --- | --- | --- |
+| GAP-32(d)（main 既有） | `files` missing-action「完成」 | 1 |
+| GAP-35（PCLink） | `home-drawer` missing-action「手机」 | 1 |
+| GAP-35（PCLink） | `home-drawer` missing-action「PC」 | 1 |
+| GAP-35（PCLink） | `pc-pairing` missing-section `<android-screen>` | 1 |
+| GAP-35（PCLink） | `connected-computer` missing-section `<android-screen>` | 1 |
+| GAP-35（PCLink） | `settings` missing-action「已连接的电脑」 | 1 |
+| GAP-35（PCLink） | `settings` missing-section「已连接的电脑」（該分組 first-clickable-row 判據行） | 1 |
+
+#69 已關閉 GAP-33 的 11 處，並補齊舊 GAP-32/GAP-35 文字列出的 `connectors`、`daily-brief`、`session-artifacts`、`native-automation`、`home-drawer`「设置」、`settings` 兩個 section 與四個 action；因此舊 GAP-35 的「12 + 5 = 17」不再成立。#69 後 Android `settings` 已有「Phone DSH」section，舊文字預期的「Phone DSH」missing-section 也不再成立；目前 `settings` 只差 PCLink 的「已连接的电脑」判據行與 action。GAP-35 文字已如實更新為 **1 + 6 = 7**；未加 whitelist、未改 `_baseline.json`。
+
+#### 4.13.3 #70 tono-account 的 P18 檢查（不合併即靜默的項目）
+
+- **持久化粒度**：`spec/v1/tono-account.md` §3 規定「one session per app install」。iOS 用 Keychain service `dev.phone-dsh.tono-account`、account `session`；Android 用 `SecureStore` key `tono-account.session`。沒有 `sessionID`、`BackendID` 或 `pc:<machineId>` 維度，因此不屬於 P18 D2 的 per-backend/per-session scoping，也不需要新增或遷移 PCLink 的 `phone-dsh.*` 鍵。合併後 `phone-dsh.drawer.backend`、`phone-dsh.pc.last-workspace.<machineId>` 與 tono session 三者互不覆寫。
+- **設定頁入口**：`Tono 账号` 只在 `SettingsPage.modelsSection(includesProviders: true)`（settings sheet）出現；`已连接的电脑` 在「我的」tab 的 `tabSections`。`settings.json` 由提取器同時收錄兩者，沒有把其中一個當成另一個的替代。
+- **「這些設置屬於手機」頁頭**：`PhoneOwnedSettingsNotice` 只掛在 `ModelProviderSettingsPage`、`MCPSettingsPage`、`NativeAgentPresetsPage` 三個「編輯手機 DSH 設定」的頁面；settings index 與 `TonoAccountPage` 沒有該 notice。Tono 賬號是 App 級憑據（登入後取代手機雲端模型/網頁搜索的 API key），不讀寫 PC backend 或 PC DSH 設定，因此不是 PC backend 的「屬於手機」頁頭衝突。**結論：不需要按 P18 新增 scope/遷移或改頁頭**；若日後把該入口移到 PC 工作區表面，必須同時補 notice 與 P09 契約，屆時另立變更單。
+- **已驗證**：`swift test --filter 'TonoAccountSessionTests|TonoCloudResponsePolicyTests'` PASS 17 tests（13 + 4）；Android 端只由 #70 的 Kotlin 測試覆蓋，本輪未跑 Gradle（見 §4.13.5）。
+
+#### 4.13.4 命令 → 結果（本輪實跑）
+
+| 命令 | 結果 | 證據 |
+| --- | --- | --- |
+| `swift build --disable-sandbox` | **PASS** `Build complete! (25.28s)` | `/tmp/pclink-mm2-swift-build.log` |
+| `swift test --disable-sandbox --filter PhoneDSHPCLinkTests` | **PASS** 70 tests, 1 skipped, 0 failures | `/tmp/pclink-mm2-swift-test-pclink.log` |
+| `swift test --disable-sandbox --filter 'TonoAccountSessionTests\|TonoCloudResponsePolicyTests'` | **PASS** 17 tests, 0 failures（#70 新增的 iOS 測試類；它們在 SwiftPM target，不在 simulator bundle） | `/tmp/pclink-mm2-swift-test-tono.log` |
+| `cd examples/probe-app && xcodegen generate` | **PASS** | `/tmp/pclink-mm2-xcodegen.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHProbe … build CODE_SIGNING_ALLOWED=NO`（`/tmp/pclink-mm2-dd`、`CFFIXED_USER_HOME=/tmp/pclink-mm2-home`、`OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox`） | **PASS** `** BUILD SUCCEEDED **` | `/tmp/pclink-mm2-xcodebuild.log` |
+| ADAPTED `xcodebuild -scheme PhoneDSHSim … build-for-testing` | **PASS** `** TEST BUILD SUCCEEDED **` | `/tmp/pclink-mm2-xcodebuild-tests.log` |
+| ADAPTED `simctl spawn <udid> xctest -XCTest <24 classes>`（上輪 24 類；#70 沒有新增 simulator 測試類） | **PASS** 174 tests, 0 failures | `/tmp/pclink-mm2-simtests.log` |
+| `cd relay && npm test` | **PASS** 65 tests, 0 fail | `/tmp/pclink-mm2-relay-test.log` |
+| `cd pclink && PCLINK_SKIP_MODEL=1 npm test` | **PASS** 119 tests, 118 pass, 1 skipped, 0 fail | `/tmp/pclink-mm2-pclink-test.log` |
+| `python3 spec/tools/registry_build.py --root . --check` | **PASS** byte-identical | 終端 |
+| `python3 spec/tools/registry_check.py --root .` | **PASS** 28 contracts, 484 path/glob refs | 終端 |
+| `python3 spec/ui/v1/tools/extract_ios_pages.py --root . --check` | **PASS** `contracts up to date`（46 pages） | 終端 |
+| `python3 spec/ui/v1/tools/ui_check.py --root .` | **PASS** `ok (5 files, 13 contrast pairs, …)` | 終端 |
+| `python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json` | **FAIL (7)**：GAP-32(d) 1 + GAP-35 6，與 §4.13.2 一致 | `/tmp/pclink-mm2-pagecheck-after.txt` |
+| `CI_PROTOCOL_BASE=da10d7466… PDSH_NODE=/tmp/node24/bin/node bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-modules` | `phone-spec` **PASS**；`phone-cross-tree` **PASS**；`phone-modules` **PASS**；`phone-p0-conformance` **FAIL**，唯一原因是 `page-structure: FAIL (7)`；`CI GATE: FAIL` | `/tmp/pclink-mm2-ci.log` |
+| `git show HEAD:Package.resolved > Package.resolved` | 已還原，工作樹無 `Package.resolved` 變更 | 終端 |
+
+**ADAPTED**：xcodebuild 走本機模擬器（`620D518D-D125-4154-B1B7-32A65327482B`，只 `simctl spawn xctest`，未安裝/卸載/清資料）；`simctl spawn` 為同 bundle 的既有回退路徑。**NOT_RUN**：Android Gradle 編譯/單元測試、真機、真實 relay+DSH 三端 E2E、公網 WSS、相機掃碼、`xcodebuild test`。
+
+#### 4.13.5 剩餘風險
+
+1. **`phone-p0-conformance` 仍 FAIL (7)**：全部是已逐條登記的 GAP-32(d) 1 + GAP-35 6；本輪按任務不加 whitelist、不改 `_baseline.json`。Android 對等由 android-parity owner 關閉。
+2. **#70 tono-account 未跑 Android Gradle**：本輪只跑 SwiftPM 的 iOS tono 測試；Android 的 `TonoAccountSessionTest`/`TonoAccountCasesTest` 未執行，不能宣稱 Android 端 runtime 通過。
+3. **Tono 賬號入口只在 settings sheet**：`includesProviders` 只在 `.sheet` 模式為 true；「我的」tab 不顯示該入口（main 的既有產品結構，不是本合併引入）。若產品要求在「我的」露出，需另立 P09 變更。
+4. **#70 沒有 simulator 測試類**：新增的 iOS 測試是 SwiftPM target 的 `TonoAccountSessionTests`、`TonoCloudResponsePolicyTests`；本輪以 `swift test` 實跑，沒有把它們混入 `simctl spawn` 的 24 類。
+5. **main 已前進**：本單只合 `a3e41f853`；之後 main 再前進需另一次合併。
+
 ## 5. 修訂紀錄
 
 | revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
 | --- | --- | --- | --- |
-| `pclink-d2-r1` | iOS D2 implementer / contract owner | 初始凍結 P09/P18；P28 只消費；GAP-34 登記 12+5 | iOS；android-parity；P18 owner |
+| `pclink-d2-r1` | iOS D2 implementer / contract owner | 初始凍結 P09/P18；P28 只消費；GAP-35 登記 12+5 | iOS；android-parity；P18 owner |
 | `pclink-d2-r2` | iOS D2 implementer | 實作後以提取工具更新 provenance；E2E 發現 CCR-1/2/3，未在本地繞過 | P28 C/D owner；android-parity |
 | `pclink-fix1-r1` | PCLink fix1 implementer（iOS/C/D） | 關閉 CCR-1/2/3；配對自動完成並進 PC 工作區；`phone-sdk` filter 加 `PhoneDSHPCLinkTests`；以機械提取更新兩個頁面 provenance；重跑三端 E2E 與 CI | P28 C/D owner；P09 owner；android-parity（頁面 provenance） |
 | `pclink-f2s-r1` | PCLink f2s implementer（iOS/App） | 全分支審查：session 內唯一線上 streamId、單寫者 FIFO、relay.offline/rate_limited/version_unsupported、stop/start、ready 缓存、origin/路徑/快照/日期等 18 項；PCLink v1.3 不變 | P28 D/App owner；P09/P18 owner；android-parity（頁面 provenance） |
-| `pclink-pacing-r1` | P28 contract owner（本單） | P18 追加 `phone-dsh.pc.last-workspace.<machineId>`（PC 新會話上次工作區）；P09「手機\|PC」分段移到新會話下方、抽屜錯誤/加載態、PC 工作區分組、新會話工作區選擇器與安裝引導；P28 升 `pclink-v1.5`（見 `PC-20261109-pclink-v1.md` §4.16） | iOS/App；P09/P18 owner；android-parity（GAP-34 條目如實更新） |
+| `pclink-pacing-r1` | P28 contract owner（本單） | P18 追加 `phone-dsh.pc.last-workspace.<machineId>`（PC 新會話上次工作區）；P09「手機\|PC」分段移到新會話下方、抽屜錯誤/加載態、PC 工作區分組、新會話工作區選擇器與安裝引導；P28 升 `pclink-v1.5`（見 `PC-20261109-pclink-v1.md` §4.16） | iOS/App；P09/P18 owner；android-parity（GAP-35 條目如實更新） |
 | `pclink-merge-main-r1` | merge-main implementer（iOS/App） | 合入 `da10d7466`：解決 14 個衝突；保留 #75/#76/#77/#78/#79 與 D2 每後端/P18；main 的裸 current-session 鍵改回 scoped；perf helpers 移入 `ProbeKit/Perf`；頁面契約重生成、`tokens` 語義採 main 並機械刷新 provenance；PCLink v1.3 與 P09/P18 契約值不變 | P09/P18 owner；P28 D/App owner；android-parity（頁面 provenance 與 17 處已登記差異） |
+| `pclink-merge-main2-r1` | merge-main2 implementer（iOS/App） | 合入 `a3e41f853`（#69、#70）：解決 8 個衝突；P18/P05 兩端條目並存；GAP-33 採關閉記錄、GAP-35 保留 PCLink 6 條並實測 1+6=7、main 的 tono-account 條目保持 GAP-34（與 origin/main 一致）；registry 由生成器重建；頁面契約由提取器重生成；#70 tono 賬號按 §4.13.3 檢查（app 級持久化，不按 P18 scope） | P09/P18/P05 owner；P28 D/App owner；android-parity（GAP-35 6 條） |

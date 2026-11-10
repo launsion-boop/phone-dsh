@@ -1,0 +1,288 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "TonoAccountPage",
+  "pageId": "tono-account",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "Tono 账号",
+    "provenance": "TonoAccountPage.swift:50",
+    "anchor": ".navigationTitle(\"Tono 账号\")"
+  },
+  "source": {
+    "file": "TonoAccountPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/TonoAccountPage.swift",
+    "lines": 98,
+    "structLine": 10,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "TonoAccountPage",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/TonoAccountPage.kt",
+    "match": "composable"
+  },
+  "sections": [
+    {
+      "id": "当前账号",
+      "title": "当前账号",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "case .signedIn(let summary) = state",
+      "collection": null,
+      "rows": [
+        {
+          "id": "手机号",
+          "label": "手机号",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "summary.phoneHint.map { \"尾号 \\($0)\" } ?? \"已登录\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TonoAccountPage.swift:24",
+          "anchor": "LabeledContent(\"手机号\", value: summary.phoneHint.map { \"尾号 \\($0)\" } ?? \"已登录\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "需重新验证",
+          "label": "需重新验证",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "summary.reverifyAt.formatted(date: .abbreviated, time: .omitted)",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TonoAccountPage.swift:25",
+          "anchor": "LabeledContent(\"需重新验证\", value: summary.reverifyAt.formatted(date: .abbreviated, ",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "TonoAccountPage.swift:23",
+      "anchor": "Section(\"当前账号\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "section-27",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "case .signedIn(let summary) = state",
+      "collection": null,
+      "rows": [
+        {
+          "id": "退出登录",
+          "label": "退出登录",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TonoAccountPage.swift:28",
+          "anchor": "Button(\"退出登录\", role: .destructive) { signOut() }.disabled(busy)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "TonoAccountPage.swift:27",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "退出登录",
+        "provenance": "TonoAccountPage.swift:28"
+      },
+      "footer": {
+        "text": "退出后，云端模型和网页搜索改用你在「模型服务」和「网页搜索」里粘贴的密钥。",
+        "labelExpr": null,
+        "provenance": "TonoAccountPage.swift:30",
+        "anchor": "Text(\"退出后，云端模型和网页搜索改用你在「模型服务」和「网页搜索」里粘贴的密钥。\")"
+      }
+    },
+    {
+      "id": "手机号登录",
+      "title": "手机号登录",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "手机号",
+          "label": "手机号",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "TonoAccountPage.swift:34",
+          "anchor": "TextField(\"手机号\", text: $phone)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "获取验证码",
+          "label": "获取验证码",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "TonoAccountPage.swift:36",
+          "anchor": "Button(\"获取验证码\") { requestCode() }.disabled(busy)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "验证码",
+          "label": "验证码",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "challenge != nil",
+          "provenance": "TonoAccountPage.swift:38",
+          "anchor": "TextField(\"验证码\", text: $code)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "登录",
+          "label": "登录",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": "challenge != nil",
+          "provenance": "TonoAccountPage.swift:40",
+          "anchor": "Button(\"登录\") { signIn() }.disabled(busy)",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "TonoAccountPage.swift:43",
+      "anchor": "Text(\"手机号登录\")",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": null,
+        "labelExpr": "statusText",
+        "provenance": "TonoAccountPage.swift:45",
+        "anchor": "Text(statusText)"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "退出登录",
+      "label": "退出登录",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ signOut()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "TonoAccountPage.swift:28",
+      "anchor": "Button(\"退出登录\", role: .destructive) { signOut() }.disabled(busy)",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "获取验证码",
+      "label": "获取验证码",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ requestCode()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "TonoAccountPage.swift:36",
+      "anchor": "Button(\"获取验证码\") { requestCode() }.disabled(busy)",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "登录",
+      "label": "登录",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ signIn()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "TonoAccountPage.swift:40",
+      "anchor": "Button(\"登录\") { signIn() }.disabled(busy)",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "当前账号 | untitled section at 27 | 手机号登录",
+          "when": null,
+          "provenance": "TonoAccountPage.swift:10",
+          "anchor": "struct TonoAccountPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "empty",
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

@@ -437,7 +437,7 @@ public final class PhoneWebSearchSettings {
     /// The only value the Worker ever receives in place of a real key.
     public static let placeholderAPIKey = "phone-host-injects-search-key"
     /// Process-wide store used by the app; tests construct their own.
-    public static let shared = PhoneWebSearchSettings()
+    public static let shared = PhoneWebSearchSettings(accountTokens: TonoAccountSession.shared)
 
     private struct StoredDocument: Codable, Equatable, Sendable {
         var version: Int
@@ -475,11 +475,15 @@ public final class PhoneWebSearchSettings {
     private let documentStore: any PhoneWebSearchDocumentStore
     private let markerStore: any PhoneWebSearchDocumentStore
     private let lock = NSLock()
+    /// spec/v1/tono-account.md §4. `nil` keeps the API-key-only behaviour.
+    public let accountTokens: (any TonoAccessTokenSource)?
 
     public init(defaults: UserDefaults = .standard,
-                secretStore: any ModelProviderSecretStore = KeychainPhoneWebSearchSecretStore()) {
+                secretStore: any ModelProviderSecretStore = KeychainPhoneWebSearchSecretStore(),
+                accountTokens: (any TonoAccessTokenSource)? = nil) {
         self.defaults = defaults
         self.secrets = secretStore
+        self.accountTokens = accountTokens
         self.documentStore = UserDefaultsPhoneWebSearchDocumentStore(
             defaults: defaults,
             key: PhoneWebSearchSettings.defaultsKey)
@@ -494,9 +498,11 @@ public final class PhoneWebSearchSettings {
     init(defaults: UserDefaults,
          secretStore: any ModelProviderSecretStore,
          documentStore: any PhoneWebSearchDocumentStore,
-         markerStore: (any PhoneWebSearchDocumentStore)? = nil) {
+         markerStore: (any PhoneWebSearchDocumentStore)? = nil,
+         accountTokens: (any TonoAccessTokenSource)? = nil) {
         self.defaults = defaults
         self.secrets = secretStore
+        self.accountTokens = accountTokens
         self.documentStore = documentStore
         self.markerStore = markerStore ?? UserDefaultsPhoneWebSearchDocumentStore(
             defaults: defaults,
@@ -981,9 +987,21 @@ public final class PhoneWebSearchSettings {
                     searchPort: ModelGatewayCredentialRouting.effectivePort(url, scheme: scheme),
                     operationPaths: snapshot.configuration.operationPaths,
                     credentialRef: snapshot.configuration.credentialRef,
-                    secretStore: secrets)
+                    secretStore: secrets,
+                    accountTokens: TonoCloudResponsePolicy.production.applies(to: url) ? accountTokens : nil)
             }
         }
+    }
+
+    /// spec/v1/tono-account.md §4: the independent search can run on the
+    /// signed-in account instead of a stored key when its base is the cloud
+    /// origin. Synchronous, for launch decisions.
+    public func usesAccountCredential(_ snapshot: PhoneWebSearchSnapshot) -> Bool {
+        guard snapshot.configuration.mode == .searchAPI,
+              let url = snapshot.configuration.endpointURL,
+              TonoCloudResponsePolicy.production.applies(to: url),
+              let accountTokens else { return false }
+        return accountTokens.hasSession
     }
 
     // MARK: - Validation
@@ -1473,6 +1491,8 @@ public struct PhoneWebSearchCredentialRouter: CredentialProvider, Sendable {
     private let operationPaths: Set<String>
     private let credentialRef: String
     private let secrets: any ModelProviderSecretStore
+    /// spec/v1/tono-account.md §4: only for a cloud-origin search base.
+    private let accountTokens: (any TonoAccessTokenSource)?
 
     public init(modelProvider: any CredentialProvider,
                 searchHost: String,
@@ -1504,7 +1524,9 @@ public struct PhoneWebSearchCredentialRouter: CredentialProvider, Sendable {
                 searchPort: Int? = nil,
                 operationPaths: Set<String>,
                 credentialRef: String,
-                secretStore: any ModelProviderSecretStore) {
+                secretStore: any ModelProviderSecretStore,
+                accountTokens: (any TonoAccessTokenSource)? = nil) {
+        self.accountTokens = accountTokens
         self.modelProvider = modelProvider
         self.searchHost = Self.bareHost(searchHost)
         self.searchScheme = searchScheme?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1526,6 +1548,15 @@ public struct PhoneWebSearchCredentialRouter: CredentialProvider, Sendable {
         guard operationPaths.contains(ModelGatewayCredentialRouting.normalizedPath(audience)) else {
             return try await modelProvider.credential(for: scope)
         }
+        if let accountTokens {
+            let token: String?
+            do {
+                token = try await accountTokens.accessToken()
+            } catch {
+                throw ProviderError.unauthorized("the tono account session has no usable access token")
+            }
+            if let token { return Credential(kind: .bearer, value: token) }
+        }
         do {
             guard let key = try secrets.secret(for: credentialRef), !key.isEmpty else {
                 throw ProviderError.unauthorized(
@@ -1546,6 +1577,9 @@ public struct PhoneWebSearchCredentialRouter: CredentialProvider, Sendable {
            matchesSearchOrigin(scope),
            let audience = scope.audience,
            operationPaths.contains(ModelGatewayCredentialRouting.normalizedPath(audience)) {
+            if let accountTokens, !credential.value.isEmpty {
+                await accountTokens.invalidate(accessToken: credential.value)
+            }
             return
         }
         await modelProvider.invalidate(credential, for: scope)

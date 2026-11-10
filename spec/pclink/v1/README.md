@@ -2038,7 +2038,7 @@ bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-sdk
 
 The D-stage App wiring additionally needs the P09 page/source changes and the
 P12 `Package.swift` declaration; those are separate changes. Android is out of
-scope for v1 and its missing drawer actions are tracked as GAP-34; this A
+scope for v1 and its missing drawer actions are tracked as GAP-35; this A
 freeze does not modify `spec/ui/**`.
 
 ## 13. Decisions frozen for review
