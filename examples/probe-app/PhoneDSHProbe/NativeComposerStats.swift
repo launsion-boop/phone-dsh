@@ -17,8 +17,16 @@ struct NativeComposerStats: View {
 
     @State private var preferences = NativeChatPreferences.shared
 
+    /// The row's final height: 20pt pill + its 2pt top padding. Reserving it
+    /// even with no metrics keeps a session switch from moving the composer
+    /// when the new session's stats arrive after the history replaced the page.
+    static let reservedHeight: CGFloat = 22
+
     var body: some View {
-        if preferences.performanceUsage == .compact { compactView } else { detailedView }
+        Group {
+            if preferences.performanceUsage == .compact { compactView } else { detailedView }
+        }
+        .frame(height: Self.reservedHeight)
     }
 
     private var compactView: some View {

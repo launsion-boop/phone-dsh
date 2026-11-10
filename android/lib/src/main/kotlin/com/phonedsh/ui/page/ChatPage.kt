@@ -426,10 +426,12 @@ public fun ChatPage(
         }
         // A failure that belongs to one row is rendered under it; every other
         // failure owns the top banner (iOS body: `failedItemID == nil` first).
-        if (state.failedItemID == null && state.userFacingError != null) {
+        // The engine-stopped line is suppressed while the no-engine empty state
+        // is already on screen (the empty card says the same thing).
+        if (shouldShowChatFailureBanner(state)) {
             val retryable = state.banners.firstOrNull()?.retryable == true
             TopFailureBanner(
-                message = state.userFacingError,
+                message = state.userFacingError.orEmpty(),
                 onRetry = if (retryable) boundTimelineRetry else null,
                 onRestart = if (state.lifecycle?.needsReset == true) onRestartEngine else null,
                 onDismiss = { state.banners.firstOrNull()?.let { onDismissBanner(it.id) } },

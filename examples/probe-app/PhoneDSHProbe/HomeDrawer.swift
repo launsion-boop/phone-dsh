@@ -35,10 +35,6 @@ struct HomeDrawer: View {
     /// user's finger would move the row they just tapped. The fresh order is
     /// adopted on the next open.
     @State private var sessionOrder: [String] = []
-    /// The row whose switch is in flight. Transient host/read failures during
-    /// that window must not insert the failure row and shift the list; a real
-    /// failure is shown once the switch finishes.
-    @State private var switchingSessionID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -258,7 +254,7 @@ struct HomeDrawer: View {
     /// the switch settles; the drawer closes on success and shows a real
     /// failure afterwards.
     private var errorMessage: String? {
-        switchingSessionID == nil ? management.error ?? chat.userFacingError : nil
+        chat.isSwitchingSession ? nil : management.error ?? chat.userFacingError
     }
 
     private func errorRow(_ message: String) -> some View {
@@ -501,7 +497,9 @@ struct HomeDrawer: View {
     }
 
     private func sessionRow(_ session: ManagedSession) -> some View {
-        let current = chat.currentSessionID == session.id
+        // The optimistic target is selected before the open starts, so the row
+        // under the finger highlights in the same frame as the close.
+        let current = chat.displayedSessionID == session.id
         return Button { open(session) } label: {
             HStack(spacing: 8) {
                 Text(sessionTitle(session))
@@ -607,12 +605,28 @@ struct HomeDrawer: View {
     }
 
     private func open(_ session: ManagedSession) {
-        guard switchingSessionID == nil else { return }
-        switchingSessionID = session.id
-        Task {
-            let opened = await management.select(session)
-            switchingSessionID = nil
-            if opened { close() }
+        let target = HomeDrawerSwitchPolicy.Session(
+            id: session.id, title: sessionTitle(session))
+        switch HomeDrawerSwitchPolicy.tap(
+            target,
+            currentSessionID: chat.currentSessionID,
+            pending: chat.pendingSessionSwitch) {
+        case .close:
+            // Already open or already switching there: close now, no second
+            // open. The wide sidebar stays put.
+            if HomeDrawerSwitchPolicy.closesDrawer(isPersistent: isPersistent) { close() }
+        case .beginSwitch:
+            // Only the lightweight selection/title is written in the tap frame.
+            // The worker that opens the session starts after the drawer's
+            // 0.22s close animation, so its main-thread work cannot swallow the
+            // animation; the wide sidebar only needs one runloop.
+            management.stageOptimisticSelect(session, title: target.title)
+            switch HomeDrawerSwitchPolicy.startGate(isPersistent: isPersistent) {
+            case .afterDrawerClosed:
+                close { management.startStagedOptimisticSelect() }
+            case .nextRunloop:
+                management.startStagedOptimisticSelectOnNextRunloop()
+            }
         }
     }
 
@@ -630,9 +644,18 @@ struct HomeDrawer: View {
         }
     }
 
-    private func close() {
-        guard !isPersistent else { return }
-        withAnimation(.easeInOut(duration: 0.22)) { isOpen = false }
+    /// Closes the phone drawer and runs `completion` only when the 0.22s
+    /// animation has finished. Session switches use this to delay their heavy
+    /// work until after the drawer is gone. The persistent sidebar never
+    /// closes, so its completion runs immediately (its caller uses the
+    /// next-runloop start instead).
+    private func close(completion: (() -> Void)? = nil) {
+        guard !isPersistent else { completion?(); return }
+        withAnimation(.easeInOut(duration: HomeDrawerSwitchPolicy.closeDuration)) {
+            isOpen = false
+        } completion: {
+            completion?()
+        }
     }
 }
 

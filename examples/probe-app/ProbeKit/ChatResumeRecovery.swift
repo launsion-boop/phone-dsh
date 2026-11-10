@@ -4,22 +4,23 @@
 // The host owns the source of truth (`Parked -> Recovering -> Running` and the
 // resume budgets); the App owns what the person sees while that runs. These
 // predicates are pure so the decision table — rebuild once, then offer the
-// manual button, queue a session switch or a send instead of refusing them —
+// manual button, wait out a session switch or queue a send instead of refusing them —
 // is tested without a host or WebKit.
 
 import Foundation
 
-/// One session switch the person requested while the engine was recovering.
-public struct ChatPendingSessionSwitch: Equatable, Sendable {
-    /// Existing session id, or `nil` for a new session.
-    public var id: String?
-    /// Preset for a new session.
-    public var preset: String?
-
-    public init(id: String?, preset: String? = nil) {
-        self.id = id
-        self.preset = preset
-    }
+/// How a session switch must treat the local engine lifecycle. The optimistic
+/// target is already painted when this is asked, so a recovering host means
+/// "wait", never "queue a second switch" or "refuse the tap".
+public enum ChatSessionSwitchGate: Equatable, Sendable {
+    /// The engine is healthy; the switch may run now.
+    case runNow
+    /// Park, resume or automatic rebuild is in flight. The worker waits and
+    /// re-evaluates this gate until the lifecycle settles.
+    case waitForRecovery
+    /// No local host exists and no recovery/backoff can produce one; the
+    /// caller falls back to the normal start/restart path.
+    case engineUnavailable
 }
 
 /// What the App should do after one resume attempt failed.
@@ -65,13 +66,22 @@ public enum ChatResumeRecovery {
             ? .rebuildEngine : .offerManualRestart
     }
 
-    /// A session switch during recovery is remembered, never refused.
-    public static func shouldQueueSessionSwitch(parked: Bool,
-                                                hostLifecycleTransition: Bool,
-                                                rebuilding: Bool) -> Bool {
-        isRecovering(parked: parked,
-                     hostLifecycleTransition: hostLifecycleTransition,
-                     rebuilding: rebuilding)
+    /// The single pending optimistic switch owns the target; the lifecycle
+    /// only tells its worker whether it may run now. Waiting keeps the last
+    /// tap's target on screen without a second queue.
+    public static func sessionSwitchGate(parked: Bool,
+                                         hostLifecycleTransition: Bool,
+                                         rebuilding: Bool,
+                                         hostAvailable: Bool,
+                                         backoffScheduled: Bool) -> ChatSessionSwitchGate {
+        if isRecovering(parked: parked,
+                        hostLifecycleTransition: hostLifecycleTransition,
+                        rebuilding: rebuilding) {
+            return .waitForRecovery
+        }
+        if !hostAvailable, backoffScheduled { return .waitForRecovery }
+        if !hostAvailable { return .engineUnavailable }
+        return .runNow
     }
 
     /// A send during recovery is queued, never dropped and never refused.

@@ -43,6 +43,12 @@ struct ChatPage: View {
     @State private var hitProbe = ""
     #endif
     @State private var previousSessionKey = ""
+    /// The delayed, layout-free session-switch pill. Its timer starts when the
+    /// switch worker really begins, not at the tap: the 0.22s drawer close is
+    /// not load time, so a switch that lands inside
+    /// `SessionSwitchPresentationPolicy.indicatorDelay` of that start leaves
+    /// this false for its whole lifetime and no loading state flashes.
+    @State private var showsSessionSwitchIndicator = false
     private var busyEnterMode: String { preferences.busyEnterMode }
     /// Official default is completion-time folding; the `On next message`
     /// option is the iOS adaptation exposed in the header `...` menu.
@@ -176,6 +182,9 @@ struct ChatPage: View {
 
     private var sessionKey: String { model.currentSessionID ?? "new" }
     private var sessionTitle: String {
+        // The tapped session's title is painted as soon as the row is tapped;
+        // the old session stays current in the model until its history lands.
+        if let pending = model.switchingSessionTitle, !pending.isEmpty { return pending }
         guard let id = model.currentSessionID else { return "新会话" }
         let title = management.sessions.first(where: { $0.id == id })?.title ?? ""
         if title.isEmpty || ["new conversation", "conversation"].contains(title.lowercased()) {
@@ -373,11 +382,19 @@ struct ChatPage: View {
             }
             // A failure that belongs to one message is rendered under it; every
             // other failure (send refused, session open, stream error) needed a
-            // surface too — it used to be invisible on this page.
+            // surface too — it used to be invisible on this page. The resume
+            // recovery pill is additive: it explains a lifecycle wait, while
+            // the error banner below keeps the failure/queued-action surface.
+            // The engine-stopped line is the one exception to the error banner:
+            // the no-engine empty card already says it and offers the start button.
             if let recovery = model.recoveryBannerText {
                 recoveryBanner(recovery)
             }
-            if model.failedItemID == nil, let error = model.userFacingError {
+            if model.failedItemID == nil,
+               let error = model.userFacingError,
+               ChatEngineStoppedNoticePolicy.shouldShow(
+                   message: error,
+                   engineEmptyStateVisible: visibleItems.isEmpty && !model.isStarted) {
                 errorBanner(error)
             }
             if let error = model.commandsError { commandErrorBanner(error) }
@@ -604,112 +621,8 @@ struct ChatPage: View {
                 Task { await management.refresh() }
             }
         }
-        .onAppear {
-            if let initialPreviewTarget, previewTarget == nil {
-                previewTarget = initialPreviewTarget
-            }
-            #if DEBUG
-            if debugChatState != nil { debugInjectIfReady() }
-            #endif
-            previousSessionKey = sessionKey
-            draft = savedDraft(for: sessionKey)
-            #if DEBUG
-            // 预览:输入框里先放好那段超长文本,验行高和滚动。
-            if let previewDraft, draft.isEmpty { draft = previewDraft }
-            #endif
-            if model.isStarted { Task { await management.refresh() } }
-            // The native surface owns the one host now, so a cold launch
-            // starts it directly instead of waiting for a tap. `autoRecover`
-            // lets a persisted `Failed` controller (D14) be acknowledged once
-            // at launch, so reopening the App is enough to get a working
-            // engine back.
-            if !model.isStarted, !model.busy {
-                // The hidden phone ChatPage must not boot the phone host while
-                // the drawer is on the PC segment; switching back starts it.
-                let startsNow = model.backendID != .phone || workspaceModels.isPhoneSelected
-                if startsNow {
-                    #if DEBUG
-                    if previewItems == nil && PreviewScreen.requested == nil {
-                        Task { await model.start(autoRecover: true) }
-                    }
-                    #else
-                    Task { await model.start(autoRecover: true) }
-                    #endif
-                }
-            }
-            // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
-            model.autostartIfRequested()
-#if DEBUG
-            // A deterministic composer draft for screenshot passes
-            // (`PDSH_DEBUG_DRAFT=/c` renders the command menu without typing).
-            if let seeded = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAFT"], draft.isEmpty {
-                draft = seeded
-            }
-            if ProcessInfo.processInfo.environment["PDSH_DEBUG_TOOLRUN"] == "1", model.items.isEmpty {
-                model.debugInjectToolRun()
-            }
-            if ProcessInfo.processInfo.environment["PDSH_DEBUG_START"] == "1" {
-                Task { @MainActor in
-                    await model.start()
-                    try? await Task.sleep(for: .milliseconds(600))
-                    if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
-                        inputFocused = true
-                    }
-                }
-            } else if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(700))
-                    inputFocused = true
-                }
-            }
-            if let sheet = ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET"], !sheet.isEmpty {
-                let delay = Int(ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET_DELAY_MS"] ?? "") ?? 400
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(delay))
-                    switch sheet {
-                    case "settings": showSettings = true
-                    case "sessions": showSessions = true
-                    case "provider": debugSheet = "provider"
-                    case "config": showConfiguration = true
-                    case "workbench": showWorkbench = true
-                    default: break
-                    }
-                }
-            }
-#endif
-        }
-        .onChange(of: model.currentSessionID) { _, _ in
-            // A successful selection can update ChatModel from the sidebar's
-            // async task before its completion callback reaches this sheet.
-            // Close from the observed source of truth as well, so restoring a
-            // real session never leaves the user stranded in the sidebar.
-            showSessions = false
-            foldedTurns = []
-            autoFoldedTurns = []
-            manuallyExpandedTurns = []
-            persistDraft(draft, for: previousSessionKey)
-            previousSessionKey = sessionKey
-            draft = savedDraft(for: sessionKey)
-            #if DEBUG
-            // 预览:输入框里先放好那段超长文本,验行高和滚动。
-            if let previewDraft, draft.isEmpty { draft = previewDraft }
-            #endif
-            pendingAttachments.removeAll()
-            attachmentError = nil
-            // Opening another session must show its newest message, not the
-            // top of the transcript.
-            nearBottom = true
-            userScrolledAway = false
-            // A new session can be shorter than the previous one. Keeping the
-            // old content height made `scrollToTail` believe the transcript
-            // still overflowed and scroll the LazyVStack before the new rows
-            // laid out, leaving the page blank until a manual drag. Drop the
-            // measurements so the first height callback owns the initial jump.
-            scrollTrace.contentHeight = 0
-            scrollTrace.tailOffsetY = 0
-            pendingInitialScroll = true
-            Task { await management.refresh() }
-        }
+        .onAppear { onChatAppear() }
+        .onChange(of: model.currentSessionID) { _, _ in onSessionIdentityChanged() }
         .onChange(of: draft) { _, value in persistDraft(value, for: sessionKey) }
         // Folding timing. `false` keeps the official completion-time default:
         // every eligible closed Turn folds as soon as it ends. `true` is the
@@ -741,6 +654,9 @@ struct ChatPage: View {
             attachmentError = nil
             previewTarget = .workspaceFile(match.relativePath)
         }
+        .task(id: model.isSessionSwitchWorkStarted) {
+            await updateSessionSwitchIndicator()
+        }
         .task(id: model.currentSessionID) {
             guard let id = model.currentSessionID else {
                 queue.prepare(for: nil)
@@ -771,6 +687,130 @@ struct ChatPage: View {
         // screen. DEBUG always enables them; Release needs the
         // `chat.perfCounters` default (off by default, so no Release log).
         .task { await reportPerfCounters() }
+    }
+
+    private func onChatAppear() {
+        if let initialPreviewTarget, previewTarget == nil {
+            previewTarget = initialPreviewTarget
+        }
+        #if DEBUG
+        if debugChatState != nil { debugInjectIfReady() }
+        #endif
+        previousSessionKey = sessionKey
+        draft = savedDraft(for: sessionKey)
+        #if DEBUG
+        // 预览:输入框里先放好那段超长文本,验行高和滚动。
+        if let previewDraft, draft.isEmpty { draft = previewDraft }
+        #endif
+        if model.isStarted { Task { await management.refresh() } }
+        // The native surface owns the one host now, so a cold launch
+        // starts it directly instead of waiting for a tap. `autoRecover`
+        // lets a persisted `Failed` controller (D14) be acknowledged once
+        // at launch, so reopening the App is enough to get a working
+        // engine back.
+        if !model.isStarted, !model.busy {
+            // The hidden phone ChatPage must not boot the phone host while
+            // the drawer is on the PC segment; switching back starts it.
+            let startsNow = model.backendID != .phone || workspaceModels.isPhoneSelected
+            if startsNow {
+                #if DEBUG
+                if previewItems == nil && PreviewScreen.requested == nil {
+                    Task { await model.start(autoRecover: true) }
+                }
+                #else
+                Task { await model.start(autoRecover: true) }
+                #endif
+            }
+        }
+        // Device-test automation (PDSH_CHAT_AUTOSTART / PDSH_CHAT_AUTOPROMPT).
+        model.autostartIfRequested()
+#if DEBUG
+        // A deterministic composer draft for screenshot passes
+        // (`PDSH_DEBUG_DRAFT=/c` renders the command menu without typing).
+        if let seeded = ProcessInfo.processInfo.environment["PDSH_DEBUG_DRAFT"], draft.isEmpty {
+            draft = seeded
+        }
+        if ProcessInfo.processInfo.environment["PDSH_DEBUG_TOOLRUN"] == "1", model.items.isEmpty {
+            model.debugInjectToolRun()
+        }
+        if ProcessInfo.processInfo.environment["PDSH_DEBUG_START"] == "1" {
+            Task { @MainActor in
+                await model.start()
+                try? await Task.sleep(for: .milliseconds(600))
+                if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
+                    inputFocused = true
+                }
+            }
+        } else if ProcessInfo.processInfo.environment["PDSH_DEBUG_FOCUS"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(700))
+                inputFocused = true
+            }
+        }
+        if let sheet = ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET"], !sheet.isEmpty {
+            let delay = Int(ProcessInfo.processInfo.environment["PDSH_DEBUG_SHEET_DELAY_MS"] ?? "") ?? 400
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(delay))
+                switch sheet {
+                case "settings": showSettings = true
+                case "sessions": showSessions = true
+                case "provider": debugSheet = "provider"
+                case "config": showConfiguration = true
+                case "workbench": showWorkbench = true
+                default: break
+                }
+            }
+        }
+#endif
+
+    }
+
+    private func onSessionIdentityChanged() {
+        // A successful selection can update ChatModel from the sidebar's
+        // async task before its completion callback reaches this sheet.
+        // Close from the observed source of truth as well, so restoring a
+        // real session never leaves the user stranded in the sidebar.
+        showSessions = false
+        foldedTurns = []
+        autoFoldedTurns = []
+        manuallyExpandedTurns = []
+        persistDraft(draft, for: previousSessionKey)
+        previousSessionKey = sessionKey
+        draft = savedDraft(for: sessionKey)
+        #if DEBUG
+        // 预览:输入框里先放好那段超长文本,验行高和滚动。
+        if let previewDraft, draft.isEmpty { draft = previewDraft }
+        #endif
+        pendingAttachments.removeAll()
+        attachmentError = nil
+        // Opening another session must show its newest message, not the
+        // top of the transcript.
+        nearBottom = true
+        userScrolledAway = false
+        // A new session can be shorter than the previous one. Keeping the
+        // old content height made `scrollToTail` believe the transcript
+        // still overflowed and scroll the LazyVStack before the new rows
+        // laid out, leaving the page blank until a manual drag. Drop the
+        // measurements so the first height callback owns the initial jump.
+        scrollTrace.contentHeight = 0
+        scrollTrace.tailOffsetY = 0
+        pendingInitialScroll = true
+        Task { await management.refresh() }
+
+    }
+
+    /// The pill is an overlay, not page state: delay it past the common fast
+    /// open. The timer starts when the worker begins, after the drawer close,
+    /// so that animation is never counted as load time. Kept out of `body` so
+    /// the merged page's modifier chain stays inside the type-checker budget.
+    private func updateSessionSwitchIndicator() async {
+        guard model.isSessionSwitchWorkStarted else {
+            if showsSessionSwitchIndicator { showsSessionSwitchIndicator = false }
+            return
+        }
+        try? await Task.sleep(for: SessionSwitchPresentationPolicy.indicatorDelay)
+        guard !Task.isCancelled, model.isSessionSwitchWorkStarted else { return }
+        showsSessionSwitchIndicator = true
     }
 
     /// Kept out of `body`: the loop plus the public counter API otherwise
@@ -1205,7 +1245,16 @@ struct ChatPage: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.vertical, 4)
                         }
-                        if visibleItems.isEmpty { emptyTimeline(viewportHeight: viewport.size.height) }
+                        if visibleItems.isEmpty {
+                            if model.isSwitchingSession,
+                               SessionSwitchPresentationPolicy.backdrop(for: oldPageDuringSwitch) == .placeholder {
+                                sessionSwitchPlaceholder(viewportHeight: viewport.size.height)
+                            } else {
+                                // Keep the old page's empty-state card exactly as
+                                // it was; it is content, not a placeholder.
+                                emptyTimeline(viewportHeight: viewport.size.height)
+                            }
+                        }
                         let snapshot = timelineSnapshot
                         let rows = snapshot.rows
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -1373,6 +1422,22 @@ struct ChatPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // While a tap's history is still loading the old transcript or empty
+        // state stays put. The indicator floats above it after the 300 ms
+        // delay, so it cannot change the transcript's height or move rows.
+        .overlay(alignment: .top) {
+            Group {
+                if showsSessionSwitchIndicator {
+                    sessionSwitchIndicator
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            // Only the pill fades. The transcript's one-shot content swap is
+            // outside this subtree, so it stays animation-free.
+            .animation(.easeInOut(duration: 0.16), value: showsSessionSwitchIndicator)
+        }
         // A tap anywhere in the transcript area — rows or the empty space
         // below them — hands the keyboard back. The content shape makes the
         // blank area hit-testable; simultaneous, so rows keep their own taps.
@@ -1541,6 +1606,44 @@ struct ChatPage: View {
             model.flushStreamingText()
             scrollToTail(proxy, viewportHeight: viewportHeight)
         }
+    }
+
+    /// What the page was already drawing when the switch began. `emptyTimeline`
+    /// is exhaustive — engine, provider or new-session card — so an empty
+    /// transcript still has a card to keep; the blank case is a defensive
+    /// fallback for a page that truly rendered nothing.
+    private var oldPageDuringSwitch: SessionSwitchPresentationPolicy.OldPage {
+        visibleItems.isEmpty ? .emptyStateCard : .transcriptRows
+    }
+
+    /// The lightweight state while a tapped session's history is loading. It is
+    /// a top overlay: the old transcript or empty-state card stays untouched
+    /// underneath, and this view never takes part in layout.
+    private var sessionSwitchIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView().controlSize(.mini)
+            Text("正在打开会话…")
+                .font(.system(size: 12))
+                .foregroundStyle(ChatPage.inkSecondary)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(HomeSpec.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("正在打开会话")
+    }
+
+    /// Only a page that rendered nothing at all uses this. It keeps exactly the
+    /// ready empty state's transcript height, and the delayed pill above is the
+    /// only thing drawn; no card flashes in and out.
+    private func sessionSwitchPlaceholder(viewportHeight: CGFloat) -> some View {
+        let topInset: CGFloat = 22
+        let bottomInset: CGFloat = 48
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: max(0, viewportHeight - topInset - bottomInset))
+            .accessibilityHidden(true)
     }
 
     /// 新会话空屏。三种状态互斥,同一时刻只渲染一种;三者都在滚动区里,

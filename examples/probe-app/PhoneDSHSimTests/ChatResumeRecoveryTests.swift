@@ -47,7 +47,7 @@ final class ChatResumeRecoveryTests: XCTestCase {
             rebuilding: true, slow: false), "恢复较慢，正在重新启动引擎…")
     }
 
-    func testSessionSwitchAndPromptAreQueuedDuringEveryRecoveryPhase() {
+    func testSessionSwitchWaitsDuringEveryRecoveryPhase() {
         let phases: [(Bool, Bool, Bool)] = [
             (true, false, false),   // parked
             (false, true, false),   // park/resume transition
@@ -55,26 +55,39 @@ final class ChatResumeRecoveryTests: XCTestCase {
             (true, true, true),
         ]
         for (parked, transition, rebuilding) in phases {
-            XCTAssertTrue(ChatResumeRecovery.shouldQueueSessionSwitch(
-                parked: parked, hostLifecycleTransition: transition,
-                rebuilding: rebuilding))
+            XCTAssertEqual(
+                ChatResumeRecovery.sessionSwitchGate(
+                    parked: parked, hostLifecycleTransition: transition,
+                    rebuilding: rebuilding, hostAvailable: true,
+                    backoffScheduled: false),
+                .waitForRecovery,
+                "the already-painted optimistic target waits instead of queueing twice")
             XCTAssertTrue(ChatResumeRecovery.shouldQueuePrompt(
                 parked: parked, hostLifecycleTransition: transition,
                 rebuilding: rebuilding))
         }
-        XCTAssertFalse(ChatResumeRecovery.shouldQueueSessionSwitch(
-            parked: false, hostLifecycleTransition: false, rebuilding: false))
+        XCTAssertEqual(
+            ChatResumeRecovery.sessionSwitchGate(
+                parked: false, hostLifecycleTransition: false,
+                rebuilding: false, hostAvailable: true, backoffScheduled: false),
+            .runNow)
         XCTAssertFalse(ChatResumeRecovery.shouldQueuePrompt(
             parked: false, hostLifecycleTransition: false, rebuilding: false))
     }
 
-    func testPendingSessionSwitchKeepsTheWantedTarget() {
-        let existing = ChatPendingSessionSwitch(id: "session-7")
-        XCTAssertEqual(existing.id, "session-7")
-        XCTAssertNil(existing.preset)
-        let created = ChatPendingSessionSwitch(id: nil, preset: "office")
-        XCTAssertNil(created.id)
-        XCTAssertEqual(created.preset, "office")
+    func testAScheduledBackoffKeepsTheWorkerWaitingUntilTheEngineIsBack() {
+        XCTAssertEqual(
+            ChatResumeRecovery.sessionSwitchGate(
+                parked: false, hostLifecycleTransition: false,
+                rebuilding: false, hostAvailable: false, backoffScheduled: true),
+            .waitForRecovery,
+            "a D24 boot that is already scheduled must not turn the tap into an error")
+        XCTAssertEqual(
+            ChatResumeRecovery.sessionSwitchGate(
+                parked: false, hostLifecycleTransition: false,
+                rebuilding: false, hostAvailable: false, backoffScheduled: false),
+            .engineUnavailable,
+            "after the recovery budgets fail the normal start/restart path decides")
     }
 
     func testVisibilityWarningsLogOnlyTheEnumToken() {
