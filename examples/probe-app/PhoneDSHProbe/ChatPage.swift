@@ -2269,6 +2269,8 @@ struct ChatPage: View {
                     .padding(.leading, 4)
             }
             Spacer(minLength: 8)
+            PCWorkspaceMenu()
+                .layoutPriority(-1)
             modelMenu
                 .layoutPriority(-1)
             HStack(spacing: 8) {
@@ -4782,5 +4784,73 @@ struct PermissionCardView: View {
         .background(NativeChatTheme.selector, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+    }
+}
+
+
+// MARK: - PC new-session workspace chip (pclink-pacing)
+
+/// PC new/empty-session workspace chip. It sits on the same control row and
+/// uses the model chip's type/height. The phone has one workspace and never
+/// shows this. Once the current session has a turn the chip still names its
+/// workspace but has no menu.
+private struct PCWorkspaceMenu: View {
+    @Environment(\.workspaceModels) private var models
+
+    private var model: ChatModel { models.currentChat ?? ChatModel.shared }
+    private var management: DSHManagementModel { models.currentManagement ?? DSHManagementModel.shared }
+
+    @ViewBuilder
+    var body: some View {
+        if model.backendID != .phone,
+           let workspaceID = management.currentWorkspaceID ?? management.newSessionWorkspaceID,
+           let workspace = management.workspaces.first(where: { $0.id == workspaceID }) {
+            let title = PCLinkWorkspaceGrouping.title(workspace.title, fallback: "工作区")
+            if management.isCurrentSessionBlank {
+                Menu {
+                    ForEach(management.workspaces) { candidate in
+                        Button {
+                            Task { await management.selectWorkspaceForNewSession(candidate.id) }
+                        } label: {
+                            if candidate.id == workspaceID {
+                                Label(PCLinkWorkspaceGrouping.title(candidate.title, fallback: "工作区"),
+                                      systemImage: "checkmark")
+                            } else {
+                                Text(PCLinkWorkspaceGrouping.title(candidate.title, fallback: "工作区"))
+                            }
+                        }
+                    }
+                } label: {
+                    workspaceNameBlock(title, showsChevron: true)
+                }
+                .disabled(!model.canSend || model.turnRunning)
+                .accessibilityLabel("选择工作区")
+            } else {
+                workspaceNameBlock(title, showsChevron: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("工作区：\(title)")
+                    .accessibilityAddTraits(.isStaticText)
+            }
+        }
+    }
+
+    private func workspaceNameBlock(_ title: String, showsChevron: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "folder")
+                .font(.system(size: 13, weight: .regular))
+            Text(title)
+                .font(.system(size: HomeSpec.bodySize))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(HomeSpec.textSecondary)
+            }
+        }
+        .foregroundStyle(model.canSend ? HomeSpec.textPrimary : HomeSpec.textPlaceholder)
+        .frame(height: HomeSpec.sendButton)
+        .frame(maxWidth: 150)
+        .contentShape(Rectangle())
     }
 }

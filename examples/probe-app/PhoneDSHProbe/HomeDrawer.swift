@@ -35,12 +35,14 @@ struct HomeDrawer: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    // D2: 手机 | PC sits above the 新会话 pill. The selection is
-                    // persisted (P18) and never changes because the PC is down.
+                    entriesCard
+                    // pclink-pacing: 手机 | PC sits below the 新会话 pill (it
+                    // used to be above). The selection is persisted (P18) and
+                    // never changes because the PC is down.
                     PCDrawerSegment()
                         .padding(.horizontal, 16)
+                        .padding(.top, 10)
                         .padding(.bottom, 10)
-                    entriesCard
                     if showsPCState {
                         PCDrawerStateView(onPair: { showPairing = true })
                     } else {
@@ -262,36 +264,87 @@ struct HomeDrawer: View {
     /// folder registered yet they still show as that group, never as "unfiled".
     private func sessions(in folder: ManagedWorkspace) -> [ManagedSession] {
         let own = management.sessions(in: folder)
-        guard folder.id == defaultFolder?.id else { return pinnedFirst(own) }
-        return pinnedFirst(own + management.ungroupedSessions)
+        if models.isPhoneSelected {
+            guard folder.id == defaultFolder?.id else { return pinnedFirst(own) }
+            return pinnedFirst(own + management.ungroupedSessions)
+        }
+        // PC: a session the workspace list has not enrolled yet still belongs
+        // to the workspace whose host path owns its cwd (longest match). This
+        // is what turns the old single "PC 工作区" pile into real groups.
+        let extra = management.ungroupedSessions.filter {
+            management.workspaceID(for: $0) == folder.id
+        }
+        return pinnedFirst(own + extra)
     }
 
     private var defaultFolder: ManagedWorkspace? {
         orderedFolders.first { management.isDefaultWorkspace($0) }
     }
 
+    private var listState: PCDrawerListState {
+        PCLinkDrawerPolicy.listState(isLoading: management.isLoading,
+                                     error: management.error,
+                                     sessionCount: management.activeSessions.count)
+    }
+
+    /// Sessions shown outside a workspace header: the phone's default folder
+    /// rule is unchanged; a PC session joins its workspace when `workspace/
+    /// follow` lists it or its cwd matches a workspace path, and only the rest
+    /// is loose.
+    private var looseSessions: [ManagedSession] {
+        if models.isPhoneSelected {
+            return defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+        }
+        let ungrouped = management.ungroupedSessions
+        guard !orderedFolders.isEmpty else { return pinnedFirst(ungrouped) }
+        return pinnedFirst(ungrouped.filter { management.workspaceID(for: $0) == nil })
+    }
+
+    private var loadingRow: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(NativeText("正在读取 PC 会话…", "Loading PC sessions…"))
+                .font(.system(size: 14))
+                .foregroundStyle(HomeSpec.textPlaceholder)
+        }
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.top, 8)
+        .frame(height: 36)
+        .accessibilityElement(children: .combine)
+    }
+
     @ViewBuilder
     private var folders: some View {
-        let loose = defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
-        VStack(alignment: .leading, spacing: 4) {
-            if !models.isPhoneSelected, orderedFolders.isEmpty, management.activeSessions.isEmpty {
-                Text("还没有 PC 会话。点上面的「新会话」在电脑上新建一个。")
-                    .font(.system(size: 14))
-                    .foregroundStyle(HomeSpec.textPlaceholder)
-                    .padding(.horizontal, HomeSpec.contentInset)
-                    .padding(.top, 8)
+        LazyVStack(alignment: .leading, spacing: 4) {
+            if !models.isPhoneSelected {
+                switch listState {
+                case .loading:
+                    loadingRow
+                case .error:
+                    // The error row above carries the message and 重试; never
+                    // fall through to the "no PC sessions" empty state.
+                    EmptyView()
+                case .empty:
+                    Text("还没有 PC 会话。点上面的「新会话」在电脑上新建一个。")
+                        .font(.system(size: 14))
+                        .foregroundStyle(HomeSpec.textPlaceholder)
+                        .padding(.horizontal, HomeSpec.contentInset)
+                        .padding(.top, 8)
+                case .rows:
+                    EmptyView()
+                }
             }
-            if Self.foldersEnabled && orderedFolders.isEmpty && loose.isEmpty {
+            if Self.foldersEnabled && orderedFolders.isEmpty && looseSessions.isEmpty {
                 Text("还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。")
                     .font(.system(size: 14))
                     .foregroundStyle(HomeSpec.textPlaceholder)
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.top, 8)
             }
-            if !loose.isEmpty {
-                looseHeader(count: loose.count)
+            if !looseSessions.isEmpty {
+                looseHeader(count: looseSessions.count)
                 if isExpanded(Self.looseGroupID) {
-                    ForEach(loose) { session in sessionRow(session) }
+                    ForEach(looseSessions) { session in sessionRow(session) }
                 }
             }
             ForEach(orderedFolders) { folder in
@@ -333,7 +386,16 @@ struct HomeDrawer: View {
     /// The default folder before the host has registered one: same shape,
     /// same name, no folder menu.
     private func looseHeader(count: Int) -> some View {
-        let title = models.isPhoneSelected ? DrawerTitles.defaultFolderName : models.pcWorkspaceTitle
+        let title: String
+        if models.isPhoneSelected {
+            title = DrawerTitles.defaultFolderName
+        } else if orderedFolders.isEmpty {
+            // No workspace baseline yet: keep the old group name as a
+            // degraded fallback rather than inventing a workspace title.
+            title = models.pcWorkspaceTitle
+        } else {
+            title = NativeText("未分组", "Ungrouped")
+        }
         return groupHeader(id: Self.looseGroupID, icon: "folder", title: title, count: count)
     }
 
@@ -414,8 +476,10 @@ struct HomeDrawer: View {
     private static let looseGroupID = "__loose__"
 
     private func folderTitle(_ folder: ManagedWorkspace) -> String {
-        if !models.isPhoneSelected, management.isDefaultWorkspace(folder) {
-            return models.pcWorkspaceTitle
+        if !models.isPhoneSelected {
+            // The DSH workspace title is the group name on the PC; the
+            // computer-name suffix would merge every workspace into one.
+            return PCLinkWorkspaceGrouping.title(folder.title, fallback: "工作区")
         }
         let index = (orderedFolders.firstIndex(where: { $0.id == folder.id }) ?? 0) + 1
         return DrawerTitles.workspaceTitle(folder.title, index: index)

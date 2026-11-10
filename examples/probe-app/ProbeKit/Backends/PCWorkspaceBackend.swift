@@ -481,3 +481,73 @@ public enum PCLinkDrawerPolicy {
         return connection.isOnline ? .ready : .offline
     }
 }
+
+// MARK: - Drawer list state (pclink-pacing)
+
+/// What the list region shows once the PC segment is `.ready`: a read in
+/// flight, a failed read (never the "no sessions" empty state), an empty
+/// list, or rows. The error wins over an empty list so a failed
+/// `session/list` is not presented as "还没有 PC 会话".
+public enum PCDrawerListState: Equatable, Sendable {
+    case loading
+    case error
+    case empty
+    case rows
+}
+
+public extension PCLinkDrawerPolicy {
+    static func listState(isLoading: Bool, error: String?, sessionCount: Int) -> PCDrawerListState {
+        if isLoading && sessionCount == 0 { return .loading }
+        if error != nil && sessionCount == 0 { return .error }
+        if sessionCount == 0 { return .empty }
+        return .rows
+    }
+}
+
+// MARK: - PC workspace grouping (pclink-pacing)
+
+/// Pure grouping rules for the PC segment. A session's workspace is the
+/// explicit `workspace/follow` membership first, then the longest matching
+/// workspace path against the session's cwd. The group title is the DSH
+/// workspace title (never the synthetic "PC 工作区 · <computer>"), so the
+/// drawer shows the computer's real working folders.
+public enum PCLinkWorkspaceGrouping {
+    public static func title(_ raw: String, fallback: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    /// Longest matching workspace path for a cwd; `nil` when no workspace owns
+    /// the directory. Paths are canonical host paths and compare by path
+    /// component boundary, so `/work/a` does not match `/work/ab`.
+    public static func workspaceID(for session: ManagedSession,
+                                   in workspaces: [ManagedWorkspace]) -> String? {
+        if let explicit = workspaces.first(where: { $0.sessionIDs.contains(session.id) }) {
+            return explicit.id
+        }
+        guard let cwd = session.cwd, !cwd.isEmpty else { return nil }
+        let matches = workspaces.filter { workspace in
+            let path = workspace.path
+            return path == cwd || cwd.hasPrefix(path.hasSuffix("/") ? path : path + "/")
+        }
+        return matches.max { $0.path.count < $1.path.count }?.id
+    }
+}
+
+/// The workspace chip/selection rule: the explicit picker choice if it still
+/// exists, else the P18 last-used value for this PC, else the most recently
+/// active workspace. All values are validated against the current
+/// `workspace/follow` baseline before use.
+public enum PCLinkWorkspaceSelection {
+    public static func resolve(pending: String?, stored: String?, recent: String?,
+                               workspaces: [ManagedWorkspace]) -> String? {
+        let IDs = Set(workspaces.map(\.id))
+        if let pending, IDs.contains(pending) { return pending }
+        if let stored, IDs.contains(stored) { return stored }
+        if let recent, IDs.contains(recent) { return recent }
+        return nil
+    }
+}
+
+// The install/pairing command strings live in PCLinkRelayConfiguration.swift
+// with the relay origin (one configuration point).

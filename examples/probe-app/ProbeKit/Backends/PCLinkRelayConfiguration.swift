@@ -44,3 +44,27 @@ public enum PCLinkRelayConfiguration {
         normalizedLoopbackOrigin(raw) != nil
     }
 }
+
+// MARK: - Install / pairing command (pclink-pacing)
+
+// MARK: - Install guide (pclink-pacing)
+
+/// The one copy-paste install/pairing guide. It lives next to the relay origin
+/// (`PCLinkRelayConfiguration`) so the command text has a single owner; the
+/// drawer empty state, the pairing page and `pclink/README.md` carry the same
+/// string. `#main` only resolves after the PR that adds `pclink/` is merged;
+/// the install was verified against the PR head commit in a throwaway
+/// `DSH_HOME` (see the PC-20261109-pclink-v1 change record §4.17).
+public enum PCLinkInstallGuide {
+    public static let requirement = "电脑上需要已安装 DSH 0.2.2 及以上版本。"
+    public static let restartHint = "安装后重启 dsh web，再在电脑上运行配对命令。"
+    /// Shortest form: `dsh plugin` forwards to pnpm, whose git subdirectory
+    /// syntax is `github:<owner>/<repo>#<ref>&path:/<dir>`.
+    public static let installCommand =
+        "dsh plugin --profile web add 'github:launsion-boop/phone-dsh#main&path:/pclink'"
+    /// The installed package exposes `bin.pclink`; the profile installs it
+    /// under its own node_modules/.bin. This avoids needing a global pclink.
+    public static let pairingCommand =
+        "~/.dsh/profiles/web/node_modules/.bin/pclink pair"
+    public static let title = "先在电脑上安装 DSH 插件"
+}

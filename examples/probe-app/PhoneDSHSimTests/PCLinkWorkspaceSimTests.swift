@@ -131,7 +131,7 @@ private func makeApproval(id: UUID = UUID()) -> PCPairingApproval {
 }
 
 /// A UserDefaults suite plus the name needed to delete its persistent domain.
-private struct TestDefaults {
+struct TestDefaults {
     let defaults: UserDefaults
     let suite: String
 

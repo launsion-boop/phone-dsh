@@ -32,6 +32,7 @@ struct PCPairingPage: View {
 
     var body: some View {
         List {
+            pluginInstallSection
             fingerprintSection
             if case .awaitingApproval(let prompt) = state {
                 approvalSection(prompt)
@@ -125,6 +126,21 @@ struct PCPairingPage: View {
     #endif
 
     // MARK: Sections
+
+    /// pclink-pacing: the same copyable install/pairing guide as the drawer
+    /// empty state. The command text has one owner in ProbeKit next to the
+    /// relay-origin configuration.
+    private var pluginInstallSection: some View {
+        Section {
+            PCPluginInstallGuide()
+                .listRowInsets(EdgeInsets(top: 10, leading: 16,
+                                          bottom: 10, trailing: 16))
+        } header: {
+            Text(PCLinkInstallGuide.title)
+        } footer: {
+            Text("安装后重启 dsh web，再运行配对命令。只有电脑上的 DSH 已运行时，二维码或配对链接才会出现。")
+        }
+    }
 
     private var fingerprintSection: some View {
         Section {

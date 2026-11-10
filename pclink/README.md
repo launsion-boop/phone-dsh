@@ -3,15 +3,33 @@
 PCLink pairs one iPhone with one PC running `dsh web`. The phone gets the DSH
 owner API through the PC plugin; every end-to-end payload is encrypted and
 authenticated before it reaches the untrusted relay. The frozen contract is
-`spec/pclink/v1/README.md` (revision `pclink-v1.3`). This tree is the **C end**:
+`spec/pclink/v1/README.md` (revision `pclink-v1.5`). This tree is the **C end**:
 `dsh-pclink` (Cordis plugin), `npx pclink` CLI and the shared Node core. It has
 no npm runtime dependencies beyond Node built-ins.
 
-## One-line install (from a checkout)
+## Install (copy-paste, same string as the App)
+
+The App shows this exact command (owner: `PCLinkInstallGuide` in
+`examples/probe-app/ProbeKit/Backends/PCLinkRelayConfiguration.swift`, next to the
+relay-origin configuration). `dsh plugin` forwards to pnpm, whose git
+subdirectory syntax is `github:<owner>/<repo>#<ref>&path:/<dir>`; `pclink/` is
+the package root because it carries `core/`, `plugin/` and `cli/`. `#main` only
+resolves after the PR adding `pclink/` is merged.
 
 ```sh
-node pclink/cli/bin.mjs install
+dsh plugin --profile web add 'github:launsion-boop/phone-dsh#main&path:/pclink'
 ```
+
+Restart `dsh web` after the install, then get the QR/link from the installed
+CLI (the package exposes `bin.pclink` in the profile):
+
+```sh
+~/.dsh/profiles/web/node_modules/.bin/pclink pair
+```
+
+The computer needs DSH 0.2.2 or newer. On a source checkout the longer
+`node pclink/cli/bin.mjs install` path still exists and additionally checks the
+pin, prints the plugin SHA-256 and offers to restart `dsh web`.
 
 `install` finds `dsh` (`DSH_BIN`, `PATH`, or `DSH_SOURCE`/`DSH_PIN_ROOT`),
 checks the tested range `>=0.2.2-rc.1 <0.3.0`, checks the host native module
