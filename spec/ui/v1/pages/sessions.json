@@ -9,7 +9,7 @@
   "source": {
     "file": "SessionsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SessionsPage.swift",
-    "lines": 744,
+    "lines": 737,
     "structLine": 83,
     "renderedFrom": [
       "body",
@@ -710,7 +710,7 @@
       "extraction": "syntax"
     },
     {
-      "id": "button-579",
+      "id": "button-572",
       "label": null,
       "labelExpr": "displaySessionTitle(session)",
       "kind": "button",
@@ -719,7 +719,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:579",
+      "provenance": "SessionsPage.swift:572",
       "anchor": "Button { open(session) } label: {",
       "extraction": "manual"
     },
@@ -733,7 +733,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:620",
+      "provenance": "SessionsPage.swift:613",
       "anchor": "Button(\"重命名会话\") { renameSessionTarget = session; renameText = session.title }",
       "extraction": "syntax"
     },
@@ -747,7 +747,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:622",
+      "provenance": "SessionsPage.swift:615",
       "anchor": "Button(\"归档会话\") { archiveSession(session) }",
       "extraction": "syntax"
     },
@@ -761,7 +761,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:641",
+      "provenance": "SessionsPage.swift:634",
       "anchor": "Button(\"恢复\") { Task { await management.unarchive(session) } }",
       "extraction": "syntax"
     },
@@ -790,11 +790,11 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:709",
+      "provenance": "SessionsPage.swift:702",
       "anchor": "Button(\"编辑\") { editingItem = item; replacement = item.text }",
       "extraction": "syntax",
       "labelAlternatives": [],
-      "presents": "sheet-728",
+      "presents": "sheet-721",
       "presentedBy": "navigationDestination-384"
     },
     {
@@ -807,7 +807,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:711",
+      "provenance": "SessionsPage.swift:704",
       "anchor": "Button(\"设为当前引导\") { Task { await management.updateQueue(item, action: \"steer\") } ",
       "extraction": "syntax",
       "labelAlternatives": [],
@@ -823,14 +823,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:713",
+      "provenance": "SessionsPage.swift:706",
       "anchor": "Button(\"移除\", role: .destructive) { Task { await management.updateQueue(item, act",
       "extraction": "syntax",
       "labelAlternatives": [],
       "presentedBy": "navigationDestination-384"
     },
     {
-      "id": "gesture-726",
+      "id": "gesture-719",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -839,7 +839,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:726",
+      "provenance": "SessionsPage.swift:719",
       "anchor": ".refreshable { await management.refreshQueue(for: session.id) }",
       "extraction": "syntax",
       "presentedBy": "navigationDestination-384"
@@ -854,7 +854,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:734",
+      "provenance": "SessionsPage.swift:727",
       "anchor": "ToolbarItem(placement: .cancellationAction) { Button(\"取消\") { editingItem = nil }",
       "extraction": "syntax",
       "presentedBy": "navigationDestination-384"
@@ -869,7 +869,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SessionsPage.swift:736",
+      "provenance": "SessionsPage.swift:729",
       "anchor": "Button(\"保存\") {",
       "extraction": "syntax",
       "presentedBy": "navigationDestination-384"
@@ -1072,20 +1072,20 @@
   "subpages": [
     {
       "name": "SessionQueuePage",
-      "line": 690,
+      "line": 683,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "next-turn",
-          "provenance": "SessionsPage.swift:705"
+          "provenance": "SessionsPage.swift:698"
         },
         {
           "title": "错误",
-          "provenance": "SessionsPage.swift:720"
+          "provenance": "SessionsPage.swift:713"
         }
       ],
-      "provenance": "SessionsPage.swift:690"
+      "provenance": "SessionsPage.swift:683"
     }
   ],
   "unreachable": [],

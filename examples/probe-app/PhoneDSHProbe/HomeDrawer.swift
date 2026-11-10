@@ -111,7 +111,7 @@ struct HomeDrawer: View {
         }
         .onDisappear { sessionOrder.removeAll() }
         .onChange(of: models.pcLink.isOnline) { _, online in
-            if online, !showsPCState { Task { await management.refresh() } }
+            if online, !showsPCState { management.refreshSoon() }
         }
         .alert("新建文件夹", isPresented: $showNewFolder) {
             TextField("文件夹名称", text: $newFolderName)
@@ -306,32 +306,31 @@ struct HomeDrawer: View {
     }
 
     private var orderedFolders: [ManagedWorkspace] {
-        let byID = Dictionary(uniqueKeysWithValues: management.workspaces.map { ($0.id, $0) })
-        let ordered = management.workspaceOrder.compactMap { byID[$0] }
-        let listed = Set(ordered.map(\.id))
-        return ordered + management.workspaces.filter { !listed.contains($0.id) }
+        management.workspaceIndex.orderedWorkspaces
     }
 
     /// Every session has a folder: sessions the host lists outside any folder
     /// belong to the default one (手机工作区 / Phone Workspace). With no default
     /// folder registered yet they still show as that group, never as "unfiled".
-    private func sessions(in folder: ManagedWorkspace) -> [ManagedSession] {
-        inHeldOrder(rawSessions(in: folder))
+    private func sessions(in folder: ManagedWorkspace,
+                          heldOrderRank rank: [String: Int]) -> [ManagedSession] {
+        inHeldOrder(rawSessions(in: folder), rank: rank)
     }
 
     /// The host's current order for one folder, before the drawer's held order.
     private func rawSessions(in folder: ManagedWorkspace) -> [ManagedSession] {
-        let own = management.sessions(in: folder)
+        // One cached snapshot per body: membership + the cwd fallback are
+        // precomputed, never an O(sessions × workspaces) scan under the finger.
+        let index = management.workspaceIndex
+        let own = index.sessions(in: folder)
         if models.isPhoneSelected {
             guard folder.id == defaultFolder?.id else { return pinnedFirst(own) }
-            return pinnedFirst(own + management.ungroupedSessions)
+            return pinnedFirst(own + index.ungroupedSessions)
         }
         // PC: a session the workspace list has not enrolled yet still belongs
         // to the workspace whose host path owns its cwd (longest match). This
         // is what turns the old single "PC 工作区" pile into real groups.
-        let extra = management.ungroupedSessions.filter {
-            management.workspaceID(for: $0) == folder.id
-        }
+        let extra = index.extraSessions(in: folder.id)
         return pinnedFirst(own + extra)
     }
 
@@ -350,18 +349,20 @@ struct HomeDrawer: View {
     /// its workspace when `workspace/follow` lists it or its cwd matches a
     /// workspace path, and only the rest is loose.
     private var rawLooseSessions: [ManagedSession] {
+        let index = management.workspaceIndex
         if models.isPhoneSelected {
-            return defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+            return defaultFolder == nil ? pinnedFirst(index.ungroupedSessions) : []
         }
-        let ungrouped = management.ungroupedSessions
-        guard !orderedFolders.isEmpty else { return pinnedFirst(ungrouped) }
-        return pinnedFirst(ungrouped.filter { management.workspaceID(for: $0) == nil })
+        guard !orderedFolders.isEmpty else { return pinnedFirst(index.ungroupedSessions) }
+        return pinnedFirst(index.looseSessions)
     }
 
-    /// The loose rows in the drawer's held order (#76): a refresh must not
-    /// reorder them under the user's finger.
-    private var looseSessions: [ManagedSession] {
-        inHeldOrder(rawLooseSessions)
+    /// Built once per body instead of once per folder: the old code created a
+    /// 3,500-entry rank dictionary for every Workspace on every body pass.
+    private var heldOrderRank: [String: Int] {
+        guard !sessionOrder.isEmpty else { return [:] }
+        return Dictionary(uniqueKeysWithValues: sessionOrder.enumerated()
+            .map { ($0.element, $0.offset) })
     }
 
     private var loadingRow: some View {
@@ -379,7 +380,8 @@ struct HomeDrawer: View {
 
     @ViewBuilder
     private var folders: some View {
-        let loose = looseSessions
+        let rank = heldOrderRank
+        let loose = inHeldOrder(rawLooseSessions, rank: rank)
         LazyVStack(alignment: .leading, spacing: 4) {
             if !models.isPhoneSelected {
                 switch listState {
@@ -413,7 +415,7 @@ struct HomeDrawer: View {
                 }
             }
             ForEach(orderedFolders) { folder in
-                let sessions = sessions(in: folder)
+                let sessions = sessions(in: folder, heldOrderRank: rank)
                 folderHeader(folder, count: sessions.count)
                 if isExpanded(folder.id) {
                     if sessions.isEmpty {
@@ -576,10 +578,9 @@ struct HomeDrawer: View {
     /// appear later are appended after it. `sessions` is newest-first after a
     /// refresh, so without this hold a switch that bumped the selected
     /// session's `updatedAt` would reorder the list under the tap.
-    private func inHeldOrder(_ sessions: [ManagedSession]) -> [ManagedSession] {
-        guard !sessionOrder.isEmpty else { return sessions }
-        let rank = Dictionary(uniqueKeysWithValues: sessionOrder.enumerated()
-            .map { ($0.element, $0.offset) })
+    private func inHeldOrder(_ sessions: [ManagedSession],
+                             rank: [String: Int]) -> [ManagedSession] {
+        guard !rank.isEmpty else { return sessions }
         return sessions.enumerated().sorted { lhs, rhs in
             let left = rank[lhs.element.id] ?? Int.max
             let right = rank[rhs.element.id] ?? Int.max

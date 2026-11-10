@@ -108,19 +108,37 @@ final class DSHManagementModel {
     private var chat: ChatModel { chatProvider() }
     private var backendID: BackendID { chat.backendID }
 
-    private(set) var sessions: [ManagedSession] = []
-    private(set) var workspaces: [ManagedWorkspace] = []
-    private(set) var workspaceOrder: [String] = []
+    private(set) var sessions: [ManagedSession] = [] {
+        didSet { workspaceRevision &+= 1 }
+    }
+    private(set) var workspaces: [ManagedWorkspace] = [] {
+        didSet { workspaceRevision &+= 1 }
+    }
+    private(set) var workspaceOrder: [String] = [] {
+        didSet { workspaceRevision &+= 1 }
+    }
     /// The host's authoritative default workspace id, when `workspace/follow`
     /// reports it. The phone still falls back to the title policy for hosts
     /// that predate the field.
-    private(set) var defaultWorkspaceID: String?
+    private(set) var defaultWorkspaceID: String? {
+        didSet { workspaceRevision &+= 1 }
+    }
     #if DEBUG
     /// 预览造了假数据之后,refresh() 不许把界面冲空。
     private(set) var previewDataInstalled = false
     #endif
-    private(set) var pinnedSessionIDs: [String] = []
-    private(set) var archivedIDs: Set<String> = []
+    private(set) var pinnedSessionIDs: [String] = [] {
+        didSet { workspaceRevision &+= 1 }
+    }
+    private(set) var archivedIDs: Set<String> = [] {
+        didSet { workspaceRevision &+= 1 }
+    }
+    /// Bumped whenever a grouping input changes. `workspaceIndex` reads it so
+    /// SwiftUI observes the cache too, and only rebuilds on a real change.
+    private(set) var workspaceRevision: UInt64 = 0
+    @ObservationIgnored private let workspaceIndexCache = PCWorkspaceIndexCache()
+    @ObservationIgnored private var sessionTitleOrdinalCache: [String: Int]?
+    @ObservationIgnored private var sessionTitleOrdinalRevision: UInt64 = .max
     private(set) var modelRoutes: [ManagedModelRoute] = []
     private(set) var currentModelSelection: ManagedModelSelection?
     private(set) var searchSnippets: [String: String] = [:]
@@ -161,6 +179,12 @@ final class DSHManagementModel {
     }
     private var pendingOptimisticSelect: OptimisticSelect?
     private var optimisticSelectTask: Task<Void, Never>?
+    /// Event-driven refresh coalescing. A drawer open + session switch + online
+    /// transition used to fire several full 5.5 MB `session/list` reads in a
+    /// row; `refreshSoon()` collapses them into one run.
+    @ObservationIgnored private let refreshDebouncer = PCLinkRefreshDebouncer()
+    @ObservationIgnored private var refreshPending = false
+    @ObservationIgnored private var lastRefreshCompletedAt: Date?
 
     /// Last successful `session/list` projection, restored on launch and after
     /// a park so the drawer and the chat title never wait for the engine.
@@ -172,29 +196,60 @@ final class DSHManagementModel {
     /// backend, not `(BackendID, sessionID)`.
     private static let cachedSnapshotKey = "dsh.management.sessionSnapshot.v1"
 
-    var activeSessions: [ManagedSession] { sessions.filter { !archivedIDs.contains($0.id) } }
-    var archivedSessions: [ManagedSession] { sessions.filter { archivedIDs.contains($0.id) } }
-    var pinnedSessions: [ManagedSession] {
-        pinnedSessionIDs.compactMap { id in sessions.first(where: { $0.id == id && !archivedIDs.contains(id) }) }
-    }
-    func sessions(in workspace: ManagedWorkspace) -> [ManagedSession] {
-        workspace.sessionIDs.compactMap { id in sessions.first(where: { $0.id == id && !archivedIDs.contains(id) }) }
-    }
-    var ungroupedSessions: [ManagedSession] {
-        let members = Set(workspaces.flatMap(\.sessionIDs))
-        return activeSessions.filter { !members.contains($0.id) }
+    /// One cached grouping snapshot. All drawer/list accessors below read it,
+    /// so a SwiftUI body evaluation is O(1) after the first build and a
+    /// workspace/follow event storm only rebuilds when its input really
+    /// changed (one O(sessions) pass instead of O(sessions × workspaces)).
+    var workspaceIndex: PCWorkspaceIndex {
+        workspaceIndexCache.index(
+            revision: workspaceRevision,
+            sessions: sessions,
+            workspaces: workspaces,
+            workspaceOrder: workspaceOrder,
+            pinnedSessionIDs: pinnedSessionIDs,
+            archivedIDs: archivedIDs)
     }
 
+    /// Duplicate-title ordinals used by the full Sessions page. That page used
+    /// to rebuild `workspaces.flatMap(all sessions)` for every row it drew
+    /// (O(sessions²)); this snapshot is built once per grouping revision and
+    /// each row then does one dictionary lookup.
+    var sessionTitleOrdinals: [String: Int] {
+        let revision = workspaceRevision
+        if let cache = sessionTitleOrdinalCache, sessionTitleOrdinalRevision == revision {
+            return cache
+        }
+        var ordinals: [String: Int] = [:]
+        var counts: [String: Int] = [:]
+        let index = workspaceIndex
+        for workspace in index.orderedWorkspaces {
+            var rows = index.sessions(in: workspace)
+            if isDefaultWorkspace(workspace) { rows += index.ungroupedSessions }
+            for session in rows {
+                let base = DrawerTitles.sessionTitle(session.title, index: 1)
+                let next = (counts[base] ?? 0) + 1
+                counts[base] = next
+                ordinals[session.id] = next
+            }
+        }
+        sessionTitleOrdinalCache = ordinals
+        sessionTitleOrdinalRevision = revision
+        return ordinals
+    }
+
+    var activeSessions: [ManagedSession] { workspaceIndex.activeSessions }
+    var archivedSessions: [ManagedSession] { workspaceIndex.archivedSessions }
+    var pinnedSessions: [ManagedSession] { workspaceIndex.pinnedSessions }
+    func sessions(in workspace: ManagedWorkspace) -> [ManagedSession] {
+        workspaceIndex.sessions(in: workspace)
+    }
+    var ungroupedSessions: [ManagedSession] { workspaceIndex.ungroupedSessions }
+
     var currentWorkspaceID: String? {
-        guard let sessionID = chat.currentSessionID,
-              let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
-        return workspaceID(for: session)
+        guard let sessionID = chat.currentSessionID else { return nil }
+        return workspaceIndex.workspaceIDBySessionID[sessionID]
     }
-    var recentWorkspaceID: String? {
-        workspaces.max { lhs, rhs in
-            latestActivity(in: lhs) < latestActivity(in: rhs)
-        }?.id
-    }
+    var recentWorkspaceID: String? { workspaceIndex.recentWorkspaceID }
 
     /// The explicit picker choice for the next PC session; nil means "use the
     /// P18 last-used value, then the most recent workspace".
@@ -219,7 +274,7 @@ final class DSHManagementModel {
     }
 
     func workspaceID(for session: ManagedSession) -> String? {
-        PCLinkWorkspaceGrouping.workspaceID(for: session, in: workspaces)
+        workspaceIndex.workspaceID(for: session)
     }
 
     /// Choose the workspace for the next/empty PC session and persist it for
@@ -250,12 +305,46 @@ final class DSHManagementModel {
         WorkspaceStorage.setLastWorkspaceID(workspaceID, for: backendID)
     }
 
+    /// Read the live management projection. Concurrent callers are coalesced:
+    /// a call that arrives while a read is in flight sets `refreshPending` and
+    /// the running loop performs exactly one more pass after it finishes.
     func refresh() async {
         #if DEBUG
         // 预览造的假数据不许被宿主刷新冲掉,否则预览一进去就空了。
         if previewDataInstalled { return }
         #endif
-        guard !isLoading else { return }
+        if isLoading {
+            refreshPending = true
+            return
+        }
+        isLoading = true
+        repeat {
+            refreshPending = false
+            await performRefresh()
+        } while refreshPending && !Task.isCancelled
+        isLoading = false
+        lastRefreshCompletedAt = Date()
+    }
+
+    /// Debounced entry for event-driven callers (drawer open, session switch,
+    /// online transition). A burst of triggers inside the window produces one
+    /// `session/list` read; explicit user retries still call `refresh()`.
+    func refreshSoon() {
+        let scheduledAt = Date()
+        refreshDebouncer.schedule { [weak self] in
+            guard let self else { return }
+            // A first-paint/explicit refresh may have completed while this
+            // event was inside the debounce window; do not pay for the list
+            // twice. If it is still running, `refresh()` records one pending
+            // pass instead.
+            if let completed = self.lastRefreshCompletedAt, completed >= scheduledAt {
+                return
+            }
+            await self.refresh()
+        }
+    }
+
+    private func performRefresh() async {
         guard chat.isStarted else {
             // The engine is booting/rebuilding: keep the last phone snapshot
             // visible (the title row and drawer render from it) instead of
@@ -270,14 +359,26 @@ final class DSHManagementModel {
             error = nil
             return
         }
-        isLoading = true
-        defer { isLoading = false }
         do {
             let client = try await chat.workspaceBackend.transport()
             transport = client
             // DSH 0.2.2-rc.1's generated gateway descriptor requires the
             // reserved `_request` member even though it carries no fields.
             let sessionValue = try await client.call("session/list", args: .object(["_request": .object([:])]))
+            // Optional catalog failures must not hide the valid session list.
+            // Start it before the row decode so the two overlapped waits do not
+            // add together.
+            async let catalogResponse = try? client.call("session/modelCatalog", args: .object([:]))
+            // Load the title hints once, not once per Session: the old closure
+            // called `WorkspaceStorage.titleHints(for:)` for every row, which
+            // reads and filters the whole UserDefaults hint map per row
+            // (measured at ~3.3 s for 3,500 hinted rows on a Mac).
+            let hints = SessionTitleHints.titles(for: backendID)
+            let decoded = await PCWorkspaceDecoding.decodeSessionsOffMain(
+                sessionValue,
+                titleHints: hints,
+                newSessionName: Self.newSessionName,
+                untitledSessionName: Self.untitledSessionName)
             // Phone-local session filters do not exist on a PC: the phone Bot
             // registry and device-session mapping describe sessions created by
             // this phone, not by the paired computer (plan v2 §6.1 capability
@@ -286,12 +387,10 @@ final class DSHManagementModel {
             let phoneOnlyFilters = backendID == .phone
             let deviceSessionIDs = phoneOnlyFilters
                 ? DeviceSessionCoordinator.shared.mappedSessionIDs : []
-            sessions = decodeSessions(sessionValue).filter {
+            sessions = decoded.filter {
                 !deviceSessionIDs.contains($0.id)
                     && !(phoneOnlyFilters && Self.isBotSessionID($0.id))
             }
-            // Optional catalog failures must not hide the valid session list.
-            async let catalogResponse = try? client.call("session/modelCatalog", args: .object([:]))
             if let catalogValue = await catalogResponse {
                 modelRoutes = Self.decodeModelRoutes(catalogValue)
             } else { modelRoutes = [] }
@@ -1204,11 +1303,6 @@ final class DSHManagementModel {
         BotSessionRegistry.shared.isBotWorkspacePath(workspace.path)
     }
 
-    private func latestActivity(in workspace: ManagedWorkspace) -> Date {
-        workspace.sessionIDs.compactMap { id in sessions.first(where: { $0.id == id })?.updatedAt }.max()
-            ?? .distantPast
-    }
-
     private static func decodeWorkspace(_ value: JSONValue) -> ManagedWorkspace? {
         ManagementDecoding.decodeWorkspace(value, isExcludedSessionID: isBotSessionID)
     }
@@ -1368,5 +1462,11 @@ enum SessionTitleHints {
 
     static func title(for sessionID: String, backend: BackendID = .phone) -> String? {
         WorkspaceStorage.titleHints(for: backend)[sessionID]
+    }
+
+    /// Load the whole hint map once for a list decode. Do not call `title(for:)`
+    /// per row: that re-reads and re-filters the UserDefaults map each time.
+    static func titles(for backend: BackendID) -> [String: String] {
+        WorkspaceStorage.titleHints(for: backend)
     }
 }

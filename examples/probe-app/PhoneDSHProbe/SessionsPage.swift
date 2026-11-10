@@ -543,17 +543,10 @@ struct SessionsPage: View {
     }
 
     /// 同名(或都是默认名)的会话从第二个起加序号,顺序跟列表一致。
+    /// The ordinal snapshot is cached by the model; rebuilding the flattened
+    /// list per row was O(sessions²) on a 3,500-row PC.
     private func displaySessionTitle(_ session: ManagedSession) -> String {
-        let ordered = orderedWorkspaces.flatMap { workspace in
-            management.sessions(in: workspace)
-                + (workspace.id == defaultWorkspace?.id ? management.ungroupedSessions : [])
-        }
-        var index = 0
-        for candidate in ordered {
-            let base = DrawerTitles.sessionTitle(candidate.title, index: 1)
-            if base == DrawerTitles.sessionTitle(session.title, index: 1) { index += 1 }
-            if candidate.id == session.id { break }
-        }
+        let index = management.sessionTitleOrdinals[session.id] ?? 1
         return DrawerTitles.sessionTitle(session.title, index: max(index, 1))
     }
 
