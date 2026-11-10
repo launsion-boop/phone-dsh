@@ -39,6 +39,7 @@ export class RelayLink {
    *   allowlist: () => string[],
    *   onFrame: (frame: Record<string, unknown>) => void,
    *   onState?: (state: {state: string, connectedAt?: number, lastError?: string}) => void,
+   *   onRateLimited?: (frame: Record<string, unknown>) => void,
    *   WebSocketCtor?: typeof WebSocket,
    *   timers?: {setTimeout: Function, clearTimeout: Function, now: () => number},
    *   random?: () => number,
@@ -57,6 +58,10 @@ export class RelayLink {
     this.allowlist = options.allowlist
     this.onFrame = options.onFrame
     this.onState = options.onState ?? (() => {})
+    // §3.8 (pclink-v1.5): a relay pair/daily/slow-receiver limit is a dropped
+    // E2E frame signal. The session manager owns the invalidation; the link
+    // delivers the event without interpreting it.
+    this.onRateLimited = options.onRateLimited ?? (() => {})
     this.WebSocketCtor = options.WebSocketCtor ?? globalThis.WebSocket
     this.timers = options.timers ?? { setTimeout, clearTimeout, now: () => Date.now() }
     this.random = options.random ?? Math.random
@@ -337,6 +342,7 @@ export class RelayLink {
   handleRelayError(frame) {
     this.lastError = `${String(frame.code)}: ${String(frame.message ?? '')}`
     this.log(`relay.error ${this.lastError}`)
+    if (frame.code === 'rate_limited') this.onRateLimited(frame)
     if (frame.code === 'replaced') this.replaced = true
     if (frame.code === 'auth_failed' || frame.code === 'replaced') {
       // The relay follows with a close; do not treat the error as fatal locally.

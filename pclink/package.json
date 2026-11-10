@@ -33,6 +33,6 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:integration": "node --test test/integration.test.mjs",
-    "test:unit": "node --test test/vectors.test.mjs test/schema-samples.test.mjs test/plugin.test.mjs test/session.test.mjs test/relay-link.test.mjs test/cli.test.mjs"
+    "test:unit": "node --test test/vectors.test.mjs test/schema-samples.test.mjs test/pacing.test.mjs test/plugin.test.mjs test/session.test.mjs test/relay-link.test.mjs test/cli.test.mjs"
   }
 }

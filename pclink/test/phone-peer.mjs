@@ -93,6 +93,9 @@ export class PhonePeer {
     this.calls = new Map()
     this.streams = new Map()
     this.resultReassembler = new ChunkReassembler()
+    // Pacing regression evidence: how many result chunks the phone accepted.
+    this.resultChunkFrames = 0
+    this.resultChunkChars = 0
     this.phoneCrypto = undefined
     this.pcMachineId = undefined
     this.pcPublicKey = undefined
@@ -145,6 +148,17 @@ export class PhonePeer {
   }
 
   onFrame(frame) {
+    // The real relay pings every 25 s ± 5 s; a test phone must answer or it is
+    // closed after two unanswered pings (§3.4).
+    if (frame.type === 'relay.ping') {
+      this.send({ v: 1, type: 'relay.pong', nonce: frame.nonce })
+      return
+    }
+    if (frame.type === 'relay.error') {
+      this.lastRelayError = frame
+      this.frames.push(frame)
+      return
+    }
     if (frame.type === 'e2e') {
       if (this.phoneCrypto === undefined) {
         this.log('e2e before handshake; dropping')
@@ -166,6 +180,8 @@ export class PhonePeer {
   onInner(message) {
     if (message.type === 'rpc.result') return this.finishCall(message)
     if (message.type === 'rpc.result.chunk') {
+      this.resultChunkFrames += 1
+      this.resultChunkChars += message.data.length
       const step = this.resultReassembler.push(message)
       if (step.complete) this.finishCall(step.value)
       return
