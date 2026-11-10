@@ -1,0 +1,43 @@
+{
+  "contract": "pdsh.tonolink-voice/1",
+  "note": "tonolink-board.md §4.1. Producer firmware tonolink-m21-r4-firmware@4763811 (main/wake.c, main/voice.c, main/ctrl_svc.c). Opus bodies here are synthetic bytes; tests judge framing, not audio.",
+  "constants": {
+    "header_bytes": 4,
+    "opus_max_bytes": 160,
+    "frame_ms": 20,
+    "flag_first": 1,
+    "flag_last": 2
+  },
+  "events": [
+    {"line": "ev wake n=3 up=81234", "expect": {"kind": "wake", "n": 3, "up_ms": 81234}},
+    {"line": "ev wake n=0 up=5", "expect": {"kind": "wake", "n": 0, "up_ms": 5}},
+    {"line": "ev wake n=7 up=10 extra=1", "expect": {"kind": "wake", "n": 7, "up_ms": 10}},
+    {"line": "ev listen_end n=12 frames=140 reason=vad", "expect": {"kind": "listen_end", "n": 12, "frames": 140, "reason": "vad"}},
+    {"line": "ev listen_end n=1 frames=0 reason=error", "expect": {"kind": "listen_end", "n": 1, "frames": 0, "reason": "error"}},
+    {"line": "ev listen_end n=4 frames=250 reason=no_speech", "expect": {"kind": "listen_end", "n": 4, "frames": 250, "reason": "no_speech"}},
+    {"line": "ev listen_end n=4 frames=600 reason=max", "expect": {"kind": "listen_end", "n": 4, "frames": 600, "reason": "max"}},
+    {"line": "ev listen_end n=4 frames=9 reason=cancel", "expect": {"kind": "listen_end", "n": 4, "frames": 9, "reason": "cancel"}},
+    {"line": "ev wake n=3", "expect": null},
+    {"line": "ev wake n=x up=1", "expect": null},
+    {"line": "ev wake n=-1 up=1", "expect": null},
+    {"line": "ev listen_end n=4 frames=9 reason=bored", "expect": null},
+    {"line": "ev listen_end n=4 reason=vad", "expect": null},
+    {"line": "ev call phase=2", "expect": null},
+    {"line": "ack 5 ok", "expect": null},
+    {"line": "st up=1 ble=1", "expect": null}
+  ],
+  "listen_commands": [
+    {"seq": 9, "id": 3, "line": "9 listen 3"},
+    {"seq": 65535, "id": 4294967295, "line": "65535 listen 4294967295"}
+  ],
+  "packets": [
+    {"turn_id": 3, "hex": "000001037801aa", "expect": {"seq": 0, "first": true, "last": false, "opus_hex": "7801aa"}},
+    {"turn_id": 3, "hex": "0100000378", "expect": {"seq": 1, "first": false, "last": false, "opus_hex": "78"}},
+    {"turn_id": 259, "hex": "2a000003ff", "expect": {"seq": 42, "first": false, "last": false, "opus_hex": "ff"}},
+    {"turn_id": 3, "hex": "05000203", "expect": {"seq": 5, "first": false, "last": true, "opus_hex": ""}},
+    {"turn_id": 3, "hex": "0000000478", "expect": null},
+    {"turn_id": 3, "hex": "000001", "expect": null},
+    {"turn_id": 3, "hex": "06000003", "expect": null},
+    {"turn_id": 3, "hex_repeat": {"prefix": "00000003", "byte": "aa", "count": 161}, "expect": null}
+  ]
+}

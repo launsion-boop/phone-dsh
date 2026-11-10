@@ -3,7 +3,10 @@
 // AVAudioSession. A pure keep-alive run uses playback + mixWithOthers; while a
 // microphone caller holds a token the session keeps the same mixable
 // playAndRecord profile until the last owner releases it. The last owner
-// deactivates the session.
+// deactivates the session. A speaker-output claim (the TonoLink voice turn)
+// uses that same profile and, while the output is an AirPlay receiver (the
+// board mirrors the screen and drops AirPlay audio), forces the built-in
+// speaker so the phone's speech is heard (xiaozhi-link VoiceAssistant).
 
 import AVFoundation
 import Foundation
@@ -15,12 +18,21 @@ public enum PhoneAudioSessionLease {
         init() { id = UUID() }
     }
 
+    public struct SpeakerToken: Hashable, Sendable {
+        let id: UUID
+        init() { id = UUID() }
+    }
+
     @MainActor
     final class State {
         private let configurePlayback: @MainActor () throws -> Void
         private let configureMicrophone: @MainActor () throws -> Void
         private let activate: @MainActor () throws -> Void
         private let deactivate: @MainActor () -> Void
+        private let outputIsAirPlay: @MainActor () -> Bool
+        private let overrideToSpeaker: @MainActor (Bool) -> Void
+        private var speakerTokens: Set<SpeakerToken> = []
+        private var speakerOverridden = false
         private var reclaim: (@MainActor () -> Void)?
         private var microphoneToken: MicrophoneToken?
         /// Once a microphone configures the session, keep its mixable
@@ -30,11 +42,49 @@ public enum PhoneAudioSessionLease {
         init(configurePlayback: @escaping @MainActor () throws -> Void,
              configureMicrophone: @escaping @MainActor () throws -> Void,
              activate: @escaping @MainActor () throws -> Void,
-             deactivate: @escaping @MainActor () -> Void) {
+             deactivate: @escaping @MainActor () -> Void,
+             outputIsAirPlay: @escaping @MainActor () -> Bool = { false },
+             overrideToSpeaker: @escaping @MainActor (Bool) -> Void = { _ in }) {
             self.configurePlayback = configurePlayback
             self.configureMicrophone = configureMicrophone
             self.activate = activate
             self.deactivate = deactivate
+            self.outputIsAirPlay = outputIsAirPlay
+            self.overrideToSpeaker = overrideToSpeaker
+        }
+
+        var hasSpeakerOwner: Bool { !speakerTokens.isEmpty }
+        var isSpeakerOverridden: Bool { speakerOverridden }
+
+        /// Phone speech that must be heard on the phone: the mixable playAndRecord profile
+        /// (sticky like a microphone's) and, while the output is AirPlay, the built-in speaker.
+        func acquireSpeakerOutput() throws -> SpeakerToken {
+            if !microphoneProfile {
+                do { try configureMicrophone() } catch {
+                    if isKeepAliveHeld { try? configurePlayback(); reclaim?() }
+                    else if !hasMicrophoneOwner && speakerTokens.isEmpty { deactivate() }
+                    throw error
+                }
+                microphoneProfile = true
+            } else {
+                try activate()
+            }
+            if !speakerOverridden, outputIsAirPlay() {
+                overrideToSpeaker(true)
+                speakerOverridden = true
+            }
+            let token = SpeakerToken()
+            speakerTokens.insert(token)
+            reclaim?()
+            return token
+        }
+
+        func releaseSpeakerOutput(_ token: SpeakerToken) {
+            guard speakerTokens.remove(token) != nil, speakerTokens.isEmpty else { return }
+            if speakerOverridden { overrideToSpeaker(false); speakerOverridden = false }
+            if isKeepAliveHeld || hasMicrophoneOwner { reclaim?(); return }
+            deactivate()
+            microphoneProfile = false
         }
 
         /// True between ``beginKeepAlive(reclaim:)`` and ``endKeepAlive()``.
@@ -63,7 +113,7 @@ public enum PhoneAudioSessionLease {
         func endKeepAlive() {
             guard isKeepAliveHeld else { return }
             reclaim = nil
-            guard !hasMicrophoneOwner else { return }
+            guard !hasMicrophoneOwner, !hasSpeakerOwner else { return }
             deactivate()
             microphoneProfile = false
         }
@@ -98,7 +148,7 @@ public enum PhoneAudioSessionLease {
         func releaseMicrophoneUser(_ token: MicrophoneToken) {
             guard microphoneToken == token else { return }
             microphoneToken = nil
-            if isKeepAliveHeld {
+            if isKeepAliveHeld || hasSpeakerOwner {
                 reclaim?()
                 return
             }
@@ -124,6 +174,12 @@ public enum PhoneAudioSessionLease {
         },
         deactivate: {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        },
+        outputIsAirPlay: {
+            AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .airPlay }
+        },
+        overrideToSpeaker: { on in
+            try? AVAudioSession.sharedInstance().overrideOutputAudioPort(on ? .speaker : .none)
         })
 
     public static var isKeepAliveHeld: Bool { state.isKeepAliveHeld }
@@ -148,5 +204,18 @@ public enum PhoneAudioSessionLease {
 
     public static func releaseMicrophoneUser(_ token: MicrophoneToken) {
         state.releaseMicrophoneUser(token)
+    }
+
+    public static func acquireSpeakerOutput() throws -> SpeakerToken {
+        try state.acquireSpeakerOutput()
+    }
+
+    public static func releaseSpeakerOutput(_ token: SpeakerToken) {
+        state.releaseSpeakerOutput(token)
+    }
+
+    /// The current output ports, for diagnostics (`Speaker`, `AirPlay`, …).
+    public static var outputPorts: [String] {
+        AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }
     }
 }

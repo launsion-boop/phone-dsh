@@ -334,5 +334,17 @@
     "evidence_level": "device-gate",
     "baseline": "examples/probe-app/PhoneDSHProbe/VisionSettingsPage.swift",
     "android_mechanism": "android_* ADB tools on the native MCP endpoint (spec/v1/native-mcp.md)"
+  },
+  {
+    "id": "platform.tonolink-voice-background-wake",
+    "capability": "background.bluetooth-wake",
+    "ios": "The TonoLink board's wake word must reach Phone DSH while it is in the background or suspended. The app declares the bluetooth-central background mode and keeps one restorable ctrl link (CBCentralManager restore identifier dev.phone-dsh.tonolink-voice) to the remembered board, with a parked connect after any drop, so the board's ev wake notification wakes the app (tonolink-board.md §4.1). The turn then runs under a background task plus the existing audio keep-alive.",
+    "android": "Android has no TonoLink voice consumer; a future one would hold the BLE link in the existing foreground service instead of a background mode.",
+    "divergence_class": "os-forced",
+    "rationale": "iOS suspends a background app and only delivers Core Bluetooth events to one that declares bluetooth-central; state restoration and a parked connect are the only ways iOS will wake it for a peripheral. Android keeps the process alive with a foreground service, so it needs neither.",
+    "spec_ref": "spec/device/v1/tonolink-board.md §4.1",
+    "evidence_level": "device-gate",
+    "baseline": "examples/probe-app/PhoneDSHProbe/TonoLinkVoiceHost.swift",
+    "android_mechanism": "startForeground"
   }
 ]

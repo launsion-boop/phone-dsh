@@ -33,10 +33,20 @@ import Foundation
     private var writable: CheckedContinuation<Void, Error>?
     /// Notifications that answer no pending request (`ota at`, `ota err`, `st …`).
     public var onLine: ((TonoLinkCtrlLine) -> Void)?
+    /// Each time `status` notifications (re)start, including after a reconnect or a restore.
+    public var onReady: (() -> Void)?
 
-    public init(nameHint: String = "PhoneAgent", peripheralID: UUID? = nil) {
+    /// A long-lived link (the voice turn, tonolink-board.md §4.1): CoreBluetooth state
+    /// restoration under this identifier, and after a drop or a connect timeout a parked
+    /// `connect()` that iOS keeps while the app is suspended and that wakes it when the
+    /// board advertises again. Requires the `bluetooth-central` background mode.
+    public let restoreIdentifier: String?
+    public var staysConnected: Bool { restoreIdentifier != nil }
+
+    public init(nameHint: String = "PhoneAgent", peripheralID: UUID? = nil, restoreIdentifier: String? = nil) {
         self.nameHint = nameHint
         self.peripheralID = peripheralID
+        self.restoreIdentifier = restoreIdentifier
         super.init()
     }
 
@@ -99,7 +109,10 @@ import Foundation
     // MARK: - Connection
 
     private func poweredOn() async throws {
-        if central == nil { central = CBCentralManager(delegate: self, queue: .main) }
+        if central == nil {
+            let options = restoreIdentifier.map { [CBCentralManagerOptionRestoreIdentifierKey: $0] }
+            central = CBCentralManager(delegate: self, queue: .main, options: options)
+        }
         switch central?.state {
         case .poweredOn: return
         case .unauthorized: throw TonoLinkUSBOTAError("Bluetooth permission denied")
@@ -113,6 +126,11 @@ import Foundation
         let connected = central.retrieveConnectedPeripherals(withServices: [CBUUID(string: TonoLinkCtrlService.service)])
         if let match = connected.first(where: { peripheralID != nil ? $0.identifier == peripheralID : matches($0.name) }) {
             open(match); return
+        }
+        // A long-lived link parks a connect to the known board instead of scanning
+        // (a background scan without service filters finds nothing).
+        if staysConnected, let id = peripheralID, let known = central.retrievePeripherals(withIdentifiers: [id]).first {
+            open(known); return
         }
         // Not connected (e.g. rebooting after the OTA): scan. A pending connect
         // to a remembered identifier would wait forever if it never advertises.
@@ -137,12 +155,28 @@ import Foundation
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
         let waiters = powered; powered = []
         switch central.state {
-        case .poweredOn: waiters.forEach { $0.resume() }
+        case .poweredOn:
+            waiters.forEach { $0.resume() }
+            // Restored or parked link: pick it up again once Bluetooth is on.
+            if staysConnected, let peripheral, status == nil {
+                if peripheral.state == .connected { peripheral.discoverServices([CBUUID(string: TonoLinkCtrlService.service)]) }
+                else { central.connect(peripheral) }
+            }
         case .unknown, .resetting: powered = waiters
         default:
             waiters.forEach { $0.resume(throwing: TonoLinkUSBOTAError("Bluetooth unavailable (state \(central.state.rawValue))")) }
-            reset(TonoLinkUSBOTAError("Bluetooth unavailable"))
+            if staysConnected { drop(TonoLinkUSBOTAError("Bluetooth unavailable")) } else { reset(TonoLinkUSBOTAError("Bluetooth unavailable")) }
         }
+    }
+
+    /// State restoration (relaunched in the background by iOS): adopt the restored board.
+    public func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
+        let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+        guard let match = restored.first(where: { peripheralID != nil ? $0.identifier == peripheralID : matches($0.name) }) else { return }
+        peripheral = match
+        peripheralID = match.identifier
+        peripheralName = match.name
+        match.delegate = self
     }
 
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
@@ -165,7 +199,18 @@ import Foundation
 
     public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         guard peripheral == self.peripheral else { return }
+        if staysConnected {
+            drop(error ?? TonoLinkUSBOTAError("Bluetooth disconnected"))
+            central.connect(peripheral)   // parked: no timeout, survives suspension, wakes us on advertise
+            return
+        }
         reset(error ?? TonoLinkUSBOTAError("Bluetooth disconnected"))
+    }
+
+    /// A long-lived link lost its characteristics but keeps its board for the parked connect.
+    private func drop(_ error: Error) {
+        cmd = nil; status = nil; otaData = nil; audio = nil
+        failCommand(error)
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
@@ -191,7 +236,7 @@ import Foundation
     public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         guard characteristic.uuid == CBUUID(string: TonoLinkCtrlService.status) else { return }
         if let error { failConnect(error); return }
-        if characteristic.isNotifying { ready?.resume(); ready = nil }
+        if characteristic.isNotifying { ready?.resume(); ready = nil; onReady?() }
     }
 
     // MARK: - Commands
@@ -233,6 +278,11 @@ import Foundation
         guard let waiter = ready else { return }
         ready = nil
         central?.stopScan()
+        if staysConnected, peripheral != nil {
+            // Keep the parked connect: the board is out of range or rebooting, iOS finishes it later.
+            waiter.resume(throwing: error)
+            return
+        }
         if let peripheral { central?.cancelPeripheralConnection(peripheral) }
         peripheral = nil; cmd = nil; status = nil; otaData = nil; audio = nil
         waiter.resume(throwing: error)

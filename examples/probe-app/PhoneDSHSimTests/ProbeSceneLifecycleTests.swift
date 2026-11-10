@@ -308,12 +308,76 @@ final class PhoneAudioSessionLeaseTests: XCTestCase {
 }
 
 @MainActor
+final class SpeakerOutputLeaseTests: XCTestCase {
+    func testAirPlayOutputIsForcedToTheSpeakerAndRestoredByTheLastOwner() throws {
+        let backend = LeaseBackend()
+        backend.airPlay = true
+        let state = backend.state()
+        let reclaims = Counter()
+        state.beginKeepAlive { reclaims.increment() }
+        try state.activateKeepAliveSession()
+        XCTAssertEqual(backend.playback.value, 1)
+
+        let token = try state.acquireSpeakerOutput()
+        XCTAssertEqual(backend.microphone.value, 1, "speaker output uses the mixable playAndRecord profile")
+        XCTAssertEqual(backend.overrides, [true], "AirPlay output is forced to the built-in speaker")
+        XCTAssertTrue(state.isSpeakerOverridden)
+        XCTAssertEqual(reclaims.value, 1, "the keep-alive resumes after the profile change")
+
+        state.releaseSpeakerOutput(token)
+        XCTAssertEqual(backend.overrides, [true, false])
+        XCTAssertEqual(backend.deactivation.value, 0, "the keep-alive still owns the session")
+        XCTAssertTrue(state.isMicrophoneProfileSticky, "the profile stays until the last owner leaves")
+        state.endKeepAlive()
+        XCTAssertEqual(backend.deactivation.value, 1)
+        XCTAssertFalse(state.isMicrophoneProfileSticky)
+    }
+
+    func testNoOverrideWithoutAirPlayAndStaleReleaseIsIgnored() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let token = try state.acquireSpeakerOutput()
+        XCTAssertEqual(backend.overrides, [], "headphones or the speaker are left as the user chose")
+        state.releaseSpeakerOutput(token)
+        state.releaseSpeakerOutput(token)
+        XCTAssertEqual(backend.deactivation.value, 1, "a repeated release has no effect")
+    }
+
+    func testSpeakerAndMicrophoneShareTheProfileWithoutDeactivatingEachOther() throws {
+        let backend = LeaseBackend()
+        let state = backend.state()
+        let speaker = try state.acquireSpeakerOutput()
+        let microphone = try state.acquireMicrophoneUser()
+        XCTAssertEqual(backend.microphone.value, 1, "the shared profile is not reconfigured")
+        state.releaseMicrophoneUser(microphone)
+        XCTAssertEqual(backend.deactivation.value, 0, "the speaker owner still holds the session")
+        state.releaseSpeakerOutput(speaker)
+        XCTAssertEqual(backend.deactivation.value, 1)
+    }
+
+    func testFailedSpeakerConfigurationRestoresTheKeepAlive() throws {
+        let backend = LeaseBackend()
+        backend.microphoneError = PhoneToolError.unavailable(.microphone, "x")
+        let state = backend.state()
+        let reclaims = Counter()
+        state.beginKeepAlive { reclaims.increment() }
+        try state.activateKeepAliveSession()
+        XCTAssertThrowsError(try state.acquireSpeakerOutput())
+        XCTAssertEqual(backend.playback.value, 2, "playback is restored for the keep-alive")
+        XCTAssertEqual(reclaims.value, 1)
+        XCTAssertFalse(state.hasSpeakerOwner)
+    }
+}
+
+@MainActor
 private final class LeaseBackend {
     let playback = Counter()
     let microphone = Counter()
     let activation = Counter()
     let deactivation = Counter()
     var microphoneError: Error?
+    var airPlay = false
+    var overrides: [Bool] = []
 
     func state() -> PhoneAudioSessionLease.State {
         PhoneAudioSessionLease.State(
@@ -323,7 +387,9 @@ private final class LeaseBackend {
                 self.microphone.increment()
             },
             activate: { self.activation.increment() },
-            deactivate: { self.deactivation.increment() })
+            deactivate: { self.deactivation.increment() },
+            outputIsAirPlay: { self.airPlay },
+            overrideToSpeaker: { self.overrides.append($0) })
     }
 }
 

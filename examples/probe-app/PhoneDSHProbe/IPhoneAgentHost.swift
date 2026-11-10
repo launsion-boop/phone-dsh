@@ -278,6 +278,20 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
                 ["kind": "\(item.kind)", "title": item.title, "text": String(item.text.prefix(2000))]
             }
             return .json(200, ["turn_running": ChatModel.shared.turnRunning, "items": Array(items)])
+        case ("GET", "/debug/voice"):
+            return .json(200, TonoLinkVoiceHost.shared.debugSnapshot)
+        case ("POST", "/debug/voice/wake"):
+            // As if the board heard 你好小智: 我在, then the board records one turn.
+            TonoLinkVoiceHost.shared.beginTurn(wake: 0, source: "debug")
+            return .json(200, ["ok": true])
+        case ("POST", "/debug/voice/say"):
+            let text = String(decoding: request.body, as: UTF8.self)
+            guard let credential = await TonoLinkVoiceHost.shared.credential() else { return .error(409, "no cloud credential") }
+            do { try await TonoLinkVoiceHost.shared.speakAloud(text, credential: credential) } catch { return .error(502, error.localizedDescription) }
+            return .json(200, ["ok": true])
+        case ("POST", "/debug/voice/opus"):
+            // Body: `[len u16 LE][Opus 20 ms]…`; `?chat=1` also sends the text to the chat and speaks the reply.
+            return .json(200, await TonoLinkVoiceHost.shared.debugRecognize(request.body, chat: request.queryValue("chat") == "1"))
         case ("GET", "/debug/ble"):
             // What the Bluetooth devices page shows, for named or connected devices.
             let store = BLEDeviceStore.shared

@@ -2427,9 +2427,11 @@ final class ChatModel {
             }
             guard !parked, !keepingAlive else { return }
             beginBackgroundTask()
-            // A running turn is kept alive (the user's task continues); an idle
-            // host is parked as before, which costs no battery.
-            if backgroundKeepAlive && (turnRunning || botTurnsRunning) {
+            // A running turn is kept alive (the user's task continues), and so is
+            // an idle host while the TonoLink board's wake word is armed (a voice
+            // turn may arrive while backgrounded, tonolink-board.md §4.1); any
+            // other idle host is parked as before, which costs no battery.
+            if backgroundKeepAlive && (turnRunning || botTurnsRunning || TonoLinkVoiceHost.shared.isArmed) {
                 do {
                     try beginKeepAlive()
                     appendStatus("App in background: keeping the agent alive with a silent audio session; the turn continues")
@@ -2863,9 +2865,15 @@ final class ChatModel {
     }
 
     /// The turn finished while the app was hidden: release the audio session
-    /// and park the idle host so the keep-alive never outlives the work.
+    /// and park the idle host so the keep-alive never outlives the work. While
+    /// the TonoLink board's wake word is armed the host stays up instead: the
+    /// next voice turn may arrive before the app returns (tonolink-board.md §4.1).
     private func finishBackgroundKeepAlive() async {
         guard keepingAlive, !turnRunning, !botTurnsRunning, let host else { return }
+        if TonoLinkVoiceHost.shared.isArmed {
+            Self.persistStatus("Turn finished in the background; the board's wake word is armed, keeping the host up")
+            return
+        }
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false

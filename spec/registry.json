@@ -530,6 +530,15 @@
           "glob": "Sources/PhoneDSH/TonoAccount/**"
         },
         {
+          "glob": "spec/v1/cloud-voice.md"
+        },
+        {
+          "glob": "spec/v1/golden/cloud-voice/**"
+        },
+        {
+          "glob": "Sources/PhoneDSH/CloudVoice/**"
+        },
+        {
           "glob": "spec/v1/schema/gateway-vector.schema.json"
         },
         {
@@ -588,10 +597,10 @@
         "android/net/src/test/kotlin/com/phonedsh/account/TonoAccountCasesTest.kt"
       ],
       "source": {
-        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[independent Search/Fetch](v1/gateway-independent-search.md)、[tono-account user credential](v1/tono-account.md)、[golden/tono-account](v1/golden/tono-account)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
+        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[independent Search/Fetch](v1/gateway-independent-search.md)、[tono-account user credential](v1/tono-account.md)、[golden/tono-account](v1/golden/tono-account)、[cloud speech client](v1/cloud-voice.md)、[golden/cloud-voice](v1/golden/cloud-voice)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
         "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback HTTP（`HTTPTransport`、`StreamingForward`、`NativeMCP` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/) ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostHttpProxy.ets`, `harmony/entry/src/main/ets/host/HostModelAlias.ets`, `harmony/host-rust/src/http.rs`",
         "evidence": "Native MCP 有 Swift `PhoneDSHADBTests`；gateway vectors 只有 Kotlin `GatewayVectorConformanceTest` 讀取；Swift `Tests/PhoneDSHGatewayTests` 不讀",
-        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/gateway-independent-search.md`、`spec/v1/tono-account.md`、`spec/v1/golden/tono-account/**`、`Sources/PhoneDSH/TonoAccount/**`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`Sources/PhoneDSHVenus/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
+        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/gateway-independent-search.md`、`spec/v1/tono-account.md`、`spec/v1/golden/tono-account/**`、`Sources/PhoneDSH/TonoAccount/**`、`spec/v1/cloud-voice.md`、`spec/v1/golden/cloud-voice/**`、`Sources/PhoneDSH/CloudVoice/**`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`Sources/PhoneDSHVenus/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
       }
     },
     {

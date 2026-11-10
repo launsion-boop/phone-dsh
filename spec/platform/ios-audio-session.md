@@ -10,8 +10,9 @@ Android continues to use the foreground-service policy in `whitelist.json`.
 owner of audio-session category and activation. The keep-alive, composer dictation
 and `PhoneMediaTools.record` acquire and release through it on the main actor.
 There is one keep-alive instance and at most one live microphone token.
-`SilentAudioKeepAlive.shared` is that instance: its callers (the chat turn and
-the DEBUG TonoLink relay) start and stop it under their own owner name, and it
+`SilentAudioKeepAlive.shared` is that instance: its callers (the chat turn,
+the DEBUG TonoLink relay and the TonoLink voice turn while a board with a wake
+word is connected) start and stop it under their own owner name, and it
 holds the lease's single keep-alive claim from the first owner until the last one
 stops.
 
@@ -46,6 +47,19 @@ or ending) or a 5 s watchdog finding the engine or player stopped. That resume
 re-activates the keep-alive profile only while no microphone owner holds the
 session; otherwise it restarts rendering without touching category or activation.
 
+The TonoLink voice turn plays cloud TTS (16 kHz PCM) through its own
+AVAudioEngine and never records (the board's microphone does). For each turn it
+holds a **speaker-output** claim: `acquireSpeakerOutput()` applies the same
+mixable playAndRecord profile (sticky exactly like a microphone's) and, only
+while the current output is an AirPlay receiver, overrides the output to the
+built-in speaker. Mirroring the screen to the TonoLink board makes the output
+AirPlay, and the board discards AirPlay audio, so without the override the
+phone's speech is silent (xiaozhi-link `USB_AIRPLAY_LESSONS.md`,
+`VoiceAssistant.activateSpeechSession`). Any other output (speaker, headphones,
+Bluetooth) is left as is. `releaseSpeakerOutput(_:)` of the last speaker token
+removes the override; a stale or repeated release has no effect; deactivation
+still waits for every claim (keep-alive, microphone, speaker) to be absent.
+
 OS interruptions, media-service reset, process termination and external category
 changes are not guaranteed to preserve capture. This revision does not promise
 that a microphone can be first activated after entering the background.
@@ -61,7 +75,8 @@ compatible.
 
 Valid and invalid ownership fixtures run through the real lease state in
 `examples/probe-app/PhoneDSHSimTests/ProbeSceneLifecycleTests.swift`. They cover
-both handoff orders, zero-owner deactivation, stale and double release, failed
+the speaker-output claim (AirPlay override and restore, shared profile, stale release, failed
+configuration), both handoff orders, zero-owner deactivation, stale and double release, failed
 activation and concurrent microphone rejection. Source-boundary checks are in
 `Tests/PhoneDSHTests/ProbeScenePhaseWiringTests.swift`. Device acceptance must
 check actual recording files, event progression, locked completion and cleanup;

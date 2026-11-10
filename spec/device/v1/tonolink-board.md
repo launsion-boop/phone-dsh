@@ -1,6 +1,6 @@
 # TonoLink board phone-control interface, v1
 
-Status: `implemented` (iOS consumer only). Owner: P07. This registers an existing
+Status: `implemented` (iOS consumer only; §4.1 voice turn `partial` until device evidence). Owner: P07. This registers an existing
 boundary; it adds no wire format of its own.
 
 A TonoLink board (`tonolink.m21r4`, firmware `agent_s3`) plugs into an iPhone's
@@ -62,6 +62,38 @@ encryption), optional `audio` `7A1C9E52-3B6D-4F08-9C2E-5D4B8A61F0A3`. Console li
 and BLE OTA framing are defined by `TonoLinkBLEDebugProtocol.swift` and
 `TonoLinkUSBOTAProtocol.swift`, matching the firmware's `pa_ctrl_core.c`.
 
+### 4.1 Voice turn (board wake word → phone)
+
+Producer: `tonolink-m21-r4-firmware` at `4763811` (`main/wake.c`, `main/voice.c`,
+`main/ctrl_svc.c`), present when `/v1/info` `features` has the `wake` bit. Consumer:
+`Sources/PhoneDSHBLE/TonoLinkVoice.swift` and the app's `TonoLinkVoiceHost.swift`.
+Shared cases: [golden/tonolink-voice.json](golden/tonolink-voice.json), the judge where
+this text could be read two ways.
+
+| Direction | Bytes | Meaning |
+| --- | --- | --- |
+| `status` notify | `ev wake n=<u32> up=<u32>` | The board heard 你好小智. `n` counts hits from 1; `n=0` is the console's simulated wake. A new wake cancels the board's current recording. |
+| `cmd` write | `<seq> listen <id>` (decimal, `id` 1…2³²−1) | Start one recording turn, numbered `id`. Answer `ack <seq> ok`; `ack <seq> err …` means no turn starts (nothing is recorded). |
+| `audio` notify (`…F0A3`) | `[seq u16 LE][flags u8][id & 0xFF][Opus]` | One packet per 20 ms frame: Opus 16 kHz mono, VBR, DTX off, 0…160 bytes. `flags` bit0 first packet, bit1 last packet (the last may carry no Opus). `seq` restarts at 0 per turn. |
+| `status` notify | `ev listen_end n=<id> frames=<u32> reason=vad\|no_speech\|max\|cancel\|error` | The turn ended (800 ms silence after speech, 5 s without speech, 12 s cap, a new wake, or an encoder/mic failure). |
+
+Unknown `key=value` members after the known ones are ignored; any other `ev …` line, an
+`ev wake`/`ev listen_end` missing a member or with a non-decimal value, and an unknown
+`reason` are **not** events (ignored). An audio packet shorter than 4 bytes, longer than
+164 bytes, without Opus and without the last flag, or whose id byte is not the low 8 bits of
+the current turn's id is dropped.
+
+Consumer rules: subscribe `audio` only while voice is enabled. The phone speaks 「我在」
+**before** writing `listen` (the board would record it). Each packet's Opus body is
+forwarded unchanged and in order to the cloud ASR ([cloud-voice.md](../../v1/cloud-voice.md));
+the 4-byte header never leaves the phone. A `seq` gap is counted, not filled. The turn's
+audio ends at the last-flag packet or `ev listen_end`, whichever comes first. A wake while
+a turn is recording, recognising or speaking stops that turn (its ASR is cancelled, its
+playback stopped) and starts a new one. The phone keeps this link while in the background: a
+restorable CoreBluetooth central with a parked reconnect, so `ev wake` wakes a suspended app
+(`spec/platform/whitelist.json` `platform.tonolink-voice-background-wake`). The firmware is unchanged by
+this registration.
+
 ## 5. DEBUG relay (developer builds only)
 
 DEBUG builds can serve `TonoLinkRelay` on the phone's Wi-Fi at `:8780` and forward
@@ -76,7 +108,10 @@ or a read-only view, so a device check is one `curl` instead of a rebuild and UI
 `POST /debug/chat` (send one message, as the composer does), `GET /debug/transcript?n=`,
 `GET /debug/native-mcp` (the last 20 native MCP requests: method, tool, whether the journal key
 arrived, arguments, result), `GET /debug/ble`, `POST /debug/ble/scan` and
-`POST /debug/ble/connect?name=` (the Bluetooth page's scan and 连接 buttons).
+`POST /debug/ble/connect?name=` (the Bluetooth page's scan and 连接 buttons), `GET /debug/voice`
+(the voice turn's state and last turn), `POST /debug/voice/wake` (as if the board heard 你好小智),
+`POST /debug/voice/say` (speak a text) and `POST /debug/voice/opus[?chat=1]` (run recognition, and
+optionally the chat turn, on `[len u16 LE][Opus]…` packets as if the board sent them).
 
 ## 6. Agent
 
