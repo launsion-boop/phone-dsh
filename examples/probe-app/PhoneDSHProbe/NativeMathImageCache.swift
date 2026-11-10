@@ -10,6 +10,7 @@ import Foundation
 import SwiftMath
 import SwiftUI
 import UIKit
+import ProbeKit
 
 enum NativeMathImageResult {
     case success(image: UIImage, ascent: CGFloat, descent: CGFloat)

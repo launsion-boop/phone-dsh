@@ -9,9 +9,10 @@
 import Foundation
 import XCTest
 import PhoneDSHController
-import PhoneDSH
+@testable import PhoneDSH
 import PhoneDSHEngine
 import PhoneDSHLoopback
+import PhoneDSHLog
 import PhoneDSHShell
 import PhoneDSHAgentCore
 
@@ -350,6 +351,219 @@ final class PhoneDSHHostTests: XCTestCase {
         XCTAssertEqual(engine.bootCount, 2)
         XCTAssertGreaterThan(resumed.channelConnectionCount, firstConnections)
         try await host.stop()
+    }
+
+    /// The shipped resume used the cold-start 600 s boot timeout and the 300 s
+    /// App watchdog only released a flag; the host stayed wedged. The resume
+    /// budget must fail inside its own bound, classify as a transient boot
+    /// fault (Backoff), keep every durable WAL byte, and leave a `start()`
+    /// that can cold-boot afterwards.
+    func testResumeBootReadyTimeoutIsBoundedAndColdStartRecoversAfterWALIntact() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let engine = MockEngine(worker: MockWorker())
+        var configuration = try fixture.configuration(helloTimeout: 10)
+        configuration.resumeBootReadyTimeout = 0.2
+        configuration.resumeHelloTimeout = 2
+        configuration.resumeVisibilityTimeout = 0
+        let host = try makeHost(fixture, engine: engine, configuration: configuration)
+        try await host.start()
+        let mseq = try await engine.worker.writeFile(
+            path: "/dsh/workspace/resume-wal-preserve.txt",
+            data: Data("keep every durable byte".utf8))
+        try await engine.worker.waitForAck(mseq)
+        try await host.park()
+        let walBefore = try walRecords(fixture)
+        XCTAssertFalse(walBefore.isEmpty)
+
+        engine.setBootHangs(true, afterNavigation: true)
+        let started = Date()
+        do {
+            try await host.resume()
+            XCTFail("a boot that never reports ready must not resume successfully")
+        } catch {
+            guard case .startTimedOut = error as? PhoneDSHError else {
+                return XCTFail("expected startTimedOut, got \(error)")
+            }
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4,
+                          "the resume must fail inside its own short budget, not 600 s")
+
+        let state = await host.state
+        XCTAssertEqual(state, .starting, "a transient resume fault is Backoff, not Failed")
+        let diagnostics = await host.diagnostics()
+        XCTAssertEqual(diagnostics.hostState, .backoff)
+        XCTAssertEqual(diagnostics.admission, .closed)
+        XCTAssertGreaterThanOrEqual(engine.shutdownCount, 1,
+                                    "the stuck engine must be shut down before release")
+
+        let walAfter = try walRecords(fixture)
+        for (mseq, crc) in walBefore {
+            XCTAssertEqual(walAfter[mseq], crc,
+                           "resume failure must not drop or rewrite WAL record \(mseq)")
+        }
+        let line = try XCTUnwrap(try lastTimingLine(fixture))
+        XCTAssertTrue(line.hasPrefix("resume "), "unexpected line: \(line)")
+        XCTAssertTrue(line.contains(" timeout "), "unexpected line: \(line)")
+        XCTAssertTrue(line.contains("stopped=boot-ready"), "unexpected line: \(line)")
+
+        // A cold start after the persisted retry window is still the recovery.
+        try await host.stop()
+        try writePersistedHostState(fixture, state: "backoff",
+                                    updatedAt: Date().addingTimeInterval(-3_600))
+        engine.setBootHangs(false)
+        engine.setBootError(nil)
+        try await host.start()
+        let cold = await host.diagnostics()
+        XCTAssertEqual(cold.hostState, .running)
+        XCTAssertEqual(cold.admission, .open)
+        try await host.stop()
+    }
+
+    /// The resume must not load the page until the WebView is attached and
+    /// occlusion-visible. The fake engine becomes visible on the third clock
+    /// tick, so the clock is also the proof that the wait ended before load.
+    func testResumeWaitsForVisibilityBeforeLoading() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let engine = MockEngine(worker: MockWorker())
+        var configuration = try fixture.configuration(helloTimeout: 10)
+        configuration.resumeBootReadyTimeout = 5
+        configuration.resumeHelloTimeout = 5
+        configuration.resumeVisibilityTimeout = 5
+        let host = try makeHost(fixture, engine: engine, configuration: configuration)
+        try await host.start()
+        try await host.park()
+
+        engine.setAttached(false)
+        engine.setOcclusionVisible(false)
+        let clock = ManualResumeVisibilityClock()
+        clock.onTick = { tick in
+            if tick == 3 {
+                engine.setAttached(true)
+                engine.setOcclusionVisible(true)
+            }
+        }
+        await host.setResumeVisibilityClockForTesting(clock.clock)
+        try await host.resume()
+        XCTAssertGreaterThanOrEqual(clock.tickCount, 3)
+        XCTAssertTrue(engine.attachedAtBoot,
+                      "the boot must start only after the WebView became visible")
+        let line = try XCTUnwrap(try lastTimingLine(fixture))
+        XCTAssertTrue(line.contains(" visible="), "unexpected line: \(line)")
+        XCTAssertFalse(line.contains("visible-timeout"), "unexpected line: \(line)")
+        try await host.stop()
+    }
+
+    /// A harness may never publish the occlusion half. The resume must continue
+    /// after the bounded wait, log the enum note, and still boot.
+    func testResumeContinuesAfterVisibilityTimeoutAndLogsIt() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let engine = MockEngine(worker: MockWorker())
+        var configuration = try fixture.configuration(helloTimeout: 10)
+        configuration.resumeBootReadyTimeout = 5
+        configuration.resumeHelloTimeout = 5
+        configuration.resumeVisibilityTimeout = 0.2
+        let host = try makeHost(fixture, engine: engine, configuration: configuration)
+        try await host.start()
+        try await host.park()
+
+        engine.setOcclusionVisible(false)
+        let clock = ManualResumeVisibilityClock()
+        await host.setResumeVisibilityClockForTesting(clock.clock)
+        try await host.resume()
+        XCTAssertGreaterThanOrEqual(clock.tickCount, 1)
+        XCTAssertTrue(engine.attachedAtBoot)
+        let line = try XCTUnwrap(try lastTimingLine(fixture))
+        XCTAssertTrue(line.contains("note=visible-timeout"), "unexpected line: \(line)")
+        try await host.stop()
+    }
+
+    /// The visibility refresh is a main-actor hop on iOS. A harness that
+    /// synchronously waits on the main thread can leave it queued forever; the
+    /// resume wait must still expire without a pumped run loop and continue to
+    /// the bounded boot.
+    func testResumeVisibilityRefreshThatNeverReturnsStillExpires() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let engine = MockEngine(worker: MockWorker())
+        var configuration = try fixture.configuration(helloTimeout: 10)
+        configuration.resumeBootReadyTimeout = 5
+        configuration.resumeHelloTimeout = 5
+        configuration.resumeVisibilityTimeout = 0.2
+        let host = try makeHost(fixture, engine: engine, configuration: configuration)
+        try await host.start()
+        try await host.park()
+
+        engine.setOcclusionVisible(false)
+        engine.setRefreshHangs(true)
+        let started = Date()
+        try await host.resume()
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5,
+                          "a stuck visibility refresh must not extend the resume")
+        XCTAssertTrue(engine.attachedAtBoot)
+        let line = try XCTUnwrap(try lastTimingLine(fixture))
+        XCTAssertTrue(line.contains("note=visible-timeout"), "unexpected line: \(line)")
+        try await host.stop()
+    }
+
+    /// Every park/resume, stop/start and planned restart must leave at most one
+    /// live engine. The old WKWebView used to stay in the App's anchor view
+    /// hierarchy, keeping its WebContent process alive (eight were observed on
+    /// the device).
+    func testParkResumeKeepsOneLiveEngineAndShutsDownTheOldOne() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        var configuration = try fixture.configuration(helloTimeout: 10)
+        configuration.resumeBootReadyTimeout = 5
+        configuration.resumeHelloTimeout = 5
+        configuration.resumeVisibilityTimeout = 0
+        let recorder = EngineFactoryRecorder()
+        let host = PhoneDSHHost(configuration: configuration,
+                                engineFactory: { _ in recorder.makeEngine() })
+
+        try await host.start()
+        XCTAssertEqual(recorder.createdCount, 1)
+        try await host.park()
+        try await waitUntil(timeout: 5) {
+            recorder.liveEngineCount == 0 && recorder.shutdownCount == 1
+        }
+
+        for cycle in 0..<3 {
+            try await host.resume()
+            XCTAssertEqual(recorder.createdCount, cycle + 2)
+            XCTAssertEqual(recorder.liveEngineCount, 1)
+            try await host.park()
+            let expectedShutdowns = cycle + 2
+            try await waitUntil(timeout: 5) {
+                recorder.liveEngineCount == 0
+                    && recorder.shutdownCount == expectedShutdowns
+            }
+        }
+
+        try await host.resume()
+        XCTAssertEqual(recorder.createdCount, 5)
+        // Planned restart and a WebContent termination reuse the same engine
+        // (the real engine reloads the page); they must not create a second
+        // WebView beside the live one.
+        try await host.plannedRestart(reason: "leak-regression")
+        XCTAssertEqual(recorder.createdCount, 5)
+        let bootsBeforeTermination = recorder.engine(at: 4)?.bootCount ?? 0
+        recorder.engine(at: 4)?.emit(.terminated(1))
+        try await waitUntil(timeout: 10) {
+            let diagnostics = await host.diagnostics()
+            return diagnostics.state == .running
+                && diagnostics.webContentTerminations >= 1
+                && (recorder.engine(at: 4)?.bootCount ?? 0) > bootsBeforeTermination
+        }
+        XCTAssertEqual(recorder.createdCount, 5)
+        XCTAssertEqual(recorder.liveEngineCount, 1)
+
+        try await host.stop()
+        try await waitUntil(timeout: 5) {
+            recorder.liveEngineCount == 0 && recorder.shutdownCount == 5
+        }
     }
 
     func testParkFailsLoudWhenTheDescendantDrainRouteFailsWithoutAChildJournal() async throws {
@@ -2115,6 +2329,18 @@ final class PhoneDSHHostTests: XCTestCase {
         return url
     }
 
+    private func walRecords(_ fixture: FacadeFixture) throws -> [UInt64: UInt32] {
+        let directory = fixture.workspace.appendingPathComponent("wal", isDirectory: true)
+        let records = try WALReader.records(directory: directory, fromMseq: 1)
+        return Dictionary(uniqueKeysWithValues: records.map { ($0.mseq, $0.crc32c) })
+    }
+
+    private func lastTimingLine(_ fixture: FacadeFixture) throws -> String? {
+        let url = fixture.root.appendingPathComponent("boot-timings.log")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return text.split(separator: "\n").last.map(String.init)
+    }
+
     private func writePersistedHostState(_ fixture: FacadeFixture, state: String,
                                          updatedAt: Date) throws {
         let milliseconds = Int64((updatedAt.timeIntervalSince1970 * 1000).rounded())
@@ -2131,9 +2357,123 @@ final class PhoneDSHHostTests: XCTestCase {
     }
 }
 
-/// Collects every `.restarted` report published on one host event subscription.
-private final class RestartEventRecorder: @unchecked Sendable {
+/// A weak slot for one engine created by the leak regression. Holding the
+/// engine strongly would defeat the assertion.
+private final class WeakEngineBox {
+    weak var engine: MockEngine?
+}
+
+/// Creates fresh engines for the leak regression and records weak references
+/// plus lifecycle counts. Engines are not retained here.
+private final class EngineFactoryRecorder: @unchecked Sendable {
     private let lock = NSLock()
+    private var boxes: [WeakEngineBox] = []
+    private var created = 0
+    private var shutdowns = 0
+
+    func makeEngine() -> MockEngine {
+        let engine = MockEngine(worker: MockWorker())
+        engine.setShutdownHook { [weak self] in self?.recordShutdown() }
+        let box = WeakEngineBox()
+        box.engine = engine
+        lock.lock()
+        boxes.append(box)
+        created += 1
+        lock.unlock()
+        return engine
+    }
+
+    private func recordShutdown() {
+        lock.lock()
+        shutdowns += 1
+        lock.unlock()
+    }
+
+    var createdCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return created
+    }
+
+    var shutdownCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return shutdowns
+    }
+
+    var liveEngineCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return boxes.compactMap(\.engine).count
+    }
+
+    func engine(at index: Int) -> MockEngine? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard boxes.indices.contains(index) else { return nil }
+        return boxes[index].engine
+    }
+}
+
+/// A virtual clock for the resume visibility wait. `onTick` runs after the
+/// virtual time advances, so a test can flip the fake engine's visibility at an
+/// exact tick without sleeping in real time.
+private final class ManualResumeVisibilityClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_000_000)
+    private var ticks = 0
+    private var onTickStorage: (@Sendable (Int) -> Void)?
+    var pollInterval: TimeInterval = 0.05
+
+    var onTick: (@Sendable (Int) -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return onTickStorage
+        }
+        set {
+            lock.lock()
+            onTickStorage = newValue
+            lock.unlock()
+        }
+    }
+
+    var tickCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return ticks
+    }
+
+    var clock: PhoneDSHResumeVisibilityClock {
+        PhoneDSHResumeVisibilityClock(
+            now: { [weak self] in
+                self?.nowValue ?? Date(timeIntervalSince1970: 1_000_000)
+            },
+            sleep: { [weak self] seconds in
+                self?.advance(seconds)
+            },
+            pollInterval: pollInterval)
+    }
+
+    private var nowValue: Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return current
+    }
+
+    private func advance(_ seconds: TimeInterval) {
+        lock.lock()
+        current = current.addingTimeInterval(max(0, seconds))
+        ticks += 1
+        let tick = ticks
+        let hook = onTickStorage
+        lock.unlock()
+        hook?(tick)
+    }
+}
+
+/// Collects every `.restarted` report published on one host event subscription.
+private final class RestartEventRecorder: @unchecked Sendable {    private let lock = NSLock()
     private var storage: [WebEngineRestartReport] = []
     private var task: Task<Void, Never>?
 

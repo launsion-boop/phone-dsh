@@ -1,0 +1,22 @@
+{
+  "name": "dsh-pclink",
+  "version": "0.2.0",
+  "private": true,
+  "description": "PCLink v1 PC plugin: paired phone access to the DSH owner API through an untrusted relay",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "*.mjs"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "listedByDefault": false
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.2-rc.1 <0.3.0"
+  }
+}

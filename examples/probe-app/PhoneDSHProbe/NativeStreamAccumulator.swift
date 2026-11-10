@@ -12,6 +12,7 @@
 
 import Foundation
 import PhoneDSHAgentCore
+import ProbeKit
 
 /// Ordered, run-length-merged streamed text chunks.
 struct NativeStreamAccumulator: Equatable {

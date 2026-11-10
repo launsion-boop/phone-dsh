@@ -9,23 +9,9 @@ import PhoneDSHEngine
 import PhoneDSHWire
 import ProbeKit
 
-struct ManagedSession: Identifiable, Hashable {
-    let id: String
-    var title: String
-    var updatedAt: Date
-    var running: Bool
-    var blank: Bool
-    var cwd: String?
-    var parentSessionID: String?
-    var searchSnippet: String?
-}
-
-struct ManagedWorkspace: Identifiable, Hashable {
-    let id: String
-    var title: String
-    var path: String
-    var sessionIDs: [String]
-}
+// `ManagedSession` / `ManagedWorkspace` and their decoders live in
+// ProbeKit/Management so a second WorkspaceBackend and the simulator suite can
+// consume them; they arrive through `import ProbeKit` above.
 
 struct ManagedReasoningEffort: Identifiable, Hashable {
     let id: String
@@ -100,7 +86,27 @@ struct ManagedGoal: Hashable {
 @MainActor
 @Observable
 final class DSHManagementModel {
+    /// The phone instance. D2 creates one per backend through
+    /// `init(chat:)`; this singleton stays the phone one.
     static let shared = DSHManagementModel()
+
+    private let chatProvider: @MainActor () -> ChatModel
+
+    /// The phone singleton restores the latest phone snapshot before its first
+    /// paint. A per-backend instance (D2 PC) is created through `init(chat:)`
+    /// and starts empty: the snapshot cache is phone state today (see the P18
+    /// note on `cachedSnapshotKey`).
+    private init() {
+        self.chatProvider = { ChatModel.shared }
+        restoreCachedSnapshot()
+    }
+
+    init(chat: @escaping @MainActor () -> ChatModel) {
+        self.chatProvider = chat
+    }
+
+    private var chat: ChatModel { chatProvider() }
+    private var backendID: BackendID { chat.backendID }
 
     private(set) var sessions: [ManagedSession] = []
     private(set) var workspaces: [ManagedWorkspace] = []
@@ -143,6 +149,28 @@ final class DSHManagementModel {
     private var transport: (any DSHRemoteTransport)?
     private var workspaceMux: (any DSHMuxConnection)?
     private var workspaceTask: Task<Void, Never>?
+    /// The last drawer tap that still needs to run. One worker owns the switch
+    /// so two opens never overlap; a newer tap replaces this request and the
+    /// in-flight one abandons at its next generation check. This is the only
+    /// pending-switch structure: the ChatModel's optimistic target is the same
+    /// intent, and its lifecycle gate makes the worker wait for recovery
+    /// instead of keeping a second queue.
+    private struct OptimisticSelect {
+        let session: ManagedSession
+        let generation: Int
+    }
+    private var pendingOptimisticSelect: OptimisticSelect?
+    private var optimisticSelectTask: Task<Void, Never>?
+
+    /// Last successful `session/list` projection, restored on launch and after
+    /// a park so the drawer and the chat title never wait for the engine.
+    ///
+    /// P18 follow-up (reported, not changed here): this key is not yet
+    /// backend-scoped. It is phone state and a PC `DSHManagementModel` must not
+    /// read or write it until it moves under `WorkspaceStorageKeys` with a
+    /// `(BackendID)` suffix. It is a session-list cache, so the scope is the
+    /// backend, not `(BackendID, sessionID)`.
+    private static let cachedSnapshotKey = "dsh.management.sessionSnapshot.v1"
 
     var activeSessions: [ManagedSession] { sessions.filter { !archivedIDs.contains($0.id) } }
     var archivedSessions: [ManagedSession] { sessions.filter { archivedIDs.contains($0.id) } }
@@ -158,13 +186,68 @@ final class DSHManagementModel {
     }
 
     var currentWorkspaceID: String? {
-        guard let sessionID = ChatModel.shared.currentSessionID else { return nil }
-        return workspaces.first(where: { $0.sessionIDs.contains(sessionID) })?.id
+        guard let sessionID = chat.currentSessionID,
+              let session = sessions.first(where: { $0.id == sessionID }) else { return nil }
+        return workspaceID(for: session)
     }
     var recentWorkspaceID: String? {
         workspaces.max { lhs, rhs in
             latestActivity(in: lhs) < latestActivity(in: rhs)
         }?.id
+    }
+
+    /// The explicit picker choice for the next PC session; nil means "use the
+    /// P18 last-used value, then the most recent workspace".
+    private(set) var pendingWorkspaceID: String?
+
+    /// The PC new-session default: picker choice → P18 last-used → recent.
+    /// The phone has one workspace and never reads the P18 key.
+    var newSessionWorkspaceID: String? {
+        guard backendID != .phone else { return currentWorkspaceID ?? recentWorkspaceID }
+        return PCLinkWorkspaceSelection.resolve(
+            pending: pendingWorkspaceID,
+            stored: WorkspaceStorage.lastWorkspaceID(for: backendID),
+            recent: recentWorkspaceID,
+            workspaces: workspaces)
+    }
+
+    /// The workspace chip is useful only before the session has a turn. Once
+    /// the first turn exists the selection is fixed for that session.
+    var isCurrentSessionBlank: Bool {
+        guard let sessionID = chat.currentSessionID else { return true }
+        return sessions.first(where: { $0.id == sessionID })?.blank ?? false
+    }
+
+    func workspaceID(for session: ManagedSession) -> String? {
+        PCLinkWorkspaceGrouping.workspaceID(for: session, in: workspaces)
+    }
+
+    /// Choose the workspace for the next/empty PC session and persist it for
+    /// this paired computer (P18). Changing it while a blank session already
+    /// exists opens a fresh blank session in the chosen workspace, so the next
+    /// prompt really runs there; a session with a turn only displays its
+    /// workspace.
+    func selectWorkspaceForNewSession(_ workspaceID: String) async {
+        guard backendID != .phone,
+              workspaces.contains(where: { $0.id == workspaceID }) else { return }
+        pendingWorkspaceID = workspaceID
+        WorkspaceStorage.setLastWorkspaceID(workspaceID, for: backendID)
+        // A fresh page with no DSH session yet: remember the choice; the
+        // drawer's 新会话 creates the session in it.
+        guard let currentID = chat.currentSessionID, isCurrentSessionBlank else { return }
+        let current = sessions.first(where: { $0.id == currentID })
+        let currentWorkspace = current.flatMap { self.workspaceID(for: $0) }
+        guard currentWorkspace != workspaceID else { return }
+        // A blank DSH session cannot move between workspaces; open a new blank
+        // one in the chosen workspace so the next prompt really runs there.
+        _ = await createSession(workspaceID: workspaceID)
+    }
+
+    private func rememberWorkspace(_ workspaceID: String?) {
+        guard backendID != .phone, let workspaceID,
+              workspaces.contains(where: { $0.id == workspaceID }) else { return }
+        pendingWorkspaceID = workspaceID
+        WorkspaceStorage.setLastWorkspaceID(workspaceID, for: backendID)
     }
 
     func refresh() async {
@@ -173,67 +256,150 @@ final class DSHManagementModel {
         if previewDataInstalled { return }
         #endif
         guard !isLoading else { return }
-        guard ChatModel.shared.isStarted else {
-            sessions = []
-            archivedIDs = []
+        guard chat.isStarted else {
+            // The engine is booting/rebuilding: keep the last phone snapshot
+            // visible (the title row and drawer render from it) instead of
+            // blanking. A PC backend has no local Worker to wait for and its
+            // list must never be filled from the phone's cache.
+            if backendID == .phone {
+                restoreCachedSnapshot()
+            } else {
+                sessions = []
+                archivedIDs = []
+            }
             error = nil
             return
         }
         isLoading = true
         defer { isLoading = false }
         do {
-            let client = try await ChatModel.shared.transportForManagement()
+            let client = try await chat.workspaceBackend.transport()
             transport = client
-            // This Remote has a reserved optional input in its TypeScript
-            // contract, but the wire method takes no arguments at this pin.
-            let sessionValue = try await client.call("session/list", args: .object([:]))
-            let deviceSessionIDs = DeviceSessionCoordinator.shared.mappedSessionIDs
-            // Bot sessions are a private runtime domain. They are filtered at
-            // the single read point so every DSH surface that reads
-            // `sessions` (drawer, folders, synthetic group, archive, @
-            // mentions, activity headers) cannot list them by accident.
-            sessions = Self.decodeSessions(sessionValue).filter {
-                !deviceSessionIDs.contains($0.id) && !Self.isBotSessionID($0.id)
+            // DSH 0.2.2-rc.1's generated gateway descriptor requires the
+            // reserved `_request` member even though it carries no fields.
+            let sessionValue = try await client.call("session/list", args: .object(["_request": .object([:])]))
+            // Phone-local session filters do not exist on a PC: the phone Bot
+            // registry and device-session mapping describe sessions created by
+            // this phone, not by the paired computer (plan v2 §6.1 capability
+            // hiding). On the phone the single read point keeps filtering so
+            // every DSH surface is protected.
+            let phoneOnlyFilters = backendID == .phone
+            let deviceSessionIDs = phoneOnlyFilters
+                ? DeviceSessionCoordinator.shared.mappedSessionIDs : []
+            sessions = decodeSessions(sessionValue).filter {
+                !deviceSessionIDs.contains($0.id)
+                    && !(phoneOnlyFilters && Self.isBotSessionID($0.id))
             }
             // Optional catalog failures must not hide the valid session list.
             async let catalogResponse = try? client.call("session/modelCatalog", args: .object([:]))
             if let catalogValue = await catalogResponse {
                 modelRoutes = Self.decodeModelRoutes(catalogValue)
             } else { modelRoutes = [] }
-            if let currentSessionID = ChatModel.shared.currentSessionID {
+            if let currentSessionID = chat.currentSessionID {
                 await refreshModelSelection(for: currentSessionID, using: client)
             } else { currentModelSelection = nil }
             await observeWorkspaceState(using: client)
+            // The P18 selection is validated against the live baseline so a
+            // deleted workspace cannot block 新会话 or the picker.
+            if let pending = pendingWorkspaceID,
+               !workspaces.contains(where: { $0.id == pending }) {
+                pendingWorkspaceID = nil
+            }
+            if backendID != .phone,
+               let stored = WorkspaceStorage.lastWorkspaceID(for: backendID),
+               !workspaces.contains(where: { $0.id == stored }) {
+                WorkspaceStorage.setLastWorkspaceID(nil, for: backendID)
+            }
+            // The phone snapshot cache is not backend-scoped yet (P18 report
+            // item); only the phone backend may read or write it.
+            if backendID == .phone {
+                persistCachedSnapshot()
+            }
             error = nil
         } catch {
+            // A failed refresh is not a reason to erase the usable snapshot;
+            // the next successful engine answer replaces it.
+            if backendID == .phone, sessions.isEmpty { restoreCachedSnapshot() }
             self.error = error.localizedDescription
         }
     }
 
+    /// Restores the last successful session/list projection. Safe to call
+    /// repeatedly; an empty or corrupt snapshot leaves the live values alone.
+    private func restoreCachedSnapshot() {
+        guard let data = UserDefaults.standard.data(forKey: Self.cachedSnapshotKey),
+              let snapshot = ChatSessionSnapshot.decode(data),
+              snapshot.isEmpty == false else { return }
+        sessions = snapshot.sessions.map { row in
+            ManagedSession(
+                id: row.id, title: row.title,
+                updatedAt: Date(timeIntervalSince1970: row.updatedAtMilliseconds / 1_000),
+                running: row.running, blank: row.blank, cwd: row.cwd,
+                parentSessionID: row.parentSessionID,
+                searchSnippet: row.searchSnippet)
+        }
+        workspaces = snapshot.workspaces.map { row in
+            ManagedWorkspace(id: row.id, title: row.title, path: row.path,
+                             sessionIDs: row.sessionIDs)
+        }
+        workspaceOrder = snapshot.workspaceOrder
+        pinnedSessionIDs = snapshot.pinnedSessionIDs
+        archivedIDs = Set(snapshot.archivedIDs)
+    }
+
+    /// Persists the last engine projection only after a successful refresh, so
+    /// a failed call never overwrites good cache with a partial list.
+    private func persistCachedSnapshot() {
+        let snapshot = ChatSessionSnapshot(
+            sessions: sessions.map { row in
+                ChatSessionSnapshot.Session(
+                    id: row.id, title: row.title,
+                    updatedAtMilliseconds: row.updatedAt.timeIntervalSince1970 * 1_000,
+                    running: row.running, blank: row.blank, cwd: row.cwd,
+                    parentSessionID: row.parentSessionID,
+                    searchSnippet: row.searchSnippet)
+            },
+            workspaces: workspaces.map { row in
+                ChatSessionSnapshot.Workspace(id: row.id, title: row.title,
+                                              path: row.path, sessionIDs: row.sessionIDs)
+            },
+            workspaceOrder: workspaceOrder,
+            pinnedSessionIDs: pinnedSessionIDs,
+            archivedIDs: Array(archivedIDs))
+        guard snapshot.isEmpty == false, let data = snapshot.encoded() else { return }
+        UserDefaults.standard.set(data, forKey: Self.cachedSnapshotKey)
+    }
+
     func createSession(workspaceID: String? = nil) async -> String? {
         do {
-            guard !ChatModel.shared.turnRunning && !ChatModel.shared.keepingAlive && !ChatModel.shared.busy else {
+            guard !chat.turnRunning && !chat.keepingAlive && !chat.busy else {
                 throw ManagementError.sessionBusy
             }
-            let targetWorkspaceID = workspaceID ?? currentWorkspaceID ?? recentWorkspaceID
+            // PC: the picker/last-used workspace is the default for a new
+            // session, not the workspace of the session being left. Phone:
+            // unchanged (current → recent).
+            let targetWorkspaceID = backendID == .phone
+                ? (workspaceID ?? currentWorkspaceID ?? recentWorkspaceID)
+                : (workspaceID ?? newSessionWorkspaceID)
             if let targetWorkspaceID {
                 guard let transport else { throw ManagementError.notConnected }
                 let result = try await transport.call("session/create", args: .object(["request": .object([
                     "workspaceId": .string(targetWorkspaceID),
                 ])]))
                 guard let id = result["sessionId"]?.stringValue else { throw ManagementError.invalidResponse }
-                await ChatModel.shared.selectSession(id)
-                guard ChatModel.shared.currentSessionID == id else {
-                    throw ManagementError.openFailed(ChatModel.shared.userFacingError)
+                await chat.selectSession(id)
+                guard chat.currentSessionID == id else {
+                    throw ManagementError.openFailed(chat.userFacingError)
                 }
                 notice = "会话已添加到工作区"
+                rememberWorkspace(targetWorkspaceID)
                 await refresh()
                 return id
             }
-            let priorID = ChatModel.shared.currentSessionID
-            await ChatModel.shared.newSession()
-            guard let id = ChatModel.shared.currentSessionID, id != priorID else {
-                throw ManagementError.openFailed(ChatModel.shared.userFacingError)
+            let priorID = chat.currentSessionID
+            await chat.newSession()
+            guard let id = chat.currentSessionID, id != priorID else {
+                throw ManagementError.openFailed(chat.userFacingError)
             }
             notice = "已创建新会话"
             await refresh()
@@ -254,10 +420,10 @@ final class DSHManagementModel {
             return nil
         }
         do {
-            if ChatModel.shared.currentSessionID == nil {
-                await ChatModel.shared.newSession()
+            if chat.currentSessionID == nil {
+                await chat.newSession()
             }
-            guard let sessionID = ChatModel.shared.currentSessionID else {
+            guard let sessionID = chat.currentSessionID else {
                 throw ManagementError.noActiveSession
             }
             guard let transport else { throw ManagementError.notConnected }
@@ -358,9 +524,106 @@ final class DSHManagementModel {
         } catch { self.error = error.localizedDescription }
     }
 
+    /// Opens a session from a page that keeps its own presentation (the session
+    /// browser). It waits for the open, like before; the drawer stages the
+    /// switch with ``stageOptimisticSelect(_:title:)`` instead.
     func select(_ session: ManagedSession) async -> Bool {
-        let chat = ChatModel.shared
-        if chat.currentSessionID == session.id { error = nil; return true }
+        switch await performSelect(session, generation: nil) {
+        case .opened:
+            return true
+        case .failed(let message):
+            error = message
+            return false
+        case .superseded:
+            return false
+        }
+    }
+
+    /// The drawer's optimistic tap, lightweight half: paint the target
+    /// selected/titled now and remember what to open. No engine or Worker work
+    /// runs until ``startStagedOptimisticSelect()`` releases it, after the phone
+    /// drawer's close animation (or one runloop for the persistent sidebar).
+    @discardableResult
+    func stageOptimisticSelect(_ session: ManagedSession, title: String) -> Int {
+        let generation = chat.beginSessionSwitch(sessionID: session.id, title: title)
+        pendingOptimisticSelect = OptimisticSelect(session: session, generation: generation)
+        return generation
+    }
+
+    /// Starts the single switch worker for whatever target is staged. Safe to
+    /// call more than once: the worker is created once and always reads the
+    /// latest staged target, so a newer tap replaces an in-flight one without
+    /// opening two sessions at once.
+    func startStagedOptimisticSelect() {
+        guard pendingOptimisticSelect != nil, optimisticSelectTask == nil else { return }
+        optimisticSelectTask = Task { @MainActor [weak self] in
+            await self?.runOptimisticSelectWorker()
+        }
+    }
+
+    /// The wide sidebar does not close, so its tap just needs one runloop for
+    /// SwiftUI to commit the highlighted row/title before the open starts.
+    func startStagedOptimisticSelectOnNextRunloop() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.startStagedOptimisticSelect()
+        }
+    }
+
+    private enum SelectOutcome: Equatable {
+        case opened
+        case failed(String)
+        case superseded
+    }
+
+    private func runOptimisticSelectWorker() async {
+        defer { optimisticSelectTask = nil }
+        // The per-backend instance owns its own ChatModel: a PC drawer tap must
+        // stage/wait on the PC model, never on the phone singleton.
+        let chat = self.chat
+        while let request = pendingOptimisticSelect {
+            pendingOptimisticSelect = nil
+            // The drawer has closed (or the sidebar yielded): only now does the
+            // 300ms loading-pill timer start, and only now may heavy open work
+            // run. A superseded request cannot mark a newer tap as started.
+            chat.markSessionSwitchWorkStarted(request.generation)
+            let outcome = await performSelect(request.session, generation: request.generation)
+            // A newer tap is now the latest intent. Loop to it; do not let this
+            // completion clear or overwrite its pending title/selection.
+            guard chat.isSessionSwitchCurrent(request.generation) else {
+                continue
+            }
+            switch outcome {
+            case .opened:
+                chat.finishSessionSwitch(request.generation)
+            case .failed(let message):
+                chat.finishSessionSwitch(request.generation)
+                error = message
+                // The drawer is closed and must not be reopened; the chat
+                // page's existing error banner is the lightweight notice.
+                chat.reportSessionSwitchFailure(message)
+            case .superseded:
+                chat.finishSessionSwitch(request.generation)
+            }
+        }
+    }
+
+    private func performSelect(_ session: ManagedSession,
+                               generation: Int?) async -> SelectOutcome {
+        let chat = self.chat
+        let isStillWanted: () -> Bool = {
+            guard let generation else { return true }
+            return chat.isSessionSwitchCurrent(generation)
+        }
+        guard isStillWanted() else { return .superseded }
+        if chat.currentSessionID == session.id { error = nil; return .opened }
+        // The optimistic target is already painted. If the local host is
+        // parked, resuming or rebuilding, wait for that lifecycle instead of
+        // refusing or queueing a second switch; the latest tap wins because
+        // this call re-checks its generation while waiting.
+        guard await chat.waitForSessionSwitchLifecycle(isStillWanted: isStillWanted) else {
+            return .superseded
+        }
         // A drawer tap must work from any state the user can actually be in:
         // a stopped host (cold launch, manual stop) or a parked one (after a
         // trip to another app) gets started/resumed first, and a running turn
@@ -368,29 +631,33 @@ final class DSHManagementModel {
         // cannot be read".
         if !chat.isStarted {
             await chat.start()
+            guard isStillWanted() else { return .superseded }
             guard chat.isStarted else {
-                error = chat.userFacingError ?? "主机没有启动，无法打开会话"
-                return false
+                return .failed(chat.userFacingError ?? "主机没有启动，无法打开会话")
             }
         }
         if chat.parked {
             await chat.resumeParkedHost()
+            guard isStillWanted() else { return .superseded }
         }
         if chat.turnRunning || chat.pendingPermission != nil || chat.pendingQuestion != nil {
             await chat.cancelTurn()
             chat.dismissPendingRequests()
+            guard isStillWanted() else { return .superseded }
             guard !chat.turnRunning else {
-                error = "当前回合停不下来，请稍后重试或重启主机"
-                return false
+                return .failed("当前回合停不下来，请稍后重试或重启主机")
             }
         }
-        await chat.selectSession(session.id)
+        await chat.selectSession(session.id, switchGeneration: generation)
+        guard isStillWanted() else { return .superseded }
         guard chat.currentSessionID == session.id else {
-            error = chat.userFacingError ?? "无法打开会话 \(session.id.prefix(8))"
-            return false
+            return .failed(chat.userFacingError ?? "无法打开会话 \(session.id.prefix(8))")
         }
+        // Opening a PC session makes its workspace the next new-session
+        // default (P18); the phone keeps its single workspace.
+        rememberWorkspace(workspaceID(for: session))
         error = nil
-        return true
+        return .opened
     }
 
     func rename(_ session: ManagedSession, to title: String) async {
@@ -406,15 +673,15 @@ final class DSHManagementModel {
 
     func fork(_ session: ManagedSession) async -> String? {
         do {
-            guard !ChatModel.shared.turnRunning && !ChatModel.shared.keepingAlive && !ChatModel.shared.busy else {
+            guard !chat.turnRunning && !chat.keepingAlive && !chat.busy else {
                 throw ManagementError.sessionBusy
             }
             guard let transport else { throw ManagementError.notConnected }
             let result = try await transport.call("session/fork", args: .object(["request": .object(["sessionId": .string(session.id)])]))
             guard let id = result["sessionId"]?.stringValue else { throw ManagementError.invalidResponse }
-            await ChatModel.shared.selectSession(id)
-            guard ChatModel.shared.currentSessionID == id else {
-                throw ManagementError.openFailed(ChatModel.shared.userFacingError)
+            await chat.selectSession(id)
+            guard chat.currentSessionID == id else {
+                throw ManagementError.openFailed(chat.userFacingError)
             }
             notice = "Fork created from the latest completed turn"
             await refresh()
@@ -447,7 +714,7 @@ final class DSHManagementModel {
     func selectModel(_ route: ManagedModelRoute, reasoningEffort: String? = nil) async {
         do {
             guard let transport else { throw ManagementError.notConnected }
-            guard let sessionID = ChatModel.shared.currentSessionID else { throw ManagementError.noActiveSession }
+            guard let sessionID = chat.currentSessionID else { throw ManagementError.noActiveSession }
             var request: [String: JSONValue] = [
                 "sessionId": .string(sessionID), "provider": .string(route.provider), "model": .string(route.model),
             ]
@@ -474,7 +741,7 @@ final class DSHManagementModel {
             let client: any DSHRemoteTransport
             if let transport { client = transport }
             else {
-                client = try await ChatModel.shared.transportForManagement()
+                client = try await chat.workspaceBackend.transport()
                 transport = client
             }
             let result = try await client.call("session/projections", args: .object(["request": .object(["sessionId": .string(sessionID)])]))
@@ -514,14 +781,20 @@ final class DSHManagementModel {
             let client: any DSHRemoteTransport
             if let transport { client = transport }
             else {
-                client = try await ChatModel.shared.transportForManagement()
+                client = try await chat.workspaceBackend.transport()
                 transport = client
             }
             activityErrors = [:]
             async let projectionResponse = try? client.call("session/projections", args: .object(["request": .object(["sessionId": .string(sessionID)])]))
             async let skillResponse = try? client.call("skills/list", args: .object(["request": .object(["sessionId": .string(sessionID)])]))
             async let scheduleResponse = try? client.call("schedule/catalog", args: .object([:]))
-            async let goalResponse = try? client.call("goals/get", args: .object(["sessionId": .string(sessionID)]))
+            // `goals/get` resolves the session's agent (pin
+            // session-controller/src/agent.ts:138-190) and can wake it. Every
+            // caller here is the open session: ChatPage's current-session
+            // `task(id:)`/job/schedule sheets and SessionActivityPage opened
+            // from that page. A session list must use the passive
+            // `session/projections.values.goal` instead, never this call.
+            async let goalResponse = Self.readOptional(client, "goals/get", args: .object(["agentId": .string(sessionID)]))
             let (projectionValue, skillValue, scheduleValue, goalValue) = await
                 (projectionResponse, skillResponse, scheduleResponse, goalResponse)
 
@@ -631,7 +904,7 @@ final class DSHManagementModel {
         do {
             guard let transport else { throw ManagementError.notConnected }
             _ = try await transport.call("goals/\(operation)", args: .object([
-                "sessionId": .string(sessionID),
+                "agentId": .string(sessionID),
                 "ref": .object(["id": .string(goal.id), "revision": .number(Double(goal.revision))]),
             ]))
             await refreshActivity(sessionID: sessionID)
@@ -688,8 +961,15 @@ final class DSHManagementModel {
     }
 
     func createSchedule(request: [String: JSONValue]) async -> Bool {
+        // PHONE-ONLY (plan v2 §6.1 capability hiding). The settings/schedule
+        // surfaces stay on the phone; a PC workspace never calls `phone/*`.
+        guard backendID == .phone else {
+            self.error = "定时任务是手机工作区的功能，PC 工作区不提供。"
+            return false
+        }
         do {
             guard let transport else { throw ManagementError.notConnected }
+            // PHONE-ONLY: schedule creation is a phone endpoint in v1.
             _ = try await transport.call("phone/createSchedule", args: .object(["request": .object(request)]))
             await refreshAutomations()
             return true
@@ -697,11 +977,16 @@ final class DSHManagementModel {
     }
 
     func refreshAutomations() async {
+        guard backendID == .phone else {
+            scheduleRecords = []
+            tools = []
+            return
+        }
         do {
             let client: any DSHRemoteTransport
             if let transport { client = transport }
             else {
-                client = try await ChatModel.shared.transportForManagement()
+                client = try await chat.workspaceBackend.transport()
                 transport = client
             }
             async let schedulesResponse = try? client.call("schedule/catalog", args: .object([:]))
@@ -785,8 +1070,13 @@ final class DSHManagementModel {
     }
 
     func loadToolInventory() async {
+        guard backendID == .phone else {
+            tools = []
+            return
+        }
         do {
             guard let transport else { throw ManagementError.notConnected }
+            // PHONE-ONLY: `phone/*` endpoints exist only on the phone backend.
             let result = try await transport.call("phone/listTools", args: .object([:]))
             tools = result["tools"]?.arrayValue?.compactMap { row in
                 guard let name = row["name"]?.stringValue else { return nil }
@@ -920,12 +1210,7 @@ final class DSHManagementModel {
     }
 
     private static func decodeWorkspace(_ value: JSONValue) -> ManagedWorkspace? {
-        guard let id = value["workspaceId"]?.stringValue,
-              let title = value["title"]?.stringValue,
-              let path = value["path"]?.stringValue else { return nil }
-        let sessionIDs = value["sessionIds"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        return ManagedWorkspace(id: id, title: title, path: path,
-                               sessionIDs: sessionIDs.filter { !isBotSessionID($0) })
+        ManagementDecoding.decodeWorkspace(value, isExcludedSessionID: isBotSessionID)
     }
 
     private func setStreamError(_ error: Error) { self.error = error.localizedDescription }
@@ -933,31 +1218,29 @@ final class DSHManagementModel {
 
     /// Default session names. The host sends no title for a fresh session, so
     /// these are the only names the user ever sees for one.
-    static let newSessionName = "新会话"
-    static let untitledSessionName = "未命名会话"
+    static let newSessionName = ManagementDecoding.newSessionName
+    static let untitledSessionName = ManagementDecoding.untitledSessionName
 
+    private func decodeSessions(_ value: JSONValue) -> [ManagedSession] {
+        let backend = backendID
+        return ManagementDecoding.decodeSessions(
+            value,
+            titleHint: { SessionTitleHints.title(for: $0, backend: backend) },
+            newSessionName: Self.newSessionName,
+            untitledSessionName: Self.untitledSessionName)
+    }
 
-private static func decodeSessions(_ value: JSONValue) -> [ManagedSession] {
-        (value["items"]?.arrayValue ?? []).compactMap { item in
-            guard let id = item["sessionId"]?.stringValue else { return nil }
-            // `title` is a plain string in the session projection (or null),
-            // not { title: string }. The old wrapper made every projected
-            // title nil and forced the local hint fallback.
-            let projected = item["projections"]?["values"]?["title"]?.stringValue
-                .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-            let title = projected
-                ?? SessionTitleHints.title(for: id)
-                ?? (item["blank"]?.boolValue == true ? "\(Self.newSessionName)" : "\(Self.untitledSessionName)")
-            return ManagedSession(
-                id: id, title: title,
-                // DSH stores wall-clock timestamps in milliseconds (Date.now).
-                updatedAt: Date(timeIntervalSince1970: (item["updatedAt"]?.numberValue ?? 0) / 1_000),
-                running: item["running"]?.boolValue ?? false,
-                blank: item["blank"]?.boolValue ?? false,
-                cwd: item["cwd"]?.stringValue,
-                parentSessionID: item["parentSessionId"]?.stringValue,
-                searchSnippet: nil)
-        }.sorted { $0.updatedAt > $1.updatedAt }
+    /// Optional management read whose failure must not hide the valid rows, but
+    /// must still leave a diagnostic trail (previously `try?` erased it).
+    private static func readOptional(_ client: any DSHRemoteTransport,
+                                     _ endpoint: String,
+                                     args: JSONValue) async -> JSONValue? {
+        do {
+            return try await client.call(endpoint, args: args)
+        } catch {
+            ChatModel.appendDiagnostic("\(endpoint) failed: \(error)")
+            return nil
+        }
     }
 
     private static func decodeModelRoutes(_ value: JSONValue) -> [ManagedModelRoute] {
@@ -1028,7 +1311,7 @@ extension DSHManagementModel {
 
     func installPreviewData(sessionCount: Int, workspaceCount: Int = 2) {
         previewDataInstalled = true
-        let base = ChatModel.shared.workspaceRoot.path
+        let base = chat.workspaceRoot.path
         workspaces = (0..<max(workspaceCount, 0)).map { index in
             let title = index == 0 ? "项目资料" : "设计稿 \(index)"
             return ManagedWorkspace(id: "preview-ws-\(index)",
@@ -1065,22 +1348,25 @@ extension DSHManagementModel {
 /// "新会话". Remember the first prompt per session so the list is readable
 /// immediately, and prefer the projection whenever DSH provides one.
 enum SessionTitleHints {
-    private static let defaultsKey = "phone-dsh.session.title-hints"
     private static let limit = 18
 
-    static func remember(_ prompt: String, for sessionID: String) {
+    /// D2: title hints are session-scoped per backend (P18). The legacy bare
+    /// key is read for the phone until `WorkspaceStorageMigration` has copied
+    /// it into the scoped store.
+    static func remember(_ prompt: String, for sessionID: String,
+                         backend: BackendID = .phone) {
         let line = prompt
             .split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true)
             .first.map(String.init)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !line.isEmpty else { return }
-        var hints = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
+        var hints = WorkspaceStorage.titleHints(for: backend)
         guard hints[sessionID] == nil else { return }
         hints[sessionID] = line.count > limit ? String(line.prefix(limit)) + "…" : line
-        UserDefaults.standard.set(hints, forKey: defaultsKey)
+        WorkspaceStorage.setTitleHint(hints[sessionID] ?? "", for: backend, sessionID: sessionID)
     }
 
-    static func title(for sessionID: String) -> String? {
-        (UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String])?[sessionID]
+    static func title(for sessionID: String, backend: BackendID = .phone) -> String? {
+        WorkspaceStorage.titleHints(for: backend)[sessionID]
     }
 }

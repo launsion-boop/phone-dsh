@@ -320,12 +320,36 @@ enum AccessModeWording {
 
 // MARK: - Model
 
+/// PC runtime handed to a non-phone `ChatModel`: the PCLink client, its DSH
+/// Remote backpack and a live connection projection. The phone instance never
+/// has one.
+struct PCWorkspaceRuntime {
+    let backendID: BackendID
+    let backend: PCWorkspaceBackend
+    let client: any PCLinkClientProtocol
+    let connection: @MainActor () -> PCWorkspaceConnection
+}
+
 /// Owns the host, the harness session and the transcript. One instance per app
-/// launch; the page observes it.
+/// launch per backend; the page observes the instance the drawer selected.
 @MainActor
 @Observable
 final class ChatModel {
+    /// The phone backend's instance (`BackendID.phone`). D2 adds
+    /// `ChatModel(pcRuntime:)` instances registered by `WorkspaceModels`; this
+    /// singleton stays the phone one.
     static let shared = ChatModel()
+
+    /// Non-nil for the PC backend (PCLink D2). The phone path keeps the host.
+    @ObservationIgnored private var pcRuntime: PCWorkspaceRuntime?
+
+    init() {}
+
+    /// PC workspace instance (PCLink D2). It never owns a `PhoneDSHHost` or the
+    /// phone Bot runtime; transport/harness resolve through `pcRuntime.backend`.
+    init(pcRuntime: PCWorkspaceRuntime) {
+        self.pcRuntime = pcRuntime
+    }
 
     /// 参数只取一层标量,拼成 [键:字符串];嵌套结构换成 JSON 文本,够卡上用。
     static func flattenedArguments(_ value: JSONValue) -> [String: String] {
@@ -340,7 +364,6 @@ final class ChatModel {
         }
         return result
     }
-    private static let currentSessionDefaultsKey = "chat.dsh.currentSessionID"
     private static let retryableRequestIDsDefaultsKey = "chat.dsh.retryableRequestIDs"
 
     /// Visible one-point anchor the Chat page embeds; WebKit needs the page in
@@ -542,7 +565,18 @@ final class ChatModel {
     private var backoffRetryAttempts = 0
     private var backoffRetryTask: Task<Void, Never>?
 
-    var isStarted: Bool { host != nil }
+    var isStarted: Bool {
+        if let pcRuntime { return pcRuntime.connection().isOnline }
+        return host != nil
+    }
+
+    /// `BackendID` this model serves. The phone singleton is always `.phone`.
+    var backendID: BackendID { pcRuntime?.backendID ?? .phone }
+
+    var capabilities: BackendCapabilities { workspaceBackend.capabilities }
+
+    /// Live PC connection for the offline banner and send-disable path.
+    var pcConnection: PCWorkspaceConnection? { pcRuntime?.connection() }
     /// True between the background park and the foreground resume (D14).
     private(set) var parked = false
     /// True while the app is in the background and the silent audio session
@@ -551,6 +585,8 @@ final class ChatModel {
 
     private var host: PhoneDSHHost?
     private var botLaunch: BotRuntimeComposition.Launch?
+    /// Heals the App-owned Bot MCP listener before foreground/resume/cold boot.
+    private var botListenerSupervisor: BotMCPListenerSupervisor?
     /// UI-visible Bot runtime state; set by the composition whenever the Host
     /// rebinds, a recovery fails, or the runtime stops.
     private(set) var botRuntimeState: BotRuntimeState = .idle
@@ -561,6 +597,9 @@ final class ChatModel {
     /// The production Bot page builds its drivers from this composition; it
     /// is created before the first Host so the page never falls back to a
     /// fixture.
+    ///
+    /// PHONE-ONLY: Bot runtime stays bound to the phone backend (plan v2 §6.2);
+    /// a PC workspace never starts or reads it.
     var botRuntime: BotRuntimeComposition? { botLaunch?.composition }
     private var phoneCapabilityBridge: PhoneCapabilityBridge?
     private let keepAlive = SilentAudioKeepAlive.shared
@@ -574,6 +613,27 @@ final class ChatModel {
     private var harness: (any AgentHarness)?
     private var sessionID: String?
     var currentSessionID: String? { sessionID }
+    /// The row the last drawer tap selected, painted immediately while the
+    /// engine/Worker open runs in the background. `sessionID` and `items` stay
+    /// on the old session until the new history is durable, so a failed or
+    /// superseded open has nothing to roll back.
+    private(set) var pendingSessionSwitch: HomeDrawerSwitchPolicy.Pending?
+    private var sessionSwitchGeneration = 0
+    /// True only once the switch worker actually starts. It is deliberately
+    /// separate from `pendingSessionSwitch`: the target title/row is painted in
+    /// the tap frame, while the delayed loading pill's 300ms timer must not
+    /// start until the drawer has closed and the worker runs.
+    private(set) var isSessionSwitchWorkStarted = false
+    var switchingSessionID: String? { pendingSessionSwitch?.target.id }
+    var switchingSessionTitle: String? { pendingSessionSwitch?.target.title }
+    var isSwitchingSession: Bool { pendingSessionSwitch != nil }
+    /// The row to mark selected: the optimistic target while a switch runs,
+    /// the committed session otherwise.
+    var displayedSessionID: String? {
+        HomeDrawerSwitchPolicy.displayed(
+            current: sessionID.map { HomeDrawerSwitchPolicy.Session(id: $0, title: "") },
+            pending: pendingSessionSwitch)?.id
+    }
     private var transcriptReady = false
     var isTranscriptReady: Bool { transcriptReady }
     /// The last transcript is on screen from disk while the engine boots.
@@ -581,6 +641,26 @@ final class ChatModel {
     private var transcriptThroughSeq: Int?
     private var transcriptBeforeSeq: Int?
     private var hostLifecycleTransition = false
+    /// App-side resume recovery state. `engineRebuildInProgress` is separate
+    /// from `hostLifecycleTransition` because the one automatic rebuild runs
+    /// after the host already released its resume gate.
+    private var engineRebuildInProgress = false
+    private var resumeAutoRebuildsUsed = 0
+    private var resumeSlowNotice = false
+    private var resumeSlowTask: Task<Void, Never>?
+    /// The in-flight resume's wall-clock backstop. It is cancelled when the
+    /// App leaves the foreground because the host cancels the resume itself;
+    /// a frozen timer must not fire later and rebuild a healthy boot.
+    private var resumeWatchdogTask: Task<Void, Never>?
+    /// Scene phase as last delivered to the App. Used to decide whether a
+    /// cancelled resume should immediately re-arm or wait for the next active.
+    private var appIsActive = true
+    private var recoveryFlushTask: Task<Void, Never>?
+    private var queuedPromptsDuringRecovery: [(text: String,
+                                               attachments: [HarnessAttachment],
+                                               itemID: String?)] = []
+    private var hostResumeWatchdogTimeout =
+        ChatHostConfiguration.defaultResumeWatchdogTimeout
     /// One automatic session re-open after a recovery left the open session
     /// without its DSH history. At most one task exists; a park, a manual
     /// switch or a session change abandons it through `sessionReloadToken`.
@@ -600,13 +680,21 @@ final class ChatModel {
     private var autoRecoveryAttempted = false
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
-    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
-    var canStartBySending: Bool {
-        ChatEngineLifecycle.canStartBySending(hostIsStopped: host == nil,
-                                              busy: busy,
-                                              parked: parked,
-                                              hostLifecycleTransition: hostLifecycleTransition)
+    var hasHarness: Bool { harness != nil }
+    var canSend: Bool {
+        harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering
+            && !busy && !parked && !hostLifecycleTransition && !isReloadingSession && pcOnline
     }
+    var canStartBySending: Bool {
+        // A PC workspace only sends into an already-open session; it has no
+        // local host to boot on the first keystroke.
+        if pcRuntime != nil { return false }
+        return ChatEngineLifecycle.canStartBySending(hostIsStopped: host == nil,
+                                                     busy: busy,
+                                                     parked: parked,
+                                                     hostLifecycleTransition: hostLifecycleTransition)
+    }
+    private var pcOnline: Bool { pcRuntime.map { $0.connection().isOnline } ?? true }
     private(set) var modelProviderIssue: String? = "请先配置模型服务和 API Key"
 
     func refreshModelProviderReadiness() {
@@ -628,6 +716,7 @@ final class ChatModel {
 
     var displayStatus: String {
         if eventStreamRecovering { return "重新同步中" }
+        if isHostRecovering { return "恢复中" }
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
         if isReloadingSession { return "重新加载中" }
@@ -638,7 +727,99 @@ final class ChatModel {
         if transcriptReady { return "就绪" }
         return "未连接"
     }
-    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
+    var canSteer: Bool {
+        harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering
+            && turnRunning && !busy && !parked && !hostLifecycleTransition && !isReloadingSession
+            && pcOnline
+    }
+
+    /// True while a park/resume/rebuild is in flight; the page shows
+    /// 「引擎恢复中…」 instead of an English refusal.
+    var isHostRecovering: Bool {
+        ChatResumeRecovery.isRecovering(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress)
+    }
+
+    /// Waits out a park/resume/rebuild (or a scheduled D24 boot) before the
+    /// switch worker runs the actual open. The optimistic target is already
+    /// painted by then, so this is a wait on the existing single pending
+    /// switch, not a second queue; `isStillWanted` drops it when a newer tap
+    /// arrives. Returns false only when this switch was superseded.
+    func waitForSessionSwitchLifecycle(isStillWanted: () -> Bool) async -> Bool {
+        guard pcRuntime == nil else { return isStillWanted() }
+        var announced = false
+        while true {
+            guard isStillWanted() else { return false }
+            // A failed resume has already spent #80's one automatic rebuild.
+            // Return so the caller can show the manual-restart error instead of
+            // re-arming another resume from this wait loop.
+            if engineNeedsReset, !engineRebuildInProgress { return true }
+            // A parked host with no host and no rebuild/backoff cannot make
+            // progress; let the caller report the unavailable engine.
+            if parked, host == nil, !engineRebuildInProgress, backoffRetryTask == nil {
+                return true
+            }
+            let gate = ChatResumeRecovery.sessionSwitchGate(
+                parked: parked,
+                hostLifecycleTransition: hostLifecycleTransition,
+                rebuilding: engineRebuildInProgress,
+                hostAvailable: host != nil,
+                backoffScheduled: backoffRetryTask != nil)
+            switch gate {
+            case .runNow, .engineUnavailable:
+                return true
+            case .waitForRecovery:
+                // A parked host has no scene event to wake it when the App is
+                // already foreground (for example a resume cancelled by an
+                // interruption). The tap is that wake-up. Never resume from the
+                // background, for a failed engine, or over an in-flight resume.
+                if parked, host != nil, appIsActive,
+                   !hostLifecycleTransition, !engineRebuildInProgress {
+                    await resumeParkedHost()
+                    continue
+                }
+                if !announced {
+                    announced = true
+                    appendStatus("Session switch waiting for the engine to finish recovering")
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+    }
+
+    /// Top-of-chat banner text while the engine is recovering.
+    var recoveryBannerText: String? {
+        ChatResumeRecovery.bannerText(
+            parked: parked,
+            hostLifecycleTransition: hostLifecycleTransition,
+            rebuilding: engineRebuildInProgress,
+            slow: resumeSlowNotice)
+    }
+
+    /// The light hint next to the banner for actions that were queued.
+    var recoveryQueuedHint: String? {
+        if pendingSessionSwitch != nil { return ChatResumeRecovery.queuedSessionHint }
+        if queuedPromptsDuringRecovery.isEmpty == false {
+            return ChatResumeRecovery.queuedPromptHint
+        }
+        return nil
+    }
+
+    /// The composer accepts a send while recovering and queues it. This is a
+    /// separate predicate from `canSend`: the message is not sent yet. The
+    /// phone's park/resume/rebuild state does not exist for a PC backend, which
+    /// has no local Worker to wait for.
+    var canQueuePromptDuringRecovery: Bool {
+        pcRuntime == nil
+            && (ChatResumeRecovery.shouldQueuePrompt(
+                parked: parked,
+                hostLifecycleTransition: hostLifecycleTransition,
+                rebuilding: engineRebuildInProgress)
+                || (host == nil && backoffRetryTask != nil))
+            && !isReloadingSession
+    }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -648,6 +829,60 @@ final class ChatModel {
     private(set) var lastCommandExecution: NativeCommandExecution?
 
     func clearError() { userFacingError = nil }
+
+    /// Starts the optimistic half of a drawer switch: the target title/row is
+    /// drawn at once, a scheduled auto-reload is cancelled, and the old error
+    /// line is cleared. The switch worker owns the actual open.
+    @discardableResult
+    func beginSessionSwitch(sessionID: String, title: String) -> Int {
+        cancelSessionReload()
+        sessionSwitchGeneration &+= 1
+        let pending = HomeDrawerSwitchPolicy.Pending(
+            target: HomeDrawerSwitchPolicy.Session(id: sessionID, title: title),
+            generation: sessionSwitchGeneration)
+        pendingSessionSwitch = pending
+        isSessionSwitchWorkStarted = false
+        clearError()
+        return pending.generation
+    }
+
+    /// Records that the worker for `generation` really began. The delayed pill
+    /// starts its timer here, so the 0.22s drawer close is not counted as load
+    /// time. A stale generation cannot start a newer tap's timer.
+    @discardableResult
+    func markSessionSwitchWorkStarted(_ generation: Int) -> Bool {
+        guard isSessionSwitchCurrent(generation) else { return false }
+        isSessionSwitchWorkStarted = true
+        return true
+    }
+
+    /// True while `generation` is still the last tap. A new tap bumps it, so an
+    /// in-flight open abandons at the next `isStillWanted` checkpoint.
+    func isSessionSwitchCurrent(_ generation: Int) -> Bool {
+        guard let pendingSessionSwitch else { return false }
+        return HomeDrawerSwitchPolicy.isLatest(generation, latest: pendingSessionSwitch.generation)
+    }
+
+    /// The switch reached its terminal state (success, failure, or stop): stop
+    /// painting the pending target. Stale generations are ignored.
+    @discardableResult
+    func finishSessionSwitch(_ generation: Int) -> Bool {
+        guard isSessionSwitchCurrent(generation) else { return false }
+        pendingSessionSwitch = nil
+        isSessionSwitchWorkStarted = false
+        return true
+    }
+
+    /// A failed optimistic switch keeps the old transcript/session but needs a
+    /// visible, non-modal line. The chat page's existing error banner is that
+    /// surface; the drawer is not reopened.
+    func reportSessionSwitchFailure(_ message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        userFacingError = trimmed
+        statusLine = trimmed
+        Self.persistStatus("error: \(NativeLogRedaction.value(trimmed))")
+    }
 
     /// The composer surfaces this text in its own notice row; the page-level
     /// banner must not repeat it.
@@ -927,10 +1162,67 @@ final class ChatModel {
         PhoneMCPAccessSettings.shared.apply(to: mcpAccessPolicy)
     }
 
-    /// Returns the host's DSH RPC transport for session-management surfaces.
+    /// The current workspace backend. PHONE-ONLY in this unit: D2 inserts a
+    /// second backend here (or a factory keyed by `BackendID`) without the 78
+    /// `ChatModel.shared` sites changing.
+    @ObservationIgnored private lazy var phoneBackend: PhoneWorkspaceBackend = {
+        PhoneWorkspaceBackend(
+            displayName: "本机",
+            lifecycle: PhoneWorkspaceBackendLifecycle(
+                // Keep the App's scene-phase methods as the only lifecycle state
+                // owners: they carry `parked`, `hostLifecycleTransition`, the
+                // watchdog, background-task release and the post-resume
+                // running-state reconcile. The seam never calls the host
+                // directly. D2 can route `scenePhaseChanged` through this same
+                // object without introducing a second state source.
+                pause: { [weak self] in
+                    guard let self, let host = self.host else { throw ProbeHostError.notStarted }
+                    await self.parkHost(host)
+                },
+                resume: { [weak self] in
+                    guard let self, let host = self.host else { throw ProbeHostError.notStarted }
+                    await self.resumeHost(host)
+                },
+                startKeepAlive: { [weak self] in
+                    guard let self else { throw ProbeHostError.notStarted }
+                    guard self.host != nil else { throw ProbeHostError.notStarted }
+                    guard !self.keepingAlive else { return }
+                    self.beginBackgroundTask()
+                    do {
+                        try self.beginKeepAlive()
+                    } catch {
+                        self.endBackgroundTask()
+                        throw error
+                    }
+                },
+                stopKeepAlive: { [weak self] in
+                    guard let self, self.keepingAlive else { return }
+                    self.endKeepAlive()
+                    self.endBackgroundTask()
+                }),
+            transport: { [weak self] in
+                guard let self, let host = self.host else { throw ProbeHostError.notStarted }
+                return try await host.makeTransport()
+            },
+            harness: { [weak self] in
+                guard let self else { throw ProbeHostError.notStarted }
+                if let harness = self.harness { return harness }
+                guard let host = self.host else { throw ProbeHostError.notStarted }
+                let harness = try await host.harness()
+                self.harness = harness
+                return harness
+            })
+    }()
+
+    var workspaceBackend: any WorkspaceBackend {
+        if let pcRuntime { return pcRuntime.backend }
+        return phoneBackend
+    }
+
+    /// Returns the current backend's DSH RPC transport for session-management
+    /// surfaces. Today the backend is always the phone host.
     func transportForManagement() async throws -> any DSHRemoteTransport {
-        guard let host else { throw ProbeHostError.notStarted }
-        return try await host.makeTransport()
+        try await workspaceBackend.transport()
     }
 
     let workspaceRoot: URL = ChatHostConfiguration.workspaceRoot()
@@ -997,10 +1289,14 @@ final class ChatModel {
         let budgets: BudgetTable
         let selectedProfile: ProviderProfile?
         let egressHosts: Set<String>
+        let resumeWatchdogTimeout: TimeInterval
     }
 
     private func prepareBotRuntime() async -> Bool {
         if let launch = botLaunch {
+            if botListenerSupervisor == nil {
+                botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
+            }
             botRuntimeState = launch.composition.state
             return true
         }
@@ -1012,6 +1308,7 @@ final class ChatModel {
                 self?.botRuntimeState = state
             }
             botLaunch = launch
+            botListenerSupervisor = BotMCPListenerSupervisor(listener: launch.composition)
             botRuntimeState = launch.composition.state
             return true
         } catch {
@@ -1024,7 +1321,7 @@ final class ChatModel {
     /// Retry the Bot half after a visible disconnect. A running Host is
     /// rebound; without a Host the normal engine start is attempted again.
     func retryBotRuntime() async {
-        if let composition = botLaunch?.composition, let host {
+        if let composition = botLaunch?.composition, host != nil {
             await composition.retry()
             botRuntimeState = composition.state
         } else {
@@ -1042,6 +1339,29 @@ final class ChatModel {
             botRuntimeState = composition.state
             reportError("Bot 大脑连接失败：\(error.localizedDescription)")
         }
+    }
+
+    /// PC startup: no host to boot. Restore the last PC transcript from its
+    /// scoped snapshot and re-open the remembered session once the relay
+    /// connection is online. A PC that is offline keeps the page on the PC
+    /// segment; it never falls back to the phone backend.
+    private func startPCModel() async {
+        guard let pcRuntime else { return }
+        guard pcRuntime.connection().isOnline else {
+            statusLine = "电脑离线"
+            return
+        }
+        guard !busy, sessionID == nil else { return }
+        try? await pcRuntime.client.start()
+        restoreCachedTranscriptIfAvailable()
+        // Resume the last PC session only if one is remembered; an empty PC
+        // workspace waits for the drawer's 新会话 rather than silently
+        // creating a session on the computer.
+        guard let persisted = WorkspaceStorage.currentSessionID(for: pcRuntime.backendID) else {
+            statusLine = "已连接电脑"
+            return
+        }
+        await openManagedSession(id: persisted)
     }
 
     /// Observes the roster's live running flag. The Bot page and the DSH page
@@ -1074,6 +1394,10 @@ final class ChatModel {
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
+        if pcRuntime != nil {
+            await startPCModel()
+            return
+        }
         await start(autoRecover: autoRecover, backoffRetry: false)
     }
 
@@ -1089,7 +1413,11 @@ final class ChatModel {
         busy = true
         defer { busy = false }
         guard await prepareBotRuntime() else { return }
+        // Every Host build reads the Bot MCP URL into the Worker environment;
+        // heal a reaped listener before that snapshot is taken.
+        _ = await botListenerSupervisor?.willStartEngine()
         guard let launch = makeHostLaunch() else { return }
+        hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         // Show the last conversation from disk immediately; the engine boots
         // in the background and replaces it when the host history arrives.
         restoreCachedTranscriptIfAvailable()
@@ -1098,7 +1426,7 @@ final class ChatModel {
         observeHost(launch.host)
         do {
             try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
-            await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
+            await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
             try await launch.host.start()
         } catch {
             Self.appendDiagnostic("host start failed: \(NativeLogRedaction.error(error))")
@@ -1122,6 +1450,9 @@ final class ChatModel {
             }
             failedHost = launch.host
             engineNeedsReset = true
+            // The host failed its boot; release the page it created so the
+            // next start does not stack a second WKWebView in the anchor.
+            anchor.shutdown()
             if autoRecover, !autoRecoveryAttempted {
                 autoRecoveryAttempted = true
                 Task { @MainActor [weak self] in
@@ -1160,15 +1491,20 @@ final class ChatModel {
                 self.statusLine = "正在自动启动引擎…"
                 self.appendStatus("Engine backoff elapsed; retrying start()")
                 await self.start(autoRecover: false, backoffRetry: true)
+                // A rebuild that hit the persisted Backoff window finishes
+                // here; apply the queued session switch/prompts now.
+                self.scheduleRecoveryQueueFlush()
             }
         case .waitForManualStart(let remaining):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
+            engineNeedsReset = true
             let seconds = max(1, Int(ceil(remaining)))
             statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动"
             appendStatus("Engine backoff deadline is far away; automatic retry disabled")
         case .exhausted(let attempts):
             backoffRetryTask?.cancel(); backoffRetryTask = nil
-            reportError("引擎自动重试 \(attempts) 次仍未启动，请手动启动")
+            engineNeedsReset = true
+            reportError("引擎自动重试 \(attempts) 次仍未启动，请点击「重新启动引擎」")
         }
     }
 
@@ -1184,13 +1520,13 @@ final class ChatModel {
             return nil
         }
         guard anchor.isInWindow else {
-            reportError("The page anchor is not in a window yet; try again")
+            reportError("页面还没进入窗口，请稍后重试")
             return nil
         }
         do {
             try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
         } catch {
-            reportError("Cannot create the workspace: \(error)")
+            reportError("无法创建会话工作区：\(error)")
             return nil
         }
 
@@ -1282,7 +1618,7 @@ final class ChatModel {
             workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
             // iphone_agent_run (UI-Venus over the TonoLink board) in front of the BLE tools, so one
             // native endpoint serves the phone task and Link tools such as light.set (native-mcp.md).
-            nativeMCP: IPhoneAgentMCPServer(fallback: DeviceMCPServer.shared, executor: IPhoneAgentHost.shared))
+            nativeMCP: PhoneNativeMCP.server)
         configuration.officialDeepSeekWebCredentialProvider = searchPlan.officialDeepSeekWebCredentialProvider
         // One line states what the host actually enforces. The Worker's
         // published manifest can lag behind a rebuilt bundle; this is the
@@ -1326,10 +1662,15 @@ final class ChatModel {
         let host = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
             await anchor.makeEngine(configuration)
         })
+        botListenerSupervisor?.recordHostBuild()
         return HostLaunch(host: host,
                           budgets: configuration.budgets,
                           selectedProfile: selectedProfile,
-                          egressHosts: egressHosts)
+                          egressHosts: egressHosts,
+                          resumeWatchdogTimeout:
+                            configuration.resumeBootReadyTimeout
+                                + configuration.resumeHelloTimeout
+                                + configuration.resumeVisibilityTimeout + 10)
     }
 
     private func restartEngineWhenIdle() async {
@@ -1362,7 +1703,15 @@ final class ChatModel {
     /// ``failedHost`` and ``engineNeedsReset`` stays true.
     func restartEngine() async {
         cancelBackoffRetry()
-        guard host == nil, !busy else { return }
+        guard !busy else { return }
+        // The manual button after a failed resume may still hold the Backoff
+        // host. Treat it as the failed incarnation so the button really stops
+        // it, clears its WKWebView and cold-boots a fresh one.
+        if host != nil, engineNeedsReset {
+            failedHost = host
+            host = nil
+        }
+        guard host == nil else { return }
         guard let failed = failedHost else {
             await start()
             return
@@ -1377,11 +1726,16 @@ final class ChatModel {
             reportError("引擎无法重新启动：\(Self.condensed(String(describing: error)))")
             return
         }
+        anchor.shutdown()
         // Build the replacement first: `makeHostLaunch` can refuse (bundle
         // missing, anchor not in a window) and clearing the reset state before
         // that would drop the only path back to a working engine.
         guard await prepareBotRuntime() else { return }
+        // Every Host build reads the Bot MCP URL into the Worker environment;
+        // heal a reaped listener before that snapshot is taken.
+        _ = await botListenerSupervisor?.willStartEngine()
         guard let launch = makeHostLaunch() else { return }
+        hostResumeWatchdogTimeout = launch.resumeWatchdogTimeout
         failedHost = nil
         engineNeedsReset = false
         restoreCachedTranscriptIfAvailable()
@@ -1389,7 +1743,7 @@ final class ChatModel {
         do {
             do {
                 try await ADBMCPServer.shared.setWorkspaceDirectory(materializedWorkspace)
-                await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
+                await botLaunch?.composition.attachNativeMCP(PhoneNativeMCP.server)
                 try await launch.host.start()
             } catch {
                 let state = await launch.host.state
@@ -1442,18 +1796,18 @@ final class ChatModel {
         do {
             let harness = try await newHost.harness()
             self.harness = harness
-            let persistedSessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey)
+            let persistedSessionID = WorkspaceStorage.currentSessionID(for: .phone)
             let requestedSessionID = persistedSessionID.flatMap {
                 DeviceSessionCoordinator.shared.isDeviceSession($0) ? nil : $0
             }
             if persistedSessionID != nil && requestedSessionID == nil {
-                UserDefaults.standard.removeObject(forKey: Self.currentSessionDefaultsKey)
+                WorkspaceStorage.setCurrentSessionID(nil, for: .phone)
             }
             let session = try await harness.openSession(HarnessSessionRequest(
                 sessionID: requestedSessionID, workspace: "/dsh/workspace"))
             resetSessionLedgers()
             self.sessionID = session.id
-            UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
+            WorkspaceStorage.setCurrentSessionID(session.id, for: .phone)
             lastSeq = nil
             let transport = try await newHost.makeTransport()
             if let selectedProfile {
@@ -1478,7 +1832,7 @@ final class ChatModel {
                 isShowingCachedTranscript = false
                 persistTranscriptSnapshot()
             } catch {
-                reportError("Session opened, but its DSH history could not be loaded: \(error)")
+                reportError("会话已打开，但读取历史失败：\(Self.condensed(String(describing: error)))")
                 transcriptReady = false
                 refreshFiles()
                 // A park during this load is the evidence case: the host will
@@ -1502,9 +1856,12 @@ final class ChatModel {
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
             appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress hosts=\(egressHosts.count)")
         } catch {
-            reportError("Session failed: \(error)")
+            reportError("会话打开失败：\(Self.condensed(String(describing: error)))")
         }
         refreshFiles()
+        // Actions requested while the engine was recovering are applied once
+        // the session is actually open.
+        scheduleRecoveryQueueFlush()
     }
 
     /// Apply the selected provider's model and reasoning effort to the DSH
@@ -1539,29 +1896,60 @@ final class ChatModel {
     }
 
     /// Resumes an existing DSH session by its server-issued identifier.
-    func selectSession(_ id: String) async {
+    func selectSession(_ id: String, switchGeneration: Int? = nil) async {
         let requested = id.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !requested.isEmpty else { reportError("Session ID cannot be empty"); return }
-        await openManagedSession(id: requested)
+        guard !requested.isEmpty else { reportError("会话 ID 不能为空"); return }
+        await openManagedSession(id: requested, switchGeneration: switchGeneration)
     }
 
     @discardableResult
-    private func openManagedSession(id: String?, preset: String? = nil) async -> Bool {
+    private func openManagedSession(id: String?,
+                                    preset: String? = nil,
+                                    switchGeneration: Int? = nil) async -> Bool {
         // A person asking for another session supersedes any automatic reload;
-        // the pending reload must not land after this switch.
+        // the pending reload must not land after this switch. The switch token
+        // is checked after every await inside `openAndActivateSession`, so an
+        // older optimistic open cannot land after a newer tap either.
         cancelSessionReload()
-        if let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
+        let isStillWanted: () -> Bool = { [weak self] in
+            guard let self else { return false }
+            guard let switchGeneration else { return true }
+            return self.isSessionSwitchCurrent(switchGeneration)
+        }
+        if pcRuntime == nil, let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
             reportError("设备会话只能以只读监视方式打开")
             return false
         }
-        guard let host else { reportError("Start the host before opening a session"); return false }
+        if pcRuntime != nil {
+            // The PC has no local Worker to park/resume/rebuild: the relay
+            // connection is the only gate. The phone's recovery wait and D24
+            // backoff never apply to it.
+            guard isStarted else {
+                reportError("电脑离线，无法打开会话")
+                return false
+            }
+        } else {
+            // The optimistic target is already on screen before this method
+            // runs. If the local host is parked, resuming or rebuilding, the
+            // switch worker waits for that same lifecycle instead of queueing
+            // a second switch or turning the tap into an error.
+            guard await waitForSessionSwitchLifecycle(isStillWanted: isStillWanted) else {
+                return false
+            }
+            guard host != nil else {
+                reportError(engineNeedsReset
+                    ? ChatResumeRecovery.manualRestartText
+                    : "引擎还没启动，请稍后重试")
+                return false
+            }
+        }
         guard !busy else { return false }
         guard !hostLifecycleTransition else {
-            reportError("Wait for the host to finish pausing or resuming before switching sessions")
+            reportError("引擎正在暂停或恢复，请稍候再切换会话")
             return false
         }
         guard !turnRunning && !keepingAlive && pendingQuestion == nil && pendingPermission == nil else {
-            reportError("Finish the current turn and answer pending requests before switching sessions")
+            reportError("请先等待当前回合结束并处理待确认请求，再切换会话")
             return false
         }
         busy = true
@@ -1571,18 +1959,19 @@ final class ChatModel {
             if let activeHarness = self.harness {
                 harness = activeHarness
             } else {
-                harness = try await host.harness()
+                harness = try await workspaceBackend.harness()
                 self.harness = harness
             }
             let applied = try await openAndActivateSession(
-                id: id, preset: preset, harness: harness, isStillWanted: { true })
+                id: id, preset: preset, harness: harness, isStillWanted: isStillWanted)
             guard applied else { return false }
+            guard isStillWanted() else { return false }
             appendStatus("Session \(id == nil ? "created" : "resumed"): \(sessionID ?? "")")
             return true
         } catch is CancellationError {
             return false
         } catch {
-            reportError("Could not \(id == nil ? "create" : "resume") session: \(error)")
+            reportError("无法\(id == nil ? "创建" : "恢复")会话：\(Self.condensed(String(describing: error)))")
             return false
         }
     }
@@ -1604,7 +1993,8 @@ final class ChatModel {
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
         let session = try await harness.openSession(HarnessSessionRequest(
-            sessionID: id, preset: preset, workspace: "/dsh/workspace"))
+            sessionID: id, preset: preset,
+            workspace: pcRuntime == nil ? "/dsh/workspace" : nil))
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
         if let expectedSessionID,
@@ -1615,7 +2005,8 @@ final class ChatModel {
         let transport = try await transportForManagement()
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
-        if let profile = try? PhoneModelProviderSettings.shared.load().selected {
+        if pcRuntime == nil,
+           let profile = try? PhoneModelProviderSettings.shared.load().selected {
             do {
                 // Selecting the model is retried here: after a Worker restart
                 // the first choice can fail (error 12), and this is the path
@@ -1627,16 +2018,31 @@ final class ChatModel {
         }
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
+        // Load the chrome that decides the composer/dock heights beside the
+        // history and apply it in the same update as `items`. Letting the
+        // post-switch refresh tasks fill these one at a time is what moved the
+        // stats line and the todo/plan docks after the drawer had closed.
+        async let projectionsCall = loadProjectionValues(sessionID: session.id, transport: transport)
+        async let goalCall = loadSessionGoal(sessionID: session.id, harness: harness)
         let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
+        let projectionValues = await projectionsCall
+        let goal = await goalCall
+        let projectionSnapshot = await Task.detached(priority: .userInitiated) {
+            Self.projectionSnapshot(projectionValues)
+        }.value
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
         pumpTask?.cancel()
         resetSessionLedgers()
         self.sessionID = session.id
-        UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
+        WorkspaceStorage.setCurrentSessionID(session.id, for: backendID)
         lastSeq = history.after
         flushStreamingText()
+        // One transaction: the new history, stats, todos, plan and goal all
+        // replace the old session before SwiftUI renders the page.
         items = history.items
+        applyProjectionSnapshot(projectionSnapshot)
+        self.goal = goal
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
@@ -1723,7 +2129,7 @@ final class ChatModel {
                     // still needs that text if the retries do not recover it.
                     statusLine = existing
                 } else {
-                    reportError("Could not reload the session: \(error)")
+                    reportError("无法重新加载会话：\(Self.condensed(String(describing: error)))")
                 }
                 guard ChatSessionReload.canRetryAfterFailure(
                     retriesUsed: retriesUsed,
@@ -1851,6 +2257,8 @@ final class ChatModel {
     /// 不让用户停在一个已经不在列表里的对话上。不关宿主、不动别的会话。
     func detachArchivedSession() async {
         cancelSessionReload()
+        pendingSessionSwitch = nil
+        isSessionSwitchWorkStarted = false
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         if let harness, let sessionID { await harness.closeSession(sessionID) }
@@ -1869,6 +2277,23 @@ final class ChatModel {
     func stop() async {
         cancelBackoffRetry()
         cancelSessionReload()
+        pendingSessionSwitch = nil
+        isSessionSwitchWorkStarted = false
+        if pcRuntime != nil {
+            guard !busy else { return }
+            busy = true
+            defer { busy = false }
+            pumpTask?.cancel(); pumpTask = nil
+            eventStreamRecovering = false
+            if let harness, let sessionID { await harness.closeSession(sessionID) }
+            harness = nil; sessionID = nil
+            transcriptReady = false
+            pendingPermission = nil; pendingQuestion = nil
+            availableAccessModes = []; currentAccessMode = nil; accessModeError = nil; accessModeLoading = false
+            turnRunning = false
+            statusLine = "电脑会话已关闭"
+            return
+        }
         guard let host else {
             stopBotTurnPolling()
             await botLaunch?.composition.stop()
@@ -1878,7 +2303,7 @@ final class ChatModel {
             return
         }
         guard !busy && !hostLifecycleTransition else {
-            reportError("Wait for the current host operation to finish before stopping")
+            reportError("引擎操作尚未完成，请稍候再停止")
             return
         }
         busy = true
@@ -1895,7 +2320,8 @@ final class ChatModel {
         if let composition = botLaunch?.composition {
             botRuntimeState = composition.state
         }
-        do { try await host.stop() } catch { reportError("Stop reported: \(error)") }
+        do { try await host.stop() } catch { reportError("停止时报告错误：\(Self.condensed(String(describing: error)))") }
+        anchor.shutdown()
         hostEventTask?.cancel(); hostEventTask = nil
         self.host = nil
         startedAt = nil
@@ -1919,6 +2345,7 @@ final class ChatModel {
         contextPressure = nil
         contextBreakdown = nil
         projectionValues = nil
+        goal = nil
         eventStreamRecovering = false
         activeTurn = nil
         activeStep = nil
@@ -1957,12 +2384,38 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        appIsActive = phase == .active
+        // PC lifecycle is connection-only: nothing to park or keep alive. On
+        // foreground return, nudge the relay client's reconnect loop. The
+        // phone's resume/rebuild/keep-alive state machine below must never run
+        // for it (there is no local Worker).
+        if let pcRuntime {
+            if phase == .active { await pcRuntime.client.foregroundResumed() }
+            return
+        }
         // Leaving the foreground drops a pending D24 retry; the person will
         // start the engine explicitly when they come back.
-        if phase == .background { cancelBackoffRetry() }
+        if let host, phase == .active || phase == .background {
+            // The App's real scene phase is the authority for resume
+            // cancellation; the host's own platform observer only keeps the
+            // background-boot gate truthful. `.inactive` is a transient
+            // interruption (call/dialog/app switcher), so it must not cancel
+            // a resume that is about to become active again.
+            await host.setForeground(phase == .active)
+        }
+        if phase == .background {
+            cancelBackoffRetry()
+            // The host cancels the in-flight resume and releases its gate.
+            // This timer would otherwise fire while the App is frozen and
+            // rebuild an engine that is already back in a clean state.
+            resumeWatchdogTask?.cancel()
+            resumeWatchdogTask = nil
+        }
         guard let host else { return }
         switch phase {
         case .background:
+            // The next foreground return gets its own one automatic rebuild.
+            resumeAutoRebuildsUsed = 0
             if hostLifecycleTransition {
                 foregroundResumeRequested = false
                 backgroundParkRequested = true
@@ -1973,12 +2426,9 @@ final class ChatModel {
             // A running turn is kept alive (the user's task continues); an idle
             // host is parked as before, which costs no battery.
             if backgroundKeepAlive && (turnRunning || botTurnsRunning) {
-                keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
                 do {
-                    try keepAlive.start()
-                    keepingAlive = true
+                    try beginKeepAlive()
                     appendStatus("App in background: keeping the agent alive with a silent audio session; the turn continues")
-                    startBackgroundHeartbeat()
                     return
                 } catch {
                     appendStatus("Keep-alive audio failed (\(error)); parking the host instead")
@@ -1986,10 +2436,19 @@ final class ChatModel {
             }
             await parkHost(host)
         case .active:
+            // iOS may have reaped the Bot MCP listener while suspended. Heal it
+            // before deciding whether this foreground return can continue the
+            // existing Host.
+            _ = await botListenerSupervisor?.foregroundBecameActive()
+            if let supervisor = botListenerSupervisor,
+               !supervisor.hostEndpointIsCurrent,
+               !hostLifecycleTransition, !engineRebuildInProgress {
+                appendStatus("Bot MCP listener recovered on a new port; rebuilding the engine so the Worker gets the new URL")
+                await rebuildEngineForMCPListenerChange(previousHost: host)
+                return
+            }
             if keepingAlive {
-                stopBackgroundHeartbeat()
-                keepAlive.stop()
-                keepingAlive = false
+                endKeepAlive()
                 appendStatus("Back in the foreground; keep-alive audio stopped")
                 endBackgroundTask()
                 refreshFiles()
@@ -2007,6 +2466,25 @@ final class ChatModel {
         @unknown default:
             break
         }
+    }
+
+    /// Starts the silent-audio keep-alive and its background heartbeat. Shared
+    /// by `scenePhaseChanged` and the backend lifecycle seam so `keepingAlive`
+    /// and the heartbeat task are owned in one place.
+    private func beginKeepAlive() throws {
+        keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
+        try keepAlive.start()
+        keepingAlive = true
+        startBackgroundHeartbeat()
+    }
+
+    /// Stops the silent-audio keep-alive and heartbeat. The caller owns the
+    /// user-facing status line and the background-task release.
+    private func endKeepAlive() {
+        guard keepingAlive else { return }
+        stopBackgroundHeartbeat()
+        keepAlive.stop()
+        keepingAlive = false
     }
 
     private func parkHost(_ host: PhoneDSHHost) async {
@@ -2032,7 +2510,7 @@ final class ChatModel {
             appendStatus("Host parked; resume by returning to the app")
         } catch {
             parked = false
-            reportError("Park failed: \(error)")
+            reportError("引擎暂停失败：\(error)")
         }
         endBackgroundTask()
         let shouldResume = foregroundResumeRequested
@@ -2058,14 +2536,28 @@ final class ChatModel {
     private func resumeHost(_ host: PhoneDSHHost) async {
         guard parked, !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
-        // See parkHost: the flag must never stay set. A resume waits for the
-        // host's own 240 s hello timeout, so the watchdog clears only past it.
-        let watchdog = transitionWatchdog(seconds: 300, label: "Host resume")
-        defer {
-            watchdog.cancel()
-            hostLifecycleTransition = false
+        // The Worker booted with the URL captured at Host construction. If the
+        // listener had to move to a new port, resuming would just replay the
+        // old, dead URL; rebuild instead so the next Worker receives the new
+        // environment. A same-port rebind keeps the URL valid and resumes.
+        if let supervisor = botListenerSupervisor {
+            _ = await supervisor.willResumeHost()
+            if !supervisor.hostEndpointIsCurrent {
+                hostLifecycleTransition = false
+                appendStatus("Bot MCP listener recovered on a new port; rebuilding instead of resuming the old Worker URL")
+                await rebuildEngineForMCPListenerChange(previousHost: host)
+                return
+            }
         }
+        beginResumeRecoveryObservation()
+        // The host owns the short resume budgets. This watchdog is only the
+        // last resort behind them; when it fires it starts the same automatic
+        // rebuild instead of merely releasing the flag.
+        let watchdog = resumeWatchdog(host: host)
+        resumeWatchdogTask = watchdog
         var didResume = false
+        var rebuildNeeded = false
+        var resumeWasCancelled = false
         do {
             try await host.resume()
             parked = false
@@ -2074,22 +2566,256 @@ final class ChatModel {
             refreshFiles()
             await reconcileTurnStateAfterResume()
         } catch {
-            reportError("Resume failed: \(error)")
+            if Self.isResumeCancelled(error) {
+                // The App went to the background. The host released its gate
+                // and tore down the half-booted page; stay parked so the next
+                // active phase starts a fresh resume instead of rebuilding.
+                resumeWasCancelled = true
+                parked = true
+                resumeSlowNotice = false
+                appendStatus("App left the foreground; the resume was cancelled and will restart on return")
+            } else {
+                appendStatus("Host resume failed: \(NativeLogRedaction.error(error))")
+                if !engineRebuildInProgress {
+                    switch ChatResumeRecovery.decision(
+                        afterResumeFailure: resumeAutoRebuildsUsed) {
+                    case .rebuildEngine:
+                        resumeAutoRebuildsUsed += 1
+                        resumeSlowNotice = true
+                        rebuildNeeded = true
+                    case .offerManualRestart:
+                        reportEngineRecoveryFailure()
+                    }
+                }
+            }
         }
+        watchdog.cancel()
+        resumeWatchdogTask = nil
         let shouldPark = backgroundParkRequested
+        let shouldRetry = resumeWasCancelled && foregroundResumeRequested && appIsActive
         foregroundResumeRequested = false
         backgroundParkRequested = false
         // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
-        if shouldPark && !parked {
+        if rebuildNeeded {
+            await rebuildEngineAfterResumeFailure(previousHost: host)
+        } else {
+            endResumeRecoveryObservation()
+        }
+        if shouldPark && !parked && !engineRebuildInProgress {
             await parkHost(host)
+        } else if shouldRetry {
+            await resumeHost(host)
         } else if didResume {
             // The history load may have died while the host was parking; the
             // resume is now the point where that session can be re-opened.
             scheduleSessionReload(reason: "host resumed without a transcript",
                                   requireForeground: true)
+            scheduleRecoveryQueueFlush()
         }
     }
+
+    /// The old 300 s watchdog only cleared `hostLifecycleTransition`, which left
+    /// an unusable App. This one starts the one automatic rebuild when the
+    /// host's own resume bounds failed to return.
+    private static func isResumeCancelled(_ error: Error) -> Bool {
+        if let error = error as? PhoneDSHError, case .resumeCancelled = error {
+            return true
+        }
+        return false
+    }
+
+    private func resumeWatchdog(host: PhoneDSHHost) -> Task<Void, Never> {
+        let seconds = max(1, Int(ceil(hostResumeWatchdogTimeout)))
+        return Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
+            guard !Task.isCancelled, let self, self.hostLifecycleTransition else { return }
+            self.appendStatus("Host resume watchdog expired; starting the automatic rebuild")
+            self.hostLifecycleTransition = false
+            guard self.resumeAutoRebuildsUsed
+                    < ChatResumeRecovery.maximumAutomaticRebuilds else {
+                self.reportEngineRecoveryFailure()
+                return
+            }
+            self.resumeAutoRebuildsUsed += 1
+            self.resumeSlowNotice = true
+            await self.rebuildEngineAfterResumeFailure(previousHost: host)
+        }
+    }
+
+    private func beginResumeRecoveryObservation() {
+        resumeSlowTask?.cancel()
+        resumeSlowNotice = false
+        resumeSlowTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(
+                for: .milliseconds(Int(ChatResumeRecovery.slowThreshold * 1_000)))
+            guard !Task.isCancelled, let self, self.isHostRecovering else { return }
+            self.resumeSlowNotice = true
+        }
+    }
+
+    private func endResumeRecoveryObservation() {
+        resumeSlowTask?.cancel()
+        resumeSlowTask = nil
+        resumeSlowNotice = false
+    }
+
+    private func reportEngineRecoveryFailure() {
+        resumeSlowNotice = false
+        engineNeedsReset = true
+        reportError(ChatResumeRecovery.manualRestartText)
+    }
+
+    /// One full engine rebuild after a failed resume: stop the old host, drop
+    /// its WKWebView, cold-boot `start()` and re-open the session the person was
+    /// looking at. The old host's `stop()` is retried briefly because a watchdog
+    /// may fire while the host is still finishing its own resume teardown.
+    private func rebuildEngineAfterResumeFailure(previousHost: PhoneDSHHost) async {
+        await rebuildEngine(previousHost: previousHost,
+                            status: ChatResumeRecovery.slowText,
+                            reason: "Resume did not finish; rebuilding the engine once")
+    }
+
+    /// A listener rebind that changed the port invalidates the URL the current
+    /// Host captured for its Worker. Cold-boot a replacement instead of
+    /// resuming or retrying an incarnation that can only reach a dead port.
+    private func rebuildEngineForMCPListenerChange(previousHost: PhoneDSHHost) async {
+        await rebuildEngine(previousHost: previousHost,
+                            status: "重启引擎…",
+                            reason: "Bot MCP listener recovered on a new port; rebuilding so the Worker gets the new URL")
+    }
+
+    private func rebuildEngine(previousHost: PhoneDSHHost,
+                               status: String,
+                               reason: String) async {
+        guard !engineRebuildInProgress else { return }
+        engineRebuildInProgress = true
+        resumeSlowNotice = true
+        let desiredSessionID = sessionID
+        statusLine = status
+        appendStatus(reason)
+        defer { engineRebuildInProgress = false }
+        var stopped = false
+        var lastStopError: Error?
+        for attempt in 0..<3 {
+            do {
+                try await previousHost.stop()
+                stopped = true
+                break
+            } catch {
+                lastStopError = error
+                appendStatus("Engine rebuild is waiting for the host gate (attempt \(attempt + 1))")
+                try? await Task.sleep(for: .milliseconds(750))
+            }
+        }
+        guard stopped else {
+            resumeSlowNotice = false
+            engineNeedsReset = true
+            let detail = Self.condensed(lastStopError.map { String(describing: $0) } ?? "unknown")
+            let message = "引擎恢复失败：旧引擎未能停止（\(detail)）。"
+                + "请点击「重新启动引擎」重试。"
+            reportError(message)
+            if host != nil, failedHost == nil {
+                failedHost = host
+                host = nil
+            }
+            return
+        }
+        // The host now shuts its engine down on every release path; the anchor
+        // is the App's second owner and must drop the old view as well.
+        anchor.shutdown()
+        discardRuntimeForEngineRebuild()
+        if let desiredSessionID {
+            // P18: the phone singleton's remembered session lives in the
+            // backend-scoped store, not the legacy bare UserDefaults key.
+            WorkspaceStorage.setCurrentSessionID(desiredSessionID, for: .phone)
+        }
+        await start(autoRecover: false)
+        if host == nil && backoffRetryTask == nil {
+            reportEngineRecoveryFailure()
+        }
+        scheduleRecoveryQueueFlush()
+    }
+
+    /// Clears the App-side host state without reporting a normal stop; the
+    /// wanted session stays in the P18 scoped current-session store so
+    /// `start()`'s adoption re-opens it.
+    private func discardRuntimeForEngineRebuild() {
+        cancelSessionReload()
+        pumpTask?.cancel(); pumpTask = nil
+        eventStreamRecovering = false
+        hostEventTask?.cancel(); hostEventTask = nil
+        host = nil
+        failedHost = nil
+        engineNeedsReset = false
+        harness = nil
+        sessionID = nil
+        transcriptReady = false
+        pendingPermission = nil
+        pendingQuestion = nil
+        availableAccessModes = []
+        currentAccessMode = nil
+        accessModeError = nil
+        accessModeLoading = false
+        startedAt = nil
+        turnRunning = false
+        parked = false
+        foregroundResumeRequested = false
+        backgroundParkRequested = false
+        if keepingAlive {
+            stopBackgroundHeartbeat()
+            keepAlive.stop()
+            keepingAlive = false
+            endBackgroundTask()
+        }
+        syncIdleTimer()
+    }
+
+    /// Applies the prompts that arrived while recovering. Session switches are
+    /// not drained here: their own worker waits on ``sessionSwitchGate`` and
+    /// performs the latest optimistic target after the lifecycle settles, so
+    /// there is exactly one pending switch structure.
+    private func flushPendingRecoveryUIActions() async {
+        guard !isHostRecovering, !busy, host != nil else {
+            // A failed rebuild leaves the prompts queued; the next successful
+            // adoption schedules this again. Do not spin while there is no host.
+            if host != nil { scheduleRecoveryQueueFlush() }
+            return
+        }
+        let prompts = queuedPromptsDuringRecovery
+        queuedPromptsDuringRecovery.removeAll()
+        for prompt in prompts {
+            _ = await send(prompt.text,
+                           attachments: prompt.attachments,
+                           reusing: prompt.itemID)
+        }
+    }
+
+    private func scheduleRecoveryQueueFlush() {
+        guard !queuedPromptsDuringRecovery.isEmpty else {
+            recoveryFlushTask?.cancel()
+            recoveryFlushTask = nil
+            return
+        }
+        guard recoveryFlushTask == nil else { return }
+        // Nothing can consume the queue until a host exists or a rebuild/backoff
+        // is in flight; adoption calls this again.
+        guard host != nil || engineRebuildInProgress || backoffRetryTask != nil else { return }
+        recoveryFlushTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<300 {
+                if !self.busy && !self.engineRebuildInProgress
+                    && !self.hostLifecycleTransition && !self.parked
+                    && self.host != nil {
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            self.recoveryFlushTask = nil
+            await self.flushPendingRecoveryUIActions()
+        }
+    }
+
 
     /// Releases a latched host transition after a bound the host's own
     /// drain/hello timeouts cannot exceed, so a wedged host fails loud on the
@@ -2113,7 +2839,7 @@ final class ChatModel {
         guard let sessionID else { return }
         do {
             let transport = try await transportForManagement()
-            let value = try await transport.call("session/list", args: .object([:]))
+            let value = try await transport.call("session/list", args: .object(["_request": .object([:])]))
             let running = (value["items"]?.arrayValue ?? []).first { item in
                 item["sessionId"]?.stringValue == sessionID
             }?["running"]?.boolValue
@@ -2126,7 +2852,9 @@ final class ChatModel {
             appendStatus("Turn was cancelled while the app was in the background; state cleared")
         } catch {
             // A failed probe leaves the previous behaviour in place; the next
-            // turn event or an explicit stop still corrects the state.
+            // turn event or an explicit stop still corrects the state. The
+            // failure is kept in the diagnostic log (it used to be silent).
+            Self.appendDiagnostic("session/list resume probe failed: \(error)")
         }
     }
 
@@ -2203,11 +2931,27 @@ final class ChatModel {
                     // look like a model-service error, so keep the host event
                     // fingerprint for correlation; the raw text stays on screen.
                     Self.appendDiagnostic("host error: \(NativeLogRedaction.value(message))")
-                    self.reportError("引擎报错：\(Self.condensed(message))")
+                    if self.isHostRecovering {
+                        // A resume timeout is expected on the rebuild path; its
+                        // English engine text must not become the user-facing
+                        // error. The rebuild either clears it or shows the
+                        // explicit Chinese manual-restart message.
+                        self.appendStatus("Host error during recovery; the rebuild owns the outcome")
+                    } else {
+                        self.reportError("引擎报错：\(Self.condensed(message))")
+                    }
                 case .webContentTerminated(let count):
                     self.restartPolicySawTermination = true
                     self.resourceMeter.recordWebContentTermination()
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
+                case .console(let payload):
+                    // The engine's visibility warning is a static diagnostic.
+                    // Only the enum token reaches the status log: no paths, no
+                    // page content.
+                    if let token = ChatResumeRecovery.visibilityToken(
+                        fromConsoleText: payload.text) {
+                        self.appendStatus("webview-visibility=\(token)")
+                    }
                 case .restarted:
                     self.restartPolicyHighSamples = 0
                     self.restartPolicySawTermination = false
@@ -2227,6 +2971,7 @@ final class ChatModel {
 
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
+        anchor.shutdown()
         cancelBackoffRetry()
         cancelSessionReload()
         pumpTask?.cancel(); pumpTask = nil
@@ -2333,6 +3078,20 @@ final class ChatModel {
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty || !attachments.isEmpty else { return false }
+        // A send while the engine is recovering (or being rebuilt) is queued;
+        // it is never dropped and the person never sees an English refusal.
+        // A PC backend has no local Worker recovery to wait for.
+        if pcRuntime == nil,
+           ChatResumeRecovery.shouldQueuePrompt(
+               parked: parked,
+               hostLifecycleTransition: hostLifecycleTransition,
+               rebuilding: engineRebuildInProgress)
+            || (host == nil && backoffRetryTask != nil) {
+            queuedPromptsDuringRecovery.append((prompt, attachments, itemID))
+            appendStatus("Prompt queued until the engine finishes recovering")
+            scheduleRecoveryQueueFlush()
+            return true
+        }
         // Sending is the clearest signal that the engine is wanted. Boot it
         // here (the transcript stays visible from the cache meanwhile) instead
         // of silently dropping the message because nothing is running.
@@ -2342,8 +3101,9 @@ final class ChatModel {
         guard canSend, let harness, let sessionID else { return false }
         busy = true
         defer { busy = false }
-        let (fingerprint, requestID) = Self.retryableRequest(operation: "prompt", text: prompt,
-                                                            attachments: attachments)
+        let (fingerprint, requestID) = Self.retryableRequest(
+            operation: "prompt", text: prompt, attachments: attachments,
+            scope: backendID.storageScope, sessionID: sessionID)
         let dispatchStart = ProcessInfo.processInfo.systemUptime
         Self.persistStatus("latency client-observed phase=prompt-rpc-start request=\(requestID)")
         do {
@@ -2352,7 +3112,7 @@ final class ChatModel {
             Self.completeRetryableRequest(fingerprint: fingerprint, requestID: requestID)
             // The drawer needs a readable row before DSH publishes its own
             // title projection.
-            SessionTitleHints.remember(prompt, for: sessionID)
+            SessionTitleHints.remember(prompt, for: sessionID, backend: backendID)
             let attachmentLabel = attachments.map { "[\($0.name)]" }.joined(separator: " ")
             let visiblePrompt = [prompt, attachmentLabel].filter { !$0.isEmpty }.joined(separator: "\n")
             var input = ChatItem(id: itemID ?? "\(sessionID):prompt:\(requestID)",
@@ -2368,7 +3128,7 @@ final class ChatModel {
         } catch {
             Self.persistStatus("latency client-observed phase=prompt-rpc-failed request=\(requestID) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - dispatchStart) * 1000))")
             syncIdleTimer()
-            reportError("Prompt failed: \(error)")
+            reportError("消息发送失败：\(Self.condensed(String(describing: error)))")
             return false
         }
     }
@@ -2378,8 +3138,9 @@ final class ChatModel {
         guard !guidance.isEmpty, canSteer, let harness, let sessionID else { return false }
         busy = true
         defer { busy = false }
-        let (fingerprint, requestID) = Self.retryableRequest(operation: "steer", text: guidance,
-                                                            attachments: [])
+        let (fingerprint, requestID) = Self.retryableRequest(
+            operation: "steer", text: guidance, attachments: [],
+            scope: backendID.storageScope, sessionID: sessionID)
         do {
             try await harness.send(.steer(text: guidance, requestID: requestID), to: sessionID)
             Self.completeRetryableRequest(fingerprint: fingerprint, requestID: requestID)
@@ -2390,7 +3151,7 @@ final class ChatModel {
             clearError()
             return true
         } catch {
-            reportError("Steer failed: \(error)")
+            reportError("补充说明发送失败：\(Self.condensed(String(describing: error)))")
             return false
         }
     }
@@ -2465,7 +3226,7 @@ final class ChatModel {
             clearError()
             appendStatus("Permission for \(permission.tool): \(decision.rawValue)")
         } catch {
-            reportError("Permission response failed: \(error)")
+            reportError("权限回复发送失败：\(Self.condensed(String(describing: error)))")
         }
     }
 
@@ -2477,7 +3238,7 @@ final class ChatModel {
             clearError()
             appendStatus("Answered the agent's question")
         } catch {
-            reportError("Question response failed: \(error)")
+            reportError("问题回复发送失败：\(Self.condensed(String(describing: error)))")
         }
     }
 
@@ -2488,95 +3249,79 @@ final class ChatModel {
         var hasMore: Bool
         var beforeSeq: Int?
         var throughSeq: Int?
-        var turnFacts: TurnFacts
+        var turnFacts: SessionTurnFacts
         var inputReceipts: [String: Int]
     }
 
-    /// Durable turn/start + turn/end facts, kept beside (not inside) ChatItem so
-    /// history replay can draw the same closed-Turn control row as live events.
-    private struct TurnFacts {
-        var starts: [Int: Date] = [:]
-        var endReasons: [Int: String] = [:]
-        var ends: [Int: Date] = [:]
+    /// All layout-bearing composer values from one session projection snapshot.
+    /// The switch computes this as one value off the main actor and commits it
+    /// with the transcript, so stats/todos/plan cannot arrive in separate
+    /// frames after the page has changed.
+    private struct SessionProjectionSnapshot {
+        var values: JSONValue?
+        var stats: NativeSessionStats?
+        var usage: NativeTokenUsage?
+        var pressure: NativeContextPressure?
+        var breakdown: NativeContextBreakdown?
     }
 
     /// Reads DSH's durable event log directly so user prompts, which are not
     /// projected by AgentHarness.events, appear in their original position.
+    /// The wire reads live in ProbeKit's `SessionHistoryReader` (follow
+    /// snapshot + page backfill -> raw records); only the App-specific
+    /// compaction folding stays here.
     private func loadSessionHistory(sessionID: String,
                                    transport: any DSHRemoteTransport,
                                    requireRunningState: Bool = false,
                                    pendingInputs: [ChatItem] = []) async throws -> SessionHistory {
-        let mux = try await transport.openMux()
-        let streamID = "phone-chat-history-\(UUID().uuidString)"
-        let cursor: Int
-        let snapshot: JSONValue
-        do {
-            try await mux.send(.object([
-                "type": .string("open"),
-                "streamId": .string(streamID),
-                "endpoint": .string("session/follow"),
-                "payload": .object(["args": .object(["request": .object([
-                    "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                    "maxMessages": .number(1),
-                    "assistantStream": .bool(false),
-                ])])]),
-            ]))
-            snapshot = try await receiveHistorySnapshot(from: mux, streamID: streamID)
-            guard let snapshotCursor = snapshot["cursor"]?.intValue else {
-                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-            }
-            cursor = snapshotCursor
-            await mux.close()
-        } catch {
-            await mux.close()
-            throw error
-        }
+        let snapshot = try await SessionHistoryReader.load(
+            sessionID: sessionID, transport: transport,
+            requireRunningState: requireRunningState, pendingInputs: pendingInputs)
+        for diagnostic in snapshot.diagnostics { Self.appendDiagnostic(diagnostic) }
+        // The wire read is async already; projecting up to 60 durable messages
+        // into ChatItems is synchronous. Do it off the main actor so a switch
+        // never stalls the tap frame, and let the caller commit the finished
+        // transcript with the projection/goal snapshot in one update.
+        let records = snapshot.records
+        let after = snapshot.after
+        let turnRunning = snapshot.running ?? snapshot.inferredTurnRunning
+        let hasMore = snapshot.hasMore
+        let beforeSeq = snapshot.beforeSeq
+        let throughSeq = snapshot.throughSeq
+        let turnFacts = snapshot.turnFacts
+        let inputReceipts = snapshot.inputReceipts
+        return await Task.detached(priority: .userInitiated) {
+            Self.projectHistory(records: records,
+                                sessionID: sessionID,
+                                after: after,
+                                turnRunning: turnRunning,
+                                hasMore: hasMore,
+                                beforeSeq: beforeSeq,
+                                throughSeq: throughSeq,
+                                turnFacts: turnFacts,
+                                inputReceipts: inputReceipts)
+        }.value
+    }
 
-        var records: [JSONValue] = []
-        var hasMore = false
-        var beforeSeq: Int?
-        var historyPage: JSONValue = .object([:])
-        if cursor >= 0 {
-            let page = try await transport.call("session/page", args: .object(["request": .object([
-                "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                "throughSeq": .number(Double(cursor)),
-                "maxMessages": .number(60),
-            ])]))
-            records = (page["records"]?.arrayValue ?? []).compactMap { $0["event"] }
-            hasMore = page["hasMore"]?.boolValue ?? false
-            beforeSeq = records.compactMap { $0["seq"]?.intValue }.min()
-            historyPage = page
-        }
-        let inputReceipts = try await NativeTranscriptProjector.inputReceipts(
-            for: pendingInputs, historyPage: historyPage, inbox: snapshot["projections"]?["values"]?["inbox"]
-        ) { before in
-            try await transport.call("session/page", args: .object(["request": .object([
-                "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                "throughSeq": .number(Double(cursor)), "beforeSeq": .number(Double(before)),
-                "maxMessages": .number(60),
-            ])]))
-        }
-        let after = cursor >= 0
-            ? UInt64(cursor + 1) * DSHEventMapper.partsPerEvent - 1
-            : nil
-        let running: Bool?
-        if requireRunningState {
-            let sessions = try await transport.call("session/list", args: .object([:]))
-            guard let confirmed = sessions["items"]?.arrayValue?.first(where: {
-                $0["sessionId"]?.stringValue == sessionID
-            })?["running"]?.boolValue else {
-                throw PhoneDSHError.invalidResponse("session running state is unavailable")
-            }
-            running = confirmed
-        } else if let sessions = try? await transport.call("session/list", args: .object([:])),
-                  let row = sessions["items"]?.arrayValue?.first(where: { $0["sessionId"]?.stringValue == sessionID }) {
-            running = row["running"]?.boolValue
-        } else { running = nil }
-        return SessionHistory(items: Self.transcriptItems(from: records, sessionID: sessionID), after: after,
-                              turnRunning: running ?? Self.isTurnRunning(in: records),
-                              hasMore: hasMore, beforeSeq: beforeSeq,
-                              throughSeq: cursor >= 0 ? cursor : nil,
-                              turnFacts: Self.turnFacts(in: records), inputReceipts: inputReceipts)
+    /// One detached projection of a loaded history page. It is `nonisolated`
+    /// so a switch never builds items on the main actor.
+    private nonisolated static func projectHistory(records: [JSONValue],
+                                                    sessionID: String,
+                                                    after: UInt64?,
+                                                    turnRunning: Bool,
+                                                    hasMore: Bool,
+                                                    beforeSeq: Int?,
+                                                    throughSeq: Int?,
+                                                    turnFacts: SessionTurnFacts,
+                                                    inputReceipts: [String: Int]) -> SessionHistory {
+        SessionHistory(items: transcriptItems(from: records, sessionID: sessionID),
+                       after: after,
+                       turnRunning: turnRunning,
+                       hasMore: hasMore,
+                       beforeSeq: beforeSeq,
+                       throughSeq: throughSeq,
+                       turnFacts: turnFacts,
+                       inputReceipts: inputReceipts)
     }
 
     /// Loads one older message-aligned page and prepends unseen durable events.
@@ -2603,7 +3348,7 @@ final class ChatModel {
             let existingIDs = Set(items.map(\.id))
             let older = Self.transcriptItems(from: events, sessionID: sessionID)
                 .filter { !existingIDs.contains($0.id) }
-            let facts = Self.turnFacts(in: events)
+            let facts = SessionHistoryReader.turnFacts(in: events)
             turnStartTimes.merge(facts.starts) { _, new in new }
             turnEndReasons.merge(facts.endReasons) { _, new in new }
             turnEndTimes.merge(facts.ends) { _, new in new }
@@ -2618,74 +3363,9 @@ final class ChatModel {
         }
     }
 
-    private func receiveHistoryCursor(from mux: any DSHMuxConnection, streamID: String) async throws -> Int {
-        let snapshot = try await receiveHistorySnapshot(from: mux, streamID: streamID)
-        guard let cursor = snapshot["cursor"]?.intValue else {
-            throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-        }
-        return cursor
-    }
-
-    private func receiveHistorySnapshot(from mux: any DSHMuxConnection, streamID: String) async throws -> JSONValue {
-        try await withThrowingTaskGroup(of: JSONValue.self) { group in
-            group.addTask {
-                while !Task.isCancelled {
-                    guard let frame = try await mux.receive() else {
-                        throw ProviderError.unavailable(retryAfter: nil)
-                    }
-                    guard frame["streamId"]?.stringValue == streamID else { continue }
-                    switch frame["type"]?.stringValue {
-                    case "error":
-                        throw ProviderError.invalidResponse("session/follow failed: \(frame["error"]?["message"]?.stringValue ?? "unknown error")")
-                    case "end":
-                        throw ProviderError.invalidResponse("session/follow ended before its history cursor")
-                    case "item":
-                        let value = frame["value"] ?? .null
-                        if value["type"]?.stringValue == "snapshot" {
-                            guard value["cursor"]?.intValue != nil else {
-                                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-                            }
-                            return value
-                        }
-                    default:
-                        continue
-                    }
-                }
-                throw ProviderError.cancelled
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(10))
-                await mux.close()
-                throw ProviderError.unavailable(retryAfter: nil)
-            }
-            guard let cursor = try await group.next() else {
-                throw ProviderError.invalidResponse("session/follow did not publish a history cursor")
-            }
-            group.cancelAll()
-            return cursor
-        }
-    }
-
     private func currentJournalCursor(sessionID: String,
                                       transport: any DSHRemoteTransport) async throws -> Int {
-        let mux = try await transport.openMux()
-        let streamID = "phone-trajectory-cursor-\(UUID().uuidString)"
-        do {
-            try await mux.send(.object([
-                "type": .string("open"), "streamId": .string(streamID),
-                "endpoint": .string("session/follow"),
-                "payload": .object(["args": .object(["request": .object([
-                    "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                    "maxMessages": .number(1), "assistantStream": .bool(false),
-                ])])]),
-            ]))
-            let cursor = try await receiveHistoryCursor(from: mux, streamID: streamID)
-            await mux.close()
-            return cursor
-        } catch {
-            await mux.close()
-            throw error
-        }
+        try await SessionHistoryReader.followCursor(sessionID: sessionID, transport: transport)
     }
 
     private func scheduleTrajectoryRefresh(sessionID: String) {
@@ -2744,7 +3424,7 @@ final class ChatModel {
         }.sorted { $0.seq < $1.seq }
     }
 
-    private static func transcriptItems(from records: [JSONValue], sessionID: String) -> [ChatItem] {
+    private nonisolated static func transcriptItems(from records: [JSONValue], sessionID: String) -> [ChatItem] {
         let markers = compactionMarkers(in: records, sessionID: sessionID)
         guard !markers.isEmpty else {
             return NativeTranscriptProjector.items(from: records, sessionID: sessionID)
@@ -2787,7 +3467,7 @@ final class ChatModel {
 
     /// Seq carried by a projected item id (`<sessionID>:<seq>` or
     /// `<sessionID>:<seq>:block-N`).
-    private static func transcriptSeq(of id: String, sessionID: String) -> Int? {
+    private nonisolated static func transcriptSeq(of id: String, sessionID: String) -> Int? {
         let prefix = "\(sessionID):"
         guard id.hasPrefix(prefix) else { return nil }
         let rest = id.dropFirst(prefix.count)
@@ -2803,7 +3483,7 @@ final class ChatModel {
     /// The generic projector instead emits 上下文已整理 per lifecycle event and
     /// shows the replacement as injected context, which is neither one row nor
     /// the truth; this fold replaces it. Keyed by the checkpoint's seq.
-    private static func compactionMarkers(in records: [JSONValue], sessionID: String) -> [Int: ChatItem] {
+    private nonisolated static func compactionMarkers(in records: [JSONValue], sessionID: String) -> [Int: ChatItem] {
         struct SummaryFacts {
             var summary: String?
             var itemCount: Int?
@@ -2866,38 +3546,6 @@ final class ChatModel {
         return markers
     }
 
-    private static func turnFacts(in records: [JSONValue]) -> TurnFacts {
-        var facts = TurnFacts()
-        for event in records {
-            guard let type = event["type"]?.stringValue else { continue }
-            let data = event["data"] ?? .null
-            guard let turn = data["turn"]?.intValue else { continue }
-            let time = event["time"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1_000) }
-            switch type {
-            case "turn/start":
-                if let time { facts.starts[turn] = time }
-            case "turn/end":
-                if let time { facts.ends[turn] = time }
-                facts.endReasons[turn] = data["reason"]?["kind"]?.stringValue ?? "completed"
-            default:
-                break
-            }
-        }
-        return facts
-    }
-
-    private static func isTurnRunning(in records: [JSONValue]) -> Bool {
-        var running = false
-        for event in records {
-            switch event["type"]?.stringValue {
-            case "turn/start": running = true
-            case "turn/end": running = false
-            default: break
-            }
-        }
-        return running
-    }
-
     private static func contentText(_ content: JSONValue?) -> String {
         (content?.arrayValue ?? []).compactMap { block -> String? in
             switch block["type"]?.stringValue {
@@ -2906,6 +3554,24 @@ final class ChatModel {
             default: return nil
             }
         }.joined()
+    }
+
+    /// PC foreground return: after the relay reconnects, reopen the follow
+    /// stream from the last delivered seq so events missed while suspended are
+    /// filled in (contract §10 "stream recovery"). The phone backend keeps its
+    /// existing park/resume path.
+    func foregroundResumedForPC() async {
+        guard pcRuntime != nil, let sessionID else { return }
+        let resolved: any AgentHarness
+        if let harness {
+            resolved = harness
+        } else if let created = try? await workspaceBackend.harness() {
+            harness = created
+            resolved = created
+        } else {
+            return
+        }
+        startPump(harness: resolved, sessionID: sessionID, after: lastSeq)
     }
 
     private func startPump(harness: any AgentHarness, sessionID: String, after initialSeq: UInt64? = nil) {
@@ -3145,7 +3811,9 @@ final class ChatModel {
             promoteQueuedToSending()
             turnBoundaryRevision += 1
             turnRunning = true
-            resourceMeter.beginTurn()
+            // The meter samples the phone host's budgets/WAL; a PC session is
+            // remote and has no host to attach, so never start the loop here.
+            if pcRuntime == nil { resourceMeter.beginTurn() }
             syncIdleTimer()
             statusLine = "Turn running…"
         case .turnEnded(let turnID, let reason):
@@ -3216,7 +3884,7 @@ final class ChatModel {
             items.append(item)
         case .sessionStatus(let status):
             if status.lowercased().hasPrefix("error:") {
-                reportError("Session: \(status)")
+                reportError("会话状态：\(status)")
             } else {
                 statusLine = "Session: \(status)"
             }
@@ -3347,6 +4015,52 @@ final class ChatModel {
         }
     }
 
+    /// One projection read for the optimistic session hand-off. Failure is not
+    /// fatal: the normal background refresh retries once the page is up.
+    private func loadProjectionValues(sessionID: String,
+                                      transport: any DSHRemoteTransport) async -> JSONValue? {
+        do {
+            let response = try await transport.call("session/projections", args: .object([
+                "request": .object(["sessionId": .string(sessionID)]),
+            ]))
+            return response["values"]
+        } catch {
+            return nil
+        }
+    }
+
+    private func loadSessionGoal(sessionID: String,
+                                 harness: any AgentHarness) async -> HarnessGoal? {
+        try? await harness.goal(sessionID: sessionID)
+    }
+
+    /// Applies one projection snapshot to every layout-bearing composer value
+    /// at once. Called both by the optimistic hand-off and by the background
+    /// refresh, so they cannot disagree about the order of updates.
+    private func applyProjectionValues(_ values: JSONValue?) {
+        applyProjectionSnapshot(Self.projectionSnapshot(values))
+    }
+
+    private func applyProjectionSnapshot(_ snapshot: SessionProjectionSnapshot) {
+        projectionValues = snapshot.values
+        sessionStats = snapshot.stats
+        tokenUsage = snapshot.usage
+        contextPressure = snapshot.pressure
+        contextBreakdown = snapshot.breakdown
+    }
+
+    /// Computes the whole snapshot in one nonisolated pass. The session switch
+    /// runs it off the main actor; the background refresh uses the same code
+    /// path, so both write exactly the same fields.
+    private nonisolated static func projectionSnapshot(_ values: JSONValue?) -> SessionProjectionSnapshot {
+        SessionProjectionSnapshot(
+            values: values,
+            stats: NativeSessionStats(value: values?["sessionStats"]),
+            usage: NativeTokenUsage(value: values?["tokenUsage"]),
+            pressure: NativeContextPressure(value: values?["contextPressure"]),
+            breakdown: NativeContextBreakdown(value: values?["contextBreakdown"]))
+    }
+
     func refreshNativeMetrics() async {
         guard let sessionID else { return }
         do {
@@ -3355,12 +4069,7 @@ final class ChatModel {
                 "request": .object(["sessionId": .string(sessionID)]),
             ]))
             guard self.sessionID == sessionID else { return }
-            let values = response["values"]
-            projectionValues = values
-            sessionStats = NativeSessionStats(value: values?["sessionStats"])
-            tokenUsage = NativeTokenUsage(value: values?["tokenUsage"])
-            contextPressure = NativeContextPressure(value: values?["contextPressure"])
-            contextBreakdown = NativeContextBreakdown(value: values?["contextBreakdown"])
+            applyProjectionValues(response["values"])
         } catch {
             appendStatus("Native conversation metrics unavailable: \(NativeLogRedaction.localizedError(error))")
         }
@@ -3371,12 +4080,10 @@ final class ChatModel {
         guard let sessionID else { return false }
         do {
             let transport = try await transportForManagement()
-            _ = try await transport.call("messageFeedback/put", args: .object([
-                "sessionId": .string(sessionID),
-                "messageId": .string(messageID),
-                "rating": .string(positive ? "positive" : "negative"),
-                "ifVersion": .null,
-            ]))
+            // The pin returns the business result inside the RPC value; a
+            // rejected write is `{ok:false,error}` rather than a thrown error.
+            try await MessageFeedbackClient(transport: transport)
+                .rate(messageID: messageID, sessionID: sessionID, positive: positive)
             return true
         } catch {
             reportError("反馈没有提交成功，请重试。")
@@ -3433,12 +4140,8 @@ final class ChatModel {
         var text: String
     }
 
-    private static func snapshotURL(for sessionID: String) -> URL {
-        let documents = FileManager.default.urls(for: .documentDirectory,
-                                                 in: .userDomainMask)[0]
-        return documents
-            .appendingPathComponent("transcript-snapshots", isDirectory: true)
-            .appendingPathComponent("\(sessionID).json")
+    private func snapshotURL(for sessionID: String) -> URL? {
+        WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
 
     private static func snapshotKindName(_ kind: ChatItem.Kind) -> String {
@@ -3480,8 +4183,14 @@ final class ChatModel {
     /// Renders the last session's settled items before the host is ready.
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
-              let sessionID = UserDefaults.standard.string(forKey: Self.currentSessionDefaultsKey),
-              let data = try? Data(contentsOf: Self.snapshotURL(for: sessionID)),
+              let sessionID = WorkspaceStorage.currentSessionID(for: backendID) else { return }
+        var data: Data?
+        for url in [snapshotURL(for: sessionID),
+                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
+            .compactMap({ $0 }) {
+            if let stored = try? Data(contentsOf: url) { data = stored; break }
+        }
+        guard let data,
               let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
               !cached.isEmpty else { return }
         flushStreamingText()
@@ -3506,7 +4215,7 @@ final class ChatModel {
                                  text: item.text)
         }
         guard let data = try? JSONEncoder().encode(cached) else { return }
-        let url = Self.snapshotURL(for: sessionID)
+        guard let url = snapshotURL(for: sessionID) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
@@ -3782,13 +4491,17 @@ final class ChatModel {
     /// and opaque request ID are persisted; prompt and attachment contents are
     /// never written to defaults by this retry path.
     private static func retryableRequest(operation: String, text: String,
-                                         attachments: [HarnessAttachment]) -> (String, String) {
+                                         attachments: [HarnessAttachment],
+                                         scope: String, sessionID: String) -> (String, String) {
         var material = Data()
         func append(_ bytes: Data) {
             var length = UInt64(bytes.count).bigEndian
             withUnsafeBytes(of: &length) { material.append(contentsOf: $0) }
             material.append(bytes)
         }
+        // D2: the same text on the phone and the PC must not reuse a requestId.
+        append(Data(scope.utf8))
+        append(Data(sessionID.utf8))
         append(Data(operation.utf8))
         append(Data(text.utf8))
         for attachment in attachments {
@@ -3842,11 +4555,16 @@ final class ChatModel {
 
     // MARK: Workspace files
 
-    /// Request a workspace scan. `debounced` is for tool results: a burst of
-    /// them coalesces into one trailing scan. Every other caller (session
-    /// open/switch, foreground, resume, turn end) asks for the scan now, still
-    /// through the same serialized off-main path.
     func refreshFiles(debounced: Bool = false) {
+        // PC artifacts stay on the computer in v1; no local page origin or
+        // workspace mirror exists for them. Never scan the phone workspace
+        // under a PC model (P18: PC sessions are not local sessions).
+        guard capabilities.localFilePreview else {
+            files = []
+            previewPath = nil
+            previewText = nil
+            return
+        }
         if debounced {
             fileRefresh.requestDebounced(root: materializedWorkspace)
         } else {
@@ -3857,6 +4575,12 @@ final class ChatModel {
     /// Await a scan started at (or after) this call. Used where the caller
     /// reads `files`/`fileIndex` immediately afterwards.
     func refreshFilesAndWait() async {
+        guard capabilities.localFilePreview else {
+            files = []
+            previewPath = nil
+            previewText = nil
+            return
+        }
         await fileRefresh.requestImmediatelyAndWait(root: materializedWorkspace)
     }
 
@@ -3872,6 +4596,11 @@ final class ChatModel {
     }
 
     func preview(_ file: WorkspaceFile) {
+        guard capabilities.localFilePreview else {
+            previewPath = file.relativePath
+            previewText = nil
+            return
+        }
         let url = materializedWorkspace.appendingPathComponent(file.relativePath)
         previewPath = file.relativePath
         guard let data = try? Data(contentsOf: url) else { previewText = "(unreadable)"; return }

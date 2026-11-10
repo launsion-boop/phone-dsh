@@ -595,6 +595,37 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         let rebuilt = try await remote.ensureMainSessionID()
         XCTAssertTrue(rebuilt.hasPrefix("gb-main-"))
         XCTAssertEqual(transport.archivedSessions, [oldID])
+        XCTAssertEqual(transport.sessionListArguments,
+                       [.object(["_request": .object([:])])],
+                       "session/list must carry the reserved _request member")
+    }
+
+    func testSessionListCwdLookupFailureIsLoggedAndRebuilds() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let oldID = "gb-main"
+        try await fixture.runtime.grants.recover()
+        let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
+        _ = try await fixture.runtime.eventWriter.append(
+            type: "runtime.started", principal: principal,
+            data: .object(["sessionId": .string(oldID), "botId": .string("main")]))
+
+        let transport = BotScriptedRemoteTransport(
+            scripts: [oldID: []], honorRequestedSessionIDs: true)
+        transport.setSessionCWD(oldID, cwd: "/dsh/workspace")
+        transport.failSessionList()
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let rebuilt = try await remote.ensureMainSessionID()
+        XCTAssertTrue(rebuilt.hasPrefix("gb-main-"),
+                      "a failed cwd lookup falls back to rebuilding the main session")
+        XCTAssertTrue(transport.sessionListArguments.isEmpty,
+                      "the failed call must not be recorded as a successful lookup")
+
+        let diagnostics = try await fixture.store.ephemeralEvents()
+        XCTAssertTrue(diagnostics.contains { event in
+            event.type == "runtime.stderr"
+                && event.data["message"]?.stringValue?.contains("session/list") == true
+        }, "a swallowed cwd lookup must leave a diagnostic instead of disappearing")
     }
 
     func testFailedRebuildKeepsTheOldSessionArchivableAndUsable() async throws {

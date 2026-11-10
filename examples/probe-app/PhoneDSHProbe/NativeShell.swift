@@ -3,6 +3,7 @@
 // 原生外壳的骨架（重构第一步）：底部四标签 对话 / 会话 / 工作区 / 设置。
 // 会话占一格是产品决定（高频检索）；定时任务并进会话页的第二段。
 
+import ProbeKit
 import SwiftUI
 import PhoneDSH
 import PhoneDSHAgentCore
@@ -90,7 +91,8 @@ struct NativeShell: View {
         HomeAppearance.apply()
     }
 
-    @State private var drawerOpen = false
+    @State private var drawerOpen = NativeDebugDefaults.drawerOpen(
+        environment: ProcessInfo.processInfo.environment)
     /// Bottom menu selection; 任务 (the chat page) is where the app opens.
     @State private var selectedTab: HomeTab = .tasks
     @State private var keyboardVisible = false
@@ -101,12 +103,18 @@ struct NativeShell: View {
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
+    @Environment(\.workspaceModels) private var models
     /// Shared app state. The Bot page's scene/tab pause is derived from it here;
-    /// the app's only scene-phase observer updates it.
+    /// the app's only scene-phase observer updates it. The Bot avatar's
+    /// off-screen/background pause reads the same value.
     @Environment(AppModel.self) private var appModel
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
+    @State private var debugPCLinkScreen: String? = {
+        let value = ProcessInfo.processInfo.environment["PDSH_PCLINK_SCREEN"]
+        return value?.isEmpty == false ? value : nil
+    }()
     #endif
 
     var body: some View {
@@ -171,6 +179,17 @@ struct NativeShell: View {
         .fullScreenCover(item: $preview) { screen in
             NavigationStack { screen.body }
         }
+        // Unattended D2 E2E: open the real PC surfaces without a tap.
+        .fullScreenCover(item: Binding(
+            get: { debugPCLinkScreen.flatMap(DebugPCLinkScreen.init(rawValue:)) },
+            set: { debugPCLinkScreen = $0?.rawValue })) { screen in
+            NavigationStack {
+                switch screen {
+                case .pairing: PCPairingPage()
+                case .connected: ConnectedComputerPage()
+                }
+            }
+        }
         #endif
         #if DEBUG
         .task {
@@ -230,15 +249,58 @@ struct NativeShell: View {
                 }
             }
             tabPage(.tasks) {
-                NavigationStack {
-                    ChatPage(openDrawer: {
-                        if usesSidebar {
-                            withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
-                        } else {
-                            openDrawer()
+                // D2: keep one ChatPage per backend alive. Both stay in the
+                // hierarchy so drafts, scroll offsets and running turns never
+                // cross when the drawer segment changes.
+                ZStack {
+                    NavigationStack {
+                        ChatPage(modelOverride: models.phoneChat,
+                                 managementOverride: models.phoneManagement,
+                                 openDrawer: {
+                            if usesSidebar {
+                                withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                            } else {
+                                openDrawer()
+                            }
+                        }, drawerExpanded: sidebarVisible)
+                        .modifier(tabRoot(.tasks))
+                    }
+                    .opacity(models.isPhoneSelected ? 1 : 0)
+                    .allowsHitTesting(models.isPhoneSelected)
+                    .accessibilityHidden(!models.isPhoneSelected)
+
+                    if let pcChat = models.pcChat {
+                        NavigationStack {
+                            ChatPage(modelOverride: pcChat,
+                                     managementOverride: models.pcManagement,
+                                     openDrawer: {
+                                         if usesSidebar {
+                                             withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                                         } else {
+                                             openDrawer()
+                                         }
+                                     }, drawerExpanded: sidebarVisible)
+                            .modifier(tabRoot(.tasks))
                         }
-                    }, drawerExpanded: sidebarVisible)
-                    .modifier(tabRoot(.tasks))
+                        .opacity(models.isPhoneSelected ? 0 : 1)
+                        .allowsHitTesting(!models.isPhoneSelected)
+                        .accessibilityHidden(models.isPhoneSelected)
+                    } else if !models.isPhoneSelected {
+                        // Same container as ChatPage above: the shell ignores
+                        // the safe area for the drawer, and NavigationStack is
+                        // what re-establishes it for the header. Without this
+                        // the placeholder header sits under the status bar.
+                        NavigationStack {
+                            PCWorkspaceChatPlaceholder(openDrawer: {
+                                if usesSidebar {
+                                    withAnimation(.easeInOut(duration: 0.22)) { sidebarCollapsed.toggle() }
+                                } else {
+                                    openDrawer()
+                                }
+                            }, drawerExpanded: sidebarVisible)
+                            .toolbar(.hidden, for: .navigationBar)
+                        }
+                    }
                 }
             }
             tabPage(.discover) {
@@ -789,6 +851,13 @@ struct EgressAllowListPage: View {
 #if DEBUG
 /// Debug-only screen router: one launch argument, one screen. Names are the
 /// same ones used in docs/screen-inventory.md.
+/// Unattended D2 screens, opened by `PDSH_PCLINK_SCREEN`.
+enum DebugPCLinkScreen: String, Identifiable, CaseIterable {
+    case pairing
+    case connected
+    var id: String { rawValue }
+}
+
 enum PreviewScreen: String, Identifiable, CaseIterable {
     case settings
     case settingsModel = "settings.model"

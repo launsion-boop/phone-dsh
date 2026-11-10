@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 pairing handshake payload (pair.*)",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "role",
+        "machineId",
+        "publicKey",
+        "name",
+        "relay",
+        "nonce",
+        "mac"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "pair.hello"
+        },
+        "role": {
+          "const": "pc"
+        },
+        "machineId": {
+          "type": "string",
+          "pattern": "^[a-z2-7]{26}$"
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$",
+          "$comment": "1-64 UTF-8 bytes, NFC, no C0/C1/Cf (e.g. U+202E). JSON Schema counts code points; implementations MUST also enforce the 64-byte UTF-8 limit and reject non-NFC."
+        },
+        "relay": {
+          "type": "string",
+          "pattern": "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "role",
+        "machineId",
+        "publicKey",
+        "name",
+        "relay",
+        "nonce",
+        "peerNonce",
+        "mac"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "pair.auth"
+        },
+        "role": {
+          "const": "phone"
+        },
+        "machineId": {
+          "type": "string",
+          "pattern": "^[a-z2-7]{26}$"
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$",
+          "$comment": "1-64 UTF-8 bytes, NFC, no C0/C1/Cf (e.g. U+202E). JSON Schema counts code points; implementations MUST also enforce the 64-byte UTF-8 limit and reject non-NFC."
+        },
+        "relay": {
+          "type": "string",
+          "pattern": "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "peerNonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "role",
+        "nonce",
+        "peerNonce",
+        "transcriptHash",
+        "mac"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "pair.confirm"
+        },
+        "role": {
+          "const": "pc"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "peerNonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "transcriptHash": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "v",
+        "type",
+        "role",
+        "nonce",
+        "peerNonce",
+        "transcriptHash",
+        "mac"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "v": {
+          "const": 1
+        },
+        "type": {
+          "const": "pair.final"
+        },
+        "role": {
+          "const": "phone"
+        },
+        "nonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "peerNonce": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "transcriptHash": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "mac": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
+    }
+  ]
+}

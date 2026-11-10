@@ -1363,7 +1363,7 @@
       "source": {
         "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)；tono-account 会话记录：[v1/tono-account.md](v1/tono-account.md) §3",
         "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端 ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostPersistence.ets`, `harmony/entry/src/main/ets/model/ProviderProfiles.ets`",
-        "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議",
+        "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議。**D2 追加（P18，`pclink-d2`）**：`phone-dsh.drawer.backend` 的值域封閉為 `phone`/`pc`，缺省 `phone`；PC 工作區的會話、草稿、標題提示、轉錄快照與收合文件夾鍵以 `<BackendID.storageScope>／<sessionID>`（scope 為 `phone` 或 `pc:<machineId>`）為鍵；既有裸 `sessionID` 鍵一次性複製遷移到 `phone`（不刪舊鍵，回滾讀舊鍵）。權威變更單：[PC-20261110-pclink-ios-app.md](../docs/protocol-changes/PC-20261110-pclink-ios-app.md)。**v1.5 追加（P18，`pclink-v1.5`）**：PC 新會話上次使用的工作區鍵 `phone-dsh.pc.last-workspace.<machineId>`（值為 DSH `workspaceId` 字串；缺省或該工作區已不存在時回退到最近活動的工作區；解除配對時刪除）。權威變更單：[PC-20261110-pclink-ios-app.md](../docs/protocol-changes/PC-20261110-pclink-ios-app.md) §4.10。",
         "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`、`spec/v1/tono-account.md`、`Sources/PhoneDSH/TonoAccount/**`、`android/net/src/main/kotlin/com/phonedsh/account/**`"
       }
     },
@@ -1768,6 +1768,42 @@
         "ends": "dsh-bot `dshProjection.cjs`、`transcriptWire.cjs`、`displayContract.js`；Swift `Sources/PhoneDSHBot/Rows`、SwiftUI `examples/probe-app/PhoneDSHProbe/Bot`",
         "evidence": "`spec/bot/v1/tools/validate_vectors.py`；Swift 行投影與 UI 測試隨 WP8/WP9 實作",
         "triggers": "`spec/bot/v1/{row,row-batch,row-projection,user-action,action-result}.schema.json`、`spec/bot/v1/golden/{bot-attachments,row-projection,row-protocol,row-protocol.phone}.json`、`spec/bot/v1/golden/*.phone.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`examples/probe-app/PhoneDSHProbe/**`"
+      }
+    },
+    {
+      "id": "P28",
+      "owner_role": "pclink",
+      "authority": [
+        "spec/pclink/v1/README.md",
+        "spec/pclink/v1/schema",
+        "spec/pclink/v1/golden",
+        "spec/pclink/v1/endpoints.json"
+      ],
+      "ends": {
+        "Node": [
+          "spec/pclink/v1/tools/vectors.mjs"
+        ],
+        "Swift": [
+          "spec/pclink/v1/golden"
+        ]
+      },
+      "triggers": [
+        {
+          "glob": "spec/pclink/v1/**"
+        }
+      ],
+      "status": [
+        "target"
+      ],
+      "evidence": [
+        "spec/pclink/v1/tools/vectors.mjs",
+        "spec/pclink/v1/tools/check_samples.py"
+      ],
+      "source": {
+        "authority": "[PCLink v1](pclink/v1/README.md)、[schema](pclink/v1/schema)、[golden](pclink/v1/golden)、[endpoints.json](pclink/v1/endpoints.json)（`target`；依賴 P14、P06，承載 DSH Remote 呼叫但不改其格式）",
+        "ends": "Node relay `relay/**`（target；獨立 `package.json`，只依賴 `ws`）、PC plugin／CLI `pclink/plugin/**`、`pclink/cli/**`、`pclink/core/**`（target）、Swift `Sources/PhoneDSHPCLink/**` + `Tests/PhoneDSHPCLinkTests/**`（target；`Package.swift` 為 P12），App 接線在 `examples/probe-app/**`（P09/P27）",
+        "evidence": "`spec/pclink/v1/tools/vectors.mjs`、`check_samples.py` 與 `golden/`（v1.3：`§2.3` 嚴格 JSON 作用於 wire 位元組，DSH 透傳值允許合法 `\\u0000` 轉義並原樣承載；密碼向量與 25 條狀態機模型樣例分開計數；兩端 runtime 證據尚未存在，P28 維持 `target`）",
+        "triggers": "`spec/pclink/v1/**`（B/C/D 落地後由 contract owner 在同一列加入 relay/**、pclink/**、Sources/PhoneDSHPCLink/**、Tests/PhoneDSHPCLinkTests/** 的 trigger；本 A 冻结不包含实现目录）"
       }
     }
   ]

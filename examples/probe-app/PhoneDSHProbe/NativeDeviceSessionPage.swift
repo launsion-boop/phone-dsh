@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: device-session monitoring reads a phone-host session through the
+// phone backend. A PC workspace has no device sessions (plan v2 §6.2).
 
 import Observation
 import PhoneDSHAgentCore
@@ -284,67 +286,7 @@ final class NativeDeviceSessionModel {
 
     private static func readCursor(sessionID: String,
                                    transport: ReadOnlyDeviceSessionTransport) async throws -> Int {
-        let mux = try await transport.openMux()
-        let streamID = "device-monitor-history-\(UUID().uuidString)"
-        do {
-            try await mux.send(.object([
-                "type": .string("open"),
-                "streamId": .string(streamID),
-                "endpoint": .string("session/follow"),
-                "payload": .object(["args": .object(["request": .object([
-                    "address": .object(["kind": .string("session"), "sessionId": .string(sessionID)]),
-                    "maxMessages": .number(1),
-                    "assistantStream": .bool(false),
-                ])])]),
-            ]))
-            let cursor = try await receiveCursor(from: mux, streamID: streamID)
-            await mux.close()
-            return cursor
-        } catch {
-            await mux.close()
-            throw error
-        }
-    }
-
-    private static func receiveCursor(from mux: any DSHMuxConnection, streamID: String) async throws -> Int {
-        try await withThrowingTaskGroup(of: Int.self) { group in
-            group.addTask {
-                while !Task.isCancelled {
-                    guard let frame = try await mux.receive() else {
-                        throw ProviderError.unavailable(retryAfter: nil)
-                    }
-                    guard frame["streamId"]?.stringValue == streamID else { continue }
-                    switch frame["type"]?.stringValue {
-                    case "error":
-                        throw ProviderError.invalidResponse(
-                            frame["error"]?["message"]?.stringValue ?? "session/follow failed")
-                    case "end":
-                        throw ProviderError.invalidResponse("session/follow ended before its history cursor")
-                    case "item":
-                        let value = frame["value"] ?? .null
-                        if value["type"]?.stringValue == "snapshot" {
-                            guard let cursor = value["cursor"]?.intValue else {
-                                throw ProviderError.invalidResponse("session/follow snapshot has no cursor")
-                            }
-                            return cursor
-                        }
-                    default:
-                        continue
-                    }
-                }
-                throw ProviderError.cancelled
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(10))
-                await mux.close()
-                throw ProviderError.unavailable(retryAfter: nil)
-            }
-            guard let cursor = try await group.next() else {
-                throw ProviderError.invalidResponse("session/follow did not publish a history cursor")
-            }
-            group.cancelAll()
-            return cursor
-        }
+        try await SessionHistoryReader.followCursor(sessionID: sessionID, transport: transport)
     }
 }
 

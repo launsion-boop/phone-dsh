@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 relay.ping / relay.pong",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["v", "type", "nonce"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "relay.ping" },
+        "nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["v", "type", "nonce"],
+      "additionalProperties": false,
+      "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "relay.pong" },
+        "nonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" }
+      }
+    }
+  ]
+}

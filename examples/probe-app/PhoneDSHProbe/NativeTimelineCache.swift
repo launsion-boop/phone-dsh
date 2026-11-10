@@ -7,6 +7,7 @@
 // facts. Rows keep exactly the old grouping/ordering semantics.
 
 import Foundation
+import ProbeKit
 
 struct NativeTimelinePlanEntry: Equatable {
     let plan: NativePlanCardData

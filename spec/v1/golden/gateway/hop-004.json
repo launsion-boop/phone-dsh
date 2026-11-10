@@ -1,0 +1,36 @@
+{
+  "id": "gw-hop-004",
+  "rule": "header-strip",
+  "kind": "request",
+  "source": "Sources/PhoneDSHGateway/ModelGateway.swift:1046",
+  "references": [
+    "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:134"
+  ],
+  "note": "The tool-journal key reaches a loopback tool endpoint (the app's Bot MCP listener); every other X-PDSH-* header is still stripped.",
+  "input": {
+    "method": "POST",
+    "url": "http://127.0.0.1:51819/mcp",
+    "headers": {
+      "content-type": "application/json",
+      "x-pdsh-idempotency-key": "xl1-journal-key",
+      "x-pdsh-proxy-trace": "abc"
+    },
+    "allowlist": [
+      "http://127.0.0.1:51819"
+    ],
+    "credential": {
+      "kind": "none"
+    }
+  },
+  "expect": {
+    "dispatch": "allow",
+    "outbound_headers": {
+      "content-type": "application/json",
+      "x-pdsh-idempotency-key": "xl1-journal-key"
+    },
+    "stripped": [
+      "x-pdsh-proxy-trace"
+    ],
+    "outbound_url": "http://127.0.0.1:51819/mcp"
+  }
+}

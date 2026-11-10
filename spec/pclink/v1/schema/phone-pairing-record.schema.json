@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 phone pairing record",
+  "type": "object",
+  "$comment": "The phone allows exactly one record. approvedAt/approvedVia are PC-side facts and are forbidden here; the optional pairingMode is the phone user's own action (qr/manual) for display.",
+  "required": [
+    "peerMachineId",
+    "peerPublicKey",
+    "peerName",
+    "pairedAt",
+    "relayOrigin",
+    "connection"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "peerMachineId": {
+      "type": "string",
+      "pattern": "^[a-z2-7]{26}$"
+    },
+    "peerPublicKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "peerName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$",
+      "$comment": "1-64 UTF-8 bytes, NFC, no C0/C1/Cf (e.g. U+202E). JSON Schema counts code points; implementations MUST also enforce the 64-byte UTF-8 limit and reject non-NFC."
+    },
+    "pairedAt": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "relayOrigin": {
+      "type": "string",
+      "pattern": "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+    },
+    "connection": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "relay",
+            "direct"
+          ]
+        }
+      }
+    },
+    "pairingMode": {
+      "type": "string",
+      "enum": [
+        "qr",
+        "manual"
+      ],
+      "$comment": "Phone-side display metadata: the pairing action the user performed. Not an approval field; absent in old records."
+    }
+  }
+}

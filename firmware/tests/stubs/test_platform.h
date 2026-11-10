@@ -10,6 +10,7 @@ typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
 #define ESP_ERR_NVS_NOT_FOUND 0x1102
+#define ESP_ERR_NVS_NOT_ENOUGH_SPACE 0x1105
 #define ESP_ERR_NVS_INVALID_LENGTH 0x110c
 #define NVS_READWRITE 1
 typedef unsigned nvs_handle_t;
@@ -18,6 +19,7 @@ esp_err_t nvs_get_blob(nvs_handle_t, const char *, void *, size_t *);
 esp_err_t nvs_set_blob(nvs_handle_t, const char *, const void *, size_t);
 esp_err_t nvs_get_u32(nvs_handle_t, const char *, uint32_t *);
 esp_err_t nvs_set_u32(nvs_handle_t, const char *, uint32_t);
+esp_err_t nvs_erase_key(nvs_handle_t, const char *);
 esp_err_t nvs_commit(nvs_handle_t);
 int64_t esp_timer_get_time(void);
 void esp_fill_random(void *, size_t);

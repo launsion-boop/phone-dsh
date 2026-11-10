@@ -86,6 +86,8 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private var nextCreateIndex = 0
     private var gates: [String: BotScriptedGate] = [:]
     private var failingPages: [String: Int] = [:]
+    private var remainingSessionListFailures = 0
+    private var sessionListArgs: [BotJSONValue] = []
     private var sessionCwds: [String: String] = [:]
     private var archived: [String] = []
     private var failCreates = 0
@@ -101,6 +103,10 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private(set) var archivedSessions: [String] = []
     private(set) var unarchivedSessions: [String] = []
     private(set) var openMuxCount = 0
+
+    var sessionListArguments: [BotJSONValue] {
+        lock.withLock { sessionListArgs }
+    }
 
     init(mainId: String = "gb-main", scripts: [String: [[BotScriptedEvent]]],
          honorRequestedSessionIDs: Bool = false) {
@@ -142,6 +148,10 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
         lock.withLock { failingPages[sessionId] = times ?? -1 }
     }
 
+    func failSessionList(times: Int = 1) {
+        lock.withLock { remainingSessionListFailures = times }
+    }
+
     func failCreate(times: Int = 1) {
         lock.withLock { failCreates = times }
     }
@@ -171,8 +181,17 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
             }
             return .object(["sessionId": .string(id)])
         case "session/list":
+            let failed = lock.withLock { () -> Bool in
+                guard remainingSessionListFailures != 0 else { return false }
+                if remainingSessionListFailures > 0 { remainingSessionListFailures -= 1 }
+                return true
+            }
+            if failed {
+                throw DSHRemoteError(code: "gateway/internal", message: "session/list failed")
+            }
             let items = lock.withLock { () -> [BotJSONValue] in
-                sessionCwds.keys.sorted().map { id in
+                sessionListArgs.append(args)
+                return sessionCwds.keys.sorted().map { id in
                     .object(["sessionId": .string(id), "cwd": .string(sessionCwds[id] ?? "")])
                 }
             }

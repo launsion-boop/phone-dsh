@@ -1,0 +1,922 @@
+{
+  "format": "pclink-v1-schema-samples",
+  "format_version": 1,
+  "valid": [
+    {
+      "schema": "relay-challenge.schema.json",
+      "name": "challenge",
+      "value": {
+        "v": 1,
+        "type": "relay.challenge",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "relay": "https://relay.example"
+      }
+    },
+    {
+      "schema": "relay-auth.schema.json",
+      "name": "phone-auth",
+      "value": {
+        "v": 1,
+        "type": "peer.auth",
+        "machineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "role": "phone",
+        "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "relay-ready.schema.json",
+      "name": "ready",
+      "value": {
+        "v": 1,
+        "type": "relay.ready",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "role": "pc"
+      }
+    },
+    {
+      "schema": "relay-allow.schema.json",
+      "name": "allow",
+      "value": {
+        "v": 1,
+        "type": "relay.allow",
+        "peers": [
+          "gewra3lzquaxpctdtkvzv2drdp",
+          "7gdxeackpmfrjk3ylal74yyubv"
+        ]
+      }
+    },
+    {
+      "schema": "relay-offline.schema.json",
+      "name": "offline",
+      "value": {
+        "v": 1,
+        "type": "relay.offline",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "id": "call-1",
+        "sid": "ODU-xxharZz-k1yXN2XWRA"
+      }
+    },
+    {
+      "schema": "relay-error.schema.json",
+      "name": "rate-limited",
+      "value": {
+        "v": 1,
+        "type": "relay.error",
+        "code": "rate_limited",
+        "retryAfterMs": 1000
+      }
+    },
+    {
+      "schema": "relay-heartbeat.schema.json",
+      "name": "ping",
+      "value": {
+        "v": 1,
+        "type": "relay.ping",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "relay-redirect.schema.json",
+      "name": "redirect",
+      "value": {
+        "v": 1,
+        "type": "relay.redirect",
+        "url": "https://relay2.example"
+      }
+    },
+    {
+      "schema": "relay-pair.schema.json",
+      "name": "open",
+      "value": {
+        "v": 1,
+        "type": "relay.pair.open",
+        "rendezvous": "AAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "relay-pair.schema.json",
+      "name": "close-rejected",
+      "value": {
+        "v": 1,
+        "type": "relay.pair.close",
+        "rendezvous": "AAAAAAAAAAAAAAAAAAAAAA",
+        "reason": "rejected"
+      }
+    },
+    {
+      "schema": "pairing-message.schema.json",
+      "name": "hello",
+      "value": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "pc",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "name": "My PC",
+        "relay": "https://relay.example",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "mac": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "pairing-record.schema.json",
+      "name": "pc-record",
+      "value": {
+        "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "qr"
+      }
+    },
+    {
+      "schema": "phone-pairing-record.schema.json",
+      "name": "phone-record",
+      "value": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "My PC",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "pairingMode": "qr"
+      }
+    },
+    {
+      "schema": "e2e-frame.schema.json",
+      "name": "frame",
+      "value": {
+        "v": 1,
+        "type": "e2e",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 0,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "body": "AAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "e2e-handshake.schema.json",
+      "name": "init",
+      "value": {
+        "v": 1,
+        "type": "e2e.handshake",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "from": "7gdxeackpmfrjk3ylal74yyubv",
+        "to": "gewra3lzquaxpctdtkvzv2drdp",
+        "body": {
+          "v": 1,
+          "type": "session.init",
+          "sid": "ODU-xxharZz-k1yXN2XWRA",
+          "suite": "pclink-x25519-ed25519-chacha20poly1305-1",
+          "eph": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      }
+    },
+    {
+      "schema": "e2e-handshake.schema.json",
+      "name": "reject-signed",
+      "value": {
+        "v": 1,
+        "type": "e2e.handshake",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "body": {
+          "v": 1,
+          "type": "session.reject",
+          "sid": "ODU-xxharZz-k1yXN2XWRA",
+          "code": "unpaired",
+          "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "message": "removed"
+        }
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "rpc-call",
+      "value": {
+        "type": "rpc.call",
+        "id": "call-1",
+        "endpoint": "session/list",
+        "args": {
+          "_request": {}
+        }
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "peer-hello",
+      "value": {
+        "v": 1,
+        "type": "peer.hello",
+        "role": "phone",
+        "caps": [
+          "workspace/1",
+          "pclink-x25519-ed25519-chacha20poly1305-1"
+        ],
+        "dsh": {
+          "version": "0.2.2-rc.1"
+        },
+        "app": {
+          "name": "phoneDSH",
+          "version": "0.1.0"
+        },
+        "name": "iPhone"
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "stream-chunk",
+      "value": {
+        "type": "rpc.stream.chunk",
+        "streamId": "stream-1",
+        "part": 0,
+        "last": true,
+        "data": "AAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "session-close",
+      "value": {
+        "type": "session.close",
+        "code": "rekey"
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "rpc-forbidden",
+      "value": {
+        "type": "rpc.call",
+        "id": "call-admin",
+        "endpoint": "pclink.admin/status",
+        "args": {}
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "paired-notice",
+      "value": {
+        "type": "pclink.notice",
+        "kind": "paired",
+        "name": "iPhone",
+        "fingerprint": "7gdx-eack-pmfr",
+        "at": "2026-11-09T00:00:05Z"
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "rpc-forbidden-error",
+      "value": {
+        "type": "rpc.result",
+        "id": "call-admin",
+        "ok": false,
+        "error": {
+          "code": "forbidden",
+          "message": "remote pclink.admin calls are forbidden"
+        }
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "stream-forbidden-error",
+      "value": {
+        "type": "rpc.stream.error",
+        "streamId": "stream-1",
+        "error": {
+          "code": "forbidden",
+          "message": "remote pclink.admin calls are forbidden"
+        }
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "rpc-call-carried-nul",
+      "value": {
+        "type": "rpc.call",
+        "id": "call-nul",
+        "endpoint": "session/list",
+        "args": {
+          "_request": {},
+          "note": "a\u0000b"
+        }
+      }
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "stream-item-carried-nul",
+      "value": {
+        "type": "rpc.stream.item",
+        "streamId": "stream-nul",
+        "value": {
+          "text": "a\u0000b"
+        }
+      }
+    },
+    {
+      "schema": "endpoints.schema.json",
+      "name": "inventory",
+      "value": {
+        "v": 1,
+        "suite": "workspace/1",
+        "dshTestedRange": ">=0.2.2-rc.1 <0.3.0",
+        "defaultRetry": "unsafe",
+        "endpoints": [
+          {
+            "name": "session/list",
+            "kind": "unary",
+            "retry": "read",
+            "phoneOnly": false
+          }
+        ]
+      }
+    },
+    {
+      "schema": "admin.schema.json",
+      "name": "admin",
+      "value": {
+        "v": 1,
+        "port": 50000,
+        "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "admin-challenge.schema.json",
+      "name": "challenge-request",
+      "value": {
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "admin-challenge.schema.json",
+      "name": "challenge-response",
+      "value": {
+        "v": 1,
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "proof": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "schema": "admin-status.schema.json",
+      "name": "awaiting-approval-redacted",
+      "value": {
+        "v": 1,
+        "identity": {
+          "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "name": "My PC"
+        },
+        "relay": {
+          "origin": "https://relay.example",
+          "state": "connected"
+        },
+        "pairs": [],
+        "warnings": [],
+        "pairing": {
+          "id": "pair-1",
+          "state": "awaiting_approval",
+          "mode": "qr",
+          "expiresAt": "2026-11-09T00:05:00Z",
+          "peerName": "iPhone"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "schema": "admin-status.schema.json",
+      "name": "completed-with-fingerprint",
+      "value": {
+        "v": 1,
+        "identity": {
+          "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "name": "My PC"
+        },
+        "relay": {
+          "origin": "https://relay.example",
+          "state": "connected"
+        },
+        "pairs": [],
+        "warnings": [],
+        "pairing": {
+          "id": "pair-1",
+          "state": "completed",
+          "mode": "qr",
+          "expiresAt": "2026-11-09T00:05:00Z",
+          "peerName": "iPhone",
+          "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
+          "peerFingerprint": "7gdx-eack-pmfr"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    {
+      "schema": "pairing-record.schema.json",
+      "name": "pc-record-legacy-cli",
+      "value": {
+        "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "schema": "relay-challenge.schema.json",
+      "name": "short-nonce",
+      "value": {
+        "v": 1,
+        "type": "relay.challenge",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "relay": "https://relay.example"
+      },
+      "reason": "nonce is not 32 bytes"
+    },
+    {
+      "schema": "relay-challenge.schema.json",
+      "name": "uppercase-origin",
+      "value": {
+        "v": 1,
+        "type": "relay.challenge",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "relay": "https://Relay.Example"
+      },
+      "reason": "origin must be lowercase"
+    },
+    {
+      "schema": "relay-auth.schema.json",
+      "name": "bad-role",
+      "value": {
+        "v": 1,
+        "type": "peer.auth",
+        "machineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "role": "tablet",
+        "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "role is not phone|pc"
+    },
+    {
+      "schema": "relay-ready.schema.json",
+      "name": "unknown-member",
+      "value": {
+        "v": 1,
+        "type": "relay.ready",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "role": "pc",
+        "extra": true
+      },
+      "reason": "unknown member"
+    },
+    {
+      "schema": "relay-allow.schema.json",
+      "name": "bad-peer",
+      "value": {
+        "v": 1,
+        "type": "relay.allow",
+        "peers": [
+          "not-a-machine-id"
+        ]
+      },
+      "reason": "bad machineId"
+    },
+    {
+      "schema": "relay-offline.schema.json",
+      "name": "bad-to",
+      "value": {
+        "v": 1,
+        "type": "relay.offline",
+        "to": "PHONE"
+      },
+      "reason": "uppercase machineId"
+    },
+    {
+      "schema": "relay-error.schema.json",
+      "name": "unknown-code",
+      "value": {
+        "v": 1,
+        "type": "relay.error",
+        "code": "too_many_requests"
+      },
+      "reason": "unknown error code"
+    },
+    {
+      "schema": "relay-heartbeat.schema.json",
+      "name": "short-nonce",
+      "value": {
+        "v": 1,
+        "type": "relay.pong",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "nonce is not 16 bytes"
+    },
+    {
+      "schema": "relay-redirect.schema.json",
+      "name": "path",
+      "value": {
+        "v": 1,
+        "type": "relay.redirect",
+        "url": "https://relay2.example/path"
+      },
+      "reason": "origin must not have a path"
+    },
+    {
+      "schema": "relay-pair.schema.json",
+      "name": "bad-close-reason",
+      "value": {
+        "v": 1,
+        "type": "relay.pair.close",
+        "rendezvous": "AAAAAAAAAAAAAAAAAAAAAA",
+        "reason": "unknown_reason"
+      },
+      "reason": "reason is closed"
+    },
+    {
+      "schema": "pairing-message.schema.json",
+      "name": "wrong-role",
+      "value": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "phone",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "name": "My PC",
+        "relay": "https://relay.example",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "mac": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "pair.hello role is pc"
+    },
+    {
+      "schema": "pairing-message.schema.json",
+      "name": "bidi-name",
+      "value": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "pc",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "name": "My ‮PC",
+        "relay": "https://relay.example",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "mac": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "name contains U+202E (Cf)"
+    },
+    {
+      "schema": "pairing-message.schema.json",
+      "name": "non-nfc-name",
+      "value": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "pc",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "name": "Café",
+        "relay": "https://relay.example",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "mac": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "name is not NFC"
+    },
+    {
+      "schema": "pairing-message.schema.json",
+      "name": "overlong-name-bytes",
+      "value": {
+        "v": 1,
+        "type": "pair.hello",
+        "role": "pc",
+        "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "name": "汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉汉",
+        "relay": "https://relay.example",
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "mac": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "33 CJK code points are 99 UTF-8 bytes (>64)"
+    },
+    {
+      "schema": "pairing-record.schema.json",
+      "name": "direct-mode-is-v1-unknown",
+      "value": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "My PC",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "future"
+        }
+      },
+      "reason": "connection mode is closed"
+    },
+    {
+      "schema": "pairing-record.schema.json",
+      "name": "approved-via-without-at",
+      "value": {
+        "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "iPhone",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedVia": "qr"
+      },
+      "reason": "approvedAt and approvedVia are a pair"
+    },
+    {
+      "schema": "e2e-frame.schema.json",
+      "name": "missing-body",
+      "value": {
+        "v": 1,
+        "type": "e2e",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 0,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv"
+      },
+      "reason": "body is required"
+    },
+    {
+      "schema": "e2e-frame.schema.json",
+      "name": "seq-over-hard-cap",
+      "value": {
+        "v": 1,
+        "type": "e2e",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "seq": 1048576,
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "body": "AAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "seq must be < 2^20"
+    },
+    {
+      "schema": "e2e-handshake.schema.json",
+      "name": "unknown-suite",
+      "value": {
+        "v": 1,
+        "type": "e2e.handshake",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "from": "7gdxeackpmfrjk3ylal74yyubv",
+        "to": "gewra3lzquaxpctdtkvzv2drdp",
+        "body": {
+          "v": 1,
+          "type": "session.init",
+          "sid": "ODU-xxharZz-k1yXN2XWRA",
+          "suite": "pclink-unknown",
+          "eph": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "reason": "suite const mismatch"
+    },
+    {
+      "schema": "e2e-handshake.schema.json",
+      "name": "reject-bad-sig",
+      "value": {
+        "v": 1,
+        "type": "e2e.handshake",
+        "sid": "ODU-xxharZz-k1yXN2XWRA",
+        "from": "gewra3lzquaxpctdtkvzv2drdp",
+        "to": "7gdxeackpmfrjk3ylal74yyubv",
+        "body": {
+          "v": 1,
+          "type": "session.reject",
+          "sid": "ODU-xxharZz-k1yXN2XWRA",
+          "code": "unpaired",
+          "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "reason": "sig is not 64 bytes"
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "unknown-type",
+      "value": {
+        "type": "rpc.unknown",
+        "id": "x"
+      },
+      "reason": "unknown inner type"
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "bidi-name",
+      "value": {
+        "v": 1,
+        "type": "peer.hello",
+        "role": "phone",
+        "caps": [
+          "workspace/1",
+          "pclink-x25519-ed25519-chacha20poly1305-1"
+        ],
+        "dsh": {
+          "version": "0.2.2-rc.1"
+        },
+        "app": {
+          "name": "phoneDSH",
+          "version": "0.1.0"
+        },
+        "name": "iPhone ‮"
+      },
+      "reason": "name contains U+202E (Cf)"
+    },
+    {
+      "schema": "endpoints.schema.json",
+      "name": "bad-retry",
+      "value": {
+        "v": 1,
+        "suite": "workspace/1",
+        "dshTestedRange": ">=0.2.2-rc.1 <0.3.0",
+        "defaultRetry": "unsafe",
+        "endpoints": [
+          {
+            "name": "session/list",
+            "kind": "unary",
+            "retry": "safe",
+            "phoneOnly": false
+          }
+        ]
+      },
+      "reason": "retry enum"
+    },
+    {
+      "schema": "admin.schema.json",
+      "name": "privileged-port",
+      "value": {
+        "v": 1,
+        "port": 80,
+        "token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "port below 1024"
+    },
+    {
+      "schema": "admin-challenge.schema.json",
+      "name": "short-nonce",
+      "value": {
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "nonce is not 32 bytes"
+    },
+    {
+      "schema": "admin-challenge.schema.json",
+      "name": "missing-v",
+      "value": {
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "proof": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "response requires v"
+    },
+    {
+      "schema": "admin-challenge.schema.json",
+      "name": "bad-proof",
+      "value": {
+        "v": 1,
+        "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "proof": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "reason": "proof is not 32 bytes"
+    },
+    {
+      "schema": "admin-status.schema.json",
+      "name": "awaiting-approval-leaks-fingerprint",
+      "value": {
+        "v": 1,
+        "identity": {
+          "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "name": "My PC"
+        },
+        "relay": {
+          "origin": "https://relay.example",
+          "state": "connected"
+        },
+        "pairs": [],
+        "warnings": [],
+        "pairing": {
+          "id": "pair-1",
+          "state": "awaiting_approval",
+          "mode": "qr",
+          "expiresAt": "2026-11-09T00:05:00Z",
+          "peerName": "iPhone",
+          "peerFingerprint": "7gdx-eack-pmfr"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "reason": "awaiting_approval must not expose the pending peer fingerprint"
+    },
+    {
+      "schema": "admin-status.schema.json",
+      "name": "awaiting-approval-leaks-machine-id",
+      "value": {
+        "v": 1,
+        "identity": {
+          "machineId": "gewra3lzquaxpctdtkvzv2drdp",
+          "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "name": "My PC"
+        },
+        "relay": {
+          "origin": "https://relay.example",
+          "state": "connected"
+        },
+        "pairs": [],
+        "warnings": [],
+        "pairing": {
+          "id": "pair-1",
+          "state": "awaiting_approval",
+          "mode": "qr",
+          "expiresAt": "2026-11-09T00:05:00Z",
+          "peerName": "iPhone",
+          "peerMachineId": "7gdxeackpmfrjk3ylal74yyubv"
+        },
+        "plugin": {
+          "version": "0.2.0",
+          "packageSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "reason": "awaiting_approval must not expose the pending peer machineId"
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "rpc-error-missing-message",
+      "value": {
+        "type": "rpc.result",
+        "id": "call-1",
+        "ok": false,
+        "error": {
+          "code": "forbidden"
+        }
+      },
+      "reason": "rpc.result.error requires code and message"
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "notice-bad-fingerprint",
+      "value": {
+        "type": "pclink.notice",
+        "kind": "paired",
+        "name": "iPhone",
+        "fingerprint": "7GDX-EACK-PMFR",
+        "at": "2026-11-09T00:00:05Z"
+      },
+      "reason": "notice fingerprint is canonical lowercase xxxx-xxxx-xxxx"
+    },
+    {
+      "schema": "inner-message.schema.json",
+      "name": "notice-name-nul",
+      "value": {
+        "type": "pclink.notice",
+        "kind": "paired",
+        "name": "a\u0000b",
+        "fingerprint": "7gdx-eack-pmfr",
+        "at": "2026-11-09T00:00:05Z"
+      },
+      "reason": "name contains U+0000 (C0)"
+    },
+    {
+      "schema": "phone-pairing-record.schema.json",
+      "name": "approved-fields-are-pc-only",
+      "value": {
+        "peerMachineId": "gewra3lzquaxpctdtkvzv2drdp",
+        "peerPublicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "peerName": "My PC",
+        "pairedAt": "2026-11-09T00:00:00Z",
+        "relayOrigin": "https://relay.example",
+        "connection": {
+          "mode": "relay"
+        },
+        "approvedAt": "2026-11-09T00:00:05Z",
+        "approvedVia": "cli"
+      },
+      "reason": "phone records must not carry PC approval fields"
+    }
+  ]
+}

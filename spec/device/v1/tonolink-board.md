@@ -71,6 +71,13 @@ board while it is on. It is compiled only under `#if DEBUG`, listens only after 
 user (or the `PDSH_TONOLINK_USB_OTA=relay` launch variable) turns it on, and is never
 part of a release build.
 
+DEBUG builds also answer developer test routes on the same relay, each mirroring a user action
+or a read-only view, so a device check is one `curl` instead of a rebuild and UI taps:
+`POST /debug/chat` (send one message, as the composer does), `GET /debug/transcript?n=`,
+`GET /debug/native-mcp` (the last 20 native MCP requests: method, tool, whether the journal key
+arrived, arguments, result), `GET /debug/ble`, `POST /debug/ble/scan` and
+`POST /debug/ble/connect?name=` (the Bluetooth page's scan and 连接 buttons).
+
 ## 6. Agent
 
 `iphone_agent_run` ([native-mcp.md](../../v1/native-mcp.md)) runs one UI-Venus task:

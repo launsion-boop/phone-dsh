@@ -1,0 +1,328 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 admin status response (GET /v1/status and /api/pclink.admin/status)",
+  "$comment": "A v1.6 PC exposes plugin.version/packageSha256 (running process build facts) and never enters awaiting_approval; that state is retained only for a pre-v1.6 PC. While pairing.state is opening/waiting/joined (or legacy awaiting_approval) the pairing object must not contain peerMachineId, peerPublicKey, peerFingerprint or any other pending-peer fingerprint source. Only peerName is exposed. After the record is durable (completed) peerMachineId and peerFingerprint may appear.",
+  "type": "object",
+  "required": [
+    "v",
+    "plugin",
+    "identity",
+    "relay",
+    "pairs",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "plugin": {
+      "type": "object",
+      "required": [
+        "version",
+        "packageSha256"
+      ],
+      "additionalProperties": false,
+      "description": "Build facts of the running plugin process, captured at start. A pre-v1.6 status omits this member; consumers in the upgrade window must treat the absence as an untracked old build and restart.",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z.+-]*$"
+        },
+        "packageSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": [
+        "machineId",
+        "publicKey",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "machineId": {
+          "type": "string",
+          "pattern": "^[a-z2-7]{26}$"
+        },
+        "publicKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$"
+        }
+      }
+    },
+    "relay": {
+      "type": "object",
+      "required": [
+        "origin",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "type": "string",
+          "pattern": "^https?://[a-z0-9][a-z0-9.-]*(?::[0-9]{1,5})?$"
+        },
+        "state": {
+          "enum": [
+            "connected",
+            "connecting",
+            "offline"
+          ]
+        }
+      }
+    },
+    "pairs": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "required": [
+          "peerMachineId",
+          "peerName",
+          "pairedAt",
+          "approvedAt",
+          "approvedVia",
+          "online",
+          "usable"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "peerMachineId": {
+            "type": "string",
+            "pattern": "^[a-z2-7]{26}$"
+          },
+          "peerName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$"
+          },
+          "pairedAt": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+          },
+          "approvedAt": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+          },
+          "approvedVia": {
+            "enum": [
+              "qr",
+              "manual",
+              "cli",
+              "webui"
+            ],
+            "description": "v1.6 writes qr|manual; cli|webui are legacy pre-v1.6 records accepted and displayed as legacy."
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "usable": {
+            "type": "boolean"
+          },
+          "reason": {
+            "enum": [
+              "unapproved",
+              "revoked"
+            ]
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
+    "pairing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "state",
+            "mode",
+            "expiresAt"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "state": {
+              "enum": [
+                "opening",
+                "waiting"
+              ]
+            },
+            "mode": {
+              "enum": [
+                "qr",
+                "manual"
+              ]
+            },
+            "qrURI": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^pclink://pair\\?"
+            },
+            "manualCode": {
+              "type": "string",
+              "pattern": "^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$"
+            },
+            "expiresAt": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "state",
+            "mode",
+            "expiresAt",
+            "peerName"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "state": {
+              "enum": [
+                "joined",
+                "awaiting_approval"
+              ]
+            },
+            "mode": {
+              "enum": [
+                "qr",
+                "manual"
+              ]
+            },
+            "expiresAt": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "peerName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "state",
+            "mode",
+            "expiresAt",
+            "peerMachineId",
+            "peerFingerprint"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "state": {
+              "const": "completed"
+            },
+            "mode": {
+              "enum": [
+                "qr",
+                "manual"
+              ]
+            },
+            "expiresAt": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "peerName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u206f\\ufeff]+$"
+            },
+            "peerMachineId": {
+              "type": "string",
+              "pattern": "^[a-z2-7]{26}$"
+            },
+            "peerFingerprint": {
+              "type": "string",
+              "pattern": "^[a-z2-7]{4}-[a-z2-7]{4}-[a-z2-7]{4}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "state",
+            "mode",
+            "expiresAt",
+            "error"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,64}$"
+            },
+            "state": {
+              "const": "failed"
+            },
+            "mode": {
+              "enum": [
+                "qr",
+                "manual"
+              ]
+            },
+            "expiresAt": {
+              "type": "string",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+            },
+            "error": {
+              "enum": [
+                "unavailable",
+                "unpaired",
+                "auth_failed",
+                "session_expired",
+                "bad_frame",
+                "frame_too_large",
+                "rate_limited",
+                "version_unsupported",
+                "rendezvous_expired",
+                "rendezvous_exhausted"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

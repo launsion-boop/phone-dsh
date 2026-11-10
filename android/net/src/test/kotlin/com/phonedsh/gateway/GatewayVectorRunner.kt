@@ -170,7 +170,7 @@ class GatewayHarness(
 
 object GatewayVectorRunner {
     const val VECTOR_DIRECTORY: String = "spec/v1/golden/gateway"
-    const val EXPECTED_VECTOR_COUNT: Int = 30
+    const val EXPECTED_VECTOR_COUNT: Int = 31
     const val KIND_REQUEST: String = "request"
     const val KIND_RESPONSE: String = "response"
     const val KIND_REDIRECT_CHAIN: String = "redirect-chain"
@@ -192,7 +192,7 @@ object GatewayVectorRunner {
 
     val EXPECTED_VECTOR_IDS: Set<String> = linkedSetOf(
         "gw-cred-001", "gw-cred-002", "gw-cred-003",
-        "gw-hop-001", "gw-hop-002", "gw-hop-003",
+        "gw-hop-001", "gw-hop-002", "gw-hop-003", "gw-hop-004",
         "gw-redir-001", "gw-redir-002", "gw-redir-003",
         "gw-redir-004", "gw-redir-005", "gw-redir-006",
         "gw-redir-007", "gw-redir-008",

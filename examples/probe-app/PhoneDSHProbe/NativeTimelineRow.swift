@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import ProbeKit
 
 /// One rendered transcript row. Group ids are stable for the lifetime of the
 /// group: the tool-run suffix is scoped by Turn and the first member id, so

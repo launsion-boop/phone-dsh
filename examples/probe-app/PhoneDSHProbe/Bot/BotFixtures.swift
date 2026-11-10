@@ -461,8 +461,7 @@ struct BotDrawerFixtureRootView: View {
                     roster: roster,
                     error: setupError,
                     actions: actions,
-                    initiallyShowingAdd: fixture == .drawerAdd,
-                    initialAddName: fixture == .drawerAdd ? String(repeating: "长", count: 61) : "")
+                    initiallyShowingAdd: fixture == .drawerAdd)
                     .offset(x: drawerOpen ? min(0, dragOffset) : -(320 + 32))
                     .shadow(color: .black.opacity(drawerOpen ? 0.12 : 0), radius: 20, x: 6)
                     .simultaneousGesture(drawerOpen ? closeDrag : nil)
@@ -921,17 +920,34 @@ enum BotUIFixtureChecks {
                     "drawer entries are not main-first insertion order")
         try require(drawerModel.visibleEntries.map(\.id) == ["agent-main", "agent-second"],
                     "hidden Bot is still visible in the drawer")
+        let sixty = String(repeating: "长", count: 60)
+        let sixtyOne = String(repeating: "长", count: 61)
         try require(BotAddValidation.problem(for: "   ") != nil, "blank name passed validation")
-        try require(BotAddValidation.problem(for: String(repeating: "长", count: 60)) == nil,
+        try require(BotAddValidation.problem(for: sixty) == nil,
                     "60-character name failed validation")
-        try require(BotAddValidation.problem(for: String(repeating: "长", count: 61)) != nil,
+        try require(BotAddValidation.problem(for: sixtyOne) != nil,
                     "61-character name passed validation")
-        // The UI test edits the 61-character draft. The same edited value must
-        // stay invalid in both layers: the dialog's predicate and the fixture
-        // create path (which goes through the profile store).
-        let editedTooLong = "小舟" + String(repeating: "长", count: 61)
-        try require(BotAddValidation.problem(for: editedTooLong) != nil,
-                    "edited 63-character name passed UI validation")
+        // Every edit goes through the TextField setter, so typing and paste
+        // both cap at 60 UTF-16 units without splitting a grapheme cluster.
+        try require(BotAddValidation.capped(sixtyOne) == sixty,
+                    "typing cap did not truncate to 60 UTF-16 units")
+        let family = "👨‍👩‍👧‍👦"
+        try require(BotAddValidation.capped(String(repeating: family, count: 6))
+                        == String(repeating: family, count: 5),
+                    "typing cap split an emoji grapheme cluster")
+        let combining = "e\u{0301}"
+        try require(BotAddValidation.capped(String(repeating: combining, count: 31))
+                        == String(repeating: combining, count: 30),
+                    "typing cap split a combining-character grapheme")
+        // The dialog can no longer produce an overlong value, so verify the
+        // model layer directly: the same edited value must still be rejected
+        // by BotRosterModel.create -> BotProfileStore.validateName.
+        let editedTooLong = "小舟" + sixtyOne
+        let cappedEdited = BotAddValidation.capped(editedTooLong)
+        try require(cappedEdited == "小舟" + String(repeating: "长", count: 58),
+                    "edited draft was not capped to 60 UTF-16 units")
+        try require(BotAddValidation.problem(for: cappedEdited) == nil,
+                    "capped edited draft failed UI validation")
         do {
             _ = try await drawerModel.create(name: editedTooLong)
             try require(false, "fixture create accepted an edited 63-character name")
@@ -944,6 +960,7 @@ enum BotUIFixtureChecks {
         try require(BotAddValidation.trimmed("  小海 ") == "小海", "name was not trimmed")
         passed.append("bot-drawer-main-first-hidden-excluded")
         passed.append("bot-add-validation")
+        passed.append("bot-add-name-typing-cap")
         passed.append("bot-add-edited-too-long-rejected")
 
         // FishAction never reaches a process row even though the session log

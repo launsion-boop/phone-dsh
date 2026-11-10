@@ -100,9 +100,9 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | NativeSettingsDocumentPage | 配置文件的只读查看与分享 | **不可达（全仓无调用点）** | sheet | later |
 | BluetoothDevicesPage | 蓝牙设备扫描与连接；完整结构契约待补；iOS 断连等待及不可用状态见 [P07 本地授权条款](../../device/v1/ble-link.md#ios-standard-gatt-authorization-ordering) | 设置 › 权限与隐私 › 蓝牙设备 | push；设备任务入口默认关闭 | must |
 
-内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
+内嵌子页随父页实现、不单独排期：CommandExecutionResultPage、ModelProviderEditorPage、SessionQueuePage、PermissionDefaultsPage、LicensesPage、FontSizeSettingsPage、ConversationSettingsPage、ArchivedSessionsPage、ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage。PC 工作区的独立页：`PCPairingPage`（抽屉 PC 分段「连接电脑」sheet；一屏：一条可复制安装命令、主按钮「扫码连接」、折叠的「其他方式」（粘贴链接/手动码）与一行权限说明；扫码即配对，不显示本机指纹、不提示在电脑上输入指纹）与 `ConnectedComputerPage`（设置 › 已连接的电脑，单台电脑信息、在线状态、本机指纹核对、配对方式/时间、解除配对、配对新电脑）。`DevelopmentToolsPage` 已随 PR #13 删除，PR22 无此 struct；memory / probes / background / task-screen 因此仍不可达。
 
-产品抽屉是 `HomeDrawer`（`HomeDrawer.swift:12`，不是 `*Page`）：整宽「新会话」胶囊、文件夹分组（默认「手机工作区 / Phone Workspace」，原合成「日常」并入）、长按会话重命名/归档；「文件夹」标题、新建文件夹、空文件夹提示与文件夹重命名/删除暂不开放（iOS `HomeDrawer.foldersEnabled`、Android `DRAWER_FOLDERS_ENABLED` 均为 false）；「定时任务」入口只在设置页保留，抽屉不再重复。它用手写契约 `pages/home-drawer.json` 进 gate，`extract_ios_pages.py` 的 `CHROME_CONTRACTS` 钉住文件与 struct。`HomeSpec.swift` 是 430×932 的页面/文字/间距/圆角值来源（#F7F7F7 page、#1A1A1A ink、16/24 body、16 chrome/20 content），不生成页面契约，由 `CHROME_VALUE_FILES` 钉住。`FilePreviewPage` 已删除（PR15），预览是独立面 `PreviewSurface`（`pages/preview-surface.json`）。
+产品抽屉是 `HomeDrawer`（`HomeDrawer.swift:12`，不是 `*Page`）：整宽「新会话」胶囊、「手机 | PC」分段（`pclink-pacing` 起位于「新会话」下方；选中态持久化 `phone-dsh.drawer.backend`，P18；PC 未配对/离线状态与能力隐藏不自动切回手机）、文件夹分组（默认「手机工作区 / Phone Workspace」；PC 分段按 DSH 工作区标题分组，`workspace/follow` 未登记会话按 cwd 最长路径归组，未归组的 PC 会话单列「未分组」，原「PC 工作区 · <电脑名>」聚合组取消）、长按会话重命名/归档；读列表时显示加载态，读取失败显示错误与「重试」而不是空状态，分组用 `LazyVStack` 以支撑 3,000+ 行。PC 后端的新会话/空会话在输入框工具栏显示「工作区」选择器（与模型胶囊同一行同样式，默认上次使用的工作区，P18 键 `phone-dsh.pc.last-workspace.<machineId>`；会话有第一轮后只显示不可改）；手机分段不显示该选择器、行为不变。PC 未配对空状态是一张小卡片（一句说明 +「连接电脑」），不再重复安装命令；安装命令只出现在配对页一次（`PCLinkInstallGuide`，与中继地址配置同文件；Windows/Android 不在 v1 范围）。命令在电脑终端运行，脚本会检查环境、安装插件、加载 `dsh web` 并显示配对二维码，扫码即完成配对。「文件夹」标题、新建文件夹、空文件夹提示与文件夹重命名/删除暂不开放（iOS `HomeDrawer.foldersEnabled`、Android `DRAWER_FOLDERS_ENABLED` 均为 false）；「定时任务」入口只在设置页保留，抽屉不再重复。它用手写契约 `pages/home-drawer.json` 进 gate，`extract_ios_pages.py` 的 `CHROME_CONTRACTS` 钉住文件与 struct。`HomeSpec.swift` 是 430×932 的页面/文字/间距/圆角值来源（#F7F7F7 page、#1A1A1A ink、16/24 body、16 chrome/20 content），不生成页面契约，由 `CHROME_VALUE_FILES` 钉住。`FilePreviewPage` 已删除（PR15），预览是独立面 `PreviewSurface`（`pages/preview-surface.json`）。
 
 页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。
 标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
@@ -121,7 +121,7 @@ Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionV
 | DevelopmentToolsPage 已删除 | PR #13 删除该页；PR22 全仓无 `struct DevelopmentToolsPage` | memory/probes/background/task-screen 保持不可达，不恢复开发者页 |
 
 | HomeSpec 的 dark 是回退值 | `HomeSpec.swift:5` 明说浅色是参考录像的实测值，dark 用既有 parity 调色板 | 按 HomeSpec 给出的 light/dark 对镜像，不另造色 |
-| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3894` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
+| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3906` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
 
 ## 2. 组件语义清单
 
@@ -248,9 +248,9 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | 输入 | `composerOpenMinHeight`=104 `sendButton`=36 `composerIcon`=24 | `HomeSpec.swift:71`–`:73` |
 | 间距 | `blockGap`=20 `paragraphGap`=16 `disclosureGap`=8 | `HomeSpec.swift:57`–`:61` |
 | 圆角 | `radius.bubble`=24 `radius.listCard`=18 `radius.composerOpen`=24 | `HomeSpec.swift:78`–`:80` |
-| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3902`–`:3906` |
-| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4590`–`:4594`、`:927` |
-| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:1981`、`:2007` |
+| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3914`–`:3906` |
+| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4602`–`:4594`、`:927` |
+| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:1993`、`:2007` |
 | 页面层 | `bannerGap`=12 `bannerInsetH`=4 `bannerInsetV`=6 | `ChatPage.swift:1023`、`:1045`–`:1046` |
 
 `geometry` 的 `scalesWith` 全部为 null：HomeSpec 使用固定 `frame` / padding，没有 `@ScaledMetric`；字号本身仍按
@@ -264,7 +264,7 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | `stroke.hairline` | 0.5pt | `Components.swift:223` | 代码卡/工具卡 0.5pt 描边 |
 | `motion.disclosure` | 160ms easeOut once | `NativeMessageRows.swift:28` | 过程/思考行展开折叠 |
 | `motion.shimmer` | 1500ms linear forever | `DSHComponents.swift:56` | thinking 行运行中摘要扫光 |
-| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2076` | 发送键可用态切换 |
+| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2088` | 发送键可用态切换 |
 | `motion.copyConfirmHold` | 1000ms linear once | `Components.swift:181` | 「已复制」保持时长 |
 
 ### Baseline accessibility debt（已登记基线无障碍债）

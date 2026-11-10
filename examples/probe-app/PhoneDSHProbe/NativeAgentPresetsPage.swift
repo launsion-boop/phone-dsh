@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: Agent presets are a phone-settings surface in v1 (plan v2 §6.1);
+// the calls resolve through ChatModel's current (phone) backend.
 
 import Observation
 import PhoneDSHAgentCore
@@ -190,6 +192,7 @@ struct NativeAgentPresetsPage: View {
         }
         .homeGroupedList()
         .navigationTitle(NativeText("Agent 预设", "Agent Presets"))
+        .phoneOwnedSettingsNotice()
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
         .task { await model.refresh() }

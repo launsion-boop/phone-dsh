@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PCLink v1 relay.offline",
+  "type": "object",
+  "required": ["v", "type", "to"],
+  "additionalProperties": false,
+  "properties": {
+    "v": { "const": 1 },
+    "type": { "const": "relay.offline" },
+    "to": { "type": "string", "pattern": "^[a-z2-7]{26}$" },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,64}$" },
+    "streamId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,64}$" },
+    "sid": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" }
+  }
+}

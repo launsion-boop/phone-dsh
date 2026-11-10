@@ -1,0 +1,464 @@
+{
+  "v": 1,
+  "suite": "workspace/1",
+  "dshTestedRange": ">=0.2.2-rc.1 <0.3.0",
+  "defaultRetry": "unsafe",
+  "endpoints": [
+    {
+      "name": "$events",
+      "kind": "stream",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Open before session/prompt. The same owner Peer that opens it must answer $events/result. Reopen after every new e2e session.",
+      "sources": ["Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:285"]
+    },
+    {
+      "name": "$events/result",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "args are exactly {clientId,eventId,outcome}; do not wrap in {args}. Same owner Peer as the $events stream; first answer wins, later answers are no-ops. Never auto-retry after a lost reply.",
+      "sources": ["Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:202", "Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:436"]
+    },
+    {
+      "name": "agentPresets/list",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:446", "examples/probe-app/PhoneDSHProbe/NativeAgentPresetsPage.swift:46"]
+    },
+    {
+      "name": "agentPresets/read",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only preset document.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/NativeAgentPresetsPage.swift:69", "Sources/PhoneDSHDeviceTasks/DeviceDSHRunner.swift:108"]
+    },
+    {
+      "name": "commands/execute",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Slash-command execution can change session or host state; never resend after a lost reply.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:702", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:789"]
+    },
+    {
+      "name": "commands/list",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only command catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:733"]
+    },
+    {
+      "name": "goals/complete",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Goal state transition; UI re-reads goals/get after a lost reply.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/SessionActivityPage.swift:58", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:633"]
+    },
+    {
+      "name": "goals/get",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only goal projection.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:524"]
+    },
+    {
+      "name": "goals/pause",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Goal state transition.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/SessionActivityPage.swift:53", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:633"]
+    },
+    {
+      "name": "goals/resume",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Goal state transition.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/SessionActivityPage.swift:55", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:633"]
+    },
+    {
+      "name": "job/kill",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Stopping a background job is not idempotent at the outcome boundary; re-read job/list.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:664"]
+    },
+    {
+      "name": "job/list",
+      "kind": "stream",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only background-job stream.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:602"]
+    },
+    {
+      "name": "messageFeedback/put",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Same message and feedback value may be retried.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:2934"]
+    },
+    {
+      "name": "permissionPresets/catalog",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only permission catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:665", "examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:161"]
+    },
+    {
+      "name": "phone/botClaimSession",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone-only Bot runtime; absent on the PC.",
+      "sources": ["Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:917"]
+    },
+    {
+      "name": "phone/createSchedule",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone-only schedule facade; PC uses schedule/edit.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:693"]
+    },
+    {
+      "name": "phone/importAbort",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone VFS import; not available on the PC.",
+      "sources": ["Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift:115"]
+    },
+    {
+      "name": "phone/importBegin",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone VFS import; not available on the PC.",
+      "sources": ["Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift:56"]
+    },
+    {
+      "name": "phone/importCommit",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone VFS import; not available on the PC.",
+      "sources": ["Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift:92"]
+    },
+    {
+      "name": "phone/importWrite",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone VFS import; not available on the PC.",
+      "sources": ["Sources/PhoneDSH/PhoneDSHWorkspaceImportSink.swift:74"]
+    },
+    {
+      "name": "phone/listTools",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": true,
+      "notes": "Phone-only Remote facade.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:708", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:790"]
+    },
+    {
+      "name": "phone/mcpList",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": true,
+      "notes": "Phone MCP settings; PC settings use settings/*.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/MCPSettingsModel.swift:157", "examples/probe-app/PhoneDSHProbe/DeviceTaskManager.swift:50"]
+    },
+    {
+      "name": "phone/mcpReconnect",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone MCP connection side effect.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/MCPSettingsModel.swift:423"]
+    },
+    {
+      "name": "phone/mcpRemove",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone MCP connection side effect.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/MCPSettingsModel.swift:438"]
+    },
+    {
+      "name": "phone/mcpUpsert",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": true,
+      "notes": "Phone MCP connection side effect.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/MCPSettingsModel.swift:274"]
+    },
+    {
+      "name": "phone/pluginList",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": true,
+      "notes": "Phone-only plugin inventory.",
+      "sources": ["Sources/PhoneDSHDeviceTasks/DeviceDSHRunner.swift:115"]
+    },
+    {
+      "name": "pluginInventory/list",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only plugin inventory.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:159"]
+    },
+    {
+      "name": "schedule/catalog",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only schedule catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:523", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:707"]
+    },
+    {
+      "name": "schedule/edit",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Schedule mutation; re-read schedule/history after a lost reply.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:644", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:654", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:734"]
+    },
+    {
+      "name": "schedule/history",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only schedule delivery history.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:763"]
+    },
+    {
+      "name": "session/cancel",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Cancellation never proves the turn did not execute; do not resend blindly.",
+      "sources": ["Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:132", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:963"]
+    },
+    {
+      "name": "session/create",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Creates a session; a retry may create a second one.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:221", "Sources/PhoneDSHDeviceTasks/DeviceDSHRunner.swift:31", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:889"]
+    },
+    {
+      "name": "session/follow",
+      "kind": "stream",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "DSH 0.2.2-rc.1: assistantStream must be absent or literal true. Reopen after reconnect and extend the snapshot backwards with session/page until the last delivered seq is covered; dedupe by event seq.",
+      "sources": ["Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:287", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:2139", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:2297", "examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift:293", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:1052"]
+    },
+    {
+      "name": "session/fork",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Creates a forked session; a retry may create a second one.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:413"]
+    },
+    {
+      "name": "session/list",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "DSH 0.2.2-rc.1 requires the reserved _request member: send {\"_request\":{}}. The current App sends {} at the listed call sites; the D-stage iOS PR fixes them.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:189", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:1748", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:2186", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:2193", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:831"]
+    },
+    {
+      "name": "session/modelCatalog",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only model catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:199", "examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:160"]
+    },
+    {
+      "name": "session/page",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only durable history page; a retry may change the cursor.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:841", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:2162", "examples/probe-app/PhoneDSHProbe/ChatModel.swift:2211", "examples/probe-app/PhoneDSHProbe/NativeDeviceSessionPage.swift:65", "Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:337", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:854"]
+    },
+    {
+      "name": "session/prompt",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "DSH deduplicates by request.requestId (commands.ts:306). Retry only with byte-identical args, especially the same requestId.",
+      "sources": ["Sources/PhoneDSHAgentCore/DSH/DSHRemoteHarness.swift:190", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:1093"]
+    },
+    {
+      "name": "session/projections",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only session projections.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:666", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:466", "Sources/PhoneDSHDeviceTasks/DeviceDSHRunner.swift:126"]
+    },
+    {
+      "name": "session/rename",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state rename; same sessionId and title may be retried.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:399"]
+    },
+    {
+      "name": "session/search",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only search.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:434"]
+    },
+    {
+      "name": "session/selectModel",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state model selection; same provider/model may be retried.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/ChatModel.swift:1394", "examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:455"]
+    },
+    {
+      "name": "session/updateQueue",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Queue mutation; re-read the queue projection.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:504"]
+    },
+    {
+      "name": "settings/describe",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only settings description.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:158"]
+    },
+    {
+      "name": "settings/mutate",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Settings mutation; re-read settings/describe.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:308"]
+    },
+    {
+      "name": "settings/update",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Settings mutation; re-read settings/describe.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:333", "examples/probe-app/PhoneDSHProbe/NativeConfigurationModel.swift:375"]
+    },
+    {
+      "name": "skills/list",
+      "kind": "unary",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only skill catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:522"]
+    },
+    {
+      "name": "subagents/interruptByParent",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Subagent interruption; re-read the subagent catalog.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:674"]
+    },
+    {
+      "name": "workspace/archiveSession",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state archive; same sessionId may be retried.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:802", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:809"]
+    },
+    {
+      "name": "workspace/create",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Creates a workspace; a retry may conflict or duplicate.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:296"]
+    },
+    {
+      "name": "workspace/delete",
+      "kind": "unary",
+      "retry": "unsafe",
+      "phoneOnly": false,
+      "notes": "Destructive workspace mutation.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:330"]
+    },
+    {
+      "name": "workspace/follow",
+      "kind": "stream",
+      "retry": "read",
+      "phoneOnly": false,
+      "notes": "Read-only workspace stream. Reopen after reconnect and replace the local baseline; there is no cursor.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:828"]
+    },
+    {
+      "name": "workspace/insertSessionBefore",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Ordering target state; same request may be retried.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:342"]
+    },
+    {
+      "name": "workspace/pinSession",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state pin.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:353"]
+    },
+    {
+      "name": "workspace/rename",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state rename.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:309"]
+    },
+    {
+      "name": "workspace/unarchiveSession",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state unarchive.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:814", "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:820"]
+    },
+    {
+      "name": "workspace/unpinSession",
+      "kind": "unary",
+      "retry": "idempotent",
+      "phoneOnly": false,
+      "notes": "Target-state unpin.",
+      "sources": ["examples/probe-app/PhoneDSHProbe/DSHManagementModel.swift:353"]
+    }
+  ]
+}

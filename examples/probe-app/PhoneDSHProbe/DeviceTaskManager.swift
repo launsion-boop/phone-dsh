@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MIT
+// PHONE-ONLY: device tasks drive the phone's Bot/host and `phone/*` endpoints.
+// They stay bound to the `.phone` WorkspaceBackend and are not routed to a PC
+// backend (plan v2 §6.2).
 import Foundation
 import Observation
 import PhoneDSH
