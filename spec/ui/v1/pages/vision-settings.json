@@ -1,0 +1,310 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "VisionSettingsPage",
+  "pageId": "vision-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "视觉模型",
+    "provenance": "VisionSettingsPage.swift:33",
+    "anchor": "}.navigationTitle(\"视觉模型\").navigationBarTitleDisplayMode(.inline)"
+  },
+  "source": {
+    "file": "VisionSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/VisionSettingsPage.swift",
+    "lines": 59,
+    "structLine": 5,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "VisionSettingsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "视觉服务",
+      "title": "视觉服务",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "https-openai-base-url",
+          "label": "HTTPS OpenAI Base URL",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:16",
+          "anchor": "TextField(\"HTTPS OpenAI Base URL\", text: $baseURL).textInputAutocapitalization(.",
+          "extraction": "syntax"
+        },
+        {
+          "id": "此服务的-api-key-留空保留",
+          "label": "此服务的 API Key（留空保留）",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:17",
+          "anchor": "SecureField(\"此服务的 API Key（留空保留）\", text: $key).textInputAutocapitalization(.never",
+          "extraction": "syntax"
+        },
+        {
+          "id": "视觉模型",
+          "label": "视觉模型",
+          "labelExpr": null,
+          "kind": "control",
+          "value": "视觉模型 |  · OCR",
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:18",
+          "anchor": "Picker(\"视觉模型\", selection: $model) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "保存",
+          "label": "保存",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:23",
+          "anchor": "Button(\"保存\") { save() }.disabled(busy).accessibilityIdentifier(\"vision.save\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "检查服务与模型列表",
+          "label": "检查服务与模型列表",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:24",
+          "anchor": "Button(busy ? \"正在检查…\" : \"检查服务与模型列表\") { check() }.disabled(busy).accessibilityIde",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "VisionSettingsPage.swift:25",
+      "anchor": "} header: { Text(\"视觉服务\") } footer: {",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "这是 Android 截图分析与操作规划服务。聊天模型保持独立；MiniCPM 用于 OCR。密钥仅保存在 iPhone 钥匙串中。",
+        "labelExpr": null,
+        "provenance": "VisionSettingsPage.swift:26",
+        "anchor": "Text(\"这是 Android 截图分析与操作规划服务。聊天模型保持独立；MiniCPM 用于 OCR。密钥仅保存在 iPhone 钥匙串中。\")"
+      }
+    },
+    {
+      "id": "状态",
+      "title": "状态",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "!status.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-28",
+          "label": null,
+          "labelExpr": "status",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:28",
+          "anchor": "if !status.isEmpty { Section(\"状态\") { Text(status).textSelection(.enabled).access",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "VisionSettingsPage.swift:28",
+      "anchor": "if !status.isEmpty { Section(\"状态\") { Text(status).textSelection(.enabled).access",
+      "extraction": "syntax"
+    },
+    {
+      "id": "使用",
+      "title": "使用",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "可以说-用-ui-venus-查看-android-屏幕-帮我完成某项操作-或用-qwen-识别屏幕",
+          "label": "可以说：用 UI-Venus 查看 Android 屏幕，帮我完成某项操作；或用 Qwen 识别屏幕。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:30",
+          "anchor": "Text(\"可以说：用 UI-Venus 查看 Android 屏幕，帮我完成某项操作；或用 Qwen 识别屏幕。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "每次观察只发送当前一张截图-动作执行前重新核对屏幕和目标-变化后重新观察-冷启动可能需要等待-最长-600-秒-不自动重复请求或操作",
+          "label": "每次观察只发送当前一张截图。动作执行前重新核对屏幕和目标，变化后重新观察。冷启动可能需要等待，最长 600 秒，不自动重复请求或操作。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "VisionSettingsPage.swift:31",
+          "anchor": "Text(\"每次观察只发送当前一张截图。动作执行前重新核对屏幕和目标，变化后重新观察。冷启动可能需要等待，最长 600 秒，不自动重复请求或操作。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "VisionSettingsPage.swift:29",
+      "anchor": "Section(\"使用\") {",
+      "extraction": "syntax"
+    }
+  ],
+  "actions": [
+    {
+      "id": "视觉模型",
+      "label": "视觉模型",
+      "labelExpr": null,
+      "kind": "picker",
+      "trigger": "tap",
+      "semantic": "binding:$model",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "VisionSettingsPage.swift:18",
+      "anchor": "Picker(\"视觉模型\", selection: $model) {",
+      "extraction": "syntax",
+      "items": [
+        "视觉模型",
+        " · OCR"
+      ],
+      "style": "default"
+    },
+    {
+      "id": "保存",
+      "label": "保存",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ save()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "VisionSettingsPage.swift:23",
+      "anchor": "Button(\"保存\") { save() }.disabled(busy).accessibilityIdentifier(\"vision.save\")",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "检查服务与模型列表",
+      "label": "检查服务与模型列表",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ check()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "VisionSettingsPage.swift:24",
+      "anchor": "Button(busy ? \"正在检查…\" : \"检查服务与模型列表\") { check() }.disabled(busy).accessibilityIde",
+      "extraction": "syntax",
+      "labelAlternatives": [
+        "正在检查…"
+      ]
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "模型目录中没有所选模型，请重新选择。",
+          "when": null,
+          "provenance": "VisionSettingsPage.swift:53",
+          "anchor": "guard found.contains(model) else { status = \"模型目录中没有所选模型，请重新选择。\"; models = found"
+        }
+      ],
+      "data": [
+        {
+          "renders": "视觉服务 | 状态 | 使用",
+          "when": null,
+          "provenance": "VisionSettingsPage.swift:5",
+          "anchor": "struct VisionSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "正在检查…",
+          "when": null,
+          "provenance": "VisionSettingsPage.swift:24",
+          "anchor": "Button(busy ? \"正在检查…\" : \"检查服务与模型列表\") { check() }.disabled(busy).accessibilityIde"
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

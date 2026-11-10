@@ -251,7 +251,7 @@ start_app() {
 }
 
 open_settings() {
-  tap "打开抽屉" && tap "设置"
+  tap "我的" && tap "设置"
 }
 
 say "entry: 抽屉「工作文件夹」 → WorkspaceFoldersPage"
@@ -273,8 +273,8 @@ start_app && tap "打开抽屉" && tap "文件"
 expect "files page" "手机工作区"
 expect_any "files page" "还没有文件" "等待引擎连接…"
 
-say "entry: 抽屉「定时任务」 → NativeAutomationPage"
-start_app && tap "打开抽屉" && tap "定时任务"
+say "entry: 我的 › 定时任务 → NativeAutomationPage"
+start_app && tap "我的" && tap "定时任务"
 expect "automation page" "定时任务"
 expect "automation page" "定时任务状态未知"
 
@@ -289,21 +289,21 @@ start_app && tap "运行状态"
 expect "runtime page" "运行时详情"
 expect "runtime page" "WebView"
 
-say "entry: 抽屉「设置」 → SettingsPage (sheet)"
+say "entry: 我的 › 设置 → SettingsPage"
 start_app && open_settings
 expect "settings page" "设置"
-expect "settings page" "模型服务"
+expect "settings page" "网络访问"
 
-say "entry: 设置首行 → ModelProviderSettingsPage (sheet)"
-start_app && open_settings && tap "模型服务"
+say "entry: 我的 › 模型服务 → ModelProviderSettingsPage"
+start_app && tap "我的" && tap "模型服务"
 expect "provider page" "模型服务"
 expect "provider page" "DeepSeek（本机）"
 expect "provider note" "本宿主未接入模型服务的编辑与保存"
 expect "provider page" "宿主未提供写命令：本页只读"
 expect_disabled "provider page" "添加"
 
-say "entry: 设置内 → WebSearchSettingsPage"
-start_app && open_settings && tap "网页搜索"
+say "entry: 发现 › 网页搜索 → WebSearchSettingsPage"
+start_app && tap "发现" && tap "网页搜索" && tap "设置网页搜索"
 expect "websearch page" "网页搜索"
 expect "websearch page" "网页搜索状态未知"
 # The web-search page has no readable backend list on this host, so it renders

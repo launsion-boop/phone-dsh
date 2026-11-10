@@ -101,6 +101,9 @@ struct NativeShell: View {
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
+    /// Shared app state. The Bot avatar's off-screen/background pause is
+    /// derived from it here; the app's only scene-phase observer updates it.
+    @Environment(AppModel.self) private var model
     private let drawerWidth: CGFloat = 320
     #if DEBUG
     @State private var preview = PreviewScreen.requested
@@ -212,7 +215,14 @@ struct NativeShell: View {
         ZStack {
             tabPage(.bot) {
                 NavigationStack {
+                    // One pause entry for every host-driven condition: the Bot
+                    // tab is off-screen or the app is not active. BotFishView
+                    // additionally observes low power mode locally. The Bot tab
+                    // stays mounted in the background, so the second term is
+                    // what stops its TimelineView from rendering per frame.
                     BotProductionPage()
+                        .environment(\.botFishPaused,
+                                     selectedTab != .bot || !model.isSceneActive)
                         .toolbar(.hidden, for: .navigationBar)
                         .modifier(tabRoot(.bot))
                 }

@@ -38,6 +38,16 @@ final class ResponseLogTests: XCTestCase {
                              headerAllowList: [])
     }
 
+    // MARK: - Backup exclusion
+
+    func testResponseLogDirectoryIsExcludedFromBackup() throws {
+        _ = try ResponseLog(root: root, quotaBytes: 10_000)
+        let directory = root.appendingPathComponent("response-log", isDirectory: true)
+        let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        XCTAssertEqual(values.isExcludedFromBackup, true,
+                       "the replay cache must not consume the device backup")
+    }
+
     // MARK: - Keys
 
     func testCacheKeyIsStableForSameRequest() {

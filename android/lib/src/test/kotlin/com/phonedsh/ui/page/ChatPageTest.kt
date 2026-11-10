@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertAny
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -87,12 +88,13 @@ class ChatPageTest {
     // ---------------------------------------------------------------- head
 
     @Test
-    fun `the page head shows the session title and the run status word`() {
-        // ChatPage.swift `chatHeaderTitleRow` + NativeDeviceEntryIcon.
-        show(state(case = "chat-basic"), title = "会话甲", folderSubtitle = "项目资料")
+    fun `the page head shows only the session title and the run status word`() {
+        // ChatPage.swift `chatHeader` + NativeDeviceEntryIcon.
+        show(state(case = "chat-basic"), title = "会话甲")
         compose.onNodeWithTag(UiPageTags.CHAT_HEADER_TITLE).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.CHAT_HEADER_TITLE).assertContentDescriptionEquals("会话甲")
         compose.onNodeWithText("会话甲").assertIsDisplayed()
-        compose.onNodeWithText("项目资料").assertIsDisplayed()
+        compose.onNodeWithText("项目资料").assertDoesNotExist()
         compose.onNodeWithTag("pdsh.chat.header.device").assertIsDisplayed()
         compose.onNodeWithText(UiStrings.RUN_STATUS_STARTED).assertDoesNotExist()
     }
@@ -228,13 +230,17 @@ class ChatPageTest {
     }
 
     @Test
-    fun `an access-mode read failure shows its own banner with retry`() {
-        // ChatPage.swift `accessModeErrorBanner`.
+    fun `an access-mode read failure has no page banner and opening the menu reads again`() {
+        // ChatPage.swift: the read retries itself; no `accessModeErrorBanner`.
         var retried = 0
-        show(state(case = "chat-basic", accessModeError = "读不到权限"), onRetryAccessModes = { retried += 1 })
-        compose.onNodeWithTag(UiPageTags.CHAT_BANNER_ACCESS_MODE).assertIsDisplayed()
-        compose.onNodeWithText("读不到权限").assertIsDisplayed()
-        compose.onNodeWithText(UiStrings.RETRY).performClick()
+        show(
+            state(case = "chat-basic", accessModeError = "读不到权限"),
+            onRetryAccessModes = { retried += 1 },
+            composerAvailability = ComposerAvailability(selectAccessMode = true),
+        )
+        compose.onNodeWithTag(UiPageTags.CHAT_BANNER_ACCESS_MODE).assertDoesNotExist()
+        compose.onNodeWithText("读不到权限").assertDoesNotExist()
+        compose.onNodeWithTag(UiPageTags.COMPOSER_ACCESS_MODE).performClick()
         assertEquals(1, retried)
     }
 
@@ -970,13 +976,12 @@ class ChatPageTest {
 
     @Test
     fun `the permissions menu groups a read failure under 暂不可用`() {
-        // ChatPage.swift `accessModeMenu`: `Section("暂不可用") { Text(error) }`; the
-        // retry stays the page banner's, not a menu row.
+        // ChatPage.swift `accessModeMenu`: `Section("暂不可用") { Text(error) }`.
+        // There is no page banner, so the menu is the only place with the words.
         show(state(case = "chat-basic", accessModeError = "读不到权限"), composerAvailability = ComposerAvailability(selectAccessMode = true))
         compose.onNodeWithTag(UiPageTags.COMPOSER_ACCESS_MODE).performClick()
         compose.onNodeWithText(UiStrings.ACCESS_MODE_UNAVAILABLE).assertIsDisplayed()
-        // The banner and the menu each carry the failure's own words.
-        compose.onAllNodesWithText("读不到权限").assertCountEquals(2)
+        compose.onAllNodesWithText("读不到权限").assertCountEquals(1)
     }
 
     @Test
@@ -1065,7 +1070,6 @@ class ChatPageTest {
     private fun show(
         state: ChatScreenState,
         title: String = "",
-        folderSubtitle: String? = null,
         onDraftChange: (String) -> Unit = {},
         onSend: () -> Unit = {},
         onStop: () -> Unit = {},
@@ -1123,7 +1127,6 @@ class ChatPageTest {
                     onRetry = onRetry,
                     onOpenSessions = {},
                     title = title,
-                    folderSubtitle = folderSubtitle,
                     onGoalPause = onGoalPause,
                     onGoalResume = onGoalResume,
                     onGoalClear = onGoalClear,

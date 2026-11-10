@@ -24,6 +24,8 @@ public enum class PdshIcon(
     public val sourceWeight: FontWeight? = null,
 ) {
     NEW_CHAT("square.and.pencil"),
+    /** The drawer's full-width 新会话 capsule: a conversation bubble with a plus. */
+    NEW_CHAT_PLUS("plus.bubble"),
     CLOCK("clock"),
     GEAR("gearshape"),
     FOLDER("folder"),
@@ -114,6 +116,10 @@ public object PdshIcons {
         PdshIcon.NEW_CHAT to listOf(
             IconPath("M13 4H5.5C4.67 4 4 4.67 4 5.5v13c0 .83.67 1.5 1.5 1.5H18c.83 0 1.5-.67 1.5-1.5V13"),
             IconPath("M11 13l1.1-4.1L19.2 1.8a1.98 1.98 0 0 1 2.8 2.8l-7.1 7.1L11 13Z"),
+        ),
+        PdshIcon.NEW_CHAT_PLUS to listOf(
+            IconPath("M4 5.5c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v9c0 1.1-.9 2-2 2h-8l-5 4v-4.2c-.6-.4-1-1-1-1.8v-9Z"),
+            IconPath("M12 7.2v5.6M9.2 10h5.6"),
         ),
         PdshIcon.CLOCK to listOf(
             IconPath("M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z"),

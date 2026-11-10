@@ -57,14 +57,23 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$WORK/Sources" "$WORK/UITests" "$OUT"
-ln -s "$ROOT/examples/probe-app/PhoneDSHProbe/Bot" "$WORK/Sources/Bot"
-for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift; do
-    ln -s "$ROOT/examples/probe-app/PhoneDSHProbe/$file" "$WORK/Sources/$file"
+cp -R "$ROOT/examples/probe-app/PhoneDSHProbe/Bot" "$WORK/Sources/Bot"
+cp -R "$ROOT/examples/probe-app/BotFish" "$WORK/BotFish"
+REL_ROOT=$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$ROOT" "$WORK")
+# Root-level presentation files referenced by the Bot page. HeaderActionPill
+# is created by the bot-page unit; copy it when present so the capture project
+# keeps building after that shared component lands.
+for file in NativeParityTokens.swift HomeSpec.swift NativeChatPreferences.swift HeaderActionPill.swift; do
+    if [ -f "$ROOT/examples/probe-app/PhoneDSHProbe/$file" ]; then
+        cp "$ROOT/examples/probe-app/PhoneDSHProbe/$file" "$WORK/Sources/$file"
+    fi
 done
-ln -s "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
-ln -s "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
+cp "$ROOT/scripts/ci/bot-ui/CaptureDependencies.swift" "$WORK/Sources/CaptureDependencies.swift"
+cp "$ROOT/scripts/ci/bot-ui/CaptureApp.swift" "$WORK/Sources/CaptureApp.swift"
+cp "$ROOT/scripts/ci/bot-ui/BotFishBench.swift" "$WORK/Sources/BotFishBench.swift"
+cp "$ROOT/scripts/ci/bot-ui/CaptureUITests.swift" "$WORK/UITests/CaptureUITests.swift"
 
-cat >"$WORK/project.yml" <<'YAML'
+cat >"$WORK/project.yml" <<YAML
 # SPDX-License-Identifier: MIT
 name: PhoneDSHBotUICapture
 options:
@@ -80,12 +89,34 @@ settings:
     CODE_SIGNING_ALLOWED: NO
     GENERATE_INFOPLIST_FILE: YES
     INFOPLIST_KEY_UILaunchScreen_Generation: YES
+packages:
+  PhoneDSH:
+    path: $REL_ROOT
 targets:
   PhoneDSHBotUICapture:
     type: application
     platform: iOS
     sources:
       - path: Sources
+        excludes:
+          # Production wiring needs ProbeKit/ADB/BLE targets that the capture
+          # app does not embed; the fixture UI only needs the presentation and
+          # chat layers below.
+          - "Bot/BotProductionPage.swift"
+          - "Bot/BotProductionServices.swift"
+          - "Bot/BotProductionUIAdapters.swift"
+          - "Bot/BotRuntimeComposition.swift"
+          - "Bot/BotRuntimeEffects.swift"
+      # Layered 大肥鱼 art, copied with the same "BotFish/..." layout as the
+      # probe app so BotFishAssets loads it unchanged.
+      - path: BotFish
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+      - package: PhoneDSH
+        product: PhoneDSHBot
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-ui.capture
@@ -130,20 +161,58 @@ DESTINATION="platform=iOS Simulator,id=$DEVICE_ID"
 PROJECT="$WORK/PhoneDSHBotUICapture.xcodeproj"
 DERIVED="$WORK/DerivedData"
 
+# The sandboxed SwiftPM plugin server cannot start inside the agent file
+# sandbox; the probe-app build uses the same flag. This only affects local
+# capture runs, not the app or its package graph.
 xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
     -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO build | tee "$OUT/build.log"
+    CODE_SIGNING_ALLOWED=NO \
+    OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' build | tee "$OUT/build.log"
 
 rm -rf "$OUT/BotUI.xcresult"
 xcodebuild -project "$PROJECT" -scheme PhoneDSHBotUICapture \
     -configuration Debug -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
-    -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO test | tee "$OUT/ui-tests.log"
+    -resultBundlePath "$OUT/BotUI.xcresult" CODE_SIGNING_ALLOWED=NO \
+    OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' test | tee "$OUT/ui-tests.log"
 
 APP="$DERIVED/Build/Products/Debug-iphonesimulator/PhoneDSHBotUICapture.app"
 [ -d "$APP" ] || { echo "capture app missing at expected build output" >&2; exit 1; }
 xcrun simctl install "$DEVICE_ID" "$APP"
 
-CASES="chat question steps task attachment document progress checklist link approval automation error denial overflow failClosed info infoEmpty infoError infoLong"
+# Keep the capture list in step with `BotUIFixtureCase` without a second
+# hardcoded copy: bot-page owns the enum and may add fixture ids. `gallery`,
+# the animated `dynamic` burst page and the 15×4 `appearanceGrid` page are
+# capture-only and appended here.
+CASES=$(python3 - "$ROOT/examples/probe-app/PhoneDSHProbe/Bot/BotFixtures.swift" <<'PY'
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().splitlines()
+start = next((i for i, line in enumerate(lines) if "enum BotUIFixtureCase" in line), None)
+if start is None:
+    raise SystemExit("BotUIFixtureCase not found in " + path)
+cases = []
+for line in lines[start + 1:]:
+    text = line.strip()
+    if not text or text.startswith("//"):
+        continue
+    if text.startswith("case "):
+        for item in text[5:].split(","):
+            item = item.strip()
+            if not item:
+                continue
+            if "=" in item:
+                item = item.split("=", 1)[1].strip().strip('"')
+            if item:
+                cases.append(item)
+        continue
+    if text.startswith("}") or text.startswith("var ") or text.startswith("static "):
+        break
+if not cases:
+    raise SystemExit("no BotUIFixtureCase cases parsed from " + path)
+print(" ".join(cases + ["gallery", "dynamic", "appearanceGrid"]))
+PY
+)
 APPEARANCE_LIST=$(echo "$APPEARANCES" | tr ',' ' ')
 CHECKED=0
 for APPEARANCE in $APPEARANCE_LIST; do
@@ -155,7 +224,17 @@ for APPEARANCE in $APPEARANCE_LIST; do
             -BotUIFixture "$CASE" -BotUIAppearance "$APPEARANCE" \
             -BotUICardGolden "$ROOT/spec/bot/v1/golden/card-payload.json" \
             -BotUIRowGolden "$ROOT/spec/bot/v1/golden/row-protocol.json" >/dev/null
-        sleep 2
+        if [ "$CASE" = "gallery" ]; then
+            sleep 4
+        elif [ "$CASE" = "appearanceGrid" ]; then
+            # 60 tinted 40pt stills share the process tint cache; give the
+            # first appearance pass time to rasterise before the screenshot.
+            sleep 5
+        elif [ "$CASE" = "dynamic" ]; then
+            sleep 2
+        else
+            sleep 2
+        fi
         if [ "$CHECKED" = 0 ]; then
             CONTAINER=$(xcrun simctl get_app_container "$DEVICE_ID" dev.phone-dsh.bot-ui.capture data)
             python3 - "$CONTAINER/Documents/bot-ui-checks.json" <<'PY'
@@ -169,23 +248,51 @@ print("Bot UI conformance checks: PASS (" + ", ".join(result.get("checks", [])) 
 PY
             CHECKED=1
         fi
-        xcrun simctl io "$DEVICE_ID" screenshot "$OUT/$APPEARANCE/$CASE.png" >/dev/null
-        [ -s "$OUT/$APPEARANCE/$CASE.png" ] || { echo "empty screenshot: $APPEARANCE/$CASE" >&2; exit 1; }
-        echo "captured $APPEARANCE/$CASE.png"
+        if [ "$CASE" = "dynamic" ]; then
+            # Three consecutive frames of the same running process, ~150ms
+            # apart, for thinking/working/speaking/alerting/celebrate.
+            for FRAME in 1 2 3; do
+                python3 -c 'import time; time.sleep(0.15)'
+                SHOT="$OUT/$APPEARANCE/dynamic-$FRAME.png"
+                xcrun simctl io "$DEVICE_ID" screenshot "$SHOT" >/dev/null
+                [ -s "$SHOT" ] || { echo "empty screenshot: $APPEARANCE/dynamic-$FRAME" >&2; exit 1; }
+                echo "captured $APPEARANCE/dynamic-$FRAME.png"
+            done
+        else
+            xcrun simctl io "$DEVICE_ID" screenshot "$OUT/$APPEARANCE/$CASE.png" >/dev/null
+            [ -s "$OUT/$APPEARANCE/$CASE.png" ] || { echo "empty screenshot: $APPEARANCE/$CASE" >&2; exit 1; }
+            echo "captured $APPEARANCE/$CASE.png"
+        fi
     done
 done
 
-python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" <<'PY'
+python3 - "$OUT" "$APPEARANCES" "$DEVICE_ID" "$CASES" <<'PY'
+import hashlib
 import json
 import os
 import sys
-out, appearances, device = sys.argv[1:]
-cases = "chat question steps task attachment document progress checklist link approval automation error denial overflow failClosed info infoEmpty infoError infoLong".split()
+out, appearances, device, case_list = sys.argv[1:]
+cases = case_list.split()
 shots = []
+bursts = []
 for appearance in appearances.split(","):
     for case in cases:
-        path = os.path.join(out, appearance, case + ".png")
-        shots.append({"appearance": appearance, "case": case, "path": os.path.relpath(path, out), "bytes": os.path.getsize(path)})
+        if case == "dynamic":
+            burst = {"appearance": appearance, "intervalMs": 150, "paths": []}
+            for frame in (1, 2, 3):
+                path = os.path.join(out, appearance, f"dynamic-{frame}.png")
+                burst["paths"].append(os.path.relpath(path, out))
+                shots.append({"appearance": appearance, "case": f"dynamic-{frame}",
+                              "path": os.path.relpath(path, out), "bytes": os.path.getsize(path)})
+            bursts.append(burst)
+        else:
+            path = os.path.join(out, appearance, case + ".png")
+            shots.append({"appearance": appearance, "case": case,
+                          "path": os.path.relpath(path, out), "bytes": os.path.getsize(path)})
+for shot in shots:
+    path = os.path.join(out, shot["path"])
+    with open(path, "rb") as handle:
+        shot["sha256"] = hashlib.sha256(handle.read()).hexdigest()
 result = {
     "status": "PASS",
     "evidence": "iOS Simulator; XCUIApplication interaction tests and simctl screen captures",
@@ -193,6 +300,18 @@ result = {
     "conformance": "PASS",
     "interactions": "PASS",
     "screenshots": shots,
+    "bursts": {
+        "states": ["thinking", "working", "speaking", "alerting", "celebrate"],
+        "intervalMs": 150,
+        "captures": bursts,
+    },
+    "appearanceGrid": {
+        "case": "appearanceGrid",
+        "colors": 15,
+        "hairstyles": 4,
+        "tilePt": 40,
+        "layout": "grouped by hairstyle, five tiles per row",
+    },
 }
 with open(os.path.join(out, "manifest.json"), "w", encoding="utf-8") as handle:
     json.dump(result, handle, ensure_ascii=False, indent=2)

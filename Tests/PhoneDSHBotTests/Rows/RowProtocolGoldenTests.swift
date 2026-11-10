@@ -46,14 +46,44 @@ final class RowProtocolGoldenTests: XCTestCase {
         try RowTestSupport.assertEncoded(result, equals: resultObject)
     }
 
-    func testCardAnswerGoldenNegativeVectorsUseRealDecoder() throws {
+    func testPhoneAttachmentActionVectorsUseTheRealDecoderAndValidator() throws {
+        let fixture = try RowTestSupport.golden("row-protocol.phone")
+        let valid = try RowTestSupport.object(fixture["valid"], in: "row-protocol.phone.valid")
+        for key in ["chatWithAttachments", "chatAttachmentOnly"] {
+            let expected = try RowTestSupport.object(valid[key], in: "row-protocol.phone.valid.\(key)")
+            let action = try RowTestSupport.decode(BotUserAction.self, expected)
+            XCTAssertEqual(action.kind, .chat)
+            XCTAssertEqual(action.attachments?.count, key == "chatWithAttachments" ? 2 : 1)
+            try RowTestSupport.assertEncoded(action, equals: expected)
+        }
+
+        let invalidActions = try RowTestSupport.array(fixture["invalidActions"],
+                                                      in: "row-protocol.phone.invalidActions")
+        XCTAssertEqual(invalidActions.count, 2)
+        for (index, vector) in invalidActions.enumerated() {
+            do {
+                let action = try RowTestSupport.decode(BotUserAction.self, vector["action"])
+                XCTAssertNotNil(BotUserActionValidation.validate(action),
+                                "row-protocol.phone.invalidActions[\(index)] decoded but was not rejected")
+            } catch {
+                // Decoder-level rejections (attachments on a non-chat kind) are
+                // the other valid outcome.
+            }
+        }
+    }
+
+    func testInvalidActionGoldenVectorsAreRejectedByTheRealDecoderOrValidator() throws {
         let fixture = try RowTestSupport.golden("row-protocol")
         let invalidActions = try RowTestSupport.array(fixture["invalidActions"], in: "row-protocol.invalidActions")
         for (index, vector) in invalidActions.enumerated() {
-            XCTAssertThrowsError(
-                try RowTestSupport.decode(BotUserAction.self, vector["action"]),
-                "invalidActions[\(index)] unexpectedly decoded"
-            )
+            do {
+                let action = try RowTestSupport.decode(BotUserAction.self, vector["action"])
+                XCTAssertNotNil(BotUserActionValidation.validate(action),
+                                "invalidActions[\(index)] decoded but was not rejected")
+            } catch {
+                // Decoder-level rejections (text/customText/attachments on a
+                // non-chat kind) are the other valid outcome.
+            }
         }
     }
 

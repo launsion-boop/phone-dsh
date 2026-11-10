@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import Combine
+import PhoneDSHBot
 import SwiftUI
 
 struct BotMemoryFact: Identifiable, Equatable {
@@ -64,12 +65,18 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var routinesState: BotInfoLoadState
     @Published private(set) var approvalsState: BotInfoLoadState
     @Published var actionError: String?
+    /// The profile's appearance is the authority for the preview and for the
+    /// 4 hairstyle thumbnails; selecting one saves immediately.
+    @Published private(set) var appearance: BotFishAppearance
 
     private let driver: BotInfoDriver?
     private let fixtureError: String?
+    private var profileCenter: BotProfileCenter?
+    private var profileCancellables: Set<AnyCancellable> = []
 
-    init(snapshot: BotInfoSnapshot? = nil, driver: BotInfoDriver? = nil, fixtureError: String? = nil) {
-        let name = snapshot?.botName ?? "大肥鱼"
+    init(snapshot: BotInfoSnapshot? = nil, driver: BotInfoDriver? = nil, fixtureError: String? = nil,
+         appearance: BotFishAppearance = .classic, profileCenter: BotProfileCenter? = nil) {
+        let name = snapshot?.botName ?? profileCenter?.displayName ?? "大肥鱼"
         botName = name
         draftName = name
         memories = snapshot?.memories ?? []
@@ -81,8 +88,68 @@ final class BotInfoModel: ObservableObject {
         memoryState = initial
         routinesState = initial
         approvalsState = initial
+        self.appearance = profileCenter?.appearance ?? appearance
         self.driver = driver
         self.fixtureError = fixtureError
+        attach(profileCenter: profileCenter)
+    }
+
+    private func attach(profileCenter center: BotProfileCenter?) {
+        self.profileCenter = center
+        profileCancellables.removeAll()
+        guard let center else { return }
+        center.$displayName
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.draftName == self.botName { self.draftName = value }
+                    self.botName = value
+                }
+            }
+            .store(in: &profileCancellables)
+        center.$appearance
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in self?.appearance = value }
+            }
+            .store(in: &profileCancellables)
+        center.$errorMessage
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in
+                    if let value { self?.actionError = value }
+                }
+            }
+            .store(in: &profileCancellables)
+    }
+
+    /// Selects a color/hairstyle: the preview changes immediately and the
+    /// profile store receives only the changed field.
+    func select(color: BotFishColor) async {
+        if let profileCenter {
+            await profileCenter.select(color: color)
+        } else {
+            var next = appearance
+            next.color = color
+            next.autoColor = false
+            appearance = next
+        }
+    }
+
+    func select(hairstyle: BotFishHairstyle) async {
+        if let profileCenter {
+            await profileCenter.select(hairstyle: hairstyle)
+        } else {
+            var next = appearance
+            next.hairstyle = hairstyle
+            next.autoHairstyle = false
+            appearance = next
+        }
+    }
+
+    func appearance(for hairstyle: BotFishHairstyle) -> BotFishAppearance {
+        var value = appearance
+        value.hairstyle = hairstyle
+        value.autoHairstyle = false
+        return value
     }
 
     func refresh() async {
@@ -103,8 +170,9 @@ final class BotInfoModel: ObservableObject {
         approvalsState = .loading
         do {
             let snapshot = try await driver.load()
-            botName = snapshot.botName
-            draftName = snapshot.botName
+            let name = profileCenter?.displayName ?? snapshot.botName
+            if draftName == botName { draftName = name }
+            botName = name
             memories = snapshot.memories
             routines = snapshot.routines
             approvals = snapshot.approvals
@@ -129,6 +197,11 @@ final class BotInfoModel: ObservableObject {
             try await driver?.rename(name)
             botName = name
             draftName = name
+            do {
+                try await profileCenter?.rename(name)
+            } catch {
+                actionError = "名字已写入对话，但资料同步失败：\(error.localizedDescription)"
+            }
         } catch {
             actionError = "改名失败：\(error.localizedDescription)"
         }
@@ -163,11 +236,24 @@ final class BotInfoModel: ObservableObject {
     }
 }
 
+/// The three data destinations also reachable from the Bot page's “…” menu.
+enum BotInfoSection: Hashable {
+    case memory
+    case routines
+    case approvals
+}
+
 /// Bot 信息: the avatar and name on top, the name editor, then the Bot's own
 /// data (memory, routines, approvals). Same grouped-list chrome as 我的.
 struct BotInfoPage: View {
     @ObservedObject var model: BotInfoModel
     @Environment(\.dismiss) private var dismiss
+    @State private var path: [BotInfoSection]
+
+    init(model: BotInfoModel, initialSection: BotInfoSection? = nil) {
+        self.model = model
+        _path = State(initialValue: initialSection.map { [$0] } ?? [])
+    }
 
     private var nameChanged: Bool {
         let draft = model.draftName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -175,12 +261,11 @@ struct BotInfoPage: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
                     VStack(spacing: 12) {
-                        BotStaticAvatar(size: 80)
-                            .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+                        BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)
                         Text(model.botName)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(HomeSpec.textPrimary)
@@ -211,24 +296,27 @@ struct BotInfoPage: View {
                     Text("名称")
                 }
 
+                Section {
+                    BotAppearanceEditor(model: model)
+                        .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
+                } header: {
+                    Text("外观")
+                } footer: {
+                    Text("只改发型和颜色，与桌面 DSH Bot 一致；点选即保存，自动外观保留给以后的多 Bot 接入。")
+                }
+
                 Section("数据") {
-                    NavigationLink {
-                        BotMemoryPage(model: model)
-                    } label: {
+                    NavigationLink(value: BotInfoSection.memory) {
                         BotInfoEntryLabel(title: "记忆", systemImage: "brain", state: model.memoryState,
                                           count: model.memories.count)
                     }
                     .accessibilityIdentifier("bot.info.memory")
-                    NavigationLink {
-                        BotRoutinesPage(model: model)
-                    } label: {
+                    NavigationLink(value: BotInfoSection.routines) {
                         BotInfoEntryLabel(title: "例行任务", systemImage: "repeat", state: model.routinesState,
                                           count: model.routines.count)
                     }
                     .accessibilityIdentifier("bot.info.routines")
-                    NavigationLink {
-                        BotApprovalHistoryPage(model: model)
-                    } label: {
+                    NavigationLink(value: BotInfoSection.approvals) {
                         BotInfoEntryLabel(title: "审批记录", systemImage: "checkmark.shield", state: model.approvalsState,
                                           count: model.approvals.count)
                     }
@@ -239,13 +327,20 @@ struct BotInfoPage: View {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.system(size: 14))
-                            .foregroundStyle(ChatPage.danger)
+                            .foregroundStyle(BotUIPalette.danger)
                     }
                 }
             }
             .homeGroupedList()
             .navigationTitle("Bot 信息")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: BotInfoSection.self) { section in
+                switch section {
+                case .memory: BotMemoryPage(model: model)
+                case .routines: BotRoutinesPage(model: model)
+                case .approvals: BotApprovalHistoryPage(model: model)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -292,7 +387,7 @@ private struct BotInfoEntryLabel: View {
             case .failed:
                 Text("读取失败")
                     .font(.system(size: 15))
-                    .foregroundStyle(ChatPage.danger)
+                    .foregroundStyle(BotUIPalette.danger)
             }
         }
         .frame(minHeight: 32)
@@ -466,5 +561,101 @@ private struct BotApprovalHistoryPage: View {
         }
         .homeGroupedList()
         .navigationTitle("审批记录")
+    }
+}
+
+/// The appearance editor: one 112pt live preview, the four hairstyles as 40pt
+/// fish thumbnails in the current color, and the fifteen color dots. Every
+/// tap saves immediately through `BotInfoModel`; no "auto" choice is exposed
+/// (the model keeps nil for the future multi-Bot import path).
+private struct BotAppearanceEditor: View {
+    @ObservedObject var model: BotInfoModel
+
+    private let columns = [GridItem(.adaptive(minimum: 44, maximum: 44), spacing: 2, alignment: .leading)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            BotFishView(state: .idle, size: 112, appearance: model.appearance, allowsPoke: true)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("外观预览，\(model.appearance.color.displayName)，\(model.appearance.hairstyle.displayName)")
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("发型")
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                HStack(spacing: 6) {
+                    ForEach(BotFishHairstyle.allCases, id: \.self) { hairstyle in
+                        hairstyleButton(hairstyle)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("颜色")
+                    .font(.system(size: 13))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                LazyVGrid(columns: columns, alignment: .leading, spacing: 2) {
+                    ForEach(BotFishColor.allCases, id: \.self) { color in
+                        colorButton(color)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func hairstyleButton(_ hairstyle: BotFishHairstyle) -> some View {
+        let selected = model.appearance.hairstyle == hairstyle
+        return Button {
+            Task { await model.select(hairstyle: hairstyle) }
+        } label: {
+            BotFishView(state: .idle, size: 40, appearance: model.appearance(for: hairstyle), still: true)
+                .frame(width: 44, height: 44)
+                .background(selected ? HomeSpec.userBubble : Color.clear, in: Circle())
+                .overlay {
+                    Circle()
+                        .strokeBorder(HomeSpec.primaryButton, lineWidth: selected ? 2 : 0)
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(hairstyle.displayName)
+        .accessibilityAddTraits(selected ? AccessibilityTraits.isSelected : AccessibilityTraits())
+        .accessibilityIdentifier("bot.info.appearance.hair.\(hairstyle.rawValue)")
+    }
+
+    private func colorButton(_ color: BotFishColor) -> some View {
+        let selected = model.appearance.color == color
+        return Button {
+            Task { await model.select(color: color) }
+        } label: {
+            Circle()
+                .fill(Self.swatch(color))
+                .frame(width: 24, height: 24)
+                .overlay {
+                    Circle().strokeBorder(HomeSpec.borderList, lineWidth: 0.5)
+                }
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Circle()
+                        .strokeBorder(HomeSpec.primaryButton, lineWidth: selected ? 2 : 0)
+                        .frame(width: 32, height: 32)
+                }
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(color.displayName)
+        .accessibilityAddTraits(selected ? AccessibilityTraits.isSelected : AccessibilityTraits())
+        .accessibilityIdentifier("bot.info.appearance.color.\(color.rawValue)")
+    }
+
+    private static func swatch(_ color: BotFishColor) -> Color {
+        let hex = color.hex.hasPrefix("#") ? String(color.hex.dropFirst()) : color.hex
+        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return .gray }
+        return Color(red: Double((value >> 16) & 0xFF) / 255,
+                     green: Double((value >> 8) & 0xFF) / 255,
+                     blue: Double(value & 0xFF) / 255)
     }
 }

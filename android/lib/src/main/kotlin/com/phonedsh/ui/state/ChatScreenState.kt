@@ -673,6 +673,8 @@ public data class AccessModeMenu(
     public val enabled: Boolean = false,
     /** Null while the host has not reported whether the catalog read completed. */
     public val catalogLoaded: Boolean? = null,
+    /** True while the read is retried automatically; the control shows a spinner. */
+    public val loading: Boolean = false,
 ) {
     /** iOS `accessModeTitle`: the current title, or the bare product word. */
     public val label: String get() = currentTitle ?: UiStrings.ACCESS_MODE_TITLE_FALLBACK
@@ -750,6 +752,8 @@ public data class ChatHostFacts(
     public val accessModes: List<AccessModeOption> = emptyList(),
     public val currentAccessMode: AccessModeOption? = null,
     public val accessModeError: String? = null,
+    /** True while the access-mode read is retried automatically. */
+    public val accessModeLoading: Boolean = false,
     public val accessModesLoaded: Boolean? = null,
     /** The model catalog. */
     public val models: List<String> = emptyList(),
@@ -1114,7 +1118,7 @@ public data class ChatScreenState(
     public val failedItemID: String? = null,
     /** The last user-facing failure (iOS `model.userFacingError`). */
     public val userFacingError: String? = null,
-    /** The access-mode read failure; the composer's banner shows it. */
+    /** The access-mode read failure; shown in the access-mode menu, never as a page banner. */
     public val accessModeError: String? = null,
     /** The command-catalog read failure; the composer's banner shows it. */
     public val commandsError: String? = null,
@@ -1572,6 +1576,7 @@ public data class ChatScreenState(
                     // write is in flight.
                     enabled = enabled && !running && slot.isEmpty,
                     catalogLoaded = host.accessModesLoaded,
+                    loading = host.accessModeLoading,
                 ),
                 modelMenu = ModelMenu(
                     modelName = host.currentModel.orEmpty(),

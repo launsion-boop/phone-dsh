@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // HomeDrawer: the session drawer in the home design language (HomeSpec).
-// Top to bottom: the three global entries (新会话 / 定时任务) in one
-// white list card, the 文件夹 section with its + button and every folder's
-// sessions, then the settings bar pinned to the bottom edge.
+// Top to bottom: the full-width 新会话 capsule, the 文件夹 section with its +
+// button and every folder's sessions. The app-wide settings surface owns the
+// 定时任务 entry; the drawer deliberately has no duplicate.
 
 import PhoneDSH
 import ProbeKit
@@ -20,7 +20,6 @@ struct HomeDrawer: View {
     @State private var collapsedFolderIDs = Set(UserDefaults.standard.stringArray(
         forKey: "phone-dsh.sidebar.collapsed-workspaces") ?? [])
 
-    @State private var showSchedules = false
     @State private var showNewFolder = false
     @State private var newFolderName = ""
     @State private var renameSession: ManagedSession?
@@ -28,19 +27,34 @@ struct HomeDrawer: View {
     @State private var deleteFolder: ManagedWorkspace?
     @State private var renameText = ""
     @State private var archivedToast = false
+    /// Session order held for as long as the drawer is open. A switch refreshes
+    /// `management.sessions` (newest first); applying that reorder under the
+    /// user's finger would move the row they just tapped. The fresh order is
+    /// adopted on the next open.
+    @State private var sessionOrder: [String] = []
+    /// The row whose switch is in flight. Transient host/read failures during
+    /// that window must not insert the failure row and shift the list; a real
+    /// failure is shown once the switch finishes.
+    @State private var switchingSessionID: String?
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     entriesCard
-                    if let message = management.error ?? chat.userFacingError {
+                    if let message = errorMessage {
                         errorRow(message)
+                            .transition(.opacity)
                     }
-                    folderSectionHeader
-                        .padding(.top, 24)
+                    if Self.foldersEnabled {
+                        folderSectionHeader
+                            .padding(.top, 16)
+                    } else {
+                        Color.clear.frame(height: 16)
+                    }
                     folders
                 }
+                .animation(.easeOut(duration: 0.15), value: errorMessage)
                 .padding(.top, topInset + HomeSpec.navTop)
                 .padding(.bottom, bottomInset + 24)
             }
@@ -61,11 +75,22 @@ struct HomeDrawer: View {
                     .allowsHitTesting(false)
             }
         }
-        .task { await management.refresh() }
-        .sheet(isPresented: $showSchedules) {
-            NavigationStack { NativeAutomationPage() }
-                .homeSheetChrome()
+        .task {
+            rememberSessionOrder()
+            await management.refresh()
+            rememberSessionOrder()
         }
+        .onChange(of: management.sessions.map(\.id)) { _, _ in rememberSessionOrder() }
+        .onChange(of: management.workspaces) { _, _ in rememberSessionOrder() }
+        .onChange(of: isOpen) { _, open in
+            // Keep the held order through the close animation; a fresh order is
+            // adopted only when the drawer opens again.
+            if open {
+                sessionOrder.removeAll()
+                rememberSessionOrder()
+            }
+        }
+        .onDisappear { sessionOrder.removeAll() }
         .alert("新建文件夹", isPresented: $showNewFolder) {
             TextField("文件夹名称", text: $newFolderName)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -115,62 +140,75 @@ struct HomeDrawer: View {
         }
     }
 
-    // MARK: - Entries
+    // MARK: - New session
 
-    /// 新会话 / 定时任务: plain 44pt rows on the drawer ground, the
-    /// same shape as the folder rows below; only a press tints them.
+    /// The drawer's one filled control: a full-width white capsule with the
+    /// "new conversation" glyph centred with its label. When the engine cannot
+    /// take a new session, the whole capsule disables and the reason moves
+    /// below it instead of sitting on the row's trailing edge. The reason row
+    /// is always laid out at one line's height, so its appearance cannot push
+    /// the folder/session list down.
     private var entriesCard: some View {
-        VStack(spacing: 2) {
-            entryRow(icon: "square.and.pencil", title: "新会话",
-                     detail: newSessionBlocked, enabled: newSessionBlocked == nil) {
+        VStack(spacing: 6) {
+            Button {
                 Task { if await management.createSession() != nil { close() } }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.bubble")
+                        .font(.system(size: 20, weight: .regular))
+                    Text(NativeText("新会话", "New Session"))
+                        .font(.system(size: 17, weight: .medium))
+                }
+                .foregroundStyle(newSessionDisabled ? HomeSpec.textPlaceholder : HomeSpec.textPrimary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(HomeSpec.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+                .contentShape(Capsule())
             }
-            entryRow(icon: "clock", title: "定时任务",
-                     detail: management.scheduleRecords.isEmpty ? nil : "\(management.scheduleRecords.count)") {
-                showSchedules = true
-            }
-
-        }
-        .padding(.horizontal, 8)
-    }
-
-    private func entryRow(icon: String, title: String, detail: String? = nil,
-                          detailDot: Bool = false, enabled: Bool = true,
-                          action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 18, weight: .regular))
-                    .frame(width: 24, height: 24)
-                Text(title)
-                    .font(.system(size: HomeSpec.bodySize))
-                Spacer(minLength: 8)
-                if let detail {
-                    HStack(spacing: 6) {
-                        if detailDot {
-                            Circle().fill(HomeSpec.success).frame(width: 6, height: 6)
-                        }
-                        Text(detail)
-                            .font(.system(size: 14))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(HomeSpec.textPlaceholder)
+            .buttonStyle(HomeDrawerPillStyle())
+            .disabled(newSessionDisabled)
+            .accessibilityLabel(NativeText("新会话", "New Session"))
+            ZStack {
+                if let reason = newSessionBlocked {
+                    Text(reason)
+                        .font(.system(size: 13))
+                        .foregroundStyle(HomeSpec.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .transition(.opacity)
                 }
             }
-            .foregroundStyle(enabled ? HomeSpec.textPrimary : HomeSpec.textPlaceholder)
-            .padding(.horizontal, 12)
-            .frame(height: 44)
-            .contentShape(Rectangle())
+            .frame(maxWidth: .infinity)
+            .frame(height: HomeDrawerNewSessionPolicy.reasonLineHeight)
+            .animation(.easeOut(duration: 0.15), value: newSessionBlocked)
         }
-        .buttonStyle(HomeDrawerRowStyle(radius: 12))
-        .disabled(!enabled)
+        .padding(.horizontal, 16)
     }
 
     /// Why 新会话 is unavailable, in a few words; nil when it can be pressed.
+    /// A session switch's transient `busy` is not a reason: the capsule stays
+    /// disabled for it, but the list must not move for it.
     private var newSessionBlocked: String? {
-        if !chat.isStarted { return "引擎未启动" }
-        if chat.busy || chat.turnRunning || chat.keepingAlive { return "本轮结束后可用" }
-        return nil
+        HomeDrawerNewSessionPolicy.reason(
+            isStarted: chat.isStarted,
+            turnRunning: chat.turnRunning,
+            keepingAlive: chat.keepingAlive)?.text
+    }
+
+    private var newSessionDisabled: Bool {
+        HomeDrawerNewSessionPolicy.isDisabled(
+            isStarted: chat.isStarted,
+            busy: chat.busy,
+            turnRunning: chat.turnRunning,
+            keepingAlive: chat.keepingAlive)
+    }
+
+    /// A transient failure while the tapped session opens is suppressed until
+    /// the switch settles; the drawer closes on success and shows a real
+    /// failure afterwards.
+    private var errorMessage: String? {
+        switchingSessionID == nil ? management.error ?? chat.userFacingError : nil
     }
 
     private func errorRow(_ message: String) -> some View {
@@ -194,6 +232,11 @@ struct HomeDrawer: View {
     }
 
     // MARK: - Folders
+
+    /// Folder management (the 文件夹 title, 新建文件夹, the empty-folder hint) is
+    /// not offered yet. Session groups such as 手机工作区 still show; flip this
+    /// to re-open folder creation.
+    static let foldersEnabled = false
 
     private var folderSectionHeader: some View {
         HStack(spacing: 0) {
@@ -224,23 +267,34 @@ struct HomeDrawer: View {
     }
 
     /// Every session has a folder: sessions the host lists outside any folder
-    /// belong to the default one (日常). With no default folder registered yet
-    /// they still show as a 日常 group, never as "unfiled".
+    /// belong to the default one (手机工作区 / Phone Workspace). With no default
+    /// folder registered yet they still show as that group, never as "unfiled".
     private func sessions(in folder: ManagedWorkspace) -> [ManagedSession] {
+        inHeldOrder(rawSessions(in: folder))
+    }
+
+    /// The host's current order for one folder, before the drawer's held order.
+    private func rawSessions(in folder: ManagedWorkspace) -> [ManagedSession] {
         let own = management.sessions(in: folder)
-        guard folder.id == defaultFolder?.id else { return pinnedFirst(own) }
-        return pinnedFirst(own + management.ungroupedSessions)
+        let combined = folder.id == defaultFolder?.id
+            ? own + management.ungroupedSessions
+            : own
+        return pinnedFirst(combined)
     }
 
     private var defaultFolder: ManagedWorkspace? {
-        orderedFolders.first { DrawerTitles.isDefaultWorkspace($0.title) }
+        orderedFolders.first { management.isDefaultWorkspace($0) }
+    }
+
+    private var rawLooseSessions: [ManagedSession] {
+        defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
     }
 
     @ViewBuilder
     private var folders: some View {
-        let loose = defaultFolder == nil ? pinnedFirst(management.ungroupedSessions) : []
+        let loose = inHeldOrder(rawLooseSessions)
         VStack(alignment: .leading, spacing: 4) {
-            if orderedFolders.isEmpty && loose.isEmpty {
+            if Self.foldersEnabled && orderedFolders.isEmpty && loose.isEmpty {
                 Text("还没有文件夹。点右上角的 + 新建一个，会话和文件都能放进去。")
                     .font(.system(size: 14))
                     .foregroundStyle(HomeSpec.textPlaceholder)
@@ -279,11 +333,13 @@ struct HomeDrawer: View {
                 Button("在这里新建会话", systemImage: "square.and.pencil") {
                     Task { if await management.createSession(workspaceID: folder.id) != nil { close() } }
                 }
-                Button("重命名", systemImage: "pencil") {
-                    renameText = folderTitle(folder)
-                    renameFolder = folder
+                if Self.foldersEnabled {
+                    Button("重命名", systemImage: "pencil") {
+                        renameText = folderTitle(folder)
+                        renameFolder = folder
+                    }
+                    Button("删除文件夹", systemImage: "trash", role: .destructive) { deleteFolder = folder }
                 }
-                Button("删除文件夹", systemImage: "trash", role: .destructive) { deleteFolder = folder }
             }
     }
 
@@ -334,16 +390,22 @@ struct HomeDrawer: View {
                     .foregroundStyle(HomeSpec.textPrimary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                if session.running {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(HomeSpec.textSecondary)
-                } else {
-                    Text(SessionTime.relative(session.updatedAt))
-                        .font(.system(size: 13))
-                        .foregroundStyle(HomeSpec.textPlaceholder)
-                        .lineLimit(1)
+                Group {
+                    if session.running {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(HomeSpec.textSecondary)
+                    } else {
+                        Text(SessionTime.relative(session.updatedAt))
+                            .font(.system(size: 13))
+                            .foregroundStyle(HomeSpec.textPlaceholder)
+                            .lineLimit(1)
+                    }
                 }
+                // A running spinner and a relative time have different widths;
+                // reserving one trailing slot keeps the title from reflowing
+                // when a row starts or finishes a turn.
+                .frame(width: 64, alignment: .trailing)
             }
             .padding(.leading, 42)
             .padding(.trailing, 12)
@@ -388,6 +450,30 @@ struct HomeDrawer: View {
         }.map(\.element)
     }
 
+    /// Keeps the first-seen order while the drawer is open; sessions that
+    /// appear later are appended after it. `sessions` is newest-first after a
+    /// refresh, so without this hold a switch that bumped the selected
+    /// session's `updatedAt` would reorder the list under the tap.
+    private func inHeldOrder(_ sessions: [ManagedSession]) -> [ManagedSession] {
+        guard !sessionOrder.isEmpty else { return sessions }
+        let rank = Dictionary(uniqueKeysWithValues: sessionOrder.enumerated()
+            .map { ($0.element, $0.offset) })
+        return sessions.enumerated().sorted { lhs, rhs in
+            let left = rank[lhs.element.id] ?? Int.max
+            let right = rank[rhs.element.id] ?? Int.max
+            return left == right ? lhs.offset < rhs.offset : left < right
+        }.map(\.element)
+    }
+
+    private func rememberSessionOrder() {
+        let known = Set(sessionOrder)
+        let displayed = rawLooseSessions.map(\.id)
+            + orderedFolders.flatMap { rawSessions(in: $0).map(\.id) }
+        let additions = displayed.filter { !known.contains($0) }
+        guard !additions.isEmpty else { return }
+        sessionOrder.append(contentsOf: additions)
+    }
+
     private func isExpanded(_ id: String) -> Bool { !collapsedFolderIDs.contains(id) }
 
     private func toggle(_ id: String) {
@@ -398,7 +484,13 @@ struct HomeDrawer: View {
     }
 
     private func open(_ session: ManagedSession) {
-        Task { if await management.select(session) { close() } }
+        guard switchingSessionID == nil else { return }
+        switchingSessionID = session.id
+        Task {
+            let opened = await management.select(session)
+            switchingSessionID = nil
+            if opened { close() }
+        }
     }
 
     /// Archive; when it is the open session the chat page detaches and a
@@ -418,6 +510,15 @@ struct HomeDrawer: View {
     private func close() {
         guard !isPersistent else { return }
         withAnimation(.easeInOut(duration: 0.22)) { isOpen = false }
+    }
+}
+
+/// The pill dims slightly while pressed; no scaling, so the drawer never jumps.
+private struct HomeDrawerPillStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay(Capsule().fill(Color.black.opacity(configuration.isPressed ? 0.06 : 0)))
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MIT
 
+import Foundation
+import PhoneDSHBot
+import ProbeKit
 import SwiftUI
+
+private struct BotInfoRequest: Identifiable {
+    let id = UUID()
+    let section: BotInfoSection?
+}
 
 // Production entry for the Bot conversation. ChatModel owns the single
 // BotRuntimeComposition (row service, info service, driver); this page only
@@ -10,6 +18,7 @@ import SwiftUI
 final class BotProductionHub: ObservableObject {
     @Published private(set) var chatModel: BotChatModel?
     @Published private(set) var infoModel: BotInfoModel?
+    @Published private(set) var profileCenter: BotProfileCenter?
     @Published private(set) var error: String?
 
     private var connecting = false
@@ -22,7 +31,7 @@ final class BotProductionHub: ObservableObject {
         for _ in 0..<40 {
             if let composition = chat.botRuntime {
                 do {
-                    try await install(composition: composition)
+                    try await install(composition: composition, chat: chat)
                 } catch {
                     self.error = "Bot 运行时读取失败：\(error.localizedDescription)"
                 }
@@ -39,43 +48,78 @@ final class BotProductionHub: ObservableObject {
     func retry(chat: ChatModel) async {
         chatModel = nil
         infoModel = nil
+        profileCenter = nil
         error = nil
         connecting = false
         await chat.retryBotRuntime()
         await connect(chat: chat)
     }
 
-    private func install(composition: BotRuntimeComposition) async throws {
+    private func install(composition: BotRuntimeComposition, chat: ChatModel) async throws {
         let environment = composition.environment
         let context = try await environment.context()
+        let legacyName = try? await environment.legacyName()
+        let profile = BotProfileCenter(
+            botID: environment.botID,
+            store: BotProfileStore(directory: Self.profileDirectory()),
+            legacyName: legacyName,
+            fallbackName: context.botName)
+        await profile.bootstrap()
         try await composition.rows.start()
         let driver = await composition.rows.chatDriver()
         let model = BotChatModel(
             context: BotRuntimeContext(botID: environment.botID, botName: context.botName),
-            driver: driver)
+            driver: driver, profileCenter: profile)
         if let initial = try? await driver.watch(0) {
             model.apply(initial)
         }
+        await model.refreshPresentation()
+        if let transport = try? await chat.transportForManagement() {
+            let remote = composition.remote
+            model.attachmentImporter = BotWorkspaceAttachmentImporter(
+                transport: transport,
+                sessionID: { try await remote.ensureMainSessionID() })
+        }
         let info = await composition.info.infoDriver()
+        profileCenter = profile
         chatModel = model
-        infoModel = BotInfoModel(driver: info)
+        infoModel = BotInfoModel(driver: info, profileCenter: profile)
+    }
+
+    /// `Application Support/PhoneDSHBot` holds `agents-index.json` and
+    /// `runtime-settings.json`, next to the rest of the app's Bot data.
+    static func profileDirectory() -> URL {
+        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                 in: .userDomainMask,
+                                                 appropriateFor: nil, create: true))
+            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        return base.appendingPathComponent("PhoneDSHBot", isDirectory: true)
     }
 }
 
 struct BotProductionPage: View {
     @State private var chat = ChatModel.shared
     @StateObject private var hub = BotProductionHub()
-    @State private var showInfo = false
+    @State private var infoRequest: BotInfoRequest?
+    @State private var showDeviceConnections = false
+    @State private var deviceCoordinator = DeviceSessionCoordinator.shared
 
     var body: some View {
         Group {
             if let model = hub.chatModel {
                 VStack(spacing: 0) {
                     runtimeBanner
-                    BotChatPage(model: model, onOpenInfo: { showInfo = true })
+                    BotChatPage(model: model,
+                                onOpenInfo: { presentInfo(nil) },
+                                onOpenInfoSection: { presentInfo($0) },
+                                hasOnlineDevices: deviceCoordinator.hasOnlineDevices,
+                                onConnectDevice: { showDeviceConnections = true })
                 }
                 .task { await model.watchLoop() }
                 .task { await model.liveLoop() }
+                .sheet(isPresented: $showDeviceConnections) {
+                    NavigationStack { NativeDeviceConnectionPage() }.homeSheetChrome()
+                }
             } else if let error = hub.error {
                 unavailable(error)
             } else {
@@ -91,15 +135,19 @@ struct BotProductionPage: View {
             }
         }
         .background(HomeSpec.page)
-        .sheet(isPresented: $showInfo) {
+        .sheet(item: $infoRequest) { request in
             if let info = hub.infoModel {
-                BotInfoPage(model: info)
+                BotInfoPage(model: info, initialSection: request.section)
                     .homeSheetChrome()
             }
         }
         .task {
             if hub.chatModel == nil { await hub.connect(chat: chat) }
         }
+    }
+
+    private func presentInfo(_ section: BotInfoSection?) {
+        infoRequest = BotInfoRequest(section: section)
     }
 
     @ViewBuilder

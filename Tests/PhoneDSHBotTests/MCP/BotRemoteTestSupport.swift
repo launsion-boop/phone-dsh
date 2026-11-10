@@ -82,9 +82,13 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private let lock = NSLock()
     private var scripts: [String: [[BotScriptedEvent]]]
     private let mainId: String
+    private let honorRequestedSessionIDs: Bool
     private var nextCreateIndex = 0
     private var gates: [String: BotScriptedGate] = [:]
     private var failingPages: [String: Int] = [:]
+    private var sessionCwds: [String: String] = [:]
+    private var archived: [String] = []
+    private var failCreates = 0
 
     private(set) var prompts: [String: (sessionId: String, mode: String, text: String)] = [:]
     private(set) var promptHistory: [(sessionId: String, mode: String, text: String)] = []
@@ -93,14 +97,22 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private(set) var createdIDs: [String] = []
     private(set) var requestedSessionIds: [String] = []
     private(set) var claimedSessions: [String] = []
+    private(set) var archivedSessions: [String] = []
+    private(set) var unarchivedSessions: [String] = []
     private(set) var openMuxCount = 0
 
-    init(mainId: String = "gb-main", scripts: [String: [[BotScriptedEvent]]]) {
+    init(mainId: String = "gb-main", scripts: [String: [[BotScriptedEvent]]],
+         honorRequestedSessionIDs: Bool = false) {
         self.mainId = mainId
         self.scripts = scripts
+        self.honorRequestedSessionIDs = honorRequestedSessionIDs
     }
 
     var createCount: Int { lock.withLock { createdIDs.count } }
+
+    func setSessionCWD(_ sessionId: String, cwd: String) {
+        lock.withLock { sessionCwds[sessionId] = cwd }
+    }
 
     func queue(sessionId: String, events: [BotScriptedEvent]) {
         lock.withLock {
@@ -123,18 +135,57 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
         lock.withLock { failingPages[sessionId] = times ?? -1 }
     }
 
+    func failCreate(times: Int = 1) {
+        lock.withLock { failCreates = times }
+    }
+
     func call(_ endpoint: String, args: BotJSONValue) async throws -> BotJSONValue {
         switch endpoint {
         case "session/create":
+            let failed = lock.withLock { () -> Bool in
+                guard failCreates != 0 else { return false }
+                if failCreates > 0 { failCreates -= 1 }
+                return true
+            }
+            if failed {
+                throw DSHRemoteError(code: "gateway/internal", message: "session/create failed")
+            }
             let requested = args["request"]?["sessionId"]?.stringValue ?? ""
+            let cwd = args["request"]?["cwd"]?.stringValue
             let id = lock.withLock { () -> String in
                 defer { nextCreateIndex += 1 }
                 requestedSessionIds.append(requested)
-                let id = nextCreateIndex == 0 ? mainId : "gb-created-\(nextCreateIndex)"
+                let id = honorRequestedSessionIDs && !requested.isEmpty
+                    ? requested
+                    : (nextCreateIndex == 0 ? mainId : "gb-created-\(nextCreateIndex)")
                 createdIDs.append(id)
+                if let cwd { sessionCwds[id] = cwd }
                 return id
             }
             return .object(["sessionId": .string(id)])
+        case "session/list":
+            let items = lock.withLock { () -> [BotJSONValue] in
+                sessionCwds.keys.sorted().map { id in
+                    .object(["sessionId": .string(id), "cwd": .string(sessionCwds[id] ?? "")])
+                }
+            }
+            return .object(["items": .array(items)])
+        case "workspace/archiveSession":
+            let sessionId = args["request"]?["sessionId"]?.stringValue ?? ""
+            let ids = lock.withLock { () -> [String] in
+                if !archived.contains(sessionId) { archived.append(sessionId) }
+                archivedSessions = archived
+                return archived
+            }
+            return .object(["archivedSessionIds": .array(ids.map { .string($0) })])
+        case "workspace/unarchiveSession":
+            let sessionId = args["request"]?["sessionId"]?.stringValue ?? ""
+            let ids = lock.withLock { () -> [String] in
+                archived.removeAll { $0 == sessionId }
+                unarchivedSessions.append(sessionId)
+                return archived
+            }
+            return .object(["archivedSessionIds": .array(ids.map { .string($0) })])
         case "phone/botClaimSession":
             let sessionId = args["request"]?["sessionId"]?.stringValue ?? ""
             lock.withLock { claimedSessions.append(sessionId) }

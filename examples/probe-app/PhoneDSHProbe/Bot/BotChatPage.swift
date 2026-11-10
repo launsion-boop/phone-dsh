@@ -1,12 +1,18 @@
 // SPDX-License-Identifier: MIT
 
+import PhoneDSHBot
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct BotChatPage: View {
     @ObservedObject var model: BotChatModel
     var cardActions: BotCardActions
     var onOpenInfo: () -> Void
+    var onOpenInfoSection: (BotInfoSection) -> Void
+    var hasOnlineDevices: Bool
+    var onConnectDevice: () -> Void
     var externalDocumentAction: ((BotUIRow) -> Void)?
 
     @State private var draft = ""
@@ -15,14 +21,32 @@ struct BotChatPage: View {
     @State private var preservingHistoryPosition = false
     /// Finished turns whose process row the user opened.
     @State private var openTurns: Set<Int> = []
+    /// Files chosen but not sent yet. The optimistic user row is built from
+    /// the same `BotUIAttachment` shape the durable projection returns.
+    @State private var pendingAttachments: [BotDraftAttachment] = []
+    @State private var attachmentNotice: String?
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var showFiles = false
     @FocusState private var composerFocused: Bool
 
     init(model: BotChatModel, cardActions: BotCardActions = BotCardActions(),
-         onOpenInfo: @escaping () -> Void = {}, openDocument: ((BotUIRow) -> Void)? = nil) {
+         onOpenInfo: @escaping () -> Void = {},
+         onOpenInfoSection: @escaping (BotInfoSection) -> Void = { _ in },
+         hasOnlineDevices: Bool = false,
+         onConnectDevice: @escaping () -> Void = {},
+         openDocument: ((BotUIRow) -> Void)? = nil,
+         initialAttachments: [BotDraftAttachment] = [],
+         initialAttachmentNotice: String? = nil) {
         self.model = model
         self.cardActions = cardActions
         self.onOpenInfo = onOpenInfo
+        self.onOpenInfoSection = onOpenInfoSection
+        self.hasOnlineDevices = hasOnlineDevices
+        self.onConnectDevice = onConnectDevice
         self.externalDocumentAction = openDocument
+        _pendingAttachments = State(initialValue: initialAttachments)
+        _attachmentNotice = State(initialValue: initialAttachmentNotice)
     }
 
     var body: some View {
@@ -47,33 +71,75 @@ struct BotChatPage: View {
             Text(model.deepLinkError ?? "")
         }
         .onOpenURL { _ = model.openDeepLink($0) }
+        .onAppear { model.noteInteraction() }
+        .onChange(of: draft) { _, _ in model.noteInteraction() }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItems,
+                      maxSelectionCount: BotAttachmentPolicy.maxCount, matching: .images)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await loadPhotos(items) }
+        }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data],
+                      allowsMultipleSelection: true) { result in
+            importPickedFiles(result)
+        }
     }
 
-    /// The DSH page header with the Bot's avatar where DSH has its menu
-    /// button: 44pt floating avatar (tap for Bot info), 17.5/14.5 title block
-    /// 16pt to its right.
+    /// Grok-style Bot header: one centered avatar+name capsule, and the DSH
+    /// page's own 92×44 device/menu capsule on the trailing side. The leading
+    /// spacer mirrors the trailing capsule so the Bot capsule is centered on
+    /// the screen and can never grow under the menu.
     private var header: some View {
         HStack(spacing: 0) {
-            Button { onOpenInfo() } label: {
-                BotStaticAvatar(size: HomeSpec.navButton)
-                    .homeFloatingShadow()
+            Color.clear
+                .frame(width: HomeSpec.navPillWidth, height: 1)
+                .accessibilityHidden(true)
+            Button {
+                model.noteInteraction()
+                onOpenInfo()
+            } label: {
+                HStack(spacing: 8) {
+                    BotFishView(state: model.fishState, size: 32, appearance: model.appearance)
+                    Text(model.botName)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let style = headerActivityStyle {
+                        BotHeaderActivityIcon(style: style)
+                    }
+                }
+                .padding(.leading, 6)
+                .padding(.trailing, 14)
+                .frame(height: HomeSpec.navButton)
+                .background(HomeSpec.surface, in: Capsule())
+                .overlay(alignment: .topTrailing) {
+                    if model.needsAttentionCount > 0 {
+                        Circle()
+                            .fill(NativeParityTokens.error)
+                            .frame(width: 6, height: 6)
+                            .padding(.top, 4)
+                            .padding(.trailing, 6)
+                    }
+                }
+                .homeFloatingShadow()
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Bot 信息")
             .accessibilityIdentifier("bot.info.open")
-            VStack(alignment: .leading, spacing: 0) {
-                Text(model.context.botName)
-                    .font(.system(size: HomeSpec.navTitleSize, weight: .semibold))
-                    .foregroundStyle(HomeSpec.textPrimary)
-                    .frame(height: HomeSpec.navTitleLine)
-                Text("跟进中 \(model.followingCount) · 需要你处理 \(model.needsAttentionCount)")
-                    .font(.system(size: HomeSpec.navSubtitleSize))
-                    .foregroundStyle(HomeSpec.textSubtle)
-                    .frame(height: HomeSpec.navSubtitleLine)
+            .frame(maxWidth: .infinity)
+
+            HeaderActionPill(hasOnlineDevices: hasOnlineDevices,
+                             connectIdentifier: "bot.connect-device",
+                             menuIdentifier: "bot.header.menu",
+                             showsMenuActivityDot: model.runningTurnID != nil,
+                             onConnect: {
+                                 model.noteInteraction()
+                                 onConnectDevice()
+                             }) {
+                headerMenuItems
             }
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
         }
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, HomeSpec.navTop)
@@ -82,81 +148,142 @@ struct BotChatPage: View {
         .accessibilityElement(children: .contain)
     }
 
+    /// Pending approval outranks the running status; a running turn with no
+    /// body yet shows the three-dot mark, a tool step shows the pencil.
+    private var headerActivityStyle: BotHeaderActivityIcon.Style? {
+        if model.pendingApprovalCount > 0 { return .alert }
+        guard let activity = model.activity else { return nil }
+        switch activity.status {
+        case .thinking, .streaming:
+            return .dots
+        case .toolRunning:
+            return .pencil
+        }
+    }
+
+    @ViewBuilder
+    private var headerMenuItems: some View {
+        Text("跟进中 \(model.followingCount) · 需要你处理 \(model.needsAttentionCount)")
+        Divider()
+        Button("Bot 信息与设置", systemImage: "person.crop.circle") {
+            openInfo(nil)
+        }
+        Button("记忆", systemImage: "brain") {
+            openInfo(.memory)
+        }
+        Button("例行任务", systemImage: "repeat") {
+            openInfo(.routines)
+        }
+        Button("审批记录", systemImage: "checkmark.shield") {
+            openInfo(.approvals)
+        }
+    }
+
+    private func openInfo(_ section: BotInfoSection?) {
+        model.noteInteraction()
+        if let section {
+            onOpenInfoSection(section)
+        } else {
+            onOpenInfo()
+        }
+    }
+
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if model.hasMoreHistory {
-                        HStack {
-                            if model.loadingHistory { ProgressView() }
-                            Text(model.loadingHistory ? "正在加载历史" : "向上加载历史")
-                                .botCaptionFont()
-                                .foregroundStyle(HomeSpec.textTertiary)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .onAppear { loadHistory(proxy: proxy) }
-                        .accessibilityIdentifier("bot.history.loader")
-                    }
-                    if model.displayRows.isEmpty && model.streamingText == nil && model.live == nil {
-                        BotEmptyState(title: "嗨，我是 \(model.context.botName)",
-                                      message: "我可以处理任务、整理文件和查找资料。\n想让我帮你做什么？",
-                                      showsAvatar: true)
-                            .padding(.top, 120)
-                            .accessibilityIdentifier("bot.chat.empty")
-                    }
-                    let anchors = processAnchors
-                    ForEach(model.displayRows) { row in
-                        if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
-                            BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
-                                withAnimation(.easeOut(duration: 0.16)) {
-                                    if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
-                                }
+        GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        if model.hasMoreHistory {
+                            HStack {
+                                if model.loadingHistory { ProgressView() }
+                                Text(model.loadingHistory ? "正在加载历史" : "向上加载历史")
+                                    .botCaptionFont()
+                                    .foregroundStyle(HomeSpec.textTertiary)
                             }
-                            .id("process-\(turn)")
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .onAppear { loadHistory(proxy: proxy) }
+                            .accessibilityIdentifier("bot.history.loader")
                         }
-                        BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
-                                         sourceRow: $sourceRow)
-                            .id(row.id)
+                        if isEmpty {
+                            emptyState
+                                .frame(minHeight: max(0, geometry.size.height - HomeSpec.blockGap - 16),
+                                       alignment: .center)
+                                .accessibilityIdentifier("bot.chat.empty")
+                        }
+                        let anchors = processAnchors
+                        ForEach(model.displayRows) { row in
+                            if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
+                                BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
+                                    withAnimation(.easeOut(duration: 0.16)) {
+                                        if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
+                                    }
+                                }
+                                .id("process-\(turn)")
+                            }
+                            BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
+                                             sourceRow: $sourceRow)
+                                .id(row.id)
+                        }
+                        if let live = model.live {
+                            BotLiveTurnView(live: live)
+                            Color.clear.frame(height: 1).id("bot-live-tail")
+                        }
+                        if let streaming = model.streamingText {
+                            BotStreamingRow(text: streaming)
+                                .id("bot-live-stream")
+                        }
                     }
-                    if let live = model.live {
-                        BotLiveTurnView(live: live)
-                        Color.clear.frame(height: 1).id("bot-live-tail")
-                    }
-                    if let streaming = model.streamingText {
-                        BotStreamingRow(text: streaming)
-                            .id("bot-live-stream")
-                    }
+                    .padding(.top, HomeSpec.blockGap)
+                    .padding(.bottom, 16)
                 }
-                .padding(.top, HomeSpec.blockGap)
-                .padding(.bottom, 16)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: model.visibleRows.map(\.id)) { _, _ in
-                guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
-                if let last = model.visibleRows.last { proxy.scrollTo(last.id, anchor: .bottom) }
-            }
-            .onChange(of: liveScrollKey) { _, key in
-                if key != nil { proxy.scrollTo("bot-live-tail", anchor: .bottom) }
-            }
-            .onChange(of: model.streamingText) { _, value in
-                if value != nil { proxy.scrollTo("bot-live-stream", anchor: .bottom) }
-            }
-            .onChange(of: model.scrollRequestID) { _, rowID in
-                guard let rowID else { return }
-                withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(rowID, anchor: .center) }
-                model.scrollRequestID = nil
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: model.visibleRows.map(\.id)) { _, _ in
+                    guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
+                    if let last = model.visibleRows.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                }
+                .onChange(of: liveScrollKey) { _, key in
+                    if key != nil { proxy.scrollTo("bot-live-tail", anchor: .bottom) }
+                }
+                .onChange(of: model.streamingText) { _, value in
+                    if value != nil { proxy.scrollTo("bot-live-stream", anchor: .bottom) }
+                }
+                .onChange(of: model.scrollRequestID) { _, rowID in
+                    guard let rowID else { return }
+                    withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(rowID, anchor: .center) }
+                    model.scrollRequestID = nil
+                }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Same as DSH: a tap anywhere in the transcript, blank space
-        // included, hands the keyboard back.
+        // included, hands the keyboard back and wakes an idle fish.
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
+            model.noteInteraction()
             composerFocused = false
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
                                             to: nil, from: nil, for: nil)
         })
         .accessibilityIdentifier("bot.chat.transcript")
+    }
+
+    private var isEmpty: Bool {
+        model.displayRows.isEmpty && model.streamingText == nil && model.live == nil
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            BotFishView(state: model.fishState, size: 96, appearance: model.appearance, allowsPoke: true)
+            Text("嗨，我是 \(model.botName)")
+                .botFont(size: 15, lineHeight: 22, weight: .semibold, style: .body)
+                .foregroundStyle(HomeSpec.textPrimary)
+            Text("我可以处理任务、整理文件和查找资料。\n想让我帮你做什么？")
+                .botFont(size: 13, lineHeight: 18, style: .body)
+                .foregroundStyle(HomeSpec.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, HomeSpec.contentInset)
+        .padding(.vertical, 24)
     }
 
     private var resolvedCardActions: BotCardActions {
@@ -167,6 +294,10 @@ struct BotChatPage: View {
 
     private var composerDock: some View {
         VStack(spacing: 8) {
+            if model.showsActivityLine, let activity = model.activity {
+                BotActivityLine(activity: activity, fishState: model.fishState, appearance: model.appearance)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
+            }
             if model.pendingApprovalCount > 0 {
                 Button {
                     model.scrollRequestID = model.visibleRows.first(where: {
@@ -209,50 +340,54 @@ struct BotChatPage: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("关闭提示")
                 }
-                .foregroundStyle(ChatPage.danger)
+                .foregroundStyle(BotUIPalette.danger)
                 .padding(.horizontal, 4)
             }
-            // The DSH composer card: white, r24, its shadow; the text area on
-            // top and the 36pt send/stop buttons docked inside the lower edge.
-            VStack(spacing: 0) {
-                TextField("发消息给 \(model.context.botName)", text: $draft, axis: .vertical)
+            attachmentTray
+            // Grok-style capsule composer: one white r26 capsule with the
+            // 36pt attach button leading, the growing text field in the
+            // middle, and one 36pt send/stop button trailing. No microphone
+            // and no voice mode.
+            BotComposerLayout {
+                Menu {
+                    Button {
+                        model.noteInteraction()
+                        showPhotos = true
+                    } label: {
+                        Label("照片", systemImage: "photo.on.rectangle")
+                    }
+                    Button {
+                        model.noteInteraction()
+                        showFiles = true
+                    } label: {
+                        Label("文件", systemImage: "folder")
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                        .frame(width: 36, height: 36)
+                        .background(HomeSpec.userBubble, in: Circle())
+                        .contentShape(Circle())
+                }
+                .accessibilityLabel("添加附件")
+                .accessibilityIdentifier("bot.composer.attach")
+
+                TextField("向 \(model.botName) 提问", text: $draft, axis: .vertical)
                     .font(.system(size: HomeSpec.bodySize))
                     .textFieldStyle(.plain)
-                    .lineLimit(1...6)
+                    .lineLimit(1...5)
                     .focused($composerFocused)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                    .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("bot.composer.input")
-                    .onSubmit { send() }
-                HStack(spacing: 8) {
-                    Spacer(minLength: 0)
-                    if model.runningTurnID != nil {
-                        Button { model.stop() } label: {
-                            BotComposerGlyph(systemImage: "stop.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("停止当前回合")
-                        .accessibilityIdentifier("bot.composer.stop")
-                    }
-                    Button(action: send) {
-                        BotComposerGlyph(systemImage: "arrow.up", enabled: canSend)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .accessibilityLabel(model.runningTurnID == nil ? "发送消息" : "发送并 steering")
-                    .accessibilityIdentifier("bot.composer.send")
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+                composerActionButton
             }
-            .frame(minHeight: HomeSpec.composerOpenMinHeight)
-            .background(HomeSpec.surface,
-                        in: RoundedRectangle(cornerRadius: HomeSpec.composerOpenRadius, style: .continuous))
+            .frame(minHeight: 52)
+            .background(HomeSpec.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
             .homeComposerShadow()
-            .contentShape(Rectangle())
-            .onTapGesture { composerFocused = true }
+            .simultaneousGesture(TapGesture().onEnded { model.noteInteraction() })
             if model.runningTurnID != nil {
                 Text("发送会并入当前回合，不会排队；停止只取消当前回合。")
                     .botCaptionFont()
@@ -261,11 +396,170 @@ struct BotChatPage: View {
                     .padding(.horizontal, 4)
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.activity != nil)
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, 8)
         .padding(.bottom, 8)
         .background(HomeSpec.page)
         .accessibilityElement(children: .contain)
+    }
+
+    /// Chips for the files waiting to be sent, plus the one-line refusal for a
+    /// file that was too large, over the count limit, or unreadable.
+    @ViewBuilder
+    private var attachmentTray: some View {
+        if !pendingAttachments.isEmpty || attachmentNotice != nil {
+            VStack(alignment: .leading, spacing: 6) {
+                if !pendingAttachments.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(pendingAttachments) { item in
+                                attachmentChip(item, index: pendingAttachments.firstIndex(of: item) ?? 0)
+                            }
+                        }
+                        .padding(.horizontal, 2)
+                        .padding(.vertical, 1)
+                    }
+                    .frame(height: 46)
+                }
+                if let attachmentNotice {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: 12))
+                        Text(attachmentNotice)
+                            .font(.system(size: 12))
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button { self.attachmentNotice = nil } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("关闭附件提示")
+                    }
+                    .foregroundStyle(BotUIPalette.danger)
+                    .padding(.horizontal, 4)
+                    .accessibilityIdentifier("bot.composer.attachment.notice")
+                }
+            }
+        }
+    }
+
+    private func attachmentChip(_ item: BotDraftAttachment, index: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: item.attachment.iconName)
+                .font(.system(size: 13))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(item.attachment.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("\(item.attachment.sizeLabel) · \(item.attachment.kindLabel)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HomeSpec.textTertiary)
+            }
+            .frame(maxWidth: 150, alignment: .leading)
+            Button {
+                pendingAttachments.removeAll { $0.id == item.id }
+                model.noteInteraction()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("移除附件 \(item.attachment.name)")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 2)
+        .frame(height: 44)
+        .background(HomeSpec.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bot.composer.attachment.\(index)")
+    }
+
+    private func importPickedFiles(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            attachmentNotice = "无法读取所选文件：\(error.localizedDescription)"
+        case .success(let urls):
+            var refusals: [String] = []
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("phone-dsh-bot-attachments", isDirectory: true)
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let destination = directory.appendingPathComponent(
+                    "\(UUID().uuidString.prefix(8))-\(url.lastPathComponent)")
+                do {
+                    try FileManager.default.copyItem(at: url, to: destination)
+                } catch {
+                    refusals.append("附件「\(url.lastPathComponent)」未附加：\(error.localizedDescription)")
+                    continue
+                }
+                if let refusal = addDraftAttachment(url: destination, displayName: url.lastPathComponent) {
+                    refusals.append(refusal)
+                }
+            }
+            attachmentNotice = refusals.isEmpty ? nil : refusals.joined(separator: "\n")
+        }
+    }
+
+    private func loadPhotos(_ items: [PhotosPickerItem]) async {
+        var refusals: [String] = []
+        let stamp = Int(Date().timeIntervalSince1970)
+        for (offset, item) in items.enumerated() {
+            guard let data = try? await item.loadTransferable(type: Data.self) else {
+                refusals.append("附件「照片 \(offset + 1)」未附加：无法读取所选照片。")
+                continue
+            }
+            let type = item.supportedContentTypes.first
+            let ext = type?.preferredFilenameExtension ?? "jpg"
+            let name = "photo-\(stamp)-\(offset + 1).\(ext)"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            do {
+                try data.write(to: url)
+            } catch {
+                refusals.append("附件「\(name)」未附加：\(error.localizedDescription)")
+                continue
+            }
+            if let refusal = addDraftAttachment(url: url, displayName: name,
+                                                fallbackMIMEType: type?.preferredMIMEType) {
+                refusals.append(refusal)
+            }
+        }
+        attachmentNotice = refusals.isEmpty ? nil : refusals.joined(separator: "\n")
+        photoItems = []
+    }
+
+    /// Returns a refusal message instead of appending when the count or size
+    /// limit is exceeded; the message is shown immediately and the item is not
+    /// added, matching the DSH Bot composer.
+    private func addDraftAttachment(url: URL, displayName: String,
+                                    fallbackMIMEType: String? = nil) -> String? {
+        guard pendingAttachments.count < BotAttachmentPolicy.maxCount else {
+            return "附件「\(displayName)」未附加：每条消息最多 \(BotAttachmentPolicy.maxCount) 个附件。"
+        }
+        guard let attachment = BotUIAttachment.local(url: url, fallbackMIMEType: fallbackMIMEType) else {
+            return "附件「\(displayName)」未附加：文件为空或无法读取。"
+        }
+        guard attachment.size <= BotAttachmentPolicy.maxBytes else {
+            return "附件「\(displayName)」未附加：文件超过 25 MiB（\(attachment.sizeLabel)）。"
+        }
+        var named = attachment
+        named.name = displayName
+        pendingAttachments.append(BotDraftAttachment(url: url, attachment: named))
+        model.noteInteraction()
+        return nil
     }
 
     /// The first answer row of each turn that has tool steps carries that
@@ -287,15 +581,41 @@ struct BotChatPage: View {
         }
     }
 
+    /// Exactly one round button with three states: send (idle, disabled when
+    /// empty), stop (running with an empty draft), send-and-steer (running
+    /// with text). The send id is stable so the capture tests can drive it.
+    @ViewBuilder
+    private var composerActionButton: some View {
+        if model.runningTurnID != nil && !canSend {
+            Button { model.stop() } label: {
+                BotComposerGlyph(systemImage: "stop.fill")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("停止当前回合")
+            .accessibilityIdentifier("bot.composer.stop")
+        } else {
+            Button(action: send) {
+                BotComposerGlyph(systemImage: "arrow.up", enabled: canSend)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .accessibilityLabel(model.runningTurnID != nil ? "发送并 steering" : "发送消息")
+            .accessibilityIdentifier("bot.composer.send")
+        }
+    }
+
     private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty
     }
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        let files = pendingAttachments.map(\.url)
+        guard !text.isEmpty || !files.isEmpty else { return }
         draft = ""
-        model.send(text: text)
+        pendingAttachments = []
+        attachmentNotice = nil
+        model.send(text: text, files: files)
         composerFocused = true
     }
 
@@ -308,6 +628,71 @@ struct BotChatPage: View {
             if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             preservingHistoryPosition = false
         }
+    }
+}
+
+/// Single-line capsule: the text field and the 36pt button share a center, so
+/// the first text baseline and the button center line up. Once the field grows
+/// past the 52pt capsule the button sticks to the bottom 8pt instead.
+private struct BotComposerLayout: Layout {
+    typealias Cache = Void
+
+    private let inset: CGFloat = 8
+    private let attachButton: CGFloat = 36
+    private let gap: CGFloat = 4
+
+    func makeCache(subviews: Subviews) -> Void {}
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        guard subviews.count == 3 else { return .zero }
+        let width = proposal.width ?? 0
+        let inputWidth = max(0, width - inset - attachButton - gap - gap
+                             - HomeSpec.sendButton - inset)
+        let input = subviews[1].sizeThatFits(ProposedViewSize(width: inputWidth, height: nil))
+        return CGSize(width: width, height: max(52, input.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout Void) {
+        guard subviews.count == 3 else { return }
+        let inputWidth = max(0, bounds.width - inset - attachButton - gap - gap
+                             - HomeSpec.sendButton - inset)
+        let input = subviews[1].sizeThatFits(ProposedViewSize(width: inputWidth, height: nil))
+        let singleLine = input.height <= 52
+        let controlY = singleLine
+            ? bounds.minY + (bounds.height - attachButton) / 2
+            : bounds.maxY - attachButton - inset
+        let inputY = bounds.minY + max(0, (bounds.height - input.height) / 2)
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX + inset, y: controlY),
+            proposal: ProposedViewSize(width: attachButton, height: attachButton))
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + inset + attachButton + gap, y: inputY),
+            proposal: ProposedViewSize(width: inputWidth, height: input.height))
+        subviews[2].place(
+            at: CGPoint(x: bounds.maxX - inset - HomeSpec.sendButton, y: controlY),
+            proposal: ProposedViewSize(width: HomeSpec.sendButton, height: HomeSpec.sendButton))
+    }
+}
+
+/// One picked file waiting for the send button. `attachment` is the metadata
+/// the transcript card and the import action use; `url` is the readable local
+/// copy handed to `BotAttachmentImporting`.
+struct BotDraftAttachment: Identifiable, Equatable {
+    let id: UUID
+    let url: URL
+    var attachment: BotUIAttachment
+
+    init(id: UUID = UUID(), url: URL, attachment: BotUIAttachment) {
+        self.id = id
+        self.url = url
+        self.attachment = attachment
+    }
+
+    static func fixture(name: String, size: Int64, mimeType: String, kind: String) -> BotDraftAttachment {
+        BotDraftAttachment(
+            url: URL(fileURLWithPath: "/tmp/phone-dsh-fixture/\(name)"),
+            attachment: BotUIAttachment(name: name, size: size, mimeType: mimeType, kind: kind))
     }
 }
 
@@ -337,25 +722,37 @@ private struct BotTranscriptRow: View {
 private struct BotTextRow: View {
     let row: BotUIRow
     private var isUser: Bool { row.role == "user" }
+    private var text: String { row.body["text"]?.string ?? "" }
+    private var attachments: [BotUIAttachment] {
+        isUser ? BotUIAttachment.parseList(row.body["attachments"]) : []
+    }
 
     /// DSH message rows: the user's words in the gray bubble (80% width,
     /// top-trailing corner square), the Bot's answer as the DSH markdown body;
-    /// rows sit 20pt apart.
+    /// rows sit 20pt apart. Attached files are cards under the user's words,
+    /// inside the same bubble and column.
     var body: some View {
         Group {
             if isUser {
                 BotAdaptiveBubbleLayout(ratio: 0.8, trailing: true) {
-                    Text(row.body["text"]?.string ?? "")
-                        .font(NativeChatTheme.bodyFont())
-                        .lineSpacing(NativeChatTheme.bodyLineSpacing)
-                        .foregroundStyle(HomeSpec.textPrimary)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(HomeSpec.userBubble, in: HomeSpec.bubbleShape)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if !text.isEmpty {
+                            Text(text)
+                                .font(NativeChatTheme.bodyFont())
+                                .lineSpacing(NativeChatTheme.bodyLineSpacing)
+                                .foregroundStyle(HomeSpec.textPrimary)
+                                .textSelection(.enabled)
+                        }
+                        ForEach(attachments) { attachment in
+                            BotUserAttachmentCard(attachment: attachment)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(HomeSpec.userBubble, in: HomeSpec.bubbleShape)
                 }
             } else {
-                BotAnswerBubbleContent(text: row.body["text"]?.string ?? "", streaming: false)
+                BotAnswerBubbleContent(text: text, streaming: false)
             }
         }
         .padding(.horizontal, HomeSpec.contentInset)
@@ -363,15 +760,50 @@ private struct BotTextRow: View {
     }
 }
 
+/// The user row's attached-file card: name, size and kind, matching the DSH
+/// Bot transcript attachment row without adding a second card style.
+private struct BotUserAttachmentCard: View {
+    let attachment: BotUIAttachment
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: attachment.iconName)
+                .font(.system(size: 15))
+                .foregroundStyle(HomeSpec.textPrimary)
+                .frame(width: 32, height: 32)
+                .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(attachment.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(HomeSpec.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("\(attachment.sizeLabel) · \(attachment.kindLabel)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(HomeSpec.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .background(HomeSpec.surface, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(attachment.name)，\(attachment.sizeLabel)，\(attachment.kindLabel)")
+        .accessibilityIdentifier("bot.message.attachment")
+    }
+}
+
 /// The Bot's own words: the DSH markdown body inside a white bubble on the
-/// leading side (top-leading corner square, hairline edge), up to 86% wide.
+/// leading side (top-leading corner square, hairline edge), capped at the same
+/// 86% content width every Bot card uses.
 private struct BotAnswerBubbleContent: View {
     let text: String
     let streaming: Bool
 
     var body: some View {
-        BotAdaptiveBubbleLayout(ratio: 0.86, trailing: false) {
-            NativeMarkdownBody(markdown: text, streaming: streaming, workspaceFiles: [], onOpenFile: { _ in })
+        BotContentWidth {
+            NativeMarkdownBody(markdown: text, streaming: streaming, onOpenFile: { _ in })
                 .font(NativeChatTheme.bodyFont())
                 .lineSpacing(NativeChatTheme.bodyLineSpacing)
                 .foregroundStyle(HomeSpec.textPrimary)
@@ -428,34 +860,7 @@ private struct BotLiveTurnView: View {
                     .padding(.vertical, HomeSpec.blockGap / 2)
                     .accessibilityIdentifier("bot.streaming.text")
             }
-            if !live.ended {
-                NativeRunningStatus(startedAt: live.startedAt, showsDivider: false)
-                    .padding(.horizontal, HomeSpec.contentInset)
-                    .padding(.vertical, HomeSpec.blockGap / 2)
-            }
         }
-    }
-}
-
-private struct BotAdaptiveBubbleLayout: Layout {
-    typealias Cache = CGSize
-
-    let ratio: CGFloat
-    let trailing: Bool
-
-    func makeCache(subviews: Subviews) -> CGSize { .zero }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) -> CGSize {
-        guard let child = subviews.first, let width = proposal.width else { return .zero }
-        cache = child.sizeThatFits(ProposedViewSize(width: width * ratio, height: proposal.height))
-        return CGSize(width: width, height: cache.height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) {
-        guard let child = subviews.first else { return }
-        let x = trailing ? bounds.maxX - cache.width : bounds.minX
-        child.place(at: CGPoint(x: x, y: bounds.minY),
-                    proposal: ProposedViewSize(width: cache.width, height: cache.height))
     }
 }
 

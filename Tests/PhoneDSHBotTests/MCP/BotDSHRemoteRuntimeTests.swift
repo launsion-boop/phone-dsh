@@ -378,4 +378,140 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
             XCTFail("unexpected error: \(error)")
         }
     }
+    func testChatPromptAppendsTheAttachmentBlockBeforeTheTurn() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("first"), .end()],
+                [.turn(2), .assistant("second"), .end(turn: 2)],
+            ],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let item = BotAttachment(name: "周报.pdf", path: "/dsh/workspace/imports/attachments-att-1/周报.pdf",
+                                 size: 2048, mimeType: "application/pdf", kind: "pdf")
+        _ = try await remote.sendUserMessage("看看", attachments: [item])
+        _ = try await remote.sendUserMessage("", attachments: [item])
+
+        let first = try XCTUnwrap(transport.promptHistory.first?.text)
+        XCTAssertTrue(first.hasPrefix("看看\n\n[dshbot-attachments]\n"))
+        XCTAssertTrue(first.contains("- {\"name\":\"周报.pdf\",\"path\":\"/dsh/workspace/imports/attachments-att-1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}"))
+        XCTAssertTrue(first.hasSuffix("\n[/dshbot-attachments]"))
+        let second = try XCTUnwrap(transport.promptHistory.last?.text)
+        XCTAssertTrue(second.hasPrefix("[dshbot-attachments]\n"),
+                      "an attachment-only prompt must not start with blank lines: \(second)")
+    }
+
+    func testEnsureMainSessionIDCreatesAndReusesTheMainSession() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: ["gb-main": []])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let first = try await remote.ensureMainSessionID()
+        let second = try await remote.ensureMainSessionID()
+        XCTAssertEqual(first, "gb-main")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(transport.createCount, 1)
+        let current = await remote.mainSessionId
+        XCTAssertEqual(current, first)
+    }
+
+
+    func testLegacyMainSessionAtOldCwdIsArchivedAndRebuiltUnderTheBotRoot() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let oldID = "gb-main"
+        let oldCwd = "/dsh/workspace"
+        // Startup recovers grants before any runtime event is written; seeding
+        // the log first would leave events without the initial grant snapshot.
+        try await fixture.runtime.grants.recover()
+        let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
+        _ = try await fixture.runtime.eventWriter.append(
+            type: "runtime.started", principal: principal,
+            data: .object(["sessionId": .string(oldID), "botId": .string("main"), "cwd": .string(oldCwd)]))
+
+        let transport = BotScriptedRemoteTransport(
+            scripts: [oldID: []], honorRequestedSessionIDs: true)
+        transport.setSessionCWD(oldID, cwd: oldCwd)
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let rebuilt = try await remote.ensureMainSessionID()
+
+        XCTAssertNotEqual(rebuilt, oldID)
+        XCTAssertTrue(rebuilt.hasPrefix("gb-main-"), "rebuild must mint a fresh Bot id: \(rebuilt)")
+        XCTAssertEqual(transport.createCount, 1)
+        XCTAssertEqual(transport.requestedSessionIds, [rebuilt])
+        XCTAssertEqual(transport.archivedSessions, [oldID])
+        let events = try await botEvents(fixture.store)
+        let latest = events.last { $0.type == "runtime.started" }
+        XCTAssertEqual(latest?.data["sessionId"], .string(rebuilt))
+        XCTAssertEqual(latest?.data["cwd"], .string(BotWorkspaceLayout.botRoot(botId: "main")))
+
+        // A restart reuses the rebuilt session and does not archive/recreate it.
+        let resumedTransport = BotScriptedRemoteTransport(scripts: [rebuilt: []])
+        let resumed = try await BotDSHRemoteRuntime(transport: resumedTransport, runtime: fixture.runtime)
+        let resumedID = try await resumed.startMainSession()
+        XCTAssertEqual(resumedID, rebuilt)
+        XCTAssertEqual(resumedTransport.createCount, 0)
+        XCTAssertTrue(resumedTransport.archivedSessions.isEmpty)
+    }
+
+    func testLegacyRuntimeStartedWithoutCwdLooksUpTheSessionCwd() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let oldID = "gb-main"
+        let oldCwd = "/dsh/workspace"
+        // Startup recovers grants before any runtime event is written; seeding
+        // the log first would leave events without the initial grant snapshot.
+        try await fixture.runtime.grants.recover()
+        let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
+        _ = try await fixture.runtime.eventWriter.append(
+            type: "runtime.started", principal: principal,
+            data: .object(["sessionId": .string(oldID), "botId": .string("main")]))
+
+        let transport = BotScriptedRemoteTransport(
+            scripts: [oldID: []], honorRequestedSessionIDs: true)
+        transport.setSessionCWD(oldID, cwd: oldCwd)
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let rebuilt = try await remote.ensureMainSessionID()
+        XCTAssertTrue(rebuilt.hasPrefix("gb-main-"))
+        XCTAssertEqual(transport.archivedSessions, [oldID])
+    }
+
+    func testFailedRebuildKeepsTheOldSessionArchivableAndUsable() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let oldID = "gb-main"
+        let oldCwd = "/dsh/workspace"
+        // Startup recovers grants before any runtime event is written; seeding
+        // the log first would leave events without the initial grant snapshot.
+        try await fixture.runtime.grants.recover()
+        let principal = try await fixture.runtime.issueSession(botId: "main", sessionId: oldID, kind: .chat)
+        _ = try await fixture.runtime.eventWriter.append(
+            type: "runtime.started", principal: principal,
+            data: .object(["sessionId": .string(oldID), "botId": .string("main"), "cwd": .string(oldCwd)]))
+
+        let failing = BotScriptedRemoteTransport(
+            scripts: [oldID: []], honorRequestedSessionIDs: true)
+        failing.setSessionCWD(oldID, cwd: oldCwd)
+        failing.failCreate(times: 1)
+        let remote = try await BotDSHRemoteRuntime(transport: failing, runtime: fixture.runtime)
+        do {
+            _ = try await remote.ensureMainSessionID()
+            XCTFail("rebuild should surface the create failure")
+        } catch {
+            // The old session was never archived before the replacement existed.
+            XCTAssertTrue(failing.archivedSessions.isEmpty)
+            XCTAssertEqual(failing.createCount, 0)
+        }
+
+        // The next attempt still has the old session and can migrate it.
+        let retry = BotScriptedRemoteTransport(
+            scripts: [oldID: []], honorRequestedSessionIDs: true)
+        retry.setSessionCWD(oldID, cwd: oldCwd)
+        let resumed = try await BotDSHRemoteRuntime(transport: retry, runtime: fixture.runtime)
+        let rebuilt = try await resumed.ensureMainSessionID()
+        XCTAssertTrue(rebuilt.hasPrefix("gb-main-"))
+        XCTAssertEqual(retry.archivedSessions, [oldID])
+    }
+
 }

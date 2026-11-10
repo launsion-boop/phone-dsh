@@ -95,6 +95,102 @@
         ]
       },
       "additionalProperties": true
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "requestId",
+        "createdAt",
+        "state",
+        "taskId",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "const": "device-task-result"
+        },
+        "fromAgentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromAgentName": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "threadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "staged"
+          ]
+        },
+        "stagedAt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stagedKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "denied",
+            "unavailable",
+            "expired",
+            "failed",
+            "unknown_outcome"
+          ]
+        },
+        "ranAt": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "dependentRequired": {
+        "stagedAt": [
+          "stagedKey"
+        ],
+        "stagedKey": [
+          "stagedAt"
+        ]
+      },
+      "additionalProperties": true
     }
   ]
 }

@@ -2783,6 +2783,14 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     private val answeringRequests = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val snapshotRefreshInFlight = AtomicBoolean(false)
     private val snapshotFullRefreshQueued = AtomicBoolean(false)
+    /**
+     * Automatic permission-read retries for one Worker session (iOS
+     * `ChatModel.refreshAccessModes`): a fresh session's permission fold can
+     * lag its open, so a failed read is retried on a short backoff instead of
+     * showing a banner with a retry button.
+     */
+    private val accessRetryAttempt = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var accessRetryWorker: String? = null
     private var chatSnapshotJob: kotlinx.coroutines.Job? = null
     private var chatPreparationJob: kotlinx.coroutines.Job? = null
     private val hostAutomation by lazy {
@@ -2917,9 +2925,34 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 val projections = client.call("session/projections", JsonObject(mapOf(
                     "request" to JsonObject(mapOf("sessionId" to JsonString(worker))),
                 )), timeoutMillis = 5_000)
-                val measured = sessionSnapshotOf(
+                val read = sessionSnapshotOf(
                     projections, modes, commands, models, sessionId = worker, sessionList = sessions,
                 )
+                if (accessRetryWorker != worker) {
+                    accessRetryWorker = worker
+                    accessRetryAttempt.set(0)
+                }
+                val retryDelayMs = if (full && read.accessError != null) {
+                    ACCESS_RETRY_DELAYS_MS.getOrNull(accessRetryAttempt.getAndIncrement())
+                } else {
+                    if (full) accessRetryAttempt.set(0)
+                    null
+                }
+                // While retries remain the read is "loading", not failed.
+                val measured = if (retryDelayMs != null) {
+                    read.copy(accessError = null, accessLoading = true)
+                } else {
+                    read
+                }
+                if (retryDelayMs != null) {
+                    turnScope.launch {
+                        delay(retryDelayMs)
+                        val live = mutableChat.value
+                        if (live.chatId == current.chatId && live.workerSessionId == worker) {
+                            refreshChatSession(full = true)
+                        }
+                    }
+                }
                 mutableChat.update { live ->
                     if (live.chatId != current.chatId || live.workerSessionId != worker) {
                         live
@@ -4566,6 +4599,8 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
     }
 
     internal companion object {
+        private val ACCESS_RETRY_DELAYS_MS = longArrayOf(500, 1_000, 2_000, 4_000, 8_000).toList()
+
         /**
          * The one process-wide owner of the host composition.
          *

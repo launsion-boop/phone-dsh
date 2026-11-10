@@ -100,6 +100,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     private let botId: String
     private let model: String
     private let providerName: String
+    private let botDataDirectory: String
+    private let onSessionRegistered: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Int64
     private let ledger: BotLLMLedger
     private let watchdog: BotWatchdogMonitor
@@ -123,6 +125,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         model: String = "deepseek-flash",
         provider: String = "deepseek-official",
         wakeInbox: WakeInbox? = nil,
+        botDataDirectory: String = BotWorkspaceLayout.defaultBotDataDirectory,
+        onSessionRegistered: (@Sendable (String) -> Void)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) async throws {
         self.transport = transport
@@ -131,6 +135,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         self.model = model
         providerName = provider
         self.wakeInbox = wakeInbox
+        self.botDataDirectory = botDataDirectory
+        self.onSessionRegistered = onSessionRegistered
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
         watchdog = BotWatchdogMonitor(eventLog: runtime.store, now: now)
@@ -162,10 +168,21 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// `requestId` is the DSH prompt idempotency key. Callers replaying a
     /// persisted delivery (user action nonce, held inbox item, routine run)
     /// must pass the same value so the Worker does not open a second turn.
-    public func sendUserMessage(_ text: String, requestId: String? = nil) async throws -> BotRemoteTurnResult {
+    public func sendUserMessage(_ text: String, requestId: String? = nil,
+                                attachments: [BotAttachment] = []) async throws -> BotRemoteTurnResult {
+        guard attachments.count <= BotAttachmentPolicy.maxCount else {
+            throw BotMCPError.invalidRequest("too_many_attachments")
+        }
         let sessionId = try await ensureMainSession()
         let steer = canSteer(sessionId: sessionId)
-        var prompt = text
+        var body = text
+        let attachmentBlock = BotAttachmentPrompt.block(attachments)
+        if !attachmentBlock.isEmpty {
+            body = text.isEmpty
+                ? String(attachmentBlock.drop(while: { $0 == "\n" }))
+                : text + attachmentBlock
+        }
+        var prompt = body
         var stagedKey: String?
         var held = false
         var promptRequestId = requestId
@@ -173,7 +190,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             let staged = try await wakeInbox.stage(now: now())
             stagedKey = staged.key
             if !staged.items.isEmpty {
-                prompt = HeldMessages.block(items: staged.items) + "\n\n" + text
+                prompt = HeldMessages.block(items: staged.items) + "\n\n" + body
                 held = true
                 // Held deliveries derive their id from the item ids, not from
                 // the random staged key, so a crash replay after `revert`
@@ -196,6 +213,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             if let stagedKey { _ = try await wakeInbox?.revert(stagedKey) }
             throw error
         }
+    }
+
+    /// The single runtime seam the app-layer attachment importer uses. It
+    /// creates or recovers the durable main chat session before the first
+    /// message, so the importer can write through the Worker's workspace
+    /// import service without owning any session logic.
+    public func ensureMainSessionID() async throws -> String {
+        try await ensureMainSession()
     }
 
     public func sendHiddenInteraction(_ text: String, requestId: String? = nil) async throws -> BotRemoteTurnResult {
@@ -677,38 +702,150 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         }
     }
 
-    private func recoverOrCreateMainSession() async throws -> String {
-        if let recovered = try await latestMainSessionEvent() {
-            if await validateRemoteSession(recovered, attempts: 100) {
-                try await claimOwnedSession(recovered)
-                let principal = try await runtime.issueSession(botId: botId, sessionId: recovered, kind: .chat)
-                sessions[recovered] = principal
-                _ = try await runtime.eventWriter.append(
-                    type: "runtime.started", principal: principal,
-                    data: .object(["sessionId": .string(recovered), "botId": .string(botId)]))
-                return recovered
-            }
-        }
-        let sessionId = try await createSession(kind: .chat)
-        let principal = try await ensureSession(sessionId: sessionId, kind: .chat)
-        _ = try await runtime.eventWriter.append(
-            type: "runtime.started", principal: principal,
-            data: .object(["sessionId": .string(sessionId), "botId": .string(botId)]))
-        return sessionId
+    private struct RecoveredMainSession {
+        let sessionId: String
+        let cwd: String?
     }
 
-    private func latestMainSessionEvent() async throws -> String? {
+    private func recoverOrCreateMainSession() async throws -> String {
+        let root = botRoot()
+        if let recovered = try await latestMainSessionEvent() {
+            let recoveredCwd: String?
+            if let stored = recovered.cwd {
+                recoveredCwd = stored
+            } else {
+                recoveredCwd = await remoteSessionCwd(recovered.sessionId)
+            }
+            if recoveredCwd == root, await validateRemoteSession(recovered.sessionId, attempts: 100) {
+                try await claimOwnedSession(recovered.sessionId)
+                let principal = try await runtime.issueSession(botId: botId, sessionId: recovered.sessionId, kind: .chat)
+                sessions[recovered.sessionId] = principal
+                try await recordRuntimeStarted(recovered.sessionId, principal: principal, cwd: root)
+                return recovered.sessionId
+            }
+            // The old chat session belongs to another cwd (the pre-root
+            // `/dsh/workspace`, or a damaged/legacy header). DSH has no
+            // session-delete Remote, so archive the old id and rebuild under a
+            // fresh Bot id. The Bot domain data (events, memory, routines) is
+            // untouched; only the DSH session is replaced.
+            return try await rebuildMainSession(from: recovered.sessionId, cwd: root)
+        }
+        do {
+            let sessionId = try await createSession(kind: .chat)
+            let principal = try await ensureSession(sessionId: sessionId, kind: .chat)
+            try await recordRuntimeStarted(sessionId, principal: principal, cwd: root)
+            return sessionId
+        } catch {
+            // A persisted session can outlive its runtime.started event (an
+            // event log restored from an older build). Its explicit
+            // `gb-<botID>` id still exists under the old cwd, so
+            // session/create rejects the cwd change as a conflict. Archive
+            // that id and rebuild with a fresh Bot id instead of failing
+            // forever.
+            let legacyID = mintedSessionID(kind: .chat)
+            if isSessionCwdConflict(error), await remoteSessionCwd(legacyID) != nil {
+                return try await rebuildMainSession(from: legacyID, cwd: root)
+            }
+            throw error
+        }
+    }
+
+    private func latestMainSessionEvent() async throws -> RecoveredMainSession? {
         var cursor = 0
-        var latest: String?
+        var latest: RecoveredMainSession?
         while true {
             let events = try await runtime.store.events(after: cursor, limit: 1_000)
             for event in events where event.type == "runtime.started"
                 && event.principal.botId == botId && event.principal.kind == BotSessionKind.chat.rawValue {
-                latest = event.data["sessionId"]?.stringValue ?? event.principal.sessionId
+                // An event that names no session cannot identify the main
+                // session; skip it instead of recovering an empty id.
+                guard let sessionId = event.data["sessionId"]?.stringValue ?? event.principal.sessionId,
+                      !sessionId.isEmpty else { continue }
+                latest = RecoveredMainSession(sessionId: sessionId, cwd: event.data["cwd"]?.stringValue)
             }
             guard events.count == 1_000, let commitSeq = events.last?.commitSeq else { return latest }
             cursor = commitSeq
         }
+    }
+
+    private func recordRuntimeStarted(
+        _ sessionId: String, principal: BotGatewayPrincipal, cwd: String
+    ) async throws {
+        _ = try await runtime.eventWriter.append(
+            type: "runtime.started", principal: principal,
+            data: .object([
+                "sessionId": .string(sessionId), "botId": .string(botId),
+                "cwd": .string(cwd),
+            ]))
+    }
+
+    /// Replaces an old main session without ever leaving the Bot sessionless:
+    /// the replacement is created first, then the old id is archived, then the
+    /// new `runtime.started` event is the durable commit point. Any failure
+    /// after archiving rolls back by archiving the replacement and restoring
+    /// the old id.
+    private func rebuildMainSession(from oldSessionId: String, cwd: String) async throws -> String {
+        onSessionRegistered?(oldSessionId)
+        let newSessionId = rebuiltMainSessionID()
+        let created = try await createSession(kind: .chat, sessionID: newSessionId)
+        // Archive is best effort: if it fails the old id is still hidden by
+        // BotSessionRegistry (`gb-` or explicitly registered) and the new
+        // session stays usable. Never fail the rebuild just because the old
+        // row could not be hidden a second way.
+        _ = await archiveRemoteSession(oldSessionId)
+        do {
+            let principal = try await ensureSession(sessionId: created, kind: .chat)
+            try await recordRuntimeStarted(created, principal: principal, cwd: cwd)
+            return created
+        } catch {
+            _ = await archiveRemoteSession(created)
+            _ = await unarchiveRemoteSession(oldSessionId)
+            throw error
+        }
+    }
+
+    private func archiveRemoteSession(_ sessionId: String) async -> Bool {
+        do {
+            _ = try await transport.call("workspace/archiveSession", args: .object(["request": .object([
+                "sessionId": .string(sessionId), "stopActivity": .bool(false),
+            ])]))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func unarchiveRemoteSession(_ sessionId: String) async -> Bool {
+        do {
+            _ = try await transport.call("workspace/unarchiveSession", args: .object(["request": .object([
+                "sessionId": .string(sessionId),
+            ])]))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func remoteSessionCwd(_ sessionId: String) async -> String? {
+        do {
+            let list = try await transport.call("session/list", args: .object([:]))
+            for item in list["items"]?.arrayValue ?? [] where item["sessionId"]?.stringValue == sessionId {
+                return item["cwd"]?.stringValue
+            }
+        } catch {}
+        return nil
+    }
+
+    private func isSessionCwdConflict(_ error: Error) -> Bool {
+        (error as? DSHRemoteError)?.code == "session/conflict"
+    }
+
+    private func botRoot() -> String {
+        BotWorkspaceLayout.botRoot(botId: botId, dataDirectory: botDataDirectory)
+    }
+
+    private func rebuiltMainSessionID() -> String {
+        "gb-\(BotWorkspaceLayout.safePathComponent(botId))-\(UUID().uuidString.lowercased())"
     }
 
     private func validateRemoteSession(_ sessionId: String, attempts: Int = 1) async -> Bool {
@@ -745,9 +882,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         return sessionId
     }
 
-    private func createSession(kind: BotSessionKind) async throws -> String {
-        var fields: [String: BotJSONValue] = ["cwd": .string("/dsh/workspace")]
-        fields["sessionId"] = .string(mintedSessionID(kind: kind))
+    private func createSession(kind: BotSessionKind, sessionID: String? = nil) async throws -> String {
+        var fields: [String: BotJSONValue] = ["cwd": .string(botRoot())]
+        fields["sessionId"] = .string(sessionID ?? mintedSessionID(kind: kind))
         let request: BotJSONValue = .object(fields)
         let created = try await transport.call("session/create", args: .object(["request": request]))
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
@@ -763,7 +900,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// claim RPC lands; legacy/recovered ids are claimed explicitly. Both feed
     /// the Worker-local owned-session registry that gates identity/approval.
     private func mintedSessionID(kind: BotSessionKind) -> String {
-        if kind == .chat { return "gb-\(botId)" }
+        if kind == .chat { return "gb-\(BotWorkspaceLayout.safePathComponent(botId))" }
         return "gb-\(kind.rawValue)-\(UUID().uuidString.lowercased())"
     }
 
@@ -772,6 +909,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// recovered ids need this RPC. A Worker that predates the claim method is
     /// tolerated only for `gb-` ids; everything else fails closed.
     private func claimOwnedSession(_ sessionId: String) async throws {
+        // The App-side registry mirrors every id this runtime creates,
+        // recovers or claims so the DSH pages can hide legacy non-`gb-` ids.
+        onSessionRegistered?(sessionId)
         let response: BotJSONValue
         do {
             response = try await transport.call("phone/botClaimSession", args: .object([

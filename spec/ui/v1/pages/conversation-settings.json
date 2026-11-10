@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "工作过程",
-    "provenance": "SettingsPage.swift:507",
+    "provenance": "SettingsPage.swift:511",
     "anchor": ".navigationTitle(NativeText(\"工作过程\", \"Work details\"))"
   },
   "source": {
     "file": "SettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/SettingsPage.swift",
-    "lines": 630,
-    "structLine": 464,
+    "lines": 634,
+    "structLine": 468,
     "renderedFrom": [
       "body"
     ],
@@ -47,7 +47,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:470",
+          "provenance": "SettingsPage.swift:474",
           "anchor": "Picker(NativeText(\"显示方式\", \"Show\"), selection: Binding(",
           "extraction": "syntax"
         },
@@ -62,7 +62,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:477",
+          "provenance": "SettingsPage.swift:481",
           "anchor": "Picker(NativeText(\"收起时机\", \"Collapse\"), selection: Binding(",
           "extraction": "syntax"
         },
@@ -77,12 +77,12 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:482",
+          "provenance": "SettingsPage.swift:486",
           "anchor": "Toggle(NativeText(\"显示代码工作视图\", \"Show code work\"), isOn: Binding(",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:485",
+      "provenance": "SettingsPage.swift:489",
       "anchor": "Text(NativeText(\"工作步骤\", \"Work steps\"))",
       "extraction": "syntax",
       "hasHeader": true
@@ -108,7 +108,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:489",
+          "provenance": "SettingsPage.swift:493",
           "anchor": "Picker(NativeText(\"任务进行中发送\", \"While busy\"), selection: Binding(",
           "extraction": "syntax"
         },
@@ -123,19 +123,19 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "SettingsPage.swift:494",
+          "provenance": "SettingsPage.swift:498",
           "anchor": "Picker(NativeText(\"性能与用量\", \"Performance and usage\"), selection: Binding(",
           "extraction": "syntax"
         }
       ],
-      "provenance": "SettingsPage.swift:500",
+      "provenance": "SettingsPage.swift:504",
       "anchor": "Text(NativeText(\"发送与用量\", \"Sending and usage\"))",
       "extraction": "syntax",
       "hasHeader": true,
       "footer": {
         "text": "排队发送会等当前任务结束再处理；引导会把新消息交给正在进行的任务。",
         "labelExpr": null,
-        "provenance": "SettingsPage.swift:502",
+        "provenance": "SettingsPage.swift:506",
         "anchor": "Text(NativeText(\"排队发送会等当前任务结束再处理；引导会把新消息交给正在进行的任务。\","
       }
     }
@@ -151,7 +151,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:470",
+      "provenance": "SettingsPage.swift:474",
       "anchor": "Picker(NativeText(\"显示方式\", \"Show\"), selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -178,7 +178,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:477",
+      "provenance": "SettingsPage.swift:481",
       "anchor": "Picker(NativeText(\"收起时机\", \"Collapse\"), selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -201,7 +201,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:482",
+      "provenance": "SettingsPage.swift:486",
       "anchor": "Toggle(NativeText(\"显示代码工作视图\", \"Show code work\"), isOn: Binding(",
       "extraction": "syntax"
     },
@@ -215,7 +215,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:489",
+      "provenance": "SettingsPage.swift:493",
       "anchor": "Picker(NativeText(\"任务进行中发送\", \"While busy\"), selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -238,7 +238,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "SettingsPage.swift:494",
+      "provenance": "SettingsPage.swift:498",
       "anchor": "Picker(NativeText(\"性能与用量\", \"Performance and usage\"), selection: Binding(",
       "extraction": "syntax",
       "items": [
@@ -262,7 +262,7 @@
         {
           "renders": "工作步骤 | 发送与用量",
           "when": null,
-          "provenance": "SettingsPage.swift:464",
+          "provenance": "SettingsPage.swift:468",
           "anchor": "private struct ConversationSettingsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }
@@ -273,7 +273,7 @@
         {
           "renders": "排队发送会等当前任务结束再处理；引导会把新消息交给正在进行的任务。",
           "when": null,
-          "provenance": "SettingsPage.swift:502",
+          "provenance": "SettingsPage.swift:506",
           "anchor": "Text(NativeText(\"排队发送会等当前任务结束再处理；引导会把新消息交给正在进行的任务。\","
         }
       ]
@@ -308,59 +308,59 @@
         },
         {
           "title": "对话",
-          "provenance": "SettingsPage.swift:167"
+          "provenance": "SettingsPage.swift:171"
         },
         {
           "title": "会话与文件",
-          "provenance": "SettingsPage.swift:194"
+          "provenance": "SettingsPage.swift:198"
         },
         {
           "title": "引擎",
-          "provenance": "SettingsPage.swift:204"
+          "provenance": "SettingsPage.swift:208"
         },
         {
           "title": "关于",
-          "provenance": "SettingsPage.swift:221"
+          "provenance": "SettingsPage.swift:225"
         }
       ],
       "provenance": "SettingsPage.swift:52"
     },
     {
       "name": "FontSizeSettingsPage",
-      "line": 426,
+      "line": 430,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:426"
+      "provenance": "SettingsPage.swift:430"
     },
     {
       "name": "ArchivedSessionsPage",
-      "line": 513,
+      "line": 517,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:513"
+      "provenance": "SettingsPage.swift:517"
     },
     {
       "name": "PermissionDefaultsPage",
-      "line": 575,
+      "line": 579,
       "private": true,
       "embedded": true,
       "sections": [
         {
           "title": "只影响之后新开的会话，当前会话保持不变。",
-          "provenance": "SettingsPage.swift:580"
+          "provenance": "SettingsPage.swift:584"
         }
       ],
-      "provenance": "SettingsPage.swift:575"
+      "provenance": "SettingsPage.swift:579"
     },
     {
       "name": "LicensesPage",
-      "line": 613,
+      "line": 617,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "SettingsPage.swift:613"
+      "provenance": "SettingsPage.swift:617"
     }
   ],
   "unreachable": [],

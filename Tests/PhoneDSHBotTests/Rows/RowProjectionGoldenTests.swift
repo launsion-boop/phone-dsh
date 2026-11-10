@@ -27,6 +27,23 @@ final class RowProjectionGoldenTests: XCTestCase {
         }
     }
 
+    func testPhoneAttachmentProjectionVectorUsesTheRealProjector() throws {
+        let fixture = try RowTestSupport.golden("row-protocol.phone")
+        let vectors = try RowTestSupport.array(fixture["projection"], in: "row-protocol.phone.projection")
+        XCTAssertFalse(vectors.isEmpty)
+        for vector in vectors {
+            let input = try RowTestSupport.decode(BotJSONValue.self, vector["input"] as Any)
+            guard case .object(let object) = input else { return XCTFail("projection input must be an object") }
+            XCTAssertEqual(object["kind"]?.stringValue, "message")
+            XCTAssertNotNil(object["attachments"], "phone projection vector must carry attachments")
+            let actual = BotDisplayContract.project(object, profile: .upstreamReference)
+            XCTAssertEqual(actual.surface, vector["surface"] as? String)
+            XCTAssertEqual(actual.renderable, vector["renderable"] as? Bool)
+            let expectedWire = try RowTestSupport.decode(BotWireRecord.self, vector["wire"] as Any)
+            XCTAssertEqual(actual.wire, expectedWire)
+        }
+    }
+
     func testP1GoldenCardsRemainProtocolVisibleButNotPhoneP0Renderable() throws {
         let fixture = try RowTestSupport.golden("row-projection")
         let valid = try RowTestSupport.array(fixture["valid"], in: "row-projection.valid")

@@ -1,0 +1,70 @@
+{
+  "id": "unclosed-epoch-above-watermark",
+  "title": "The same listed unclosed epoch with a mutation above the durable watermark is retained; the crash tail is replayed and verified.",
+  "manifest": {
+    "format": 1,
+    "boot_id": "00112233445566778899aabbccddeeff",
+    "materialized_upto_mseq": 1,
+    "last_mseq": 4,
+    "last_durable_epoch": 217,
+    "segments": [
+      {
+        "file": "wal/00000215.000000.xlwal",
+        "epoch": 215,
+        "first_mseq": 1,
+        "last_mseq": 2
+      },
+      {
+        "file": "wal/00000216.000000.xlwal",
+        "epoch": 216,
+        "first_mseq": 3,
+        "last_mseq": 3
+      },
+      {
+        "file": "wal/00000217.000000.xlwal",
+        "epoch": 217,
+        "first_mseq": 4,
+        "last_mseq": 4
+      }
+    ]
+  },
+  "segments": [
+    {
+      "file": "wal/00000215.000000.xlwal",
+      "file_hex": "584c57414c31000000010000000000000000000100112233445566778899aabbccddeeff01a0e65e00000031995b3a69000000000000000101000001a400000000000000000000142f6473682f776f726b73706163652f612e747874000000016100000031c389cec2000000000000000201000001a400000000000000000000142f6473682f776f726b73706163652f622e7478740000000162",
+      "first_mseq": 1,
+      "last_mseq": 2,
+      "has_epoch_close": false
+    },
+    {
+      "file": "wal/00000216.000000.xlwal",
+      "file_hex": "584c57414c31000000010000000000000000000300112233445566778899aabbccddeeffbe695ee0000000310963b0f4000000000000000301000001a400000000000000000000142f6473682f776f726b73706163652f632e7478740000000163000000190eb4f4740000000000000003ff000001a16b3508030000000000000003",
+      "first_mseq": 3,
+      "last_mseq": 3,
+      "has_epoch_close": true
+    },
+    {
+      "file": "wal/00000217.000000.xlwal",
+      "file_hex": "584c57414c31000000010000000000000000000400112233445566778899aabbccddeeff243b3d8c00000031762c2794000000000000000401000001a400000000000000000000142f6473682f776f726b73706163652f642e747874000000016400000019310150540000000000000004ff000001a16b3508040000000000000004",
+      "first_mseq": 4,
+      "last_mseq": 4,
+      "has_epoch_close": true
+    }
+  ],
+  "expected": {
+    "fast_path": false,
+    "verification_pass": true,
+    "has_unclosed_history": false,
+    "replay_records": 3,
+    "materialized_upto_mseq": 4,
+    "newest_close_segment": "wal/00000217.000000.xlwal",
+    "dropped_segments": [],
+    "retained_segments": [
+      "wal/00000215.000000.xlwal",
+      "wal/00000216.000000.xlwal",
+      "wal/00000217.000000.xlwal"
+    ],
+    "relisted_segments": [],
+    "adopted_tail_segments": []
+  }
+}

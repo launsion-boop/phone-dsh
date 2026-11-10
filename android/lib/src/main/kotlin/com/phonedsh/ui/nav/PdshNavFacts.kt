@@ -134,7 +134,7 @@ public data class PdshNavFacts(
     public val sessionIdentity: PdshSessionIdentity? = null,
     /** Session list; null means unread, while an empty list means read and empty. */
     public val sessions: List<PdshSessionRecord>? = null,
-    /** Workspace target, preserving 日常 default, explicit unassigned, and unknown. */
+    /** Workspace target, preserving the 手机工作区 default, explicit unassigned, and unknown. */
     public val workspaceSelection: PdshWorkspaceSelection? = null,
     /** Device and connection facts; null means the host supplied no device read. */
     public val device: PdshDeviceFacts? = null,
@@ -180,7 +180,7 @@ public data class PdshSessionRecord(
 
 /** Workspace selection without conflating default, unassigned, and unread. */
 public sealed interface PdshWorkspaceSelection {
-    /** The host selected its built-in 日常 default group. */
+    /** The host selected its built-in 手机工作区 / Phone Workspace default group. */
     public data object DailyDefault : PdshWorkspaceSelection
     /** The host selected this identified workspace. */
     public data class Assigned(public val workspaceId: String) : PdshWorkspaceSelection

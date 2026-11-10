@@ -1,0 +1,259 @@
+{
+  "source": {
+    "repo": "launsion-boop/dsh-bot",
+    "commit": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "files": [
+      "src/main/agents/model.cjs",
+      "src/renderer/lib/fish/model.js",
+      "src/renderer/lib/characterEngine.js"
+    ]
+  },
+  "recordSchemaVersion": 3,
+  "colors": [
+    {
+      "id": "white",
+      "hex": "#FFFFFF"
+    },
+    {
+      "id": "brown",
+      "hex": "#9D6937"
+    },
+    {
+      "id": "red",
+      "hex": "#E5484D"
+    },
+    {
+      "id": "orange",
+      "hex": "#F76B15"
+    },
+    {
+      "id": "amber",
+      "hex": "#FFB224"
+    },
+    {
+      "id": "green",
+      "hex": "#14C16F"
+    },
+    {
+      "id": "teal",
+      "hex": "#13B7A2"
+    },
+    {
+      "id": "blue",
+      "hex": "#1680F3"
+    },
+    {
+      "id": "purple",
+      "hex": "#8F59F9"
+    },
+    {
+      "id": "magenta",
+      "hex": "#F93498"
+    },
+    {
+      "id": "gray",
+      "hex": "#8B8B8B"
+    },
+    {
+      "id": "black",
+      "hex": "#1C1C1C"
+    },
+    {
+      "id": "silver",
+      "hex": "#C9CBD1"
+    },
+    {
+      "id": "peach",
+      "hex": "#F3B6A4"
+    },
+    {
+      "id": "sky",
+      "hex": "#7ED0E8"
+    }
+  ],
+  "colorOrderMain": [
+    "white",
+    "brown",
+    "red",
+    "orange",
+    "amber",
+    "green",
+    "teal",
+    "blue",
+    "purple",
+    "magenta",
+    "gray",
+    "black",
+    "silver",
+    "peach",
+    "sky"
+  ],
+  "hairstyles": [
+    "long",
+    "twin-tail",
+    "bob",
+    "side-braid"
+  ],
+  "normalizeFishColor": [
+    {
+      "input": "blue",
+      "output": "blue"
+    },
+    {
+      "input": "BLUE",
+      "output": "blue"
+    },
+    {
+      "input": "Blue",
+      "output": "blue"
+    },
+    {
+      "input": " blue",
+      "output": null
+    },
+    {
+      "input": "auto",
+      "output": null
+    },
+    {
+      "input": "",
+      "output": null
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "violet",
+      "output": null
+    },
+    {
+      "input": "grey",
+      "output": null
+    },
+    {
+      "input": "purple",
+      "output": "purple"
+    },
+    {
+      "input": "teal",
+      "output": "teal"
+    },
+    {
+      "input": "sky",
+      "output": "sky"
+    },
+    {
+      "input": "unknown",
+      "output": null
+    }
+  ],
+  "normalizeFishHairstyle": [
+    {
+      "input": "long",
+      "output": "long"
+    },
+    {
+      "input": "LONG",
+      "output": "long"
+    },
+    {
+      "input": "twin-tail",
+      "output": "twin-tail"
+    },
+    {
+      "input": "Twin-Tail",
+      "output": "twin-tail"
+    },
+    {
+      "input": "bob",
+      "output": "bob"
+    },
+    {
+      "input": "side-braid",
+      "output": "side-braid"
+    },
+    {
+      "input": "side_braid",
+      "output": null
+    },
+    {
+      "input": "auto",
+      "output": null
+    },
+    {
+      "input": "",
+      "output": null
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "curly",
+      "output": null
+    }
+  ],
+  "seed": [
+    {
+      "seed": "main",
+      "color": "silver",
+      "hex": "#C9CBD1",
+      "hairstyle": "bob"
+    },
+    {
+      "seed": "agent-123",
+      "color": "brown",
+      "hex": "#9D6937",
+      "hairstyle": "side-braid"
+    },
+    {
+      "seed": "agent-0123456789abcdef",
+      "color": "green",
+      "hex": "#14C16F",
+      "hairstyle": "twin-tail"
+    },
+    {
+      "seed": "Bot",
+      "color": "peach",
+      "hex": "#F3B6A4",
+      "hairstyle": "long"
+    },
+    {
+      "seed": "fish",
+      "color": "sky",
+      "hex": "#7ED0E8",
+      "hairstyle": "side-braid"
+    },
+    {
+      "seed": "大肥鱼",
+      "color": "green",
+      "hex": "#14C16F",
+      "hairstyle": "side-braid"
+    },
+    {
+      "seed": "DS 大肥魚",
+      "color": "sky",
+      "hex": "#7ED0E8",
+      "hairstyle": "long"
+    },
+    {
+      "seed": "🐟bot",
+      "color": "sky",
+      "hex": "#7ED0E8",
+      "hairstyle": "twin-tail"
+    },
+    {
+      "seed": "a",
+      "color": "gray",
+      "hex": "#8B8B8B",
+      "hairstyle": "bob"
+    },
+    {
+      "seed": "agent-ffffffffffffffff",
+      "color": "black",
+      "hex": "#1C1C1C",
+      "hairstyle": "twin-tail"
+    }
+  ]
+}

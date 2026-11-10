@@ -61,6 +61,13 @@ targets:
       - path: Web3DLib
         type: folder
         buildPhase: resources
+      # Layered 大肥鱼 source art (bot avatar renderer). Copied as a folder so
+      # the renderer can load "BotFish/base/body.png", the per-hairstyle
+      # "BotFish/hair/<style>/..." layers and "BotFish/expressive/eyes.png"
+      # from the app bundle without colliding with names from PhoneDSHProbe/.
+      - path: BotFish
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ProbeKit
       # SwiftPM products are not re-exported: every module the app imports
@@ -97,6 +104,8 @@ targets:
         product: PhoneDSHBLE
       - package: PhoneDSH
         product: PhoneDSHDeviceTasks
+      - package: PhoneDSH
+        product: PhoneDSHVenus
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -207,6 +216,22 @@ targets:
       # exercise add → refresh → persist → offline reload against ProbeKit.
       - path: PhoneDSHProbe/DailyBriefModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
+      - path: PhoneDSHProbe/NativeStreamAccumulator.swift
+      - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeLogRedaction.swift
+      - path: PhoneDSHProbe/WorkspaceFileIndex.swift
+      - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
+      - path: PhoneDSHProbe/NativeBoundedCache.swift
+      - path: PhoneDSHProbe/NativePerfCounters.swift
+      - path: PhoneDSHProbe/NativeStableHash.swift
+      - path: PhoneDSHProbe/NativeMarkdownParseCache.swift
+      - path: PhoneDSHProbe/NativeTimelineRow.swift
+      - path: PhoneDSHProbe/NativeTimelineCache.swift
+      - path: PhoneDSHProbe/NativeDiffCache.swift
+      - path: PhoneDSHProbe/NativeRowSummaryCache.swift
+      - path: PhoneDSHProbe/NativePlanCard.swift
+      - path: PhoneDSHProbe/NativeTurnProcessRow.swift
+      - path: PhoneDSHProbe/NativeCodeHighlighter.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
@@ -220,6 +245,7 @@ targets:
       - path: PhoneDSHProbe/NativeParityTokens.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
+      - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
@@ -307,6 +333,22 @@ targets:
       - path: PhoneDSHProbe/MCPSettingsModel.swift
       - path: PhoneDSHProbe/DailyBriefModel.swift
       - path: PhoneDSHProbe/NativeConversationModels.swift
+      - path: PhoneDSHProbe/NativeStreamAccumulator.swift
+      - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeLogRedaction.swift
+      - path: PhoneDSHProbe/WorkspaceFileIndex.swift
+      - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
+      - path: PhoneDSHProbe/NativeBoundedCache.swift
+      - path: PhoneDSHProbe/NativePerfCounters.swift
+      - path: PhoneDSHProbe/NativeStableHash.swift
+      - path: PhoneDSHProbe/NativeMarkdownParseCache.swift
+      - path: PhoneDSHProbe/NativeTimelineRow.swift
+      - path: PhoneDSHProbe/NativeTimelineCache.swift
+      - path: PhoneDSHProbe/NativeDiffCache.swift
+      - path: PhoneDSHProbe/NativeRowSummaryCache.swift
+      - path: PhoneDSHProbe/NativePlanCard.swift
+      - path: PhoneDSHProbe/NativeTurnProcessRow.swift
+      - path: PhoneDSHProbe/NativeCodeHighlighter.swift
       - path: PhoneDSHProbe/NativeTranscriptProjector.swift
       - path: PhoneDSHProbe/NativeAskQuestionCard.swift
       - path: PhoneDSHProbe/NativeSubagentToolRows.swift
@@ -320,6 +362,7 @@ targets:
       - path: PhoneDSHProbe/NativeParityTokens.swift
       - path: PhoneDSHProbe/NativeChatTheme.swift
       - path: PhoneDSHProbe/HomeSpec.swift
+      - path: PhoneDSHProbe/HomeDrawerNewSessionPolicy.swift
       - path: PhoneDSHProbe/NativeChatPreferences.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift

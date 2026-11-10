@@ -3,6 +3,7 @@
 import Combine
 import Foundation
 import PhoneDSHAgentCore
+import PhoneDSHBot
 
 @MainActor
 private final class BotStreamCoalescer {
@@ -62,11 +63,27 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var rows: [BotUIRow]
     @Published private(set) var streamingText: String?
     @Published private(set) var runningTurnID: String?
+    /// The durable runtime projection: fish lifecycle and current action.
+    @Published private(set) var runtimePresentation = BotRuntimePresentation()
+    /// The same projection rebuilt from the live turn frames, which are the
+    /// authority while a turn is running.
+    @Published private(set) var livePresentation: BotRuntimePresentation?
+    /// Sixty seconds without a turn or a touch: the fish sleeps until the
+    /// next interaction. Approvals and running turns always win over this.
+    @Published private(set) var idleSleeping = false
     @Published private(set) var actionStates: [String: BotUIActionState] = [:]
     @Published private(set) var dismissedCardIDs: Set<String> = []
     @Published private(set) var actionLog: [String] = []
     @Published var runtimeNotice: String?
     @Published var deepLinkError: String?
+    /// The current Bot's profile appearance, mirrored from `BotProfileCenter`.
+    @Published private(set) var appearance: BotFishAppearance = .classic
+    /// The profile name is authoritative once the profile index exists; before
+    /// that it is the runtime context name (the last `renamed` event).
+    @Published private(set) var botName: String
+    /// Importing is an app-layer dependency: the fixture model leaves it nil and
+    /// the production hub injects the real workspace importer.
+    var attachmentImporter: (any BotAttachmentImporting)?
     @Published var scrollRequestID: String?
     @Published private(set) var loadingHistory = false
     @Published private(set) var hasMoreHistory = false
@@ -77,6 +94,10 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var turnProcesses: [Int: BotTurnProcess] = [:]
     private var pendingDelta = ""
     private var deltaFlush: Task<Void, Never>?
+    /// Live session events of the open turn, in arrival order, for the one
+    /// runtime-presentation factory. Cleared on `turn/start`.
+    private var livePresentationEvents: [JSONValue] = []
+    private var sleepTask: Task<Void, Never>?
 
     let context: BotRuntimeContext
     private let driver: BotChatDriver?
@@ -92,10 +113,11 @@ final class BotChatModel: ObservableObject {
     private let historyPageSize = 50
     private var watchCursor = 0
     private var watching = false
+    private var profileCancellables: Set<AnyCancellable> = []
 
     init(rows: [BotUIRow] = [], context: BotRuntimeContext = BotRuntimeContext(),
          driver: BotChatDriver? = nil, fixtureHistory: [BotUIRow] = [],
-         fixtureActions: Bool = false) {
+         fixtureActions: Bool = false, profileCenter: BotProfileCenter? = nil) {
         self.rows = rows.sorted { $0.seq < $1.seq }
         self.context = context
         self.driver = driver
@@ -103,6 +125,27 @@ final class BotChatModel: ObservableObject {
         self.fixtureHistory = fixtureHistory
         self.fixtureHistoryCursor = fixtureHistory.first?.id
         self.hasMoreHistory = driver != nil || !fixtureHistory.isEmpty
+        self.botName = context.botName
+        attach(profileCenter: profileCenter)
+    }
+
+    /// Mirrors the profile center's name and appearance into the published
+    /// values the page and the fish renderer read.
+    func attach(profileCenter: BotProfileCenter?) {
+        profileCancellables.removeAll()
+        guard let center = profileCenter else { return }
+        appearance = center.appearance
+        botName = center.displayName
+        center.$appearance
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in self?.appearance = value }
+            }
+            .store(in: &profileCancellables)
+        center.$displayName
+            .sink { [weak self] value in
+                Task { @MainActor [weak self] in self?.botName = value }
+            }
+            .store(in: &profileCancellables)
     }
 
     var visibleRows: [BotUIRow] {
@@ -159,6 +202,42 @@ final class BotChatModel: ObservableObject {
         }.count
     }
 
+    /// What the fish shows now: a pending decision always raises `alerting`;
+    /// idle sleep only applies when nothing is running; otherwise the live
+    /// frames win over the last durable projection.
+    var fishState: BotFishLifecycle {
+        if pendingApprovalCount > 0 { return .alerting }
+        if idleSleeping, runningTurnID == nil, live == nil { return .sleeping }
+        if live != nil, let state = livePresentation?.fishState { return state }
+        return runtimePresentation.fishState
+    }
+
+    /// The single composer activity line. `BotActivity` is the factory's own
+    /// status/detail; no separate mapping lives here.
+    var activity: BotActivity? {
+        guard runningTurnID != nil, pendingApprovalCount == 0 else { return nil }
+        if live != nil { return livePresentation?.activity }
+        return runtimePresentation.activity
+    }
+
+    /// Hide the activity line once the reply body is visible, as the DSH page
+    /// and upstream `liveActivityFor` do.
+    var isReplyStreaming: Bool {
+        if !pendingDelta.isEmpty || streamingText?.isEmpty == false { return true }
+        guard let live else { return false }
+        if !live.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        return live.segments.contains { segment in
+            if case .text(let text) = segment {
+                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return false
+        }
+    }
+
+    var showsActivityLine: Bool {
+        activity != nil && !isReplyStreaming
+    }
+
     var mutedCardIDs: Set<String> {
         guard let lastUserIndex = visibleRows.lastIndex(where: { $0.role == "user" && $0.body.type == "text" }) else {
             return []
@@ -173,20 +252,69 @@ final class BotChatModel: ObservableObject {
 
     func isActionPending(_ key: String) -> Bool { actionStates[key] == .pending }
 
-    func send(text: String) {
+    func send(text: String, files: [URL] = []) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty || !files.isEmpty else { return }
+        noteInteraction()
         let nonce = UUID().uuidString
-        let action = BotUIUserAction.chat(nonce: nonce, botID: context.botID, text: trimmed)
         let localID = "local-\(nonce)"
-        let local = BotUIRow.text(id: localID, botID: context.botID,
-                                  seq: (rows.map(\.seq).max() ?? 0) + 1,
-                                  role: "user", text: trimmed, eventID: "local:\(nonce)")
+        let messageID = "att-\(Int(Date().timeIntervalSince1970 * 1_000))-\(nonce.prefix(8).lowercased())"
+        let drafted = files.compactMap { BotUIAttachment.local(url: $0) }
+        var values: [String: BotJSONValue] = ["text": .string(trimmed)]
+        if !drafted.isEmpty {
+            values["attachments"] = .array(drafted.map(\.jsonValue))
+        }
+        var local = BotUIRow.fixture(id: localID, botID: context.botID,
+                                     seq: (rows.map(\.seq).max() ?? 0) + 1,
+                                     kind: "sendMessage", role: "user",
+                                     body: BotUIBody(type: "text", values: values),
+                                     eventID: "local:\(nonce)")
+        local.provenance.trust = "owner_direct"
         rows.append(local)
+        if files.isEmpty, driver == nil, fixtureActions, runningTurnID == nil {
+            beginTurn(turnID: "fixture-turn")
+        }
+        Task {
+            await importAndSend(text: trimmed, files: files, messageID: messageID,
+                                nonce: nonce, localID: localID)
+        }
+    }
+
+    /// Imports the picked files into this Bot's DSH workspace, then sends one
+    /// `chat` action with the readable paths. A failed file is skipped with a
+    /// notice; it never blocks the other files or the text.
+    private func importAndSend(text: String, files: [URL], messageID: String,
+                               nonce: String, localID: String) async {
+        var imported: [BotAttachment] = []
+        var notices: [String] = []
+        if !files.isEmpty {
+            if let attachmentImporter {
+                let result = await attachmentImporter.importFiles(
+                    botID: context.botID, messageID: messageID, files: files)
+                imported = result.items
+                notices = result.errors.map { "附件「\($0.name)」未附加：\($0.reason)" }
+            } else {
+                notices = files.map {
+                    "附件「\($0.lastPathComponent)」未附加：附件导入未连接"
+                }
+            }
+        }
+        if !notices.isEmpty { runtimeNotice = notices.joined(separator: "\n") }
+        if !imported.isEmpty, let index = rows.firstIndex(where: { $0.id == localID }) {
+            rows[index].body.values["attachments"] = .array(imported.map { BotUIAttachment($0).jsonValue })
+        } else if let index = rows.firstIndex(where: { $0.id == localID }) {
+            rows[index].body.values.removeValue(forKey: "attachments")
+        }
+        guard !text.isEmpty || !imported.isEmpty else {
+            rows.removeAll { $0.id == localID }
+            return
+        }
         if driver == nil && fixtureActions && runningTurnID == nil {
             beginTurn(turnID: "fixture-turn")
         }
-        Task { await perform(action, key: "chat:\(localID)", localRowID: localID) }
+        let action = BotUIUserAction.chat(nonce: nonce, botID: context.botID, text: text,
+                                          attachments: imported.isEmpty ? nil : imported)
+        await perform(action, key: "chat:\(localID)", localRowID: localID)
     }
 
     func answer(row: BotUIRow, optionID: String) {
@@ -227,6 +355,7 @@ final class BotChatModel: ObservableObject {
         streamingText = nil
         stream.cancel()
         actionLog.append("stop:\(turnID)")
+        scheduleIdleSleep(reset: true)
         Task { await driver?.stopCurrentTurn(turnID) }
     }
 
@@ -234,6 +363,62 @@ final class BotChatModel: ObservableObject {
         cancelledTurnIDs.remove(turnID)
         runningTurnID = turnID
         streamingText = nil
+        sleepTask?.cancel()
+        sleepTask = nil
+        idleSleeping = false
+    }
+
+    /// Any touch, keystroke or send wakes an idle fish and restarts the
+    /// 60-second sleep clock.
+    func noteInteraction() {
+        if idleSleeping { idleSleeping = false }
+        guard runningTurnID == nil, live == nil else {
+            sleepTask?.cancel()
+            sleepTask = nil
+            return
+        }
+        scheduleIdleSleep(reset: true)
+    }
+
+    /// Pull the durable presentation once (page open, and each watch poll).
+    func refreshPresentation() async {
+        guard let driver else { return }
+        if let presentation = try? await driver.presentation() {
+            applyDurablePresentation(presentation)
+        }
+    }
+
+    private func applyDurablePresentation(_ presentation: BotRuntimePresentation) {
+        runtimePresentation = presentation
+        guard live == nil else { return }
+        if let turn = presentation.runningTurnID {
+            if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
+        } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
+            runningTurnID = nil
+            streamingText = nil
+        }
+        scheduleIdleSleep()
+    }
+
+    private func scheduleIdleSleep(reset: Bool = false) {
+        if reset {
+            sleepTask?.cancel()
+            sleepTask = nil
+        } else if sleepTask != nil {
+            return
+        }
+        guard runningTurnID == nil, live == nil, pendingApprovalCount == 0 else {
+            sleepTask?.cancel()
+            sleepTask = nil
+            return
+        }
+        sleepTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.sleepTask = nil
+            guard self.runningTurnID == nil, self.live == nil, self.pendingApprovalCount == 0 else { return }
+            self.idleSleeping = true
+        }
     }
 
     func receiveStream(turnID: String, text: String, final: Bool = false) {
@@ -311,6 +496,9 @@ final class BotChatModel: ObservableObject {
                 let processes = await driver.turnProcesses()
                 if processes != turnProcesses { turnProcesses = processes }
                 settleLive()
+                if let presentation = try? await driver.presentation() {
+                    applyDurablePresentation(presentation)
+                }
             } catch {
                 runtimeNotice = "Bot 实时更新失败：\(error.localizedDescription)"
             }
@@ -349,17 +537,25 @@ final class BotChatModel: ObservableObject {
                 deltaFlush?.cancel()
                 deltaFlush = nil
                 live = BotLiveTurn()
+                livePresentationEvents = [event]
+                sleepTask?.cancel()
+                sleepTask = nil
+                idleSleeping = false
             } else {
                 flushDelta()
+                livePresentationEvents.append(event)
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
             live = turn
+            livePresentation = BotRuntimePresentationFactory.live(botID: context.botID,
+                                                                  events: livePresentationEvents)
             if type == "turn/start" {
-                runningTurnID = (event["data"]?["turn"]?.intValue).map(String.init)
+                runningTurnID = livePresentation?.runningTurnID
                 streamingText = nil
             } else if type == "turn/end" {
                 runningTurnID = nil
+                scheduleIdleSleep(reset: true)
             }
         }
     }
@@ -386,6 +582,7 @@ final class BotChatModel: ObservableObject {
         } ?? true
         if (committed && turn.pollsSinceEnd >= 2) || turn.pollsSinceEnd >= 4 {
             live = nil
+            scheduleIdleSleep(reset: true)
         } else {
             live = turn
         }
