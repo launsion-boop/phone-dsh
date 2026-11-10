@@ -935,7 +935,7 @@ private struct BotAnswerBubbleContent: View {
 
     var body: some View {
         BotContentWidth {
-            NativeMarkdownBody(markdown: text, streaming: streaming, workspaceFiles: [], onOpenFile: { _ in })
+            NativeMarkdownBody(markdown: text, streaming: streaming, onOpenFile: { _ in })
                 .font(NativeChatTheme.bodyFont())
                 .lineSpacing(NativeChatTheme.bodyLineSpacing)
                 .foregroundStyle(HomeSpec.textPrimary)

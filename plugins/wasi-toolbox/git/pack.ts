@@ -18,7 +18,7 @@
  * @module @phone-dsh/dsh-wasi-toolbox/git/pack
  */
 import { createHash } from 'node:crypto'
-import { crc32, deflate, inflate } from './compress.ts'
+import { crc32, deflate, ZlibInflateStream } from './compress.ts'
 import { fsError, isErrno } from './fs.ts'
 import type { GitFs } from './fs.ts'
 
@@ -196,29 +196,40 @@ async function readPrefix(fs: GitFs, packPath: string, offset: number, length = 
   return bytes
 }
 
+/** Bytes read per push while locating one pack member's DEFLATE end. */
+const PACK_READ_CHUNK = 64 * 1024
+
 /**
- * Inflate one object after its header at `dataStart`, growing the read window
- * until the deflate stream ends. Packs are read in place because a workspace
- * repository may be much larger than the Worker's memory budget.
+ * Inflate one object after its header at `dataStart`, decoding its DEFLATE
+ * stream once.
+ *
+ * The stream itself reports where it ends (see `ZlibInflateStream`), so the
+ * reader no longer doubles a window and re-inflates the object on every failed
+ * attempt. Chunks are read on demand, so a workspace repository may still be
+ * much larger than the Worker's memory budget.
  */
 async function inflateAt(fs: GitFs, packPath: string, dataStart: number): Promise<Uint8Array> {
-  let window = 64 * 1024
+  const stream = new ZlibInflateStream()
+  let position = dataStart
   for (;;) {
-    // Past 32 MiB the window is the rest of the file; a stream that still has
-    // not ended there means the pack itself is malformed.
-    const end = window > 32 * 1024 * 1024 ? 0 : dataStart + window
-    const chunk = await fs.readFileSlice(packPath, dataStart, end)
+    const chunk = await fs.readFileSlice(packPath, position, position + PACK_READ_CHUNK)
+    let ended: boolean
     try {
-      return inflate(chunk)
+      if (chunk.byteLength === 0) throw new Error('truncated zlib stream')
+      ended = stream.push(chunk)
     } catch (error) {
-      // A window that ends inside the deflate stream is expected for a large
-      // object: grow it and retry. A slice shorter than the window already
-      // reaches the end of the file, so the pack is genuinely corrupt.
-      if (end !== 0 && chunk.byteLength === window) {
-        window *= 2
-        continue
-      }
       throw fsError('EINVAL', `cannot inflate pack object at ${dataStart}: ${(error as Error).message}`, packPath)
+    }
+    position += chunk.byteLength
+    if (ended) {
+      try {
+        return stream.finish().data
+      } catch (error) {
+        throw fsError('EINVAL', `cannot inflate pack object at ${dataStart}: ${(error as Error).message}`, packPath)
+      }
+    }
+    if (chunk.byteLength < PACK_READ_CHUNK) {
+      throw fsError('EINVAL', `cannot inflate pack object at ${dataStart}: truncated zlib stream`, packPath)
     }
   }
 }

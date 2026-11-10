@@ -318,13 +318,6 @@ enum AccessModeWording {
     }
 }
 
-/// One file under the materialized workspace.
-struct WorkspaceFile: Identifiable, Hashable {
-    let relativePath: String
-    let size: Int
-    var id: String { relativePath }
-}
-
 // MARK: - Model
 
 /// Owns the host, the harness session and the transcript. One instance per app
@@ -386,7 +379,12 @@ final class ChatModel {
     /// Exact MCP admission/credential policy for this host. The native MCP
     /// editor and the Web bridge update the same object in place.
     private(set) var mcpAccessPolicy = MCPEgressPolicy()
-    private(set) var items: [ChatItem] = []
+    private(set) var items: [ChatItem] = [] {
+        didSet { itemsRevision &+= 1 }
+    }
+    /// Monotonic transcript revision. The timeline cache keys on this instead
+    /// of re-filtering/grouping `items` in every view body.
+    private(set) var itemsRevision = 0
     private(set) var transcriptHasMore = false
     private(set) var transcriptError: String?
     private(set) var trajectoryEntries: [NativeTrajectoryEntry] = []
@@ -471,11 +469,8 @@ final class ChatModel {
     /// Closed-Turn control state. `nil` for the open Turn (official renders no
     /// control row while running).
     func turnProcessState(for turn: Int) -> NativeTurnProcessState? {
-        guard let reason = turnEndReasons[turn] else { return nil }
-        let elapsed = turnStartTimes[turn].flatMap { start in
-            turnEndTimes[turn].map { max(0, $0.timeIntervalSince(start)) }
-        }
-        return NativeTurnProcessState.resolve(endReasonKind: reason, elapsed: elapsed)
+        NativeTurnStateResolver.resolve(turn: turn, endReasons: turnEndReasons,
+                                        startTimes: turnStartTimes, endTimes: turnEndTimes)
     }
 
     /// Official `todos` projection → the dock's view model. Unknown statuses are
@@ -516,9 +511,36 @@ final class ChatModel {
     private(set) var turnEndTimes: [Int: Date] = [:]
     /// 这次引擎起来的时间点,「运行状态」第一行要报「已运行多久」;停掉就清空。
     private(set) var startedAt: Date?
-    private(set) var files: [WorkspaceFile] = []
+    /// Rebuilt exactly once per `files` change. Rendering consumes this index
+    /// instead of scanning the array in every inline code span.
+    private(set) var fileIndex = WorkspaceFileIndex.empty
+    private(set) var files: [WorkspaceFile] = [] {
+        didSet { fileIndex = WorkspaceFileIndex(files: files) }
+    }
     private(set) var previewPath: String?
     private(set) var previewText: String?
+    /// App-layer resource meter (S1 round 8): read-only sampling, the
+    /// three-band display and its UI degradation. It never changes host
+    /// admission or the budgets.md policy actions.
+    let resourceMeter = ResourceMeter()
+    /// Pending streamed deltas, drained at `ResourceLevel`'s refresh cap.
+    private var streamAccumulator = NativeStreamAccumulator()
+    private var streamFlushTask: Task<Void, Never>?
+    /// Serializes off-main workspace scans. `refreshFiles()` only requests a
+    /// scan; the traversal never runs on the main actor.
+    @ObservationIgnored private lazy var fileRefresh = WorkspaceFileRefreshController(
+        scanner: { root in
+            await Task.detached(priority: .utility) {
+                WorkspaceFileScanner.scan(root: root)
+            }.value
+        },
+        deliver: { [weak self] root, files in
+            self?.applyWorkspaceFileSnapshot(root: root, files: files)
+        })
+    /// Consecutive automatic D24 backoff retries already scheduled. Reset by a
+    /// manual/other start path and by a successful adoption.
+    private var backoffRetryAttempts = 0
+    private var backoffRetryTask: Task<Void, Never>?
 
     var isStarted: Bool { host != nil }
     /// True between the background park and the foreground resume (D14).
@@ -559,6 +581,12 @@ final class ChatModel {
     private var transcriptThroughSeq: Int?
     private var transcriptBeforeSeq: Int?
     private var hostLifecycleTransition = false
+    /// One automatic session re-open after a recovery left the open session
+    /// without its DSH history. At most one task exists; a park, a manual
+    /// switch or a session change abandons it through `sessionReloadToken`.
+    private var sessionReloadTask: Task<Void, Never>?
+    private var sessionReloadToken = 0
+    private(set) var isReloadingSession = false
     // Planned-restart policy (see RestartPolicy): one sample per minute,
     // executed only at a tool-call boundary.
     private var restartPolicyTask: Task<Void, Never>?
@@ -572,7 +600,7 @@ final class ChatModel {
     private var autoRecoveryAttempted = false
     private var foregroundResumeRequested = false
     private var backgroundParkRequested = false
-    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition }
+    var canSend: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
     var canStartBySending: Bool {
         ChatEngineLifecycle.canStartBySending(hostIsStopped: host == nil,
                                               busy: busy,
@@ -602,6 +630,7 @@ final class ChatModel {
         if eventStreamRecovering { return "重新同步中" }
         if parked { return "已暂停" }
         if host == nil { return "已停止" }
+        if isReloadingSession { return "重新加载中" }
         if userFacingError != nil || hostState.lowercased().contains("fail") { return "失败" }
         if busy || hostLifecycleTransition { return "处理中" }
         if pendingQuestion != nil || pendingPermission != nil { return "等待回复" }
@@ -609,7 +638,7 @@ final class ChatModel {
         if transcriptReady { return "就绪" }
         return "未连接"
     }
-    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition }
+    var canSteer: Bool { harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering && turnRunning && !busy && !parked && !hostLifecycleTransition && !isReloadingSession }
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
@@ -1045,6 +1074,13 @@ final class ChatModel {
     /// Boots the host and adopts the persisted session. Launching and sending
     /// may acknowledge one persisted `Failed` controller per process.
     func start(autoRecover: Bool = false) async {
+        await start(autoRecover: autoRecover, backoffRetry: false)
+    }
+
+    private func start(autoRecover: Bool, backoffRetry: Bool) async {
+        // Every start except the scheduled backoff retry is a new intent: it
+        // supersedes any pending retry, including a manual tap.
+        if !backoffRetry { cancelBackoffRetry() }
         guard host == nil, !busy else { return }
         if engineNeedsReset, failedHost != nil {
             await restartEngine()
@@ -1065,7 +1101,17 @@ final class ChatModel {
             await botLaunch?.composition.attachNativeMCP(DeviceMCPServer.shared)
             try await launch.host.start()
         } catch {
-            Self.appendDiagnostic("host start failed: \(error)")
+            Self.appendDiagnostic("host start failed: \(NativeLogRedaction.error(error))")
+            // D24: a persisted backoff window is a healthy wait, not a failed
+            // engine. Never show the red "引擎停了" line here; schedule one
+            // retry just past the host's own deadline instead.
+            if let phoneError = error as? PhoneDSHError,
+               case .backoffNotElapsed(let deadline) = phoneError {
+                hostEventTask?.cancel(); hostEventTask = nil
+                scheduleBackoffRetry(for: deadline)
+                return
+            }
+            backoffRetryAttempts = 0
             reportError("引擎停了：\(Self.condensed(String(describing: error)))")
             hostEventTask?.cancel(); hostEventTask = nil
             let state = await launch.host.state
@@ -1088,6 +1134,48 @@ final class ChatModel {
                                budgets: launch.budgets,
                                selectedProfile: launch.selectedProfile,
                                egressHosts: launch.egressHosts)
+    }
+
+    /// Handle a persisted D24 window: retry once the deadline passes, but only
+    /// for a near deadline and at most `ChatBackoffRetry.maximumAttempts`
+    /// consecutive times. There is exactly one scheduled retry Task.
+    private func scheduleBackoffRetry(for deadline: Date) {
+        switch ChatBackoffRetry.decision(deadline: deadline,
+                                         now: Date(),
+                                         attempts: backoffRetryAttempts) {
+        case .retry(let delay, let attempt):
+            backoffRetryAttempts = attempt
+            let seconds = max(1, Int(ceil(max(0, delay))))
+            statusLine = "引擎将在 \(seconds) 秒后自动启动"
+            appendStatus("Engine backoff: auto-start \(attempt)/\(ChatBackoffRetry.maximumAttempts) in \(String(format: "%.1f", delay)) s")
+            backoffRetryTask?.cancel()
+            let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
+            backoffRetryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: nanoseconds)
+                guard !Task.isCancelled, let self else { return }
+                self.backoffRetryTask = nil
+                // A manual start or another path won the race; never stack a
+                // second boot on top of it.
+                guard self.host == nil, !self.busy, !self.parked else { return }
+                self.statusLine = "正在自动启动引擎…"
+                self.appendStatus("Engine backoff elapsed; retrying start()")
+                await self.start(autoRecover: false, backoffRetry: true)
+            }
+        case .waitForManualStart(let remaining):
+            backoffRetryTask?.cancel(); backoffRetryTask = nil
+            let seconds = max(1, Int(ceil(remaining)))
+            statusLine = "引擎将在 \(seconds) 秒后可启动，请稍后手动启动"
+            appendStatus("Engine backoff deadline is far away; automatic retry disabled")
+        case .exhausted(let attempts):
+            backoffRetryTask?.cancel(); backoffRetryTask = nil
+            reportError("引擎自动重试 \(attempts) 次仍未启动，请手动启动")
+        }
+    }
+
+    private func cancelBackoffRetry() {
+        backoffRetryTask?.cancel()
+        backoffRetryTask = nil
+        backoffRetryAttempts = 0
     }
 
     private func makeHostLaunch() -> HostLaunch? {
@@ -1142,7 +1230,7 @@ final class ChatModel {
             }
         } catch {
             modelName = ""
-            appendStatus("Model service settings are invalid; booting without a model route: \(error.localizedDescription)")
+            appendStatus("Model service settings are invalid; booting without a model route: \(NativeLogRedaction.localizedError(error))")
         }
         var launchPlan = ModelProviderLaunchPlan(allowedModelHosts: allowedModelHosts,
                                                  credentialProvider: credentialProvider,
@@ -1273,6 +1361,7 @@ final class ChatModel {
     /// A failure that survives this stays fail-loud: the host is kept in
     /// ``failedHost`` and ``engineNeedsReset`` stays true.
     func restartEngine() async {
+        cancelBackoffRetry()
         guard host == nil, !busy else { return }
         guard let failed = failedHost else {
             await start()
@@ -1308,7 +1397,7 @@ final class ChatModel {
                 try await launch.host.reset()
             }
         } catch {
-            Self.appendDiagnostic("host reset failed: \(error)")
+            Self.appendDiagnostic("host reset failed: \(NativeLogRedaction.error(error))")
             reportError("引擎无法重新启动：\(Self.condensed(String(describing: error)))")
             hostEventTask?.cancel(); hostEventTask = nil
             let state = await launch.host.state
@@ -1338,12 +1427,17 @@ final class ChatModel {
                                   budgets: BudgetTable,
                                   selectedProfile: ProviderProfile?,
                                   egressHosts: Set<String>) async {
+        cancelBackoffRetry()
         host = newHost
         await attachBotRuntime(to: newHost)
         failedHost = nil
         engineNeedsReset = false
         startedAt = Date()
         restartPolicyBudget = budgets
+        resourceMeter.attach(host: newHost, budgets: budgets,
+                             workspaceRoot: workspaceRoot,
+                             logSink: { Self.appendDiagnostic($0) })
+        resourceMeter.updateWorkspace(files: files)
         startRestartPolicyMonitor()
         do {
             let harness = try await newHost.harness()
@@ -1366,13 +1460,14 @@ final class ChatModel {
                 do {
                     try await selectProviderModel(selectedProfile, sessionID: session.id, transport: transport)
                 } catch {
-                    appendStatus("The provider model could not be selected for this session: \(error.localizedDescription)")
+                    appendStatus("The provider model could not be selected for this session: \(NativeLogRedaction.localizedError(error))")
                 }
             }
             let history: SessionHistory
             do {
                 history = try await loadSessionHistory(sessionID: session.id,
                                                         transport: transport)
+                flushStreamingText()
                 items = history.items
             turnStartTimes = history.turnFacts.starts
             turnEndReasons = history.turnFacts.endReasons
@@ -1386,6 +1481,13 @@ final class ChatModel {
                 reportError("Session opened, but its DSH history could not be loaded: \(error)")
                 transcriptReady = false
                 refreshFiles()
+                // A park during this load is the evidence case: the host will
+                // resume, but nothing else re-opens the session. Retry only
+                // while the App is in front and the lifecycle is idle; the
+                // resume/Worker-restart triggers cover the other cases.
+                scheduleSessionReload(reason: "history load failed after adoption",
+                                      delay: ChatSessionReload.retryDelay,
+                                      requireForeground: true)
                 return
             }
             transcriptReady = true
@@ -1398,7 +1500,7 @@ final class ChatModel {
             Task { await self.refreshTrajectory() }
             Task { await self.loadCommands() }
             statusLine = "Session \(session.id.prefix(8)) open — type a task"
-            appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress allow-list: \(egressHosts.isEmpty ? "(none)" : egressHosts.sorted().joined(separator: ", "))")
+            appendStatus("Session \(requestedSessionID == nil ? "created" : "resumed"): \(session.id); egress hosts=\(egressHosts.count)")
         } catch {
             reportError("Session failed: \(error)")
         }
@@ -1445,6 +1547,9 @@ final class ChatModel {
 
     @discardableResult
     private func openManagedSession(id: String?, preset: String? = nil) async -> Bool {
+        // A person asking for another session supersedes any automatic reload;
+        // the pending reload must not land after this switch.
+        cancelSessionReload()
         if let id, DeviceSessionCoordinator.shared.isDeviceSession(id) {
             reportError("设备会话只能以只读监视方式打开")
             return false
@@ -1469,44 +1574,253 @@ final class ChatModel {
                 harness = try await host.harness()
                 self.harness = harness
             }
-            let session = try await harness.openSession(HarnessSessionRequest(
-                sessionID: id, preset: preset, workspace: "/dsh/workspace"))
-            let transport = try await transportForManagement()
-            if let profile = try? PhoneModelProviderSettings.shared.load().selected {
-                try? await selectProviderModel(profile, sessionID: session.id, transport: transport)
-            }
-            let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
-            pumpTask?.cancel()
-            resetSessionLedgers()
-            self.sessionID = session.id
-            UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
-            lastSeq = history.after
-            items = history.items
-            turnStartTimes = history.turnFacts.starts
-            turnEndReasons = history.turnFacts.endReasons
-            turnEndTimes = history.turnFacts.ends
-            isShowingCachedTranscript = false
-            persistTranscriptSnapshot()
-            transcriptHasMore = history.hasMore
-            transcriptBeforeSeq = history.beforeSeq
-            transcriptThroughSeq = history.throughSeq
-            transcriptReady = true
-            pendingPermission = nil
-            pendingQuestion = nil
-            turnRunning = history.turnRunning
-            startPump(harness: harness, sessionID: session.id, after: history.after)
-            Task { await self.refreshAccessModes() }
-            Task { await self.refreshNativeMetrics() }
-            Task { await self.refreshTrajectory() }
-            Task { await self.loadCommands() }
-            statusLine = "Session \(session.id.prefix(8)) open — type a task"
-            clearError()
-            appendStatus("Session \(id == nil ? "created" : "resumed"): \(session.id)")
+            let applied = try await openAndActivateSession(
+                id: id, preset: preset, harness: harness, isStillWanted: { true })
+            guard applied else { return false }
+            appendStatus("Session \(id == nil ? "created" : "resumed"): \(sessionID ?? "")")
             return true
+        } catch is CancellationError {
+            return false
         } catch {
             reportError("Could not \(id == nil ? "create" : "resume") session: \(error)")
             return false
         }
+    }
+
+    /// Shared body of a user session switch and the automatic reload: opens
+    /// `id`, re-applies the provider model, loads the durable history and only
+    /// then replaces the visible transcript and starts the pump. Keeping the
+    /// history behind the current `items` is what lets a reload leave the
+    /// cached transcript on screen instead of blanking it first.
+    ///
+    /// `isStillWanted` is checked after every await, so a park or a session
+    /// change abandons the work without mutating the page or reporting an error.
+    @discardableResult
+    private func openAndActivateSession(id: String?,
+                                        preset: String?,
+                                        expectedSessionID: String? = nil,
+                                        harness: any AgentHarness,
+                                        isStillWanted: () -> Bool) async throws -> Bool {
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        let session = try await harness.openSession(HarnessSessionRequest(
+            sessionID: id, preset: preset, workspace: "/dsh/workspace"))
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        if let expectedSessionID,
+           ChatSessionReload.shouldAbandonReload(initiatingSessionID: expectedSessionID,
+                                                 currentSessionID: session.id) {
+            return false
+        }
+        let transport = try await transportForManagement()
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        if let profile = try? PhoneModelProviderSettings.shared.load().selected {
+            do {
+                // Selecting the model is retried here: after a Worker restart
+                // the first choice can fail (error 12), and this is the path
+                // that re-runs it once the engine is back.
+                try await selectProviderModel(profile, sessionID: session.id, transport: transport)
+            } catch {
+                appendStatus("The provider model could not be selected for this session: \(NativeLogRedaction.localizedError(error))")
+            }
+        }
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        let history = try await loadSessionHistory(sessionID: session.id, transport: transport)
+        try Task.checkCancellation()
+        guard isStillWanted() else { return false }
+        pumpTask?.cancel()
+        resetSessionLedgers()
+        self.sessionID = session.id
+        UserDefaults.standard.set(session.id, forKey: Self.currentSessionDefaultsKey)
+        lastSeq = history.after
+        flushStreamingText()
+        items = history.items
+        turnStartTimes = history.turnFacts.starts
+        turnEndReasons = history.turnFacts.endReasons
+        turnEndTimes = history.turnFacts.ends
+        isShowingCachedTranscript = false
+        persistTranscriptSnapshot()
+        transcriptHasMore = history.hasMore
+        transcriptBeforeSeq = history.beforeSeq
+        transcriptThroughSeq = history.throughSeq
+        transcriptReady = true
+        pendingPermission = nil
+        pendingQuestion = nil
+        turnRunning = history.turnRunning
+        startPump(harness: harness, sessionID: session.id, after: history.after)
+        Task { await self.refreshAccessModes() }
+        Task { await self.refreshNativeMetrics() }
+        Task { await self.refreshTrajectory() }
+        Task { await self.loadCommands() }
+        statusLine = "Session \(session.id.prefix(8)) open — type a task"
+        clearError()
+        return true
+    }
+
+    // MARK: Automatic session reload after a recovery
+
+    /// Starts the single automatic re-open for a session that is open but has
+    /// no transcript. Ignored when one is already scheduled or when the
+    /// lifecycle is not idle. `requireForeground` is the adoption-failure rule:
+    /// a retry is only queued while the person has the App in front.
+    private func scheduleSessionReload(reason: String,
+                                       delay: TimeInterval = 0,
+                                       requireForeground: Bool = false) {
+        guard sessionReloadTask == nil,
+              let expectedSessionID = sessionID,
+              ChatSessionReload.needsReloadAfterResume(
+                  sessionID: expectedSessionID,
+                  transcriptReady: transcriptReady,
+                  parked: parked,
+                  hostLifecycleTransition: hostLifecycleTransition)
+        else { return }
+        if requireForeground, UIApplication.shared.applicationState != .active { return }
+        sessionReloadToken &+= 1
+        let token = sessionReloadToken
+        isReloadingSession = true
+        appendStatus("Scheduling session reload (\(reason)); transcriptReady=false")
+        sessionReloadTask = Task { @MainActor [weak self] in
+            await self?.runSessionReload(reason: reason,
+                                         expectedSessionID: expectedSessionID,
+                                         token: token,
+                                         delay: delay)
+        }
+    }
+
+    /// Runs the automatic reload and its bounded retries. Every failure keeps
+    /// the current error on screen; success is the normal open state.
+    private func runSessionReload(reason: String,
+                                  expectedSessionID: String,
+                                  token: Int,
+                                  delay: TimeInterval) async {
+        defer { finishSessionReload(token: token) }
+        var retriesUsed = 0
+        var wait = delay
+        while true {
+            if wait > 0 {
+                do { try await Task.sleep(for: .seconds(wait)) } catch { return }
+            }
+            wait = 0
+            guard await waitForSessionReloadSlot(token: token,
+                                                 expectedSessionID: expectedSessionID)
+            else { return }
+            do {
+                try await performSessionReload(expectedSessionID: expectedSessionID,
+                                               token: token,
+                                               reason: reason)
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+                    return
+                }
+                appendStatus("Session reload failed: \(NativeLogRedaction.error(error))")
+                if let existing = userFacingError {
+                    // Keep the failure that stranded the session; the person
+                    // still needs that text if the retries do not recover it.
+                    statusLine = existing
+                } else {
+                    reportError("Could not reload the session: \(error)")
+                }
+                guard ChatSessionReload.canRetryAfterFailure(
+                    retriesUsed: retriesUsed,
+                    appIsActive: UIApplication.shared.applicationState == .active,
+                    sessionID: sessionID,
+                    transcriptReady: transcriptReady,
+                    parked: parked,
+                    hostLifecycleTransition: hostLifecycleTransition)
+                else { return }
+                retriesUsed += 1
+                wait = ChatSessionReload.retryDelay
+                appendStatus("Session reload retry \(retriesUsed)/\(ChatSessionReload.maximumAutomaticRetries) in \(wait) s")
+            }
+        }
+    }
+
+    /// Re-opens the session captured by the trigger through the same path as a
+    /// manual switch. The cached transcript stays on screen until the durable
+    /// history has loaded.
+    private func performSessionReload(expectedSessionID: String,
+                                      token: Int,
+                                      reason: String) async throws {
+        guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+            throw CancellationError()
+        }
+        let harness: any AgentHarness
+        if let existing = self.harness {
+            harness = existing
+        } else if let host {
+            harness = try await host.harness()
+            self.harness = harness
+        } else {
+            throw CancellationError()
+        }
+        guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+            throw CancellationError()
+        }
+        // Keep whatever `restoreCachedTranscriptIfAvailable` painted.
+        restoreCachedTranscriptIfAvailable()
+        statusLine = "正在重新加载会话…"
+        appendStatus("Reloading session \(expectedSessionID.prefix(8)) (\(reason))…")
+        let applied = try await openAndActivateSession(
+            id: expectedSessionID,
+            preset: nil,
+            expectedSessionID: expectedSessionID,
+            harness: harness,
+            isStillWanted: { [weak self] in
+                self?.isReloadCurrent(token: token,
+                                      expectedSessionID: expectedSessionID) ?? false
+            })
+        guard applied else { throw CancellationError() }
+        appendStatus("Session \(expectedSessionID.prefix(8)) reloaded; history and event pump restored")
+    }
+
+    /// Waits briefly for another start/switch to release `busy`; the reload
+    /// never runs on top of one. Re-evaluates the captured session each tick.
+    private func waitForSessionReloadSlot(token: Int,
+                                          expectedSessionID: String) async -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while busy, Date() < deadline {
+            guard isReloadCurrent(token: token, expectedSessionID: expectedSessionID) else {
+                return false
+            }
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
+        }
+        return !busy && isReloadCurrent(token: token, expectedSessionID: expectedSessionID)
+    }
+
+    /// The captured session is still the current one and is still missing its
+    /// transcript. A park or session change makes this false.
+    private func isReloadCurrent(token: Int, expectedSessionID: String) -> Bool {
+        sessionReloadToken == token
+            && isReloadingSession
+            && !Task.isCancelled
+            && host != nil
+            && !ChatSessionReload.shouldAbandonReload(initiatingSessionID: expectedSessionID,
+                                                      currentSessionID: sessionID)
+            && ChatSessionReload.needsReloadAfterResume(sessionID: sessionID,
+                                                        transcriptReady: transcriptReady,
+                                                        parked: parked,
+                                                        hostLifecycleTransition: hostLifecycleTransition)
+    }
+
+    private func finishSessionReload(token: Int) {
+        guard sessionReloadToken == token else { return }
+        sessionReloadTask = nil
+        isReloadingSession = false
+    }
+
+    /// Cancels a scheduled or running reload. The token bump makes any await
+    /// already inside `openAndActivateSession` stop before it can touch state.
+    private func cancelSessionReload() {
+        guard sessionReloadTask != nil || isReloadingSession else { return }
+        sessionReloadToken &+= 1
+        sessionReloadTask?.cancel()
+        sessionReloadTask = nil
+        isReloadingSession = false
     }
 
     /// Applies a saved model-service change to the running host.
@@ -1536,12 +1850,15 @@ final class ChatModel {
     /// 归档的正好是当前打开的那个会话:把它从页面上摘掉,回到空屏,
     /// 不让用户停在一个已经不在列表里的对话上。不关宿主、不动别的会话。
     func detachArchivedSession() async {
+        cancelSessionReload()
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         if let harness, let sessionID { await harness.closeSession(sessionID) }
         harness = nil
         sessionID = nil
         transcriptReady = false
+        resourceMeter.endTurn()
+        flushStreamingText()
         items = []
         pendingPermission = nil
         pendingQuestion = nil
@@ -1550,6 +1867,8 @@ final class ChatModel {
     }
 
     func stop() async {
+        cancelBackoffRetry()
+        cancelSessionReload()
         guard let host else {
             stopBotTurnPolling()
             await botLaunch?.composition.stop()
@@ -1638,6 +1957,9 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        // Leaving the foreground drops a pending D24 retry; the person will
+        // start the engine explicitly when they come back.
+        if phase == .background { cancelBackoffRetry() }
         guard let host else { return }
         switch phase {
         case .background:
@@ -1688,6 +2010,9 @@ final class ChatModel {
     }
 
     private func parkHost(_ host: PhoneDSHHost) async {
+        // A park interrupts a reload cleanly; the resume trigger queues a new
+        // one. The token bump stops a reload already awaiting the host.
+        cancelSessionReload()
         guard !hostLifecycleTransition else { return }
         hostLifecycleTransition = true
         // Every early return, thrown error or lost continuation must release
@@ -1703,6 +2028,7 @@ final class ChatModel {
         do {
             try await host.park()
             parked = true
+            resourceMeter.endTurn()
             appendStatus("Host parked; resume by returning to the app")
         } catch {
             parked = false
@@ -1739,9 +2065,11 @@ final class ChatModel {
             watchdog.cancel()
             hostLifecycleTransition = false
         }
+        var didResume = false
         do {
             try await host.resume()
             parked = false
+            didResume = true
             appendStatus("Host resumed; the session continues from the WAL")
             refreshFiles()
             await reconcileTurnStateAfterResume()
@@ -1753,7 +2081,14 @@ final class ChatModel {
         backgroundParkRequested = false
         // Release before the queued follow-up so it passes its own guard.
         hostLifecycleTransition = false
-        if shouldPark && !parked { await parkHost(host) }
+        if shouldPark && !parked {
+            await parkHost(host)
+        } else if didResume {
+            // The history load may have died while the host was parking; the
+            // resume is now the point where that session can be re-opened.
+            scheduleSessionReload(reason: "host resumed without a transcript",
+                                  requireForeground: true)
+        }
     }
 
     /// Releases a latched host transition after a bound the host's own
@@ -1864,18 +2199,25 @@ final class ChatModel {
                     self.hostState = "\(to)"
                     if to == .failed { self.hostDidFail(host) }
                 case .error(let message):
-                    // Keep the raw host text: the friendly summary alone made
-                    // a WAL recovery failure look like a model-service error.
-                    Self.appendDiagnostic("host error: \(message)")
+                    // The friendly summary alone made a WAL recovery failure
+                    // look like a model-service error, so keep the host event
+                    // fingerprint for correlation; the raw text stays on screen.
+                    Self.appendDiagnostic("host error: \(NativeLogRedaction.value(message))")
                     self.reportError("引擎报错：\(Self.condensed(message))")
                 case .webContentTerminated(let count):
                     self.restartPolicySawTermination = true
+                    self.resourceMeter.recordWebContentTermination()
                     self.appendStatus("WebContent terminated (\(count)); the host restarts the Worker")
                 case .restarted:
                     self.restartPolicyHighSamples = 0
                     self.restartPolicySawTermination = false
                     self.startedAt = Date()
                     self.appendStatus("Worker restarted; the session resumes from the WAL")
+                    // A restart during the first history load leaves the
+                    // session open without a transcript; re-open after the
+                    // Worker has settled. A completed adoption is a no-op.
+                    self.scheduleSessionReload(reason: "Worker restarted without a transcript",
+                                               delay: ChatSessionReload.retryDelay)
                 default:
                     break
                 }
@@ -1885,6 +2227,8 @@ final class ChatModel {
 
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
+        cancelBackoffRetry()
+        cancelSessionReload()
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         hostEventTask?.cancel(); hostEventTask = nil
@@ -2084,7 +2428,7 @@ final class ChatModel {
                     try await harness.send(.cancel, to: sessionID)
                 } catch {
                     // A wedged Worker can also fail the cancel call itself.
-                    await MainActor.run { self.appendStatus("取消请求发送失败：\(error.localizedDescription)") }
+                    await MainActor.run { self.appendStatus("取消请求发送失败：\(NativeLogRedaction.localizedError(error))") }
                 }
             }
             group.addTask {
@@ -2105,6 +2449,7 @@ final class ChatModel {
         guard turnRunning else { return }
         finishStreamingAssistant()
         turnRunning = false
+        resourceMeter.endTurn()
         syncIdleTimer()
         clearQueueLines()
         clearError()
@@ -2262,6 +2607,7 @@ final class ChatModel {
             turnStartTimes.merge(facts.starts) { _, new in new }
             turnEndReasons.merge(facts.endReasons) { _, new in new }
             turnEndTimes.merge(facts.ends) { _, new in new }
+            flushStreamingText()
             items = older + items
             transcriptBeforeSeq = nextBeforeSeq
             transcriptHasMore = page["hasMore"]?.boolValue ?? false
@@ -2583,7 +2929,7 @@ final class ChatModel {
                     guard let self else { return }
                     self.eventStreamRecovering = true
                     self.statusLine = "事件流中断，正在重新同步会话"
-                    self.appendStatus("Event stream interrupted: \(error)")
+                    self.appendStatus("Event stream interrupted; resynchronizing (len=\(error.localizedDescription.count))")
                 },
                 recovered: { [weak self] in
                     guard let self else { return }
@@ -2600,6 +2946,7 @@ final class ChatModel {
                                                    requireRunningState: true, pendingInputs: items)
         try Task.checkCancellation()
         guard self.sessionID == sessionID else { throw CancellationError() }
+        flushStreamingText()
         items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
                                                     inputReceipts: history.inputReceipts)
         turnStartTimes = history.turnFacts.starts
@@ -2622,6 +2969,7 @@ final class ChatModel {
             pendingPermission = nil
             for index in items.indices where items[index].toolState == .running {
                 items[index].toolState = .stopped
+                items[index].bumpRenderRevision()
             }
         }
         syncIdleTimer()
@@ -2644,6 +2992,14 @@ final class ChatModel {
 
     private func handle(_ event: HarnessEvent) {
         eventsHandled += 1
+        // Deltas are coalesced; every other event is an ordering boundary and
+        // sees the transcript with the pending text already applied.
+        switch event.kind {
+        case .assistantDelta, .reasoningDelta:
+            break
+        default:
+            flushStreamingText()
+        }
         // A queued message only needs its dispatch label until the turn shows
         // any activity. Assistant text is not the only first output: a turn
         // that starts with a tool call used to keep 发送中… forever.
@@ -2658,29 +3014,35 @@ final class ChatModel {
             clearSendingLabels()
             if let index = items.indices.last, items[index].kind == .reasoning,
                items[index].streaming {
-                items[index].text += text
+                streamAccumulator.append(text, to: items[index].id)
+                scheduleStreamingFlush()
             } else {
                 finishStreamingReasoning()
                 var item = ChatItem(id: eventItemID(event), kind: .reasoning,
-                                    title: "思考", text: text, streaming: true)
+                                    title: "思考", text: "", streaming: true)
                 item.timestamp = event.time
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamAccumulator.append(text, to: item.id)
+                scheduleStreamingFlush()
             }
         case .assistantDelta(let text):
             recordLatency("first-assistant", event: event, once: true)
             clearSendingLabels()
             finishStreamingReasoning()
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
-                items[index].text += text
+                streamAccumulator.append(text, to: items[index].id)
+                scheduleStreamingFlush()
             } else {
                 var item = ChatItem(id: eventItemID(event), kind: .assistant,
-                                    title: "Assistant", text: text, streaming: true)
+                                    title: "Assistant", text: "", streaming: true)
                 item.timestamp = event.time
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamAccumulator.append(text, to: item.id)
+                scheduleStreamingFlush()
             }
         case .assistantMessage(let text):
             recordLatency("assistant-message", event: event)
@@ -2689,6 +3051,7 @@ final class ChatModel {
             if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
                 if !text.isEmpty { items[index].text = text }
                 items[index].streaming = false
+                items[index].bumpRenderRevision()
             } else if !text.isEmpty {
                 var item = ChatItem(id: eventItemID(event), kind: .assistant, title: "Assistant", text: text)
                 item.timestamp = event.time
@@ -2748,6 +3111,7 @@ final class ChatModel {
                 items[index].toolMetadata = event.toolResultMeta
                 items[index].toolErrorCode = event.toolResultErrorCode
                 items[index].toolState = state
+                items[index].bumpRenderRevision()
             } else {
                 var item = ChatItem(id: eventItemID(event), kind: .toolResult(isError: isError),
                                     title: isError ? "Tool error" : "Tool result", text: detail)
@@ -2762,14 +3126,14 @@ final class ChatModel {
                 items.append(item)
             }
             scheduleNativeMetricsRefresh()
-            refreshFiles()
+            refreshFiles(debounced: true)
         case .permissionRequested(let request):
             pendingPermission = ChatPermission(id: request.requestID, tool: request.tool,
                                                summary: request.summary,
                                                arguments: recentToolArguments[request.tool] ?? [:])
         case .questionRequested(let question):
             pendingQuestion = question
-            appendStatus("The agent asks: \(question.prompt)")
+            appendStatus("The agent asks: len=\(question.prompt.count)")
         case .turnStarted(let turnID):
             let turnNumber = Int(turnID) ?? activeTurn ?? 0
             activeTurn = turnNumber
@@ -2781,6 +3145,7 @@ final class ChatModel {
             promoteQueuedToSending()
             turnBoundaryRevision += 1
             turnRunning = true
+            resourceMeter.beginTurn()
             syncIdleTimer()
             statusLine = "Turn running…"
         case .turnEnded(let turnID, let reason):
@@ -2789,6 +3154,7 @@ final class ChatModel {
             finishStreamingReasoning()
             clearSendingLabels()
             turnRunning = false
+            resourceMeter.endTurn()
             turnBoundaryRevision += 1
             activeTurnStartedAt = nil
             let finishedTurn = Int(turnID) ?? activeTurn ?? 0
@@ -2799,11 +3165,13 @@ final class ChatModel {
             if case .failed = reason {
                 for index in items.indices where items[index].turn == Int(turnID) && items[index].toolState == .running {
                     items[index].toolState = .stopped
+                    items[index].bumpRenderRevision()
                 }
             }
             if case .cancelled = reason {
                 for index in items.indices where items[index].turn == Int(turnID) && items[index].toolState == .running {
                     items[index].toolState = .stopped
+                    items[index].bumpRenderRevision()
                 }
             }
             scheduleNativeMetricsRefresh()
@@ -2818,7 +3186,11 @@ final class ChatModel {
                 // A finished turn has no queued or dispatching message left;
                 // "已并入当前任务" used to stay under the message forever.
                 clearQueueLines()
-                appendStatus("Turn ended: \(Self.describe(reason))")
+                if case .budgetExhausted(let message) = reason {
+                    appendStatus("Turn ended: budget exhausted \(NativeLogRedaction.value(message))")
+                } else {
+                    appendStatus("Turn ended: \(Self.describe(reason))")
+                }
             }
             refreshFiles()
             Task { await self.refreshGoal() }
@@ -2859,21 +3231,53 @@ final class ChatModel {
                 items[index].turnUsage = usage
             }
         case .exited(let reason):
-            appendStatus("Agent exited: \(reason)")
+            appendStatus("Agent exited: \(NativeLogRedaction.value(reason))")
             turnRunning = false
+            resourceMeter.endTurn()
             syncIdleTimer()
         }
     }
 
     private func finishStreamingAssistant() {
+        flushStreamingText()
         if let index = items.indices.last, items[index].kind == .assistant, items[index].streaming {
             items[index].streaming = false
+            items[index].bumpRenderRevision()
         }
     }
 
     private func finishStreamingReasoning() {
+        flushStreamingText()
         for index in items.indices where items[index].kind == .reasoning && items[index].streaming {
             items[index].streaming = false
+            items[index].bumpRenderRevision()
+        }
+    }
+
+    /// Applies every pending streamed delta to `items` now.
+    ///
+    /// Called at ordering boundaries (tool call/result, turn start/end, a
+    /// history reload), when the person scrolls back to the bottom and by the
+    /// throttled flush task. Taking the chunks is atomic on the main actor, so
+    /// two flush paths can never apply the same text twice or out of order.
+    func flushStreamingText() {
+        streamFlushTask?.cancel()
+        streamFlushTask = nil
+        let chunks = streamAccumulator.take()
+        guard !chunks.isEmpty else { return }
+        var next = items
+        next.applyStreamChunks(chunks)
+        items = next
+    }
+
+    private func scheduleStreamingFlush() {
+        guard streamFlushTask == nil else { return }
+        let delay = resourceMeter.level.streamUpdateIntervalNanoseconds
+        streamFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.streamFlushTask = nil
+            self.flushStreamingText()
         }
     }
 
@@ -2923,13 +3327,14 @@ final class ChatModel {
         do {
             let next = try await harness.goal(sessionID: sessionID)
             goal = next
-            let summary = next.map { "\($0.phase.rawValue) \($0.objective.prefix(40))" } ?? "none"
+            // The objective is user text: correlate on phase + length only.
+            let summary = next.map { "\($0.phase.rawValue) len=\($0.objective.count)" } ?? "none"
             if summary != lastLoggedGoal {
                 lastLoggedGoal = summary
                 appendStatus("goal: \(summary)")
             }
         } catch {
-            appendStatus("goal read failed: \(error)")
+            appendStatus("goal read failed: \(NativeLogRedaction.error(error))")
         }
     }
 
@@ -2957,7 +3362,7 @@ final class ChatModel {
             contextPressure = NativeContextPressure(value: values?["contextPressure"])
             contextBreakdown = NativeContextBreakdown(value: values?["contextBreakdown"])
         } catch {
-            appendStatus("Native conversation metrics unavailable: \(error.localizedDescription)")
+            appendStatus("Native conversation metrics unavailable: \(NativeLogRedaction.localizedError(error))")
         }
     }
 
@@ -3015,7 +3420,7 @@ final class ChatModel {
         do {
             try await host.plannedRestart(reason: "restart policy: \(trigger.rawValue)")
         } catch {
-            appendStatus("Planned restart failed: \(error.localizedDescription)")
+            appendStatus("Planned restart failed: \(NativeLogRedaction.localizedError(error))")
         }
     }
 
@@ -3079,6 +3484,7 @@ final class ChatModel {
               let data = try? Data(contentsOf: Self.snapshotURL(for: sessionID)),
               let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
               !cached.isEmpty else { return }
+        flushStreamingText()
         items = cached.compactMap { item in
             guard let kind = Self.chatKind(from: item.kind) else { return nil }
             return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
@@ -3119,7 +3525,7 @@ final class ChatModel {
     /// 原话只写进 chat-status.log 供诊断导出。
     static func userFacingFailure(_ raw: String) -> String {
         let lower = raw.lowercased()
-        Self.appendDiagnostic("turn failed: \(raw)")
+        Self.appendDiagnostic(NativeLogRedaction.failedTurn(raw))
         // 六种说法,认不出来只写「没发出去」:宿主原句永远不上屏。
         if lower.contains("403") || lower.contains("forbidden") || lower.contains("host_not_allowed")
             || lower.contains("not on the configured allow-list") {
@@ -3336,7 +3742,11 @@ final class ChatModel {
     private func reportError(_ text: String) {
         userFacingError = text
         statusLine = text
-        appendStatus(text)
+        // The user keeps the actionable wording on screen; the persisted
+        // diagnostic line records only the value's length and a hash prefix so
+        // a host error that echoes a prompt or a credential cannot leak.
+        items.append(ChatItem(kind: .status, title: "Host", text: text))
+        Self.persistStatus("error: \(NativeLogRedaction.value(text))")
     }
 
     /// Status rows also go to `Documents/chat-status.log` so a host error can
@@ -3432,25 +3842,31 @@ final class ChatModel {
 
     // MARK: Workspace files
 
-    func refreshFiles() {
-        let root = materializedWorkspace.standardizedFileURL.resolvingSymlinksInPath()
-        let rootPrefix = root.path + "/"
-        var found: [WorkspaceFile] = []
-        if let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) {
-            for case let url as URL in enumerator {
-                guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
-                      values.isRegularFile == true else { continue }
-                let path = url.standardizedFileURL.resolvingSymlinksInPath().path
-                // A path outside the materialized root is not a workspace file;
-                // an absolute path here would break the list grouping and every
-                // preview/share decision downstream.
-                guard path.hasPrefix(rootPrefix) else { continue }
-                found.append(WorkspaceFile(relativePath: String(path.dropFirst(rootPrefix.count)),
-                                           size: values.fileSize ?? 0))
-            }
+    /// Request a workspace scan. `debounced` is for tool results: a burst of
+    /// them coalesces into one trailing scan. Every other caller (session
+    /// open/switch, foreground, resume, turn end) asks for the scan now, still
+    /// through the same serialized off-main path.
+    func refreshFiles(debounced: Bool = false) {
+        if debounced {
+            fileRefresh.requestDebounced(root: materializedWorkspace)
+        } else {
+            fileRefresh.requestImmediately(root: materializedWorkspace)
         }
-        files = found.sorted { $0.relativePath < $1.relativePath }
-        if let previewPath, !files.contains(where: { $0.relativePath == previewPath }) {
+    }
+
+    /// Await a scan started at (or after) this call. Used where the caller
+    /// reads `files`/`fileIndex` immediately afterwards.
+    func refreshFilesAndWait() async {
+        await fileRefresh.requestImmediatelyAndWait(root: materializedWorkspace)
+    }
+
+    private func applyWorkspaceFileSnapshot(root: URL, files: [WorkspaceFile]) {
+        // The controller already checks this; keep the state guard here too so
+        // a stale result can never land after a workspace switch.
+        guard root == materializedWorkspace else { return }
+        if self.files != files { self.files = files }
+        resourceMeter.updateWorkspace(files: files)
+        if let previewPath, fileIndex.file(atPath: previewPath) == nil {
             self.previewPath = nil; previewText = nil
         }
     }
@@ -3469,6 +3885,7 @@ final class ChatModel {
     }
 
     func clearTranscript() {
+        flushStreamingText()
         items.removeAll()
         inputTokens = 0; outputTokens = 0; modelRequests = 0
     }

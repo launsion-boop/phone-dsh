@@ -125,9 +125,10 @@ final class PreviewModel {
         loadedBytes = 0
         byteOffset = 0
         eof = true
-        file = ChatModel.shared.files.first {
-            $0.relativePath == path || $0.relativePath.precomposedStringWithCanonicalMapping == path.precomposedStringWithCanonicalMapping
-        }
+        file = ChatModel.shared.fileIndex.file(atPath: path)
+            ?? ChatModel.shared.files.first {
+                $0.relativePath.precomposedStringWithCanonicalMapping == path.precomposedStringWithCanonicalMapping
+            }
         fileURL = PreviewPathResolver.fileURL(for: path)
         kind = fileURL?.previewKind ?? .unsupported
         if kind == .unsupported, let fileURL, Self.looksLikeText(fileURL) {
