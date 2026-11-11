@@ -54,7 +54,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 ## 4. 最新基线的表现与接线
 
 - Bot 色彩：用户气泡和推荐卡表面使用真实 Bot 色彩，但必须满足 phoneDSH 深浅色与对比度 token；不能把桌面任意色值直接用于正文或背景。推荐色不能掩盖文字层级或失败语义。
-- 活动行：composer 上方、左对齐只保留一条运行指示（id `bot.activity.line`），左侧 28pt 实时大肥鱼（除状态动画外另有 1.1s 往返的轻微上下浮动与 0.98–1.04 呼吸缩放），右侧 14/20 次要色单行省略文字，带从左到右的柔和高光，文字不变时在 55%–100% 不透明度之间 1.2s 往返呼吸。只在回合运行中且 `activity != nil` 时显示，回复正文开始流式输出后隐藏，回合结束隐藏；整行不拦截触摸。有工具详情时显示详情（模型写的 description/summary/label 截 80 字，否则「工具标签 · 目标」截 42 字），否则按 thinking / tool-running / streaming 每 2.4s 轮换文案，状态或详情变化时从第一句重新开始。文字变化时旧文字淡出上移、新文字淡入（y 4→0），0.35s easeInOut；整行出现/消失淡入淡出 0.25s；reduce motion 时以上动画全部关闭。状态来自当前 turn 的实时事件与 `BotRuntimePresentationFactory`/`BotFishDirector`，不另写映射，也不生成消息行。
+- 活动行：composer 上方、左对齐只保留一条运行指示（id `bot.activity.line`），左侧 28pt 实时大肥鱼（除状态动画外另有 1.1s 往返的轻微上下浮动与 0.98–1.04 呼吸缩放），右侧 14/20 次要色单行省略文字，带从左到右的柔和高光，文字不变时在 55%–100% 不透明度之间 1.2s 往返呼吸。只在回合运行中且 `activity != nil` 时显示，回复正文开始流式输出后隐藏，回合结束隐藏；整行不拦截触摸。文字按工具类别生成：`BotActivityPhrases` 把 Bot 可调用的 DSH 内置工具和 `mcp__phone__*` 工具映射到 `BotActivity.category`（thinking/reading/searching/browsing/running/writing/memory/messaging/reviewing/generic）和一句中文动作短语，能带目标时附「 · 文件名/搜索词/网站域名」（沿用现有 target 42 字规则）；工具参数里有 `description`/`summary`/`label` 时优先显示模型写的这句——去首尾空白和句末标点，超过 20 个字符截断加「…」，类别仍按工具名判断。最后一个 `tool/call` 已有对应 `tool/result`、且之后没有新工具或流式输出时，类别为 reviewing、显示「看看结果」类短语（可带该工具目标），不再卡在上一条；`step/start` 后尚未出现新工具时回到 thinking；未知工具显示 generic 的「处理中」，不显示原始工具名；隐藏工具（`FishAction`）不产生状态行。每条活动至少显示 800ms，期间到来的新活动只保留最新一条（latest-wins），到时再切换；只有 thinking/reviewing/generic 且没有模型 description 时才按 2.4s 轮换该类别的通用短语，每次进入新活动随机起点；具体工具短语和模型 description 不轮换。同一活动持续超过 60s，在末尾追加「 · N 分钟」，按分钟刷新。文字变化时旧文字淡出上移、新文字淡入（y 4→0），0.35s easeInOut；整行出现/消失淡入淡出 0.25s；reduce motion 时以上动画全部关闭。状态来自当前 turn 的实时事件与 `BotRuntimePresentationFactory`/`BotFishDirector`，不另写映射，也不生成消息行。
 - 输入区：Grok 式白色胶囊，最小高 52、圆角 26、细描边 + 浮动阴影；左右内边距各 8，左侧 36pt 圆形「+」、中间输入框、右侧 36pt 圆形发送/停止，三者在单行时垂直居中，多行增长时「+」与按钮贴底 8pt。占位「向 {name} 提问」，多行增长上限约 5 行。右侧按钮按状态切换但发送 id 不变：
   - 空闲且有文字 → 黑底白色 `arrow.up` 发送（id `bot.composer.send`）；空闲无文字 → 同一位置置灰禁用；
   - 运行中且输入为空 → 停止（id `bot.composer.stop`）；
@@ -77,7 +77,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 | 居中 Bot 胶囊 | 32pt `BotFishView`（主 Bot 皇冠，可带 `reaction:`）+ 17pt semibold 名字 + 14pt 活动小图标（三点 / 铅笔 / 红色「!」；空闲隐藏），44pt 高白色 Capsule；右上 6pt 提示圆点 | `bot.info.open` |
 | 右侧共享胶囊 | 与 DSH 页同一 `HeaderActionPill`：连接设备（在线 6pt 圆点）+「…」菜单 | `bot.connect-device`、`bot.header.menu` |
 | 空状态 | 96pt 动态大肥鱼，标题 15/22 semibold，正文 13/18，间距 12，可用高度居中 | `bot.chat.empty` |
-| 工作状态行 | 28pt 浮动大肥鱼 + 14/20 单行文字（切换淡入淡出、静止时呼吸）+ shimmer，输入框上方左对齐 | `bot.activity.line` |
+| 工作状态行 | 28pt 浮动大肥鱼 + 14/20 单行文字（类别短语；模型 description 优先并截 20 字；reviewing/thinking 阶段；800ms latest-wins；仅通用短语 2.4s 轮换、60s 后追加「 · N 分钟」；切换淡入淡出、静止时呼吸）+ shimmer，输入框上方左对齐 | `bot.activity.line` |
 | 输入胶囊 | 最小高 52、r26、白色、细描边、浮动阴影；左/右 8，左侧「+」、右侧单按钮三态（空闲发送·置灰 / 运行中空输入停止 / 运行中带文字发送并入当前回合），单行居中、多行贴底 8pt | `bot.composer.input`、`bot.composer.attach`、`bot.composer.send`、`bot.composer.stop` |
 | 附件 chip / 用户行附件卡片 | 胶囊上方横向 chip（图标 + 名 + 大小/类型 + ×），最多 10 个；用户行气泡内附件卡片（图标 + 名 + 大小/类型） | `bot.composer.attachment.<index>`、`bot.composer.attachment.notice`、`bot.message.attachment` |
 

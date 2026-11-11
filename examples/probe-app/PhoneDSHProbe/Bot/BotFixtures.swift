@@ -9,7 +9,7 @@ import SwiftUI
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
-    case empty, runningThinking, runningTool, agentComm
+    case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -182,7 +182,8 @@ enum BotUIFixtures {
             ]
         case .empty:
             return []
-        case .runningThinking, .runningTool:
+        case .runningThinking, .runningTool, .runningToolDescribed,
+             .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
         case .agentComm:
@@ -457,6 +458,30 @@ struct BotUIFixtureRootView: View {
                 "callId": .string("fixture-call"),
                 "name": .string("bash"),
                 "arguments": .string("{\"command\":\"xcodebuild build\",\"description\":\"运行构建\"}"),
+            ])))
+        case .runningToolDescribed:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                "callId": .string("fixture-described"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"cat diary/*.md\",\"description\":\"对比三篇日记的情绪\"}"),
+            ])))
+        case .runningToolReviewing:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                "callId": .string("fixture-review"),
+                "name": .string("read"),
+                "arguments": .string("{\"path\":\"/tmp/report.md\"}"),
+            ])))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/result", turn: 1, seq: 3, data: [
+                "message": .object(["toolCallId": .string("fixture-review")]),
+            ])))
+        case .runningToolPhone:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                "callId": .string("fixture-phone"),
+                "name": .string("mcp__phone__ReadMemory"),
+                "arguments": .string("{\"path\":\"user/diary.md\"}"),
             ])))
         default:
             break
@@ -828,7 +853,9 @@ struct BotDrawerFixtureRootView: View {
                 roster.setRuntimeState(
                     BotRosterRuntimeState(
                         fishState: .working,
-                        activity: BotActivity(status: .toolRunning, detail: "执行指令 · xcodebuild build"),
+                        activity: BotActivity(status: .toolRunning, detail: "跑个命令",
+                                              category: .running,
+                                              startedAt: BotLiveFishProjection.now),
                         isRunning: true),
                     for: main.id)
             }

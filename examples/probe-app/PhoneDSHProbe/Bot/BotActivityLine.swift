@@ -15,23 +15,11 @@ struct BotActivityLine: View {
 
     static let fishSize: CGFloat = 28
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
-    @State private var index = 0
-    @State private var rotationTask: Task<Void, Never>?
+    @State private var line = BotActivityLineState()
+    @State private var clockTask: Task<Void, Never>?
 
-    private var phrases: [String] {
-        switch activity.status {
-        case .thinking: return ["思考中…", "整理思绪…", "准备下一步…"]
-        case .toolRunning: return ["处理中…", "执行工具…", "整理结果…"]
-        case .streaming: return ["整理回复…", "组织内容…"]
-        }
-    }
-
-    private var text: String {
-        if !activity.detail.isEmpty { return activity.detail }
-        return phrases[index % phrases.count]
-    }
+    private var text: String { line.text }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -45,30 +33,37 @@ struct BotActivityLine: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
         .accessibilityIdentifier("bot.activity.line")
-        .onAppear { startRotation() }
+        .onAppear { receive(activity) }
         .onDisappear {
-            rotationTask?.cancel()
-            rotationTask = nil
+            clockTask?.cancel()
+            clockTask = nil
         }
-        .onChange(of: activity.status) { _, _ in resetRotation() }
-        .onChange(of: activity.detail) { _, _ in resetRotation() }
-        .onChange(of: pageActive) { _, _ in resetRotation() }
+        .onChange(of: activity) { _, next in receive(next) }
+        .onChange(of: pageActive) { _, _ in
+            clockTask?.cancel()
+            clockTask = nil
+            if pageActive { receive(activity) }
+        }
     }
 
-    private func resetRotation() {
-        index = 0
-        startRotation()
+    /// Hand the factory's activity to the timing machine, then keep one clock
+    /// task parked at the next rotation/pending/minute boundary.
+    private func receive(_ next: BotActivity) {
+        line.receive(next, at: BotActivityLineState.now)
+        scheduleClock()
     }
 
-    private func startRotation() {
-        rotationTask?.cancel()
-        rotationTask = nil
-        guard activity.detail.isEmpty, pageActive else { return }
-        rotationTask = Task { @MainActor in
+    private func scheduleClock() {
+        clockTask?.cancel()
+        clockTask = nil
+        guard pageActive, let deadline = line.nextDeadline else { return }
+        clockTask = Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_400_000_000)
+                guard let target = line.nextDeadline else { return }
+                let delay = max(0, target - BotActivityLineState.now)
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
                 guard !Task.isCancelled else { return }
-                index += 1
+                line.tick(at: BotActivityLineState.now)
             }
         }
     }

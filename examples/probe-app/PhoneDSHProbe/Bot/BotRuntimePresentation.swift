@@ -45,6 +45,13 @@ struct BotActivity: Equatable, Sendable {
 
     var status: Status
     var detail = ""
+    /// What the activity is about. The text may come from the model's own
+    /// `description`, but the category always follows the tool name; the fish
+    /// avatar maps these raw names onto its work style.
+    var category: BotActivityCategory = .generic
+    /// Start of this phase in the event clock (milliseconds). Drives the
+    /// activity line's `· N 分钟` suffix.
+    var startedAt: Int64 = 0
 }
 
 struct BotRuntimePresentation: Equatable, Sendable {
@@ -94,7 +101,7 @@ enum BotRuntimePresentationFactory {
         return BotRuntimePresentation(
             fishState: director.current,
             runningTurnID: running?.id,
-            activity: activity(turn: running, events: sessionEvents),
+            activity: activity(turn: running, events: sessionEvents, now: now),
             reaction: latestReaction(botID: botID, sessionEvents: sessionEvents,
                                      uiEvents: uiEvents, now: now),
             oneShot: director.oneShot)
@@ -158,24 +165,83 @@ enum BotRuntimePresentationFactory {
         return current
     }
 
+    /// The current phase of the running turn. Only the tail after the last
+    /// user message counts: a finished tool call becomes `reviewing` until a
+    /// new tool call or the next `step/start`, a stream hides the line, and a
+    /// hidden cosmetic tool (FishAction) never produces one at all.
     private static func activity(turn: (id: String, seq: Int)?,
-                                 events: [BotDSHSessionEvent]) -> BotActivity? {
+                                 events: [BotDSHSessionEvent],
+                                 now: Int64) -> BotActivity? {
         guard let turn else { return nil }
         let active = events.filter { $0.seq >= turn.seq }
-        if active.contains(where: { $0.type == "assistant/stream" }) { return nil }
         let lastUser = active.lastIndex(where: {
             $0.type == "user/message" && $0.data["role"]?.runtimeString == "user"
         }) ?? active.startIndex
-        guard let tool = active[lastUser...].last(where: { $0.type == "tool/call" }) else {
-            return BotActivity(status: .thinking)
+        let tail = Array(active[lastUser...])
+        let lastStep = tail.lastIndex(where: { $0.type == "step/start" })
+        let lastCall = tail.lastIndex(where: { $0.type == "tool/call" })
+        let lastStream = tail.lastIndex(where: { $0.type == "assistant/stream" })
+
+        // The latest phase is a tool call (no newer step yet).
+        if let lastCall, lastStep == nil || lastCall > lastStep! {
+            // A stream that starts after the latest call means the body is
+            // visible; keep the existing rule and hide the line.
+            if let lastStream, lastStream > lastCall { return nil }
+            let call = tail[lastCall]
+            let name = call.data["name"]?.runtimeString ?? ""
+            // FishAction is cosmetic and hidden from process rows; it must not
+            // become the visible activity line or leak its tool name into the
+            // sidebar's status text. The director still plays its reaction.
+            guard BotDisplayContract.isToolCallVisible(named: name) else { return nil }
+            let arguments = toolArguments(call.data["arguments"])
+            let startedAt = max(0, call.time) > 0 ? call.time : now
+            if let result = matchingResult(after: lastCall, in: tail) {
+                return BotActivity(
+                    status: .toolRunning,
+                    detail: BotActivityPhrases.reviewingText(forToolNamed: name,
+                                                             arguments: arguments),
+                    category: .reviewing,
+                    startedAt: max(0, tail[result].time) > 0 ? tail[result].time : startedAt)
+            }
+            let phrase = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments)
+            return BotActivity(status: .toolRunning, detail: phrase.text,
+                               category: phrase.category, startedAt: startedAt)
         }
-        let name = tool.data["name"]?.runtimeString ?? ""
-        // FishAction is cosmetic and hidden from process rows; it must not
-        // become the visible activity line or leak its tool name into the
-        // sidebar's status text. The director still plays its reaction.
-        guard BotDisplayContract.isToolCallVisible(named: name) else { return nil }
-        let arguments = toolArguments(tool.data["arguments"])
-        return BotActivity(status: .toolRunning, detail: BotToolActivity.describe(name: name, arguments: arguments))
+
+        // Streaming in the current step hides the line.
+        if let lastStream, lastStep == nil || lastStream > lastStep! { return nil }
+        // A new step without a tool call is back to thinking; the previous
+        // tool's "running" detail must not linger.
+        if let lastStep {
+            let startedAt = max(0, tail[lastStep].time) > 0 ? tail[lastStep].time : now
+            return BotActivity(status: .thinking, category: .thinking, startedAt: startedAt)
+        }
+        if lastStream != nil { return nil }
+        let start = active.first(where: { $0.seq == turn.seq })
+        let startedAt = start.map { max(0, $0.time) > 0 ? $0.time : now } ?? now
+        return BotActivity(status: .thinking, category: .thinking, startedAt: startedAt)
+    }
+
+    /// The matching `tool/result` after `callIndex`, using the real event
+    /// shape (`message.toolCallId` / `source.callId`) with the older
+    /// `data.callId` as a fallback. Events from before call IDs were carried
+    /// still count as a result for the last call.
+    private static func matchingResult(after callIndex: Int,
+                                       in events: [BotDSHSessionEvent]) -> Int? {
+        let callID = events[callIndex].data["callId"]?.runtimeString ?? ""
+        for index in events.indices where index > callIndex {
+            guard events[index].type == "tool/result" else { continue }
+            let resultID = toolResultCallID(events[index].data)
+            if callID.isEmpty || resultID.isEmpty || resultID == callID { return index }
+        }
+        return nil
+    }
+
+    private static func toolResultCallID(_ data: [String: PhoneDSHBot.BotJSONValue]) -> String {
+        data["message"]?.runtimeObject?["toolCallId"]?.runtimeString
+            ?? data["callId"]?.runtimeString
+            ?? data["message"]?.runtimeObject?["source"]?.runtimeObject?["callId"]?.runtimeString
+            ?? ""
     }
 
     private static func toolArguments(_ value: PhoneDSHBot.BotJSONValue?) -> [String: PhoneDSHBot.BotJSONValue] {
@@ -186,47 +252,12 @@ enum BotRuntimePresentationFactory {
     }
 }
 
+/// Compatibility shim for callers that only need the visible tool text. The
+/// category/phrase table now lives in `BotActivityPhrases`.
 enum BotToolActivity {
-    private static let labels = [
-        "bash": "执行指令", "shell": "执行指令", "exec": "执行指令", "terminal": "执行指令",
-        "read": "读取文件", "read_file": "读取文件",
-        "write": "写入文件", "write_file": "写入文件",
-        "edit": "编辑文件", "edit_file": "编辑文件", "apply_patch": "编辑文件",
-        "glob": "搜索文件", "grep": "搜索内容",
-        "web_search": "搜索网络", "websearch": "搜索网络",
-        "web_fetch": "读取网页", "webfetch": "读取网页", "fetch": "读取网页",
-        "task": "启动子代理", "subagent": "启动子代理",
-        "createteammate": "建立 Bot", "sendtouser": "整理回复", "send_to_user": "整理回复",
-        "ask_user": "整理问题",
-    ]
-
-    static func describe(name rawName: String, arguments: [String: PhoneDSHBot.BotJSONValue]) -> String {
-        if let custom = arguments.runtimeString("description", "summary", "label") {
-            return String(custom.prefix(80))
-        }
-        let parts = rawName.components(separatedBy: "__")
-        let name = (rawName.hasPrefix("mcp__") && parts.count > 2
-                    ? parts.dropFirst(2).joined(separator: "__") : rawName).lowercased()
-        let label = labels[name] ?? "使用 \(name.isEmpty ? "工具" : name)"
-        let target = arguments.runtimeString("path", "file_path", "filePath", "query", "url", "command", "prompt", "name")
-            .map(shortTarget) ?? ""
-        return target.isEmpty ? label : "\(label) · \(target)"
-    }
-
-    private static func shortTarget(_ value: String) -> String {
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = text.components(separatedBy: CharacterSet(charactersIn: "/\\"))
-            .filter { !$0.isEmpty }.last ?? text
-        return base.count > 42 ? "\(base.prefix(39))…" : base
-    }
-}
-
-private extension Dictionary where Key == String, Value == PhoneDSHBot.BotJSONValue {
-    func runtimeString(_ keys: String...) -> String? {
-        for key in keys {
-            if let value = self[key]?.runtimeString, !value.isEmpty { return value }
-        }
-        return nil
+    static func describe(name: String,
+                         arguments: [String: PhoneDSHBot.BotJSONValue]) -> String {
+        BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments).text
     }
 }
 
