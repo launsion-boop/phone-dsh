@@ -30,7 +30,9 @@ public struct IPhoneAction: Equatable, Sendable {
 
     /// Parses `<action>Click(point=(x, y))</action>` (the last `<action>` wins; without tags, the whole text).
     public static func parse(_ reply: String) -> IPhoneAction {
+        // With `stop: ["</action>"]` the server leaves the closing tag out: take what follows the last <action>.
         let tagged = reply.ranges(of: #/(?s)<action>(.*?)</action>/#).last.map { String(reply[$0]) }
+            ?? reply.range(of: "<action>", options: .backwards).map { String(reply[$0.lowerBound...]) }
         var raw = (tagged ?? reply)
         raw = raw.replacingOccurrences(of: "<action>", with: "").replacingOccurrences(of: "</action>", with: "")
         raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -45,6 +47,8 @@ public struct IPhoneAction: Equatable, Sendable {
         }
         let direction = raw.firstMatch(of: #/(?i)direction\s*=\s*['"]?(up|down|left|right)/#).map { String($0.1).lowercased() }
         let text = raw.firstMatch(of: #/(?s)(?:content|app|text)\s*=\s*(['"])(.*?)\1/#).map { String($0.2) }
+            // JSON fallback: {"action_type": "LaunchApp", "app_name": "小红书"} / "text" / "content"
+            ?? raw.firstMatch(of: #/(?s)"(?:app_name|app|text|content)"\s*:\s*"((?:[^"\\]|\\.)*)"/#).map { String($0.1) }
             ?? raw.firstMatch(of: #/(?s)\(\s*(['"])(.*?)\1/#).map { String($0.2) } ?? ""
         return IPhoneAction(name: name, points: points, text: text, direction: direction, raw: raw)
     }

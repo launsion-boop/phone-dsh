@@ -176,7 +176,9 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         case "pressenter":
             try await hands.key("enter"); return "enter"
         case "launchapp", "launch":
-            let app = action.text.isEmpty ? "设置" : action.text
+            // Never guess: an empty name used to open 设置 and send the model hunting for the wrong app.
+            guard !action.text.isEmpty else { throw IPhoneAgentError("LaunchApp needs the app's name, e.g. LaunchApp(app='小红书')") }
+            let app = action.text
             let query = Self.searchQuery(for: app)
             // Like xiaozhi-link: Home, open Search (every home page has the 搜索 button above the dock),
             // type the name, Return opens Spotlight's top hit. The model checks the result on the next screenshot.

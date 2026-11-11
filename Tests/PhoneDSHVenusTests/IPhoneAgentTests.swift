@@ -248,3 +248,22 @@ private func solidJPEG(_ gray: CGFloat) -> Data {
         XCTAssertTrue(text.contains("looks unchanged after your previous action (PressHome())"), text)
     }
 }
+
+@MainActor final class IPhoneActionReplyShapeTests: XCTestCase {
+    /// The degenerate JSON reply seen on the device: the app name must come through.
+    func testJSONLaunchAppKeepsTheAppName() {
+        let reply = #"The user wants to open the Xiaohongshu app. {"action_type": "LaunchApp", "app_name": "小红书"}"#
+        let action = IPhoneAction.parse(reply)
+        XCTAssertEqual(action.name, "launchapp")
+        XCTAssertEqual(action.text, "小红书")
+        XCTAssertEqual(IPhoneAction.parse(#"{"action_type": "Type", "text": "电池"}"#).text, "电池")
+    }
+
+    /// `stop: ["</action>"]` drops the closing tag; the action is still found.
+    func testUnterminatedActionTagIsParsed() {
+        let action = IPhoneAction.parse("<think>open it</think>\n<action>Click(point=(120, 845))")
+        XCTAssertEqual(action.name, "click")
+        XCTAssertEqual(action.points, [.init(120, 845)])
+        XCTAssertEqual(IPhoneAction.parse("<think>t</think><action>LaunchApp(app='小红书')").text, "小红书")
+    }
+}
