@@ -54,7 +54,7 @@ export const VERIFIER_TOOLS: ReadonlySet<string> = new Set(['read', 'grep', 'glo
 const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   'cat', 'ls', 'grep', 'rg', 'head', 'tail', 'wc', 'pwd', 'stat', 'file', 'diff',
   'cut', 'sha256sum', 'shasum', 'md5', 'md5sum', 'basename', 'dirname', 'sort', 'uniq',
-  'comm', 'cmp', 'realpath', 'readlink',
+  'comm', 'cmp', 'realpath', 'readlink', 'od',
 ])
 
 const READ_ONLY_GIT: ReadonlySet<string> = new Set([

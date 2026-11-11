@@ -11,16 +11,26 @@ public struct BotApprovalOutcome: Codable, Sendable, Equatable {
     /// call did not run and the current turn must stop instead of retrying.
     public let pending: Bool
     public let expiresAt: Int64?
+    /// The actual user decision. It is only present after an interactive
+    /// decision; the tool result carries it so the card can render the real
+    /// grant ("allow once" vs "this conversation") instead of guessing.
+    public let decision: BotApprovalDecision?
+    /// The effective grant scope (`once`, `session` or `until`) for an allowed
+    /// decision. `nil` for pending/denied outcomes.
+    public let scope: String?
 
     public init(ok: Bool, allowed: Bool, approvalId: String? = nil,
                 message: String? = nil, pending: Bool = false,
-                expiresAt: Int64? = nil) {
+                expiresAt: Int64? = nil, decision: BotApprovalDecision? = nil,
+                scope: String? = nil) {
         self.ok = ok
         self.allowed = allowed
         self.approvalId = approvalId
         self.message = message
         self.pending = pending
         self.expiresAt = expiresAt
+        self.decision = decision
+        self.scope = scope
     }
 
     public var jsonValue: BotJSONValue {
@@ -30,6 +40,8 @@ public struct BotApprovalOutcome: Codable, Sendable, Equatable {
         if let approvalId { fields["approvalId"] = .string(approvalId) }
         if let message { fields["message"] = .string(message) }
         if let expiresAt { fields["expiresAt"] = .number(Double(expiresAt)) }
+        if let decision { fields["approvalDecision"] = .string(decision.rawValue) }
+        if let scope { fields["scope"] = .string(scope) }
         return .object(fields)
     }
 }
@@ -408,7 +420,8 @@ public actor BotApprovalCoordinator {
         }
         let outcome = BotApprovalOutcome(
             ok: allowed, allowed: allowed, approvalId: approvalId,
-            message: allowed ? "allowed" : "approval denied")
+            message: allowed ? "allowed" : "approval denied",
+            decision: decision, scope: allowed ? effectiveScope.rawValue : nil)
         request.continuation?.resume(returning: outcome)
         if request.persistent {
             let notice = BotApprovalResolutionNotice(

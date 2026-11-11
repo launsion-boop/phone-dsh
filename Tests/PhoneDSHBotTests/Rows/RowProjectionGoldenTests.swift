@@ -27,6 +27,22 @@ final class RowProjectionGoldenTests: XCTestCase {
         }
     }
 
+    func testApprovalReceiptGoldenMatchesTheSharedLabels() throws {
+        let fixture = try RowTestSupport.golden("row-protocol.phone")
+        let receipts = try RowTestSupport.array(
+            fixture["approvalReceipts"], in: "row-protocol.phone.approvalReceipts")
+        XCTAssertFalse(receipts.isEmpty)
+        for entry in receipts {
+            let status = try XCTUnwrap(entry["status"] as? String)
+            let scope = try XCTUnwrap(entry["scope"] as? String)
+            let label = try XCTUnwrap(entry["label"] as? String)
+            XCTAssertEqual(BotApprovalReceipt.label(for: status, scope: scope), label)
+        }
+        XCTAssertEqual(BotApprovalReceipt.label(for: "allowed"), "已允许一次")
+        XCTAssertEqual(BotApprovalReceipt.label(for: "allowed-session"), "本次对话都允许")
+        XCTAssertEqual(BotApprovalReceipt.label(for: "always", scope: "session"), "本次对话都允许")
+    }
+
     func testPhoneAttachmentProjectionVectorUsesTheRealProjector() throws {
         let fixture = try RowTestSupport.golden("row-protocol.phone")
         let vectors = try RowTestSupport.array(fixture["projection"], in: "row-protocol.phone.projection")

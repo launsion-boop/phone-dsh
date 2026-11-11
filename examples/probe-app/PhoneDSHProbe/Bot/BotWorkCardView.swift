@@ -2,6 +2,7 @@
 
 import SwiftUI
 import UIKit
+import PhoneDSHBot
 
 struct BotWorkCardView: View {
     let row: BotUIRow
@@ -263,7 +264,9 @@ private struct BotApprovalCardView: View {
     private var scope: String { row.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until" }
     private var key: String { "approval:\(row.id)" }
     private var busy: Bool { model.actionStates[key] == .pending }
-    private var allowed: Bool { status == "allowed" || status == "always" }
+    private var allowed: Bool {
+        status == "allowed" || status == "allowed-session" || status == "always"
+    }
     private var longCommand: Bool {
         command.count > 240 || command.split(separator: "\n", omittingEmptySubsequences: false).count > 5
     }
@@ -272,14 +275,7 @@ private struct BotApprovalCardView: View {
         return risk?["level"]?.string == "high" || risk?["tags"]?.array?.contains(.string("irreversible")) == true
     }
     private var statusLabel: String {
-        switch status {
-        case "allowed": return "已允许一次"
-        case "always": return scope == "session" ? "本次对话允许" : "已总是允许"
-        case "denied", "never": return "已拒绝"
-        case "timed-out": return "已超时，视为拒绝"
-        case "expired": return "已过期，视为拒绝"
-        default: return "已处理"
-        }
+        BotApprovalReceipt.label(for: status, scope: scope)
     }
 
     var body: some View {

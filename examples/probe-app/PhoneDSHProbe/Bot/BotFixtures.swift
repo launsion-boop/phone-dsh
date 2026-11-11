@@ -220,7 +220,7 @@ enum BotUIFixtures {
             body = widget("document", [
                 "title": "phoneDSH Bot 验收报告",
                 "summary": "汇总交互、卡片和两种外观的模拟器证据。",
-                "docKind": "markdown", "docTypeLabel": "Markdown",
+                "docKind": "document", "docTypeLabel": "Document",
                 "fileName": "acceptance.md", "size": "18 kB",
                 "content": "# phoneDSH Bot 验收报告\n\n## 交互\n\nSteering、停止和迟到输出。\n\n## 卡片\n\n所有 P0 卡片。",
                 "toc": ["交互", "卡片", "剩余风险"],
@@ -279,6 +279,17 @@ enum BotUIFixtures {
                 "detail": "文件位于临时目录，删除后无法在页面内恢复。",
                 "alwaysScope": "until", "risk": ["level": "high", "tags": ["irreversible"]],
             ])
+            // A decided session grant from an earlier turn: the receipt must
+            // say "本次对话都允许", never "已允许一次".
+            return introRows + [
+                cardRow("card-\(fixture.rawValue)", body: body),
+                cardRow("approval-decided-session", body: BotUIBody(type: "approval", values: [
+                    "approvalID": "approval-session-fixture", "status": "allowed-session",
+                    "scope": "session", "action": "整理今天的联调发现",
+                    "command": "write notes/sim-int-2-findings.md",
+                    "text": "本次对话都允许：整理今天的联调发现",
+                ]), seq: 3),
+            ]
         case .automation:
             body = BotUIBody(type: "automation", values: [
                 "title": "晨间简报", "status": "sent", "schedule": "每天 07:30",

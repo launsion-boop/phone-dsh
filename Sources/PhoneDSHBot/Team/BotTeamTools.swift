@@ -123,11 +123,17 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                     + "Do not hand this off again; answer with what you have.")
         }
         if commContext.chain.contains(target.id) {
+            // The chain is a user-facing dead end: name the Bots, never the
+            // internal `agent-…` ids. The sender must answer the current
+            // request itself instead of bouncing it back.
+            let names = commContext.chain.map { id in
+                roster.bots.first { $0.id == id }?.name ?? "对方"
+            }
+            let path = (names + [target.name]).joined(separator: " → ")
             return .failure(
                 "invalid_arguments",
-                "delegation cycle detected: \(target.name) is already in this hand-off chain "
-                    + "(\(commContext.chain.joined(separator: " → "))). "
-                    + "Stop and answer the sender directly.")
+                "转交链已经走过 \(path)，\(target.name) 在这条链上，不能再转回去。"
+                    + "请直接回答当前请求。")
         }
 
         let callID = context.callId
@@ -177,7 +183,9 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             }
             do {
                 let enqueued = try await host.enqueueHeld(
-                    BotTeamHeldRequest(botID: target.id, item: item))
+                    BotTeamHeldRequest(
+                        botID: target.id, item: item,
+                        handOff: BotAgentCommContext(depth: depth, chain: nextChain)))
                 return sendToAgentSuccess(
                     target: target, threadID: threadID, requestID: requestID,
                     delivery: delivery, duplicated: enqueued.duplicate,
@@ -242,6 +250,9 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             return .failure("execution_failed", String(describing: error))
         }
         do {
+            // A reply is the end of this hand-off, not a new hop. It must not
+            // install a chain on the sender or the next send to this teammate
+            // would be rejected as a cycle.
             _ = try await host.enqueueHeld(
                 BotTeamHeldRequest(botID: sender.id, item: heldItem))
         } catch {

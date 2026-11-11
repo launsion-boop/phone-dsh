@@ -152,7 +152,7 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertNotEqual(allowed.isError, true, botTeamResultText(allowed))
     }
 
-    func testHandOffCycleIsRejected() async {
+    func testHandOffCycleIsRejectedWithNamesNotInternalIDs() async {
         let host = FakeBotTeamHost()
         await host.setContext(
             BotAgentCommContext(depth: 1, chain: ["bot-a", "bot-b"]), for: "bot-a")
@@ -162,10 +162,66 @@ final class BotTeamToolsTests: XCTestCase {
             "priority": .bool(true),
         ])
         XCTAssertEqual(result.isError, true)
-        XCTAssertTrue(botTeamResultText(result).contains("delegation cycle detected: Bee"))
-        XCTAssertTrue(botTeamResultText(result).contains("bot-a → bot-b"))
+        let text = botTeamResultText(result)
+        XCTAssertTrue(text.contains("Alpha → Bee → Bee"), text)
+        XCTAssertTrue(text.contains("不能再转回去"), text)
+        XCTAssertFalse(text.contains("bot-a"), text)
+        XCTAssertFalse(text.contains("bot-b"), text)
+        XCTAssertFalse(text.contains("agent-"), text)
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
+    }
+
+    func testTeammateReplyDoesNotInstallAChainOnTheSender() async throws {
+        let host = FakeBotTeamHost()
+        await host.setReply(BotAgentDeliveryReply(text: "first answer"))
+        let tools = makeTools(host)
+
+        let first = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("first"),
+            "priority": .bool(true),
+        ], callID: "round-trip-1")
+        XCTAssertNotEqual(first.isError, true, botTeamResultText(first))
+        let firstHeld = await host.heldRequests
+        XCTAssertEqual(firstHeld.count, 1)
+        XCTAssertNil(firstHeld[0].handOff,
+                     "a reply must not open or extend a hand-off chain")
+
+        // A second message to the same teammate is not a cycle: the first
+        // hand-off ended when its reply arrived.
+        await host.setReply(BotAgentDeliveryReply(text: "second answer"))
+        let second = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("second"),
+            "priority": .bool(true),
+        ], callID: "round-trip-2")
+        XCTAssertNotEqual(second.isError, true, botTeamResultText(second))
+        let secondHeld = await host.heldRequests
+        XCTAssertEqual(secondHeld.count, 2)
+        XCTAssertNil(secondHeld[1].handOff)
+    }
+
+    func testQueuedDeliveryCarriesItsHandOffChainButReplyDoesNot() async throws {
+        let host = FakeBotTeamHost()
+        let tools = makeTools(host)
+        let queued = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("hold this"),
+            "priority": .bool(false),
+        ], callID: "queued-chain")
+        XCTAssertNotEqual(queued.isError, true, botTeamResultText(queued))
+        let queuedHeld = await host.heldRequests
+        XCTAssertEqual(queuedHeld.count, 1)
+        XCTAssertEqual(queuedHeld[0].handOff?.depth, 1)
+        XCTAssertEqual(queuedHeld[0].handOff?.chain, ["bot-a", "bot-b"])
+
+        await host.setReply(BotAgentDeliveryReply(text: "answer"))
+        let immediate = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("ask"),
+            "priority": .bool(true),
+        ], callID: "reply-no-chain")
+        XCTAssertNotEqual(immediate.isError, true, botTeamResultText(immediate))
+        let allHeld = await host.heldRequests
+        XCTAssertEqual(allHeld.count, 2)
+        XCTAssertNil(allHeld[1].handOff)
     }
 
     // MARK: - Idempotency and delivery

@@ -1665,11 +1665,16 @@ final class ChatModel {
                                       materializedHome: materializedHome,
                                       toolBridge: toolBridge,
                                       recordQuery: recordQuery)
+        // `phone record` is a Swift-side read-only bridge; it does not need the
+        // linked Rust shell. Advertise `phone` whenever that bridge exists so a
+        // verifier can read the record:// evidence it is promised even in a
+        // build without the XCFramework.
+        let hostAccelerators = PDSHShellProvider.advertisedAcceleratorNames(
+            channel: shell.channelAcceleratorNames, hasRecordQuery: recordQuery != nil)
         if !shell.acceleratorNames.isEmpty {
             configuration.accelerators = shell
-            let names = shell.channelAcceleratorNames
-            if !names.isEmpty {
-                configuration.acceleratorNames = names
+            if !hostAccelerators.isEmpty {
+                configuration.acceleratorNames = hostAccelerators
             }
         }
         let sshProvider = SSHExecProvider(
@@ -1679,7 +1684,7 @@ final class ChatModel {
             resolve: { destination in try await SSHSettingsStore.shared.resolve(destination) })
         configuration.execProvider = ADBExecProvider(workspace: materializedWorkspace, fallback: sshProvider,
                                                       byteLimit: configuration.budgets.singleFileBytes)
-        configuration.acceleratorNames = shell.channelAcceleratorNames + ["ssh", "scp", "adb"]
+        configuration.acceleratorNames = hostAccelerators + ["ssh", "scp", "adb"]
         let anchor = self.anchor
         let host = PhoneDSHHost(configuration: configuration, engineFactory: { configuration in
             await anchor.makeEngine(configuration)

@@ -279,7 +279,6 @@ final class BotRuntimeComposition {
     private var deliversDeviceTaskResults = false
     private var threadsLoaded = false
     private var agentCommThreads: [String: String] = [:]
-    private var agentCommHops: [String: Int] = [:]
     private var pendingApprovalTicks = 0
     private var approvalNotifications: BotApprovalNotificationReconciler?
 
@@ -1404,10 +1403,13 @@ extension BotRuntimeComposition: BotTeamHost {
 
     func enqueueHeld(_ request: BotTeamHeldRequest) async throws -> WakeInboxEnqueue {
         let unit = try await ensureUnit(for: request.botID, reason: "team-held")
-        if let sender = request.item.fromAgentId {
-            let depth = request.item.threadId.flatMap { agentCommHops[$0] } ?? 1
+        // Only a new outbound hop installs a chain on the target. The tool
+        // passes nil for a teammate's reply held item, so receiving an answer
+        // never makes the original sender look like part of the chain.
+        if let handOff = request.handOff {
             agentCommTracker.setPendingHeld(
-                .init(depth: depth, chain: [sender, request.botID]), for: request.botID)
+                .init(depth: handOff.depth, chain: handOff.chain),
+                for: request.botID)
         }
         return try await unit.wakeInbox.enqueue(request.item)
     }
@@ -1427,7 +1429,6 @@ extension BotRuntimeComposition: BotTeamHost {
         agentCommTracker.addRowID(record.rowID, for: record.botID)
         if record.direction == .outbound {
             agentCommThreads["\(record.botID)\u{0}\(record.requestID)"] = record.threadID
-            if let hop = record.hop { agentCommHops[record.threadID] = hop }
         }
         let recipient = BotUnreadRules.recipient(for: record)
         if let recipient {

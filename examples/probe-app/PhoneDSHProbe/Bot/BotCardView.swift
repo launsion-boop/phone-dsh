@@ -350,13 +350,21 @@ private struct BotDocumentCardView: View {
         }
     }
     private var typeLabel: String {
-        if let label = row.body.string("docTypeLabel", "kindLabel") { return label }
+        if let label = row.body.string("docTypeLabel", "kindLabel") {
+            switch label {
+            case "Document", "document", "页面": return "文档"
+            case "Table", "table": return "表格"
+            case "Code", "code": return "代码"
+            case "Library", "library", "文件庫": return "文件库"
+            default: return label
+            }
+        }
         switch row.body["docKind"]?.string {
         case "markdown": return "Markdown"
         case "pdf": return "PDF"
         case "code": return "代码"
         case "table": return "表格"
-        default: return "页面"
+        default: return "文档"
         }
     }
     private var fileName: String { row.body.string("fileName") ?? title }
@@ -364,7 +372,7 @@ private struct BotDocumentCardView: View {
     var body: some View {
         BotCardSurface {
             VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
-                BotCardHeading(icon: "doc.text", eyebrow: "文档 · \(typeLabel)", title: title)
+                BotCardHeading(icon: "doc.text", eyebrow: typeLabel, title: title)
                 if let summary {
                     Text(summary)
                         .botCardBody()

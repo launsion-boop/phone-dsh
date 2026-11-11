@@ -1795,6 +1795,15 @@ public actor BotMCPRuntime {
         if let expiresAt = outcome.expiresAt {
             result["expiresAt"] = .number(Double(expiresAt))
         }
+        // The card receipt must describe the real grant. Keep the legacy
+        // allowed/denied decision above for the model and add the explicit
+        // user decision + effective scope for the row projection.
+        if let decision = outcome.decision {
+            result["approvalDecision"] = .string(decision.rawValue)
+        }
+        if let scope = outcome.scope {
+            result["scope"] = .string(scope)
+        }
         return .success(.object(result))
     }
 
