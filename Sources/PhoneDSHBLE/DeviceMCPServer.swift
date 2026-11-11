@@ -27,10 +27,11 @@ public actor DeviceMCPServer: NativeMCPServing {
         tool("ble_read", "Read fresh standard GATT data from an explicitly authorized connected device. No cached measurements. Profiles: battery, temperature, humidity, manufacturer, model.", ["device_id": property("string"), "profile": .object(["type": .string("string"), "enum": .array(["battery", "temperature", "humidity", "manufacturer", "model"].map(JSONValue.string))])], ["device_id", "profile"]),
         tool("ble_alert", "Submit SIG Immediate Alert level 0=off, 1=mild, 2=high to an explicitly authorized device. No execution acknowledgement. Never retry an unknown outcome automatically. Requires journal idempotency key.", ["device_id": property("string"), "level": .object(["type": .string("integer"), "minimum": .number(0), "maximum": .number(2)])], ["device_id", "level"]),
     ]
-    /// W5 runtime tiering: the device list itself stays visible so the model
-    /// can read configured boards, while read/alert/Link tools appear only
-    /// once a board is connected or has a saved per-connection grant. The
-    /// predicate is pure so the change can be tested without CoreBluetooth.
+    /// W5 runtime tiering: the whole BLE family is a device group. Boards are
+    /// connected and granted in Settings, so before one exists the model has
+    /// nothing it could call; once a board is remembered/connected or has a
+    /// saved per-connection grant, the very next `tools/list` exposes the
+    /// family. The predicate is pure so it can be tested without CoreBluetooth.
     static func bleToolsVisible(devices: [BLEDeviceStore.Device]) -> Bool {
         devices.contains { device in
             device.state == "已连接"
@@ -40,12 +41,8 @@ public actor DeviceMCPServer: NativeMCPServing {
         }
     }
 
-    static let coreDescriptors: [JSONValue] = descriptors.filter {
-        $0.fields["name"]?.text == "ble_devices"
-    }
-
     static func descriptors(visible: Bool) -> [JSONValue] {
-        visible ? Self.descriptors : coreDescriptors
+        visible ? Self.descriptors : []
     }
 
     private static func property(_ type: String) -> JSONValue { .object(["type": .string(type)]) }
