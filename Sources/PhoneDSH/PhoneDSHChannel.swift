@@ -1093,6 +1093,20 @@ actor PhoneDSHChannelHandler: ChannelHandling {
         await coordinator.inboundWriteFinished()
     }
 
+    nonisolated var supportsVFSMutationBatch: Bool { true }
+
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
+        guard !admissions.isEmpty else { return }
+        await coordinator.inboundWriteStarted()
+        do {
+            try await delegate.handleVFSMutationBatch(admissions)
+        } catch {
+            await coordinator.inboundWriteFinished()
+            throw error
+        }
+        await coordinator.inboundWriteFinished()
+    }
+
     func handleVFSBarrier(_ body: VfsBarrierBody) async throws {
         await coordinator.inboundWriteStarted()
         do {

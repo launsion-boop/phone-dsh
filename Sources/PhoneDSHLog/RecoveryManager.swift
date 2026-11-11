@@ -410,7 +410,8 @@ public struct RecoveryManager: Sendable {
             rebuiltFromWal: rebuiltFromWal,
             coldRecovery: manifest.bootID != bootIDHex,
             reconciled: reconciled,
-            localRepairs: localRepairs)
+            localRepairs: localRepairs,
+            segments: finalSegments)
     }
 
     // MARK: - Missing manifest (wal.md §7.2)
@@ -457,7 +458,8 @@ public struct RecoveryManager: Sendable {
                                   droppedSegments: droppedEmpty,
                                   needsResync: [],
                                   coldRecovery: false,
-                                  reconciled: false)
+                                  reconciled: false,
+                                  segments: scan.segments)
         }
 
         // Validate the coverage BEFORE touching the materialized copy. A
@@ -518,7 +520,8 @@ public struct RecoveryManager: Sendable {
             needsResync: Array(materializer.needsResyncPaths).sorted(),
             resyncHolds: materializer.heldMismatches,
             coldRecovery: true,
-            reconciled: false)
+            reconciled: false,
+            segments: scan.segments)
     }
 
     // MARK: - Zero-length segments (wal.md §7.2)

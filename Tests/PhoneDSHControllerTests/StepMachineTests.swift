@@ -330,11 +330,12 @@ final class StepMachineTests: XCTestCase {
             .appendingPathComponent(session, isDirectory: true)
             .appendingPathComponent(key + ".json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshot.path))
-        // The decimal-ordinal snapshot of the original W2 form stays readable.
+        // W4: the decimal-ordinal snapshot is not written a second time. The
+        // canonical key snapshot and the append-only line are the evidence.
         let legacySnapshot = root.appendingPathComponent("steps", isDirectory: true)
             .appendingPathComponent(session, isDirectory: true)
             .appendingPathComponent("1.json")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: legacySnapshot.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacySnapshot.path))
         let json = try ControllerTestSupport.readJSON(snapshot)
         XCTAssertEqual(json["state"] as? String, "tool_dispatched")
         XCTAssertEqual(json["step_id"] as? String, "1")

@@ -65,3 +65,34 @@ test('the journal source never calls fsyncSync', () => {
   const source = readFileSync(new URL('../tool-journal/src/journal.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /fsyncSync/)
 })
+
+test('W4: done stores a reference to the executed result, not a second copy', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'pdsh-journal-'))
+  const store = new ToolJournalStore(root, 'p')
+  const result = { content: [{ type: 'text', text: 'ok' }], isError: false }
+  await store.append('s1', { v: 1, t: 'start', key: 'k', call_id: 'c1', tool: 'bash', class: 'non-idempotent', args_sha256: 'a', schema_sha256: 'b', profile: 'p', at: 1 })
+  await store.append('s1', { v: 1, t: 'executed', key: 'k', call_id: 'c1', result, at: 2 })
+  await store.append('s1', { v: 1, t: 'done', key: 'k', call_id: 'c1', result, at: 3 })
+
+  const lines = readFileSync(store.path('s1'), 'utf8').trim().split('\n')
+  const done = JSON.parse(lines[3] as string) as { result?: unknown; result_ref?: { jseq: number } }
+  assert.equal(done.result, undefined, 'done must not duplicate the result bytes')
+  assert.equal(done.result_ref?.jseq, 2, 'done references the executed record ordinal')
+  assert.deepEqual(store.entries('s1').calls.get('c1')?.done?.content,
+    [{ type: 'text', text: 'ok' }])
+})
+
+test('W4: appending a record does not rewrite earlier lines', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'pdsh-journal-'))
+  const store = new ToolJournalStore(root, 'p')
+  await store.append('s1', { v: 1, t: 'start', key: 'k', call_id: 'c1', tool: 'bash', class: 'non-idempotent', args_sha256: 'a', schema_sha256: 'b', profile: 'p', at: 1 })
+  const prefix = readFileSync(store.path('s1'), 'utf8')
+  await store.append('s1', { v: 1, t: 'resolved', key: 'k', call_id: 'c1', action: 'unknown', at: 2 })
+  const after = readFileSync(store.path('s1'), 'utf8')
+  assert.ok(after.startsWith(prefix), 'the previous bytes are an unchanged prefix')
+})
+
+test('W4: the tool body starts only after the awaited start record', () => {
+  const source = readFileSync(new URL('../tool-journal/src/index.ts', import.meta.url), 'utf8')
+  assert.match(source, /await this\.store\.append\(sessionId, \{\s*v: 1, t: 'start'/u)
+})

@@ -5150,7 +5150,19 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             return .skipped(reason: reason)
         }
         do {
-            let ack = try await runtime.log.closeEpochCoveringTail()
+            // W4: an idle epoch is skipped. `sealEpochCoveringTail` returns the
+            // current durable position without a segment, an F_FULLFSYNC or a
+            // level-2 ack when no mutation opened an epoch since the last close
+            // (wal.md §13). A close required by handoff/drain/teardown still runs
+            // its §5.2 order through the same call when it has work to make
+            // durable.
+            let positions = await runtime.log.positions()
+            guard positions.durableMseq < positions.ackedMseq else {
+                let reason = "periodic epoch close skipped: idle epoch (no mutation since the last close)"
+                periodicEpochCloseObserver?(.skipped(reason: reason))
+                return .skipped(reason: reason)
+            }
+            let ack = try await runtime.log.sealEpochCoveringTail()
             periodicEpochCloseObserver?(.closed(uptoMseq: ack.uptoMseq))
             return .closed(uptoMseq: ack.uptoMseq)
         } catch {
@@ -5190,6 +5202,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             for await ack in log.journalAcks() {
                 await tracker.record(ack)
                 guard ack.level == .epochFsync else { continue }
+                // W4: intermediate step lines were not fsynced per transition;
+                // the epoch close forces the session logs that still hold them.
+                _ = try? await stepMachine.fsyncPendingLogs()
                 // Silence is part of the contract: pruning is background work
                 // and never surfaces a prompt or a disabled state.
                 _ = try? await stepMachine.pruneTerminalSteps()

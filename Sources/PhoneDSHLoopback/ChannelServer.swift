@@ -541,16 +541,7 @@ public actor ChannelServer: ChannelOutbound {
                 lastInboundActivity = Date()
                 metricsValue.bytesIn += message.count
                 let frames = try decoder.feed(message)
-                for frame in frames {
-                    if tornDown { break }
-                    // A protocol failure ends the message immediately. A drain
-                    // close, by contrast, must not drop a frame that the socket
-                    // already delivered; `drainClosing` keeps them dispatchable.
-                    if finished && !drainClosing { break }
-                    metricsValue.framesIn += 1
-                    try await handle(frame)
-                    lastInboundActivity = Date()
-                }
+                try await handle(frames)
             }
         } catch let error as PhoneWireError {
             recordDrainEnd(.protocolFailure)
@@ -801,6 +792,73 @@ public actor ChannelServer: ChannelOutbound {
         .hello, .vfsMutation, .vfsBarrier, .execRequest, .execControl,
         .journal, .apiResponse, .apiEnd, .apiAbort, .console, .error,
     ]
+
+    /// Dispatches the frames of one transport message in order. Consecutive
+    /// VFS_MUT frames are offered to the handler as one batch so they share a
+    /// single group-commit write (W4); every other frame keeps the sequential
+    /// dispatch. A batch handler validates the whole batch before writing, so a
+    /// resource refusal can be replayed frame by frame with no partial append.
+    private func handle(_ frames: [Frame]) async throws {
+        var index = 0
+        while index < frames.count {
+            if tornDown { return }
+            // A protocol failure ends the message immediately. A drain close,
+            // by contrast, must not drop a frame that the socket already
+            // delivered; `drainClosing` keeps them dispatchable.
+            if finished && !drainClosing { return }
+            if frames[index].type == .vfsMutation,
+               let handler,
+               handler.supportsVFSMutationBatch,
+               workspaceLog != nil {
+                var admissions: [VFSMutationAdmission] = []
+                var expected = expectedMseq
+                var end = index
+                while end < frames.count, frames[end].type == .vfsMutation {
+                    let decoded = try VfsMutationPayload.decode(frames[end].payload)
+                    guard decoded.mseq == expected else {
+                        throw PhoneWireError(
+                            code: .badMseq,
+                            message: "expected mseq \(expected), got \(decoded.mseq)",
+                            refSeq: frames[end].seq)
+                    }
+                    admissions.append(VFSMutationAdmission(body: decoded.body,
+                                                           mseq: decoded.mseq,
+                                                           seq: frames[end].seq))
+                    expected = expected &+ 1
+                    end += 1
+                }
+                if admissions.count > 1 {
+                    do {
+                        try await handler.handleVFSMutationBatch(admissions)
+                        metricsValue.framesIn += admissions.count
+                        expectedMseq = expected
+                        index = end
+                        lastInboundActivity = Date()
+                        continue
+                    } catch let error as any VFSResourceRefusalProviding {
+                        guard error.vfsResourceRefusal != nil else { throw error }
+                        // The batch wrote nothing (it validates all mutations
+                        // before any append). Replay in order so the refusal
+                        // answers the exact frame and leaves expectedMseq
+                        // unchanged for the Worker's shrink-and-resend.
+                        while index < end {
+                            let before = expectedMseq
+                            metricsValue.framesIn += 1
+                            try await handle(frames[index])
+                            index += 1
+                            if expectedMseq == before { return }
+                        }
+                        lastInboundActivity = Date()
+                        continue
+                    }
+                }
+            }
+            metricsValue.framesIn += 1
+            try await handle(frames[index])
+            index += 1
+            lastInboundActivity = Date()
+        }
+    }
 
     private func handle(_ frame: Frame) async throws {
         guard let handler else {

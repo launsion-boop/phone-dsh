@@ -386,6 +386,12 @@ actor PhoneDSHLedgerChannelHandling: ChannelHandling {
         try await delegate.handleVFSMutation(body, mseq: mseq, seq: seq)
     }
 
+    nonisolated var supportsVFSMutationBatch: Bool { delegate.supportsVFSMutationBatch }
+
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
+        try await delegate.handleVFSMutationBatch(admissions)
+    }
+
     func handleVFSBarrier(_ body: VfsBarrierBody) async throws {
         try await delegate.handleVFSBarrier(body)
     }

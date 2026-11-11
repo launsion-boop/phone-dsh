@@ -84,6 +84,21 @@ public protocol LoopbackRouting: Sendable {
     func route(_ request: LoopbackRequest) async -> LoopbackRoute
 }
 
+/// One structurally valid mutation the channel server accepted in a batch.
+/// The server has already checked `mseq` against the wire sequence; the
+/// handler only persists it (W4 group commit).
+public struct VFSMutationAdmission: Equatable, Sendable {
+    public var body: VfsMutationBody
+    public var mseq: UInt64
+    public var seq: UInt64
+
+    public init(body: VfsMutationBody, mseq: UInt64, seq: UInt64) {
+        self.body = body
+        self.mseq = mseq
+        self.seq = seq
+    }
+}
+
 /// Channel server callbacks, one method per worker → host frame type
 /// (spec/v1/channel.md §2). The server validates `seq` and `mseq`
 /// before it calls these methods, so an implementation only persists or runs.
@@ -103,6 +118,13 @@ public protocol ChannelHandling: Sendable {
     func handleAPIAbort(_ frame: ApiAbortFrame) async throws
     func handleConsole(_ payload: ConsolePayload) async throws
     func handleError(_ payload: ErrorPayload) async throws
+
+    /// Whether consecutive VFS_MUT frames may share one group-commit write.
+    /// The default is `false`, so a test/custom handler keeps the sequential
+    /// dispatch contract. A handler returns `true` only when its batch method
+    /// validates the whole batch before persisting any mutation.
+    var supportsVFSMutationBatch: Bool { get }
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws
 }
 
 extension ChannelHandling {
@@ -111,6 +133,15 @@ extension ChannelHandling {
     public func handleVFSMutation(_ body: VfsMutationBody, mseq: UInt64,
                                   seq: UInt64) async throws {
         try await handleVFSMutation(body, seq: seq)
+    }
+
+    public var supportsVFSMutationBatch: Bool { false }
+
+    public func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
+        for admission in admissions {
+            try await handleVFSMutation(admission.body, mseq: admission.mseq,
+                                        seq: admission.seq)
+        }
     }
 }
 

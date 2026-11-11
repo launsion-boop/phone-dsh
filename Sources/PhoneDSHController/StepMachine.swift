@@ -410,6 +410,9 @@ public actor StepMachine {
     private let stepsDirectory: URL
     private var records: [StepKey: StepRecord] = [:]
     private var order: [StepKey] = []
+    /// Sessions whose append-only log has intermediate lines in the page cache
+    /// and needs one fsync at the next epoch close (W4, exec.md §8).
+    private var dirtyLogSessions: Set<String> = []
     private var streamingTurns: Set<TurnKey> = []
     private var storedMetrics = StepMachineMetrics()
     /// Level-2 journal watermark per session. The host injects this so a
@@ -1084,6 +1087,7 @@ public actor StepMachine {
         guard changed else { return }
         let rewritten = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
         try ControllerFileStore.writeAtomic(Data(rewritten.utf8), to: url)
+        dirtyLogSessions.remove(sessionID)
     }
 
     /// Gives every non-terminal step a terminal owner after the host has
@@ -1202,6 +1206,16 @@ public actor StepMachine {
         record.history.append(target)
     }
 
+    /// Forces the append-only step logs that still have intermediate lines in
+    /// the page cache. The host calls this once per successful epoch close
+    /// (exec.md §8: terminal line or epoch close fsyncs; not every transition).
+    public func fsyncPendingLogs() throws {
+        for sessionID in dirtyLogSessions.sorted() {
+            try ControllerFileStore.fsync(sessionLogURL(sessionID: sessionID))
+        }
+        dirtyLogSessions.removeAll()
+    }
+
     private func persist(_ record: StepRecord) throws {
         let stepKey = record.stepKey
         guard WireValidation.isValidIdentifier(stepKey) else {
@@ -1220,18 +1234,26 @@ public actor StepMachine {
                                completionJseq: record.completionJseq)
         var data = try ControllerFileStore.encode(line)
         data.append(0x0A)
-        try ControllerFileStore.append(data, to: sessionLogURL(sessionID: record.sessionID))
-        let encoded = try ControllerFileStore.encode(record)
-        // D20 canonical snapshot: the step identity is the journal key.
-        try ControllerFileStore.writeAtomic(
-            encoded, to: snapshotURL(sessionID: record.sessionID, stepKey: stepKey))
-        // The W0/W2 snapshot form keyed by the informational decimal ordinal is
-        // still written when the record carries one, so a reader that only
-        // knows the original form keeps working. The key snapshot is canonical.
-        if let stepID = record.stepID, stepID != stepKey {
-            try ControllerFileStore.writeAtomic(
-                encoded, to: snapshotURL(sessionID: record.sessionID, stepKey: stepID))
+        // W4: one line per transition. Intermediate lines stay in the page
+        // cache (level 1 survives process death); the terminal line fsyncs, and
+        // the epoch close owns the level-2 fsync (exec.md §8).
+        let terminal = record.state.isTerminal
+        try ControllerFileStore.append(data,
+                                       to: sessionLogURL(sessionID: record.sessionID),
+                                       sync: terminal)
+        if terminal {
+            dirtyLogSessions.remove(record.sessionID)
+        } else {
+            dirtyLogSessions.insert(record.sessionID)
         }
+        let encoded = try ControllerFileStore.encode(record)
+        // D20 canonical snapshot: the step identity is the journal key. It is
+        // derived from the append-only line, so an intermediate snapshot does
+        // not fsync; the terminal snapshot does. A decimal-ordinal snapshot is
+        // no longer written twice (exec.md §8, W4).
+        try ControllerFileStore.writeAtomic(
+            encoded, to: snapshotURL(sessionID: record.sessionID, stepKey: stepKey),
+            sync: terminal)
     }
 
     private func sessionLogURL(sessionID: String) -> URL {

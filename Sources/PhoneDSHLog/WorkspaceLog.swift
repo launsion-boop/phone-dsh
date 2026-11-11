@@ -157,6 +157,10 @@ public struct WorkspaceLogRecovery: Equatable, Sendable {
     /// base when the WAL history had been compacted below mseq 1. This is a
     /// diagnostic only; the WAL watermark and all other paths are unchanged.
     public var localRepairs: [MaterializedInvariantLocalRepair]
+    /// Verified segment state from the recovery scan, handed to the writer so
+    /// it does not re-read the WAL (W4 cold-start rule). Not content: the
+    /// caller releases it after the writer is constructed.
+    public var segments: [WALSegmentFile]
 
     public init(materializedUptoMseq: UInt64,
                 nextMseq: UInt64,
@@ -172,7 +176,8 @@ public struct WorkspaceLogRecovery: Equatable, Sendable {
                 rebuiltFromWal: Bool = false,
                 coldRecovery: Bool = false,
                 reconciled: Bool = false,
-                localRepairs: [MaterializedInvariantLocalRepair] = []) {
+                localRepairs: [MaterializedInvariantLocalRepair] = [],
+                segments: [WALSegmentFile] = []) {
         self.materializedUptoMseq = materializedUptoMseq
         self.nextMseq = nextMseq
         self.durableMseq = durableMseq
@@ -188,6 +193,29 @@ public struct WorkspaceLogRecovery: Equatable, Sendable {
         self.coldRecovery = coldRecovery
         self.reconciled = reconciled
         self.localRepairs = localRepairs
+        self.segments = segments
+    }
+
+    /// `segments` is a transient handoff buffer, not part of the report value:
+    /// two reports that describe the same recovered workspace are equal even
+    /// when one still carries the scan and the other has released it.
+    public static func == (lhs: WorkspaceLogRecovery,
+                           rhs: WorkspaceLogRecovery) -> Bool {
+        lhs.materializedUptoMseq == rhs.materializedUptoMseq
+            && lhs.nextMseq == rhs.nextMseq
+            && lhs.durableMseq == rhs.durableMseq
+            && lhs.lastDurableEpoch == rhs.lastDurableEpoch
+            && lhs.truncatedTornTail == rhs.truncatedTornTail
+            && lhs.ackedMseq == rhs.ackedMseq
+            && lhs.nextEpoch == rhs.nextEpoch
+            && lhs.replayedRecords == rhs.replayedRecords
+            && lhs.droppedSegments == rhs.droppedSegments
+            && lhs.needsResync == rhs.needsResync
+            && lhs.resyncHolds == rhs.resyncHolds
+            && lhs.rebuiltFromWal == rhs.rebuiltFromWal
+            && lhs.coldRecovery == rhs.coldRecovery
+            && lhs.reconciled == rhs.reconciled
+            && lhs.localRepairs == rhs.localRepairs
     }
 }
 

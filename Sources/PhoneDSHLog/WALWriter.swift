@@ -39,6 +39,10 @@ public struct WALWriterResumeState: Equatable, Sendable {
     public var startEpoch: UInt64
     public var materializedUptoMseq: UInt64
     public var truncatedTornTail: Bool
+    /// Segments the recovery pass already verified and truncated. When present
+    /// the writer builds its segment state from them instead of scanning the
+    /// whole WAL a second time (W4 handoff rule).
+    public var segments: [WALSegmentFile]
 
     public init(nextMseq: UInt64,
                 lastMseq: UInt64,
@@ -46,7 +50,8 @@ public struct WALWriterResumeState: Equatable, Sendable {
                 lastDurableEpoch: UInt64,
                 startEpoch: UInt64,
                 materializedUptoMseq: UInt64,
-                truncatedTornTail: Bool = false) {
+                truncatedTornTail: Bool = false,
+                segments: [WALSegmentFile] = []) {
         self.nextMseq = nextMseq
         self.lastMseq = lastMseq
         self.durableMseq = durableMseq
@@ -54,6 +59,7 @@ public struct WALWriterResumeState: Equatable, Sendable {
         self.startEpoch = startEpoch
         self.materializedUptoMseq = materializedUptoMseq
         self.truncatedTornTail = truncatedTornTail
+        self.segments = segments
     }
 }
 
@@ -146,10 +152,16 @@ public actor WALWriter {
         }
     }
 
-    private struct PendingAppend {
+    /// One record ready for the group-commit write, independent of the caller
+    /// waiting for its level-1 ack. A batch shares one `write()` (W4).
+    private struct WALBatchItem {
         var mseq: UInt64
         var record: WALRecord
         var encoded: Data
+    }
+
+    private struct PendingAppend {
+        var item: WALBatchItem
         var continuation: CheckedContinuation<WALAppendResult, Error>
     }
 
@@ -201,8 +213,17 @@ public actor WALWriter {
         self.groupCommitBytes = max(configuration.groupCommitBytes, 1)
         try workspacePaths.createDirectories()
 
-        let scan = try WALReader.scan(directory: workspacePaths.walDirectory,
+        // W4: a recovery handoff already verified (and truncated) every
+        // segment. Reuse that scan instead of reading the whole WAL again just
+        // to rebuild the writer's segment state.
+        let scan: WALScan
+        if let resumeState, !resumeState.segments.isEmpty {
+            scan = WALScan(segments: resumeState.segments,
+                           truncatedTornTail: resumeState.truncatedTornTail)
+        } else {
+            scan = try WALReader.scan(directory: workspacePaths.walDirectory,
                                       truncateTornTail: true)
+        }
         let manifestStore = ManifestStore(paths: workspacePaths)
         let manifest = try manifestStore.read()
 
@@ -299,16 +320,65 @@ public actor WALWriter {
         lastMseq = mseq
 
         return try await withCheckedThrowingContinuation { continuation in
-            pending.append(PendingAppend(mseq: mseq,
-                                         record: record,
-                                         encoded: encoded,
-                                         continuation: continuation))
+            pending.append(PendingAppend(
+                item: WALBatchItem(mseq: mseq, record: record, encoded: encoded),
+                continuation: continuation))
             pendingBytes += encoded.count
             if pendingBytes >= groupCommitBytes {
                 flushPending()
             } else {
                 scheduleFlush()
             }
+        }
+    }
+
+    /// Appends a group of mutations with one shared `write()` (wal.md §5
+    /// group commit, W4). The mseq order is the array order; every record is
+    /// validated before any byte is written, so a batch either lands whole or
+    /// not at all. Returns one result per input, in the same order.
+    public func appendBatch(_ mutations: [VfsMutationBody]) async throws
+        -> [WALAppendResult] {
+        guard !failed else { throw LogError.closed }
+        guard !mutations.isEmpty else { return [] }
+        // Keep the level-1 watermark honest: an older pending batch is written
+        // first, so `flushedUpto` can never jump over an earlier mseq.
+        if !pending.isEmpty { flushPending() }
+        guard !failed else { throw LogError.closed }
+
+        var items: [WALBatchItem] = []
+        var projectedBytes = 0
+        var mseq = nextMseq
+        // Build and validate every record first; a quota refusal must not
+        // consume an mseq or leave a hole for the batch retry.
+        for mutation in mutations {
+            try mutation.validate()
+            let record = try WALRecord(mseq: mseq, mutation: mutation)
+            let encoded = record.encoded()
+            projectedBytes += encoded.count
+            items.append(WALBatchItem(mseq: mseq, record: record, encoded: encoded))
+            mseq += 1
+        }
+        try enforceQuota(additionalBytes: projectedBytes)
+        // Terminal seals discard a header-only tail segment (G2-FIX-69/120);
+        // the next append opens the epoch again with the same epoch number.
+        try ensureOpenSegment(firstMseq: nextMseq)
+        nextMseq = mseq
+        lastMseq = mseq - 1
+
+        do {
+            try write(batch: items)
+        } catch {
+            failed = true
+            failBarrierWaiters(error)
+            throw error
+        }
+        batchCount += 1
+        let ack = WorkspaceLogAck(level: .write, uptoMseq: flushedUpto)
+        ackBroadcaster.yield(ack)
+        resolveBarrierWaiters()
+        return items.map { item in
+            WALAppendResult(mseq: item.mseq, record: item.record,
+                            level: .write, ackedUptoMseq: flushedUpto)
         }
     }
 
@@ -610,13 +680,13 @@ public actor WALWriter {
         flushTask = nil
 
         do {
-            try write(batch: batch)
+            try write(batch: batch.map(\.item))
             batchCount += 1
             let ack = WorkspaceLogAck(level: .write, uptoMseq: flushedUpto)
             for item in batch {
                 item.continuation.resume(returning: WALAppendResult(
-                    mseq: item.mseq,
-                    record: item.record,
+                    mseq: item.item.mseq,
+                    record: item.item.record,
                     level: .write,
                     ackedUptoMseq: flushedUpto))
             }
@@ -631,7 +701,7 @@ public actor WALWriter {
         }
     }
 
-    private func write(batch: [PendingAppend]) throws {
+    private func write(batch: [WALBatchItem]) throws {
         var chunk = Data()
         var chunkRecords = 0
         var chunkLastMseq: UInt64 = 0

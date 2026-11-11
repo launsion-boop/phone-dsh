@@ -37,7 +37,7 @@ final class SideEffectLedgerTests: XCTestCase {
         XCTAssertEqual(stored, entry)
         let files = try FileManager.default.contentsOfDirectory(
             atPath: ledger.root.appendingPathComponent("exec").path)
-        XCTAssertEqual(files, [key + ".json"])
+        XCTAssertEqual(files, [key + ".ndjson"])
     }
 
     func testEventStreamIsReplayedInOrder() async throws {
@@ -319,5 +319,65 @@ final class SideEffectLedgerTests: XCTestCase {
                 return XCTFail("expected missingEntry, got \(error)")
             }
         }
+    }
+
+    // MARK: - W4 append-only exec ledger (exec.md §8)
+
+    func testExecEventsAppendLinesWithoutRewritingTheHeader() async throws {
+        let ledger = try makeLedger(self)
+        let key = ControllerTestSupport.idemKey(71)
+        _ = try await ledger.prepareExec(idemKey: key, execID: "exec-w4",
+                                         argv: ["rg", "x"], cwd: "/dsh/workspace")
+        _ = try await ledger.appendExecEvent(
+            idemKey: key, event: ControllerTestSupport.execEvent(type: "start"))
+        let url = ledger.root.appendingPathComponent("exec")
+            .appendingPathComponent(key + ".ndjson")
+        let firstTwo = try String(contentsOf: url, encoding: .utf8)
+        _ = try await ledger.appendExecEvent(
+            idemKey: key, event: ControllerTestSupport.execEvent(type: "exit"))
+        let lines = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+        XCTAssertEqual(lines.count, 3, "header plus two event lines")
+        XCTAssertTrue(firstTwo.hasPrefix(String(lines[0])),
+                      "the header line must not be rewritten by an event append")
+        let header = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(lines[0].utf8)) as? [String: Any])
+        XCTAssertEqual(header["v"] as? Int, 2)
+        let second = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: Data(lines[2].utf8)) as? [String: Any])
+        XCTAssertEqual(second["seq"] as? Int, 1)
+        XCTAssertNotNil(second["event"])
+    }
+
+    func testV1ExecLedgerIsReadThenMigratedOnFirstAppend() async throws {
+        let root = ControllerTestSupport.root(for: self)
+        let execDirectory = root.appendingPathComponent("exec", isDirectory: true)
+        try FileManager.default.createDirectory(at: execDirectory,
+                                                withIntermediateDirectories: true)
+        let key = ControllerTestSupport.idemKey(72)
+        let legacy = SideEffectEntry(kind: .exec, key: key, execID: "exec-v1",
+                                     argv: ["rg", "old"], cwd: "/dsh/workspace",
+                                     createdAtMilliseconds: 1,
+                                     lastAccessMilliseconds: 1,
+                                     terminal: false,
+                                     events: ["{\"type\":\"start\"}"])
+        let data = try JSONEncoder().encode(legacy)
+        try data.write(to: execDirectory.appendingPathComponent(key + ".json"))
+
+        let ledger = try SideEffectLedger(root: root)
+        let loaded = await ledger.entry(forKey: key)
+        XCTAssertEqual(loaded?.events, ["{\"type\":\"start\"}"],
+                       "a v1 entry is read as header plus events")
+
+        _ = try await ledger.appendExecEvent(
+            idemKey: key, event: ControllerTestSupport.execEvent(type: "exit"))
+        let files = try FileManager.default.contentsOfDirectory(atPath: execDirectory.path)
+        XCTAssertTrue(files.contains(key + ".ndjson"))
+        XCTAssertFalse(files.contains(key + ".json"),
+                       "the v1 file is unlinked only after the v2 file is durable")
+        let ndjson = try String(contentsOf: execDirectory
+            .appendingPathComponent(key + ".ndjson"), encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+        XCTAssertEqual(ndjson.count, 3)
     }
 }
