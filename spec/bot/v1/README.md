@@ -133,6 +133,14 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 - 宿主写 `task.resumed`，把同一任务记录改回 `running`，在同一 DSH 会话开一个新的隐藏回合，`session/prompt.requestId` 为 `task-turn:<taskId>:approval:<approvalID>`，提示词明确“用户已批准、从停下的位置继续、不要重放已完成的副作用”。
 - 拒绝或过期则写 `task.settled`，`status:"denied"`，`error` 为 `approval_denied`/`approval_expired`，异步 chat 任务照旧只唤醒父对话一次。
 
+**主会话纪元与 Task 唤醒。** `switchMainSessionForErasure` 只切换 Bot 的主对话纪元，不改写 Task
+自己的会话或 durable `persistedTask.parentSessionId`。切换前由旧主会话派生的 Task 在完成、拒绝或
+中断后仍只产生一次父对话唤醒；若原父会话是因纪元切换而归档的前一主会话，该唤醒投递到同一 Bot
+的当前主会话，旧主会话不再收到该唤醒。`AwaitTask`/`StopSubagent` 的父会话校验接受记录中的原父
+会话，以及当前主会话作为它的纪元继任者；其他 Bot 或会话仍返回 unauthorized。只有
+`parentKind:"chat"` 且原父会话确实是本 Bot 前一主会话时进入该继任规则；team、routine 等其他
+来源的 Task 保持原归属与唤醒行为。
+
 **routine 挂起与恢复。** routine 运行停在 `run_state.status:"waiting-approval"`，并记录 `waiting_approval_id` 与 `waiting_session_id`；该次 attempt 不产生交付，调度的 tick 跳过它。批准后同一 `runId`/attempt 恢复为 `started` 并继续同一个会话；拒绝/过期按失败结束（`error` 同上），走普通交付。进程重启后该状态保留。
 
 **出口审批。** 持久 `egress` 审批的 `allow_once` 在决定时不消费 Grant，留给恢复后的同一次网络写重试消费；`always` 按主机 + 方法写 30 天 `until` Grant。这样“批准一次”不会因为首个 HTTP 请求已被 fail-closed 而丢失。交互出口审批维持原语义（决定后当次请求立即使用并消费一次 Grant）。
@@ -456,7 +464,8 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
   全部历史版本、检索结果、UI 行、`phone record` 结果、观察信封/脱敏留痕中指向被抹除事件的内容，
   以及已关闭会话纪元的 DSH 会话日志行。当前主会话在抹除时先切换到新纪元（旧会话归档、新会话从
   未抹除记录和记忆索引接续），然后宿主按 [P02 WAL §5.3](../../v1/wal.md) 的受控改写把旧会话的命中行
-  替换成墓碑；确认文案与结果不得再声称会话日志未覆盖。
+  替换成墓碑；确认文案与结果不得再声称会话日志未覆盖。纪元切换不改变既有 Task 的会话归属；
+  由旧主会话派生的未结束 Task 的父唤醒按 §2.7 投递到新主会话。
 
 **事件存储。** 拆分为事件头与载荷（§1）。只有宿主的抹除路径能清空载荷；每次抹除追加一条 durable
 `erasure` 事件，列出目标（`memory` scope/path）、每个路径被抹除的版本号、被清除事件的
