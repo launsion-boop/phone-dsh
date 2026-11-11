@@ -31,9 +31,11 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
         let started = await waitUntil { attempts == ["boot-one"] }
         XCTAssertTrue(started, "the first boot must start one bind; attempts=\(attempts)")
         scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
 
         let ready = await waitUntil(timeout: 2) {
             scheduler.phase == .ready && scheduler.recoveredBootID == "boot-two"
@@ -59,6 +61,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
                           + "opening a transport here is what stalled the d scenario: \(attempts)")
 
         scheduler.noteWorkerBoot("boot-new")
+        scheduler.noteWorkerReady()
         let ready = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(ready)
         XCTAssertEqual(attempts, ["boot-new"])
@@ -80,6 +83,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         // The initial composition bind attached this Worker and seeded its id.
         scheduler.seed(recoveredBootID: "boot-same")
         scheduler.noteWorkerBoot("boot-same", helloCount: 1, fenceGeneration: 7)
+        scheduler.noteWorkerReady()
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(attempts.isEmpty,
                       "the HELLO of the already-seeded Worker must not rebind: \(attempts)")
@@ -90,6 +94,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         // fence generation is unchanged because a WebContent kill does not
         // advance the host's WAL authority.
         scheduler.noteWorkerBoot("boot-same", helloCount: 2, fenceGeneration: 7)
+        scheduler.noteWorkerReady()
         let ready = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(ready,
                       "a HELLO after a termination must rebind even when the boot id "
@@ -109,11 +114,13 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         scheduler.install { bootID in attempts.append(bootID) }
 
         scheduler.noteWorkerBoot("boot-one", helloCount: 1, fenceGeneration: 2)
+        scheduler.noteWorkerReady()
         let ready = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(ready)
         XCTAssertEqual(attempts, ["boot-one"])
 
         scheduler.noteWorkerBoot("boot-one", helloCount: 2, fenceGeneration: 2)
+        scheduler.noteWorkerReady()
         try await Task.sleep(nanoseconds: 80_000_000)
         XCTAssertEqual(attempts, ["boot-one"],
                        "a same-Worker channel reconnect must not trigger a second bind")
@@ -132,6 +139,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         scheduler.install { bootID in attempts.append(bootID) }
 
         scheduler.noteWorkerBoot("boot-worker", helloCount: 1, fenceGeneration: 2)
+        scheduler.noteWorkerReady()
         let ready = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(ready)
         XCTAssertEqual(attempts, ["boot-worker"])
@@ -156,6 +164,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         XCTAssertTrue(attempts.isEmpty,
                       "page boot-ready is not yet a channel; the HELLO owns the bind")
         scheduler.noteWorkerBoot("boot-page")
+        scheduler.noteWorkerReady()
         let ready = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(ready)
         XCTAssertEqual(attempts, ["boot-page"])
@@ -174,6 +183,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-hung")
+        scheduler.noteWorkerReady()
         let failed = await waitUntil(timeout: 2) {
             if case .failed = scheduler.phase { return true }
             return false
@@ -200,6 +210,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-failing")
+        scheduler.noteWorkerReady()
         let failed = await waitUntil(timeout: 2) {
             if case .failed = scheduler.phase { return true }
             return false
@@ -225,6 +236,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-failing")
+        scheduler.noteWorkerReady()
         let firstRound = await waitUntil(timeout: 2) {
             if case .failed = scheduler.phase { return true }
             return false
@@ -256,6 +268,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
         let firstRound = await waitUntil(timeout: 2) {
             if case .failed = scheduler.phase { return true }
             return false
@@ -264,6 +277,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         XCTAssertEqual(attempts.value, 2, "one bind + one automatic retry")
 
         scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
         let secondRound = await waitUntil(timeout: 2) {
             attempts.value == 4 && scheduler.phase.isFailure
         }
@@ -285,6 +299,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-retried")
+        scheduler.noteWorkerReady()
         let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
         XCTAssertTrue(ready, "phase=\(scheduler.phase) attempts=\(attempts.value)")
         XCTAssertEqual(attempts.value, 2)
@@ -309,6 +324,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         }
 
         scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
         let started = await waitUntil { attempts == ["boot-one"] }
         XCTAssertTrue(started)
         scheduler.forceRetry()
@@ -330,6 +346,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         XCTAssertEqual(scheduler.phase, .recovering)
         XCTAssertTrue(attempts.isEmpty)
         scheduler.noteWorkerBoot("boot-new")
+        scheduler.noteWorkerReady()
         let ready = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(ready)
         XCTAssertEqual(attempts, ["boot-new"])
@@ -345,11 +362,13 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
 
         scheduler.noteTermination(count: 1)
         scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
         let first = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(first)
         scheduler.noteTermination(count: 1)
         XCTAssertEqual(scheduler.phase, .recovering)
         scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
         let second = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(second)
         XCTAssertEqual(attempts, ["boot-one", "boot-two"])
@@ -363,6 +382,7 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
 
         scheduler.noteTermination(count: 1)
         scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
         let first = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(first)
         scheduler.noteTermination(count: 2)
@@ -370,9 +390,58 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         XCTAssertEqual(attempts, ["boot-one"],
                        "a termination reports recovering but must wait for the next HELLO")
         scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
         let second = await waitUntil { scheduler.phase == .ready }
         XCTAssertTrue(second)
         XCTAssertEqual(attempts, ["boot-one", "boot-two"])
+    }
+
+    /// The replacement Worker sends HELLO when its socket opens, then spends
+    /// most of its boot before the ordered-channel API bridge exists. A bind
+    /// issued on the raw HELLO sends its first `session/page` into that
+    /// dropped-request window; the request never answers and the 20 s attempt
+    /// deadline expires. The bind must wait for the Worker `ready` phase.
+    func testAReplacementHelloWaitsForWorkerReadyBeforeBinding() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-replacement", helloCount: 1)
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        XCTAssertTrue(scheduler.isAwaitingWorkerReady)
+        XCTAssertTrue(attempts.isEmpty,
+                      "HELLO announces the Worker identity, not its API bridge: \(attempts)")
+
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready,
+                      "the ready phase must release the armed bind; "
+                          + "phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-replacement"])
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+    }
+
+    /// A Worker bundle that does not forward the reserved boot phase still has
+    /// to recover; the ready gate is a head start, not a new permanent stall.
+    func testReadyFallbackBindsAWorkerThatNeverAnnouncesReady() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 500, readyFallbackMilliseconds: 120)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-silent", helloCount: 1)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertTrue(attempts.isEmpty)
+        let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
+        XCTAssertTrue(ready,
+                      "the bounded ready fallback must still bind; "
+                          + "phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-silent"])
     }
 
     private func waitUntil(timeout: TimeInterval = 1,

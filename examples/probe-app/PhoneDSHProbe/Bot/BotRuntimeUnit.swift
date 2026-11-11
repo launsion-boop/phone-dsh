@@ -210,36 +210,74 @@ final class BotRuntimeUnit {
     /// the single-Bot composition: invalidate the replaced Worker first (the
     /// composition does it once for all units), then transport, session,
     /// durable routines and interrupted tasks, then the scheduler.
-    func start(transport: any DSHRemoteTransport) async throws {
-        await remote.attachTransport(transport)
-        let sessionID = try await remote.startMainSession()
+    func start(transport: any DSHRemoteTransport, attempt: Int,
+               channelDetail: String = "") async throws {
+        let unitDetail = "bot=\(botID)" + (channelDetail.isEmpty ? "" : " " + channelDetail)
+        try await BotRebindDiagnostics.run(
+            "unit.attach-transport", attempt: attempt, detail: unitDetail
+        ) {
+            await remote.attachTransport(transport)
+        }
+        let sessionID = try await BotRebindDiagnostics.run(
+            "unit.start-main-session", attempt: attempt, detail: unitDetail
+        ) {
+            try await remote.startMainSession()
+        }
         // A foreground resume parks the host and boots a fresh Worker; its
         // in-memory credential map is empty. Re-claim every session this Bot
         // still owns before the next turn, so the first tool call after the
         // lock screen does not race the claim. A session whose host token no
         // longer resolves is reissued here (same kind/capabilities), never by
         // extending the TTL.
-        _ = await remote.reclaimOwnedSessions()
-        try await environment.connect(BotProductionComposition(
-            sessionID: sessionID, planner: planner,
-            turnStopping: BotRuntimeTurnStopper(remote: remote)))
-        _ = try await scheduler.recover()
-        for entry in await scheduler.waitingApprovalEntries() {
-            let status = await remote.approvalStatus(approvalId: entry.approvalID)
-            switch status {
-            case .allowed, .denied, .expired, .cancelled:
-                await scheduler.approvalResolved(
-                    approvalId: entry.approvalID, sessionId: entry.sessionID,
-                    allowed: status == .allowed, expired: status == .expired,
-                    cancelled: status == .cancelled)
-            case .pending, .unknown:
-                break
+        _ = try await BotRebindDiagnostics.run(
+            "unit.reclaim-sessions", attempt: attempt, detail: unitDetail
+        ) {
+            await remote.reclaimOwnedSessions()
+        }
+        try await BotRebindDiagnostics.run(
+            "unit.environment-connect", attempt: attempt, detail: unitDetail
+        ) {
+            try await environment.connect(BotProductionComposition(
+                sessionID: sessionID, planner: planner,
+                turnStopping: BotRuntimeTurnStopper(remote: remote)))
+        }
+        _ = try await BotRebindDiagnostics.run(
+            "unit.scheduler-recover", attempt: attempt, detail: unitDetail
+        ) {
+            try await scheduler.recover()
+        }
+        try await BotRebindDiagnostics.run(
+            "unit.approvals", attempt: attempt, detail: unitDetail
+        ) {
+            for entry in await scheduler.waitingApprovalEntries() {
+                let status = await remote.approvalStatus(approvalId: entry.approvalID)
+                switch status {
+                case .allowed, .denied, .expired, .cancelled:
+                    await scheduler.approvalResolved(
+                        approvalId: entry.approvalID, sessionId: entry.sessionID,
+                        allowed: status == .allowed, expired: status == .expired,
+                        cancelled: status == .cancelled)
+                case .pending, .unknown:
+                    break
+                }
             }
         }
-        _ = await remote.deliverInterruptedTaskWakes()
-        _ = try? await deviceResults.redeliver(botID: botID, in: wakeInbox)
-        await scheduler.start()
-        await startLiveObservation()
+        _ = try await BotRebindDiagnostics.run(
+            "unit.interrupted-wakes", attempt: attempt, detail: unitDetail
+        ) {
+            await remote.deliverInterruptedTaskWakes()
+        }
+        _ = try? await BotRebindDiagnostics.run(
+            "unit.device-results", attempt: attempt, detail: unitDetail
+        ) {
+            try await deviceResults.redeliver(botID: botID, in: wakeInbox)
+        }
+        try await BotRebindDiagnostics.run(
+            "unit.scheduler-start", attempt: attempt, detail: unitDetail
+        ) {
+            await scheduler.start()
+            await startLiveObservation()
+        }
         // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
         // main-chat idle, pending approvals and triggers itself.
         Task { await maintenance.maybeRun(reason: "foreground") }

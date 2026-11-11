@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import PhoneDSHAgentCore
 @testable import PhoneDSHBot
 
 final class BotDSHRemoteRuntimeTests: XCTestCase {
@@ -1261,4 +1262,97 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertEqual(retry.archivedSessions, [oldID])
     }
 
+    /// A main-session recovery started on a replaced Worker must not be
+    /// inherited by the next bind. The d-heal4 hang is exactly this shape: the
+    /// first bind's `session/page` was sent while the replacement Worker's API
+    /// bridge was not up yet and never answered; that unstructured
+    /// `mainSessionTask` stayed suspended, and every 20 s retry awaited the
+    /// same task instead of asking the ready Worker. Replacing the transport
+    /// therefore owns a fresh recovery.
+    func testANewTransportStartsAFreshMainSessionRecovery() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let first = BotScriptedRemoteTransport(scripts: [:])
+        let remote = try await BotDSHRemoteRuntime(transport: first,
+                                                   runtime: fixture.runtime)
+        let main = try await remote.ensureMainSessionID()
+        XCTAssertEqual(main, "gb-main")
+
+        // The replacement Worker's page booted, but its ordered-channel API
+        // bridge is not serving yet: the recovery request hangs unsignalled.
+        let stuck = HangingRecoveryTransport()
+        await remote.attachTransport(stuck)
+        let recovery = Task { try await remote.ensureMainSessionID() }
+        defer { recovery.cancel() }
+        await stuck.waitUntilEntered()
+
+        // The App retries after the Worker reported ready with a fresh
+        // transport. The retry must not join the stuck task.
+        let fresh = BotScriptedRemoteTransport(scripts: [:])
+        await remote.attachTransport(fresh)
+        let recovered = try await withRecoveryTimeout(seconds: 2) {
+            try await remote.ensureMainSessionID()
+        }
+        XCTAssertEqual(recovered, main)
+        XCTAssertTrue(fresh.claimedSessions.contains(main),
+                      "the ready Worker must be re-claimed by the new recovery")
+        recovery.cancel()
+        _ = try? await recovery.value
+    }
+}
+
+/// One transport whose first call never returns, modelling an API request the
+/// replacement Worker dropped before its bridge was installed.
+private final class HangingRecoveryTransport: DSHRemoteTransport, @unchecked Sendable {
+    private actor Entry {
+        private var entered = false
+        private var waiter: CheckedContinuation<Void, Never>?
+
+        func signal() {
+            entered = true
+            waiter?.resume()
+            waiter = nil
+        }
+
+        func wait() async {
+            if entered { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+    }
+
+    private let entry = Entry()
+
+    func waitUntilEntered() async {
+        await entry.wait()
+    }
+
+    func call(_ endpoint: String, args: BotJSONValue) async throws -> BotJSONValue {
+        await entry.signal()
+        try await Task.sleep(nanoseconds: 30_000_000_000)
+        throw DSHRemoteError(code: "test/timeout", message: "the dropped request never returned")
+    }
+
+    func openMux() async throws -> any DSHMuxConnection {
+        throw DSHRemoteError(code: "test/unsupported", message: "no mux")
+    }
+
+    func authenticationFailed() async {}
+}
+
+private struct RecoveryTimeout: Error {}
+
+private func withRecoveryTimeout<T: Sendable>(
+    seconds: Double,
+    _ operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw RecoveryTimeout()
+        }
+        defer { group.cancelAll() }
+        guard let value = try await group.next() else { throw RecoveryTimeout() }
+        return value
+    }
 }

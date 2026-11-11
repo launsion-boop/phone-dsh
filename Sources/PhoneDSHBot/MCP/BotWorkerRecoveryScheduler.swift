@@ -44,6 +44,9 @@ public final class BotWorkerRecoveryScheduler {
     public private(set) var latestFenceGeneration: UInt64 = 0
     /// For diagnostics/tests: whether a rebind is currently running.
     public private(set) var isRecovering = false
+    /// For diagnostics/tests: the replacement boot is known from HELLO and the
+    /// bind is waiting for its Worker `ready` signal.
+    public var isAwaitingWorkerReady: Bool { awaitingReadyTarget != nil }
 
     /// Every attempt is bounded. A Worker replacement normally rebinds in a
     /// few seconds; the bound is only a safety net for a stalled transport.
@@ -55,6 +58,11 @@ public final class BotWorkerRecoveryScheduler {
     public let maximumAutomaticRetries: Int
     /// Delay between two attempts of the same automatic round.
     public let retryDelayMilliseconds: Int
+    /// Upper bound on waiting for a replacement Worker's `ready` signal before
+    /// binding anyway. The production page/Worker forwards its reserved boot
+    /// phase lines over the ordered channel; an older bundle that does not
+    /// still recovers, just without the early-readiness guarantee.
+    public let readyFallbackMilliseconds: Int
     public var onPhaseChange: ((Phase) -> Void)?
 
     private enum Target: Equatable {
@@ -91,6 +99,15 @@ public final class BotWorkerRecoveryScheduler {
     /// termination event is the only reliable discriminator; the HELLO count
     /// only filters duplicate HELLOs.
     private var replacementHelloPending = false
+    /// Whether a Worker `ready` boot phase was observed since the last
+    /// termination. The Worker installs its ordered-channel API bridge just
+    /// before that line, so a bind issued before it can send a request into a
+    /// dropped window (the d-heal4 hang).
+    private var workerReady = false
+    /// The replacement boot whose HELLO is known but whose `ready` line has not
+    /// arrived yet. The bind starts from here, never from the raw HELLO.
+    private var awaitingReadyTarget: Target?
+    private var readyFallbackTask: Task<Void, Never>?
     /// Invalidates a cancelled/superseded attempt. Its late completion must
     /// not publish `.ready` over a newer attempt or a visible failure.
     private var generation = 0
@@ -104,10 +121,12 @@ public final class BotWorkerRecoveryScheduler {
 
     public init(timeoutMilliseconds: Int = 20_000,
                 maximumAutomaticRetries: Int = 5,
-                retryDelayMilliseconds: Int = 2_000) {
+                retryDelayMilliseconds: Int = 2_000,
+                readyFallbackMilliseconds: Int = 5_000) {
         self.timeoutMilliseconds = max(1, timeoutMilliseconds)
         self.maximumAutomaticRetries = max(0, maximumAutomaticRetries)
         self.retryDelayMilliseconds = max(0, retryDelayMilliseconds)
+        self.readyFallbackMilliseconds = max(0, readyFallbackMilliseconds)
     }
 
     public func install(_ recovery: @escaping Recovery) {
@@ -118,6 +137,9 @@ public final class BotWorkerRecoveryScheduler {
     /// composition bind. No recovery runs; the next new boot does.
     public func seed(recoveredBootID: String?) {
         cancelAutomaticRetry()
+        cancelReadyFallback()
+        awaitingReadyTarget = nil
+        workerReady = false
         automaticRetriesRemaining = 0
         self.recoveredBootID = recoveredBootID
         self.latestBootID = recoveredBootID
@@ -144,11 +166,29 @@ public final class BotWorkerRecoveryScheduler {
         // The replacement boot has not HELLOed yet; a retry queued for the dead
         // boot belongs to the previous round.
         cancelAutomaticRetry()
+        cancelReadyFallback()
+        awaitingReadyTarget = nil
+        workerReady = false
         automaticRetriesRemaining = 0
         // Even if the engine reuses the Worker boot id, the next ordered
         // channel HELLO is a new Worker connection and owns a bind.
         replacementHelloPending = true
         setPhase(.recovering)
+    }
+
+    /// Records a Worker boot-phase `ready` line.
+    ///
+    /// The Worker installs its ordered-channel API bridge immediately before
+    /// it announces `ready`, so this is the first moment an App bind can send
+    /// `session/page` / `phone/botClaimSession` without the request being
+    /// dropped from a channel that has HELLOed but cannot serve yet. A rebind
+    /// armed by the replacement HELLO starts here.
+    public func noteWorkerReady() {
+        workerReady = true
+        guard !isRecovering, let target = awaitingReadyTarget else { return }
+        awaitingReadyTarget = nil
+        cancelReadyFallback()
+        startEventDriven(target)
     }
 
     /// Records the engine's page boot-ready report. It moves the page to
@@ -195,16 +235,57 @@ public final class BotWorkerRecoveryScheduler {
         lastTerminationCount = 0
         let isReplacement = replacementHelloPending
         replacementHelloPending = false
+        let isNewBoot = isReplacement || bootID != recoveredBootID
         if isRecovering {
-            if isReplacement
-                || (bootID != activeTarget?.bootID && bootID != recoveredBootID) {
+            if isNewBoot {
                 pendingTarget = .boot(bootID)
+                // Any ready signal seen so far belongs to the boot whose bind
+                // is still running, not to this newer replacement.
+                workerReady = false
             }
             setPhase(.recovering)
             return
         }
-        guard isReplacement || bootID != recoveredBootID else { return }
-        startEventDriven(.boot(bootID))
+        guard isNewBoot else { return }
+        // HELLO is the Worker's identity, not its API readiness: the Worker
+        // sends it when the socket opens, then spends most of its boot before
+        // `serveApiRequests` is installed. Binding on HELLO sent the first
+        // `session/page` into that drop window; wait for the `ready` phase
+        // (with a bounded fallback for bundles that do not forward it).
+        workerReady = false
+        armReadyGate(.boot(bootID))
+    }
+
+    private func armReadyGate(_ target: Target) {
+        awaitingReadyTarget = target
+        setPhase(.recovering)
+        scheduleReadyFallback(for: target)
+    }
+
+    private func scheduleReadyFallback(for target: Target) {
+        cancelReadyFallback()
+        guard readyFallbackMilliseconds > 0 else {
+            awaitingReadyTarget = nil
+            startEventDriven(target)
+            return
+        }
+        let delay = readyFallbackMilliseconds
+        readyFallbackTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled, self.awaitingReadyTarget == target else { return }
+            self.readyFallbackTask = nil
+            self.awaitingReadyTarget = nil
+            self.startEventDriven(target)
+        }
+    }
+
+    private func cancelReadyFallback() {
+        readyFallbackTask?.cancel()
+        readyFallbackTask = nil
     }
 
     /// The page's 重试 button. It is never masked by an in-flight flag: a hung
@@ -230,7 +311,8 @@ public final class BotWorkerRecoveryScheduler {
     /// The composition's visible 重试 action uses this so its caller observes
     /// the same completed state it did when retry awaited `bind` directly.
     public func waitUntilIdle() async {
-        while (isRecovering || task != nil || retryTask != nil) && !Task.isCancelled {
+        while (isRecovering || task != nil || retryTask != nil
+                || awaitingReadyTarget != nil) && !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
@@ -244,6 +326,9 @@ public final class BotWorkerRecoveryScheduler {
         attemptContinuation = nil
         task = nil
         cancelAutomaticRetry()
+        cancelReadyFallback()
+        awaitingReadyTarget = nil
+        workerReady = false
         isRecovering = false
         activeTarget = nil
         pendingTarget = nil
@@ -262,6 +347,8 @@ public final class BotWorkerRecoveryScheduler {
     /// a newer boot seen while an attempt was in flight.
     private func startEventDriven(_ target: Target) {
         cancelAutomaticRetry()
+        cancelReadyFallback()
+        awaitingReadyTarget = nil
         automaticRetriesRemaining = maximumAutomaticRetries
         start(target)
     }
@@ -294,7 +381,12 @@ public final class BotWorkerRecoveryScheduler {
             if let pending = pendingTarget, pending != target,
                pending.bootID != recoveredBootID {
                 pendingTarget = nil
-                startEventDriven(pending)
+                if workerReady {
+                    workerReady = false
+                    startEventDriven(pending)
+                } else {
+                    armReadyGate(pending)
+                }
                 return
             }
             pendingTarget = nil
@@ -325,7 +417,14 @@ public final class BotWorkerRecoveryScheduler {
             return false
         }
         pendingTarget = nil
-        startEventDriven(pending)
+        // A newer boot may itself still be before its `ready` line; use the
+        // same gate instead of re-entering the dropped-request window.
+        if workerReady {
+            workerReady = false
+            startEventDriven(pending)
+        } else {
+            armReadyGate(pending)
+        }
         return true
     }
 

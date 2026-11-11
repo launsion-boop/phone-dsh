@@ -13,6 +13,7 @@
 import Foundation
 import XCTest
 import PhoneDSH
+import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHHarness
 
@@ -56,6 +57,77 @@ final class PhoneDSHReplacementWorkerBootIDTests: XCTestCase {
             task?.cancel()
             task = nil
         }
+    }
+
+    /// The replacement Worker follows the production boot order: the ordered
+    /// channel HELLOs as soon as the socket opens, but `serveApiRequests` is
+    /// installed only near the end of the boot (the reserved `ready` phase).
+    /// This drives a real `session/page` request through a real host transport
+    /// after the ready line and proves it reached the replacement connection,
+    /// not the old one, and answered inside two seconds.
+    func testReplacementTransportAnswersARealRequestOnTheNewConnection() async throws {
+        let fixture = try KillFixture()
+        defer { fixture.cleanup() }
+        let worker = KillWorker()
+        let engine = KillMockEngine(worker: worker)
+        let host = PhoneDSHHost(configuration: try fixture.configuration(),
+                                engineFactory: { _ in engine })
+        addTeardownBlock { try? await host.stop() }
+
+        let hellos = HelloCollector(host.eventStream())
+        let phases = WorkerPhaseCollector(host.eventStream())
+        defer {
+            hellos.stop()
+            phases.stop()
+        }
+
+        try await host.start()
+        try await waitForHost(host, .running)
+        try await worker.waitForOpenFrames()
+        _ = try await hellos.waitForCount(1)
+
+        // The next connection is the replacement. Its API bridge stays closed
+        // until the Worker announces `ready`, exactly like the real entry.
+        await worker.holdAPIRequestsOnNextConnect(readyDelayMilliseconds: 40)
+        engine.emitTermination()
+        try await waitForHost(host, .running)
+        let second = try await hellos.waitForCount(2)
+        _ = try await phases.waitForWorkerReady()
+
+        // What the Bot bind does after the readiness gate: a real API request.
+        let transport = try await host.makeTransport()
+        let started = Date()
+        _ = try await transport.call("session/page", args: .object([
+            "request": .object([
+                "address": .object([
+                    "kind": .string("session"),
+                    "sessionId": .string("gb-main"),
+                ]),
+                "throughSeq": .number(-1),
+                "maxMessages": .number(1),
+            ]),
+        ]))
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertLessThan(elapsed, 2,
+                          "the replacement connection must answer an API request "
+                              + "after ready; elapsed=\(elapsed)")
+
+        let snapshot = await host.channelSelection()
+        let selection = try XCTUnwrap(snapshot)
+        XCTAssertEqual(selection.currentConnectionID, selection.latestHelloConnectionID)
+        XCTAssertTrue(selection.isCurrentConnectionLatestHello)
+        XCTAssertEqual(selection.currentWorkerBootID, second.bootID,
+                       "the transport must target the replacement HELLO's boot")
+        XCTAssertEqual(selection.latestHelloCount, second.count)
+
+        let served = await worker.servedAPIConnectionNumbers()
+        XCTAssertEqual(served.last, 2,
+                       "the replacement request must be served by connection 2, "
+                           + "not the old Worker: served=\(served)")
+        let received = await worker.receivedAPIConnectionNumbersSnapshot()
+        XCTAssertEqual(received.last, 2)
+        let paths = await worker.receivedAPIPathsSnapshot()
+        XCTAssertTrue(paths.contains { $0.hasSuffix("session/page") }, "paths=\(paths)")
     }
 
     func testTerminationRecoveryWithAReusedBootIDRebindsTheReplacementHello() async throws {
@@ -104,6 +176,7 @@ final class PhoneDSHReplacementWorkerBootIDTests: XCTestCase {
         scheduler.noteWorkerBoot(second.bootID,
                                  helloCount: second.count,
                                  fenceGeneration: second.generation)
+        scheduler.noteWorkerReady()
 
         let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
         XCTAssertTrue(ready,
@@ -130,6 +203,50 @@ final class PhoneDSHReplacementWorkerBootIDTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
         return condition()
+    }
+
+    /// Collects the reserved Worker boot-phase console lines the host forwards.
+    private final class WorkerPhaseCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [PhoneDSHBootPhase] = []
+        private var task: Task<Void, Never>?
+
+        init(_ stream: AsyncStream<PhoneDSHEvent>) {
+            task = Task { [weak self] in
+                for await event in stream {
+                    guard let self else { return }
+                    guard case .console(let payload) = event,
+                          let phase = PhoneDSHBootPhase.parse(payload.text),
+                          phase.scope == "worker" else { continue }
+                    self.lock.lock()
+                    self.storage.append(phase)
+                    self.lock.unlock()
+                }
+            }
+        }
+
+        var phases: [PhoneDSHBootPhase] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+
+        func waitForWorkerReady(timeout: TimeInterval = 20) async throws
+            -> PhoneDSHBootPhase {
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                if let ready = phases.last(where: { $0.phase == "ready" }) {
+                    return ready
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+            throw KillError.timeout("the replacement Worker never logged the ready phase")
+        }
+
+        func stop() {
+            task?.cancel()
+            task = nil
+        }
     }
 }
 

@@ -3249,6 +3249,17 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         return makeTransport(runtime: runtime)
     }
 
+    /// Which ordered-channel connection `makeTransport()` would use right now.
+    ///
+    /// This is a diagnostic seam for the App's recovery timeline: a bind that
+    /// stalls can record whether its requests are addressed to the newest
+    /// Worker HELLO or to an older connection. Ids are process-local; the boot
+    /// id is the Worker's public identity. No frame or payload is exposed.
+    public func channelSelection() async -> PhoneDSHChannelSelection? {
+        guard let runtime else { return nil }
+        return await runtime.coordinator.channelSelectionSnapshot()
+    }
+
     private func makeTransport(runtime: RuntimeServices) -> any DSHRemoteTransport {
         let coordinator = runtime.coordinator
         let channel = ChannelDSHTransport(channelProvider: { excluding in

@@ -162,6 +162,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// re-claimed before its next turn, using its current token when that
     /// incarnation still resolves and a freshly issued one otherwise.
     private var claimGeneration: UInt64 = 0
+    /// Bumped by every `attachTransport`. A main-session recovery started on a
+    /// replaced transport may be waiting forever on an API request that Worker
+    /// incarnation never served (its API bridge is installed after HELLO), so
+    /// its result belongs to no later bind. Session credentials keep their own
+    /// `claimGeneration`; this one changes only when the transport does.
+    private var transportGeneration: UInt64 = 0
     private var coordinators: [String: TurnCoordinator] = [:]
     private var queuedTurns: [String: QueuedTurn] = [:]
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
@@ -234,7 +240,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         await runtime.approvals.durableStatus(approvalId: approvalId)
     }
 
-    public func attachTransport(_ newTransport: any DSHRemoteTransport) async {        transport = newTransport
+    public func attachTransport(_ newTransport: any DSHRemoteTransport) async {
+        transport = newTransport
+        transportGeneration &+= 1
+        // A recovery that ran on the replaced transport may be suspended on an
+        // API request the old/not-yet-ready Worker never answered. Cancel it
+        // and forget the task: a later bind owns a fresh recovery and must not
+        // await the previous transport's request forever (the d-heal4 rebind
+        // retried into the very same hung task every 20 s).
+        mainSessionTask?.cancel()
+        mainSessionTask = nil
         // The previous Worker's in-memory session credentials are gone. Keep
         // the host-side tokens (the BotTokenRegistry incarnation is still the
         // current one) but require a fresh issue+claim before the next turn.
@@ -1731,15 +1746,23 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private func ensureMainSession() async throws -> String {
         if let mainSessionId { return mainSessionId }
         if let mainSessionTask { return try await mainSessionTask.value }
+        let generation = transportGeneration
         let work = Task { try await self.recoverOrCreateMainSession() }
         mainSessionTask = work
         do {
             let sessionId = try await work.value
+            guard generation == transportGeneration else {
+                // The Worker was replaced while this recovery was suspended.
+                // Its result (and any claim it made) belongs to the replaced
+                // transport; the next bind must recover against the new one.
+                throw BotMCPError.unavailable(
+                    "the Worker transport was replaced during main-session recovery")
+            }
             mainSessionId = sessionId
             mainSessionTask = nil
             return sessionId
         } catch {
-            mainSessionTask = nil
+            if generation == transportGeneration { mainSessionTask = nil }
             throw error
         }
     }
@@ -1750,6 +1773,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     private func recoverOrCreateMainSession() async throws -> String {
+        try Task.checkCancellation()
         let root = botRoot()
         if let recovered = try await latestMainSessionEvent() {
             let recoveredCwd: String?
@@ -1759,6 +1783,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 recoveredCwd = await remoteSessionCwd(recovered.sessionId)
             }
             if recoveredCwd == root, await validateRemoteSession(recovered.sessionId, attempts: 100) {
+                // The transport may have been replaced while the validation
+                // request was outstanding; never claim against the new Worker
+                // from a recovery that belonged to the old one.
+                try Task.checkCancellation()
                 let principal = try await issueAndClaimSession(recovered.sessionId, kind: .chat)
                 try await recordRuntimeStarted(recovered.sessionId, principal: principal, cwd: root)
                 return recovered.sessionId
