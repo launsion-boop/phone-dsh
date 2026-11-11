@@ -275,6 +275,138 @@ final class MemoryErasureTests: XCTestCase {
         try await store.verifyIntegrity()
     }
 
+    /// Agent-scope erase is bounded by the target paths and the erasing Bot.
+    /// A shared `user/` document whose content happens to contain a target
+    /// document's unique marker is a *surviving* document, not a derived copy:
+    /// before this regression the needle scan also cleared its version event,
+    /// leaving a hole that made the next replay report `.corrupted`.
+    func testAgentScopeEraseKeepsSharedUserDocumentAndReplaysWithoutCorruption() async throws {
+        let marker = "SHARED_COPY_MARKER_7A9"
+        let memory = makeMemory(store: store, botID: "main")
+        // prepare() materializes the two empty INDEX documents as version 1.
+        _ = try await memory.injection()
+        let agentV2 = try await write(
+            memory, .write, path: "agent/INDEX.md",
+            content: "# Agent index\n- \(marker) v1", expected: 1)
+        XCTAssertTrue(agentV2.ok)
+        let agentV3 = try await write(
+            memory, .append, path: "agent/INDEX.md",
+            content: "\n- \(marker) v2", expected: 2)
+        XCTAssertTrue(agentV3.ok)
+
+        let userV2 = try await write(
+            memory, .write, path: "user/INDEX.md",
+            content: "# User index\n- baseline", expected: 1)
+        XCTAssertTrue(userV2.ok)
+        let userV3 = try await write(
+            memory, .write, path: "user/INDEX.md",
+            content: "# User index\n- copied observation: \(marker) v2", expected: 2)
+        XCTAssertTrue(userV3.ok)
+        let userV4 = try await write(
+            memory, .write, path: "user/INDEX.md",
+            content: "# User index\n- baseline\n- copied observation: \(marker) v2\n- still here", expected: 3)
+        XCTAssertTrue(userV4.ok)
+
+        let erased = try await memory.erase(scope: .agent)
+        XCTAssertTrue(erased.ok, erased.error ?? "")
+        XCTAssertEqual(erased.scope, .agent)
+        XCTAssertEqual(erased.paths, ["agent/INDEX.md"])
+
+        // A fresh process replays the whole log. The shared document and
+        // every surviving version must still be there; no `.corrupted`.
+        let database = root.appendingPathComponent("domain.sqlite")
+        try await store.close()
+        store = try SQLiteDomainStore(fileURL: database, now: { MemoryTestFixtures.now })
+        let reopened = makeMemory(
+            store: store, botID: "main", now: MemoryTestFixtures.now + 1_000)
+        let documents = try await reopened.documents(scope: nil)
+        // Missing INDEX documents are re-materialized empty by prepare(); the
+        // erased content must be gone, not merely the path.
+        let agentIndex = documents.first { $0.path == "agent/INDEX.md" }
+        XCTAssertEqual(agentIndex?.content, "# Index")
+        XCTAssertFalse(documents.contains { $0.path == "agent/INDEX.md" && $0.content.contains(marker) })
+        let userIndex = try XCTUnwrap(documents.first { $0.path == "user/INDEX.md" })
+        XCTAssertEqual(userIndex.content, "# User index\n- baseline\n- copied observation: \(marker) v2\n- still here")
+        let versions = try await reopened.versions(path: "user/INDEX.md")
+        XCTAssertEqual(versions.map(\.version), [1, 2, 3, 4],
+                       "an agent-scope erase must not erase a shared user document version")
+
+        // The re-materialized index is a normal new document version.
+        let rewritten = try await write(
+            reopened, .write, path: "agent/INDEX.md",
+            content: "# Agent index\n- rebuilt", expected: 1)
+        XCTAssertTrue(rewritten.ok)
+        XCTAssertEqual(rewritten.version, 2)
+        let userNext = try await write(
+            reopened, .write, path: "user/INDEX.md",
+            content: "# User index\n- updated", expected: 4)
+        XCTAssertTrue(userNext.ok)
+        XCTAssertEqual(userNext.version, 5)
+        try await store.verifyIntegrity()
+    }
+
+    /// Physical erasure is the only legal way a payload becomes NULL. Replay
+    /// must treat such an event as a tombstone, not as evidence that the log
+    /// is corrupt: a later version may continue after erased versions.
+    func testReplayTreatsAnErasedDocumentVersionAsATombstone() async throws {
+        let memory = makeMemory(store: store, botID: "main")
+        // prepare() materializes the empty INDEX as version 1.
+        _ = try await memory.injection()
+        for version in 1..<4 {
+            let result = try await write(
+                memory, .write, path: "user/INDEX.md",
+                content: "# Index\n- v\(version + 1)", expected: version)
+            XCTAssertTrue(result.ok)
+        }
+        let events = try await store.events(after: 0, limit: 100)
+        let secondSequence = try XCTUnwrap(events.first {
+            $0.type == "memory.document_written"
+                && $0.data["path"]?.stringValue == "user/INDEX.md"
+                && $0.data["version"]?.intValue == 2
+        }?.commitSeq)
+        // Simulate the legacy shape produced before the scope fix: one
+        // surviving document version was cleared without a target path. It is
+        // still a legal tombstone, so replay must skip it.
+        let data = BotErasureEventData(
+            erasureId: "erasure-legacy-hole",
+            reason: "memory-scope-erase",
+            atMS: MemoryTestFixtures.now,
+            targets: [BotErasureEventData.Target(kind: "memory", scope: "agent")])
+        let event = BotEvent(
+            type: "erasure",
+            eventId: "erasure-legacy-hole",
+            time: MemoryTestFixtures.now,
+            origin: .local(source: "user"),
+            traceId: "trace-erasure-legacy-hole",
+            principal: BotPrincipal(botId: "main", sessionId: nil, kind: "ipc"),
+            causationId: nil,
+            correlationId: nil,
+            data: try Self.encode(data))
+        _ = try await store.erasePayloads(
+            [secondSequence], erasureEvent: event, atMS: MemoryTestFixtures.now)
+
+        let database = root.appendingPathComponent("domain.sqlite")
+        try await store.close()
+        store = try SQLiteDomainStore(fileURL: database, now: { MemoryTestFixtures.now })
+        let reopened = makeMemory(store: store, botID: "main")
+        let documents = try await reopened.documents(scope: .user)
+        let userIndex = try XCTUnwrap(documents.first { $0.path == "user/INDEX.md" })
+        XCTAssertEqual(userIndex.content, "# Index\n- v4")
+        XCTAssertEqual(userIndex.version, 4)
+        let survivingVersions = try await reopened.versions(path: "user/INDEX.md")
+        XCTAssertEqual(survivingVersions.map(\.version), [1, 3, 4])
+        let next = try await write(
+            reopened, .append, path: "user/INDEX.md", content: "\n- v5", expected: 4)
+        XCTAssertTrue(next.ok)
+        XCTAssertEqual(next.version, 5)
+    }
+
+    private static func encode<T: Encodable>(_ value: T) throws -> BotJSONValue {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try BotJSONValue.parse(encoder.encode(value))
+    }
+
     func testEraseIsIdempotentAndReplayDoesNotResurrect() async throws {
         let marker = "IDEMPOTENT_ERASE_MARKER_22"
         let memory = makeMemory(store: store, botID: "main")

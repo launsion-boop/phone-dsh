@@ -458,6 +458,13 @@ struct BotProductionInfoSnapshot: Sendable {
     /// Last failed App identity registration for this runtime, if any. Read
     /// only; the info page renders it as one status line.
     var bridgeStatus: PhoneDSHBot.BotBridgeDiagnostic?
+    /// Per-entry failure messages. Each data entry loads independently so a
+    /// broken projection only fails its own page. The raw error goes to the
+    /// diagnostic log; this string is the human-facing copy.
+    var memoryError: String?
+    var routinesError: String?
+    var approvalsError: String?
+    var grantsError: String?
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
@@ -493,16 +500,52 @@ actor BotProductionInfoService {
     func load() async throws -> BotProductionInfoSnapshot {
         let memory = environment.memory
         let machine = environment.routineMachine
-        let botName = try await environment.context().botName
-        let documents = try await memory.documents(scope: nil)
+        // The page title is profile-driven; a missing runtime context must
+        // not take the four data entries down with it.
+        let botName = (try? await environment.context().botName) ?? ""
+        let humanFailure = "暂时读不出来，请稍后重试。"
+
         var memories: [BotProductionMemoryDocument] = []
-        for document in documents {
-            memories.append(BotProductionMemoryDocument(
-                document: document,
-                versions: try await memory.versions(path: document.path)))
+        var memoryError: String?
+        do {
+            let documents = try await memory.documents(scope: nil)
+            for document in documents {
+                memories.append(BotProductionMemoryDocument(
+                    document: document,
+                    versions: try await memory.versions(path: document.path)))
+            }
+        } catch {
+            await logInfoProjectionFailure("memory", error)
+            memoryError = humanFailure
         }
-        async let routines = machine.list(botId: environment.botID)
-        async let approvals = approvalRecords()
+
+        var routines: [Routine] = []
+        var routinesError: String?
+        do {
+            routines = try await machine.list(botId: environment.botID)
+        } catch {
+            await logInfoProjectionFailure("routines", error)
+            routinesError = humanFailure
+        }
+
+        var approvals: [BotProductionApproval] = []
+        var approvalsError: String?
+        do {
+            approvals = try await approvalRecords()
+        } catch {
+            await logInfoProjectionFailure("approvals", error)
+            approvalsError = humanFailure
+        }
+
+        var grants: [BotProductionGrant] = []
+        var grantsError: String?
+        do {
+            grants = try await standingGrants()
+        } catch {
+            await logInfoProjectionFailure("grants", error)
+            grantsError = humanFailure
+        }
+
         let context = await BotPresenceCenter.shared.context()
         let presence: RoutinePresence
         if let scheduler {
@@ -514,8 +557,14 @@ actor BotProductionInfoService {
                     appActive: context.appActive, keepingAlive: context.keepingAlive,
                     scheduledNotificationCount: 0))
         }
-        let grants = await standingGrants()
-        let reconciliations = try await reconciliationRecords(provided: routines)
+        var reconciliations: [BotProductionReconciliation] = []
+        if routinesError == nil {
+            do {
+                reconciliations = try await reconciliationRecords(provided: routines)
+            } catch {
+                await logInfoProjectionFailure("reconciliations", error)
+            }
+        }
         let maintenanceBatch = try? await maintenance?.lastBatch()
         let maintenanceSettings = await maintenance?.settings()
         let maintenanceEnabled = maintenanceSettings?.enabled ?? false
@@ -526,7 +575,7 @@ actor BotProductionInfoService {
         } else {
             bridgeStatus = nil
         }
-        return try await BotProductionInfoSnapshot(
+        return BotProductionInfoSnapshot(
             botName: botName, memories: memories, routines: routines, approvals: approvals,
             grants: grants, reconciliations: reconciliations,
             presence: presence, proactiveSettings: settingsStore.settings(),
@@ -534,7 +583,20 @@ actor BotProductionInfoService {
             maintenanceEnabled: maintenanceEnabled,
             maintenanceDailyTokens: maintenanceBudget?.dailyTokensUsed ?? 0,
             maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0,
-            bridgeStatus: bridgeStatus)
+            bridgeStatus: bridgeStatus,
+            memoryError: memoryError,
+            routinesError: routinesError,
+            approvalsError: approvalsError,
+            grantsError: grantsError)
+    }
+
+    /// The raw projection error belongs in the App diagnostic log. The page
+    /// only ever receives the human message above.
+    private func logInfoProjectionFailure(_ section: String, _ error: Error) async {
+        await MainActor.run {
+            BotRebindDiagnostics.emit(
+                "bot-info projection=\(section) error=\(String(reflecting: error))")
+        }
     }
 
     /// S3: enable/disable the background maintainer (default off). The switch
@@ -969,7 +1031,7 @@ final class BotSessionEpochEraser: Sendable {
     /// suppresses that automatic path for the duration and releases it (with
     /// the new boot id recorded) before returning.
     private let beginManualWorkerRebind: (@Sendable () async -> Void)?
-    private let endManualWorkerRebind: (@Sendable () async -> Void)?
+    private let endManualWorkerRebind: (@Sendable (Bool) async -> Void)?
 
     init(remote: BotDSHRemoteRuntime,
          environment: BotProductionEnvironment,
@@ -977,7 +1039,7 @@ final class BotSessionEpochEraser: Sendable {
          hostReference: BotHostReference,
          workspaceRoot: URL,
          beginManualWorkerRebind: (@Sendable () async -> Void)? = nil,
-         endManualWorkerRebind: (@Sendable () async -> Void)? = nil) {
+         endManualWorkerRebind: (@Sendable (Bool) async -> Void)? = nil) {
         self.remote = remote
         self.environment = environment
         self.recordService = recordService
@@ -1026,6 +1088,10 @@ final class BotSessionEpochEraser: Sendable {
         }
         var erased: [BotErasureEventData.ErasedSessionRecord] = []
         await beginManualWorkerRebind?()
+        // The follow streams of running tasks are about to be cut by the
+        // deliberate park. Mark the window so the runtime reports an
+        // interruption instead of a transport failure.
+        await remote.beginHostPark()
         do {
             try await host.park()
             for target in scan.targets {
@@ -1056,18 +1122,27 @@ final class BotSessionEpochEraser: Sendable {
             await remote.attachTransport(transport)
             _ = try await remote.startMainSession()
             await environment.updateSessionID(switched.new)
-            await endManualWorkerRebind?()
+            await remote.endHostPark()
+            // The manual path bypasses `BotRuntimeUnit.start`, so deliver the
+            // interrupted Task wakes here, after the replacement Worker and
+            // the new main session are ready.
+            _ = await remote.deliverInterruptedTaskWakes()
+            await endManualWorkerRebind?(true)
         } catch {
             // Never leave the App parked: the session switch is already
             // durable, so a resume failure is reported separately from the
             // rewrite failure.
+            var transportRecovered = false
             if (try? await host.start()) != nil {
                 if let transport = try? await host.makeTransport() {
                     await remote.attachTransport(transport)
-                    _ = try? await remote.startMainSession()
+                    if (try? await remote.startMainSession()) != nil {
+                        transportRecovered = true
+                    }
                 }
             }
-            await endManualWorkerRebind?()
+            await remote.endHostPark()
+            await endManualWorkerRebind?(transportRecovered)
             throw error
         }
 

@@ -154,6 +154,51 @@ public final class BotWorkerRecoveryScheduler {
         self.replacementHelloPending = false
     }
 
+    /// Starts a deliberate manual park/start (the S6 epoch eraser). An
+    /// automatic attempt or ready gate that was armed before the park must not
+    /// race the caller's own reattach.
+    public func beginManualRebind() {
+        cancelAutomaticRetry()
+        cancelReadyFallback()
+        awaitingReadyTarget = nil
+        workerReady = false
+        automaticRetriesRemaining = 0
+        if isRecovering {
+            generation &+= 1
+            task?.cancel()
+            attemptContinuation?.finish()
+            attemptContinuation = nil
+            task = nil
+            isRecovering = false
+            activeTarget = nil
+            pendingTarget = nil
+        }
+        replacementHelloPending = false
+        setPhase(.recovering)
+    }
+
+    /// Records the replacement boot the manual path already attached and
+    /// publishes `.ready`; no recovery runs.
+    public func completeManualRebind(recoveredBootID: String?) {
+        seed(recoveredBootID: recoveredBootID)
+        setPhase(.ready)
+    }
+
+    /// The manual park/start failed. Publish a visible failure so the page
+    /// offers 重试 instead of claiming the connection recovered.
+    public func failManualRebind(_ message: String) {
+        cancelAutomaticRetry()
+        cancelReadyFallback()
+        awaitingReadyTarget = nil
+        workerReady = false
+        automaticRetriesRemaining = 0
+        isRecovering = false
+        task = nil
+        activeTarget = nil
+        pendingTarget = nil
+        setPhase(.failed(message))
+    }
+
     /// A WebContent termination is not a Worker boot: it only tells the page
     /// that the current channel is gone. Reporting `recovering` here without a
     /// bind is deliberate — the old Worker is dead and the replacement has not

@@ -1570,8 +1570,17 @@ public actor BotMCPRuntime {
         case "user": recallScope = .user
         default: recallScope = nil
         }
-        let page = try await memory.recallPage(
-            string(args["query"]) ?? "", limit: limit, scope: recallScope)
+        let page: (hits: [BotMemoryRecallHit], total: Int)
+        do {
+            page = try await memory.recallPage(
+                string(args["query"]) ?? "", limit: limit, scope: recallScope)
+        } catch {
+            // A memory read failure is a normal tool error, never a hung
+            // turn. Keep the internal error out of the model/user surface.
+            return .failure(
+                "memory_unavailable",
+                "记忆暂时读不出来，请稍后重试。")
+        }
         return .success(.object([
             "ok": .bool(true),
             "hits": .array(try page.hits.map { try encode($0) }),

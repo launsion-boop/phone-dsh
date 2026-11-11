@@ -560,8 +560,8 @@ final class BotRuntimeComposition {
             beginManualWorkerRebind: { [weak self] in
                 await self?.beginManualWorkerRebind()
             },
-            endManualWorkerRebind: { [weak self] in
-                await self?.endManualWorkerRebind()
+            endManualWorkerRebind: { [weak self] succeeded in
+                await self?.endManualWorkerRebind(succeeded: succeeded)
             })
         await unit.info.setSessionEraser { request in
             try await eraser.erase(request)
@@ -996,18 +996,27 @@ final class BotRuntimeComposition {
         return false
     }
 
-    private func beginManualWorkerRebind() {
+    private func beginManualWorkerRebind() async {
         suppressesWorkerBootRebind = true
+        // The manual path is the only rebind for this Worker boot. Release
+        // any armed ready gate/attempt so it cannot race the park/start.
+        workerRecovery.beginManualRebind()
+        // The parked Worker loses its in-memory registrations and every live
+        // Task turn. This is the same transition an automatic bind performs;
+        // without it a Task cut by the park settles as `failed` instead of
+        // `interrupted`, and its wake is never queued.
+        await runtime.workerRestarted()
     }
 
-    private func endManualWorkerRebind() async {
-        if let host {
-            // The manual eraser parks/starts the host itself and then
-            // re-attaches every unit, including `reclaimOwnedSessions()`.
-            // The host rotated its Worker boot id for that start, so record
-            // it as already bound before automatic recovery resumes.
+    private func endManualWorkerRebind(succeeded: Bool) async {
+        if succeeded, let host {
+            // The manual eraser parked/started the host and re-attached the
+            // unit itself, including the new main session. Record the current
+            // Worker boot as already bound so the page leaves recovering.
             let current = await host.currentWorkerBootID
-            workerRecovery.seed(recoveredBootID: current)
+            workerRecovery.completeManualRebind(recoveredBootID: current)
+        } else {
+            workerRecovery.failManualRebind("Bot 连接没有恢复，请重试。")
         }
         suppressesWorkerBootRebind = false
     }
