@@ -175,6 +175,7 @@ test('question suppression clears at turn end rather than attempt end', async ()
 /** Mount stream-forward, run one scripted tool call, then emit one text delta. */
 async function textAfterContentCard(
   tool: string, args: Record<string, unknown>, execute: () => Promise<string>,
+  beforeText: string | null = null,
 ): Promise<string[]> {
   const ctx = new Context()
   const hub = new BotStreamHub()
@@ -198,6 +199,10 @@ async function textAfterContentCard(
         if (frame.type === 'end') break
       }
     })()
+    if (beforeText !== null) {
+      ctx.emit('agent/assistant-stream', { agent, frame: { type: 'start', revision: 1, turn: 1, step: 1, attemptId: LlmAttemptId('before-card') } })
+      ctx.emit('agent/assistant-stream', { agent, frame: { type: 'chunk', revision: 1, time: 1, attemptId: LlmAttemptId('before-card'), index: 0, chunk: { type: 'text-delta', index: 0, text: beforeText } } })
+    }
     await executeTool(ctx, {
       callId: ToolCallId('final-card'), name: tool, arguments: args,
       signal: new AbortController().signal, agent,
@@ -216,6 +221,12 @@ async function textAfterContentCard(
 test('a successful final:true content card suppresses trailing deltas', async () => {
   assert.deepEqual(await textAfterContentCard(
     'mcp__phone__show_progress', { title: 'Wrap up', final: true }, async () => 'ok'), [])
+})
+
+test('a final:true card suppresses only the deltas after the successful call', async () => {
+  assert.deepEqual(await textAfterContentCard(
+    'mcp__phone__show_progress', { title: 'Wrap', final: true }, async () => 'ok',
+    'before card'), ['before card'])
 })
 
 test('a content card without final keeps trailing deltas', async () => {

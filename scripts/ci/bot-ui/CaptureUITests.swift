@@ -235,6 +235,33 @@ final class BotCaptureUITests: XCTestCase {
                         NSPredicate(format: "label CONTAINS %@", "约 2 分钟")).firstMatch.exists)
     }
 
+    /// The F2/F3 incident history: long expandable headings, a checklist, a
+    /// document and an attachment next to a progress card whose cardKey is
+    /// updated in place. The fixture hands the model new ids for those
+    /// updates; the transcript must keep the first id, and XCUITest must still
+    /// resolve cards after the dense history has settled.
+    func testDenseCardsAndInPlaceProgressKeepSnapshotsAvailable() throws {
+        launch("chatLayoutStress")
+        let ids = app.descendants(matching: .any)["bot.fixture.ids"]
+        XCTAssertTrue(ids.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            let label = ids.label
+            return label.contains("layout-progress")
+                && !label.contains("layout-progress-update")
+                && !label.contains("layout-progress-final")
+        }, "progress card id changed: \(ids.label)")
+        let more = app.buttons["bot.progress.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "布局回归记录")
+        ).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "bot.composer.input").firstMatch.exists)
+    }
+
     /// A lost live `turn/end` must not pin the live tool group forever. The
     /// 800ms durable watch is authoritative; once it carries the answer the
     /// stop control and tool-running activity go away.

@@ -230,17 +230,17 @@ private enum BotCardHeadingTextStyle {
     }
 }
 
-private struct BotCardFullTextHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
+private struct BotCardTextHeights: Equatable {
+    var full: CGFloat = 0
+    var limited: CGFloat = 0
 }
 
-private struct BotCardLimitedTextHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+private struct BotCardTextHeightsKey: PreferenceKey {
+    static var defaultValue = BotCardTextHeights()
+    static func reduce(value: inout BotCardTextHeights, nextValue: () -> BotCardTextHeights) {
+        let next = nextValue()
+        value.full = max(value.full, next.full)
+        value.limited = max(value.limited, next.limited)
     }
 }
 
@@ -252,10 +252,10 @@ private struct BotCardExpandableText: View {
     let style: BotCardHeadingTextStyle
     let lineLimit: Int
     @State private var expanded = false
-    @State private var fullHeight: CGFloat = 0
-    @State private var limitedHeight: CGFloat = 0
+    @State private var measured = BotCardTextHeights()
+    @State private var measurementTask: Task<Void, Never>?
 
-    private var canExpand: Bool { fullHeight > limitedHeight + 0.5 }
+    private var canExpand: Bool { measured.full > measured.limited + 0.5 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -264,8 +264,13 @@ private struct BotCardExpandableText: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .background(alignment: .topLeading) { fullHeightProbe }
                 .background { limitedHeightProbe }
-                .onPreferenceChange(BotCardFullTextHeightKey.self) { fullHeight = $0 }
-                .onPreferenceChange(BotCardLimitedTextHeightKey.self) { limitedHeight = $0 }
+                .onPreferenceChange(BotCardTextHeightsKey.self) { next in
+                    scheduleMeasurement(next)
+                }
+                .onDisappear {
+                    measurementTask?.cancel()
+                    measurementTask = nil
+                }
             if canExpand || expanded {
                 Button(expanded ? "收起" : "展开") {
                     withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
@@ -288,8 +293,8 @@ private struct BotCardExpandableText: View {
             .hidden()
             .background {
                 GeometryReader { proxy in
-                    Color.clear.preference(key: BotCardFullTextHeightKey.self,
-                                           value: proxy.size.height)
+                    Color.clear.preference(key: BotCardTextHeightsKey.self,
+                                           value: BotCardTextHeights(full: proxy.size.height))
                 }
             }
             .allowsHitTesting(false)
@@ -298,9 +303,28 @@ private struct BotCardExpandableText: View {
 
     private var limitedHeightProbe: some View {
         GeometryReader { proxy in
-            Color.clear.preference(key: BotCardLimitedTextHeightKey.self,
-                                   value: proxy.size.height)
+            Color.clear.preference(key: BotCardTextHeightsKey.self,
+                                   value: BotCardTextHeights(limited: proxy.size.height))
         }
+    }
+
+    /// Preference callbacks run inside SwiftUI's layout transaction. Writing
+    /// `@State` there invalidates the same graph that is measuring the card,
+    /// so a title whose probe reports a slightly different height can keep the
+    /// lazy stack in a placement loop. Coalesce the value to the next main
+    /// run-loop turn and keep the last assignment only when it really changed.
+    private func scheduleMeasurement(_ next: BotCardTextHeights) {
+        guard Self.differs(next, measured) else { return }
+        measurementTask?.cancel()
+        measurementTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled, Self.differs(next, measured) else { return }
+            measured = next
+        }
+    }
+
+    private static func differs(_ lhs: BotCardTextHeights, _ rhs: BotCardTextHeights) -> Bool {
+        abs(lhs.full - rhs.full) > 0.5 || abs(lhs.limited - rhs.limited) > 0.5
     }
 }
 

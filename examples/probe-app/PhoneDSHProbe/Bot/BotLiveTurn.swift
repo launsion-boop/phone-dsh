@@ -124,9 +124,16 @@ struct BotLiveTurn: Equatable {
     var records: [JSONValue] = []
     var tools: [ChatItem] = []
     var ended = false
+    /// P26 §2.9: a successful content-card call with `final:true` closes the
+    /// visible turn. Later text deltas and assistant messages are dropped
+    /// here as well as in the host, so the live projection never shows the
+    /// sentence the durable projection suppresses.
+    private(set) var suppressesText = false
     /// Row-projection polls since `turn/end`; the live view gives way to the
     /// durable rows once they carry this turn (or after a few polls).
     var pollsSinceEnd = 0
+    /// `tool/call` metadata needed to correlate the successful final card.
+    private var toolFinals: [String: Bool] = [:]
     /// Journal seqs already folded into this live turn. A live observer can be
     /// re-attached across a park/resume, and the resumed stream replays the
     /// open turn from its first record; without this guard the replay appends
@@ -141,9 +148,15 @@ struct BotLiveTurn: Equatable {
         switch type {
         case "turn/start":
             startedAt = event["time"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1_000) }
+            suppressesText = false
+            toolFinals = [:]
         case "step/start":
             buffer = ""
         case "assistant/message":
+            guard !suppressesText else {
+                buffer = ""
+                return
+            }
             let text = (data["message"]?["content"]?.arrayValue ?? []).compactMap { block in
                 block["type"]?.stringValue == "text" ? block["text"]?.stringValue : nil
             }.joined()
@@ -151,11 +164,18 @@ struct BotLiveTurn: Equatable {
                 segments.append(.text(text))
             }
             buffer = ""
-        case "tool/call", "tool/result":
+        case "tool/call":
+            let callID = data["callId"]?.stringValue ?? ""
+            let name = data["name"]?.stringValue ?? ""
+            if !callID.isEmpty {
+                if let arguments = data["arguments"],
+                   Self.isFinalContentCard(name: name, arguments: arguments) {
+                    toolFinals[callID] = true
+                }
+            }
             records.append(event)
             tools = BotTurnProcessProjector.processItems(records)
-            if type == "tool/call", let callID = data["callId"]?.stringValue,
-               tools.contains(where: { $0.callID == callID }) {
+            if !callID.isEmpty, tools.contains(where: { $0.callID == callID }) {
                 if case .tools(let ids)? = segments.last {
                     // A replay may deliver the call once per observer. Never
                     // put the same call id in the segment twice: `tools(for:)`
@@ -171,10 +191,20 @@ struct BotLiveTurn: Equatable {
                     segments.append(.tools([callID]))
                 }
             }
+        case "tool/result":
+            let callID = data["message"]?["toolCallId"]?.stringValue
+                ?? data["callId"]?.stringValue ?? ""
+            let failed = data["message"]?["isError"]?.boolValue == true || data["error"] != nil
+            if !failed, toolFinals[callID] == true {
+                suppressesText = true
+            }
+            toolFinals.removeValue(forKey: callID)
+            records.append(event)
+            tools = BotTurnProcessProjector.processItems(records)
         case "turn/end":
             records.append(event)
             tools = BotTurnProcessProjector.processItems(records)
-            if !buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !suppressesText, !buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 segments.append(.text(buffer))
             }
             buffer = ""
@@ -182,6 +212,25 @@ struct BotLiveTurn: Equatable {
         default:
             break
         }
+    }
+
+    /// P26 §2.9 keeps `final` as input-only metadata. Parse the recorded
+    /// `tool/call` arguments (DSH writes a JSON string; tests may use an
+    /// object) and return true only for a boolean true on a content card.
+    private static func isFinalContentCard(name: String, arguments: JSONValue) -> Bool {
+        let bare = name.components(separatedBy: "__").last ?? name
+        guard BotToolCatalog.contentCardNames.contains(bare) else { return false }
+        let object: [String: JSONValue]?
+        if case .object(let fields) = arguments {
+            object = fields
+        } else if let text = arguments.stringValue,
+                  let parsed = try? JSONValue.parse(Data(text.utf8)),
+                  case .object(let fields) = parsed {
+            object = fields
+        } else {
+            object = nil
+        }
+        return object?["final"]?.boolValue == true
     }
 
     func tools(for ids: [String]) -> [ChatItem] {

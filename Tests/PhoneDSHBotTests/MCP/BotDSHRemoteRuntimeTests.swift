@@ -285,6 +285,46 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertTrue(events.contains { $0.type == "conversation.tool_result" })
     }
 
+    func testFinalContentCardSuppressesLaterLiveTextDeltas() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[
+                .turn(),
+                .delta("before final"),
+                .toolCall("mcp__phone__show_progress", arguments: #"{"title":"Wrap up","final":true}"#),
+                .toolResult(text: "card sent"),
+                .delta("must not escape live"),
+                .assistant("must not escape live"),
+                .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let frames = await remote.liveFrames()
+        let collector = Task { () -> [String] in
+            var texts: [String] = []
+            for await frame in frames {
+                switch frame.kind {
+                case .textDelta(let text):
+                    texts.append(text)
+                case .event(let event):
+                    if event["type"]?.stringValue == "turn/end" { return texts }
+                case .streamStart:
+                    break
+                }
+            }
+            return texts
+        }
+        let result = try await remote.sendUserMessage("finish")
+        let texts = await collector.value
+        XCTAssertEqual(result.status, "completed")
+        XCTAssertTrue(texts.contains("before final"),
+                      "the pre-card delta should still stream; got \(texts)")
+        XCTAssertFalse(texts.contains { $0.contains("must not escape live") },
+                       "final:true card leaked a later live delta: \(texts)")
+    }
+
     func testContentCardWithoutFinalKeepsWrapUpText() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

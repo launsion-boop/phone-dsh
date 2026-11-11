@@ -29,6 +29,11 @@ struct BotChatPage: View {
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
     @State private var preservingHistoryPosition = false
+    /// One coalesced autoscroll at a time. A streamed answer changes its
+    /// height on every delta; calling `scrollTo` synchronously from every
+    /// `onChange` keeps the lazy stack re-measuring while the keyboard is
+    /// also changing the viewport.
+    @State private var transcriptScrollTask: Task<Void, Never>?
     /// Finished turns whose process row the user opened.
     @State private var openTurns: Set<Int> = []
     /// Files chosen but not sent yet. The optimistic user row is built from
@@ -291,15 +296,20 @@ struct BotChatPage: View {
                     .padding(.bottom, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .onChange(of: model.visibleRows.map(\.id)) { _, _ in
-                    guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
-                    if let last = model.visibleRows.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                .onChange(of: model.visibleRows.last?.id) { _, last in
+                    guard !preservingHistoryPosition, model.scrollRequestID == nil,
+                          let last else { return }
+                    scheduleTranscriptScroll(proxy: proxy, to: AnyHashable(last), anchor: .bottom)
                 }
                 .onChange(of: liveScrollKey) { _, key in
-                    if key != nil { proxy.scrollTo("bot-live-tail", anchor: .bottom) }
+                    guard key != nil else { return }
+                    scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-live-tail"),
+                                             anchor: .bottom)
                 }
                 .onChange(of: model.streamingText) { _, value in
-                    if value != nil { proxy.scrollTo("bot-live-stream", anchor: .bottom) }
+                    guard let value, !value.isEmpty else { return }
+                    scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-live-stream"),
+                                             anchor: .bottom)
                 }
                 .onChange(of: model.scrollRequestID) { _, rowID in
                     guard let rowID else { return }
@@ -318,6 +328,24 @@ struct BotChatPage: View {
                                             to: nil, from: nil, for: nil)
         })
         .accessibilityIdentifier("bot.chat.transcript")
+        .onDisappear {
+            transcriptScrollTask?.cancel()
+            transcriptScrollTask = nil
+        }
+    }
+
+    /// Coalesce live-height changes into at most one scroll per UI turn. The
+    /// live key includes the buffer length, so without this every streamed
+    /// character would start another placement pass; with the keyboard open
+    /// that was enough to keep the lazy transcript busy indefinitely.
+    private func scheduleTranscriptScroll(proxy: ScrollViewProxy, to id: AnyHashable,
+                                          anchor: UnitPoint) {
+        transcriptScrollTask?.cancel()
+        transcriptScrollTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard !Task.isCancelled else { return }
+            proxy.scrollTo(id, anchor: anchor)
+        }
     }
 
     private var isEmpty: Bool {

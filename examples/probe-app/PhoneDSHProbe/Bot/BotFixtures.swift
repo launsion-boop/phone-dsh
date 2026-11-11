@@ -12,6 +12,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
     case runningToolUnauthorized, runningToolReplay, agentComm
     case runningProgress
+    case chatLayoutStress
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -250,6 +251,8 @@ enum BotUIFixtures {
                     ["id": "p4", "label": "创建 PR", "state": "pending"],
                 ],
             ]), seq: 2)]
+        case .chatLayoutStress:
+            return layoutStressRows()
         case .checklist:
             body = widget("checklist", [
                 "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
@@ -388,6 +391,93 @@ enum BotUIFixtures {
             return []
         }
         return introRows + [cardRow("card-\(fixture.rawValue)", body: body)]
+    }
+
+    /// Dense history for the layout-loop regression: long expandable
+    /// headings, a progress card that is updated in place several times, a
+    /// checklist, a document card, an attachment and a long answer. The
+    /// in-place updates deliberately hand the model a *new* row id for the
+    /// same `cardKey`; a stable transcript must not rebuild the lazy item.
+    static func layoutStressRows() -> [BotUIRow] {
+        let longTitle = "多卡片布局压力检查：进度、检查清单、文档与附件连续出现时标题必须限制在两行以内"
+        let longSummary = String(repeating: "长摘要需要在窄屏上保持稳定，不能因为测量高度而再次触发布局。", count: 3)
+        let progress = cardRow("layout-progress", body: widget("progress", [
+            "title": .string(longTitle),
+            "state": .string("running"),
+            "percent": .number(25),
+            "summary": .string(longSummary),
+            "cardKey": .string("fixture-layout-progress"),
+            "eta": .string("约 3 分钟"),
+            "steps": .array((0..<7).map { index in
+                .object([
+                    "id": .string("layout-step-\(index)"),
+                    "label": .string("第 \(index + 1) 步：读取并核对历史卡片"),
+                    "state": .string(index < 2 ? "done" : index == 2 ? "active" : "pending"),
+                    "detail": .string("\(index + 1)/7"),
+                ])
+            }),
+        ]), seq: 2)
+        let checklist = cardRow("layout-checklist", body: widget("checklist", [
+            "title": .string("发布前检查"),
+            "summary": .string("这些项目与进度卡、文档卡和附件同时出现。"),
+            "interactive": .bool(false),
+            "items": .array((0..<4).map { index in
+                .object([
+                    "id": .string("layout-check-\(index)"),
+                    "text": .string("检查第 \(index + 1) 项：卡片高度变化后仍可交互"),
+                    "done": .bool(index < 2),
+                    "note": .string(index == 2 ? "必填" : "已核对"),
+                ])
+            }),
+        ]), seq: 3)
+        let document = BotUIRow.fixture(
+            id: "layout-document", seq: 4, kind: "sendMessage", role: "assistant",
+            body: widget("document", [
+                "title": .string("布局回归记录"),
+                "summary": .string("这是与进度卡相邻的文档卡，用来累积历史高度。"),
+                "docKind": .string("markdown"),
+                "fileName": .string("layout-regression.md"),
+                "size": .string("12 kB"),
+                "content": .string("# 布局回归记录\n\n" + String(repeating: "长文本段落用于验证卡片展开与滚动。\n\n", count: 8)),
+                "toc": .array([.string("交互"), .string("卡片"), .string("滚动")]),
+            ]))
+        let attachment = cardRow("layout-attachment", body: BotUIBody(type: "attachment", values: [
+            "cardType": .string("attachment"),
+            "path": .string("/tmp/phone-dsh-layout-report.pdf"),
+            "fileName": .string("layout-report.pdf"),
+            "caption": .string("布局回归证据 · 96 kB"),
+            "mimeType": .string("application/pdf"),
+        ]), seq: 5)
+        let user = BotUIRow.text(id: "layout-user", seq: 1, role: "user",
+                                 text: "把进度、检查清单、文档和附件放在同一段对话里，再更新几次进度卡。")
+        let answer = BotUIRow.text(
+            id: "layout-answer", seq: 6, role: "assistant",
+            text: """
+            已完成密集卡片检查。
+            - 进度卡使用同一个 cardKey 原位更新。
+            - 检查清单、文档和附件保持在原来的位置。
+            - 长文本只在展开控件内变化，不影响外层滚动。
+            """ + "\n\n" + String(repeating: "补充说明：卡片密集时页面仍应能查询和滚动。\n", count: 6))
+        return [user, progress, checklist, document, attachment, answer]
+    }
+
+    /// The same-cardKey updates used by the dense fixture. The ids differ on
+    /// purpose so the model must keep the first row id instead of replacing it.
+    static func layoutStressUpdates() -> [BotUIRow] {
+        let base = layoutStressRows()[1]
+        var middle = base
+        middle.id = "layout-progress-update"
+        middle.updatedSeq = 7
+        middle.body.values["percent"] = .number(60)
+        middle.body.values["summary"] = .string("更新一次：仍在运行，卡片必须原位更新。")
+        var finished = middle
+        finished.id = "layout-progress-final"
+        finished.updatedSeq = 8
+        finished.body.values["state"] = .string("done")
+        finished.body.values["percent"] = .number(100)
+        finished.body.values["summary"] = .string("更新完成：同一个 cardKey 现在是 final 完成卡。")
+        finished.body.values["eta"] = .string("已完成")
+        return [middle, finished]
     }
 
     static var composerAttachments: [BotDraftAttachment] {
@@ -831,6 +921,10 @@ struct BotUIFixtureRootView: View {
                                 .accessibilityIdentifier("bot.fixture.visible")
                             Text("fish=\(chatModel.fishState.rawValue);activity=\(chatModel.activity?.status.rawValue ?? "none");detail=\(chatModel.activity?.detail ?? "")")
                                 .accessibilityIdentifier("bot.fixture.presentation")
+                            if fixture == .chatLayoutStress {
+                                Text("ids=\(chatModel.visibleRows.map(\.id).joined(separator: ","))")
+                                    .accessibilityIdentifier("bot.fixture.ids")
+                            }
                         }
                         .font(.system(size: 10, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -845,6 +939,18 @@ struct BotUIFixtureRootView: View {
             }
         }
         .task {
+            if fixture == .chatLayoutStress {
+                // Same-cardKey updates in the same transcript: the second and
+                // third batches carry different row ids, so a ForEach keyed by
+                // the incoming id would rebuild the lazy item on every poll.
+                // Keeping the first id is part of the layout-loop fix.
+                for (index, update) in BotUIFixtures.layoutStressUpdates().enumerated() {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    chatModel.apply(BotUIRowBatch(rows: [update], deletes: [],
+                                                  cursor: index + 1, reset: false))
+                }
+                return
+            }
             // The production page owns the 800ms watch loop. The lost-end
             // fixture needs it too: the durable projection is what closes the
             // live turn when the live `turn/end` frame never arrives.
@@ -1189,9 +1295,50 @@ enum BotUIFixtureChecks {
         updated.updatedSeq = 3
         updated.body.values["percent"] = 100
         model.upsert(updated)
-        try require(model.visibleRows.filter { $0.body.cardType == "progress" }.count == 1,
+        let progressCards = model.visibleRows.filter { $0.body.cardType == "progress" }
+        try require(progressCards.count == 1,
                     "progress cardKey appended a second row")
+        try require(progressCards.first?.id == progressRows[0].id,
+                    "progress cardKey changed the row id; the lazy ForEach would rebuild the item")
         passed.append("progress-cardKey-in-place")
+
+        // P26 §2.9 also has an App-side live projection. Once a final:true
+        // card succeeds, later deltas and committed text must not be drawn;
+        // otherwise the sentence that the host suppressed flashes in the live
+        // turn and can survive until the durable rows replace it.
+        let finalLive = BotChatModel(context: .fixture, fixtureActions: true)
+        finalLive.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        finalLive.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+            "callId": .string("layout-final-card"),
+            "name": .string("mcp__phone__show_progress"),
+            "arguments": .string("{\"title\":\"完成\",\"final\":true}"),
+        ])))
+        finalLive.receive(.event(BotUIFixtures.liveEvent("tool/result", turn: 1, seq: 3, data: [
+            "message": .object([
+                "toolCallId": .string("layout-final-card"),
+                "isError": .bool(false),
+                "content": .array([.object(["type": .string("text"),
+                                            "text": .string("card sent")])]),
+            ]),
+        ])))
+        finalLive.receive(.textDelta("must not render after final card"))
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try require(finalLive.live?.buffer.isEmpty == true,
+                    "final:true card leaked a live text delta into the transcript")
+        finalLive.receive(.event(BotUIFixtures.liveEvent("assistant/message", turn: 1, seq: 4, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([.object(["type": .string("text"),
+                                            "text": .string("must not render after final card")])]),
+            ]),
+        ])))
+        let leaked = finalLive.live?.segments.contains { segment in
+            guard case .text(let text) = segment else { return false }
+            return text.contains("must not render after final card")
+        } ?? false
+        try require(!leaked,
+                    "final:true card leaked committed live text into the transcript")
+        passed.append("final-card-live-text-suppressed")
 
         model.beginTurn(turnID: "cancel-check")
         model.receiveStream(turnID: "cancel-check", text: "early")
