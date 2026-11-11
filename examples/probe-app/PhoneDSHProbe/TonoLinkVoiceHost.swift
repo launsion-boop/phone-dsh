@@ -30,6 +30,9 @@ import ProbeKit
     private let player = VoicePCMPlayer()
     private let tts = CloudTTSClient()
     private var hereAudio: Data?
+    /// Spoken the moment a command is recognised, before the (possibly long) chat turn.
+    static let acknowledgement = "好的，马上处理"
+    private var ackAudio: Data?
     private static let keepAliveOwner = "tonolink-voice"
 
     /// Keeps a ctrl link to the user's board and listens for its wake word.
@@ -208,13 +211,25 @@ import ProbeKit
             note("error", "语音需要登录 Tono 账号，或在「模型服务」里使用云端（pdsh.tonoai.cn）密钥")
             return
         }
-        // Recognition connects while 我在 plays; recording starts only once it is ready.
+        // Recognition connects while 我在 plays. The board records right after 我在 (people start
+        // talking at once); its packets wait in this turn's stream (700 = 14 s, more than the board's
+        // 12 s turn) and are forwarded only after `started`, so they never run ahead of real time.
         var session = CloudASRSession(credential: credential, turnID: id)
         asr = session
         await session.open()
         do { try await speakHere(credential: credential, timing: { self.note("here_fetch_ms", ms()) }) }
         catch { note("here_error", error.localizedDescription) }
         note("here_ms", ms())
+        guard !Task.isCancelled else { await session.cancel(); return }
+        guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
+        do {
+            seq = seq &+ 1
+            let ack = try await ctrl.command(TonoLinkVoiceCommand.listen(seq: seq, id: id), seq: seq, timeout: .seconds(3))
+            guard ack.ok else { await session.cancel(); note("error", "板子拒绝录音：\(ack.error ?? "?")"); return }
+        } catch {
+            await session.cancel(); note("error", "listen 失败：\(error.localizedDescription)"); return
+        }
+        note("listen_ms", ms())
         if !(await session.ready()), await session.handshakeStatus == 401,
            let renewed = await renewedCredential(after: credential) {
             credential = renewed
@@ -231,14 +246,6 @@ import ProbeKit
             return
         }
         note("asr_ready_ms", ms())
-        guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
-        do {
-            seq = seq &+ 1
-            let ack = try await ctrl.command(TonoLinkVoiceCommand.listen(seq: seq, id: id), seq: seq, timeout: .seconds(3))
-            guard ack.ok else { await session.cancel(); note("error", "板子拒绝录音：\(ack.error ?? "?")"); return }
-        } catch {
-            await session.cancel(); note("error", "listen 失败：\(error.localizedDescription)"); return
-        }
         let forward = Task {
             for await opus in audio { await session.send(opus) }
             await session.finish()
@@ -255,6 +262,10 @@ import ProbeKit
         switch outcome {
         case .text(let text):
             note("heard", text)
+            // Say at once that the command was understood; the reply follows when the turn ends
+            // (same player, so it plays after this, never over it).
+            await acknowledge(credential: credential)
+            note("ack_ms", ms())
             await answer(text, credential: credential, start: start)
         case .silent:
             note("heard", "")
@@ -304,12 +315,24 @@ import ProbeKit
         }
     }
 
-    /// Fetches 我在 once so the first wake answers without waiting for TTS.
+    /// Fetches 我在 and the acknowledgement once, so neither waits for TTS during a turn.
     private func prefetchHere() async {
-        guard hereAudio == nil, let credential = await credential() else { return }
+        guard let credential = await credential() else { return }
+        if hereAudio == nil, let pcm = await synthesize("我在", credential: credential) { hereAudio = pcm }
+        if ackAudio == nil, let pcm = await synthesize(Self.acknowledgement, credential: credential) { ackAudio = pcm }
+    }
+
+    private func synthesize(_ text: String, credential: String) async -> Data? {
         var pcm = Data()
-        do { for try await chunk in tts.stream("我在", credential: credential) { pcm.append(chunk) } } catch { return }
-        if hereAudio == nil { hereAudio = pcm }
+        do { for try await chunk in tts.stream(text, credential: credential) { pcm.append(chunk) } } catch { return nil }
+        return pcm.isEmpty ? nil : pcm
+    }
+
+    /// Queues 「好的，马上处理」 and returns without waiting for it to finish.
+    private func acknowledge(credential: String) async {
+        if ackAudio == nil { ackAudio = await synthesize(Self.acknowledgement, credential: credential) }
+        guard let ackAudio else { return }
+        do { try player.play(ackAudio) } catch { note("ack_error", error.localizedDescription) }
     }
 
     private func speakHere(credential: String, timing: () -> Void) async throws {

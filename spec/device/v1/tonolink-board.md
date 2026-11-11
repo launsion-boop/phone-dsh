@@ -84,7 +84,8 @@ Unknown `key=value` members after the known ones are ignored; any other `ev …`
 the current turn's id is dropped.
 
 Consumer rules: subscribe `audio` only while voice is enabled. The phone speaks 「我在」
-**before** writing `listen` (the board would record it). Each packet's Opus body is
+**before** writing `listen` (the board would record it), and writes `listen` as soon as 「我在」
+has played, not after the cloud ASR is ready. Each packet's Opus body is
 forwarded unchanged and in order to the cloud ASR ([cloud-voice.md](../../v1/cloud-voice.md));
 the 4-byte header never leaves the phone. A `seq` gap is counted, not filled. The turn's
 audio ends at the last-flag packet or `ev listen_end`, whichever comes first. A wake while
