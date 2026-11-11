@@ -157,6 +157,7 @@ final class BotRuntimeComposition {
     private var agentCommThreads: [String: String] = [:]
     private var agentCommHops: [String: Int] = [:]
     private var pendingApprovalTicks = 0
+    private var approvalNotifications: BotApprovalNotificationReconciler?
 
     /// The Worker never carries the real Bot bearer. The host egress route
     /// (`MCPEgressPolicy.grantBotRuntimeEndpoint`) injects it after stripping
@@ -552,7 +553,9 @@ final class BotRuntimeComposition {
 
     func stop() async {
         await detachBinding()
-        await runtime.approvals.cancelAll(reason: "shutdown")
+        // Interactive cards cannot survive the process; durable todos are
+        // deliberate facts and remain for the next launch (spec/bot/v1 §2.7).
+        await runtime.approvals.cancelInteractive(reason: "shutdown")
         _ = await runtime.gateway.attribution.prune()
         host = nil
         await hostReference.set(nil)
@@ -667,6 +670,7 @@ final class BotRuntimeComposition {
         let approvals: [String: Int]
         if pendingApprovalTicks % 3 == 0 || pendingApprovalTicks == 1 {
             approvals = await pendingApprovalCounts()
+            await syncApprovalNotifications()
         } else {
             approvals = rosterModel.entries.reduce(into: [:]) {
                 $0[$1.id] = $1.pendingApprovalCount
@@ -678,6 +682,32 @@ final class BotRuntimeComposition {
                 runtimeState: state)
             rosterModel.setRuntimeState(snapshot, for: botID)
         }
+    }
+
+    /// Keeps one pre-scheduled local reminder per durable approval. The
+    /// in-app card remains the only place to act (spec/ui/v1 bot-chat §17);
+    /// the notification just brings the user back to that card.
+    private func syncApprovalNotifications() async {
+        #if os(iOS) && canImport(UserNotifications)
+        // Local reminders belong to the launched iOS App. The macOS eval
+        // harness links the same composition but has no application bundle;
+        // `UNUserNotificationCenter.current()` throws there.
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let records = await runtime.approvals.pendingNotificationRecords()
+        let reconciler: BotApprovalNotificationReconciler
+        if let existing = approvalNotifications {
+            reconciler = existing
+        } else {
+            let now: @Sendable () -> Int64 = schedulerNow ?? {
+                Int64(Date().timeIntervalSince1970 * 1_000)
+            }
+            let created = BotApprovalNotificationReconciler(
+                scheduling: UNUserNotificationApprovalScheduling(), now: now)
+            approvalNotifications = created
+            reconciler = created
+        }
+        _ = await reconciler.sync(records)
+        #endif
     }
 
     private func pendingApprovalCounts() async -> [String: Int] {

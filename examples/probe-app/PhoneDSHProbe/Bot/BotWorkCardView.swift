@@ -277,6 +277,7 @@ private struct BotApprovalCardView: View {
         case "always": return scope == "session" ? "本次对话允许" : "已总是允许"
         case "denied", "never": return "已拒绝"
         case "timed-out": return "已超时，视为拒绝"
+        case "expired": return "已过期，视为拒绝"
         default: return "已处理"
         }
     }
@@ -319,6 +320,11 @@ private struct BotApprovalCardView: View {
             }
             if scope == "none" {
                 Text("这个操作只能允许一次，不能设为总是允许。").botCardMeta()
+            }
+            if row.body["persistent"]?.bool == true {
+                Text("用户不在场，已转为待办；回来后处理即可，任务会停在原地等你。")
+                    .botCardMeta()
+                    .accessibilityIdentifier("bot.approval.persistent")
             }
             if case .failed(let reason) = model.actionStates[key] {
                 Text("未能送出：\(reason)")

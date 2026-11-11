@@ -10,9 +10,19 @@ public struct RoutineRunRequest: Sendable, Equatable {
     public var startedAt: Int64
     public var timeoutMs: Int64
     public var wake: RoutineWake
+    /// Set when a `waiting-approval` run is resumed. The request id and the
+    /// prompt must differ from the first attempt so DSH opens a new turn
+    /// instead of deduplicating the original prompt.
+    public var resumeApprovalID: String?
+    /// The routine session recorded with the parked run. After a process
+    /// restart the in-memory routine→session map is gone; reusing this id keeps
+    /// the same conversation when the Worker can still resume it.
+    public var resumeSessionID: String?
 
     public init(botId: String, routine: Routine, runId: String, attempt: Int,
-                startedAt: Int64, timeoutMs: Int64, wake: RoutineWake) {
+                startedAt: Int64, timeoutMs: Int64,
+                wake: RoutineWake, resumeApprovalID: String? = nil,
+                resumeSessionID: String? = nil) {
         self.botId = botId
         self.routine = routine
         self.runId = runId
@@ -20,6 +30,8 @@ public struct RoutineRunRequest: Sendable, Equatable {
         self.startedAt = startedAt
         self.timeoutMs = timeoutMs
         self.wake = wake
+        self.resumeApprovalID = resumeApprovalID
+        self.resumeSessionID = resumeSessionID
     }
 }
 
@@ -27,6 +39,9 @@ public enum RoutineExecutionStatus: String, Sendable {
     case succeeded
     case failed
     case cancelled
+    /// The run stopped at a durable approval. It produced no delivery and the
+    /// scheduler persists `waiting-approval` until the user decides.
+    case waitingApproval
 }
 
 public struct RoutineExecutionResult: Sendable, Equatable {
@@ -35,14 +50,19 @@ public struct RoutineExecutionResult: Sendable, Equatable {
     public var error: String?
     public var quiet: Bool
     public var cancelledBy: String?
+    public var approvalID: String?
+    public var sessionID: String?
 
     public init(status: RoutineExecutionStatus, text: String = "", error: String? = nil,
-                quiet: Bool = false, cancelledBy: String? = nil) {
+                quiet: Bool = false, cancelledBy: String? = nil,
+                approvalID: String? = nil, sessionID: String? = nil) {
         self.status = status
         self.text = text
         self.error = error
         self.quiet = quiet
         self.cancelledBy = cancelledBy
+        self.approvalID = approvalID
+        self.sessionID = sessionID
     }
 
     public static func success(_ text: String, quiet: Bool = false) -> RoutineExecutionResult {
@@ -51,6 +71,12 @@ public struct RoutineExecutionResult: Sendable, Equatable {
 
     public static func failure(_ error: String) -> RoutineExecutionResult {
         RoutineExecutionResult(status: .failed, error: error)
+    }
+
+    public static func waiting(approvalID: String, sessionID: String,
+                               error: String? = nil) -> RoutineExecutionResult {
+        RoutineExecutionResult(status: .waitingApproval, error: error,
+                               approvalID: approvalID, sessionID: sessionID)
     }
 }
 

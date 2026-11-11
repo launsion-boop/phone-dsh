@@ -7,6 +7,7 @@ public actor RoutineScheduler {
     public typealias CancelRunner = @Sendable (RoutineCancellation) async -> RoutineCancellationResult
     public typealias Availability = @Sendable (String) async -> Bool
     public typealias Sleeper = @Sendable (Int64) async -> Void
+    public typealias ApprovalCanceller = @Sendable (String) async -> Bool
 
     public let botId: String
     public let machine: RoutineMachine
@@ -17,6 +18,7 @@ public actor RoutineScheduler {
 
     private let runner: Runner
     private let cancelRunner: CancelRunner?
+    private let approvalCanceller: ApprovalCanceller?
     private let available: Availability
     private let busy: Availability
     private let settingsProvider: @Sendable () -> ProactiveSettings
@@ -31,6 +33,9 @@ public actor RoutineScheduler {
     private var ticking = false
     private var active: Set<String> = []
     private var scheduledNotifications: [String: RoutineScheduledNotification] = [:]
+    /// Decisions that arrived before the run finished persisting
+    /// `waiting-approval`. The park path applies these immediately.
+    private var earlyApprovalDecisions: [String: (allowed: Bool, expired: Bool, cancelled: Bool)] = [:]
 
     /// iOS keeps at most 64 pending notifications per application. Leave four
     /// slots for system/other-Bot notifications and keep the earliest 60
@@ -41,6 +46,7 @@ public actor RoutineScheduler {
                 sink: any RoutineResultSink, proactive: (any ProactiveConsidering)? = nil,
                 notifications: (any RoutineNotificationScheduling)? = nil,
                 runner: @escaping Runner, cancelRunner: CancelRunner? = nil,
+                approvalCanceller: ApprovalCanceller? = nil,
                 available: @escaping Availability,
                 busy: @escaping Availability = { _ in false },
                 settings: @escaping @Sendable () -> ProactiveSettings = { ProactiveSettings() },
@@ -59,6 +65,7 @@ public actor RoutineScheduler {
         self.notifications = notifications
         self.runner = runner
         self.cancelRunner = cancelRunner
+        self.approvalCanceller = approvalCanceller
         self.available = available
         self.busy = busy
         self.settingsProvider = settings
@@ -94,6 +101,7 @@ public actor RoutineScheduler {
         let at = now ?? nowProvider()
         return try await machine.list(botId: botId).filter {
             $0.enabled && $0.runState?.status != .needsReconciliation &&
+            $0.runState?.status != .waitingApproval &&
             ($0.nextRunAt ?? Int64.max) <= at
         }.sorted { ($0.nextRunAt ?? 0, $0.createdAt, $0.id) < ($1.nextRunAt ?? 0, $1.createdAt, $1.id) }
     }
@@ -135,6 +143,7 @@ public actor RoutineScheduler {
         let routines = try await machine.list(botId: botId)
         for var routine in routines {
             if !routine.enabled || routine.runState?.status == .needsReconciliation { continue }
+            if routine.runState?.status == .waitingApproval { continue }
             if routine.runState?.status == .started {
                 if active.contains(routine.id) {
                     _ = try await machine.recordSkip(botId: botId, routineId: routine.id, at: now)
@@ -179,10 +188,23 @@ public actor RoutineScheduler {
     /// as a timeout but passes `reason:"user"`, so the settled delivery keeps
     /// `cancelOrigin:"user"` and is not treated as a failure notification.
     public func cancelRunning(routineId: String) async -> RoutineCancellationResult {
-        guard active.contains(routineId),
-              let routine = try? await machine.get(botId: botId, routineId: routineId),
-              let state = routine.runState,
-              state.status == .started else {
+        guard let routine = try? await machine.get(botId: botId, routineId: routineId),
+              let state = routine.runState else {
+            return RoutineCancellationResult(cancelled: false, reason: "routine is not running")
+        }
+        if state.status == .waitingApproval {
+            guard let approvalID = state.waitingApprovalID else {
+                return RoutineCancellationResult(cancelled: false, reason: "waiting approval is not recorded")
+            }
+            guard let approvalCanceller else {
+                return RoutineCancellationResult(cancelled: false, reason: "no-approval-cancel-handler")
+            }
+            let cancelled = await approvalCanceller(approvalID)
+            return RoutineCancellationResult(
+                cancelled: cancelled,
+                reason: cancelled ? nil : "approval is no longer pending")
+        }
+        guard active.contains(routineId), state.status == .started else {
             return RoutineCancellationResult(cancelled: false, reason: "routine is not running")
         }
         guard let cancelRunner else {
@@ -198,19 +220,59 @@ public actor RoutineScheduler {
     }
 
     private func execute(_ claim: RoutineClaim, startedAt: Int64) async {
+        guard let runState = claim.routine.runState else { return }
+        let result = await run(claim: claim, runState: runState, startedAt: startedAt,
+                               resumeApprovalID: nil, resumeSessionID: nil)
+        await settle(claim: claim, runState: runState, startedAt: startedAt, result: result)
+    }
+
+    private func run(claim: RoutineClaim, runState: RoutineRunState, startedAt: Int64,
+                     resumeApprovalID: String?,
+                     resumeSessionID: String?) async -> RoutineExecutionResult {
         let routine = claim.routine
-        guard let runState = routine.runState else { return }
-        let result: RoutineExecutionResult
         do {
             let wake = try RoutineWakeBuilder.build(routine: routine, mode: .due,
                                                     firedAt: startedAt, now: startedAt)
-            let request = RoutineRunRequest(botId: botId, routine: routine, runId: runState.runId,
-                                            attempt: runState.attempt, startedAt: startedAt,
-                                            timeoutMs: runTimeoutMs + cancelGraceMs + 1_000, wake: wake)
-            result = await runWithDeadline(request)
+            var text = wake.text
+            if let resumeApprovalID {
+                text += "\n\n[approval_resume] The user approved the pending \(resumeApprovalID) approval. "
+                    + "Continue this same routine run from where it stopped; do not repeat side effects that already happened."
+            }
+            let request = RoutineRunRequest(
+                botId: botId, routine: routine, runId: runState.runId,
+                attempt: runState.attempt, startedAt: startedAt,
+                timeoutMs: runTimeoutMs + cancelGraceMs + 1_000,
+                wake: RoutineWake(text: text, cue: wake.cue, mode: wake.mode),
+                resumeApprovalID: resumeApprovalID,
+                resumeSessionID: resumeSessionID)
+            return await runWithDeadline(request)
         } catch {
-            result = .failure("wake build failed: \(error.localizedDescription)")
+            return .failure("wake build failed: \(error.localizedDescription)")
         }
+    }
+
+    private func settle(claim: RoutineClaim, runState: RoutineRunState, startedAt: Int64,
+                        result: RoutineExecutionResult) async {
+        let routine = claim.routine
+        if result.status == .waitingApproval {
+            guard let approvalID = result.approvalID, let sessionID = result.sessionID else {
+                await finish(claim: claim, runState: runState, startedAt: startedAt,
+                             result: .failure("approval pending but no approval or session id"))
+                return
+            }
+            _ = try? await machine.waitForApproval(
+                botId: botId, routineId: routine.id, approvalID: approvalID,
+                sessionID: sessionID, now: nowProvider())
+            await applyEarlyApprovalIfAny(approvalId: approvalID)
+            await syncNotifications()
+            return
+        }
+        await finish(claim: claim, runState: runState, startedAt: startedAt, result: result)
+    }
+
+    private func finish(claim: RoutineClaim, runState: RoutineRunState, startedAt: Int64,
+                        result: RoutineExecutionResult) async {
+        let routine = claim.routine
         var status: RoutineRunStatus
         var text = result.text
         let error = result.error
@@ -227,6 +289,9 @@ public actor RoutineScheduler {
             case .cancelled:
                 status = .cancelled
                 cancelOrigin = cancelOrigin ?? "user"
+            case .waitingApproval:
+                status = .failed
+                cancelOrigin = "approval_pending"
             }
         }
         let reply = status == .succeeded ? RoutineWakeBuilder.normalizeReply(text) : RoutineReply(text: text, quiet: false)
@@ -239,12 +304,106 @@ public actor RoutineScheduler {
             runId: runState.runId, reconcileRequired: status == .needsReconciliation,
             quiet: quiet, cancelOrigin: cancelOrigin
         ), !finished.ignored, let delivery = finished.delivery else { return }
+        await publish(delivery)
+    }
+
+    private func publish(_ delivery: RoutineDelivery) async {
         await hold(delivery)
         await considerInterrupt(delivery)
         if let latest = try? await machine.delivery(delivery.deliveryKey, botId: botId) {
             await deliver(latest)
         }
         await syncNotifications()
+    }
+
+    // MARK: - Durable approval suspension / resume
+
+    /// One terminal decision for a routine that parked on the approval. If the
+    /// run has not persisted `waiting-approval` yet (the decision won the race),
+    /// the decision is kept until the park path runs.
+    public func approvalResolved(approvalId: String, sessionId: String, allowed: Bool,
+                                 expired: Bool = false, cancelled: Bool = false) async {
+        let routines = (try? await machine.list(botId: botId)) ?? []
+        if let routine = routines.first(where: { $0.runState?.waitingApprovalID == approvalId }) {
+            if allowed {
+                await resumeWaiting(routine: routine, approvalID: approvalId)
+            } else {
+                await denyWaiting(routine: routine, approvalID: approvalId,
+                                  expired: expired, cancelled: cancelled)
+            }
+            return
+        }
+        earlyApprovalDecisions[approvalId] = (allowed, expired, cancelled)
+    }
+
+    /// Every routine currently parked on a durable approval. The App unit uses
+    /// this once at startup to reconcile restored waiting states with the
+    /// approval coordinator.
+    public func waitingApprovalEntries() async -> [(approvalID: String, sessionID: String, routineID: String)] {
+        let routines = (try? await machine.list(botId: botId)) ?? []
+        return routines.compactMap { routine in
+            guard let state = routine.runState, state.status == .waitingApproval,
+                  let approvalID = state.waitingApprovalID,
+                  let sessionID = state.waitingSessionID else { return nil }
+            return (approvalID, sessionID, routine.id)
+        }
+    }
+
+    private func applyEarlyApprovalIfAny(approvalId: String) async {
+        guard let decision = earlyApprovalDecisions.removeValue(forKey: approvalId) else { return }
+        let routines = (try? await machine.list(botId: botId)) ?? []
+        guard let routine = routines.first(where: { $0.runState?.waitingApprovalID == approvalId })
+        else { return }
+        if decision.allowed {
+            await resumeWaiting(routine: routine, approvalID: approvalId)
+        } else {
+            await denyWaiting(routine: routine, approvalID: approvalId,
+                              expired: decision.expired, cancelled: decision.cancelled)
+        }
+    }
+
+    private func resumeWaiting(routine: Routine, approvalID: String) async {
+        guard let state = routine.runState,
+              let claim = try? await machine.resumeWaitingApproval(
+                botId: botId, routineId: routine.id, approvalID: approvalID,
+                now: nowProvider(), leaseOwner: leaseOwner,
+                leaseTTLMs: runTimeoutMs + cancelGraceMs + 60_000),
+              claim.claimed, let resumedState = claim.routine.runState else { return }
+        let ownsActive = !active.contains(routine.id)
+        if ownsActive { active.insert(routine.id) }
+        defer { if ownsActive { active.remove(routine.id) } }
+        let result = await run(claim: claim, runState: resumedState,
+                               startedAt: state.startedAt,
+                               resumeApprovalID: approvalID,
+                               resumeSessionID: state.waitingSessionID)
+        await settle(claim: claim, runState: resumedState,
+                     startedAt: state.startedAt, result: result)
+    }
+
+    private func denyWaiting(routine: Routine, approvalID: String,
+                             expired: Bool, cancelled: Bool) async {
+        guard let state = routine.runState,
+              state.waitingApprovalID == approvalID else { return }
+        if cancelled {
+            // The explicit stop path already records the terminal cancelled
+            // state; keep its delivery text deterministic and do not wake.
+            guard let finished = try? await machine.finish(
+                botId: botId, routineId: routine.id, status: .cancelled,
+                text: "", error: "approval_cancelled",
+                startedAt: state.startedAt, finishedAt: nowProvider(),
+                attempt: state.attempt, runId: state.runId, cancelOrigin: "user"),
+                !finished.ignored, let delivery = finished.delivery else { return }
+            await publish(delivery)
+            return
+        }
+        let error = expired ? "approval_expired" : "approval_denied"
+        guard let finished = try? await machine.finish(
+            botId: botId, routineId: routine.id, status: .failed,
+            text: "", error: error,
+            startedAt: state.startedAt, finishedAt: nowProvider(),
+            attempt: state.attempt, runId: state.runId),
+            !finished.ignored, let delivery = finished.delivery else { return }
+        await publish(delivery)
     }
 
     // MARK: - Local notifications and presence
