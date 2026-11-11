@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Semantic checker for the W0/W2/W3/W4/W7 contract cases.
+"""Semantic checker for the W0/W2/W3/W4/W6/W7 contract cases.
 
 The envelope and JSON shape are checked by ``plan-cases.schema.json`` with the repository
 validator. This tool judges the laws a schema cannot express: a target row must still say
 ``待基线``; a journal or step record may be pruned only under the frozen conditions; a storage
 level follows the five-level table; the append-only formats keep one result copy and an old read
-path; the response-log key is recomputed from its preimage; and streaming forwards the first
-frame on arrival within the fixed bounds.
+path; the response-log key is recomputed from its preimage; streaming forwards the first
+frame on arrival within the fixed bounds; and the single-copy store keeps one copy per
+digest, clones (never hard-links) the materialized file, deletes only unreferenced blobs,
+keeps every route but a content-addressed one out of the cache, and never lets a blob
+reference or an unverified digest cross a handoff or a replay.
 
 Usage:
     python3 spec/v1/tools/plan_cases_check.py [--spec-dir DIR]
@@ -38,6 +41,7 @@ VECTORS = (
     "append-records",
     "response-log-key",
     "streaming",
+    "single-copy",
 )
 BASELINE_PENDING = "待基线"
 MIB = 1_048_576
@@ -49,6 +53,12 @@ LEVEL1_RATIO = 1.3
 COALESCE_MAX_BYTES = 4096
 COALESCE_MAX_MS = 100
 DELTA_MAX_BYTES = 32 * 1024
+BLOB_MIN_BYTES = 65536
+BLOB_MAX_BYTES = 15 * 1024 * 1024
+WAL_QUOTA_BYTES = 512 * MIB
+IMMUTABLE_CACHE_HEADER = "private, max-age=31536000, immutable"
+CACHEABLE_ROUTE_RE = re.compile(
+    r"^(/image/lazy/[0-9a-f]{64}\.tar\.gz|/blobs/sha256/[0-9a-f]{64})$")
 
 
 def fail(errors, where, message):
@@ -341,6 +351,156 @@ def check_streaming(doc, errors) -> None:
             fail(errors, where, "negative case does not violate a streaming bound")
 
 
+# ---------------------------------------------------------------------------
+# Single-copy laws (wal.md §14, budgets.md §9, wal.md §8).
+# ---------------------------------------------------------------------------
+
+
+def single_copy_expectation(case):
+    """Return ``(expected, violations)`` for one single-copy case."""
+
+    kind = case.get("kind")
+    expected = {}
+    violations = []
+
+    def declared(name):
+        return case.get("expected", {}).get(name)
+
+    if kind == "wal-write":
+        op = case.get("mutationOp")
+        data = case.get("dataBytes")
+        appended = case.get("appended") is True
+        if isinstance(data, int) and data > BLOB_MAX_BYTES:
+            # A write's data is one mutation, channel.md §3.1.
+            violations.append("write data exceeds one 15 MiB mutation")
+        stored = "blob" if op == 1 and isinstance(data, int) and data >= BLOB_MIN_BYTES else "inline"
+        expected["storedAs"] = stored
+        if case.get("blobLenEqualsData") is not True:
+            violations.append("blob_len must equal the write's data_len")
+        if case.get("sameMseq") is not True:
+            violations.append("a blob record keeps the write's mseq")
+        if appended and op != 1:
+            violations.append("only a write may be stored by reference")
+    elif kind == "blob-gc":
+        referenced = case.get("referenced") is True
+        if referenced:
+            expected["action"] = "keep"
+        elif case.get("segmentDropDurable") is True:
+            expected["action"] = "delete"
+        else:
+            expected["action"] = "keep-until-manifest-durable"
+        if set(case.get("liveBlobs", [])) & set(case.get("deleted", [])):
+            violations.append("a referenced blob was deleted")
+        if expected["action"] != "delete" and case.get("deleted"):
+            violations.append("a blob was deleted before its deletion condition held")
+    elif kind == "materialization":
+        action = "clone" if case.get("cloneSupported") is True else "copy"
+        expected["action"] = action
+        if case.get("action") != action:
+            violations.append("materialization must use {}".format(action))
+        if case.get("action") == "hardlink":
+            violations.append("a hard link cannot back a materialized file")
+        if case.get("blobMutatedByLaterAppend") is not False:
+            violations.append("a later in-place append must not mutate the blob")
+    elif kind == "cache":
+        route = case.get("route", "")
+        level = case.get("storageLevel", 0)
+        cacheable = CACHEABLE_ROUTE_RE.fullmatch(route) is not None and level < 2
+        header = IMMUTABLE_CACHE_HEADER if cacheable else "no-store"
+        expected["header"] = header
+        expected["cacheable"] = cacheable
+        if cacheable:
+            if case.get("versionKey") != "sha256":
+                violations.append("a cacheable route needs the sha256 version key")
+            if case.get("tokenInURL") is not False:
+                violations.append("the launch token must stay out of a cacheable URL")
+            if case.get("auth") not in ("launch-cookie", "bearer"):
+                violations.append("every route stays authenticated")
+            if case.get("stableOrigin") is not True:
+                violations.append("a cache hit needs a stable origin")
+        elif case.get("header") != "no-store":
+            violations.append("a non-cacheable route must stay no-store")
+    elif kind == "handoff":
+        direction = case.get("direction")
+        segments = case.get("blobRecordsInSegments", 0)
+        if direction == "push":
+            if case.get("baseEqualsWalSeq") is True:
+                expected["accepted"] = True
+                expected["segments"] = "empty"
+            elif case.get("expandsBlobsInTransfer") is True:
+                expected["accepted"] = True
+                expected["segments"] = "expanded"
+            else:
+                expected["accepted"] = False
+                expected["segments"] = "rejected"
+        elif direction == "reclaim":
+            expected["accepted"] = segments == 0
+            expected["segments"] = "as-is" if segments == 0 else "rejected"
+        else:
+            violations.append("unknown handoff direction")
+        if segments:
+            violations.append("no blob reference may cross the handoff boundary")
+    elif kind == "recovery":
+        ok = (case.get("blobPresent") is True
+              and case.get("blobLenMatches") is True
+              and case.get("digestMatches") is True)
+        expected["result"] = "apply" if ok else "fail-wal-corrupt"
+        if not case.get("blobPresent", False):
+            violations.append("a missing blob cannot be applied")
+        elif case.get("digestMatches") is False:
+            violations.append("a digest mismatch cannot be applied")
+    elif kind == "compat":
+        reader = case.get("readerBuild")
+        form = case.get("dataForm")
+        if reader == "old" and form == "blob":
+            expected["result"] = "fail-loud-preserve"
+            if case.get("rollback") is True and case.get("restoreAvailable") is not True:
+                violations.append("rollback needs a restore path")
+        else:
+            expected["result"] = "read"
+    elif kind == "migration":
+        scope = case.get("scope")
+        expected["migration"] = {
+            "wal": "none",
+            "materialized": "none",
+            "overlay": "background-manifest-build",
+        }.get(scope, "unknown")
+        if case.get("rewritesRetainedRecords") is not False:
+            violations.append("no migration may rewrite a retained WAL record")
+        if case.get("oldDataReadable") is not True:
+            violations.append("old data stays readable")
+    elif kind == "quota":
+        counted = case.get("walBytes", 0) + case.get("liveBlobBytes", 0)
+        expected["countedBytes"] = counted
+        limit = case.get("limitBytes")
+        if limit != WAL_QUOTA_BYTES:
+            violations.append("the WAL quota is 512 MiB")
+        expected["result"] = "fail-loud" if limit is not None and counted > limit else "admit"
+    else:
+        violations.append("unknown single-copy kind")
+        return expected, violations
+
+    for name, value in expected.items():
+        if declared(name) != value:
+            violations.append(
+                "expected.{} is {!r} but the law gives {!r}".format(name, declared(name), value)
+            )
+    return expected, violations
+
+
+def check_single_copy(doc, errors) -> None:
+    for index, case in enumerate(doc["valid"]):
+        where = "valid[{}]".format(index)
+        _, violations = single_copy_expectation(case)
+        for message in violations:
+            fail(errors, where, message)
+    for index, case in enumerate(doc["invalid"]):
+        where = "invalid[{}]".format(index)
+        _, violations = single_copy_expectation(case["case"])
+        if not violations:
+            fail(errors, where, "negative case does not violate any single-copy law")
+
+
 CHECKS = {
     "perf-targets": check_perf_targets,
     "retention": check_retention,
@@ -348,6 +508,7 @@ CHECKS = {
     "append-records": check_append_records,
     "response-log-key": check_response_log_key,
     "streaming": check_streaming,
+    "single-copy": check_single_copy,
 }
 
 

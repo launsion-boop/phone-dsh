@@ -36,6 +36,12 @@ class PlanCasesTests(unittest.TestCase):
         self.assertIn(old, text)
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
+    def mutate(self, relative: str, mutate) -> None:
+        path = self.copy / relative
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        mutate(doc)
+        path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
     def assert_fails(self, completed: subprocess.CompletedProcess, needle: str) -> None:
         self.assertNotEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         self.assertIn(needle, completed.stdout)
@@ -80,6 +86,46 @@ class PlanCasesTests(unittest.TestCase):
                      '"coalesceMaxBytes": 16384, "coalesceMaxMs": 100')
         completed = run_checker(self.copy)
         self.assert_fails(completed, "coalesceMaxBytes")
+
+    def test_referenced_blob_deleted_is_rejected(self) -> None:
+        def mutate(doc):
+            case = next(item for item in doc["valid"] if item["id"] == "referenced-blob-kept")
+            case["deleted"] = ["aa"]
+        self.mutate("golden/plan/single-copy.json", mutate)
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "referenced blob was deleted")
+
+    def test_unversioned_route_made_cacheable_is_rejected(self) -> None:
+        def mutate(doc):
+            case = next(item for item in doc["valid"] if item["id"] == "cache-page-stays-no-store")
+            case["header"] = "private, max-age=31536000, immutable"
+        self.mutate("golden/plan/single-copy.json", mutate)
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "must stay no-store")
+
+    def test_blob_below_threshold_is_rejected(self) -> None:
+        def mutate(doc):
+            case = next(item for item in doc["valid"] if item["id"] == "inline-below-threshold")
+            case["expected"]["storedAs"] = "blob"
+        self.mutate("golden/plan/single-copy.json", mutate)
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "the law gives 'inline'")
+
+    def test_hardlink_materialization_is_rejected(self) -> None:
+        def mutate(doc):
+            case = next(item for item in doc["valid"] if item["id"] == "materialized-copy-without-clone")
+            case["action"] = "hardlink"
+        self.mutate("golden/plan/single-copy.json", mutate)
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "hard link")
+
+    def test_blob_reference_across_handoff_is_rejected(self) -> None:
+        def mutate(doc):
+            case = next(item for item in doc["valid"] if item["id"] == "handoff-snapshot-at-closed-tail")
+            case["blobRecordsInSegments"] = 1
+        self.mutate("golden/plan/single-copy.json", mutate)
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "cross the handoff boundary")
 
     def test_missing_vector_is_rejected(self) -> None:
         (self.copy / "golden" / "plan" / "perf-targets.json").unlink()

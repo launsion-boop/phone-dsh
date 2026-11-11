@@ -164,8 +164,10 @@ The domain-store quota is the one row that is a **policy default rather than a m
 was chosen when the store landed, no workload has been profiled against it, and a deployment may
 override it per domain. It is written down so an implementation cannot pick a number silently — the
 row states the value in force, not a value that has been validated.
-`Cache-Control: no-store` responses and lazy image shards are not persisted and do not count against
-these quotas.
+`Cache-Control: no-store` responses are not persisted and do not count against these quotas. The
+content-addressed resources of wal.md §8 may be held in the platform's HTTP cache, outside the app's
+accounting; level 2 below stops new entries by serving them `no-store` again, and the platform
+reclaims existing ones.
 
 Repeated rewrites of one large file are reconciled by compaction, not by raising the quota. When an
 append would cross the WAL quota the host closes the epoch in the D18 order, compacts every droppable
@@ -267,8 +269,11 @@ the write at 64 MiB.
 The absolute per-store quotas in §5 are unchanged. This section adds the aggregate host-internal
 view and the graded, silent actions; it is the only place the five levels are defined.
 
-`hostInternalBytes` is the sum of the WAL, materialized copy, journal, `steps/`, `exec/`,
-response-log entries that are not yet deletable, the overlay cache and the transcript snapshots.
+`hostInternalBytes` is the sum of the WAL (segments plus live blobs, wal.md §14), materialized copy,
+journal, `steps/`, `exec/`, response-log entries that are not yet deletable, the overlay cache and the
+transcript snapshots. The blob store is counted once and the materialized copy once; because a
+materialized file cloned from a blob shares blocks, the sum is an upper bound, which can only trigger
+an action earlier than the physical footprint requires.
 It excludes the user workspace's own bytes only in the sense that the workspace is reported
 separately as `workspaceLogicalBytes`; it is not excluded from the volume headroom. `availableImportantBytes` is
 `volumeAvailableCapacityForImportantUsage` (falls back to the volume's available capacity where the
@@ -278,16 +283,18 @@ platform has no important-usage value).
 |---|---|---|---|
 | 0 | after every epoch close | reclaim every droppable WAL segment and every response-log entry whose deletion condition holds (wal.md §12, gateway-security.md §11) | no |
 | 1 | `hostInternalBytes > 1.3 × workspaceLogicalBytes` | the level-0 actions, then prune caches and cold snapshots; recreate them on demand | no |
-| 2 | `availableImportantBytes < max(512 MiB, 10 % of the volume)` or the platform reports a low-space condition | level-1 actions, more aggressively; stop creating new caches; never touch §5's authoritative stores beyond their own rules | no |
+| 2 | `availableImportantBytes < max(512 MiB, 10 % of the volume)` or the platform reports a low-space condition | level-1 actions, more aggressively; stop creating new caches (serve the cacheable routes of wal.md §8 with `no-store` again); never touch §5's authoritative stores beyond their own rules | no |
 | 3 | `workspaceLogicalBytes ≥ 90 % of the workspace bucket` | level-2 actions; emit one structured signal naming the largest files and sizes for the App to show after the turn | one card, at most once per workspace per day |
 | 4 | no reclaimable data remains and the next write would fail | level-3 actions; fail the write with an explicit quota error that names the cause and the remedy | yes, that error |
 
 - Levels 0–2 are completely silent. Level 3 produces a signal only; the App renders the card, and
   the model layer does not block the turn for it. Level 4 is the only new user-visible failure and
   it reuses the existing quota-error vocabulary rather than adding a second error meaning.
-- Auto-deletion never removes `home/`, `workspace/`, a session log, or an un-journaled step. Only
+- Auto-deletion never removes `home/`, `workspace/`, a session log, or an un-journaled step, and
+  never removes a *live* blob (one a retained WAL record references, wal.md §14.5). Only
   rebuildable content (overlay cache, transcript snapshots, response-log bodies whose deletion
-  condition holds) may be removed, and a removed cache is rebuilt without a prompt or error.
+  condition holds) and unreferenced blobs may be removed; a removed cache is rebuilt without a
+  prompt or error.
 - The 1.3 × workspace level-1 threshold and the level-2 headroom are **policy defaults, not
   measurements** (the same status as the §5 domain-store row); they are fixed here so an
   implementation cannot pick a different number silently.

@@ -43,6 +43,13 @@ WAL_HEADER_PREFIX_LEN = 36
 WAL_HEADER_LEN = 40
 WAL_FORMAT = 1
 WAL_EPOCH_CLOSE_OP = 0xFF
+# W6: a write whose data lives in the content-addressed blob store and is named by digest
+# instead of carried inline (wal.md §14). The op byte only replaces the inline *write*
+# body; mkdir/remove/chmod stay inline.
+WAL_BLOB_WRITE_OP = 0xFE
+# A reader accepts a blob record at any length; the 65 536-byte threshold is a writer policy
+# judged by spec/v1/tools/plan_cases_check.py, not a wire rule.
+WAL_BLOB_MAX_BYTES = 15 * 1024 * 1024  # one mutation's data, channel.md §3.1
 
 # Hand-computed 40-byte WAL header: magic | format 1 | reserved 0 | first_mseq 1 |
 # 16 zero boot_id bytes | crc32c of the preceding 36 bytes.
@@ -51,7 +58,7 @@ WAL_HEADER_CONSTANT_HEX = (
 )
 WAL_HEADER_CONSTANT_CRC32C = 0x0B0F9536
 WAL_SEGMENT_RE = re.compile(r"^wal/[0-9]{8}\.[0-9]{6}\.xlwal$")
-WAL_VECTOR_FILES = ("segment-1.json", "segment-epoch-only.json")
+WAL_VECTOR_FILES = ("segment-1.json", "segment-epoch-only.json", "segment-blob-write.json")
 WAL_LIFECYCLE_DIR = "golden/wal/lifecycle"
 WAL_LIFECYCLE_VECTOR_FILES = (
     "unclosed-epoch-below-watermark.json",
@@ -211,7 +218,12 @@ LINE_CAPS = {
     # epoch-close reclamation trigger (W3), and §13 fixes the watermark and
     # idle-epoch reading (W4). These are contract rules, not prose. The cap
     # moves 416 -> 510.
-    "wal.md": 510,
+    # D16 amendment (2026-11-12, PC-20261112-single-copy-incremental-boot):
+    # §8 fixes immutable-resource cacheability and the `target` overlay manifest;
+    # §14 fixes the content-addressed blob store, the blob-write record, the
+    # clone/copy materialization, the GC, the quota sum and the handoff rule.
+    # The cap moves 510 -> 690.
+    "wal.md": 690,
     # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
     # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
     # refusal). The implementation and the spec disagreed; the spec was the narrower one.
@@ -756,6 +768,51 @@ def encode_epoch_close_body(fields, where):
     return mseq, struct.pack(">BQQ", 0xFF, wall_ms, durable)
 
 
+def encode_blob_write_body(fields, where):
+    """WAL blob-write body (op 0xFE, wal.md §14).
+
+    The record carries exactly the fields of a write mutation, except that the mutation
+    ``data`` is named by ``blob_len`` and ``blob_sha256`` instead of being inline. ``mflags``
+    keeps its channel.md §3.1 meaning: bit 1 marks an appended suffix, and ``append_from``
+    is the offset for that suffix. Body layout:
+
+        op u8 | mode u32 | mflags u8 | append_from u64 | blob_len u32 | blob_sha256 32 |
+        path_len u16 | path
+    """
+
+    fields = _mapping(
+        fields,
+        where,
+        {"op", "mode", "mflags", "append_from", "blob_len", "blob_sha256", "path"},
+    )
+    if _uint(fields["op"], 8, f"{where}.op") != WAL_BLOB_WRITE_OP:
+        raise SpecError(f"{where}.op: blob-write op must be 0xFE")
+    mode = _uint(fields["mode"], 32, f"{where}.mode")
+    if mode > 0o7777:
+        raise SpecError(f"{where}.mode: permission bits above 0o7777")
+    mflags = _uint(fields["mflags"], 8, f"{where}.mflags")
+    if mflags & ~0x03:
+        raise SpecError(f"{where}.mflags: only bits 0 and 1 exist")
+    append_from = _uint(fields["append_from"], 64, f"{where}.append_from")
+    if not mflags & 0x02 and append_from != 0:
+        raise SpecError(f"{where}: append_from must be 0 when the appended bit is clear")
+    blob_len = _uint(fields["blob_len"], 32, f"{where}.blob_len", minimum=1)
+    if blob_len > WAL_BLOB_MAX_BYTES:
+        raise SpecError(f"{where}.blob_len: exceeds one mutation's 15 MiB")
+    digest = _string(fields["blob_sha256"], f"{where}.blob_sha256")
+    if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise SpecError(f"{where}.blob_sha256: expected 64 lowercase hex characters")
+    path = check_path(fields["path"], f"{where}.path")
+    path_bytes = path.encode("utf-8")
+    body = (
+        struct.pack(">BIBQI", WAL_BLOB_WRITE_OP, mode, mflags, append_from, blob_len)
+        + bytes.fromhex(digest)
+        + struct.pack(">H", len(path_bytes))
+        + path_bytes
+    )
+    return body
+
+
 def encode_frame_payload(type_byte, fields, where):
     if type_byte in JSON_FRAME_TYPES:
         if not isinstance(fields, dict):
@@ -1290,8 +1347,22 @@ def check_wal_vector(spec_dir, path, rep, state):
         doc = load_json(path)
         if not isinstance(doc, dict):
             raise SpecError("WAL vector is not an object")
-        if set(doc) != {"header", "records", "file_hex"}:
-            raise SpecError("WAL vector members must be exactly header/records/file_hex")
+        if set(doc) - {"blobs"} != {"header", "records", "file_hex"}:
+            raise SpecError(
+                "WAL vector members must be exactly header/records/file_hex, "
+                "with an optional blobs map (wal.md §14)"
+            )
+        blobs = doc.get("blobs", {})
+        if not isinstance(blobs, dict):
+            raise SpecError("blobs must be an object keyed by lowercase sha256")
+        for digest, content_hex in blobs.items():
+            if re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                raise SpecError("blobs key {!r} is not 64 lowercase hex".format(digest))
+            content = _hex_bytes(content_hex, rel + ".blobs." + digest)
+            if hashlib.sha256(content).hexdigest() != digest:
+                raise SpecError("blobs[{}] does not hash to its key".format(digest))
+            if len(content) > WAL_BLOB_MAX_BYTES:
+                raise SpecError("blobs[{}] exceeds one mutation's 15 MiB".format(digest))
         header = doc["header"]
         if not isinstance(header, dict):
             raise SpecError("header must be an object")
@@ -1349,6 +1420,25 @@ def check_wal_vector(spec_dir, path, rep, state):
                 mutation_mseqs.append(mseq)
                 appended += 1 if int(fields["mflags"]) & 0x02 else 0
                 removes += 1 if int(fields["op"]) == 3 else 0
+            elif record["kind"] == "blob_write":
+                if not isinstance(fields, dict) or "mseq" not in fields:
+                    raise SpecError(where + ": blob_write fields need mseq")
+                mseq = _uint(fields["mseq"], 64, where + ".mseq", minimum=1)
+                body = encode_blob_write_body(
+                    {name: value for name, value in fields.items() if name != "mseq"}, where
+                )
+                crc, expected = encode_wal_record(mseq, body, where)
+                mutation_mseqs.append(mseq)
+                appended += 1 if int(fields["mflags"]) & 0x02 else 0
+                state["blob_records"] += 1
+                digest = fields["blob_sha256"]
+                if digest not in blobs:
+                    raise SpecError(
+                        where + ": blob_write digest is not in the vector's blobs map"
+                    )
+                content = bytes.fromhex(blobs[digest])
+                if len(content) != int(fields["blob_len"]):
+                    raise SpecError(where + ": blob_len does not match the blob content")
             elif record["kind"] == "epoch_close":
                 if epoch_index is not None:
                     raise SpecError(where + ": a segment holds at most one epoch-close record")
@@ -1357,7 +1447,7 @@ def check_wal_vector(spec_dir, path, rep, state):
                 crc, expected = encode_wal_record(mseq, body, where)
                 epoch_durable = mseq
             else:
-                raise SpecError(where + ".kind must be mutation or epoch_close")
+                raise SpecError(where + ".kind must be mutation, blob_write or epoch_close")
             if _uint(record["crc32c"], 32, where + ".crc32c") != crc:
                 raise SpecError(where + ": crc32c does not match the computed value")
             stored = _hex_bytes(record["record_hex"], where + ".record_hex")
@@ -1413,6 +1503,7 @@ def check_wal_vectors(spec_dir, rep, full):
         "removes": 0,
         "epoch_only": [],
         "names": set(),
+        "blob_records": 0,
     }
     if not wal_dir.is_dir():
         return state
@@ -1437,6 +1528,8 @@ def check_wal_vectors(spec_dir, rep, full):
         rep.fail("golden/wal", "no remove (op 3) record in any WAL vector")
     if state["epochs"] < 1:
         rep.fail("golden/wal", "no epoch-close record in any WAL vector")
+    if state["blob_records"] < 1:
+        rep.fail("golden/wal", "no blob_write (op 0xFE) record in any WAL vector")
     if not any(first > durable for _, first, durable in state["epoch_only"]):
         rep.fail(
             "golden/wal",
@@ -3127,6 +3220,13 @@ WAL_DOC_TOKENS = (
     "covering record has been applied to the materialized copy",
     "has been applied at or below the recorded watermark",
     "cover's `mseq` is at most the watermark",
+    # W6 single-copy store: the digest naming rule, the write-by-reference record, the
+    # clone-not-hardlink rule, the GC reference (the WAL itself) and the cache allowlist.
+    "blobs/sha256/<first two hex digits>/<sha256>",
+    "`op = 0xFE`",
+    "Hard links are forbidden",
+    "WAL is the single reference source",
+    "`Cache-Control: private, max-age=31536000, immutable`",
     # D17: the never-reused high-water formula.
     "max(last_mseq, WAL tail) + 1",
     "`last_mseq`",

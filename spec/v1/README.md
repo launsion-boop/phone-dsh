@@ -57,7 +57,7 @@ polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
 |---|---|---|
 | [README.md](README.md) | Overview, terminology, proto 1, file map, decisions. | landed |
 | [channel.md](channel.md) | 16-byte header, all 18 frame types, connection life cycle, VFS flow, reconnect, canonical JSON, identifiers, error codes. | landed |
-| [wal.md](wal.md) | WAL segments, epochs, write path, materialized copy, manifest, reconcile, overlay, quotas, recovery. | landed |
+| [wal.md](wal.md) | WAL segments, epochs, write path, materialized copy, manifest, reconcile, overlay (manifest is `target`), content-addressed blob store, immutable-resource cacheability, quotas, recovery. | landed |
 | [exec.md](exec.md) | Two idempotency keys, dedup and replay, executor inversion, step machine, MCP header. | landed |
 | [handoff.md](handoff.md) | Fence token, admission, handoff order, reclaim token, applier rules, endpoint bodies. | landed |
 | [budgets.md](budgets.md) | Host state machine, transition table, driving signals, budget constants. | landed |
