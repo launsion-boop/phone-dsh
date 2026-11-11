@@ -269,6 +269,11 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
         self.sessionInvalidator = sessionInvalidator
         let queue = OperationQueue()
         queue.name = "phone-dsh.phone-gateway.session"
+        // W7 keeps this serial on purpose: URLSession delivers didReceive
+        // callbacks for one task on the delegate queue, so concurrent
+        // operations could reorder a response body. The per-request work is
+        // only a yield into an AsyncStream; the disk write is batched below,
+        // so the serial queue is not the streaming bottleneck.
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
         self.delegateQueue = queue

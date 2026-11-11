@@ -456,10 +456,10 @@ public actor LoopbackServer {
               !isDirectory.boolValue else {
             return notFound()
         }
-        let data = (try? Data(contentsOf: resolved)) ?? Data()
-        var headers: [String: String] = [
-            "Content-Type": Self.contentType(forExtension: resolved.pathExtension),
-        ]
+        // W7 (§13 item 6): never read the body on the actor. A `.file` reply
+        // is streamed by the response writer off the actor, so a large static
+        // asset cannot block another route (health, /v1/exec, /channel).
+        var headers: [String: String] = [:]
         if page && configuration.crossOriginIsolation {
             headers["Cross-Origin-Opener-Policy"] = "same-origin"
             headers["Cross-Origin-Embedder-Policy"] = "require-corp"
@@ -471,7 +471,9 @@ public actor LoopbackServer {
             headers["Set-Cookie"] = Self.launchCookie(name: Self.launchCookieName,
                                                       token: token)
         }
-        return .full(status: 200, headers: headers, body: data)
+        return .file(url: resolved,
+                     contentType: Self.contentType(forExtension: resolved.pathExtension),
+                     headers: headers)
     }
 
     private func fileReply(_ url: URL, contentType: String) -> LoopbackReply {
