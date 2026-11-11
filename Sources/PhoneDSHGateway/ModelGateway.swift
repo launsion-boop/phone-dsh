@@ -929,8 +929,17 @@ public actor ModelGateway {
             // (including the credential part of a standard Authorization
             // scheme) are redacted; JSON structure and the JSON-RPC id are
             // preserved. This is intentionally not a full pass-through.
-            let sensitive = webProvider != nil || Self.isSensitiveMCPResponse(
-                request, credential: credential, admittedByMCPGrant: admittedByMCPGrant)
+            //
+            // The official Search/Fetch route is sensitive for the same
+            // reason, but its diagnostic must name the web tool rather than
+            // an MCP server: a 404 there means DeepSeek could not retrieve
+            // usable page content, not that an MCP endpoint was missing.
+            let sensitiveKind = Self.sensitiveResponseKind(
+                webTool: webProvider != nil,
+                request: request,
+                credential: credential,
+                admittedByMCPGrant: admittedByMCPGrant)
+            let sensitive = sensitiveKind != nil
             let redactedValues = Self.credentialSecretValues(credential)
             let upstreamRequest = makeURLRequest(request, method: method, url: url,
                                                  credential: credential, officialWeb: webProvider != nil)
@@ -1030,7 +1039,8 @@ public actor ModelGateway {
                             // The status is the diagnostic; the upstream body
                             // is never forwarded for a host-managed row.
                             let diagnostic = SensitiveResponseBody.controlledDiagnostic(
-                                status: status)
+                                status: status,
+                                kind: sensitiveKind ?? .mcp)
                             sensitiveMode = .controlled(diagnostic)
                             responseHeaders["content-type"] = "application/json; charset=utf-8"
                         } else if SensitiveResponseBody.isEventStream(headers) {
@@ -1074,7 +1084,8 @@ public actor ModelGateway {
                                 if !downstream.isCancelled {
                                     downstream.yield(GatewayResponseChunk(
                                         body: SensitiveResponseBody
-                                            .controlledEventStreamOversizeEvent(),
+                                            .controlledEventStreamOversizeEvent(
+                                                kind: sensitiveKind ?? .mcp),
                                         isFinal: false))
                                 }
                                 sensitiveMode = .suppressed
@@ -1092,7 +1103,8 @@ public actor ModelGateway {
                             guard data.count <= remaining else {
                                 sensitiveBuffer.removeAll(keepingCapacity: false)
                                 sensitiveMode = .controlled(
-                                    SensitiveResponseBody.controlledOversizeDiagnostic())
+                                    SensitiveResponseBody.controlledOversizeDiagnostic(
+                                        kind: sensitiveKind ?? .mcp))
                                 attempt.cancel()
                                 break attemptLoop
                             }
@@ -1558,6 +1570,26 @@ public actor ModelGateway {
             }
         }
         return isValidContentTypeToken(value)
+    }
+
+    /// The sensitive-response kind for this exchange, or `nil` for an ordinary
+    /// pass-through. The official Search/Fetch route is always sensitive even
+    /// though it is neither an MCP grant nor a header-map credential, so the
+    /// boolean "is sensitive" alone would mislabel its diagnostic as MCP.
+    /// Internal so the kind selection is pinned independently of URLSession.
+    nonisolated static func sensitiveResponseKind(
+        webTool: Bool,
+        request: GatewayRequest,
+        credential: Credential,
+        admittedByMCPGrant: Bool
+    ) -> SensitiveResponseKind? {
+        if webTool { return .webTool }
+        if isSensitiveMCPResponse(request,
+                                  credential: credential,
+                                  admittedByMCPGrant: admittedByMCPGrant) {
+            return .mcp
+        }
+        return nil
     }
 
     /// True when this exchange must take the sensitive response path. MCP is a

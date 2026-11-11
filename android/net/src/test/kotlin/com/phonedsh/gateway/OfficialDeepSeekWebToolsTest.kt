@@ -200,6 +200,32 @@ class OfficialDeepSeekWebToolsTest {
     }
 
     @Test
+    fun aNon2xxFetchBodyNamesTheWebToolAndKeepsTheUpstreamBodyOut() {
+        val upstreamBody = """{"error":"upstream-secret-$fakeKey"}"""
+        val transport = RecordingTransport(
+            status = 404,
+            body = upstreamBody,
+            headers = mapOf("content-type" to "text/plain"),
+        )
+        val egress = OfficialDeepSeekWebToolsEgress(
+            keys = RecordingKeySource(fakeKey),
+            transport = transport,
+        )
+
+        val response = egress.handle(workerRequest(OfficialDeepSeekWebTools.FETCH_URL))
+
+        assertEquals(404, response.status)
+        assertEquals("application/json; charset=utf-8", response.headers["content-type"])
+        val text = response.bodyText()
+        assertTrue("the diagnostic names the web tool", text.contains("web tool"))
+        assertTrue("the real status survives", text.contains("HTTP 404"))
+        assertTrue("it says the body was withheld", text.contains("withheld by the host"))
+        assertFalse("it is not an MCP diagnostic", text.contains("MCP"))
+        assertFalse("the upstream body never reaches the Worker", text.contains("upstream-secret"))
+        assertFalse("the injected key never reaches the Worker", text.contains(fakeKey))
+    }
+
+    @Test
     fun theResponseLogNeverRecordsAnOfficialToolExchange() {
         val transport = RecordingTransport(body = """{"content":"$fakeKey"}""")
         val egress = OfficialDeepSeekWebToolsEgress(
