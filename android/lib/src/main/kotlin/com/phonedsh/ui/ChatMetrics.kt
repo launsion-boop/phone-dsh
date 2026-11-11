@@ -597,6 +597,14 @@ public object ChatMetrics {
     /** Flexible separation before the model. Source: `ChatPage.swift:2562` (`Spacer(minLength: 8)`) Confidence: exact. */
     public const val COMPOSER_MODEL_MIN_GAP_PT: Int = 8
 
+    /**
+     * Action group leading inset and stop/send spacing. Source: `ChatPage.swift:2567`
+     * (`HStack(spacing: 8)`) and `:2571` (`.padding(.leading, 8)`). Confidence: exact.
+     * Consumed by `ComposerSendRule.STOP_SEND_GAP` (interaction §5 rule 1); page-local until
+     * the contract adds a `composerSend` gap token.
+     */
+    public const val COMPOSER_ACTION_GAP_PT: Int = 8
+
     /** Send arrow font size inside its circle. Source: `ChatPage.swift:2485` (`.font(.system(size: 15, weight: .bold))`) Confidence: exact. */
     public const val SEND_GLYPH_PT: Int = 15
 
