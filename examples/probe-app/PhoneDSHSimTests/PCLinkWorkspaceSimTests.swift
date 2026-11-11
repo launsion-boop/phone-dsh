@@ -200,22 +200,24 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
     func testOfflinePCSelectionNeverFallsBackToPhone() {
         let pc = BackendID.pc(machineId: "pc-machine")
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .offline(.peerOffline)), .offline)
+                                                presence: .init(reachability: .offline,
+                                                                offlineReason: .peerOffline)), .offline)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .offline(.network)), .offline)
+                                                presence: .init(reachability: .offline,
+                                                                offlineReason: .network)), .offline)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: false,
-                                                connection: .unpaired), .pair)
+                                                presence: .init(reachability: .offline)), .pair)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .online), .ready)
+                                                presence: .init(reachability: .online)), .ready)
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .phone, hasRecord: true,
-                                                connection: .offline(.peerOffline)), .phone)
+                                                presence: .init(reachability: .offline)), .phone)
         // A resume in flight is not an offline PC (§10,
         // PC-20261110-pclink-foreground-resume-presence): the drawer keeps the
         // connecting state instead of the offline card and copy.
         XCTAssertEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                connection: .connecting), .connecting)
+                                                presence: .init(reachability: .reconnecting)), .connecting)
         XCTAssertNotEqual(PCLinkDrawerPolicy.phase(selected: .pc, hasRecord: true,
-                                                   connection: .connecting), .offline)
+                                                   presence: .init(reachability: .reconnecting)), .offline)
         XCTAssertEqual(WorkspaceStorageKeys.currentSession(for: pc),
                        "chat.dsh.currentSession.pc:pc-machine")
         XCTAssertEqual(SessionStorageKey(backend: pc, sessionID: "abc").encoded,
@@ -651,6 +653,216 @@ final class PCLinkWorkspaceSimTests: XCTestCase {
                                          documentsDirectory: documents)
         XCTAssertNil(defaults.data(forKey: pcKey))
         XCTAssertNotNil(defaults.data(forKey: phoneKey))
+    }
+
+    // Review of PR #98, problem A: the drawer's card decision must be driven by
+    // the PC scope's own rows. An unpaired segment has none, so it always shows
+    // the 连接电脑 card even when the phone has sessions (the old condition read
+    // the phone fallback and rendered the phone's list under the PC header).
+    func testStateCardDecisionUsesThePCOwnRows() {
+        XCTAssertTrue(PCLinkDrawerPolicy.showsStateCard(phase: .pair, pcRowCount: 0),
+                      "unpaired must show the pairing card regardless of phone rows")
+        XCTAssertTrue(PCLinkDrawerPolicy.showsStateCard(phase: .offline, pcRowCount: 0))
+        XCTAssertTrue(PCLinkDrawerPolicy.showsStateCard(phase: .connecting, pcRowCount: 0))
+        XCTAssertFalse(PCLinkDrawerPolicy.showsStateCard(phase: .offline, pcRowCount: 3),
+                       "cached PC rows stay readable while offline")
+        XCTAssertFalse(PCLinkDrawerPolicy.showsStateCard(phase: .connecting, pcRowCount: 1))
+        XCTAssertFalse(PCLinkDrawerPolicy.showsStateCard(phase: .ready, pcRowCount: 0))
+        XCTAssertFalse(PCLinkDrawerPolicy.showsStateCard(phase: .phone, pcRowCount: 9))
+    }
+
+    // Review of PR #98, problem P0: a painted cache preview belongs to a session
+    // the model has not opened, so a send would land in the previous session.
+    func testCachedPreviewBlocksSendingUntilItEnds() {
+        var gate = CachedPreviewGate()
+        XCTAssertTrue(gate.allowsSend(into: "session-a"))
+        XCTAssertFalse(gate.allowsSend(into: nil), "no live session, no send")
+        gate.begin(sessionID: "session-b")
+        XCTAssertTrue(gate.isPreviewing)
+        XCTAssertFalse(gate.allowsSend(into: "session-a"),
+                       "the screen shows session-b while sessionID still names session-a")
+        gate.end()
+        XCTAssertFalse(gate.isPreviewing)
+        XCTAssertTrue(gate.allowsSend(into: "session-a"))
+    }
+
+    // Review of PR #98, problem P0, the whole sequence: a failed switch must
+    // restore the previous transcript and must never leave the composer able to
+    // send into it while another session's rows are on screen.
+    func testFailedCachedPreviewSwitchRestoresAndRefusesSends() {
+        let sessionA = [ChatItem(id: "a-1", kind: .assistant, title: "A", text: "hello from A")]
+        var preview = CachedPreviewCoordinator()
+        XCTAssertEqual(preview.previewSessionID, nil)
+        XCTAssertTrue(preview.gate.allowsSend(into: "session-a"))
+
+        // Tap session B, whose cached tail paints before the open fails.
+        preview.begin(sessionID: "session-b",
+                      current: .init(rows: sessionA, statusLine: "A", transcriptReady: true,
+                                     showingCachedTranscript: false))
+        XCTAssertEqual(preview.previewSessionID, "session-b")
+        XCTAssertFalse(preview.gate.allowsSend(into: "session-a"),
+                       "the rows on screen are B's while sessionID still names A")
+
+        // Retargeting to C keeps A as the restore target.
+        preview.begin(sessionID: "session-c",
+                      current: .init(rows: [ChatItem(id: "b-1", kind: .assistant, title: "B", text: "B")],
+                                     statusLine: "B", transcriptReady: true,
+                                     showingCachedTranscript: true))
+        let restored = preview.discard()
+        XCTAssertEqual(restored?.rows, sessionA, "the transcript before the first preview comes back")
+        XCTAssertEqual(restored?.statusLine, "A")
+        XCTAssertFalse(preview.isPreviewing)
+        XCTAssertTrue(preview.gate.allowsSend(into: "session-a"))
+        XCTAssertNil(preview.discard(), "a second discard has nothing left to restore")
+
+        // A successful switch drops the snapshot instead of restoring it.
+        preview.begin(sessionID: "session-b",
+                      current: .init(rows: sessionA, statusLine: "A", transcriptReady: true,
+                                     showingCachedTranscript: false))
+        preview.end()
+        XCTAssertFalse(preview.isPreviewing)
+        XCTAssertNil(preview.restore)
+    }
+
+    // Review of PR #98, secondary: JSON escaping can inflate a row, so the byte
+    // bound is enforced on the encoded file, not only on the estimate.
+    func testTranscriptCacheRespectsTheByteBoundAfterEscaping() throws {
+        let pc = BackendID.pc(machineId: "pc-one")
+        let pathological = String(repeating: "\"\\\n\t\u{1}", count: 40_000)
+        let items = (0..<20).map { index in
+            CachedTranscriptItem(id: "row-\(index)", kind: "assistant", title: pathological,
+                                 text: pathological)
+        }
+        let data = try XCTUnwrap(CachedTranscriptCodec.encode(items: items, backend: pc,
+                                                              sessionID: "s-1", lastSeq: nil))
+        XCTAssertLessThanOrEqual(data.count, CachedTranscriptCodec.maxFileBytes)
+        let stored = try XCTUnwrap(CachedTranscriptCodec.decode(data, backend: pc, sessionID: "s-1"))
+        XCTAssertEqual(stored.items.last?.id, "row-19", "the newest rows are the ones kept")
+    }
+
+    // W4: the projection must never turn a reconnect the phone opened into an
+    // offline claim before the grace window has passed.
+    func testPresenceProjectionAndCachedListNote() {
+        let seen = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertEqual(PCWorkspacePresence.project(.online, graceExpired: false,
+                                                   lastSeenAt: seen).reachability, .online)
+        XCTAssertEqual(PCWorkspacePresence.project(.connecting, graceExpired: true,
+                                                   lastSeenAt: seen).reachability, .reconnecting,
+                       "a dial in flight is reconnecting even after the grace window")
+        let early = PCWorkspacePresence.project(.offline(.peerOffline), graceExpired: false,
+                                                lastSeenAt: seen)
+        XCTAssertEqual(early.reachability, .reconnecting)
+        XCTAssertNil(early.offlineReason, "the reason belongs to a settled offline state")
+        let settled = PCWorkspacePresence.project(.offline(.peerOffline), graceExpired: true,
+                                                  lastSeenAt: seen)
+        XCTAssertEqual(settled.reachability, .offline)
+        XCTAssertEqual(settled.offlineReason, .peerOffline)
+        XCTAssertEqual(settled.lastSeenAt, seen)
+
+        // The strip only appears above cached rows while not reachable.
+        XCTAssertNil(PCLinkDrawerPolicy.cachedListNote(presence: .init(reachability: .online),
+                                                       capturedAt: seen, hasRows: true))
+        XCTAssertNil(PCLinkDrawerPolicy.cachedListNote(presence: .init(reachability: .offline),
+                                                       capturedAt: seen, hasRows: false))
+        XCTAssertEqual(PCLinkDrawerPolicy.cachedListNote(presence: .init(reachability: .reconnecting),
+                                                         capturedAt: seen, hasRows: true),
+                       PCLinkWorkspaceText.cachedReconnecting)
+        let offlineNote = PCLinkWorkspaceText.cachedOffline(capturedAt: seen,
+                                                            locale: Locale(identifier: "zh_CN"),
+                                                            timeZone: TimeZone(identifier: "UTC")!)
+        XCTAssertTrue(offlineNote.contains("2023年11月14日"), offlineNote)
+    }
+
+    // P18 (PC-20261110-pclink-workspace-cache): the transcript tail is bounded,
+    // scope-checked and still readable in the phone's pre-envelope format.
+    func testTranscriptCacheIsBoundedAndScopeChecked() throws {
+        let pc = BackendID.pc(machineId: "pc-one")
+        let items = (0..<500).map { index in
+            CachedTranscriptItem(id: "row-\(index)", kind: "assistant",
+                                 title: "", text: "text \(index)")
+        }
+        let data = try XCTUnwrap(CachedTranscriptCodec.encode(items: items, backend: pc,
+                                                              sessionID: "s-1", lastSeq: 42))
+        let stored = try XCTUnwrap(CachedTranscriptCodec.decode(data, backend: pc,
+                                                               sessionID: "s-1"))
+        XCTAssertEqual(stored.lastSeq, 42)
+        XCTAssertLessThanOrEqual(stored.items.count, CachedTranscriptCodec.maxItems)
+        XCTAssertEqual(stored.items.last?.id, "row-499", "the newest rows survive the bound")
+        XCTAssertLessThanOrEqual(data.count, CachedTranscriptCodec.maxFileBytes)
+
+        // Another machine or session must not paint this tail.
+        XCTAssertNil(CachedTranscriptCodec.decode(data,
+                                                  backend: .pc(machineId: "pc-two"),
+                                                  sessionID: "s-1"))
+        XCTAssertNil(CachedTranscriptCodec.decode(data, backend: pc, sessionID: "s-2"))
+        XCTAssertNil(CachedTranscriptCodec.decode(Data("not json".utf8), backend: pc,
+                                                  sessionID: "s-1"))
+
+        // Legacy bare array: accepted, with no seq.
+        let legacy = try XCTUnwrap(JSONEncoder().encode([items[0]]))
+        let adopted = try XCTUnwrap(CachedTranscriptCodec.decode(legacy, backend: .phone,
+                                                                sessionID: "s-1"))
+        XCTAssertNil(adopted.lastSeq)
+        XCTAssertEqual(adopted.items.count, 1)
+    }
+
+    // One oversized row cannot dominate the file.
+    func testTranscriptCacheTruncatesOneHugeRow() throws {
+        let huge = CachedTranscriptItem(id: "big", kind: "toolResult", title: "t",
+                                        text: String(repeating: "x", count: 200_000))
+        let bounded = CachedTranscriptCodec.bounded([huge])
+        XCTAssertEqual(bounded.count, 1)
+        XCTAssertEqual(bounded[0].text.count, CachedTranscriptCodec.maxItemCharacters + 1)
+    }
+
+    // The cache keeps at most `limit` files and never evicts the current one.
+    func testTranscriptCacheEvictionKeepsTheCurrentSession() throws {
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-evict-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+        let pc = BackendID.pc(machineId: "pc-one")
+        let directory = WorkspaceStorage.transcriptsDirectory(for: pc,
+                                                              documentsDirectory: documents)
+        let fileManager = FileManager.default
+        for index in 0..<5 {
+            let url = directory.appendingPathComponent("s-\(index).json")
+            try Data("{}".utf8).write(to: url)
+            try fileManager.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(index))],
+                                          ofItemAtPath: url.path)
+        }
+        WorkspaceStorage.evictTranscriptSnapshots(for: pc, documentsDirectory: documents,
+                                                  keeping: "s-0", limit: 2)
+        let left = try fileManager.contentsOfDirectory(atPath: directory.path).sorted()
+        XCTAssertEqual(left, ["s-0.json", "s-4.json"],
+                       "at most `limit` files remain, the oldest unprotected go first, "
+                       + "and the current session is never evicted")
+    }
+
+    // W5: the presence log answers "what did the drawer see" without user content.
+    func testDiagnosticsLogRecordsPresenceAndRotates() throws {
+        let documents = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pclink-diag-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: documents) }
+
+        PCLinkDiagnosticsLog.append(PCLinkDiagnosticEvent(state: "reconnecting"), documentsDirectory: documents)
+        PCLinkDiagnosticsLog.append(PCLinkDiagnosticEvent(state: "offline",
+                                                          reason: PCLinkDiagnosticsLog.reasonName(.peerOffline),
+                                                          detail: "gap=3.2s"), documentsDirectory: documents)
+        let lines = PCLinkDiagnosticsLog.read(documentsDirectory: documents)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[0].hasSuffix("state reconnecting"))
+        XCTAssertTrue(lines[1].contains("state offline"))
+        XCTAssertTrue(lines[1].contains("reason=peer_offline"))
+
+        // Fill past the cap: the log rotates once and stays bounded.
+        let filler = PCLinkDiagnosticEvent(state: "online", detail: String(repeating: "x", count: 1024))
+        for _ in 0..<300 { PCLinkDiagnosticsLog.append(filler, documentsDirectory: documents) }
+        let rotated = documents.appendingPathComponent(PCLinkDiagnosticsLog.rotatedFileName)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rotated.path))
+        let live = try Data(contentsOf: documents.appendingPathComponent(PCLinkDiagnosticsLog.fileName))
+        XCTAssertLessThanOrEqual(live.count, PCLinkDiagnosticsLog.maxBytes)
     }
 
     func testPairedAtIsLocalizedNotISO() {

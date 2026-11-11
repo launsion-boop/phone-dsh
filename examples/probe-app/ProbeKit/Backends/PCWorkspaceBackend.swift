@@ -490,6 +490,28 @@ public enum PCLinkWorkspaceText {
     /// (§10, PC-20261110-pclink-foreground-resume-presence).
     public static let resumeConnecting = "这台电脑刚才在后台，正在重新连上。"
 
+    /// Strip above a cached list while the phone is reconnecting.
+    public static let cachedReconnecting = "正在连接电脑，下面是上次的列表。"
+
+    /// Strip above a cached list once the PC is unreachable. Names the snapshot
+    /// age so a stale list is never mistaken for the live one.
+    public static func cachedOffline(capturedAt: Date?, locale: Locale = .current,
+                                     timeZone: TimeZone = .current) -> String {
+        guard let capturedAt else { return "电脑暂时连不上，下面是上次的列表。" }
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        let calendar = Calendar.current
+        if calendar.isDateInToday(capturedAt) {
+            formatter.dateFormat = "HH:mm"
+        } else if calendar.component(.year, from: capturedAt) == calendar.component(.year, from: Date()) {
+            formatter.dateFormat = "M月d日 HH:mm"
+        } else {
+            formatter.dateFormat = "yyyy年M月d日 HH:mm"
+        }
+        return "电脑暂时连不上，下面是 \(formatter.string(from: capturedAt)) 的列表。"
+    }
+
     public static func offlineReason(_ reason: PCLinkOfflineReason) -> String {
         switch reason {
         case .notStarted: return "还没有连接电脑。"
@@ -522,6 +544,95 @@ public enum PCLinkWorkspaceText {
     }
 }
 
+// MARK: - Cached preview gate (P09, PC-20261110-pclink-workspace-cache review)
+
+/// Tracks the session whose cached tail is on screen while its live read has
+/// not completed.
+///
+/// A preview paints rows that belong to a session the model has not opened
+/// yet: `sessionID` still names the previous session, and a send at that moment
+/// would deliver a prompt to the old session while the person looks at the new
+/// one. The gate makes that send impossible instead of relying on the failure
+/// path restoring the transcript.
+public struct CachedPreviewGate: Equatable, Sendable {
+    public private(set) var previewSessionID: String?
+
+    public init(previewSessionID: String? = nil) {
+        self.previewSessionID = previewSessionID
+    }
+
+    public var isPreviewing: Bool { previewSessionID != nil }
+
+    public mutating func begin(sessionID: String) {
+        previewSessionID = sessionID
+    }
+
+    public mutating func end() {
+        previewSessionID = nil
+    }
+
+    /// A send is allowed only with a live session and no preview on screen.
+    /// `sessionID` must also be the one the caller is about to send into.
+    public func allowsSend(into sessionID: String?) -> Bool {
+        guard previewSessionID == nil, let sessionID else { return false }
+        return true
+    }
+}
+
+// MARK: - Presence (P09, PC-20261110-pclink-workspace-cache)
+
+/// What the phone can say about the paired PC, kept separate from what the PC
+/// is actually doing.
+///
+/// `reconnecting` is a bounded window the phone opened itself (a foreground
+/// resume, or a socket the OS suspended); `offline` means a dial already failed
+/// or the connection dropped without a user-initiated resume. The distinction
+/// exists because the old projection reported both as "电脑离线", which is a
+/// claim about the PC the phone cannot make.
+public struct PCWorkspacePresence: Equatable, Sendable {
+    public enum Reachability: String, Equatable, Sendable {
+        case online
+        case reconnecting
+        case offline
+    }
+
+    public var reachability: Reachability
+    /// Last time the phone had an established session with this PC.
+    public var lastSeenAt: Date?
+    /// Why the last dial failed; only meaningful for `.offline`.
+    public var offlineReason: PCLinkOfflineReason?
+
+    public init(reachability: Reachability,
+                lastSeenAt: Date? = nil,
+                offlineReason: PCLinkOfflineReason? = nil) {
+        self.reachability = reachability
+        self.lastSeenAt = lastSeenAt
+        self.offlineReason = offlineReason
+    }
+
+    public var isOnline: Bool { reachability == .online }
+    public var isOffline: Bool { reachability == .offline }
+
+    /// Projects one client connection. `graceExpired` stays false until the
+    /// phone has been without a session for the whole reconnect grace window.
+    public static func project(_ connection: PCWorkspaceConnection,
+                               graceExpired: Bool,
+                               lastSeenAt: Date?) -> PCWorkspacePresence {
+        switch connection {
+        case .online, .versionWarning:
+            return PCWorkspacePresence(reachability: .online, lastSeenAt: lastSeenAt)
+        case .connecting:
+            return PCWorkspacePresence(reachability: .reconnecting, lastSeenAt: lastSeenAt)
+        case .offline(let reason):
+            return PCWorkspacePresence(reachability: graceExpired ? .offline : .reconnecting,
+                                       lastSeenAt: lastSeenAt,
+                                       offlineReason: graceExpired ? reason : nil)
+        case .unpaired:
+            return PCWorkspacePresence(reachability: .offline, lastSeenAt: lastSeenAt)
+        }
+    }
+}
+
 // MARK: - Drawer policy
 
 /// What the drawer/list region shows for the selected segment. It is a pure
@@ -545,13 +656,39 @@ public enum PCDrawerPhase: Equatable, Sendable {
 public enum PCLinkDrawerPolicy {
     public static func phase(selected: DrawerBackendSetting,
                              hasRecord: Bool,
-                             connection: PCWorkspaceConnection) -> PCDrawerPhase {
+                             presence: PCWorkspacePresence) -> PCDrawerPhase {
         guard selected == .pc else { return .phone }
         guard hasRecord else { return .pair }
-        switch connection {
-        case .online, .versionWarning: return .ready
-        case .connecting: return .connecting
-        case .unpaired, .offline: return .offline
+        switch presence.reachability {
+        case .online: return .ready
+        case .reconnecting: return .connecting
+        case .offline: return .offline
+        }
+    }
+
+    /// Whether the drawer's list region shows the state card instead of rows.
+    ///
+    /// `pcRowCount` must be the **PC scope's** rows: falling back to the phone
+    /// management made an unpaired segment render the phone's sessions under the
+    /// PC header and hid the 连接电脑 card (review of PR #98, problem A).
+    public static func showsStateCard(phase: PCDrawerPhase,
+                                      pcRowCount: Int) -> Bool {
+        switch phase {
+        case .ready, .phone: return false
+        case .pair, .connecting, .offline: return pcRowCount == 0
+        }
+    }
+
+    /// The one-line strip above a cached list while the PC is not reachable.
+    /// `nil` when the list speaks for itself (online, or no cached rows).
+    public static func cachedListNote(presence: PCWorkspacePresence,
+                                      capturedAt: Date?,
+                                      hasRows: Bool) -> String? {
+        guard hasRows else { return nil }
+        switch presence.reachability {
+        case .online: return nil
+        case .reconnecting: return PCLinkWorkspaceText.cachedReconnecting
+        case .offline: return PCLinkWorkspaceText.cachedOffline(capturedAt: capturedAt)
         }
     }
 }
@@ -625,3 +762,63 @@ public enum PCLinkWorkspaceSelection {
 
 // The install/pairing command strings live in PCLinkRelayConfiguration.swift
 // with the relay origin (one configuration point).
+
+// MARK: - Cached preview coordinator (P09, review of PR #98 problem P0)
+
+/// Owns the "painted a cached tail for a session that is not open yet" state:
+/// what was replaced, and whether sending is allowed.
+///
+/// The failure this exists for: a switch to session B paints B's cached rows
+/// while `sessionID` still names A. If the open then fails, the rows said B and
+/// a send would have gone to A. Both halves are one type so the sequence can be
+/// tested without the App target: `begin` snapshots, `end` accepts the live
+/// read, `discard` returns exactly what to restore.
+public struct CachedPreviewCoordinator: Equatable, Sendable {
+    public struct Restore: Equatable, Sendable {
+        public var rows: [ChatItem]
+        public var statusLine: String
+        public var transcriptReady: Bool
+        public var showingCachedTranscript: Bool
+
+        public init(rows: [ChatItem], statusLine: String,
+                    transcriptReady: Bool, showingCachedTranscript: Bool) {
+            self.rows = rows
+            self.statusLine = statusLine
+            self.transcriptReady = transcriptReady
+            self.showingCachedTranscript = showingCachedTranscript
+        }
+    }
+
+    public private(set) var gate = CachedPreviewGate()
+    public private(set) var restore: Restore?
+
+    public init() {}
+
+    public var previewSessionID: String? { gate.previewSessionID }
+    public var isPreviewing: Bool { gate.isPreviewing }
+
+    /// Starts (or retargets) a preview. The first preview keeps the original
+    /// snapshot; retargeting to another cached session does not overwrite it,
+    /// so a later discard still restores what the person was reading before.
+    public mutating func begin(sessionID: String, current: Restore) {
+        if !gate.isPreviewing {
+            restore = current
+        }
+        gate.begin(sessionID: sessionID)
+    }
+
+    /// The live read landed and the caller replaced the rows.
+    public mutating func end() {
+        gate.end()
+        restore = nil
+    }
+
+    /// The switch did not land. Returns the state to put back, if any, and
+    /// clears the gate so the next real open starts clean.
+    public mutating func discard() -> Restore? {
+        let snapshot = restore
+        gate.end()
+        restore = nil
+        return snapshot
+    }
+}
