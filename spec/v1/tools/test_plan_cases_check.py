@@ -94,6 +94,39 @@ class PlanCasesTests(unittest.TestCase):
         completed = run_checker(self.copy)
         self.assert_fails(completed, "not in enum")
 
+    def test_high_water_record_pruned_is_rejected(self) -> None:
+        self.replace("golden/plan/retention.json",
+                     '"highWater": true, "expected": "keep", "lastJseqAfter": 7',
+                     '"highWater": true, "expected": "prune", "lastJseqAfter": 7')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "expected prune")
+
+    def test_last_jseq_decrease_is_rejected(self) -> None:
+        self.replace("golden/plan/retention.json",
+                     '"lastJseqAfter": 7, "lastJseqBefore": 7',
+                     '"lastJseqAfter": 6, "lastJseqBefore": 7')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "last_jseq_decreased")
+
+    def test_sampled_heap_marked_implemented_is_rejected(self) -> None:
+        self.replace("golden/plan/memory-input.json",
+                     '"sampledHeap": {"status": "target", "producer": "none", "injectionPoint": "reportEngineHeapBytes"}',
+                     '"sampledHeap": {"status": "implemented", "producer": "PhoneDSHEngine", "injectionPoint": "reportEngineHeapBytes"}')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "sampled_heap")
+
+    def test_action_order_change_is_rejected(self) -> None:
+        self.replace("golden/plan/memory-input.json",
+                     '"actionOrder": ["clearTmp", "plannedRestart"]',
+                     '"actionOrder": ["plannedRestart", "clearTmp"]')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "action_order_changed")
+
+    def test_missing_memory_input_vector_is_rejected(self) -> None:
+        (self.copy / "golden" / "plan" / "memory-input.json").unlink()
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "missing vector 'memory-input'")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,6 @@
 {
   "title": "HostSendOutboxEntry v1",
-  "description": "One durable send-outbox entry of the host. The rpcId is a lowercase UUIDv4 generated at enqueue and is the idempotency key of the user message; the entry is deleted only after an authoritative user_message with that source.rpcId has been observed. The state machine and crash rules are fixed by spec/host/v1/README.md section 10 and docs/protocol-changes/PC-20261112-w1-browse-outbox.md.",
+  "description": "One durable send-outbox entry of the host. The rpcId is a lowercase UUIDv4 generated at enqueue and is the idempotency key of the user message; the entry is deleted only after an authoritative user_message with that source.rpcId has been observed. Optional attachments are references plus metadata, never inline bytes: bytes live under send-outbox/attachments/<rpcId>/<attachmentId> in the same durable app-container tree, not in Library/Caches and not in /dsh/tmp. The state machine, store lifecycle and crash rules are fixed by spec/host/v1/README.md section 10 and docs/protocol-changes/PC-20261112-w1-browse-outbox.md (Rev 3).",
   "type": "object",
   "required": ["v", "rpcId", "sessionId", "text", "createdAtMs", "state", "attempts"],
   "properties": {
@@ -18,7 +18,26 @@
     "acceptedAtMs": {"type": "integer", "minimum": 0},
     "durableAtMs": {"type": "integer", "minimum": 0},
     "outcomeUnknownAtMs": {"type": "integer", "minimum": 0},
-    "backend": {"enum": ["local", "pc"]}
+    "backend": {"enum": ["local", "pc"]},
+    "attachments": {
+      "description": "Optional attachment references. Ordered; at most 8. The bytes are outbox-owned files referenced by storePath; no inline bytes or dataBase64 member is allowed.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "byteSize", "sha256", "contentType", "filename", "storePath"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$"},
+          "kind": {"enum": ["image", "file", "audio", "video", "document"]},
+          "byteSize": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "contentType": {"type": "string", "minLength": 1, "maxLength": 200},
+          "filename": {"type": "string", "minLength": 1, "maxLength": 255},
+          "storePath": {"type": "string", "pattern": "^attachments/[0-9a-f-]{36}/[A-Za-z0-9._-]{1,64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
   },
   "additionalProperties": false
 }

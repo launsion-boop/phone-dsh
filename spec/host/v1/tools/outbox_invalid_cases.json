@@ -2,15 +2,272 @@
   "schemaVersion": 1,
   "note": "Negative cases for spec/host/v1/schema/outbox-entry.schema.json and the section 10 state machine. Read by tools/test_outbox_contract.py.",
   "invalid": [
-    {"id": "uuid-not-v4", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-3e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "queued", "attempts": 0}, "reason": "rpc_id_not_uuid_v4", "schema": true},
-    {"id": "uuid-uppercase", "case": {"v": 1, "rpcId": "3F2A1C4E-5B6D-4E8F-9A0B-1C2D3E4F5A6B", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "queued", "attempts": 0}, "reason": "rpc_id_not_lowercase", "schema": true},
-    {"id": "empty-text", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "", "createdAtMs": 1, "state": "queued", "attempts": 0}, "reason": "empty_text", "schema": true},
-    {"id": "unknown-state", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "deleted", "attempts": 0}, "reason": "unknown_state", "schema": true},
-    {"id": "extra-member", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "queued", "attempts": 0, "body": "x"}, "reason": "unknown_member", "schema": true},
-    {"id": "accepted-to-queued", "case": {"from": "accepted", "to": "queued"}, "reason": "illegal_transition", "schema": false},
-    {"id": "durable-to-submitting", "case": {"from": "durable", "to": "submitting"}, "reason": "illegal_transition", "schema": false},
-    {"id": "queued-to-durable", "case": {"from": "queued", "to": "durable"}, "reason": "illegal_transition", "schema": false},
-    {"id": "submitting-to-durable", "case": {"from": "submitting", "to": "durable"}, "reason": "illegal_transition", "schema": false},
-    {"id": "outcome-unknown-to-durable", "case": {"from": "outcomeUnknown", "to": "durable"}, "reason": "illegal_transition", "schema": false}
+    {
+      "id": "uuid-not-v4",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-3e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0
+      },
+      "reason": "rpc_id_not_uuid_v4",
+      "schema": true
+    },
+    {
+      "id": "uuid-uppercase",
+      "case": {
+        "v": 1,
+        "rpcId": "3F2A1C4E-5B6D-4E8F-9A0B-1C2D3E4F5A6B",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0
+      },
+      "reason": "rpc_id_not_lowercase",
+      "schema": true
+    },
+    {
+      "id": "empty-text",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0
+      },
+      "reason": "empty_text",
+      "schema": true
+    },
+    {
+      "id": "unknown-state",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "deleted",
+        "attempts": 0
+      },
+      "reason": "unknown_state",
+      "schema": true
+    },
+    {
+      "id": "extra-member",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0,
+        "body": "x"
+      },
+      "reason": "unknown_member",
+      "schema": true
+    },
+    {
+      "id": "attachment-inline-bytes",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0,
+        "attachments": [
+          {
+            "id": "a1",
+            "kind": "image",
+            "byteSize": 3,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "contentType": "image/png",
+            "filename": "x.png",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1",
+            "dataBase64": "aGk="
+          }
+        ]
+      },
+      "reason": "inline_bytes_not_allowed",
+      "schema": true
+    },
+    {
+      "id": "attachment-unknown-kind",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0,
+        "attachments": [
+          {
+            "id": "a1",
+            "kind": "hologram",
+            "byteSize": 3,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "contentType": "application/octet-stream",
+            "filename": "x.bin",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1"
+          }
+        ]
+      },
+      "reason": "unknown_attachment_kind",
+      "schema": true
+    },
+    {
+      "id": "attachment-missing-store-path",
+      "case": {
+        "v": 1,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0,
+        "attachments": [
+          {
+            "id": "a1",
+            "kind": "file",
+            "byteSize": 3,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "contentType": "application/octet-stream",
+            "filename": "x.bin"
+          }
+        ]
+      },
+      "reason": "missing_store_path",
+      "schema": true
+    },
+    {
+      "id": "legacy-version-with-attachments",
+      "case": {
+        "v": 0,
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "sessionId": "gb-main",
+        "text": "x",
+        "createdAtMs": 1,
+        "state": "queued",
+        "attempts": 0,
+        "attachments": [
+          {
+            "id": "a1",
+            "kind": "file",
+            "byteSize": 3,
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "contentType": "application/octet-stream",
+            "filename": "x.bin",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1"
+          }
+        ]
+      },
+      "reason": "legacy_shape_cannot_carry_attachments",
+      "schema": true
+    },
+    {
+      "id": "duplicate-attachment-id",
+      "case": {
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "attachments": [
+          {
+            "id": "a1",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1"
+          },
+          {
+            "id": "a1",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1"
+          }
+        ]
+      },
+      "reason": "duplicate_attachment_id",
+      "schema": false,
+      "law": "attachment"
+    },
+    {
+      "id": "attachment-store-missing",
+      "case": {
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "attachments": [
+          {
+            "id": "a1",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1"
+          }
+        ],
+        "storeMissing": true
+      },
+      "reason": "attachment_store_missing",
+      "schema": false,
+      "law": "attachment"
+    },
+    {
+      "id": "attachment-digest-mismatch",
+      "case": {
+        "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+        "attachments": [
+          {
+            "id": "a1",
+            "storePath": "attachments/3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b/a1"
+          }
+        ],
+        "digestMatches": false
+      },
+      "reason": "attachment_digest_mismatch",
+      "schema": false,
+      "law": "attachment"
+    },
+    {
+      "id": "accepted-to-queued",
+      "case": {
+        "from": "accepted",
+        "to": "queued"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "durable-to-submitting",
+      "case": {
+        "from": "durable",
+        "to": "submitting"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "queued-to-durable",
+      "case": {
+        "from": "queued",
+        "to": "durable"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "submitting-to-durable",
+      "case": {
+        "from": "submitting",
+        "to": "durable"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    },
+    {
+      "id": "outcome-unknown-to-durable",
+      "case": {
+        "from": "outcomeUnknown",
+        "to": "durable"
+      },
+      "reason": "illegal_transition",
+      "schema": false
+    }
   ]
 }

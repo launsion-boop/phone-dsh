@@ -10,11 +10,14 @@
     {"id": "step-terminal-not-durable", "kind": "step", "terminal": true, "journaled": true, "durable": false, "referenced": false, "expected": "keep"},
     {"id": "step-open", "kind": "step", "terminal": false, "journaled": false, "durable": false, "referenced": false, "expected": "keep"},
     {"id": "step-abandoned-durable", "kind": "step", "terminal": true, "abandoned": true, "abandonedDurable": true, "referenced": false, "expected": "prune"},
-    {"id": "step-abandoned-not-durable", "kind": "step", "terminal": true, "abandoned": true, "abandonedDurable": false, "referenced": false, "expected": "keep"}
+    {"id": "step-abandoned-not-durable", "kind": "step", "terminal": true, "abandoned": true, "abandonedDurable": false, "referenced": false, "expected": "keep"},
+    {"id": "journal-high-water-retained", "kind": "journal", "journaled": true, "durable": true, "referenced": false, "highWater": true, "expected": "keep", "lastJseqAfter": 7, "lastJseqBefore": 7}
   ],
   "invalid": [
     {"case": {"kind": "journal", "journaled": true, "durable": false, "referenced": false, "expected": "prune"}, "reason": "prune_before_level_2"},
     {"case": {"kind": "step", "terminal": false, "journaled": false, "durable": true, "referenced": false, "expected": "prune"}, "reason": "prune_open_step"},
-    {"case": {"kind": "step", "terminal": true, "journaled": true, "durable": true, "referenced": true, "expected": "prune"}, "reason": "prune_referenced_step"}
+    {"case": {"kind": "step", "terminal": true, "journaled": true, "durable": true, "referenced": true, "expected": "prune"}, "reason": "prune_referenced_step"},
+    {"case": {"kind": "journal", "journaled": true, "durable": true, "referenced": false, "highWater": true, "expected": "prune"}, "reason": "prune_high_water_record"},
+    {"case": {"kind": "journal", "journaled": true, "durable": true, "referenced": false, "highWater": true, "expected": "keep", "lastJseqBefore": 7, "lastJseqAfter": 6}, "reason": "last_jseq_decreased"}
   ]
 }
