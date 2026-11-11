@@ -163,9 +163,17 @@ final class BotCompositionE2ETests: XCTestCase {
                   let prompt = messages.last(where: { message in
                       guard message["role"] as? String == "user",
                             let content = message["content"] as? [[String: Any]] else { return false }
-                      return content.first?["type"] as? String == "text"
+                      return content.contains { $0["type"] as? String == "text" }
                   }), let content = prompt["content"] as? [[String: Any]] else { return nil }
-            return content.first?["text"] as? String == "完成委派"
+            // The Task child receives the authorization + task-contract
+            // envelope followed by the delegated text, not the bare prompt.
+            // Match the real request shape (the parent turn and the direct
+            // Task carry no `<task_authorization>` block) instead of requiring
+            // the first text block to equal "完成委派" exactly; a mismatch
+            // made the child fall back to the parent's `.sequence` script and
+            // produce TASK_PARENT_DONE.
+            let text = content.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            return text.contains("<task_authorization>") && text.contains("完成委派")
                 ? .generic(command: "printf TASK_TOOL", toolText: "TASK_TOOL", finalText: "BOT_TASK_OK")
                 : nil
         }
