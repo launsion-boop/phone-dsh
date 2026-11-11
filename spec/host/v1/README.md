@@ -262,17 +262,31 @@ The UI→host send path is host behaviour above the worker contract (§9 row J2 
 for device commands; this is the user's outgoing message queue and has its own boundary). For all
 backends it is one durable queue with the same observable rules.
 
-**Scope (W1 rev 2, 2026-11-12).** This round the durable-outbox requirement in this section applies
-to **text prompts only**. An attachment send (a `HarnessAttachment[]` prompt) is not an outbox
-entry and keeps the pre-W1 direct path; it is **not** crash-durable this round. No attachment
-field, alias, fallback or platform branch is added to the entry schema. All other sentences in
-this section, the state machine and the `rpcId` semantics are unchanged. Attachment sends are out
-of scope until an attachment reference is registered in this boundary (GAP-40).
+**Scope (W1 rev 3, 2026-11-12; owner-authorized).** Text prompts and attachment sends use **one**
+outbox, the same `queued → submitting → accepted → durable` + `outcomeUnknown` machine, the same
+enqueue-time lowercase UUIDv4 `rpcId`, and the same delete condition: an entry is deleted only
+after authoritative history contains a `user_message` whose `source.rpcId` equals it and the
+entry is `durable`. This is an explicit owner-authorized scope expansion from Rev 2, not a silent
+widening; the state machine and `rpcId` semantics are unchanged. An attachment entry carries
+references plus minimal metadata, never inline bytes.
 
 - **Enqueue is the durable fact.** A send creates one entry and writes it with the §7 atomic order
   (temp file, fsync, rename, directory fsync) **before** any transport attempt. The entry is
   shown immediately as `queued`; a transport failure never removes it and never loses the user
   text. The file is `send-outbox/<rpcId>.json`, unique per `rpcId`.
+- **Attachments.** An entry may carry `attachments[]`; each item has `id`, `kind`, `byteSize`,
+  `sha256`, `contentType`, `filename` and `storePath` (schema: `outbox-entry.schema.json`). The
+  bytes live **only** in the outbox-owned store at `send-outbox/attachments/<rpcId>/<attachmentId>`
+  — the same durable app-container tree as the entry, never `Library/Caches`, never Worker-volatile
+  `/dsh/tmp`, never inline/base64 in the entry. Before an entry is committed, every attachment file
+  is written, fsynced and its digest verified; then the entry is atomically written. This gives at
+  least level-1 durability: the bytes are lost only if the device container itself is destroyed.
+- **Attachment lifecycle.** An attachment file is unlinked only after its entry is deleted per the
+  delete condition above; the entry (and its files) are never removed while the entry exists. Delete
+  the entry first, then its `attachments/<rpcId>/` directory. Startup GC removes an
+  `attachments/<rpcId>/` directory only when no `send-outbox/<rpcId>.json` exists (crash between
+  entry delete and unlink, or a crash before the entry write); it never removes files referenced by
+  an existing entry.
 - **`rpcId`.** A lowercase UUIDv4 generated at enqueue, immutable for the entry's life. It is the
   `source.rpcId` of the user message and the only idempotency key used for delivery. The authority
   de-duplicates by it; a retry of the same entry reuses it.
@@ -290,19 +304,28 @@ of scope until an attachment reference is registered in this boundary (GAP-40).
   (the same source that would make it `durable`); if the `rpcId` is present it becomes `accepted`
   then `durable`; if proof of absence is available it returns to `queued` with the same `rpcId`;
   if the read-back cannot run it stays `outcomeUnknown` and does not resend.
+- **Attachment consistency at dispatch.** Immediately before a first submit, and again before any
+  retry, verify every referenced file exists and its bytes match `sha256`. On a missing file or a
+  digest mismatch the host MUST NOT submit the entry, MUST NOT fall back to a text-only send, and
+  MUST NOT drop or re-create it; the entry stays in its current state (`queued`, or `outcomeUnknown`
+  if a previous submit's outcome is unresolved) with an internal `lastError` of
+  `attachment_missing` or `attachment_digest_mismatch`. It is retried only after the reference is
+  restored and verified. A previous submit is never repeated with a new `rpcId`; if the authority
+  already has the `source.rpcId`, the normal `accepted`/`durable` path applies. This is an internal
+  diagnostic only: the user sees no new prompt, banner or error, and "排队中" is the only visible
+  state allowed for the blocked entry.
 - **Ordering and crash points.** Per session the queue is FIFO by `createdAtMs`; sessions are
   independent. The five kill points — before the file write, after the write before submit,
   mid-submit, `accepted` before `durable`, `durable` before delete — must neither lose nor
   duplicate: the first shows no accepted message (the UI may not have shown it), the last two
   replay the same `rpcId`, and the authority's `source.rpcId` is the only de-duplicator. Startup
   scans `send-outbox/` and resumes `queued`/`outcomeUnknown` entries; it never invents a new
-  `rpcId`.
+  `rpcId`. An entry whose attachment files were partially written is not resumable until the files
+  are complete and digest-verified; its partial files are treated as the missing case above, never
+  as inline bytes.
 - **Backends.** `backend: local` and `backend: pc` use the same entry shape and machine; the PC
   path keeps its existing workspace/session scope. A backend switch never moves an entry to a
   different session.
 - **No UI restriction.** The queue never refuses a send for a closed admission, an engine that is
   starting, or a running turn; it accepts and shows `queued`. The only new visible state is the
   existing "排队中" (queued) projection.
-- **Attachment limitation.** Attachment sends are out of scope until an attachment reference is
-  registered in this boundary; they keep the pre-W1 direct path and are not crash-durable this
-  round. The entry schema is unchanged and rejects an `attachments` member.
