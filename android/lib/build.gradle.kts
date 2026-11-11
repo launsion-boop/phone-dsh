@@ -959,6 +959,8 @@ dependencies {
     api("androidx.compose.ui:ui-text")
     api("androidx.compose.animation:animation")
     api("androidx.compose.material3:material3")
+    // BackCoordinator uses the platform BackHandler/PredictiveBackHandler composables.
+    implementation(libs.androidx.activity.compose)
     // Temporary native Canvas math renderer spike; review before adoption.
     implementation("io.github.erweixin:ratex-android:0.1.15")
     implementation("androidx.compose.ui:ui-tooling-preview")
