@@ -646,6 +646,7 @@ struct BotInfoPage: View {
                                 if deleting { Spacer(); ProgressView().controlSize(.small) }
                             }
                         }
+                        .buttonStyle(BotDestructiveButtonStyle(fillsWidth: true))
                         .disabled(deleting)
                         .accessibilityIdentifier("bot.info.delete")
                         if let deleteError {
@@ -916,7 +917,7 @@ private struct BotMemoryPage: View {
                     Text(maintenanceStatusLabel(batch.status, rolledBack: batch.rolledBack))
                         .foregroundStyle(HomeSpec.textPrimary)
                     Spacer()
-                    Text(batch.finishedAt.formatted(date: .abbreviated, time: .shortened))
+                    Text(BotUIFormat.dateTime(batch.finishedAt))
                         .botCaptionFont()
                         .foregroundStyle(HomeSpec.textTertiary)
                 }
@@ -1016,7 +1017,7 @@ private struct BotMemoryTreeRowView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(document.fileName)
                             .foregroundStyle(HomeSpec.textPrimary)
-                        Text("v\(document.version) · \(document.updatedAt.formatted(date: .abbreviated, time: .shortened)) · \(evidenceLabel(document))")
+                        Text("v\(document.version) · \(BotUIFormat.dateTime(document.updatedAt)) · \(evidenceLabel(document))")
                             .botCaptionFont()
                             .foregroundStyle(HomeSpec.textTertiary)
                     }
@@ -1067,7 +1068,7 @@ private struct BotMemoryDocumentView: View {
                     }
                 }
                 LabeledContent("作者", value: document.author)
-                LabeledContent("更新时间", value: document.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                LabeledContent("更新时间", value: BotUIFormat.dateTime(document.updatedAt))
             }
 
             Section("版本") {
@@ -1092,7 +1093,7 @@ private struct BotMemoryDocumentView: View {
                                 .foregroundStyle(HomeSpec.textPrimary)
                             if version.version == document.version { Text("当前").botCaptionFont() }
                             Spacer()
-                            Text(version.updatedAt.formatted(date: .abbreviated, time: .shortened))
+                            Text(BotUIFormat.dateTime(version.updatedAt))
                                 .botCaptionFont()
                                 .foregroundStyle(HomeSpec.textTertiary)
                             if version.deleted {
@@ -1365,7 +1366,7 @@ private struct BotGrantsPage: View {
                                 .botCaptionFont()
                                 .foregroundStyle(HomeSpec.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text("来源：\(grant.source) · \(grant.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                            Text("来源：\(grant.source) · \(BotUIFormat.dateTime(grant.createdAt))")
                                 .botCaptionFont()
                                 .foregroundStyle(HomeSpec.textTertiary)
                             Button("撤销这条授权", role: .destructive) {
@@ -1487,7 +1488,7 @@ private struct BotApprovalHistoryPage: View {
                                     .botSecondaryFont(weight: .medium)
                                     .foregroundStyle(HomeSpec.textSecondary)
                                 Spacer()
-                                Text(record.decidedAt.formatted(date: .abbreviated, time: .shortened))
+                                Text(BotUIFormat.dateTime(record.decidedAt))
                                     .botCaptionFont()
                                     .foregroundStyle(HomeSpec.textTertiary)
                             }

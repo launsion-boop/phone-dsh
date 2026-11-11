@@ -406,7 +406,7 @@ private struct BotDrawerRow: View {
             }
         }
         if let last = entry.lastMessageAt {
-            return BotDrawerTime.relative(last)
+            return BotUIFormat.relativeTime(milliseconds: last)
         }
         return "还没有消息"
     }
@@ -787,25 +787,6 @@ struct BotAddDialog: View {
                 saving = false
             }
         }
-    }
-}
-
-enum BotDrawerTime {
-    private static let date: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
-
-    static func relative(_ milliseconds: Int64, now: Date = Date()) -> String {
-        guard milliseconds > 0 else { return "还没有消息" }
-        let dateValue = Date(timeIntervalSince1970: Double(milliseconds) / 1_000)
-        let seconds = now.timeIntervalSince(dateValue)
-        if seconds < 60 { return "刚刚" }
-        if seconds < 3_600 { return "\(Int(seconds / 60)) 分钟前" }
-        if seconds < 86_400 { return "\(Int(seconds / 3_600)) 小时前" }
-        return date.string(from: dateValue)
     }
 }
 
