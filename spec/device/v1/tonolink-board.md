@@ -129,4 +129,7 @@ twice, gets one nudge, and that repeat is not performed (finish if the screen al
 the answer, otherwise try something else). If it repeats itself again, the run stops with
 `finished=false` and an answer starting 「卡住了」, instead of using every step. LaunchApp presses
 Return a second time when Spotlight is still on screen, because the Pinyin keyboard's candidate
-bar took the first one.
+bar took the first one. For a read or check task the agent answers as soon as the screen shows the
+information and never navigates away first; the tool's usage note tells the calling model to
+describe what to report rather than "then go back" steps, and not to restart a task that ended
+「卡住了」.

@@ -270,6 +270,7 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
     - The device is an iPhone (iOS). There is no system Back key: to go back, tap the visible back button (usually "<" at the top-left).
     - The round grey AssistiveTouch button floating on the right edge is part of the automation tool: never tap it.
     - To open an app, use `LaunchApp` with its name: it searches the phone and opens the best match. Do not look for app icons on the home screen. If a different app opened, use `LaunchApp` again with the app's English name.
+    - When the task asks you to read, check or report something, use `Answer` as soon as the screen shows it. Do not leave that screen first (for example back to a list or the home screen), even if the task also says to go back afterwards: answering is the end of the task.
     - Answer in Chinese.
 
     ### Output Format

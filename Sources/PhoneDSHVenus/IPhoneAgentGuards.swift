@@ -75,7 +75,8 @@ public struct IPhoneLoopGuard: Sendable {
         }
         nudged = true
         keys.removeAll(); raws.removeAll()
-        return .nudge("You have \(what) without finishing. Look carefully at the current screenshot: if it already shows "
-            + "what the task asks for, reply Finished or Answer now with what you see. Otherwise try something different.")
+        return .nudge("You have \(what) without finishing, so you have already seen these screens. If the current "
+            + "screenshot or one you just saw showed what the task asks for, reply Answer or Finished now with that "
+            + "information, without navigating again. Otherwise try something different.")
     }
 }

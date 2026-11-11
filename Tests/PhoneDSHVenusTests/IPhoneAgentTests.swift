@@ -236,7 +236,7 @@ private func solidJPEG(_ gray: CGFloat) -> Data {
         XCTAssertEqual(phone.actions.count, 6, "the nudged repeat is not performed")
         let nudged = ScriptedModel.lock.withLock { ScriptedModel.bodies[4]["messages"] as? [[String: Any]] } ?? []
         let text = (nudged.last?["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
-        XCTAssertTrue(text.contains("reply Finished or Answer now"), text)
+        XCTAssertTrue(text.contains("reply Answer or Finished now"), text)
     }
 
     func testModelIsToldWhenAnActionChangedNothing() async throws {
