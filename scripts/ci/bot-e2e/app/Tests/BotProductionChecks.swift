@@ -148,8 +148,15 @@ enum BotProductionChecks {
         _ = try await domain.append(rename)
         let infoDriver = BotProductionInfoDriver.production(environment: environment)
         let snapshot = try await infoDriver.load()
-        try require(snapshot.botName == "真实大肥鱼" && snapshot.memories.map(\.document.path) == ["agent/notes/check.md"]
-                    && snapshot.memories.first?.document.content == "真实只读记忆"
+        // Memory v2 seeds one root INDEX.md per scope on first prepare; those
+        // are injected navigation documents, not user memory. The check writes
+        // one real document and asserts that it is the only non-index one.
+        let memoryDocuments = snapshot.memories.filter {
+            !BotMemoryAuthorizer.isIndex($0.document.path)
+        }
+        try require(snapshot.botName == "真实大肥鱼"
+                    && memoryDocuments.map(\.document.path) == ["agent/notes/check.md"]
+                    && memoryDocuments.first?.document.content == "真实只读记忆"
                     && snapshot.routines.map(\.id) == ["routine-check"] && snapshot.routines[0].enabled,
                     "production info read interface failed")
         try require(snapshot.approvals.count == 1 && snapshot.approvals[0].decision == .allow
@@ -189,8 +196,16 @@ enum BotProductionChecks {
 
         let reopenedInfo = BotProductionInfoDriver.production(environment: reopenedEnvironment)
         let reopenedSnapshot = try await reopenedInfo.load()
-        try require(reopenedSnapshot.botName == "真实大肥鱼" && reopenedSnapshot.memories.count == 1
-                    && reopenedSnapshot.routines.first?.enabled == true && reopenedSnapshot.approvals.count == 1,
+        try require(reopenedSnapshot.botName == "真实大肥鱼"
+                    && reopenedSnapshot.memories.filter {
+                        !BotMemoryAuthorizer.isIndex($0.document.path)
+                    }.count == 1
+                    && reopenedSnapshot.memories.contains {
+                        $0.document.path == "agent/notes/check.md"
+                            && $0.document.content == "真实只读记忆"
+                    }
+                    && reopenedSnapshot.routines.first?.enabled == true
+                    && reopenedSnapshot.approvals.count == 1,
                     "reopened production info is inconsistent")
 
         let unavailableRows = BotProductionRowService(environment: BotProductionEnvironment(

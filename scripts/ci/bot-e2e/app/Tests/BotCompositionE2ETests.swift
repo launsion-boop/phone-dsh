@@ -43,6 +43,13 @@ final class BotCompositionE2ETests: XCTestCase {
             bundle: bundle,
             allowedModelHosts: [mockURL.absoluteString],
             egressAllowHosts: [],
+            // The production App (ChatModel) marks its profile's standard
+            // model endpoints replay-safe, so the gateway treats those POSTs as
+            // model traffic instead of Bot egress writes. Without it the
+            // mock model's inference POST opens an approval.requested card
+            // that nobody can approve, and the Worker times out after 5 s.
+            replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
+                baseURL: mockURL),
             credentialProvider: PhoneMCPCredentialProvider(policy: mcpPolicy, base: baseCredentials),
             egressAuthorizer: mcpPolicy,
             workerEnvironment: launch.workerEnvironment.merging([
