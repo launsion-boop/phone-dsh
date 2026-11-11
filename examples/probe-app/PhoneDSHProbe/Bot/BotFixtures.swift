@@ -145,8 +145,10 @@ enum BotUIFixtures {
             ])
         case .automation:
             body = BotUIBody(type: "automation", values: [
-                "title": "晨间简报", "status": "sent", "schedule": "每天 07:30 · Asia/Shanghai",
-                "context": "held · 非紧急", "result": "已整理 3 项需要你处理的工作。", "durationMs": 1_240,
+                "title": "晨间简报", "status": "sent", "schedule": "每天 07:30",
+                "timezone": "Asia/Shanghai", "delivery": "held", "quiet": true,
+                "context": "因安静时段延后，原定 07:30",
+                "result": "已整理 3 项需要你处理的工作。", "durationMs": 1_240,
             ])
         case .error:
             body = BotUIBody(type: "notice", values: ["tone": "error", "text": "生成报告失败：模拟器暂时不可用。"])
@@ -331,17 +333,23 @@ enum BotUIFixtures {
             BotRoutineInfo(id: "routine-1", title: "晨间简报", schedule: "每天 07:30", timeZone: "Asia/Shanghai",
                            delivery: "held", quiet: true, urgent: false, urgentReason: nil,
                            lastResult: "上次完成：整理了 3 项待处理工作。", enabled: true,
-                           creator: "用户回合 · bot-fixture-1",
+                           creator: "由你在对话中创建",
                            completionCriteria: "列出三项最重要的变化；没有变化时写「无变化」。",
                            routineConstraints: "不要调用 SendToUser；没有变化时回复 [quiet]。",
-                           runStatus: "started", runID: "run-fixture-1"),
+                           runStatus: "started", runID: "run-fixture-1",
+                           nextDue: Date().addingTimeInterval(3_600),
+                           quietDeferredFrom: Date().addingTimeInterval(-300),
+                           quietDeferredUntil: Date().addingTimeInterval(1_800),
+                           creatorDetail: "用户回合 · bot-fixture-1"),
             BotRoutineInfo(id: "routine-2", title: "发布窗口检查", schedule: "每周五 16:00", timeZone: "Asia/Shanghai",
                            delivery: "interrupt", quiet: false, urgent: true, urgentReason: "发布截止",
                            lastResult: "上次执行结果未知：结果是已发送还是未发送无法确认。", enabled: false,
-                           creator: "经用户确认 · routine:run-2",
+                           creator: "你确认后创建",
                            completionCriteria: "确认发布窗口没有新的阻塞。",
                            routineConstraints: "只在发布窗口期间通知。",
-                           runStatus: "needs-reconciliation", runID: "run-fixture-2"),
+                           runStatus: "needs-reconciliation", runID: "run-fixture-2",
+                           nextDue: Date().addingTimeInterval(6 * 3_600),
+                           creatorDetail: "经用户确认 · routine:run-2"),
         ], approvals: [
             BotApprovalRecord(id: "record-1", parameterSummary: "删除 /tmp 中的旧验收报告（参数摘要）",
                               decision: "拒绝", decidedAt: Date(timeIntervalSince1970: 1_760_000_100)),
@@ -360,7 +368,8 @@ enum BotUIFixtures {
             BotReconciliationInfo(
                 routineID: "routine-2", routineTitle: "发布窗口检查", attempt: 3, runID: "run-fixture-2",
                 error: "投递结果未知：连接在确认前中断",
-                effectSummary: "routine.deliver · routine-2:3 · unknown-outcome"),
+                effectSummary: "已尝试发送提醒，送达结果未确认。",
+                effectDetail: "routine.deliver · routine-2:3 · unknown-outcome"),
         ], presence: RoutinePresence(
             level: .scheduledNotification,
             deferred: [RoutinePresenceDelay(
