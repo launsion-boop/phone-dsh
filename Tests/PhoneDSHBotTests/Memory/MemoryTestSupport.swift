@@ -77,7 +77,7 @@ enum MemoryTestFixtures {
             let fixture = candidate
                 .appendingPathComponent("spec", isDirectory: true)
                 .appendingPathComponent("bot", isDirectory: true)
-                .appendingPathComponent("v1", isDirectory: true)
+                .appendingPathComponent("v2", isDirectory: true)
                 .appendingPathComponent("golden", isDirectory: true)
                 .appendingPathComponent("\(name).json")
             if FileManager.default.fileExists(atPath: fixture.path) {

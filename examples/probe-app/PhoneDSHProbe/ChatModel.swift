@@ -1311,7 +1311,7 @@ final class ChatModel {
         botRuntimeState = .preparing
         do {
             let store = try SQLiteDomainStore.applicationSupport()
-            let launch = try await BotRuntimeComposition.prepare(store: store)
+            let launch = try await BotRuntimeComposition.prepare(store: store, workspaceRoot: workspaceRoot)
             launch.composition.onStateChange = { [weak self] state in
                 self?.botRuntimeState = state
             }
@@ -1660,9 +1660,11 @@ final class ChatModel {
         let toolBridge = CompositePhoneToolBridge(
             office: OfficeToolBridge(presenter: OfficePresenter()),
             phone: capabilityBridge)
+        let recordQuery = botLaunch.map { BotRecordPhoneAdapter(service: $0.composition.recordService) }
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
-                                      toolBridge: toolBridge)
+                                      toolBridge: toolBridge,
+                                      recordQuery: recordQuery)
         if !shell.acceleratorNames.isEmpty {
             configuration.accelerators = shell
             let names = shell.channelAcceleratorNames

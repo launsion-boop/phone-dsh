@@ -388,7 +388,17 @@ export function createAcceleratorCommands(host: AcceleratorHost): Command[] {
     // shape and a redirection writes the exact bytes the host produced.
     const stdin = ctx.stdin === undefined ? '' : ctx.stdin as unknown as string
     try {
-      const result = await host.exec({ argv: [name, ...args], cwd: ctx.cwd, env, stdin, signal: ctx.signal })
+      // `phone record` is the one phone tool that reads the Bot's own records.
+      // Its caller must be the current tool-call session, host-resolved; the
+      // value is an out-of-band field so no shell variable or argv word can
+      // choose another session. Other phone tools keep their previous shape.
+      const recordSession = name === 'phone' && args[0] === 'record'
+        ? currentToolCall()?.sessionId
+        : undefined
+      const result = await host.exec({
+        argv: [name, ...args], cwd: ctx.cwd, env, stdin, signal: ctx.signal,
+        ...(recordSession === undefined ? {} : { sessionId: recordSession }),
+      })
       // exec.md §2.2: a phone provider failure is a bounded
       // `{ok:false,error:{…}}` result that keeps the original exit code, not a
       // backend line the model cannot act on.

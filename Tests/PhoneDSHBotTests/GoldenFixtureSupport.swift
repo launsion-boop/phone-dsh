@@ -9,7 +9,8 @@ import Foundation
 /// `nonce`, `action.nonce`), but it can never remove an upstream case. Object
 /// containers merge by key, array containers append/replace by identity, and
 /// overlay metadata (`vector`, `source`, `upstream`, `delta`) stays
-/// documentation only. `spec/bot/v1/README.md` §8 is the normative prose.
+/// documentation only. `spec/bot/v1/README.md` §8 and
+/// `spec/bot/v2/README.md` §4 are the normative prose.
 enum BotGoldenFixture {
     struct FixtureError: Error, CustomStringConvertible {
         let description: String
@@ -18,6 +19,18 @@ enum BotGoldenFixture {
     private static let metadataKeys: Set<String> = [
         "schemaVersion", "vector", "source", "upstream", "delta",
     ]
+
+    /// Vectors moved to the phoneDSH-owned v2 tree at the 2026-11-10 handover.
+    /// Everything else is still the untouched dsh-bot export under v1.
+    private static let v2GoldenNames: Set<String> = [
+        "memory-fact", "memory-injection", "memory-recall",
+        "wake-routine", "held-inbox",
+    ]
+
+    private static func goldenDirectory(for name: String) -> String {
+        let base = name.hasSuffix(".phone") ? String(name.dropLast(".phone".count)) : name
+        return v2GoldenNames.contains(base) ? "spec/bot/v2/golden" : "spec/bot/v1/golden"
+    }
 
     static func repositoryRoot(filePath: String = #filePath) throws -> URL {
         var candidate = URL(fileURLWithPath: filePath).deletingLastPathComponent()
@@ -34,7 +47,7 @@ enum BotGoldenFixture {
     }
 
     static func rawObject(_ name: String) throws -> [String: Any] {
-        let url = try repositoryRoot().appendingPathComponent("spec/bot/v1/golden/\(name).json")
+        let url = try repositoryRoot().appendingPathComponent("\(goldenDirectory(for: name))/\(name).json")
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
         guard let dictionary = object as? [String: Any] else {
             throw FixtureError(description: "\(name).json is not an object")
@@ -43,7 +56,7 @@ enum BotGoldenFixture {
     }
 
     static func rawData(_ name: String) throws -> Data {
-        let url = try repositoryRoot().appendingPathComponent("spec/bot/v1/golden/\(name).json")
+        let url = try repositoryRoot().appendingPathComponent("\(goldenDirectory(for: name))/\(name).json")
         return try Data(contentsOf: url)
     }
 
@@ -51,7 +64,7 @@ enum BotGoldenFixture {
     static func mergedObject(_ name: String) throws -> [String: Any] {
         let upstream = try rawObject(name)
         let root = try repositoryRoot()
-        let overlayURL = root.appendingPathComponent("spec/bot/v1/golden/\(name).phone.json")
+        let overlayURL = root.appendingPathComponent("\(goldenDirectory(for: name))/\(name).phone.json")
         guard FileManager.default.fileExists(atPath: overlayURL.path) else { return upstream }
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: overlayURL))
         guard let overlay = object as? [String: Any] else {

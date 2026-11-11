@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import posixpath
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -26,9 +27,15 @@ GOLDEN_GLOB = "*.json"
 TURN_ORIGIN_VECTOR = "turn-origin.phone.json"
 MCP_EGRESS_VECTOR = "mcp-egress.phone.json"
 AUTHORITY_VECTOR = "authority.phone.json"
+RECORD_REFERENCE_VECTOR = "record-reference.phone.json"
+OBSERVATION_ENVELOPE_VECTOR = "observation-envelope.phone.json"
+RECORD_QUERY_VECTOR = "record-query.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
-PHONE_ONLY_VECTORS = frozenset({TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR})
+PHONE_ONLY_VECTORS = frozenset({
+    TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR,
+    RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
+})
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
 # case-sensitive and anchored at offset 0; the payload must contain at least
@@ -864,6 +871,332 @@ def validate_mcp_egress_fixture(fixture):
     return len(valid), len(invalid), mutation_count
 
 
+SAFE_INTEGER = 2**53 - 1
+SESSION_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+AT_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$")
+OBSERVATION_SOURCES = frozenset({
+    "tool", "connector", "device", "device-task", "web", "subagent", "agent", "attachment",
+})
+OBSERVATION_ATTRIBUTES = ("source", "origin", "at", "owner", "ref")
+OBSERVATION_OPEN_RE = re.compile(r'^<observation ((?:[a-z]+="[^"]*" ?){5})>\n([\s\S]*)\n</observation>$')
+
+
+def parse_record_reference(raw):
+    """Parse one record:// reference exactly as the frozen normalizer says."""
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip(" \t\r\n")
+    if value[:9].lower() != "record://":
+        return None
+    rest = value[9:]
+    kind, separator, tail = rest.partition("/")
+    if separator != "/" or kind.lower() not in ("session", "event"):
+        return None
+    if kind.lower() == "event":
+        if not tail or not all("0" <= char <= "9" for char in tail):
+            return None
+        number = int(tail)
+        if number < 1 or number > SAFE_INTEGER:
+            return None
+        return {"kind": "event", "canonical": f"record://event/{number}", "commitSeq": number}
+    if tail.count("#") != 1:
+        return None
+    identifier, _, fragment = tail.partition("#")
+    if not fragment or not all("0" <= char <= "9" for char in fragment):
+        return None
+    number = int(fragment)
+    if number > SAFE_INTEGER:
+        return None
+    if not SESSION_ID_RE.fullmatch(identifier) or identifier in (".", ".."):
+        return None
+    return {
+        "kind": "session",
+        "canonical": f"record://session/{identifier}#{number}",
+        "sessionId": identifier,
+        "seq": number,
+    }
+
+
+def record_reference_error(raw):
+    """Classify one invalid reference into the golden's closed reason set."""
+    if not isinstance(raw, str):
+        return "syntax"
+    value = raw.strip(" \t\r\n")
+    if value[:9].lower() != "record://":
+        return "syntax"
+    rest = value[9:]
+    kind, separator, tail = rest.partition("/")
+    if separator != "/" or not kind:
+        return "syntax"
+    if kind.lower() not in ("session", "event"):
+        return "authority"
+    if kind.lower() == "event":
+        if not tail or not all("0" <= char <= "9" for char in tail):
+            return "decimal"
+        return "range" if int(tail) > SAFE_INTEGER or int(tail) < 1 else "syntax"
+    if tail.count("#") != 1:
+        return "syntax"
+    identifier, _, fragment = tail.partition("#")
+    if not SESSION_ID_RE.fullmatch(identifier) or identifier in (".", ".."):
+        return "session-id"
+    if not fragment:
+        return "syntax"
+    if not all("0" <= char <= "9" for char in fragment):
+        return "decimal"
+    return "range" if int(fragment) > SAFE_INTEGER else "syntax"
+
+
+def escape_observation_attribute(value):
+    out = []
+    for char in value:
+        if char == "&":
+            out.append("&amp;")
+        elif char == '"':
+            out.append("&quot;")
+        elif char == "<":
+            out.append("&lt;")
+        elif char == ">":
+            out.append("&gt;")
+        elif char in "\n\r\t" or ord(char) < 0x20 or ord(char) == 0x7f:
+            out.append("\\u%04x" % ord(char))
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def unescape_observation_attribute(value):
+    return (value.replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&quot;", '"').replace("&amp;", "&"))
+
+
+def escape_observation_body(text):
+    return re.sub(r"<(?=\s*/?\s*observation\b)", lambda _match: "\\u003c", text, flags=re.IGNORECASE)
+
+
+def unescape_observation_body(text):
+    return re.sub(r"\\u003c(?=\s*/?\s*observation\b)", "<", text, flags=re.IGNORECASE)
+
+
+def encode_observation_envelope(envelope):
+    attributes = " ".join(
+        f'{name}="{escape_observation_attribute(str(envelope[name]))}"'
+        for name in OBSERVATION_ATTRIBUTES)
+    return (f"<observation {attributes}>\n"
+            f"{escape_observation_body(envelope['text'])}\n</observation>")
+
+
+def decode_observation_envelope(encoded):
+    match = OBSERVATION_OPEN_RE.fullmatch(encoded)
+    if match is None:
+        return None
+    fields = re.findall(r'([a-z]+)="([^"]*)"', match.group(1))
+    if [name for name, _ in fields] != list(OBSERVATION_ATTRIBUTES):
+        return None
+    envelope = {name: unescape_observation_attribute(value) for name, value in fields}
+    envelope["text"] = unescape_observation_body(match.group(2))
+    if envelope["source"] not in OBSERVATION_SOURCES:
+        return None
+    if not AT_RE.fullmatch(envelope["at"]):
+        return None
+    if parse_record_reference(envelope["ref"]) is None:
+        return None
+    if not envelope["origin"] or not envelope["owner"]:
+        return None
+    return envelope
+
+
+def check_observation_envelope_shape(envelope, where):
+    check(envelope, "observation-envelope.schema.json", where)
+    if envelope.get("source") not in OBSERVATION_SOURCES:
+        raise AssertionError(f"{where}: unknown observation source")
+    if parse_record_reference(envelope.get("ref")) is None:
+        raise AssertionError(f"{where}: envelope ref is not a canonical record reference")
+    if not AT_RE.fullmatch(envelope.get("at", "")):
+        raise AssertionError(f"{where}: envelope time is not UTC RFC3339 with milliseconds")
+
+
+def validate_record_reference_fixture(fixture):
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("record-reference.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("record-reference.phone: invalid must be a non-empty array")
+    kinds = set()
+    normalizations = set()
+    for index, case in enumerate(valid):
+        parsed = parse_record_reference(case.get("input"))
+        if parsed is None:
+            raise AssertionError(f"record-reference.valid[{index}] unexpectedly rejected")
+        kind = case.get("kind")
+        if parsed["kind"] != kind:
+            raise AssertionError(f"record-reference.valid[{index}] kind mismatch")
+        if parsed.get("sessionId") != case.get("sessionId") or parsed.get("seq") != case.get("seq"):
+            raise AssertionError(f"record-reference.valid[{index}] session parse mismatch")
+        if parsed.get("commitSeq") != case.get("commitSeq"):
+            raise AssertionError(f"record-reference.valid[{index}] event parse mismatch")
+        canonical = case.get("canonical")
+        if parsed["canonical"] != canonical:
+            raise AssertionError(f"record-reference.valid[{index}] canonical mismatch")
+        check(canonical, "record-reference.schema.json", f"record-reference.valid[{index}]")
+        kinds.add(kind)
+        if case["input"].strip() != case["input"]:
+            normalizations.add("whitespace")
+        if case["input"].strip()[:9] != "record://":
+            normalizations.add("case")
+        if "#0" in case["input"][:-1] and "#00" in case["input"]:
+            normalizations.add("leading-zero")
+    for index, case in enumerate(invalid):
+        if parse_record_reference(case.get("input")) is not None:
+            raise AssertionError(f"record-reference.invalid[{index}] unexpectedly accepted")
+        expected = case.get("reason")
+        actual = record_reference_error(case.get("input"))
+        if actual != expected:
+            raise AssertionError(
+                f"record-reference.invalid[{index}] reason {actual!r} != {expected!r}")
+    if kinds != {"session", "event"}:
+        raise AssertionError("record-reference.phone: both record kinds need a valid case")
+    if not {"whitespace", "case", "leading-zero"}.issubset(normalizations):
+        raise AssertionError(f"record-reference.phone: normalization coverage is incomplete: {normalizations}")
+    reasons = {case.get("reason") for case in invalid}
+    if not {"syntax", "session-id", "authority", "decimal", "range"}.issubset(reasons):
+        raise AssertionError(f"record-reference.phone: invalid reason coverage is incomplete: {reasons}")
+    return len(valid), len(invalid), 0
+
+
+def validate_observation_envelope_fixture(fixture):
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    decode_errors = fixture.get("decodeErrors")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("observation-envelope.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("observation-envelope.phone: invalid must be a non-empty array")
+    if not isinstance(decode_errors, list) or not decode_errors:
+        raise AssertionError("observation-envelope.phone: decodeErrors must be a non-empty array")
+    sources = set()
+    escaped_marker = False
+    for index, case in enumerate(valid):
+        envelope = case.get("envelope")
+        check_observation_envelope_shape(envelope, f"observation-envelope.valid[{index}]")
+        encoded = encode_observation_envelope(envelope)
+        if encoded != case.get("encoded"):
+            raise AssertionError(f"observation-envelope.valid[{index}] encoding mismatch")
+        decoded = decode_observation_envelope(encoded)
+        if decoded != envelope:
+            raise AssertionError(f"observation-envelope.valid[{index}] round-trip mismatch")
+        sources.add(envelope["source"])
+        if "\\u003c" in encoded:
+            escaped_marker = True
+    for index, case in enumerate(invalid):
+        try:
+            check_observation_envelope_shape(case.get("envelope"), f"observation-envelope.invalid[{index}]")
+        except Exception:
+            continue
+        raise AssertionError(f"observation-envelope.invalid[{index}] unexpectedly validated")
+    for index, case in enumerate(decode_errors):
+        if decode_observation_envelope(case.get("encoded", "")) is not None:
+            raise AssertionError(f"observation-envelope.decodeErrors[{index}] unexpectedly decoded")
+    if not escaped_marker:
+        raise AssertionError("observation-envelope.phone: a valid case must exercise marker escaping")
+    if not {"web", "connector", "device", "subagent", "attachment", "tool"}.issubset(sources):
+        raise AssertionError(f"observation-envelope.phone: source coverage is incomplete: {sources}")
+    return len(valid), len(invalid), len(decode_errors), 0
+
+
+def validate_record_query_fixture(fixture):
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("record-query.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("record-query.phone: invalid must be a non-empty array")
+    for index, case in enumerate(valid):
+        result = case.get("result")
+        check(result, "record-query.schema.json", f"record-query.valid[{index}]")
+        data = result.get("data", {})
+        for hit in data.get("hits", []):
+            if parse_record_reference(hit.get("ref")) is None:
+                raise AssertionError(f"record-query.valid[{index}]: hit ref is invalid")
+        for line in data.get("lines", []):
+            if parse_record_reference(line.get("ref")) is None:
+                raise AssertionError(f"record-query.valid[{index}]: line ref is invalid")
+        replaced = data.get("replacedRange")
+        if replaced is not None:
+            if parse_record_reference(replaced.get("startRef")) is None \
+                    or parse_record_reference(replaced.get("endRef")) is None:
+                raise AssertionError(f"record-query.valid[{index}]: replacedRange ref is invalid")
+    for index, case in enumerate(invalid):
+        result = case.get("result")
+        check(result, "record-query.schema.json", f"record-query.invalid[{index}]")
+        if result.get("ok") is not False:
+            raise AssertionError(f"record-query.invalid[{index}]: expected a failure result")
+    recall = fixture.get("compactionRecall")
+    if not isinstance(recall, dict):
+        raise AssertionError("record-query.phone: compactionRecall is required")
+    events = recall.get("events")
+    if not isinstance(events, list) or not events:
+        raise AssertionError("record-query.phone: compactionRecall.events is required")
+    by_seq = {event.get("seq"): event for event in events}
+    original = by_seq.get(3)
+    checkpoint = by_seq.get(20)
+    if original is None or checkpoint is None:
+        raise AssertionError("record-query.phone: compactionRecall needs seq 3 and seq 20")
+    if not (parse_record_reference(recall.get("originalRef"))
+            and parse_record_reference(recall.get("checkpointRef"))):
+        raise AssertionError("record-query.phone: compactionRecall refs are invalid")
+    if recall.get("originalContains") not in json.dumps(original, ensure_ascii=False):
+        raise AssertionError("record-query.phone: original line does not carry originalContains")
+    op = checkpoint.get("surfaceOp") or {}
+    if op.get("op") != "replace" or op.get("startSeq") != 3 or op.get("endSeq") != 9:
+        raise AssertionError("record-query.phone: checkpoint surfaceOp is not the frozen replace range")
+    if recall.get("checkpointRange") != {"start": 3, "end": 9}:
+        raise AssertionError("record-query.phone: checkpointRange mismatch")
+    if original.get("surfaceOp") != "append":
+        raise AssertionError("record-query.phone: the original line must still be an append record")
+    return len(valid), len(invalid), 0
+
+
+def mutation_count_for_record_contracts(reference_fixture, envelope_fixture, query_fixture):
+    """Each mutation must make the corresponding reference validator reject."""
+    count = 0
+
+    def expect_failure(label, action):
+        nonlocal count
+        try:
+            action()
+        except Exception:
+            count += 1
+            return
+        raise AssertionError(f"record-contract mutation {label!r} unexpectedly passed")
+
+    mutated = json.loads(json.dumps(reference_fixture))
+    mutated["valid"][0]["canonical"] = "record://session/gb-main#+1"
+    expect_failure("reference-canonical", lambda: validate_record_reference_fixture(mutated))
+
+    mutated = json.loads(json.dumps(reference_fixture))
+    mutated["valid"][5]["input"] = "record://event/0"
+    expect_failure("reference-event-zero", lambda: validate_record_reference_fixture(mutated))
+
+    mutated = json.loads(json.dumps(envelope_fixture))
+    mutated["valid"][0]["encoded"] = mutated["valid"][0]["encoded"].replace("</observation>", "")
+    expect_failure("envelope-close", lambda: validate_observation_envelope_fixture(mutated))
+
+    mutated = json.loads(json.dumps(envelope_fixture))
+    mutated["valid"][5]["encoded"] = mutated["valid"][5]["envelope"]["text"]
+    expect_failure("envelope-escape", lambda: validate_observation_envelope_fixture(mutated))
+
+    mutated = json.loads(json.dumps(query_fixture))
+    mutated["valid"][0]["result"]["scope"] = "all"
+    expect_failure("record-query-scope", lambda: validate_record_query_fixture(mutated))
+
+    mutated = json.loads(json.dumps(query_fixture))
+    mutated["compactionRecall"]["events"] = [
+        event for event in mutated["compactionRecall"]["events"] if event.get("seq") != 3]
+    expect_failure("compaction-original", lambda: validate_record_query_fixture(mutated))
+    return count
+
+
 def check_overlays():
     manifest = load_json(BOT / "export-manifest.json")
     for overlay_path in sorted((BOT / "golden").glob("*.phone.json")):
@@ -912,7 +1245,13 @@ def check_overlays():
 
 
 def schema(name: str):
-    return json.loads((BOT / name).read_text(encoding="utf-8"))
+    path = BOT / name
+    if not path.is_file():
+        # Memory/wake/routine schemas moved to the phoneDSH-owned v2 tree at
+        # the 2026-11-10 handover. v1 vectors that exercise the shared routine
+        # shape (authority.phone.json) must validate against that owner.
+        path = ROOT / "spec" / "bot" / "v2" / name
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def check(instance, schema_name: str, where: str) -> None:
@@ -1237,22 +1576,17 @@ def main() -> int:
     check_many(approval_upstream["valid"], "approval-patterns.schema.json", "approval-patterns")
     check_many(approval_upstream["invalid"], "approval-patterns.schema.json", "approval-patterns.invalid")
     validate_approval_downgrade_fixture(load("approval-patterns.phone.json"), approval_upstream)
-    check(load("memory-policy.json")["valid"], "memory-policy.schema.json", "memory-policy")
-    check_many(load("memory-policy.json")["invalid"], "memory-policy.schema.json", "memory-policy.invalid")
-    check_many(load("memory-fact.json")["valid"], "memory-fact.schema.json", "memory-fact")
-    check(load("memory-injection.json")["valid"], "memory-injection.schema.json", "memory-injection")
-    check_many(load("memory-recall.json")["valid"], "memory-recall.schema.json", "memory-recall")
-    check_many(load("memory-recall.json")["invalid"], "memory-recall.schema.json", "memory-recall.invalid")
-    check(load("wake-routine.json")["valid"], "wake-routine.schema.json", "wake-routine")
-    check(load("wake-routine.json")["valid"]["quietDefer"], "routine.schema.json", "routine")
-    held_fixture = load_merged("held-inbox.json")
-    held = held_fixture["valid"]
-    check(held["enqueued"]["item"], "held-inbox-item.schema.json", "held-item")
-    check(held["deviceTaskResult"], "held-inbox-item.schema.json", "held-device-task-result")
-    check(held["agentHeld"], "held-inbox-item.schema.json", "held-agent-held")
-    check_many(held["staged"]["items"], "held-inbox-item.schema.json", "held-staged")
-    for index, case in enumerate(held_fixture["invalid"]):
-        rejects(case, "held-inbox-item.schema.json", f"held.invalid[{index}]")
+    # Memory, wake-marker and proactive vectors moved to spec/bot/v2 at the
+    # ownership handover. Run that validator from here so the existing
+    # `phone-spec` stage keeps covering both trees.
+    reference_valid, reference_invalid, _ = validate_record_reference_fixture(
+        load(RECORD_REFERENCE_VECTOR))
+    envelope_valid, envelope_invalid, envelope_decode_errors, _ = validate_observation_envelope_fixture(
+        load(OBSERVATION_ENVELOPE_VECTOR))
+    query_valid, query_invalid, _ = validate_record_query_fixture(load(RECORD_QUERY_VECTOR))
+    record_mutations = mutation_count_for_record_contracts(
+        load(RECORD_REFERENCE_VECTOR), load(OBSERVATION_ENVELOPE_VECTOR), load(RECORD_QUERY_VECTOR))
+    check_v2_tree()
     check_many(load("row-projection.json")["valid"], "row-projection.schema.json", "row-projection")
     row_fixture = load_merged("row-protocol.json")
     protocol = row_fixture["valid"]
@@ -1276,8 +1610,27 @@ def main() -> int:
           f"mcp-egress {valid_egress} valid / {invalid_egress} invalid, "
           f"{egress_mutations} mutation checks; "
           f"authority {valid_authority} creators / {authority_changes} changes / "
-          f"{authority_task} task subsets, {authority_mutations} mutation checks)")
+          f"{authority_task} task subsets, {authority_mutations} mutation checks; "
+          f"record-reference {reference_valid} valid / {reference_invalid} invalid, "
+          f"observation-envelope {envelope_valid} valid / {envelope_invalid} invalid / "
+          f"{envelope_decode_errors} decode errors, "
+          f"record-query {query_valid} valid / {query_invalid} invalid, "
+          f"{record_mutations} mutation checks)")
     return 0
+
+
+def check_v2_tree() -> None:
+    """Invoke the phoneDSH-owned v2 validator without a second CI stage."""
+    import importlib.util
+
+    path = ROOT / "spec" / "bot" / "v2" / "tools" / "validate_vectors.py"
+    spec = importlib.util.spec_from_file_location("bot_v2_validate_vectors", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"cannot load {path.relative_to(ROOT)}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if module.main() != 0:
+        raise AssertionError("spec/bot/v2 validation failed")
 
 
 if __name__ == "__main__":

@@ -126,6 +126,7 @@ final class BotMemoryEraseScopeTests: XCTestCase {
                 fixture.runtime, name: "UpdateMemory",
                 arguments: .object([
                     "action": .string("write"), "scope": .string(scope), "fact": .string(fact),
+                    "evidence": .array([.string("record://session/\(sessionId)#1")]),
                 ]),
                 sessionId: sessionId)
             return try XCTUnwrap(result.structuredContent?["fact_id"]?.stringValue)

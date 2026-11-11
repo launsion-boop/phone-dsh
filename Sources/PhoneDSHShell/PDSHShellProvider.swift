@@ -33,6 +33,9 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// Injected host tool bridge for `phone` / `ctx` (normally the App's MCP
     /// server). `nil` makes those commands fail with exit 69.
     public let toolBridge: (any PhoneToolBridge)?
+    /// Injected read-only `phone record` owner. `nil` refuses that subcommand
+    /// instead of forwarding it to the generic phone bridge.
+    public let recordQuery: (any PhoneRecordQuerying)?
 
     private let mounts: [PDSHShellMount]
     private let linkedCaps: PDSHShellCaps?
@@ -51,11 +54,13 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     public init(materializedWorkspace: URL? = nil,
                 materializedHome: URL? = nil,
                 limits: PDSHShellLimits = .default,
-                toolBridge: (any PhoneToolBridge)? = nil) {
+                toolBridge: (any PhoneToolBridge)? = nil,
+                recordQuery: (any PhoneRecordQuerying)? = nil) {
         self.materializedWorkspace = materializedWorkspace
         self.materializedHome = materializedHome
         self.limits = limits
         self.toolBridge = toolBridge
+        self.recordQuery = recordQuery
         let mounts = Self.makeMounts(workspace: materializedWorkspace, home: materializedHome)
         self.mounts = mounts
         let caps = PDSHShellC.caps(hasToolBridge: toolBridge != nil)
@@ -72,13 +77,15 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// (PLAN §2.3), deriving the materialized copies of both mounts.
     public init(workspaceRoot: URL,
                 limits: PDSHShellLimits = .default,
-                toolBridge: (any PhoneToolBridge)? = nil) {
+                toolBridge: (any PhoneToolBridge)? = nil,
+                recordQuery: (any PhoneRecordQuerying)? = nil) {
         self.init(materializedWorkspace: workspaceRoot.appendingPathComponent(
                       "materialized/workspace", isDirectory: true),
                   materializedHome: workspaceRoot.appendingPathComponent(
                       "materialized/home", isDirectory: true),
                   limits: limits,
-                  toolBridge: toolBridge)
+                  toolBridge: toolBridge,
+                  recordQuery: recordQuery)
     }
 
     // MARK: - Accelerators and hello
@@ -172,8 +179,27 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
     /// Starts one accelerator. The stream ends with exactly one `.exit`; a
     /// timed-out run exits 124 and a cancelled run 130 (the pdsh-ffi codes), and
     /// the Rust worker is joined rather than abandoned.
+    /// `PDSH_TOOL_CALL_SESSION` is the out-of-band member the shell writes only
+    /// for its own `phone record` dispatch (exec.md §2.2 and
+    /// `plugins/shell-ext/src/bridge.ts`). It is never read from argv.
+    public static let toolCallSessionEnvironmentKey = "PDSH_TOOL_CALL_SESSION"
+
+    private func recordSession(_ request: ExecRequest) -> String? {
+        guard request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" else {
+            return nil
+        }
+        guard let raw = request.env[Self.toolCallSessionEnvironmentKey],
+              raw.range(of: #"^[A-Za-z0-9._-]{1,64}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return raw
+    }
+
     public func run(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
-        AsyncThrowingStream { continuation in
+        if request.argv.count >= 2, request.argv[0] == "phone", request.argv[1] == "record" {
+            return recordStream(request)
+        }
+        return AsyncThrowingStream { continuation in
             continuation.onTermination = { [engine] termination in
                 // A consumer that walks away cancels the underlying command so
                 // no Rust worker thread outlives its stream. The host-level
@@ -184,6 +210,39 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
                 }
             }
             engine.start(request, continuation: continuation)
+        }
+    }
+
+    private func recordStream(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
+        AsyncThrowingStream { continuation in
+            guard let recordQuery else {
+                let message = "phone: record queries are not available in this host\n"
+                continuation.yield(.stderr(seq: 0, data: Data(message.utf8)))
+                continuation.yield(.exit(code: 1, signal: nil, truncated: false))
+                continuation.finish()
+                return
+            }
+            guard let sessionID = recordSession(request) else {
+                let message = "phone: record requires a claimed tool-call session; nothing executed\n"
+                continuation.yield(.stderr(seq: 0, data: Data(message.utf8)))
+                continuation.yield(.exit(code: 1, signal: nil, truncated: false))
+                continuation.finish()
+                return
+            }
+            let arguments = Array(request.argv.dropFirst(2))
+            let task = Task {
+                let result = await recordQuery.runRecordCommand(
+                    arguments: arguments, callerSessionID: sessionID)
+                if !result.stdout.isEmpty {
+                    continuation.yield(.stdout(seq: 0, data: Data(result.stdout.utf8)))
+                }
+                if !result.stderr.isEmpty {
+                    continuation.yield(.stderr(seq: 1, data: Data(result.stderr.utf8)))
+                }
+                continuation.yield(.exit(code: result.exitCode, signal: nil, truncated: false))
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
@@ -201,6 +260,7 @@ public struct PDSHShellProvider: ExecProvider, Equatable, Sendable {
             && lhs.materializedHome == rhs.materializedHome
             && lhs.limits == rhs.limits
             && (lhs.toolBridge == nil) == (rhs.toolBridge == nil)
+            && (lhs.recordQuery == nil) == (rhs.recordQuery == nil)
             && lhs.helloCapabilities == rhs.helloCapabilities
     }
 

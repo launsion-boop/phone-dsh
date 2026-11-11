@@ -243,6 +243,10 @@ public actor BotMCPRuntime {
     /// Compatibility view of `memory(for: "main")`.
     public let memory: BotMemory
     public let routineMachine: RoutineMachine
+    /// Host-side resolver for `UpdateMemory.evidence`. `nil` keeps legacy
+    /// internal callers working, but the MCP tool refuses user/profile writes
+    /// without a verified user-message reference.
+    public let recordEvidence: (any BotRecordEvidenceResolving)?
 
     private let now: @Sendable () -> Int64
     private let dataRoot: String
@@ -274,6 +278,7 @@ public actor BotMCPRuntime {
         volatileProvider: (any BotVolatileContextProviding)? = nil,
         taskExecutor: (any BotTaskExecuting)? = nil,
         routineStore: (any RoutineStore)? = nil,
+        recordEvidence: (any BotRecordEvidenceResolving)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
         memorySource: (@Sendable (BotResolvedToolCall) -> BotMemorySourceKind)? = nil
     ) {
@@ -286,6 +291,7 @@ public actor BotMCPRuntime {
         self.grants = grants
         authorizer = BotExecutionAuthorizer(grants: grants)
         eventWriter = BotMCPEventWriter(eventLog: store, now: now)
+        self.recordEvidence = recordEvidence
         approvals = BotApprovalCoordinator(grants: grants, eventWriter: eventWriter, now: now)
         volatileContext = BotVolatileContextProducer(provider: volatileProvider ?? EmptyBotVolatileContextProvider())
         let mainExecutor = taskExecutor ?? UnimplementedBotTaskExecutor()
@@ -1098,14 +1104,41 @@ public actor BotMCPRuntime {
                 throw BotMCPError.invalidRequest("UpdateMemory write requires fact")
             }
             let tier = BotMemoryTier(rawValue: string(args["tier"]) ?? "log") ?? .log
+            let evidence: BotRecordEvidence
+            do {
+                evidence = try await validatedEvidence(args, call: call)
+                    ?? BotRecordEvidence(trust: .assistant, refs: [])
+            } catch {
+                return .failure("memory-evidence-invalid",
+                                "Every evidence entry must be an existing record:// reference owned by this Bot.")
+            }
+            let sourceKind = memorySourceKind(for: call)
+            if (scope == .user || tier == .profile) && sourceKind != .userTurn {
+                // Keep the existing bounded `ok:false` shape: the tool ran and
+                // refused the write; it is not a malformed invocation.
+                return .success(.object([
+                    "ok": .bool(false),
+                    "code": .string("memory-source-boundary"),
+                    "error": .string("Source \(sourceKind.rawValue) cannot write scope:\"user\" or tier:\"profile\"."),
+                ]))
+            }
+            if (scope == .user || tier == .profile) && evidence.trust != .user {
+                return .success(.object([
+                    "ok": .bool(false),
+                    "code": .string("memory-evidence-required"),
+                    "error": .string("Writing scope:\"user\" or tier:\"profile\" needs at least one record:// reference to a user message."),
+                ]))
+            }
             let request = BotMemoryWriteRequest(
                 text: text, tier: tier, scope: scope, key: string(args["key"]),
                 source: BotMemorySource(
-                    kind: memorySourceKind(for: call),
+                    kind: sourceKind,
                     sessionID: call.principal.sessionId, turnID: turnIDs[call.sessionId],
-                    role: call.principal.kind.rawValue))
+                    role: call.principal.kind.rawValue),
+                evidence: evidence.refs)
             let result = try await memory.write(
-                request, context: BotMemoryWriteContext(source: request.source))
+                request, context: BotMemoryWriteContext(source: request.source,
+                                                        trust: evidence.trust))
             return .success(.object([
                 "ok": .bool(result.ok), "fact_id": result.factID.map(BotJSONValue.string) ?? .null,
                 "duplicated": .bool(result.duplicated), "tier": .string(result.tier.rawValue),
@@ -1113,6 +1146,9 @@ public actor BotMCPRuntime {
                 "error": result.error.map(BotJSONValue.string) ?? .null,
             ]))
         case "forget":
+            guard args["evidence"] == nil else {
+                return .failure("invalid_arguments", "evidence applies to action \"write\" only.")
+            }
             let result = try await memory.forget(text: string(args["fact"]), factID: string(args["fact_id"]), scope: scope)
             return .success(.object([
                 "ok": .bool(result.ok), "removed": .number(Double(result.removed)),
@@ -1123,6 +1159,33 @@ public actor BotMCPRuntime {
             ]))
         default: throw BotMCPError.invalidRequest("UpdateMemory action must be write or forget")
         }
+    }
+
+    /// Validates the optional evidence array. `nil` means the call supplied
+    /// none; malformed, foreign or missing references throw so the caller can
+    /// fail the write without downgrading it.
+    private func validatedEvidence(_ arguments: [String: BotJSONValue],
+                                   call: BotResolvedToolCall) async throws -> BotRecordEvidence? {
+        guard let raw = arguments["evidence"] else { return nil }
+        guard case let .array(values) = raw,
+              values.count <= BotRecordService.maximumEvidence else {
+            throw BotRecordServiceError.invalidArguments
+        }
+        var refs: [String] = []
+        for value in values {
+            guard let text = value.stringValue,
+                  let reference = BotRecordReference.parse(text) else {
+                throw BotRecordServiceError.invalidReference
+            }
+            refs.append(reference.canonical)
+        }
+        // An explicitly empty array carries no evidence, same as omitting it.
+        guard !refs.isEmpty else { return nil }
+        guard let resolver = recordEvidence else {
+            throw BotRecordServiceError.unavailable("record evidence resolver is not attached")
+        }
+        return try await resolver.resolveEvidence(
+            refs, callerBotID: call.principal.botId, callerSessionID: call.principal.sessionId)
     }
 
     private func recallMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {

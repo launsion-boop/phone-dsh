@@ -1497,9 +1497,27 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 _ = await watchdog.observeToolResult(
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, status: failed ? "error" : "ok", callId: callId, at: eventTime)
-                _ = try await appendConversation(
+                let resultCommitSeq = try await appendConversation(
                     type: "conversation.tool_result", sessionId: sessionId, seq: seq,
                     data: data, principalKind: kind, time: eventTime, attemptId: attemptId)
+                if resultCommitSeq > 0,
+                   let trace = Self.redactionTrace(in: data),
+                   !trace.rules.isEmpty {
+                    let record = "record://event/\(resultCommitSeq)"
+                    let sessionRecord = "record://session/\(sessionId)#\(seq)"
+                    _ = try? await appendConversation(
+                        type: "redaction.applied", sessionId: sessionId, seq: seq,
+                        data: .object([
+                            "sessionId": .string(sessionId),
+                            "seq": .number(Double(seq)),
+                            "record": .string(record),
+                            "sessionRecord": .string(sessionRecord),
+                            "rules": .array(trace.rules.map { rule in
+                                .object(["rule": .string(rule.name),
+                                         "count": .number(Double(rule.count))])
+                            }),
+                        ]), principalKind: kind, time: eventTime, attemptId: attemptId)
+                }
             case "turn/end":
                 await watchdog.finishUnit(kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")")
                 let reason = data["reason"]?["kind"]?.stringValue ?? "completed"
@@ -1547,6 +1565,33 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         case .routine: return .routine
         case .team, .proactive, .watchdog: return .turn
         }
+    }
+
+    private struct RedactionTrace {
+        var rules: [(name: String, count: Int)]
+    }
+
+    /// Parses the one trace line the Worker appends after redacting a Bot tool
+    /// result. The line carries rule names and counts only; the original text
+    /// never becomes an event field.
+    private static func redactionTrace(in data: BotJSONValue) -> RedactionTrace? {
+        let content = data["message"]?["content"]?.arrayValue ?? []
+        let text = content.compactMap { block -> String? in
+            block["type"]?.stringValue == "text" ? block["text"]?.stringValue : nil
+        }.joined(separator: "\n")
+        let pattern = #"\[pdsh-redaction rules=((?:[a-z0-9-]+:[0-9]+)(?:,[a-z0-9-]+:[0-9]+)*)\]"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)),
+              match.numberOfRanges == 2 else { return nil }
+        let rulesText = (text as NSString).substring(with: match.range(at: 1))
+        var rules: [(String, Int)] = []
+        for entry in rulesText.split(separator: ",") {
+            let parts = entry.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let count = Int(parts[1]), count > 0 else { continue }
+            rules.append((String(parts[0]), count))
+        }
+        rules.sort { $0.0 < $1.0 }
+        return rules.isEmpty ? nil : RedactionTrace(rules: rules)
     }
 
     private func textBlocks(_ content: BotJSONValue?) -> String {

@@ -4,7 +4,7 @@
 
 状态：`target`。本目录冻结 P25 BotEventLog、P26 BotToolSurface、P27 BotRows 的共享语义；静态 schema/golden 通过不等于 Swift、Worker、模型或真机已经实现。
 
-唯一上游规格是 dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6`，由 `dshbot-pin.json` 固定。除 Mac 专属和手机平台限制外，各子系统复用其语义。不得恢复 PR29 的 NativeToolLoop 主循环、Mandate、Ticket 或 MandateTokenStore。
+唯一上游规格是 dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6`，由 `dshbot-pin.json` 固定。除 Mac 专属和手机平台限制外，本文件仍拥有的子系统复用其语义。记忆、唤醒标记和主动提醒三部分自 2026-11-10 起迁到 [v2](../v2/README.md)，由 phoneDSH 作准，不再跟随这个钉版。不得恢复 PR29 的 NativeToolLoop 主循环、Mandate、Ticket 或 MandateTokenStore。
 
 ## 1. 架构与存储
 
@@ -104,13 +104,11 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 - 本修订没有提高子会话权限的 Task 参数：`canNetworkWrite` 与 `canDelegateTasks` 恒为 `false`。因此 `Task` 的子会话默认不能再派 `Task`，`startTask` 对缺少 `task.delegate` 的调用 fail-closed。
 - 结果与 `AwaitTask` 都带同一个 `authorization` 对象；durable `persistedTask` 保存它，Worker 重启后仍能对同一任务继续执行同一子集。
 
-### 2.6 routine 的设立者与放宽授权（S4b）
+### 2.6 routine 的设立者与放宽授权（已迁至 v2）
 
-- 每个 routine 记录 `creator`：本修订用回合来源 `rpcId`/`turnId`/`sessionId` 加 `origin`（§4.1 的七种）表达，`authorization` 为 `user-turn` 或 `user-confirmed`，后者带审批卡 `approvalID`。以后 S1 的 `record://` 引用到位时替换 `rpcId` 字段，不新增第二种字段。
-- routine 另带 `completion_criteria` 与 `constraints`（各最多 2,000 字符，可空）。创建/更新可携带；空字符串表示没有记录，不伪造内容。
-- **放宽**指：排程比当前更频繁、`delivery` 从 `held` 改为 `interrupt`、`urgent` 从 false 改为 true、`resume` 一个暂停的 routine。排程频率按同一时区下接下来两次运行的平均间隔比较。
-- 在**没有用户消息来源**的回合（§4.1 的 `routine`、`task`、`task-wake`、`agent`、`held`、`unknown`，以及隐藏回合）里创建 routine 或放宽已有 routine，必须先走现有审批卡并把 `approvalID` 写入 `creator`。用户回合不需要额外确认。删除、暂停、读取、以及不改变频率/交付/紧急度的更新不要求确认。
-- 审批卡是 durable `approval.requested`；拒绝或超时都不写 routine。审批被拒绝时的返回是 `permission_denied`，理由明确指出需要用户确认。
+唤醒标记（含 routine）自 2026-11-10 起归 [v2](../v2/README.md) 所有；S4b 新增的 routine
+`creator`、`completion_criteria`、`constraints`、放宽授权审批与手动取消语义见
+[v2 §2.2](../v2/README.md#22-routine-的设立者与放宽授权s4b)。本文件不再定义这些规则。
 
 ### 2.7 持久待办审批（S5 target，本修订只冻结契约）
 
@@ -126,23 +124,18 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 实现风险：第 1、2 条跨 Bot MCP、Worker 插件与 App 生命周期，超出本单元允许修改的路径。因此本修订只冻结上述语义和冲突清单，`status: target`，不声称已实现。
 
-## 3. 记忆
+## 3. 记忆（已迁至 v2）
 
-facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；召回使用 CJK 分词、BM25、时近度和重要度；非 `user-turn` 不得写 `scope:user` 或 `profile`，来源只降級；forget/erase 与上游一致。
+记忆契约（`memory-fact`、`memory-injection`、`memory-recall`）自 2026-11-10 起迁到
+[v2/README.md](../v2/README.md) §1，由 phoneDSH 作准；`memory-policy` 随后按
+PC-20261111-bot-v2-unwired 删除。本文件不再定义 facts、注入、召回、来源边界或 MemoryPolicy。
 
-第一版不实现自动抽取、MemoryPolicy 决策、L2 反思和衰減。facts 中对应字段保留供以后启用；`memory-policy` 向量仅作上游兼容证据，不表示该功能已开放。
+## 4. 回合来源、记录与观察（唤醒与主动提醒已迁至 v2）
 
-## 4. 唤醒与主动提醒
-
-routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox、隐藏唤醒和 `<automation_status>` 与上游一致。安静时段延后而不是丢弃；urgent 必须有理由；WebContent 不可用时常驻宿主排队，恢复后依次运行且错过的只补一次。
-
-每个 routine 的 `creator`、`completion_criteria` 与 `constraints` 见 §2.6。手动取消运行中的 routine 走宿主 `RoutineScheduler` 的同一取消链（`reason:"user"`），结果是交付行里的 `cancelOrigin:"user"`，不产生新的强制通知；`needs-reconciliation` 的人工处理见 §5 的 Bot 信息页。
-
-`HeldMessages.block` 的 `[agent]` 分支对 `fromAgentName`、`fromAgentId`、`title`、`text` 与 `msg id` 全部经 `escapedHeldField` 转义；agent-held 的回复仍是 held 数据与队友内容，不是用户授权，不能触发未经用户要求的动作。
-
-设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.phone.json` 的 `deviceTaskResult` 是 phoneDSH 增量：上游 `held-inbox.json` 保持原样导出，例子放在覆盖文件，由合并加载器交付给真实 inbox codec。
-
-主动提醒规则链只用于 interrupt。iOS 通知深链为 `phonedsh://bot/<botID>/row/<rowID>`。推送中继不在本轮，只保留 WakeSignalSource 接口。
+routine 投递、安静时段延后、held inbox、隐藏唤醒、`<automation_status>`、宿主拼入文本的
+转义和主动提醒规则链自 2026-11-10 起迁到 [v2/README.md](../v2/README.md) §§2–3，由 phoneDSH
+作准。本文件保留与之一同使用的回合来源判定（§4.1），以及原始记录引用、观察信封、`phone record`
+与脱敏留痕（§§4.2–4.5）；前缀表仍是本文件拥有的契约。
 
 ### 4.1 回合来源（turn origin）
 
@@ -166,17 +159,127 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 - `bot-` 仍是宿主默认的可见 chat requestId（`bot-<uuid>`）。`sendHiddenInteraction` 目前没有生产调用方；任何隐藏回合必须使用表中的隐藏前缀，不能依赖调用参数或消息文本。
 - 旧 session log：宿主发起的 routine、Task 和子代理唤醒回合本来带上述前缀，重放时仍隐藏；旧的 Bot 间即时消息 requestId 是发送方工具调用的裸 `callId`，按「未知」处理（可见、`agent-message`），这正是 WP4 要修的兼容差异。
 
-宿主拼进 prompt 的任何非宿主文本一律按既有的 `HeldMessages.escapedHeldField` 规则转义后再放入：`\` → `\\`，换行／回车／制表 → `\n`／`\r`／`\t`，`<`／`>`／`&` → `\u003c`／`\u003e`／`\u0026`，U+2028／U+2029 和其他控制／格式字符 → `\uXXXX`。外部文本不得闭合 `</held_agent_messages>`、伪造 `- [agent]` 行或让 held 块变成多行。适用位置（WP4 起）：
+宿主拼进 prompt 的非宿主文本如何转义（held 块、隐藏唤醒 prompt 和同类结构字段）由 [v2 §2.1](../v2/README.md#21-宿主拼入文本的转义) 定义；本文件不复制那份规则。回合来源前缀仍是本文件 §4.1 的唯一权威，v2 只引用它。
 
-- `HeldMessages.block` 的 `[routine]` 分支：routine 名称（`title`）与正文；
-- `[subagent]` 分支：task id、status 与结果正文；
-- `[card-dismissed]` 分支：标题与正文；
-- `[device-task]` 分支：设备／标题、task id、status 与正文；
-- `[agent]` 分支：发送方名字、id、title、正文与 msg id（当前已转义，保持）；
-- 子代理唤醒 prompt：`task-settled` 的标题、状态、task id 与最多 1,200 字结果摘录；`task-interrupted` 的标题与 task id；
-- 以后新增的宿主结构化块／前缀默认同样转义。
+### 4.2 原始记录引用（record reference）
 
-普通用户消息正文和其他 Bot 的即时消息正文是消息内容，不是宿主拼进结构化框架的字段，不按本规则改写。该规则只约束宿主插入的 held 块、隐藏唤醒 prompt 和同类结构字段。
+原始记录只有两份权威：DSH session log（一行一个事件）和 `bot_events`（一行一个 durable 事件）。
+其余都是派生物，需要精确原文时必须用下面两种引用指回其中一份：
+
+- `record://session/<sessionId>#<seq>`：DSH session log 中 `seq` 对应的那一行。
+- `record://event/<commitSeq>`：`bot_events` 中 `commitSeq` 对应的那一条。
+
+`<sessionId>` 是 D-6 允许的 `^[A-Za-z0-9._-]{1,64}$`，但 `.` 和 `..` 不得作为完整 session id；`<seq>`
+是 0 基 session-log 序号，`<commitSeq>` 是 1 基 `bot_events` 序号。两者都只能用 ASCII 十进制，
+最大 `2^53-1`（JSON safe integer）。解析器**只**规范化三处：两端的 ASCII 空白、scheme／authority 的
+ASCII 大小写、十进制前导零；session id 本身大小写敏感，不做百分号解码、Unicode 归一化或路径展开。
+任何其他拼写都是非法引用，不得靠 trim、别名或宽松正则猜测。
+
+`record-reference.schema.json` 冻结规范形态，`golden/record-reference.phone.json` 是共享正反向量：
+`valid` 的每条同时给出 `canonical`、`kind` 与解析出的 `sessionId`／`seq` 或 `commitSeq`；`invalid`
+的每条给出拒绝原因。Python 参考解析器、Swift `BotRecordReference` 和 Worker 的 CLI 校验必须读同一批
+向量；实现不得复制一张不同的正则表。引用里的 session／event 是否属于调用者由宿主另行判断，
+引用本身不携带身份。
+
+引用规范化后再比较、存储和去重；事件信封、记忆证据和检索结果只输出规范化形态。原始记录被抹除时
+引用即失效，不得把不存在的引用静默解析到相邻记录。
+
+### 4.3 观察信封（observation envelope）
+
+`tools/post-execute` 在 `redact` 同一挂点给外部来源的结果加系统生成的信封。信封由 Worker 产生，
+宿主记录并据此推导记忆证据；模型写出的同样文本不算信封。
+
+编码固定为一行头部、正文、一行闭合：
+
+```text
+<observation source="web" origin="https://example.com/a?b=1&amp;c=2" at="2026-11-11T07:00:00.000Z" owner="unknown" ref="record://session/gb-main#12">
+Example Domain
+</observation>
+```
+
+- 属性顺序固定为 `source`、`origin`、`at`、`owner`、`ref`，缺一不可；不允许额外属性。
+- `source` 是封闭集合：`tool`、`connector`、`device`、`device-task`、`web`、`subagent`、`agent`、
+  `attachment`。`origin` 是具体来源（工具名、`mcp://<server>/<tool>`、`device:<id>`、URL、task id、
+  agent id、附件路径），最长 512。`at` 是 UTC RFC 3339 毫秒时间。`owner` 是归属，未知写 `unknown`。
+  `ref` 必须是 §4.2 的规范引用；无法确定引用时该结果**不加**信封，而不是写假引用。
+- 属性值中的 `&`、`"`、`<`、`>` 依次转义为 `&amp;`、`&quot;`、`&lt;`、`&gt;`，控制字符写成
+  `\uXXXX`。正文中任何 `<\s*/?\s*observation\b`（ASCII 大小写不敏感）只把开头 `<` 转义成字面量
+  `\u003c`，因此内容不能提前闭合信封；其他 `<>` 保持原样。
+- 只有外部来源加信封：网页抓取与搜索、外部 MCP 连接器返回、ADB／BLE 设备输出、设备任务结果、
+  子代理结果、其他 Bot 的消息、附件内容。Bot 自己在盒子里跑的 `bash`、文件读写和其他宿主工具
+  不加信封。`mcp__phone__<bot tool>` 是宿主自己的 Bot 工具面，不是外部连接器；`mcp__phone__android_*`
+  与 `mcp__phone__ble_*` 属于设备。
+- 多个文本块各自包一封；非文本块保持原样。隐藏回合、held 块、用户消息正文仍是消息内容，不因为
+  出现信封标记就升级为可信来源；记忆信任只由 §4.2 引用指向的**宿主记录结构**推导，见
+  [v2 §1.1](../v2/README.md#11-记忆证据与信任推导)。
+- held 块里的其他 Bot 消息、设备任务结果和子代理结果不在 `tools/post-execute` 路径上；宿主投递时
+  已用 `[agent]`／`[device-task]`／`[subagent]` 结构行标明来源、归属和时间，并按
+  [v2 §2.1](../v2/README.md#21-宿主拼入文本的转义) 转义，因此不回套本节 XML 信封；投递时若没有
+  稳定的 `record://` 出处，按上一条「无法确定引用」处理，不伪造引用。
+- 一个结果自身已经是信封时不得嵌套；先解析出原信封，再把内容作为新封包正文转义。
+
+`observation-envelope.schema.json` 冻结解码后的头部形状，`golden/observation-envelope.phone.json`
+冻结编码、解码、转义和拒绝向量（`valid`／`invalid`／`decodeErrors`）。
+
+### 4.4 只读记录命令桥（`phone record`）
+
+agent 用既有 `phone` 命令桥查询记录，不新增 MCP 工具 schema：
+
+```text
+phone record search <词> [--since <RFC3339|epoch-ms>] [--session <sessionId>]
+phone record read <record-ref> [--around <0..20>]
+```
+
+`--session` 只是过滤条件；调用者身份只能来自宿主：Worker 的 `phone` 命令在 `args[0] == "record"` 时
+把**当前 tool-call 的 session** 作为 out-of-band 字段放进 `PDSH_TOOL_CALL_SESSION`（与 `ubuntu` 同一
+机制；shell 导出的同名变量一律删除），宿主用 `BotGateway` 的已认领 session 解析 principal。缺失、
+未认领或已撤销的 session 一律 `unclaimed_session`，不执行检索；`--session` 越出该 Bot 自己的会话集合
+一律 `session_out_of_scope`。宿主不得接受 argv、env 或回复里的 botID 自报。
+
+数据源是宿主的物化副本（`materialized/home/sessions/**`）和 SQLite `bot_events`；不放宽
+`/dsh/home/sessions` 对 bash 的 EACCES 规则。检索范围是该 principal 的 botID 自己的会话与事件；
+共享记忆的出处在 [v2 §1.1](../v2/README.md#11-记忆证据与信任推导) 另由 v2 定义，不扩大本命令的读取范围。
+
+结果使用 P19 手机工具 envelope：成功为
+`{ok:true,tool:"record.search"|"record.read",egress:false,scope:"bot",data:{…}}`，失败为
+`{ok:false,tool:…,error:{code,message}}`。错误码至少包含 `unclaimed_session`、
+`session_out_of_scope`、`unknown_record`、`invalid_reference`、`invalid_query`、`invalid_since`、
+`invalid_around`；用法错误退出 2，查询拒绝退出 1。`search` 返回规范化引用、记录种类、时间、
+类型与至多 20 条片段；`read` 返回中心行和前后至多 20 行原文（每条带引用与 `truncated`），
+原文按落盘字节返回，不重新编码。单次输出上限 256 KiB。
+
+**压缩后可回查。** DSH 压缩摘要用 `surfaceOp.replace` 替换 surface 区间，但被替换的行仍留在
+session log 里。`read` 一个 replace 事件时 `data` 带 `replacedRange`（起止引用）；`read` 该区间内的
+原始行时带 `shadowedBy`（替换事件引用）。因此 `phone record read` 能取回压缩前的原文，`search`
+也能命中被替换的行。agent 侧的说明见 `plugins/bot-runtime/prompts/**`：上下文里出现压缩摘要后，
+用摘要里的稳定词／编号执行 `phone record search`，或读取摘要对应 replace 事件的 `replacedRange`，
+再 `read --around` 取回原文。没有「摘要即丢失」的例外。
+
+`record-query.schema.json` 冻结上述两种结果形状，`golden/record-query.phone.json` 的
+`compactionRecall` 用真实 DSH 事件形状驱动 Swift 服务的回归。
+
+### 4.5 脱敏留痕（redaction trace）
+
+工具结果在落 session log 前先经过 `redact`，这个顺序不变：凭据不进入权威记录。每次发生脱敏时，
+Worker 在最后一个文本块尾部追加一行系统标记（规则名排序、只记次数，不记原文）：
+
+```text
+[pdsh-redaction rules=sk-token:2,jwt:1]
+```
+
+宿主在把 `tool/result` 记为 `conversation.tool_result` 后，解析该标记并追加**一条**
+`redaction.applied` durable 事件：
+
+```json
+{"sessionId":"gb-main","seq":5,"record":"record://event/7",
+ "sessionRecord":"record://session/gb-main#5",
+ "rules":[{"rule":"jwt","count":1},{"rule":"sk-token","count":2}]}
+```
+
+`record` 指向被脱敏的工具结果事件，`sessionRecord` 指向对应 session 行；`rules` 只含规则名与次数。
+事件类型追加到 P25 `event-envelope.schema.json` 的封闭 enum 和 `golden/event-envelope.phone.json`；
+旧读者按 P25 的未知 durable 事件规则处理。标记本身保留在记录里，作为「这里被改写过」的证据；
+不得把原文、命中片段或替换后的秘密写进事件。没有命中的结果不写事件。
 
 ## 5. 行与交互
 
@@ -212,6 +315,9 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 
 ## 8. 一致性向量
 
+本节只描述仍由 dsh-bot 钉版导出的 v1 批次。记忆、唤醒标记和主动提醒的向量已移到
+[v2](../v2/README.md) §4，`export-vectors.mjs` 不写、`export-manifest.json` 也不列它们。
+
 从仓库根运行：
 
 ```bash
@@ -241,12 +347,12 @@ python3 spec/bot/v1/tools/validate_vectors.py
 `spec/bot/v1/golden/` 中不带 `.phone.json` 后缀的文件都是 `export-vectors.mjs` 的原样导出，不得手改；重跑导出器必须 byte-identical。手机端增量只写在同名 `.phone.json`：
 
 - `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、负向 fixture。
-- `held-inbox.phone.json`：`deviceTaskResult`（P07/P26）与 `agentHeld`（多 Bot held 回复）正例、非法 `device-task-result` 反例。
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
 - `tool-catalog.phone.json`：团队工具与 `FishAction` 的目录增量。
 - `tool-effects.phone.json`：团队工具、`FishAction` 与原生 MCP BLE 工具的效果分类。
 - `approval-patterns.phone.json`：把 upstream 的 curl/wget/python 网络命令模式登记为手机端降级（`matches=[]`），并列出脚本文件/变量拼接/解释器与 `python3 /tmp/x.py`；`rm`/`git reset --hard`/`find -delete` 仍匹配 upstream，不得降级。出口写审批与文件 Grant 的向量在 `mcp-egress.phone.json` 的 `egress-approval`、`grant-directory` 套件。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
+- `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`：原始记录引用、观察信封和 `phone record` 结果的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这三个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。
 - `authority.phone.json`：routine 设立者/放宽判定、Task 授权子集和 CreateTeammate 作者的手机专属向量；用 `"upstream": []` 登记，含 schema 负例、解析负例和 mutation 自检。
 - `mcp-egress.phone.json`：MCP 出口凭证、会话凭证与 `tools/call` 调用者目录的手机专属向量；同样用 `"upstream": []` 登记。`valid` / `invalid` 的每条用例带 `suite`（`egress` / `identity` / `tools-call` / `egress-approval` / `grant-directory`）；`egress` 由精确路由集合与常量时间 token 比较判定，`identity` 由 token 登记表（含撤销／过期／轮换）解析 principal 并比较 `sessionId`，`tools-call` 由与 `tools/list` 相同的 per-caller 目录判定；`egress-approval` 逐条覆盖登记/job 生命周期、同 Bot 分组、无登记时的单/多/无 Bot 与工作台回合，以及 Task 授权子集（无 `task.network-write` 拒绝且不出卡、有授权照常送审、主对话不受影响），`grant-directory` 覆盖目录 Grant 命中和不命中。`validate_vectors.py` 逐条校验并按 suite 强制边界覆盖，内部 mutation 变异预期值；`check_golden.py` 在 `PHONE_ONLY_VECTORS` 显式登记该文件。
 

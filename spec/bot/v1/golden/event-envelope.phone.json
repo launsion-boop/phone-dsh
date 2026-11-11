@@ -9,7 +9,8 @@
   ],
   "delta": [
     "phoneDSH P25 additive durable event type: agent.comm. The envelope shape is unchanged.",
-    "agent.comm is written with local origin comm-service; team-tools is not a registered local source."
+    "agent.comm is written with local origin comm-service; team-tools is not a registered local source.",
+    "phoneDSH P25 additive durable event type: redaction.applied. It records rule names and counts for one redacted tool result and never the original text."
   ],
   "validCases": [
     {
@@ -90,6 +91,50 @@
             "kind": "agent"
           },
           "replyEntryId": "t1u"
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "redaction-applied",
+      "event": {
+        "schemaVersion": 1,
+        "type": "redaction.applied",
+        "eventId": "dsh:gb-main:5:redaction.applied",
+        "commitSeq": 9,
+        "time": 1760000005000,
+        "origin": {
+          "kind": "dsh",
+          "sessionId": "gb-main",
+          "seq": 5
+        },
+        "traceId": "redaction:gb-main:5",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": "gb-main",
+          "kind": "chat",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "gb-main",
+        "data": {
+          "sessionId": "gb-main",
+          "seq": 5,
+          "record": "record://event/7",
+          "sessionRecord": "record://session/gb-main#5",
+          "rules": [
+            {
+              "rule": "jwt",
+              "count": 1
+            },
+            {
+              "rule": "sk-token",
+              "count": 2
+            }
+          ]
         }
       },
       "validation": {

@@ -21,7 +21,7 @@ final class BotMemoryIsolationTests: XCTestCase {
     func testRuntimeToolsWriteMemoryUnderTheCallerBotAndIsolateAgentFacts() async throws {
         let domain = try SQLiteDomainStore(
             fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
-        let runtime = BotMCPRuntime(store: domain, now: { 1_000 })
+        let runtime = BotMCPRuntime(store: domain, recordEvidence: FixedRecordEvidenceResolver(), now: { 1_000 })
         _ = try await runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
         _ = try await runtime.issueSession(botId: "bot-b", sessionId: "gb-bot-b", kind: .chat)
         await runtime.beginTurn(
@@ -42,6 +42,7 @@ final class BotMemoryIsolationTests: XCTestCase {
             arguments: .object([
                 "action": .string("write"), "scope": .string("user"),
                 "fact": .string("shared user fact"),
+                "evidence": .array([.string("record://session/gb-main#1")]),
             ]),
             sessionId: "gb-main")
         XCTAssertEqual(sharedUser.structuredContent?["ok"], .bool(true))
@@ -102,7 +103,7 @@ final class BotMemoryIsolationTests: XCTestCase {
         let domainEvents = try await domain.events(after: 0, limit: 10)
         XCTAssertEqual(domainEvents.map { $0.principal.botId }, [nil, nil])
 
-        let runtime = BotMCPRuntime(store: domain, now: { 1_000 })
+        let runtime = BotMCPRuntime(store: domain, recordEvidence: FixedRecordEvidenceResolver(), now: { 1_000 })
         let mainMemory = await runtime.memory(for: "main")
         let botMemory = await runtime.memory(for: "bot-b")
         let mainAgentFacts = try await mainMemory.facts(scope: .agent)

@@ -11,7 +11,6 @@ public actor ProactiveEngine: ProactiveConsidering {
     private let settingsProvider: @Sendable () -> ProactiveSettings
     private let nowProvider: @Sendable () -> Int64
     private let deliverer: (any ProactiveDelivering)?
-    private let triage: any ProactiveTriaging
     private let eventLog: (any BotEventLog)?
     private let deliveryKinds: Set<ProactiveKind>
     private var policy: ProactivityPolicy
@@ -25,14 +24,12 @@ public actor ProactiveEngine: ProactiveConsidering {
     public init(settings: @escaping @Sendable () -> ProactiveSettings = { ProactiveSettings() },
                 now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
                 policy: ProactivePolicyConfiguration = ProactivePolicyConfiguration(),
-                triage: any ProactiveTriaging = DisabledProactiveTriage(),
                 deliverer: (any ProactiveDelivering)? = nil,
                 eventLog: (any BotEventLog)? = nil,
                 deliveryKinds: Set<ProactiveKind> = [.taskDone, .routineResult]) {
         self.settingsProvider = settings
         self.nowProvider = now
         self.policy = ProactivityPolicy(configuration: policy)
-        self.triage = triage
         self.deliverer = deliverer
         self.eventLog = eventLog
         self.deliveryKinds = deliveryKinds
@@ -64,6 +61,10 @@ public actor ProactiveEngine: ProactiveConsidering {
         case malformedConsideration(String)
     }
 
+    /// Rebuild the retained frequency-fuse accounting from durable events.
+    ///
+    /// Only events inside the fuse window matter: budget, quota, cooldown,
+    /// TTL and dedupe-window bookkeeping was removed by PC-20261111-bot-v2-unwired.
     @discardableResult
     public func restoreAccounting() async -> Int {
         if restored { return restoredCount }
@@ -86,11 +87,10 @@ public actor ProactiveEngine: ProactiveConsidering {
                 if page.count < 500 { break }
             }
             let now = nowProvider()
-            let settings = settingsProvider().normalized()
-            let today = RoutineQuietHours.dayKey(now, timeZone: settings.timeZone)
+            let windowStart = now - policy.configuration.fuseWindowMs
             let accepted = events.filter { event in
                 guard event.type == "proactive.considered",
-                      RoutineQuietHours.dayKey(event.time, timeZone: settings.timeZone) == today,
+                      event.time >= windowStart,
                       let decision = Self.string(event.data, "decision") else { return false }
                 return decision == "did" || decision == "would"
             }.sorted {
@@ -99,22 +99,19 @@ public actor ProactiveEngine: ProactiveConsidering {
             var considerations: [AcceptedConsideration] = []
             for event in accepted {
                 guard let kindText = Self.string(event.data, "kind"),
-                      let kind = ProactiveKind(rawValue: kindText),
                       let botId = Self.string(event.data, "botId") ?? event.principal.botId,
                       !botId.isEmpty else {
                     throw RestoreError.malformedConsideration(event.eventId)
                 }
-                let dedupeKey = Self.string(event.data, "dedupeKey") ?? event.correlationId ?? event.eventId
-                guard !dedupeKey.isEmpty else { throw RestoreError.malformedConsideration(event.eventId) }
+                // Removed/unknown kinds (for example the deleted idle-checkin
+                // source) must not make the retained fuse accounting unreadable.
+                guard let kind = ProactiveKind(rawValue: kindText) else { continue }
                 let decision = Self.string(event.data, "decision") ?? "skip"
                 let mode = Self.string(event.data, "mode") ?? ""
-                let historicalSpend = mode == "would" || decision == "did"
+                let historicalFuse = mode == "would" || decision == "did"
                 considerations.append(AcceptedConsideration(
-                    at: event.time, kind: kind, botId: botId, dedupeKey: dedupeKey,
-                    cost: max(1, Self.int(event.data, "cost") ?? 1),
-                    channel: Self.string(event.data, "channel") ?? "system-notification",
-                    spendBudget: Self.bool(event.data, "spendBudget") ?? historicalSpend,
-                    fuseRecorded: Self.bool(event.data, "fuseRecorded") ?? historicalSpend
+                    at: event.time, kind: kind, botId: botId,
+                    fuseRecorded: Self.bool(event.data, "fuseRecorded") ?? historicalFuse
                 ))
             }
             for consideration in considerations { policy.restore(consideration) }
@@ -126,96 +123,81 @@ public actor ProactiveEngine: ProactiveConsidering {
         }
     }
 
-    public func budgetSpent() -> Int {
-        policy.budgetSpent(now: nowProvider(), timeZone: settingsProvider().normalized().timeZone)
-    }
-
     private func perform(_ candidate: ProactiveCandidate) async -> ProactiveDecision {
         let at = nowProvider()
         let settings = settingsProvider().normalized()
         if candidate.kind == .routineResult {
             if candidate.delivery != .interrupt {
                 return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                    reason: "routine-held", check: nil)
+                                    reason: "routine-held")
             }
             if candidate.quiet {
                 return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                    reason: "routine-quiet", check: nil)
+                                    reason: "routine-quiet")
             }
         }
         if settings.mode == .off {
             return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                reason: "mode-off", check: nil)
+                                reason: "mode-off")
         }
         let deliverable = settings.mode == .on && deliveryKinds.contains(candidate.kind)
-        let spendBudget = settings.mode == .would || deliverable
-        let check = policy.check(candidate, now: at, settings: settings, checkBudget: spendBudget)
+        let check = policy.check(candidate, now: at, settings: settings)
         guard check.allowed else {
             return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                reason: check.reason, check: check)
-        }
-        let triageResult = await triage.evaluate(candidate)
-        if !triageResult.allow {
-            return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                reason: "triage", check: check)
+                                reason: check.reason)
         }
         let fuseApplies = settings.mode == .would || deliverable
         if fuseApplies && policy.fuseTripped(botId: candidate.botId, now: at) {
             return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                reason: "fuse", check: check)
+                                reason: "fuse")
         }
 
-        let notification = Self.notification(candidate, dedupeKey: check.dedupeKey)
+        let notification = Self.notification(candidate, dedupeKey: Self.deliveryKey(candidate, at: at))
         var decision: ProactiveDecisionKind = .would
         var delivery: ProactiveDeliveryResult?
         if deliverable {
             guard let deliverer else {
                 return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                    reason: "delivery-unavailable", check: check, notification: notification)
+                                    reason: "delivery-unavailable", notification: notification)
             }
             do {
                 let result = try await deliverer.deliver(notification)
                 delivery = result
                 guard result.delivered else {
                     return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                        reason: "delivery-failed", check: check,
-                                        notification: notification, delivery: result)
+                                        reason: "delivery-failed", notification: notification, delivery: result)
                 }
                 decision = .did
             } catch {
                 let result = ProactiveDeliveryResult(delivered: false, error: error.localizedDescription)
                 return await finish(candidate, at: at, settings: settings, decision: .skip,
-                                    reason: "delivery-failed", check: check,
-                                    notification: notification, delivery: result)
+                                    reason: "delivery-failed", notification: notification, delivery: result)
             }
         }
-        policy.commit(candidate, check: check, now: at, spendBudget: spendBudget,
-                      fuseRecorded: decision == .did || settings.mode == .would)
+        policy.commit(candidate, now: at, fuseRecorded: decision == .did || settings.mode == .would)
         let reason = decision == .did ? "delivered" : settings.mode == .would ? "would-mode" : "would-only-kind"
         return await finish(candidate, at: at, settings: settings, decision: decision,
-                            reason: reason, check: check, notification: notification, delivery: delivery)
+                            reason: reason, notification: notification, delivery: delivery)
     }
 
     private func finish(_ candidate: ProactiveCandidate, at: Int64, settings: ProactiveSettings,
                         decision: ProactiveDecisionKind, reason: String,
-                        check: ProactivePolicyCheck?, notification: ProactiveNotification? = nil,
+                        notification: ProactiveNotification? = nil,
                         delivery: ProactiveDeliveryResult? = nil) async -> ProactiveDecision {
         sequence += 1
-        let resolvedNotification = notification ?? (check.map {
-            Self.notification(candidate, dedupeKey: $0.dedupeKey)
-        } ?? Self.notification(candidate, dedupeKey: candidate.dedupeKey ?? candidate.id ?? "\(candidate.kind.rawValue):\(candidate.botId):\(at)"))
+        let dedupeKey = Self.deliveryKey(candidate, at: at)
+        let resolvedNotification = notification ?? Self.notification(candidate, dedupeKey: dedupeKey)
         var record = ProactiveDecision(
             id: "proactive:\(at):\(sequence)", at: at, decision: decision, reason: reason,
             kind: candidate.kind, botId: candidate.botId,
-            dedupeKey: check?.dedupeKey ?? candidate.dedupeKey,
-            mode: settings.mode, channel: check?.channel ?? candidate.channel,
-            cost: max(1, check?.cost ?? candidate.cost), notification: resolvedNotification,
-            delivery: delivery
+            dedupeKey: dedupeKey,
+            mode: settings.mode, channel: candidate.channel,
+            notification: resolvedNotification, delivery: delivery
         )
         history.append(record)
         if history.count > 200 { history.removeFirst(history.count - 200) }
         if let eventLog {
-            let spendBudget = settings.mode == .would || decision == .did
+            let fuseRecorded = settings.mode == .would || decision == .did
             var data: [String: BotJSONValue] = [
                 "decision": .string(decision.rawValue),
                 "reason": .string(reason),
@@ -224,16 +206,14 @@ public actor ProactiveEngine: ProactiveConsidering {
                 "botId": .string(candidate.botId),
                 "mode": .string(settings.mode.rawValue),
                 "channel": .string(record.channel),
-                "cost": .number(Double(record.cost)),
-                "spendBudget": .bool(spendBudget),
-                "fuseRecorded": .bool(spendBudget),
+                "fuseRecorded": .bool(fuseRecorded),
             ]
             if let trigger = candidate.trigger { data["trigger"] = .string(trigger) }
-            if let dedupeKey = record.dedupeKey { data["dedupeKey"] = .string(dedupeKey) }
+            data["dedupeKey"] = .string(dedupeKey)
             let event = BotEvent(type: "proactive.considered", eventId: record.id, time: at,
                                  origin: .local(source: "runtime"), traceId: "trace:\(record.id)",
                                  principal: BotPrincipal(botId: candidate.botId, sessionId: nil, kind: "proactive"),
-                                 causationId: candidate.sourceEventId, correlationId: record.dedupeKey,
+                                 causationId: candidate.sourceEventId, correlationId: dedupeKey,
                                  data: .object(data))
             if let commitSeq = try? await eventLog.append(event) {
                 record.commitSeq = commitSeq
@@ -241,6 +221,17 @@ public actor ProactiveEngine: ProactiveConsidering {
             }
         }
         return record
+    }
+
+    /// Stable notification identifier. It is not a suppression window: the
+    /// candidate is still considered on every event.
+    private static func deliveryKey(_ candidate: ProactiveCandidate, at: Int64) -> String {
+        if let explicit = candidate.dedupeKey?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+        let payload = candidate.taskId ?? candidate.runId ?? candidate.reminderId ?? candidate.id ?? ""
+        return "\(candidate.kind.rawValue):\(candidate.botId):\(payload.isEmpty ? String(at) : payload)"
     }
 
     private static func notification(_ candidate: ProactiveCandidate,
@@ -262,10 +253,6 @@ public actor ProactiveEngine: ProactiveConsidering {
         case .reminder:
             title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 提醒"
             body = explicitBody?.isEmpty == false ? explicitBody! : "提醒時間到了"
-        case .idleCheckin:
-            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 好久不見"
-            let minutes = max(1, Int((candidate.silentForMs ?? 0) / 60_000))
-            body = explicitBody?.isEmpty == false ? explicitBody! : "已經安靜了 \(minutes) 分鐘，要不要聊兩句？"
         }
         return ProactiveNotification(title: title, body: body, kind: candidate.kind,
                                      botId: candidate.botId, dedupeKey: dedupeKey,
@@ -290,10 +277,5 @@ public actor ProactiveEngine: ProactiveConsidering {
     private static func bool(_ data: BotJSONValue, _ key: String) -> Bool? {
         guard case .object(let object) = data, case .bool(let value)? = object[key] else { return nil }
         return value
-    }
-
-    private static func int(_ data: BotJSONValue, _ key: String) -> Int? {
-        guard case .object(let object) = data, case .number(let value)? = object[key] else { return nil }
-        return Int(value)
     }
 }

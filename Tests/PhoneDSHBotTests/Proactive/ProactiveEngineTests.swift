@@ -14,14 +14,8 @@ final class ProactiveEngineTests: XCTestCase {
                            taskId: key, status: "completed")
     }
 
-    private func policy(budget: Int = 12, quota: Int = 10, cooldown: Int64 = 0,
-                        fuse: Int = 4) -> ProactivePolicyConfiguration {
-        ProactivePolicyConfiguration(dailyBudget: budget,
-                                     quotas: [.taskDone: quota, .routineResult: quota,
-                                              .idleCheckin: quota, .reminder: quota],
-                                     cooldownsMs: [.taskDone: cooldown, .routineResult: cooldown,
-                                                   .idleCheckin: cooldown, .reminder: cooldown],
-                                     fuseMaxWakeups: fuse)
+    private func policy(fuse: Int = 4) -> ProactivePolicyConfiguration {
+        ProactivePolicyConfiguration(fuseMaxWakeups: fuse)
     }
 
     func testOnlyInterruptRoutineCandidatesCanNotify() async {
@@ -52,7 +46,7 @@ final class ProactiveEngineTests: XCTestCase {
                        "phonedsh://bot/bot-1/row/routine-run-daily-1")
     }
 
-    func testDndQuietTTLQuotaCooldownAndGlobalBudgetRules() async {
+    func testDndAndQuietHoursRemainHardLimits() async {
         let dndEngine = ProactiveEngine(settings: { wp6Settings(dnd: true) }, now: { self.now },
                                         policy: policy(), deliverer: WP6NotificationDeliverer())
         await WP6AssertEqual(await dndEngine.consider(candidate("dnd")).reason, "dnd")
@@ -61,68 +55,67 @@ final class ProactiveEngineTests: XCTestCase {
         let quietEngine = ProactiveEngine(
             settings: { wp6Settings(quietStart: "23:00", quietEnd: "08:00") },
             now: { quietAt }, policy: policy(), deliverer: WP6NotificationDeliverer())
-        await WP6AssertEqual(await quietEngine.consider(candidate("quiet", createdAt: quietAt)).reason, "quiet-hours")
+        await WP6AssertEqual(await quietEngine.consider(candidate("quiet", createdAt: quietAt)).reason,
+                             "quiet-hours")
 
-        let ttlEngine = ProactiveEngine(settings: { wp6Settings() }, now: { self.now }, policy: policy())
-        await WP6AssertEqual(await ttlEngine.consider(candidate("old", createdAt: now - 86_400_001)).reason,
-                       "ttl-expired")
-
-        let quotaEngine = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
-                                          policy: policy(quota: 1))
-        _ = await quotaEngine.consider(candidate("quota-1"))
-        await WP6AssertEqual(await quotaEngine.consider(candidate("quota-2")).reason, "quota")
-
-        let cooldownEngine = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
-                                             policy: policy(cooldown: 1_000))
-        _ = await cooldownEngine.consider(candidate("cooldown-1"))
-        await WP6AssertEqual(await cooldownEngine.consider(candidate("cooldown-2")).reason, "cooldown")
-
-        let budgetEngine = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
-                                           policy: policy(budget: 1))
-        _ = await budgetEngine.consider(candidate("budget-1"))
-        await WP6AssertEqual(await budgetEngine.consider(candidate("budget-2")).reason, "global-budget")
+        let reminderDeliverer = WP6NotificationDeliverer()
+        let reminderEngine = ProactiveEngine(settings: { wp6Settings(dnd: true) }, now: { self.now },
+                                             policy: policy(), deliverer: reminderDeliverer,
+                                             deliveryKinds: [.reminder])
+        let reminder = ProactiveCandidate(kind: .reminder, botId: "bot-1",
+                                          createdAt: self.now, reminderId: "rem-1",
+                                          allowDuringDnd: true)
+        let decision = await reminderEngine.consider(reminder)
+        XCTAssertEqual(decision.decision, .did)
+        XCTAssertEqual(reminderDeliverer.notifications.count, 1)
     }
 
-    func testWouldModeSpendsAccountingAndRestartRebuildsAllCounters() async {
+    func testRepeatedCandidatesAndOldCreatedAtAreNotSuppressed() async {
+        let engine = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
+                                     policy: policy(fuse: 10))
+        let seen = candidate("seen-1")
+        await WP6AssertEqual(await engine.consider(seen).reason, "would-mode")
+        await WP6AssertEqual(await engine.consider(seen).reason, "would-mode")
+        let old = candidate("old", createdAt: now - 86_400_001)
+        await WP6AssertEqual(await engine.consider(old).reason, "would-mode")
+    }
+
+    func testWouldModeRecordsFuseAccountingAndRestartRebuildsIt() async {
         let log = WP6EventLog()
         let engine = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
-                                     policy: policy(budget: 2, fuse: 10), eventLog: log)
-        _ = await engine.consider(candidate("seen-1"))
-        _ = await engine.consider(candidate("seen-2"))
-        await WP6AssertEqual(await engine.budgetSpent(), 2)
-        await WP6AssertEqual(await engine.consider(candidate("seen-1")).reason, "duplicate")
-        await WP6AssertEqual(await engine.consider(candidate("new-over-budget")).reason, "global-budget")
+                                     policy: policy(fuse: 2), eventLog: log)
+        await WP6AssertEqual(await engine.consider(candidate("seen-1")).reason, "would-mode")
+        await WP6AssertEqual(await engine.consider(candidate("seen-2")).reason, "would-mode")
+        await WP6AssertEqual(await engine.consider(candidate("seen-3")).reason, "fuse")
 
         let restoredLog = WP6EventLog(events: [
-            wp6Consideration(at: now - 120_000, commitSeq: 1, dedupeKey: "seen-1"),
-            wp6Consideration(at: now - 60_000, commitSeq: 2, dedupeKey: "seen-2"),
+            wp6Consideration(at: now - 120_000, commitSeq: 1),
+            wp6Consideration(at: now - 60_000, commitSeq: 2),
         ])
         let restored = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
-                                       policy: policy(budget: 2, fuse: 10), eventLog: restoredLog)
+                                       policy: policy(fuse: 2), eventLog: restoredLog)
         await WP6AssertEqual(await restored.restoreAccounting(), 2)
-        await WP6AssertEqual(await restored.budgetSpent(), 2)
-        await WP6AssertEqual(await restored.consider(candidate("seen-1")).reason, "duplicate")
-        await WP6AssertEqual(await restored.consider(candidate("new-over-budget")).reason, "global-budget")
+        await WP6AssertEqual(await restored.consider(candidate("fuse-after-restore")).reason, "fuse")
 
-        let fusedLog = WP6EventLog(events: [
-            wp6Consideration(at: now - 120_000, commitSeq: 1, dedupeKey: "seen-1"),
-            wp6Consideration(at: now - 60_000, commitSeq: 2, dedupeKey: "seen-2"),
+        let staleLog = WP6EventLog(events: [
+            wp6Consideration(at: now - 1_000_000, commitSeq: 1),
         ])
-        let fused = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
-                                    policy: policy(budget: 50, fuse: 2), eventLog: fusedLog)
-        _ = await fused.restoreAccounting()
-        await WP6AssertEqual(await fused.consider(candidate("fuse-1")).reason, "fuse")
+        let stale = ProactiveEngine(settings: { wp6Settings(mode: .would) }, now: { self.now },
+                                    policy: policy(fuse: 1), eventLog: staleLog)
+        await WP6AssertEqual(await stale.restoreAccounting(), 0)
+        await WP6AssertEqual(await stale.consider(candidate("outside-window")).reason, "would-mode")
     }
 
-    func testOnModeDeliveryFailureDoesNotSpendBudgetAndOffModeNeverDelivers() async {
+    func testOnModeDeliveryFailureDoesNotRecordFuseAndOffModeNeverDelivers() async {
         let deliverer = WP6NotificationDeliverer()
         deliverer.result = ProactiveDeliveryResult(delivered: false, error: "denied")
         let engine = ProactiveEngine(settings: { wp6Settings() }, now: { self.now },
-                                     policy: policy(budget: 1), deliverer: deliverer)
-        let failed = await engine.consider(candidate("failed"))
-        XCTAssertEqual(failed.reason, "delivery-failed")
-        await WP6AssertEqual(await engine.budgetSpent(), 0)
-        XCTAssertEqual(deliverer.notifications.count, 1)
+                                     policy: policy(fuse: 1), deliverer: deliverer)
+        await WP6AssertEqual(await engine.consider(candidate("failed")).reason, "delivery-failed")
+        deliverer.result = ProactiveDeliveryResult(delivered: true)
+        let delivered = await engine.consider(candidate("delivered"))
+        XCTAssertEqual(delivered.decision, .did)
+        XCTAssertEqual(deliverer.notifications.count, 2)
 
         let offDeliverer = WP6NotificationDeliverer()
         let off = ProactiveEngine(settings: { wp6Settings(mode: .off) }, now: { self.now },

@@ -7,7 +7,7 @@ status: implemented
 breaking: false
 version_decision: Additive routine fields and a host-only Task authorization envelope. No new wire version, error code, alias or second envelope. Old routine rows decode without the new fields; old Task records decode without `authorization`; the new fields are ignored by readers that do not know them.
 base: 0bbe253f6
-contract_revision: spec/bot/v1/routine.schema.json@routine-authority-v2 + spec/bot/v1/golden/authority.phone.json + spec/bot/v1/README.md@PC-20261111-bot-egress-approval@3
+contract_revision: spec/bot/v2/routine.schema.json@routine-authority-v2 + spec/bot/v1/golden/authority.phone.json + spec/bot/v1/README.md@PC-20261111-bot-egress-approval@3
 ```
 
 Protocol impact: P26 — additive `Routine.creator/completion_criteria/constraints`, Task authorization subset and CreateTeammate author audit; P27 — Bot 信息页新增三个宿主服务型用户动作（撤销常设 Grant、取消运行中 routine、对账），不改 row/user-action schema；P09 — `spec/ui/v1/pages/bot-info.md` 只增条目与动作，不改页面框架
