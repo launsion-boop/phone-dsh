@@ -808,7 +808,7 @@ public actor ChannelServer: ChannelOutbound {
             if finished && !drainClosing { return }
             if frames[index].type == .vfsMutation,
                let handler,
-               handler.supportsVFSMutationBatch,
+               let batchHandler = handler as? any VFSMutationBatching,
                workspaceLog != nil {
                 var admissions: [VFSMutationAdmission] = []
                 var expected = expectedMseq
@@ -829,7 +829,7 @@ public actor ChannelServer: ChannelOutbound {
                 }
                 if admissions.count > 1 {
                     do {
-                        try await handler.handleVFSMutationBatch(admissions)
+                        try await batchHandler.handleVFSMutationBatch(admissions)
                         metricsValue.framesIn += admissions.count
                         expectedMseq = expected
                         index = end

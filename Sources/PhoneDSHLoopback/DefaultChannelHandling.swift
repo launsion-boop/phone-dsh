@@ -29,6 +29,29 @@ public struct LoopbackWorkspaceAck: Equatable, Sendable {
     }
 }
 
+/// One structurally valid mutation the channel server accepted in a batch.
+/// The server has already checked `mseq` against the wire sequence; the
+/// handler only persists it (W4 group commit).
+public struct VFSMutationAdmission: Equatable, Sendable {
+    public var body: VfsMutationBody
+    public var mseq: UInt64
+    public var seq: UInt64
+
+    public init(body: VfsMutationBody, mseq: UInt64, seq: UInt64) {
+        self.body = body
+        self.mseq = mseq
+        self.seq = seq
+    }
+}
+
+/// Optional capability for a channel handler that can persist consecutive
+/// VFS_MUT frames with one shared group-commit write (W4). The batch method
+/// must validate every mutation before persisting any of them, so a resource
+/// refusal can be replayed frame by frame with no partial append.
+public protocol VFSMutationBatching: Sendable {
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws
+}
+
 /// The workspace-log operations the ordered channel needs (wal.md §5).
 ///
 /// `PhoneDSHLog.WorkspaceLogging` provides the same operations; W2
@@ -135,7 +158,7 @@ public actor InMemoryJournalLog: LoopbackJournalLog {
 
 /// Default ``ChannelHandling``: persists VFS mutations through a workspace log,
 /// journals records, and runs the read-only accelerators on an ExecProvider.
-public actor DefaultChannelHandling: ChannelHandling {
+public actor DefaultChannelHandling: ChannelHandling, VFSMutationBatching {
     private let outbound: any ChannelOutbound
     private let workspaceLog: (any LoopbackWorkspaceLog)?
     private let journalLog: (any LoopbackJournalLog)?
@@ -186,8 +209,6 @@ public actor DefaultChannelHandling: ChannelHandling {
     /// W4: consecutive VFS_MUT frames share one group-commit write. The log
     /// validates every mutation before appending any of them, so a resource
     /// refusal cannot leave a partial batch behind.
-    public nonisolated var supportsVFSMutationBatch: Bool { true }
-
     public func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
         guard !admissions.isEmpty else { return }
         guard let workspaceLog else { throw LoopbackError.channelUnavailable }
