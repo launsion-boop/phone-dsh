@@ -172,6 +172,68 @@ test('question suppression clears at turn end rather than attempt end', async ()
   }
 })
 
+/** Mount stream-forward, run one scripted tool call, then emit one text delta. */
+async function textAfterContentCard(
+  tool: string, args: Record<string, unknown>, execute: () => Promise<string>,
+): Promise<string[]> {
+  const ctx = new Context()
+  const hub = new BotStreamHub()
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    registerBotStreamHub(ctx, hub)
+    await ctx.plugin(dshbotStreamForward, { hub })
+    ctx.tools.register(defineTool({
+      name: tool, description: 'content card', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute,
+    }))
+    const agent = { id: 'gb-main', session: { id: 'gb-main' } } as unknown as Agent
+    const frames: BotStreamFrame[] = []
+    const stream = hub.subscribe('gb-main')
+    const collecting = (async () => {
+      for await (const frame of stream) {
+        frames.push(frame)
+        if (frame.type === 'end') break
+      }
+    })()
+    await executeTool(ctx, {
+      callId: ToolCallId('final-card'), name: tool, arguments: args,
+      signal: new AbortController().signal, agent,
+    })
+    ctx.emit('agent/assistant-stream', { agent, frame: { type: 'start', revision: 1, turn: 1, step: 1, attemptId: LlmAttemptId('final-card') } })
+    ctx.emit('agent/assistant-stream', { agent, frame: { type: 'chunk', revision: 1, time: 1, attemptId: LlmAttemptId('final-card'), index: 0, chunk: { type: 'text-delta', index: 0, text: 'after card' } } })
+    ctx.emit('agent/assistant-stream', { agent, frame: { type: 'end', revision: 1, index: 1, attemptId: LlmAttemptId('final-card'), outcome: { kind: 'committed', eventType: 'assistant/message', seq: SessionSeq(1) } } })
+    await collecting
+    return frames.filter(frame => frame.type === 'text').map(frame => frame.text ?? '')
+  } finally {
+    hub.close()
+    await ctx.fiber.dispose()
+  }
+}
+
+test('a successful final:true content card suppresses trailing deltas', async () => {
+  assert.deepEqual(await textAfterContentCard(
+    'mcp__phone__show_progress', { title: 'Wrap up', final: true }, async () => 'ok'), [])
+})
+
+test('a content card without final keeps trailing deltas', async () => {
+  assert.deepEqual(await textAfterContentCard(
+    'mcp__phone__show_progress', { title: 'Progress' }, async () => 'ok'), ['after card'])
+})
+
+test('a content card with final:false keeps trailing deltas', async () => {
+  assert.deepEqual(await textAfterContentCard(
+    'mcp__phone__show_checklist', { title: 'Progress', final: false }, async () => 'ok'), ['after card'])
+})
+
+test('a failed final:true content card does not suppress', async () => {
+  assert.deepEqual(await textAfterContentCard(
+    'mcp__phone__show_attachment', { path: '', final: true }, async () => { throw new Error('card failed') }),
+  ['after card'])
+})
+
 test('hidden prompt suppression clears at turn end rather than attempt end', async () => {
   const ctx = new Context()
   const hub = new BotStreamHub()

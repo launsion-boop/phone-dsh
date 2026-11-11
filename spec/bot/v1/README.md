@@ -256,6 +256,27 @@ verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` �
 [verifier-output.schema.json](verifier-output.schema.json) 和
 [verification-report.schema.json](verification-report.schema.json) 冻结。
 
+### 2.9 内容卡 `final` 收尾标记（P26 additive，S3）
+
+`show_attachment`、`show_document`、`show_progress`、`show_checklist`、`show_link` 的输入
+schema 增加可选布尔 `final`，默认 `false`。它只控制回合收尾，不进入卡片负载：成功调用且
+`final:true` 时，宿主和 Worker 采用与成功 `ask_user`/`show_next_steps` 相同的处理——本回合
+之后的助手文本不再投递，`SendToUser` 返回 `invalid_arguments`（`Text output is suppressed for
+this turn`），直到 `turn/end`。该机制不取消回合、不新增事件；模型没写完的文本被丢弃，回合按
+DSH 原有方式结束。
+
+- 中途用同一 `cardKey` 更新进度卡（不传 `final` 或传 `false`）不触发压制，卡后仍可继续工作、
+  输出结论和再出卡。
+- 卡片调用失败（`isError:true`、结构审批 block、参数校验失败）不触发压制；`final` 缺失按
+  `false` 处理。`final` 只接受 JSON boolean，其他类型由宿主以 `invalid_arguments` 拒绝。
+- 兼容性：这是可选字段的 additive 变更。旧宿主忽略 `final`（行为与现在相同，卡后仍可能补
+  文字）；旧模型不传 `final` 时新宿主/Worker 也不压制。没有 schema 版本、事件形状、持久化
+  或 `SendToUser` 行为回滚需求。
+- 权威向量：`golden/tool-catalog.phone.json` 的 `valid.p0` 替换上述五个上游条目（只增加
+  `final` 并修正“不结束回合”为条件式），`validate_vectors.py` 校验类型/default/非必填并做
+  mutation 自检；`golden/card-payload.phone.json` 证明 `final` 被接受、校验并从卡片负载中
+  剥离。上游 `golden/tool-catalog.json` 与 `golden/card-payload.json` 保持导出原样。
+
 ## 3. 记忆（已迁至 v2）
 
 记忆契约（`memory-document`、`memory-write-*`、`memory-read-result`、`memory-injection`、`memory-recall`）自 2026-11-10 起迁到
@@ -533,9 +554,9 @@ python3 spec/bot/v1/tools/validate_vectors.py
 
 `spec/bot/v1/golden/` 中不带 `.phone.json` 后缀的文件都是 `export-vectors.mjs` 的原样导出，不得手改；重跑导出器必须 byte-identical。手机端增量只写在同名 `.phone.json`：
 
-- `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、负向 fixture。
+- `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、内容卡 `final` 接受/剥离用例与负向 fixture。
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
-- `tool-catalog.phone.json`：团队工具、`FishAction` 与记忆三原语（`UpdateMemory`/`ReadMemory`/`RecallMemory`）的目录增量。
+- `tool-catalog.phone.json`：团队工具、`FishAction` 与记忆三原语（`UpdateMemory`/`ReadMemory`/`RecallMemory`）的目录增量，以及五个内容卡的工具 schema `final` 增量（替换同名上游 p0 条目；上游文件不变）。
 - `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory`（`RecallMemory` 沿用上游 `tool-effects.json`）与原生 MCP BLE 工具的效果分类。
 - `approval-patterns.phone.json`：把 upstream 的 curl/wget/python 网络命令模式登记为手机端降级（`matches=[]`），并列出脚本文件/变量拼接/解释器与 `python3 /tmp/x.py`；`rm`/`git reset --hard`/`find -delete` 仍匹配 upstream，不得降级。出口写审批与文件 Grant 的向量在 `mcp-egress.phone.json` 的 `egress-approval`、`grant-directory` 套件。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。

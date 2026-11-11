@@ -258,6 +258,74 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertTrue(events.contains { $0.eventId.contains("dsh:gb-main:3:conversation.tool_result") })
     }
 
+    func testFinalContentCardSuppressesWrapUpAndSendToUser() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[
+                .turn(),
+                .toolCall("mcp__phone__show_progress", arguments: #"{"title":"Wrap up","final":true}"#),
+                .toolResult(text: "card sent"),
+                .assistant("must not escape"), .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let result = try await remote.sendUserMessage("finish")
+        XCTAssertEqual(result.status, "completed")
+        XCTAssertEqual(result.text, "")
+        let sent = try await registerAndExecute(
+            fixture.runtime, name: "SendToUser", arguments: .object(["message": .string("must not escape")]))
+        XCTAssertEqual(sent.isError, true)
+        let events = try await botEvents(fixture.store)
+        XCTAssertFalse(events.contains {
+            $0.type == "conversation.assistant_message" && $0.data["text"] == .string("must not escape")
+        })
+        XCTAssertTrue(events.contains { $0.type == "conversation.tool_result" })
+    }
+
+    func testContentCardWithoutFinalKeepsWrapUpText() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[
+                .turn(),
+                .toolCall("mcp__phone__show_progress", arguments: #"{"title":"Progress"}"#),
+                .toolResult(text: "card sent"), .assistant("kept"), .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let result = try await remote.sendUserMessage("work")
+        XCTAssertEqual(result.text, "kept")
+        let sent = try await registerAndExecute(
+            fixture.runtime, name: "SendToUser", arguments: .object(["message": .string("kept")]))
+        XCTAssertNotEqual(sent.isError, true)
+        let events = try await botEvents(fixture.store)
+        XCTAssertTrue(events.contains {
+            $0.type == "conversation.assistant_message" && $0.data["text"] == .string("kept")
+        })
+    }
+
+    func testFailedFinalContentCardDoesNotSuppress() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[
+                .turn(),
+                .toolCall("mcp__phone__show_progress", arguments: #"{"title":"Wrap up","final":true}"#),
+                .toolResult(failed: true), .assistant("failure kept"), .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        let result = try await remote.sendUserMessage("work")
+        XCTAssertEqual(result.text, "failure kept")
+        let sent = try await registerAndExecute(
+            fixture.runtime, name: "SendToUser", arguments: .object(["message": .string("failure kept")]))
+        XCTAssertNotEqual(sent.isError, true)
+    }
+
     func testAsyncTaskUsesCreatedSessionAndWakesParentWithHiddenTurn() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

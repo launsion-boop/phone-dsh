@@ -25,6 +25,11 @@
     "budget": {
       "$ref": "#/$defs/batchBudget"
     },
+    "context_profile": {
+      "description": "Eval-only context profile applied to a derived copy of the packed Worker image. The value names an entry in context-profiles.json; the production profile is never modified.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
     "scenarios": {
       "type": "array",
       "minItems": 1,
@@ -300,6 +305,36 @@
               "const": "user_message"
             },
             "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "mock": {
+              "$ref": "#/$defs/mock"
+            },
+            "timeout_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "agent_message"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "from_bot": {
               "$ref": "#/$defs/botRef"
             },
             "mock": {
@@ -753,6 +788,9 @@
             "value": {
               "type": "string"
             },
+            "ignore_case": {
+              "type": "boolean"
+            },
             "turn": {
               "type": "integer",
               "minimum": 1
@@ -782,6 +820,9 @@
             "value": {
               "type": "string"
             },
+            "ignore_case": {
+              "type": "boolean"
+            },
             "turn": {
               "type": "integer",
               "minimum": 1
@@ -790,6 +831,108 @@
           "required": [
             "type",
             "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "reply_regex"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ignore_case": {
+              "type": "boolean"
+            },
+            "turn": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "reply_not_regex"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ignore_case": {
+              "type": "boolean"
+            },
+            "turn": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "reply_length"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "turn": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "median_max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "each_max": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "allow_no_reply": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type"
           ]
         },
         {
@@ -1098,6 +1241,223 @@
           "required": [
             "type",
             "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "session_event"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string",
+              "minLength": 1
+            },
+            "where": {
+              "$ref": "#/$defs/scalarMap"
+            },
+            "payload_contains": {
+              "type": "string"
+            },
+            "surface_op": {
+              "enum": [
+                "append",
+                "replace"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "event"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "no_session_event"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string",
+              "minLength": 1
+            },
+            "where": {
+              "$ref": "#/$defs/scalarMap"
+            },
+            "payload_contains": {
+              "type": "string"
+            },
+            "surface_op": {
+              "enum": [
+                "append",
+                "replace"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "event"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "card_count"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "card_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "exclude_card_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "equals": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "min": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "card_placement"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "card_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "exclude_card_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "after_reply": {
+              "type": "boolean"
+            },
+            "terminal": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "card_file_exists"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "card_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "exclude_card_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "type"
           ]
         },
         {

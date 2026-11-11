@@ -182,4 +182,62 @@ final class BotTaskApprovalPauseTests: XCTestCase {
         let grants = await fixture.runtime.grants.list(botId: "main")
         XCTAssertFalse(grants.contains { $0.operation == "memory.forget" })
     }
+
+    /// The erasure path switches the main chat to a fresh DSH epoch and then
+    /// parks/starts the Worker. A Task already waiting on a durable approval is
+    /// not live work, so the replacement Worker must keep it in
+    /// `waiting_approval`, keep the todo, and resume the same task session
+    /// (not the replaced chat epoch) when the user decides.
+    func testMainSessionEpochSwitchKeepsParkedTaskApprovalOnItsSession() async throws {
+        let fixture = try makeBotMCPFixture(approvalExpiryMs: 60_000)
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [:])
+        let setup = try await makeRunningTask(
+            fixture, transport, firstTurn: [.turn(), .end()])
+        await fixture.runtime.attachTaskExecutor(setup.remote, botID: "main")
+        let (digest, approvalID) = try await issueTaskApproval(
+            fixture, taskSession: setup.task.sessionId, callID: "epoch-call")
+
+        transport.resume("gb-created-1")
+        _ = try await waitForStatus(
+            setup.remote, taskID: setup.task.taskId, parent: setup.parent,
+            status: "waiting_approval")
+
+        let switched = try await setup.remote.switchMainSessionForErasure(
+            erasureID: "erasure-epoch-test", erasedRecords: [])
+        XCTAssertNotEqual(switched.old, switched.new)
+        let mainSession = await setup.remote.mainSessionIdentifier()
+        XCTAssertEqual(mainSession, switched.new)
+        XCTAssertTrue(transport.archivedSessions.contains(switched.old))
+
+        // `BotRuntimeComposition.bind` runs after the parked host restarts.
+        // It must preserve the durable todo and never turn the parked Task
+        // into an `interrupted` one.
+        _ = await fixture.runtime.workerRestarted()
+        let afterRestart = try await setup.remote.await(
+            taskId: setup.task.taskId, timeoutMs: 200, parent: setup.parent)
+        XCTAssertEqual(afterRestart.status, "waiting_approval")
+        XCTAssertEqual(afterRestart.sessionId, setup.task.sessionId)
+        let pending = await fixture.runtime.approvals.pendingIDs
+        XCTAssertEqual(pending, [approvalID])
+
+        transport.queue(sessionId: setup.task.sessionId, events: [
+            .turn(2), .assistant("resumed after epoch switch"), .end(turn: 2),
+        ])
+        let resolved = await fixture.runtime.approvals.resolve(
+            approvalId: approvalID, decision: .allowOnce, digest: digest)
+        XCTAssertEqual(resolved, .resolved)
+        let completed = try await waitForStatus(
+            setup.remote, taskID: setup.task.taskId, parent: setup.parent,
+            status: "completed")
+        XCTAssertEqual(completed.sessionId, setup.task.sessionId)
+        XCTAssertEqual(completed.result, "resumed after epoch switch")
+        XCTAssertFalse(transport.promptHistory.contains {
+            $0.sessionId == switched.new && $0.text.contains("[approval_resume]")
+        })
+        XCTAssertTrue(transport.promptRequestIds.contains {
+            $0.sessionId == setup.task.sessionId
+                && $0.requestId == "task-turn:\(setup.task.taskId):approval:\(approvalID)"
+        })
+    }
 }

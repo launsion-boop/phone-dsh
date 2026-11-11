@@ -1,0 +1,32 @@
+{
+  "$comment": "SPDX-License-Identifier: MIT; eval-only context profiles. These are applied to a derived copy of the packed Worker image (home/cordis.patch.yml); the production profile in plugins/profile/ is never modified.",
+  "version": 1,
+  "profiles": {
+    "eval-compaction": {
+      "description": "BOT-E01 only: a threshold low enough that the budgeted pressure turns really cross it, with the tool-result pruner effectively disabled so compaction performs a summary and a replace checkpoint instead of silently trimming to below the threshold.",
+      "compaction": {
+        "auto": true,
+        "thresholdRatio": 0.04,
+        "headroomTokens": 16384,
+        "retainRatio": 0.012,
+        "maxTokens": 16384,
+        "summarizationProvider": "",
+        "summarizationModel": "",
+        "compactionRetries": 1,
+        "maxOverflowRetries": 1,
+        "modelPolicies": []
+      },
+      "pruner": {
+        "thresholdChars": 2000000,
+        "headChars": 1000000,
+        "tailChars": 500000
+      },
+      "spillPolicy": {
+        "maxInlineTokens": 12500
+      },
+      "spillLocal": {
+        "cleanupPeriodDays": 30
+      }
+    }
+  }
+}

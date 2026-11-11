@@ -329,6 +329,7 @@ final class BotEvalRunnerTests: XCTestCase {
             let allEvents = try await BotProductionEventReader.all(domain: store)
             let calls = try await collectToolCalls(
                 events: allEvents, context: context)
+            let sessionEvents = await collectSessionEvents(context: context)
             let memories = await collectMemories(context: context)
             let botWorkspaces = workspacePaths(context: context)
             let approvalCounts = Dictionary(grouping: allEvents.filter { $0.type == "approval.requested" },
@@ -354,6 +355,9 @@ final class BotEvalRunnerTests: XCTestCase {
                 workspaces: botWorkspaces,
                 workspaceRoot: context.workspaceRoot,
                 scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true),
+                workspaceVolume: EvalWorkspaceSeed.materializedWorkspaces(
+                    workspaceRoot: workspaceRoot),
+                sessionEvents: sessionEvents,
                 echoRequests: echo.requests,
                 advertisedTools: advertisedTools,
                 advertisedToolsBySession: advertisedToolsBySession)
@@ -487,6 +491,44 @@ final class BotEvalRunnerTests: XCTestCase {
                 throw EvalRunnerError.action("action stale: \(reason)")
             }
             return EvalActionOutcome(status: "ok", detail: nil, replies: replies)
+
+        case "agent_message":
+            // The host delivers this as another Bot's message: the same
+            // production `sendAgentMessage` seam the team host uses, with an
+            // `agent:` request id. The main Bot's willingness to call
+            // SendToAgent is deliberately not part of this scenario.
+            let botID = try context.botID(for: action.bot)
+            let fromBotID = try context.botID(for: action.fromBot ?? "main")
+            let unit = try await context.unit(for: botID)
+            let turn = context.nextTurn(botID)
+            let cursor = try await context.lastCommitSeq()
+            context.installMock(action.mock ?? context.scenario.mock)
+            let watcher = context.startApprovalWatcher()
+            let result: BotRemoteTurnResult
+            do {
+                let requestId = "agent:\(context.nonce("agent", action: action, repeat: index))"
+                let senderName = context.composition.rosterModel.bots
+                    .first { $0.id == fromBotID }?.name ?? fromBotID
+                let prompt = "[agent] \(senderName) (id: \(fromBotID)): \(action.text ?? "")"
+                result = try await pumped(timeout: context.actionTimeout(action)) {
+                    try await unit.remote.sendAgentMessage(
+                        prompt, requestId: requestId)
+                }
+            } catch {
+                watcher.cancel()
+                throw error
+            }
+            watcher.cancel()
+            let replies = try await context.replies(
+                after: cursor, botID: botID, turn: turn,
+                action: action, repeat: index)
+            guard result.status == "completed" else {
+                throw EvalRunnerError.action(
+                    "agent turn ended with \(result.status)"
+                    + (result.error.map { ": \($0)" } ?? ""))
+            }
+            return EvalActionOutcome(
+                status: "ok", detail: "agent message from \(fromBotID)", replies: replies)
 
         case "seed_held_item":
             let botID = try context.botID(for: action.bot)
@@ -797,6 +839,22 @@ final class BotEvalRunnerTests: XCTestCase {
             }
         }
         return calls
+    }
+
+    /// Parse the same production session log the tool-call evidence uses. The
+    /// `session_event` assertion reads compaction checkpoints and a turn's
+    /// `source.rpcId` origin here, not from the durable BotEvent journal.
+    private func collectSessionEvents(context: EvalRunContext) async -> [String: [BotDSHSessionEvent]] {
+        var result: [String: [BotDSHSessionEvent]] = [:]
+        for botID in context.knownBotIDs {
+            guard let unit = context.composition.unit(for: botID),
+                  let sessionID = await unit.remote.mainSessionIdentifier() else { continue }
+            guard let url = latestSessionLog(
+                workspaceRoot: context.workspaceRoot, sessionID: sessionID) else { continue }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            result[botID] = BotDSHSessionEvent.parseJSONL(data).events
+        }
+        return result
     }
 
     private func collectMemories(context: EvalRunContext) async -> [String: [BotMemoryDocument]] {
