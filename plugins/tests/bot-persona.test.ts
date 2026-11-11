@@ -90,19 +90,50 @@ test('Bot name comes from runtime context and profile persona matches the checke
   assert.doesNotMatch(profile, /thresholdRatio: 0\.4/)
 })
 
+test('wrap-up content cards use final:true and the host drops later text', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    if (lang === 'zh') {
+      assert.ok(persona.includes('收尾卡传 `final: true`'), 'zh tells the model to mark the wrap-up card')
+      assert.ok(persona.includes('宿主会压掉之后的助手文本和 SendToUser'), 'zh states the host suppression contract')
+      assert.ok(persona.includes('传了就不需要也不应再写字'), 'zh says no text is needed after the final card')
+      assert.ok(persona.includes('中途更新进度卡不传 `final`'), 'zh exempts mid-task progress updates')
+      assert.ok(persona.includes('内容卡（progress / checklist / link / attachment / document）'), 'zh includes every content-card type')
+      assert.ok(persona.includes('一回合最多两张内容卡'), 'zh keeps the two-card cap')
+      assert.ok(persona.includes('先把结论写进正文，再把卡放在回复最后'), 'zh keeps cards after the prose conclusion')
+      assert.equal(persona.includes('**硬规则：收尾内容卡工具返回后，本回合就结束。**'), false,
+        'zh must not keep the round-2 hard-rule paragraph')
+      assert.equal(persona.includes('工具返回只是回执，不是新的用户消息'), false,
+        'zh must not keep the round-2 receipt paragraph')
+    } else {
+      assert.ok(persona.includes('Pass `final:true` on the wrap-up card'), 'en tells the model to mark the wrap-up card')
+      assert.ok(persona.includes('the host then suppresses later assistant text and SendToUser'), 'en states the host suppression contract')
+      assert.ok(persona.includes('you neither need nor should write anything after it'), 'en says no text is needed after the final card')
+      assert.ok(persona.includes('Omit `final` for mid-task progress updates'), 'en exempts mid-task progress updates')
+      assert.ok(persona.includes('content card (progress / checklist / link / attachment / document)'), 'en includes every content-card type')
+      assert.ok(persona.includes('At most two content cards per turn'), 'en keeps the two-card cap')
+      assert.ok(persona.includes('put the conclusion in prose first, then the card at the end'), 'en keeps cards after the prose conclusion')
+      assert.equal(persona.includes('**Hard rule: a wrap-up content-card tool return ends the turn.**'), false,
+        'en must not keep the round-2 hard-rule paragraph')
+      assert.equal(persona.includes('the tool return is just a receipt, not a new user message'), false,
+        'en must not keep the round-2 receipt paragraph')
+    }
+  }
+})
+
 test('an explicit content-card request outranks the no-manufactured-card default', () => {
   for (const lang of ['zh', 'en'] as const) {
     const { persona } = assemblePrompt({ lang })
     if (lang === 'zh') {
       assert.ok(persona.includes('与任务长短无关'), 'zh must not qualify content cards by task length')
-      assert.ok(persona.includes('卡片发出之前不要结束回合'), 'zh must require the requested card before ending the turn')
+      assert.ok(persona.includes('最后一卡传 `final: true`'), 'zh must mark the last requested card as final')
       assert.equal(persona.includes('长工作进度'), false, 'zh must not call progress cards long-work only')
       assert.ok(persona.includes('一回合最多两张'), 'zh keeps the two-card cap')
       assert.ok(persona.includes('先把结论写进正文，再把卡放在回复最后'), 'zh keeps cards after the prose conclusion')
       assert.ok(persona.includes('**硬规则：回复里只要是在请用户做选择，就必须用卡片。**'), 'zh keeps the decision-card hard rule')
     } else {
       assert.ok(persona.includes('task length does not matter'), 'en must not qualify content cards by task length')
-      assert.ok(persona.includes('do not end the turn until that card is sent'), 'en must require the requested card before ending the turn')
+      assert.ok(persona.includes('pass `final:true` on the last card'), 'en must mark the last requested card as final')
       assert.equal(persona.includes('show_progress` for long work'), false, 'en must not call progress cards long-work only')
       assert.ok(persona.includes('At most two content cards per turn'), 'en keeps the two-card cap')
       assert.ok(persona.includes('put the conclusion in prose first, then the card at the end'), 'en keeps cards after the prose conclusion')

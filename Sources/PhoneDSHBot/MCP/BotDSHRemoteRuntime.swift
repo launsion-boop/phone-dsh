@@ -1877,6 +1877,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var texts: [String] = []
         var resultTexts: [String] = []
         var toolNames: [String: String] = [:]
+        var toolFinals: [String: Bool] = [:]
         var recordRefs: [String] = []
         var suppressWrapUp = false
         let live = kind == .chat && !hidden
@@ -1991,6 +1992,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let callId = data["callId"]?.stringValue ?? ""
                 let name = data["name"]?.stringValue ?? ""
                 toolNames[callId] = name
+                if isContentCardTool(name), let final = contentCardFinal(in: data["arguments"]) {
+                    toolFinals[callId] = final
+                }
                 _ = await watchdog.observeToolCall(
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, callId: callId, at: eventTime)
@@ -2001,7 +2005,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let callId = data["message"]?["toolCallId"]?.stringValue ?? ""
                 let name = toolNames[callId] ?? ""
                 let failed = data["message"]?["isError"]?.boolValue == true || data["error"] != nil
-                if isQuestionTool(name), !failed {
+                let finalCard = isContentCardTool(name) && toolFinals[callId] == true
+                toolFinals.removeValue(forKey: callId)
+                if (isQuestionTool(name) || finalCard), !failed {
+                    // `final:true` content cards reuse the ask_user seam. This
+                    // only drops the rest of the turn's visible text; it never
+                    // cancels the turn or rewrites the tool result.
                     suppressWrapUp = true
                     await runtime.suppressText(sessionId: sessionId)
                 }
@@ -2055,6 +2064,32 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         ["ask_user", "show_next_steps"].contains { bare in
             name == bare || name.hasSuffix("__\(bare)")
         }
+    }
+
+    private func isContentCardTool(_ name: String) -> Bool {
+        BotToolCatalog.contentCardNames.contains { bare in
+            name == bare || name.hasSuffix("__\(bare)")
+        }
+    }
+
+    /// Reads `final` from the recorded `tool/call` arguments. DSH records the
+    /// model's arguments as a JSON string; accepting an object as well keeps
+    /// the projection stable for tests and older recordings. A missing,
+    /// non-boolean or unparseable value means "not final" here; the host MCP
+    /// validation still rejects a non-boolean call before any card is sent.
+    private func contentCardFinal(in value: BotJSONValue?) -> Bool? {
+        let object: [String: BotJSONValue]?
+        if case .object(let fields)? = value {
+            object = fields
+        } else if let text = value?.stringValue,
+                  let parsed = try? BotJSONValue.parse(Data(text.utf8)),
+                  case .object(let fields) = parsed {
+            object = fields
+        } else {
+            object = nil
+        }
+        guard case .bool(let final)? = object?["final"] else { return nil }
+        return final
     }
 
     private func appendConversation(type: String, sessionId: String, seq: Int,

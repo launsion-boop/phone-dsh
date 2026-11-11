@@ -945,7 +945,8 @@
                 "arguments": {
                   "title": "整理进度",
                   "state": "done",
-                  "cardKey": "e11"
+                  "cardKey": "e11",
+                  "final": true
                 }
               }
             ],
@@ -978,7 +979,8 @@
             "question",
             "steps"
           ],
-          "after_reply": true
+          "after_reply": true,
+          "terminal": true
         }
       ]
     },

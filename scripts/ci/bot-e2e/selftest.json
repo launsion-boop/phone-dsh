@@ -1450,8 +1450,8 @@
     },
     {
       "id": "BOT-SELFTEST-CARDS-FILES",
-      "title": "content cards are counted once, follow prose and end the turn; an attachment path resolves",
-      "user_story": "A scripted turn writes a progress card (twice under the same cardKey) and an attachment card for a seeded workspace file, with no final text after the cards.",
+      "title": "content cards are counted once, follow prose and the final card suppresses later text; an attachment path resolves",
+      "user_story": "A scripted turn writes a progress card (twice under the same cardKey) and an attachment card for a seeded workspace file, marks the last card final:true, and tries to write a closing text that the host must suppress.",
       "expect": "pass",
       "budget": {
         "max_minutes": 4,
@@ -1495,11 +1495,12 @@
                 "name": "mcp__phone__show_attachment",
                 "arguments": {
                   "path": "/dsh/workspace/.dshbot/agents/main/report.md",
-                  "caption": "self-check attachment"
+                  "caption": "self-check attachment",
+                  "final": true
                 }
               }
             ],
-            "final_text": ""
+            "final_text": "SELFTEST_POST_FINAL_TEXT_MUST_NOT_APPEAR"
           }
         }
       ],
@@ -1531,6 +1532,68 @@
           "card_types": [
             "attachment"
           ]
+        },
+        {
+          "type": "reply_not_contains",
+          "value": "SELFTEST_POST_FINAL_TEXT_MUST_NOT_APPEAR"
+        }
+      ]
+    },
+    {
+      "id": "BOT-SELFTEST-CARD-NO-FINAL",
+      "title": "a content card without final does not suppress the later reply (expected PASS)",
+      "user_story": "The model updates a content card mid-task without final and then writes the conclusion; the host must keep that text.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 20
+      },
+      "network": "none",
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "show progress but keep talking",
+          "mock": {
+            "tools": [
+              {
+                "name": "mcp__phone__show_progress",
+                "arguments": {
+                  "title": "mid-task progress",
+                  "state": "running",
+                  "cardKey": "selftest-no-final"
+                }
+              }
+            ],
+            "final_text": "SELFTEST_VISIBLE_AFTER_CARD"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "card_count",
+          "exclude_card_types": [
+            "question",
+            "steps"
+          ],
+          "min": 1,
+          "max": 1
+        },
+        {
+          "type": "card_placement",
+          "exclude_card_types": [
+            "question",
+            "steps"
+          ],
+          "after_reply": true
+        },
+        {
+          "type": "reply_contains",
+          "value": "SELFTEST_VISIBLE_AFTER_CARD"
         }
       ]
     }

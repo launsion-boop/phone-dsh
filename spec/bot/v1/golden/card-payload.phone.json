@@ -8,7 +8,8 @@
   "delta": [
     "every option/step carries the host-assigned id (o0, o1, ...)",
     "the single recommended choice is moved to the first position",
-    "a danger choice is never recommended, at most one choice keeps recommended:true"
+    "a danger choice is never recommended, at most one choice keeps recommended:true",
+    "content-card final flag: final is control metadata and is validated as a boolean, then stripped from the card payload; args-level cases prove final:true/false are accepted without changing the card."
   ],
   "valid": [
     {
@@ -207,6 +208,68 @@
           ]
         }
       }
+    },
+    {
+      "tool": "show_progress",
+      "args": {
+        "title": "收尾进度",
+        "state": "done",
+        "cardKey": "final-1",
+        "final": true
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "progress",
+          "title": "收尾进度",
+          "state": "done",
+          "cardKey": "final-1",
+          "percent": 100
+        }
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "args": {
+        "title": "发布检查",
+        "items": [
+          {
+            "text": "运行测试",
+            "done": true
+          }
+        ],
+        "final": false
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "checklist",
+          "title": "发布检查",
+          "items": [
+            {
+              "id": "item-0",
+              "text": "运行测试",
+              "done": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_attachment",
+      "args": {
+        "path": "/tmp/report.txt",
+        "caption": "报告",
+        "final": true
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "attachment",
+          "path": "/tmp/report.txt",
+          "caption": "报告"
+        }
+      }
     }
   ],
   "invalid": [
@@ -233,6 +296,17 @@
       "result": {
         "ok": false,
         "error": "show_next_steps 需要 2–4 个 steps。"
+      }
+    },
+    {
+      "tool": "show_progress",
+      "args": {
+        "title": "收尾进度",
+        "final": "yes"
+      },
+      "result": {
+        "ok": false,
+        "error": "final 必须是 boolean。"
       }
     }
   ]

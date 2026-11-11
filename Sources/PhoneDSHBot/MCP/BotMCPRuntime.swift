@@ -1094,6 +1094,7 @@ public actor BotMCPRuntime {
                           call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         if BotToolCatalog.cardToolNames.contains(name) {
             let built = try BotCardPayloads.build(tool: name, arguments: arguments)
+            let final = try BotCardPayloads.contentCardFinal(tool: name, arguments: arguments)
             guard case .object(let result) = built, let card = result["card"] else {
                 throw BotMCPError.invalidRequest("card builder returned no card")
             }
@@ -1103,6 +1104,12 @@ public actor BotMCPRuntime {
             fields["tool"] = .string(name)
             fields["callId"] = .string(call.callId)
             _ = try await eventWriter.append(type: "card.presented", principal: call.principal, data: .object(fields))
+            if final {
+                // Same seam as ask_user/show_next_steps: a successful wrap-up
+                // card suppresses SendToUser for the rest of the turn. It does
+                // not cancel the turn and does not alter the card payload.
+                suppressingTextSessions.insert(call.sessionId)
+            }
             if name == "ask_user" || name == "show_next_steps" {
                 suppressingTextSessions.insert(call.sessionId)
                 let text = name == "ask_user"
