@@ -551,7 +551,27 @@ final class BotChatModel: ObservableObject {
         }
         if let index {
             if rows[index].id == row.id && rows[index].updatedSeq > row.updatedSeq { return }
-            rows[index] = row
+            if rows[index] == row { return }
+            var next = row
+            if rows[index].id != row.id {
+                // An in-place card update (same `cardKey`) may still carry a
+                // fresh producer id — the durable projection used to mint a
+                // new `card.presented` row id for every progress update. The
+                // transcript's identity is the first row id: replacing it
+                // makes `ForEach` tear down and rebuild the lazy item on every
+                // update, which feeds the placement loop. Keep the original
+                // identity and ordering; merge the provenance instead.
+                next.id = rows[index].id
+                next.seq = rows[index].seq
+                next.createdAt = rows[index].createdAt
+                var eventIDs = rows[index].provenance.eventIDs
+                for eventID in row.provenance.eventIDs where !eventIDs.contains(eventID) {
+                    eventIDs.append(eventID)
+                }
+                next.provenance.eventIDs = eventIDs
+            }
+            if next == rows[index] { return }
+            rows[index] = next
         } else {
             rows.append(row)
         }
@@ -692,7 +712,7 @@ final class BotChatModel: ObservableObject {
     private func flushDelta() {
         deltaFlush?.cancel()
         deltaFlush = nil
-        guard !pendingDelta.isEmpty, var turn = live, !turn.ended else {
+        guard !pendingDelta.isEmpty, var turn = live, !turn.ended, !turn.suppressesText else {
             pendingDelta = ""
             return
         }

@@ -362,7 +362,9 @@ public struct BotSessionLogProjector: Sendable {
         var hiddenTurns: Set<Int> = []
         var hiddenFallback = false
         var awaitingCard = false
+        var suppressTrailingText = false
         var toolNames: [String: String] = [:]
+        var toolFinals: [String: Bool] = [:]
         var calls: [String: (name: String, rowID: String, body: BotRowBody)] = [:]
         var seenEventIDs: Set<String> = []
 
@@ -371,6 +373,8 @@ public struct BotSessionLogProjector: Sendable {
             let order = BotRowOrder(time: event.time, source: source, sourceSeq: event.seq, index: index)
             if event.type == "turn/start" {
                 turn = intValue(event.data["turn"]) ?? turn
+                suppressTrailingText = false
+                toolFinals = [:]
                 continue
             }
             if ignored.contains(event.type) { continue }
@@ -428,7 +432,8 @@ public struct BotSessionLogProjector: Sendable {
             case "assistant/message":
                 let message = objectValue(event.data["message"]) ?? [:]
                 let messageTurn = intValue(event.data["turn"]) ?? turn
-                if hiddenFallback || hiddenTurns.contains(messageTurn) || awaitingCard { continue }
+                if hiddenFallback || hiddenTurns.contains(messageTurn) || awaitingCard
+                    || suppressTrailingText { continue }
                 let blocks = arrayValue(message["content"]) ?? []
                 let text = contentText(.array(blocks.filter { stringValue(objectValue($0)?["type"]) == "text" }))
                 guard !text.isEmpty else { continue }
@@ -444,8 +449,12 @@ public struct BotSessionLogProjector: Sendable {
                 let name = stringValue(event.data["name"]) ?? ""
                 let callID = stringValue(event.data["callId"]) ?? rowID(sessionID, event.seq)
                 toolNames[callID] = name
+                let callArguments = parseArguments(stringValue(event.data["arguments"]))
+                if isFinalContentCard(name: name, arguments: callArguments) {
+                    toolFinals[callID] = true
+                }
                 guard isApprovalTool(name) else { continue }
-                let arguments = parseArguments(stringValue(event.data["arguments"]))
+                let arguments = callArguments
                 let action = nonEmpty(arguments, "action") ?? "未知操作"
                 let command = stringValue(arguments["command"]) ?? ""
                 let requestID = stringValue(arguments["requestId"])
@@ -489,6 +498,16 @@ public struct BotSessionLogProjector: Sendable {
                                       body: call.body, trust: BotRowProvenance.model)
                     result.append(.upsert(draft, order))
                 }
+                let failed = message["isError"]?.boolValue == true || event.data["error"] != nil
+                if !failed, toolFinals[callID] == true {
+                    // P26 §2.9: this raw session log is the App's durable
+                    // projection too. The host already drops the trailing
+                    // `conversation.assistant_message`; keeping the same rule
+                    // here prevents that sentence from reappearing after a
+                    // turn end or a cache rebuild.
+                    suppressTrailingText = true
+                }
+                toolFinals.removeValue(forKey: callID)
                 let displayed = text.hasPrefix("已顯示") || text.hasPrefix("已显示") || text.hasPrefix("Displayed")
                 let toolName = toolNames[callID] ?? stringValue(event.data["name"]) ?? ""
                 if displayed && (toolName.hasSuffix("ask_user") || toolName.hasSuffix("show_next_steps")) {
@@ -496,6 +515,8 @@ public struct BotSessionLogProjector: Sendable {
                 }
             case "turn/end":
                 awaitingCard = false
+                suppressTrailingText = false
+                toolFinals.removeAll()
                 hiddenTurns.remove(turn)
                 hiddenFallback = false
                 let reason = objectValue(event.data["reason"])
@@ -954,6 +975,13 @@ private func contentText(_ value: BotJSONValue?) -> String {
         guard let object = objectValue(block), stringValue(object["type"]) == "text" else { return nil }
         return stringValue(object["text"])
     }.joined()
+}
+
+private func isFinalContentCard(name: String, arguments: [String: BotJSONValue]) -> Bool {
+    guard let bare = BotToolCatalog.contentCardNames.first(where: { candidate in
+        name == candidate || name.hasSuffix("__\(candidate)")
+    }) else { return false }
+    return (try? BotCardPayloads.contentCardFinal(tool: bare, arguments: .object(arguments))) == true
 }
 
 private func parseArguments(_ text: String?) -> [String: BotJSONValue] {
