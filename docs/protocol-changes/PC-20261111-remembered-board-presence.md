@@ -12,7 +12,7 @@ contract_revision: spec/device/v1/ble-link.md rule 6 @ this PR head
 
 Protocol impact: P07; P09: none — no page, row or copy changes; P27: none — TonoLinkVoiceHost.swift only asks the device store to reconnect, PC Link is unchanged
 
-P07 — a remembered board is auto-connected only when present (system-connected, or advertising). A board that is only known (`retrievePeripherals`) is listed but never connected blind; the post-drop watch runs about 6 minutes; the voice link's reconnect triggers the store's reconnect.
+P07 — a remembered board is auto-connected only when present **and** connectable by this central (advertising, and the peripheral is `.disconnected`). A system-connected HID accessory is deliberately not adopted; see GAP-37. A board that is only known (`retrievePeripherals`) is listed but never connected blind; the post-drop watch runs about 6 minutes; the voice link's reconnect triggers the store's reconnect.
 
 ## 1. 问题
 
@@ -22,7 +22,8 @@ P07 — a remembered board is auto-connected only when present (system-connected
 
 | 项 | Before → After |
 | --- | --- |
-| 已知但不在场的记住板子 | 列出并自动连接（超时→隔离） → 只列出；系统层已连接或收到广播时才连接 |
+| 已知但不在场的记住板子 | 列出并自动连接（超时→隔离） → 只列出；**只有收到广播、且本 central 能提交连接（外设非 `.disconnected`）时才连接** |
+| 系统层已连接的板子（例如 HID 自己重连） | 原设想“视为在场即连接” → **本版不接管**：`connect` 对外设状态非 `.disconnected` 直接返回，且接管系统连接会让 App 之后一次的断开拆掉系统 HID 链路；改为等广播或用户手动重连，登记为 GAP-37 |
 | 掉线后观察 | 每 3 s × 20（1 分钟），且盲连 → 3 s × 20 后 15 s × 20（约 6 分钟），只在在场时连接，否则扫描等广播 |
 | 语音 ctrl 连接恢复 | 无联动 → 触发 `reconnectRemembered()`（此时板子必然在场） |
 
