@@ -820,6 +820,11 @@ internal fun HostShell(
         if (nav.current == PdshRoute.AndroidAdb) androidAdb.refresh()
     }
     var drawerOpen by remember { mutableStateOf(false) }
+    // The drawer stays mounted after the host closes it (selecting a session, a tab,
+    // a route) so its close motion can run (spec/ui/v1/interaction.md §1 rule 8);
+    // HomeDrawer reports the end of that motion through onClose.
+    var drawerMounted by remember { mutableStateOf(false) }
+    LaunchedEffect(drawerOpen) { if (drawerOpen) drawerMounted = true }
     var webFaceOpened by remember { mutableStateOf(false) }
     // L62: the probe is no longer the home face; it is the host's own surface
     // *at* the home address. Keeping it in the `home` slot (instead of a new
@@ -1400,7 +1405,7 @@ internal fun HostShell(
                         .background(tokens.colors.code),
                 )
             }
-            if (drawerOpen) {
+            if (drawerOpen || drawerMounted) {
                 val groupedIds = drawerFolders.orEmpty().map { it.id }.toSet()
                 val drawerFacts = HomeDrawerFacts(
                     folders = drawerFolders?.map { folder ->
@@ -1466,9 +1471,9 @@ internal fun HostShell(
                 )
                 HomeDrawer(
                     facts = drawerFacts,
-                    isOpen = true,
+                    isOpen = drawerOpen,
                     state = drawerUiState,
-                    onClose = { drawerOpen = false },
+                    onClose = { drawerOpen = false; drawerMounted = false },
                     onCreateSession = {
                         val requestId = StateRequestId(UUID.randomUUID().toString())
                         val receipt = engine.newChatSessionConfirmed(requestId)

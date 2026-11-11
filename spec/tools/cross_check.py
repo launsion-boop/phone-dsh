@@ -95,6 +95,7 @@ GOLDEN_READERS = (
     ("spec/platform/golden", "*.json", "spec/platform/tools/platform_check.py", False),
     ("spec/ui/v1/golden", "tokens.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "surface-projection.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "drawer-gesture.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/v1/golden/native-mcp", "*.json", "spec/v1/tools/native_mcp_check.py", False),
     ("spec/ui/v1/golden/page-completeness", "fixture.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
     ("spec/ui/v1/golden/page-completeness", "cases.schema.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
