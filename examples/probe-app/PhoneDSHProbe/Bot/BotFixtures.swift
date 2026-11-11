@@ -11,6 +11,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case approval, automation, error, denial, overflow, failClosed
     case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
     case runningToolUnauthorized, runningToolReplay, agentComm
+    case runningProgress
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -236,6 +237,19 @@ enum BotUIFixtures {
                     ["id": "p4", "label": "创建 PR", "state": "pending"],
                 ],
             ])
+        case .runningProgress:
+            return introRows + [cardRow("running-progress", body: widget("progress", [
+                "title": "生成发布验收材料", "state": "running", "percent": 42,
+                "summary": "已完成数据核对，正在生成两种外观的截图。", "eta": "约 2 分钟",
+                "cardKey": "fixture-running-progress",
+                "steps": [
+                    ["id": "p0", "label": "读取契约与共享向量", "state": "done", "detail": "完成"],
+                    ["id": "p1", "label": "编译并运行模拟器", "state": "active", "detail": "12/24"],
+                    ["id": "p2", "label": "检查长文本与动态字体", "state": "pending"],
+                    ["id": "p3", "label": "汇总剩余风险", "state": "pending"],
+                    ["id": "p4", "label": "创建 PR", "state": "pending"],
+                ],
+            ]), seq: 2)]
         case .checklist:
             body = widget("checklist", [
                 "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
@@ -701,6 +715,8 @@ struct BotUIFixtureRootView: View {
             chat.receive(.event(BotUIFixtures.liveEvent("tool/result", turn: 1, seq: 3, data: [
                 "message": .object(["toolCallId": .string("fixture-review")]),
             ])))
+        case .runningProgress:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
         case .runningToolPhone:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [

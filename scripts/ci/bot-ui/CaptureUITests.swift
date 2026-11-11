@@ -218,6 +218,23 @@ final class BotCaptureUITests: XCTestCase {
         }
     }
 
+    /// A progress card is shown while the turn (and its header/activity
+    /// motion) is still running. XCUITest must be able to query and tap it;
+    /// otherwise the page is stuck in layout or never idles.
+    func testProgressCardDuringRunningTurnKeepsSnapshotsAvailable() throws {
+        launch("runningProgress")
+        let more = app.buttons["bot.progress.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        let title = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "生成发布验收材料")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        more.tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["约 2 分钟"].exists
+                      || app.staticTexts.matching(
+                        NSPredicate(format: "label CONTAINS %@", "约 2 分钟")).firstMatch.exists)
+    }
+
     /// A lost live `turn/end` must not pin the live tool group forever. The
     /// 800ms durable watch is authoritative; once it carries the answer the
     /// stop control and tool-running activity go away.
