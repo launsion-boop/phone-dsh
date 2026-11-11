@@ -261,7 +261,7 @@ export interface HostRouteEnvironment {
 
 /** Reason `curl` carries when this boot has no host `/v1/http` route. */
 export const CURL_NO_HOST_ROUTE_REASON =
-  'no host /v1/http route in this boot: PDSH_CHANNEL_TOKEN is unset, so curl cannot reach any host'
+  'no host /v1/http route in this boot: PDSH_CHANNEL_TOKEN is unset, so curl and github cannot reach any host'
 
 /**
  * Commands this boot cannot run, derived only from facts the Worker observes.
@@ -278,7 +278,11 @@ export function workerUnavailableCommands(env: HostRouteEnvironment = {}): Capab
   const origin = env.PDSH_CHANNEL_ORIGIN ?? env.PDSH_EXEC_BRIDGE_URL
   const token = env.PDSH_CHANNEL_TOKEN ?? env.PDSH_EXEC_BRIDGE_TOKEN
   const hasHostRoute = origin !== undefined && origin !== '' && token !== undefined && token !== ''
-  return hasHostRoute ? [] : [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }]
+  if (hasHostRoute) return []
+  return [
+    { command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON },
+    { command: 'github', reason: CURL_NO_HOST_ROUTE_REASON },
+  ]
 }
 
 /** One capability manifest build input; every field is a fact, not a guess. */
@@ -635,6 +639,16 @@ function gitSection(git: NonNullable<CapabilityManifestDocument['git']>): string
   ]
 }
 
+/** The no-clone GitHub tool, only when this boot's command table serves it. */
+function githubSection(): string[] {
+  return [
+    '## GitHub',
+    '- `github` reads and changes a GitHub repo with no local clone: `get`, `tree`, `search`, `branch`, `commit`, `pr`. `github --help` lists the flags.',
+    '- Do not pass a token and do not put one in a script. Requests use the host `/v1/http` allow-list; the host credential gateway injects the credential stored for `api.github.com`. An allow-listed host with no stored credential stays anonymous: public reads may work, writes and code search need that credential.',
+    '- Keep commits small (at most 20 files, 256 KiB each). Prefer this over cloning a large repository.',
+  ]
+}
+
 /** Heading of the fixed phone-resource practice section. */
 export const MOBILE_RESOURCE_HEADING = '## 手机上的资源做法'
 /** Hard byte budget of that section (S1-F: "no more than 600 bytes"). */
@@ -692,6 +706,7 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
     '',
     ...document.ubuntu === undefined ? [] : [...ubuntuSection(document.ubuntu), ''],
     ...document.git === undefined ? [] : [...gitSection(document.git), ''],
+    ...document.commands.includes('github') ? [...githubSection(), ''] : [],
     ...document.phone === undefined ? [] : [
       '## Host phone tools',
       'The catalog is host-owned; the Worker only forwards `phone <tool> <json-object>`. '

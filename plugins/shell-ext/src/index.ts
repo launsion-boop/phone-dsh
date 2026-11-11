@@ -216,6 +216,18 @@ export {
 } from './curl.ts'
 export type { CurlOptions, HostProxy } from './curl.ts'
 export {
+  GITHUB_DESCRIPTION,
+  GITHUB_MAX_COMMIT_BYTES,
+  GITHUB_MAX_FILE_BYTES,
+  GITHUB_MAX_FILES,
+  GITHUB_USAGE,
+  createGithubCommand,
+  parseGithubArguments,
+  redactGithubText,
+  runGithub,
+} from './github.ts'
+export type { GithubOptions } from './github.ts'
+export {
   WORKER_SHELL_PROGRAMS,
   createWorkerCommands,
   isWorkerShellProgram,

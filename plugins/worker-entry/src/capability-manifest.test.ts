@@ -222,25 +222,29 @@ test('manifest.commands has an empty two-way difference with the production comm
   assert.deepEqual(stale, [], 'the manifest names no command the shell cannot run')
 })
 
-test('workerUnavailableCommands marks curl only when the host /v1/http route is incomplete', () => {
+test('workerUnavailableCommands marks curl and github only when the host /v1/http route is incomplete', () => {
   // The same four keys shell-ext's resolveHostProxy reads: an origin alone
-  // builds no request, so the boot must not declare curl.
+  // builds no request, so the boot must not declare curl or github.
   const origin = 'http://127.0.0.1:41234'
+  const blocked = [
+    { command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON },
+    { command: 'github', reason: CURL_NO_HOST_ROUTE_REASON },
+  ]
   assert.deepEqual(workerUnavailableCommands({ PDSH_CHANNEL_ORIGIN: origin, PDSH_CHANNEL_TOKEN: 't0ken' }), [])
   assert.deepEqual(
     workerUnavailableCommands({ PDSH_EXEC_BRIDGE_URL: origin, PDSH_EXEC_BRIDGE_TOKEN: 't0ken' }),
     [],
     'the bridge spellings are the same route',
   )
-  assert.deepEqual(workerUnavailableCommands({}), [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }])
+  assert.deepEqual(workerUnavailableCommands({}), blocked)
   assert.deepEqual(
     workerUnavailableCommands({ PDSH_CHANNEL_ORIGIN: origin }),
-    [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }],
+    blocked,
     'an origin with no token is not a route',
   )
   assert.deepEqual(
     workerUnavailableCommands({ PDSH_CHANNEL_TOKEN: 't0ken', PDSH_CHANNEL_ORIGIN: '' }),
-    [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }],
+    blocked,
     'an empty origin is not a route',
   )
 })
@@ -468,6 +472,9 @@ test('the production manifest fits its byte budget with SSH/SCP/ADB, advice and 
   assert.ok(manifest.markdown.includes(TASK_EXECUTION_GUIDANCE))
   assert.ok(manifest.markdown.includes(MOBILE_RESOURCE_HEADING),
     'the phone-resource practice survives on the production surface')
+  assert.ok(manifest.markdown.includes('## GitHub'), 'the production surface tells the model about github')
+  assert.match(manifest.markdown, /Do not pass a token/)
+  assert.match(manifest.markdown, /api\.github\.com/)
   // Under the 8 KiB budget the production surface fits the full bounded command
   // list, so the compact summary is the over-budget fallback rather than the
   // normal shape. Both spellings keep the exact lists in the JSON document; the
