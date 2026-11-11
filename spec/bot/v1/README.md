@@ -57,7 +57,7 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 
 App 运行 Bot runtime 时，`PDSH_PHONE_MCP_URL` 指向 Bot MCP listener，它是 Worker 唯一的 `phone` MCP 服务器；`PhoneDSHHost` 不得再用 `/mcp/native` 覆盖它。Bot server 在进程内把非 Bot 工具的 `tools/list`/`tools/call` 转发给原生 MCP 处理（ADB），因此两类工具共享一个 `mcp__phone__` 命名空间。`nativeMCP` 仍保留 `/mcp/native` 路由给其他调用方；只有未配置 Bot 端点时才沿用旧的原生 env。
 
-身份登记在 `tools/pre-execute` 先于结构审批完成；普通调用在 `tools/execute` 清理，被 DSH job registry 保留的命令把同一登记持有到 `job/settled`/`removed`（heartbeat 续期，24 小时上限）。登记有效期必须覆盖 300 秒审批等待。认领同时绑定代次、bare tool name、参数摘要和仍有效的 principal incarnation。Worker 重启时取消所有待审批（并写 `approval.decided`/`ui.notice`）、清空旧登记并推进代次；Task 记录持久化，未完成项以 `interrupted`/`worker_restarted` 返回并只唤醒父对话一次。HTTP 只监听 loopback、Origin 精确匹配、路径精确、Bearer 常量时间比较，且 Worker 只拿 token placeholder，由宿主在 `/v1/http` egress 注入真实 bearer。
+身份登记在 `tools/pre-execute` 先于结构审批完成；普通调用在 `tools/execute` 清理，被 DSH job registry 保留的命令把同一登记持有到 `job/settled`/`removed`（heartbeat 续期，24 小时上限）。登记有效期必须覆盖 300 秒交互审批等待；持久待办审批不使用阻塞等待（§2.7），因此不要求登记跨待办存活。认领同时绑定代次、bare tool name、参数摘要和仍有效的 principal incarnation。Worker 重启时取消交互待审批并写 `approval.decided`/`ui.notice`，清空旧登记并推进代次；持久待办保留并由新进程恢复（§2.7）。Task 记录持久化，未完成项以 `interrupted`/`worker_restarted` 返回并只唤醒父对话一次，`waiting_approval` 例外。HTTP 只监听 loopback、Origin 精确匹配、路径精确、Bearer 常量时间比较，且 Worker 只拿 token placeholder，由宿主在 `/v1/http` egress 注入真实 bearer。
 
 P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-20261110-bot-mcp-egress-capability](../../../docs/protocol-changes/PC-20261110-bot-mcp-egress-capability.md)）：宿主每次启动生成 `PDSH_MCP_EGRESS_TOKEN`，受信 MCP 客户端在目标命中精确 MCP 路由时带 `X-PDSH-MCP-Egress`；宿主在解析/注入任何 MCP 凭据前常量时间校验，缺失或错误以 403 `mcp_egress_forbidden` 在出口拒绝（用户配置的精确 MCP 路由同样覆盖）。宿主把会话 principal 的随机 token 经 `phone/botClaimSession` 的 `sessionToken` 字段交给 Worker，`identity-bridge` 在 `/identity/register` 带上它；宿主按 token 解析 principal，`sessionId` 不自证，缺失/撤销/不匹配一律 `unauthorized` 并 fail-closed。`tools/call` 认领身份后还要在该 principal 的 per-caller 目录里查到工具，否则 `permission_denied`；`CreateTeammate` 的主 Bot 检查保留。Android/HarmonyOS 没有 Bot runtime，三项均 `not started`。
 
@@ -78,7 +78,7 @@ Bot 会话经宿主 `/v1/http` 发出的网络写不再是 Worker 命令文本�
 - **归属跟随 `bash` 调用与后台 job。** 宿主把出口写归属到**当前存活的 `bash` identity registration**。普通调用在 `tools/execute` 返回时释放；DSH job registry 保留的命令（`run_in_background: true` 或前台超时转后台）在工具结果返回后继续持有同一登记，Worker 每 120 秒用同一 call/digest 重发 `/identity/register` 续期，宿主在原 id 上延长有效期（不超过会话 token 过期），直到 `job/settled`/`removed`、Worker 代次轮换或 24 小时硬上限。这样 job 后续发出的 `/v1/http` 写仍能归到发起它的 Bot/session。
 - **同一 Bot 的多个活动登记不是歧义。** 多个后台 job 或 chat/task 会话同时活动时，宿主按 Bot 归组；同一 Bot 只有一个 owner，选其中一条仍存活的登记送审。不同 Bot 之间才用外层命令是否含目标主机做唯一消歧；仍不唯一 → `bot_egress_ambiguous` 拒绝，不猜 principal。会话 token 已撤销/过期 → `bot_egress_unattributed`。
 - **失败关闭兜底（B）。** 完全没有存活登记时，宿主询问 App“是否有工作台会话正在运行回合”（由 `PhoneDSHHost` 的 journal turn state 回答，排除活动 Bot 会话）。有工作台回合 → `notBot`，工作台维持原 allow-list；没有工作台回合 → 该写只能是 Bot 的后台任务：恰好一个活动 Bot → 归该 Bot 送审；多个活动 Bot → `bot_egress_ambiguous` 拒绝；没有任何活动 Bot credential → `bot_egress_unattributed` 拒绝。兜底只在登记缺失时生效，已归属的 job 写不会被工作台活动改判给另一个 Bot。
-- **审批与 Grant。** 无对应 Grant 时复用现有 Bot 审批卡：`tool=egress`、`operation=egress.<method>`、`resource=host=<lowercased host>`（不含 scheme、端口、路径、query），`alwaysScope=until`。用户选「总是」写入 30 天 `until` Grant；`allow_once` 在放行后立即消费；同一「主机 + 方法」的后续写不再出卡。拒绝、超时（300 s）、取消、Worker 重启/Bot 删除取消都 fail-closed，返回 HTTP 403；`xl_error.code` 统一为 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 为具体原因（拒绝/超时/取消 `egress_approval_denied`，多活动调用 `bot_egress_ambiguous`，会话凭证失效 `bot_egress_unattributed`，Task 缺少网络写授权 `task_network_write_denied`），且不解析凭据、不开 socket、不写 response log。
+- **审批与 Grant。** 无对应 Grant 时复用现有 Bot 审批卡：`tool=egress`、`operation=egress.<method>`、`resource=host=<lowercased host>`（不含 scheme、端口、路径、query），`alwaysScope=until`。用户选「总是」写入 30 天 `until` Grant；交互出口审批的 `allow_once` 在放行后立即消费；持久待办 egress 的一次性 Grant 保留给恢复后的重试消费（§2.7）；同一「主机 + 方法」的后续写不再出卡。拒绝、超时（300 s）、取消、Worker 重启/Bot 删除取消都 fail-closed，返回 HTTP 403；`xl_error.code` 统一为 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 为具体原因（拒绝/超时/取消 `egress_approval_denied`，多活动调用 `bot_egress_ambiguous`，会话凭证失效 `bot_egress_unattributed`，Task 缺少网络写授权 `task_network_write_denied`），且不解析凭据、不开 socket、不写 response log。
 - **Task 子会话的网络写。** `approveEgress` 先完成归属，再检查被归属会话的授权子集：`kind=task` 且 capabilities 不含 `task.network-write` 时，直接以 403 `task_network_write_denied` 拒绝，不创建审批卡、不写 Grant，也不依赖任何 `curl-post`/`network-egress` 命令分类。带 `task.network-write` 的 Task 会话（夹具或兼容数据；本修订的 `Task` 工具不会生成）仍走与其他 Bot 会话相同的主机 + 方法审批卡。主对话没有这个子集检查，行为不变。
 - **取消传播。** Worker 的 `/v1/http` 消费者取消 → 宿主取消对应 pending 审批（写 `approval.decided`，`status=cancelled`，`reason=consumer_cancelled`）；`workerRestarted`/Bot 删除继续走既有 `cancelAll`。同一被批准写不跟随重定向：3xx 原样返回，调用方需对新目标另行审批。
 - **Bot 工作区根。** Bot 会话 cwd（及 DSH 文件沙箱的 `workspaceRoot`）是 `BotWorkspaceLayout.botRoot(botId:)`，即 `/dsh/workspace/.dshbot/agents/<safe botID>`；chat/task/routine 共享该 Bot 根，不同 Bot 不共享。根内 `write`/`edit` 不需要结构审批，DSH 文件沙箱是该层的执行边界；根外写是跨出口。
@@ -112,19 +112,38 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 `creator`、`completion_criteria`、`constraints`、放宽授权审批与手动取消语义见
 [v2 §2.2](../v2/README.md#22-routine-的设立者与放宽授权s4b)。本文件不再定义这些规则。
 
-### 2.7 持久待办审批（S5 target，本修订只冻结契约）
+### 2.7 持久待办审批（S5 实现）
 
-现状：`BotApprovalCoordinator.defaultTimeoutMilliseconds = 300_000`，超时写 `approval.decided{status:"denied",timedOut:true}`；Worker 侧 `approval-gate.ts` 在 330 秒 abort 请求；身份登记 TTL 覆盖同一等待窗口。用户不在场的 routine/异步 Task 因此会得到“没有人回答”的拒绝。
+审批按**会话 kind 是否有可挂起的宿主恢复点**分两类；分类只看宿主 principal，不看模型文本：
 
-目标语义（尚未实现）：非交互回合的审批请求在超时后**不拒绝**，而是一条持久待办；用户的决定按 `approvalID + digest` 恢复，任务停在原地直到处理。与现状冲突、需要一并修改的契约：
+- **持久待办**：`principal.kind` 为 `routine` 或 `task` 的回合。这两类会话由宿主拥有独立的 run/task 记录，可以在审批期间停在原地并由决定唤醒。宿主**立即**返回等待：`/approval` 响应 `{ok:true,allowed:false,pending:true,approvalID,expiresAt}`。审批事件的 pending 状态是 durable 事实，不依赖内存 continuation、Worker 进程或身份登记。
+- **交互审批**：`chat` 会话，包括主对话前台回合和 `task-settled`/held/`agent:` 等隐藏唤醒。它的回合仍在原 DSH session 内活着，宿主没有可回放的原 prompt；因此保持 300,000 ms 等待，超时写 `approval.decided{decision:"deny",status:"denied",timedOut:true}` 并返回拒绝。隐藏唤醒不会因为“用户不在场”被转成无法恢复的待办。`verifier`/`maintainer` 的受限工具面不发审批卡。
 
-1. `approval.requested` 的 pending 状态必须跨进程重启保持，决定可由 `approvalID` 重新绑定；`BotApprovalCoordinator.resolve` 的 in-memory continuation 不能是唯一等待者。
-2. Worker 的 `tools/pre-execute` 不能在 330 秒 abort；需要可恢复的等待/租约，或用“停住 + 后续恢复”代替单次阻塞调用。
-3. 身份登记（`BotAttributionRegistry`）的 TTL 与 principal incarnation 必须覆盖停住的等待，或在恢复时重新登记同一次调用。
-4. 审批卡/行投影在重启后仍显示 pending；决定只能生效一次，执行恢复不得重复副作用。
-5. 交互前台回合是否保留 300 秒超时需单独决定；本契约只冻结“routine/异步 Task 不因超时拒绝”。
+“用户在场”不改变上述分类：routine/task 无论用户是否正在看 App 都是持久待办；chat 回合无论前台还是隐藏唤醒都在本回合完成审批。这样只有存在 `waiting_approval`/`waiting-approval` 恢复点的会话才进入持久语义，不会出现审批通过后没有恢复对象的待办。
 
-实现风险：第 1、2 条跨 Bot MCP、Worker 插件与 App 生命周期，超出本单元允许修改的路径。因此本修订只冻结上述语义和冲突清单，`status: target`，不声称已实现。
+**请求与等待。** 持久审批仍写既有 `approval.requested`，追加 `persistent:true`、`kind`、`requestedAt`、`expiresAt`、`origin`（`structural` 或 `egress`）。`approvalID + digest` 是唯一决定键。`origin` 决定 Worker 侧处置：
+
+1. `structural`：`approval-gate` 不执行工具，用宿主公开的 Agent 取消接口以 `hook` 原因 `approval-pending` 结束当前回合（保留 inbox），返回“等待审批、不要重试”的拒绝文本。
+2. `egress`：宿主 `/v1/http` 出口立即以 HTTP 403 拒绝本次网络写；沿用既有出口类 `error.code`/`X-PDSH-Proxy-Error` = `egress_approval_denied`、`xl_error.code` = `egress_approval_denied`，消息说明“等待用户批准、本次未发送、任务会在决定后恢复”。本次写没有执行，任务在回合结束时按 §2.7 的任务规则停住。
+
+持久审批期间 Worker 不保持一个跨 300 秒的阻塞 fetch，也不延长身份登记：工具调用在返回 pending 时结束，`identity-bridge` 按原有 330 秒 TTL 清理登记。批准后的重试由宿主唤起的新回合重新登记，因此冻结记录里“Worker 330 秒 abort / 登记 TTL 覆盖等待”的冲突不再存在；300 秒等待与 330 秒登记只保留给交互审批。
+
+**任务挂起与恢复。** 一个 `task` 会话在回合结束后若仍有 pending 持久审批，任务记录写 `status:"waiting_approval"`、`error:"approval_pending"`，保留 `partial`，不写 `task.settled`，`AwaitTask`/`StopSubagent` 读到的是该记录。批准后：
+
+- 宿主写 `task.resumed`，把同一任务记录改回 `running`，在同一 DSH 会话开一个新的隐藏回合，`session/prompt.requestId` 为 `task-turn:<taskId>:approval:<approvalID>`，提示词明确“用户已批准、从停下的位置继续、不要重放已完成的副作用”。
+- 拒绝或过期则写 `task.settled`，`status:"denied"`，`error` 为 `approval_denied`/`approval_expired`，异步 chat 任务照旧只唤醒父对话一次。
+
+**routine 挂起与恢复。** routine 运行停在 `run_state.status:"waiting-approval"`，并记录 `waiting_approval_id` 与 `waiting_session_id`；该次 attempt 不产生交付，调度的 tick 跳过它。批准后同一 `runId`/attempt 恢复为 `started` 并继续同一个会话；拒绝/过期按失败结束（`error` 同上），走普通交付。进程重启后该状态保留。
+
+**出口审批。** 持久 `egress` 审批的 `allow_once` 在决定时不消费 Grant，留给恢复后的同一次网络写重试消费；`always` 按主机 + 方法写 30 天 `until` Grant。这样“批准一次”不会因为首个 HTTP 请求已被 fail-closed 而丢失。交互出口审批维持原语义（决定后当次请求立即使用并消费一次 Grant）。
+
+**过期与一次性。** `expiresAt = requestedAt + 24 h`。到期（或重启时已过期）写 `approval.decided{decision:"deny",status:"expired",reason:"approval_expired",expired:true,timedOut:false}`，任务/routine 按拒绝结束；随后到达的用户动作返回 `stale(expired)`，不再产生 Grant。一个 `approvalID + digest` 只能生效一次；并发的第二次决定返回 stale，不重复执行。
+
+**重启与取消。** App/Worker 重启保留持久待办：协调器从 `approval.requested` 减去 `approval.decided` 恢复 pending（不需要旧登记或旧 continuation），任务/routine 的 waiting 状态随既有 durable snapshot 恢复，并在决定/重启时与审批状态对账。旧的、非持久的未决请求在恢复时写 `cancelled`/`worker_restarted` 和一条 `ui.notice`，不伪装成用户拒绝。Worker `/v1/http` 消费者取消只取消**交互**审批；持久待办需要用户决定或显式终止。Bot 删除、`StopSubagent`、routine 手动取消是显式终止：分别写 `status:"cancelled"`、`reason` 为 `bot_deleted`/`task_stopped`/`routine_stopped`，不唤醒被停住的工作。
+
+**行与 App 入口。** pending 仍由既有 durable `approval.requested` 投影为消息流里的审批卡（UI 权威规则见 [bot-chat.md](../../ui/v1/pages/bot-chat.md)），重启后重新投影为 pending；抽屉/头像的待处理计数来自同一事件差集。宿主为持久待办预登记一条本地通知（标识 `approval-pending:<botId>:<approvalID>`，触达深链回到该审批卡），决定、过期或 Bot 删除时撤销；这条通知不是新的 wire 事件。
+
+**兼容。** 本修订只追加事件字段与自由文本状态值，不新增事件类型、HTTP 路由或 JSON-RPC 方法。旧读者把 `waiting_approval`/`waiting-approval`/`denied` 当未知状态保守显示，把 pending approval 按既有审批卡显示；旧 App 与旧 Worker 的 300 秒混合行为不获得持久语义。持久审批只由新 App + 新 Worker 提供。
 
 ### 2.8 Task 交付终态与独立验证（S3）
 

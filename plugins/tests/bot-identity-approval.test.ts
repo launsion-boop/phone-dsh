@@ -968,3 +968,53 @@ test('write/edit are auto inside the Bot workspace root and directory-granular o
     await ctx.fiber.dispose()
   }
 })
+
+test('durable approval stops the turn, cancels the registration and never executes the tool', async () => {
+  const ctx = await mount()
+  const cancellations: string[] = []
+  const cancelCalls: { cause: unknown; options: unknown }[] = []
+  let approvals = 0
+  let executed = 0
+  try {
+    ctx.tools.register(defineTool({
+      name: 'bash', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { executed += 1; return 'must-not-run' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-durable' }),
+      cancel: async id => { cancellations.push(id) },
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => {
+        approvals += 1
+        return {
+          ok: true, allowed: false, pending: true,
+          approvalId: 'approval-durable', expiresAt: 86_400_000,
+          message: 'approval pending',
+        }
+      },
+    })
+    const agent = {
+      id: 'gb-main',
+      session: { id: 'gb-main' },
+      cancel: (cause: unknown, options?: unknown) => { cancelCalls.push({ cause, options }) },
+    } as unknown as Agent
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('durable-approval'), name: 'bash',
+      arguments: { command: 'printf DURABLE' },
+      signal: new AbortController().signal, agent,
+    })
+    assert.equal(result.isError, true)
+    assert.equal(executed, 0, 'a pending approval must not execute the tool')
+    assert.equal(approvals, 1)
+    assert.deepEqual(cancellations, ['registration-durable'],
+      'the identity registration must be released when the turn stops')
+    assert.equal(cancelCalls.length, 1)
+    assert.deepEqual(cancelCalls[0]!.cause, { kind: 'hook', reason: 'approval-pending' })
+    assert.deepEqual(cancelCalls[0]!.options, { keepInbox: true })
+    assert.match(String(result.error?.message ?? ''), /approval pending/i)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

@@ -160,11 +160,20 @@ private struct BotTaskCardView: View {
     private var title: String { row.body.string("title", "text", "question") ?? "后台任务" }
     private var doneCount: Int { steps.filter { BotCardStepState($0.state) == .done }.count }
     private var failed: Bool { steps.contains { BotCardStepState($0.state) == .failed } }
+    private var taskStatus: String? {
+        row.body["status"]?.string ?? row.body["task"]?.object?["status"]?.string
+    }
     private var running: Bool {
-        let status = row.body["status"]?.string ?? row.body["task"]?.object?["status"]?.string
-        return status == "running" || steps.contains { BotCardStepState($0.state) == .active }
+        taskStatus == "running" || steps.contains { BotCardStepState($0.state) == .active }
     }
     private var stateTag: (text: String, tone: BotCardTone) {
+        switch taskStatus {
+        case "waiting_approval": return ("等待审批", .warning)
+        case "denied": return ("已拒绝", .danger)
+        case "stopped": return ("已停止", .neutral)
+        case "interrupted": return ("已中断", .danger)
+        default: break
+        }
         if failed { return ("失败", .danger) }
         if running { return ("进行中", .neutral) }
         return ("已完成", .success)

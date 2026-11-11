@@ -108,6 +108,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -158,6 +159,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -246,6 +248,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -289,6 +292,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -572,6 +576,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object(["command": .string("printf safe")])
         let digest = try BotArgumentsDigest.string(for: args)
         _ = try await fixture.runtime.registerIdentity(

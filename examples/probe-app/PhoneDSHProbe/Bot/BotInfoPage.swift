@@ -1258,7 +1258,7 @@ private struct BotRoutinesPage: View {
                 .foregroundStyle(HomeSpec.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if routine.runStatus == "started" {
+            if routine.runStatus == "started" || routine.runStatus == "waiting-approval" {
                 Button("取消运行") { confirmingCancel = routine }
                     .buttonStyle(BotTextButtonStyle())
                     .botHitTarget()
@@ -1308,6 +1308,7 @@ private struct BotRoutinesPage: View {
     private func routineStatus(_ routine: BotRoutineInfo) -> String {
         switch routine.runStatus {
         case "started": return "运行中"
+        case "waiting-approval": return "等待审批"
         case "needs-reconciliation": return "待确认"
         case "scheduled": return "等待触发"
         default: return routine.enabled ? "已启用" : "已暂停"
