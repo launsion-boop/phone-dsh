@@ -125,6 +125,10 @@ LED and other board tools stay on `ble_link_call` (BLE Link profile).
 With the Bot runtime the Bot listener forwards `iphone_agent_run` like every other native
 tool, to the same server instance (`PhoneNativeMCP.server`), so both paths share one receipt
 store and one in-flight guard.
+A UI task routinely runs longer than a minute; over the Bot listener a call still running after
+5 s is answered as an SSE stream with keepalives ([mcp-endpoint.md](../bot/v1/mcp-endpoint.md)
+§2), so the 60 s idle limits on the way do not fail it. `/mcp/native` still answers JSON only
+(GAP-36).
 
 Status: implemented by `Sources/PhoneDSHVenus/IPhoneAgentMCPServer.swift`, verified by
 `IPhoneAgentMCPTests`; the Android host does not serve it.

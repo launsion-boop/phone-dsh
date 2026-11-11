@@ -13,6 +13,7 @@
     "context-lint.json",
     "context-profiles.json",
     "event-envelope.json",
+    "event-envelope.phone.json",
     "fish-director.json",
     "llm-ledger.json",
     "mcp-egress.phone.json",
@@ -48,6 +49,7 @@
   ],
   "phoneOverlays": [
     "card-payload.phone.json",
+    "event-envelope.phone.json",
     "mcp-egress.phone.json",
     "row-protocol.phone.json",
     "tool-catalog.phone.json",
@@ -63,6 +65,7 @@
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "event-envelope.json": "fded336f2e2dddf4b9c474bac5e6cefcbb1baf7c99637a988ed22dbb244bcaf5",
+    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853",
     "fish-director.json": "7216362cf4ff1c903ebce75cbf0d9d170dba9e233778caf3df1de1a36026cd85",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
     "mcp-egress.phone.json": "1a1e66c2e82f991fccea3a7674c3071f62092c0935c8347c4174cd7ffa64b090",

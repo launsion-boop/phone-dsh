@@ -938,7 +938,7 @@ extension BotRuntimeComposition: BotTeamHost {
             type: "agent.comm",
             eventId: "agent.comm:\(record.rowID)",
             time: botProductionNowMilliseconds(),
-            origin: .local(source: "team-tools"),
+            origin: .local(source: "comm-service"),
             traceId: "agent-comm:\(record.threadID)",
             principal: BotPrincipal(botId: record.botID, sessionId: nil, kind: "team"),
             causationId: nil,

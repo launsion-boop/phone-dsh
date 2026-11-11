@@ -346,12 +346,19 @@ struct ChatPage: View {
         }
     }
 
-    /// PC strip copy: a resume in flight is not an offline PC.
+    /// PC strip copy: a resume in flight is not an offline PC. While offline it
+    /// says what is actually on screen — the cached tail only when one was
+    /// restored, never a promise of content that is not there.
     private var pcStatusStripText: String {
-        if case .connecting = model.pcConnection {
+        switch workspaceModels.pcLink.presence.reachability {
+        case .reconnecting:
             return "正在连接电脑，发送暂时停用。草稿保留在 PC 工作区，不会自动切回手机。"
+        case .offline, .online:
+            if model.cachedPreview.isPreviewing {
+                return "电脑暂时连不上，显示的是上次同步的对话，发送已停用。草稿保留在 PC 工作区。"
+            }
+            return "电脑暂时连不上，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。"
         }
-        return "电脑离线，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。"
     }
 
     private var latestToolFailure: ChatItem? {
@@ -1700,16 +1707,22 @@ struct ChatPage: View {
     /// (§10, PC-20261110-pclink-foreground-resume-presence).
     private var pcEmptyTitle: String {
         if model.isStarted { return "这台电脑还没有打开会话" }
-        if case .connecting = model.pcConnection { return "正在连接电脑" }
-        return "电脑离线"
+        switch workspaceModels.pcLink.presence.reachability {
+        case .reconnecting, .online: return "正在连接电脑"
+        case .offline: return "电脑暂时连不上"
+        }
     }
 
     private var pcEmptyMessage: String {
         if model.isStarted { return "从会话列表选择会话，或新建一个。" }
-        if case .connecting = model.pcConnection {
+        switch workspaceModels.pcLink.presence.reachability {
+        case .reconnecting, .online:
             return "正在重新连上这台电脑，连上后会回到上次的会话。"
+        case .offline:
+            // A session this phone cached opens read-only; one it never opened
+            // cannot. The retry lives on the drawer's offline card.
+            return "打开过的会话仍可查看上次同步的内容；连上后自动恢复，也可以在会话列表里点「重试」。"
         }
-        return "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。"
     }
 
     /// A:引擎还没启动。标题 + 说明 + 黑色主按钮,左右按内容边距 20 撑满。

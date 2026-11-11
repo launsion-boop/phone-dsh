@@ -280,8 +280,8 @@ def _check_assertion(errors, path, assertion):
         _error(errors, path, f"{kind} requires value")
     if kind in ("reply_contains", "reply_not_contains") and not assertion.get("value"):
         _error(errors, path, f"{kind} requires a non-empty value")
-    if kind in ("memory_contains", "memory_absent") and not assertion.get("value"):
-        _error(errors, path, f"{kind} requires a non-empty value")
+    if kind in ("memory_contains", "memory_absent") and not isinstance(assertion.get("value"), str):
+        _error(errors, path, f"{kind} requires a string value")
     if kind in ("bot_event", "no_bot_event") and not assertion.get("event"):
         _error(errors, path, f"{kind} requires event")
     if kind in ("memory_contains", "memory_absent") and assertion.get("value") == "" \

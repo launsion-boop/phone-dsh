@@ -738,6 +738,20 @@ final class DSHManagementModel {
         // trip to another app) gets started/resumed first, and a running turn
         // is stopped first — refusing to switch used to look like "the session
         // cannot be read".
+        if !chat.isStarted, chat.backendID != .phone {
+            // A PC session this phone cached opens read-only while the computer
+            // is unreachable; a session it never opened cannot, and the copy
+            // says which. Without this the drawer tap died on `isStarted` and
+            // reported the phone's "主机没有启动" text
+            // (review of PR #98, problem B).
+            guard isStillWanted() else { return .superseded }
+            if chat.showCachedPreview(for: session.id) {
+                rememberWorkspace(workspaceID(for: session))
+                error = nil
+                return .opened
+            }
+            return .failed(chat.userFacingError ?? "电脑暂时连不上，这个会话还没有本地缓存")
+        }
         if !chat.isStarted {
             await chat.start()
             guard isStillWanted() else { return .superseded }

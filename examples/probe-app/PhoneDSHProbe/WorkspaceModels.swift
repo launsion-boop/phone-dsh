@@ -76,7 +76,27 @@ final class WorkspaceModels {
     var drawerPhase: PCDrawerPhase {
         PCLinkDrawerPolicy.phase(selected: selected,
                                  hasRecord: pcLink.record != nil,
-                                 connection: pcLink.connection)
+                                 presence: pcLink.presence)
+    }
+
+    /// Rows in the **PC scope only**. `currentManagement` falls back to the
+    /// phone model when there is no pairing, so it must never decide what the
+    /// PC segment renders (review of PR #98, problem A).
+    var pcRowCount: Int {
+        pcManagement?.sessions.count ?? 0
+    }
+
+    /// The drawer shows the offline/connecting card instead of rows.
+    var showsPCStateCard: Bool {
+        PCLinkDrawerPolicy.showsStateCard(phase: drawerPhase, pcRowCount: pcRowCount)
+    }
+
+    /// One-line note above a cached PC list while the PC is not reachable.
+    var pcCachedListNote: String? {
+        guard !isPhoneSelected else { return nil }
+        return PCLinkDrawerPolicy.cachedListNote(presence: pcLink.presence,
+                                                 capturedAt: pcManagement?.cacheCapturedAt,
+                                                 hasRows: pcRowCount > 0)
     }
 
     var currentConnection: PCWorkspaceConnection {
@@ -84,7 +104,7 @@ final class WorkspaceModels {
     }
 
     var isCurrentOnline: Bool {
-        selected == .phone || pcLink.isOnline
+        selected == .phone || pcLink.presence.isOnline
     }
 
     /// PC display name for the default drawer group and the ChatPage subtitle.

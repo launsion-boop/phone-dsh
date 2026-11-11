@@ -577,6 +577,11 @@ final class ChatModel {
 
     /// Live PC connection for the offline banner and send-disable path.
     var pcConnection: PCWorkspaceConnection? { pcRuntime?.connection() }
+    /// A cached tail is on screen for a session the model has not opened yet.
+    /// Sending is refused while it is set (review of PR #98, problem P0): the
+    /// rows belong to the previewed session, `sessionID` still names the old
+    /// one, so a prompt would land in the wrong conversation.
+    private(set) var cachedPreview = CachedPreviewCoordinator()
     /// True between the background park and the foreground resume (D14).
     private(set) var parked = false
     /// True while the app is in the background and the silent audio session
@@ -612,7 +617,9 @@ final class ChatModel {
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var harness: (any AgentHarness)?
     private var sessionID: String?
-    var currentSessionID: String? { sessionID }
+    /// The session the page is showing. While a cached preview is painted this
+    /// is the previewed session, not the last one the model opened.
+    var currentSessionID: String? { cachedPreview.previewSessionID ?? sessionID }
     /// The row the last drawer tap selected, painted immediately while the
     /// engine/Worker open runs in the background. `sessionID` and `items` stay
     /// on the old session until the new history is durable, so a failed or
@@ -682,8 +689,9 @@ final class ChatModel {
     private var backgroundParkRequested = false
     var hasHarness: Bool { harness != nil }
     var canSend: Bool {
-        harness != nil && sessionID != nil && transcriptReady && !eventStreamRecovering
-            && !busy && !parked && !hostLifecycleTransition && !isReloadingSession && pcOnline
+        harness != nil && cachedPreview.gate.allowsSend(into: sessionID) && transcriptReady
+            && !eventStreamRecovering && !busy && !parked && !hostLifecycleTransition
+            && !isReloadingSession && pcOnline
     }
     var canStartBySending: Bool {
         // A PC workspace only sends into an already-open session; it has no
@@ -1347,21 +1355,29 @@ final class ChatModel {
     /// segment; it never falls back to the phone backend.
     private func startPCModel() async {
         guard let pcRuntime else { return }
-        guard pcRuntime.connection().isOnline else {
-            if case .connecting = pcRuntime.connection() {
-                statusLine = "正在连接电脑…"
-            } else {
-                statusLine = "电脑离线"
-            }
-            return
+        // The cache is the only thing a cold start can show before the relay
+        // answers, so it is restored **before** the online check (review of
+        // PR #98, problem B): offline used to return here with a blank page.
+        if case .connecting = pcRuntime.connection() {
+            statusLine = "正在连接电脑…"
+        } else if !pcRuntime.connection().isOnline {
+            statusLine = "电脑离线"
         }
-        guard !busy, sessionID == nil else { return }
-        try? await pcRuntime.client.start()
         restoreCachedTranscriptIfAvailable()
         // Resume the last PC session only if one is remembered; an empty PC
         // workspace waits for the drawer's 新会话 rather than silently
         // creating a session on the computer.
-        guard let persisted = WorkspaceStorage.currentSessionID(for: pcRuntime.backendID) else {
+        let persisted = cachedPreview.previewSessionID
+            ?? WorkspaceStorage.currentSessionID(for: pcRuntime.backendID)
+        guard pcRuntime.connection().isOnline else {
+            // Offline: keep the cached tail readable, but mark it as a preview
+            // so sending stays refused and the live open still happens later.
+            if let persisted { beginCachedPreview(for: persisted, statusLine: "离线 · 显示上次同步的对话") }
+            return
+        }
+        guard !busy, sessionID == nil else { return }
+        try? await pcRuntime.client.start()
+        guard let persisted else {
             statusLine = "已连接电脑"
             return
         }
@@ -1928,8 +1944,18 @@ final class ChatModel {
             // The PC has no local Worker to park/resume/rebuild: the relay
             // connection is the only gate. The phone's recovery wait and D24
             // backoff never apply to it.
+            //
+            // Without a connection a session this phone cached is still
+            // readable: paint it as a preview and say nothing (sending stays
+            // refused by `cachedPreview`). Only a session with no cache is an
+            // error, and then the copy names the real state.
             guard isStarted else {
-                reportError("电脑离线，无法打开会话")
+                if let id, id != sessionID, showCachedPreview(for: id) {
+                    return false
+                }
+                reportError(pcRuntime?.connection() == .connecting
+                    ? "正在连接电脑，请稍候再打开会话"
+                    : "电脑离线，无法打开会话")
                 return false
             }
         } else {
@@ -1968,13 +1994,21 @@ final class ChatModel {
             }
             let applied = try await openAndActivateSession(
                 id: id, preset: preset, harness: harness, isStillWanted: isStillWanted)
-            guard applied else { return false }
-            guard isStillWanted() else { return false }
+            guard applied else {
+                discardCachedPreview()
+                return false
+            }
+            guard isStillWanted() else {
+                discardCachedPreview()
+                return false
+            }
             appendStatus("Session \(id == nil ? "created" : "resumed"): \(sessionID ?? "")")
             return true
         } catch is CancellationError {
+            discardCachedPreview()
             return false
         } catch {
+            discardCachedPreview()
             reportError("无法\(id == nil ? "创建" : "恢复")会话：\(Self.condensed(String(describing: error)))")
             return false
         }
@@ -1996,6 +2030,13 @@ final class ChatModel {
                                         isStillWanted: () -> Bool) async throws -> Bool {
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
+        // A switch to a session this phone already has on disk paints that tail
+        // before the network round trip. `session/open` + `session/page` still
+        // replace it in one transaction when they land, and
+        // `isShowingCachedTranscript` keeps the cache from being re-persisted.
+        if let id, id != sessionID {
+            beginCachedPreview(for: id, statusLine: "显示上次对话，正在同步…")
+        }
         let session = try await harness.openSession(HarnessSessionRequest(
             sessionID: id, preset: preset,
             workspace: pcRuntime == nil ? "/dsh/workspace" : nil))
@@ -2051,6 +2092,8 @@ final class ChatModel {
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
         isShowingCachedTranscript = false
+        // The live read replaced the preview; sending is allowed again.
+        endCachedPreview()
         persistTranscriptSnapshot()
         transcriptHasMore = history.hasMore
         transcriptBeforeSeq = history.beforeSeq
@@ -4145,13 +4188,6 @@ final class ChatModel {
 
     // MARK: - Launch transcript snapshot
 
-    private struct CachedTranscriptItem: Codable {
-        var id: String
-        var kind: String
-        var title: String
-        var text: String
-    }
-
     private func snapshotURL(for sessionID: String) -> URL? {
         WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
@@ -4196,29 +4232,89 @@ final class ChatModel {
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
               let sessionID = WorkspaceStorage.currentSessionID(for: backendID) else { return }
-        var data: Data?
-        for url in [snapshotURL(for: sessionID),
-                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
-            .compactMap({ $0 }) {
-            if let stored = try? Data(contentsOf: url) { data = stored; break }
-        }
-        guard let data,
-              let cached = try? JSONDecoder().decode([CachedTranscriptItem].self, from: data),
-              !cached.isEmpty else { return }
+        guard let cached = readCachedTranscript(sessionID: sessionID) else { return }
         flushStreamingText()
-        items = cached.compactMap { item in
-            guard let kind = Self.chatKind(from: item.kind) else { return nil }
-            return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
-        }
+        items = Self.chatItems(from: cached.items)
         guard !items.isEmpty else { return }
         isShowingCachedTranscript = true
         statusLine = "显示上次对话，引擎在后台启动…"
     }
 
+    /// Reads one session's cached tail. The envelope carries the scope, so a
+    /// file that belongs to another backend or session is ignored rather than
+    /// painted (P18). The phone's pre-envelope bare array still decodes.
+    private func readCachedTranscript(sessionID: String) -> CachedTranscriptSnapshot? {
+        for url in [snapshotURL(for: sessionID),
+                    WorkspaceStorage.legacyTranscriptSnapshotURL(for: backendID, sessionID: sessionID)]
+            .compactMap({ $0 }) {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            if let snapshot = CachedTranscriptCodec.decode(data, backend: backendID,
+                                                           sessionID: sessionID) {
+                return snapshot
+            }
+        }
+        return nil
+    }
+
+    /// Paints the cached tail of `id` and remembers what it replaced. Callers
+    /// must finish with `endCachedPreview()` (the live read landed) or
+    /// `discardCachedPreview()` (it did not).
+    @discardableResult
+    private func beginCachedPreview(for id: String, statusLine line: String) -> Bool {
+        guard let cached = readCachedTranscript(sessionID: id) else { return false }
+        let cachedItems = Self.chatItems(from: cached.items)
+        guard !cachedItems.isEmpty else { return false }
+        cachedPreview.begin(sessionID: id, current: .init(
+            rows: items,
+            statusLine: statusLine,
+            transcriptReady: transcriptReady,
+            showingCachedTranscript: isShowingCachedTranscript))
+        flushStreamingText()
+        items = cachedItems
+        transcriptReady = true
+        isShowingCachedTranscript = true
+        statusLine = line
+        return true
+    }
+
+    /// Paints a session this phone cached. Used when the drawer taps a session
+    /// while the PC is unreachable: the content is readable, sending stays
+    /// refused by `cachedPreview`, and the next online start opens it for real.
+    @discardableResult
+    func showCachedPreview(for id: String,
+                           statusLine line: String = "离线 · 显示上次同步的对话") -> Bool {
+        beginCachedPreview(for: id, statusLine: line)
+    }
+
+    /// The live read for the previewed session landed: the caller has already
+    /// replaced `items`, so only the guard state is dropped.
+    private func endCachedPreview() {
+        guard cachedPreview.isPreviewing else { return }
+        cachedPreview.end()
+    }
+
+    /// The switch did not land: put the previous transcript back. Sending is
+    /// already refused while previewing, so this is about not lying on screen.
+    private func discardCachedPreview() {
+        guard let restore = cachedPreview.discard() else { return }
+        flushStreamingText()
+        items = restore.rows
+        statusLine = restore.statusLine
+        transcriptReady = restore.transcriptReady
+        isShowingCachedTranscript = restore.showingCachedTranscript
+    }
+
+    private static func chatItems(from cached: [CachedTranscriptItem]) -> [ChatItem] {
+        cached.compactMap { item in
+            guard let kind = chatKind(from: item.kind) else { return nil }
+            return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
+        }
+    }
+
     /// Saves the settled items so the next launch can paint immediately.
     private func persistTranscriptSnapshot() {
         guard !isShowingCachedTranscript, let sessionID else { return }
-        let settled = items.filter { !$0.streaming }.suffix(400)
+        let settled = items.filter { !$0.streaming }
         guard !settled.isEmpty else { return }
         let cached = settled.map { item in
             CachedTranscriptItem(id: item.id,
@@ -4226,11 +4322,20 @@ final class ChatModel {
                                  title: item.title,
                                  text: item.text)
         }
-        guard let data = try? JSONEncoder().encode(cached) else { return }
+        guard let data = CachedTranscriptCodec.encode(items: cached, backend: backendID,
+                                                      sessionID: sessionID, lastSeq: lastSeq)
+        else { return }
         guard let url = snapshotURL(for: sessionID) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
+        let directory = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        WorkspaceStorage.excludeFromBackup(directory)
         try? data.write(to: url, options: .atomic)
+        // The cache is rebuildable: bound it off the main thread so a long
+        // history of opened sessions cannot grow without limit (P18).
+        let backend = backendID
+        Task.detached(priority: .utility) {
+            WorkspaceStorage.evictTranscriptSnapshots(for: backend, keeping: sessionID)
+        }
     }
 
     /// One short line of a raw host message (the full text stays in
