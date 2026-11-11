@@ -104,6 +104,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/native-mcp", "file-transfer.json", "Tests/PhoneDSHADBTests/ADBFileTransferTests.swift", False),
     ("spec/v1/golden/native-mcp", "package-management.json", "Tests/PhoneDSHADBTests/ADBPackageTests.swift", False),
     ("spec/v1/golden/frames", "*.json", "spec/v1/tools/spec_golden.py", False),
+    ("spec/v1/golden/plan", "*.json", "spec/v1/tools/plan_cases_check.py", False),
     ("spec/v1/golden/wal", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/lifecycle", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/replay", "*.json", "spec/v1/tools/spec_golden.py", False),

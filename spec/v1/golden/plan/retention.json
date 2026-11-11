@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "vector": "retention",
+  "valid": [
+    {"id": "journal-journaled-durable", "kind": "journal", "journaled": true, "durable": true, "referenced": false, "expected": "prune"},
+    {"id": "journal-not-durable", "kind": "journal", "journaled": true, "durable": false, "referenced": false, "expected": "keep"},
+    {"id": "journal-not-journaled", "kind": "journal", "journaled": false, "durable": true, "referenced": false, "expected": "keep"},
+    {"id": "journal-referenced", "kind": "journal", "journaled": true, "durable": true, "referenced": true, "expected": "keep"},
+    {"id": "step-journaled-durable", "kind": "step", "terminal": true, "journaled": true, "durable": true, "referenced": false, "expected": "prune"},
+    {"id": "step-terminal-not-durable", "kind": "step", "terminal": true, "journaled": true, "durable": false, "referenced": false, "expected": "keep"},
+    {"id": "step-open", "kind": "step", "terminal": false, "journaled": false, "durable": false, "referenced": false, "expected": "keep"},
+    {"id": "step-abandoned-durable", "kind": "step", "terminal": true, "abandoned": true, "abandonedDurable": true, "referenced": false, "expected": "prune"},
+    {"id": "step-abandoned-not-durable", "kind": "step", "terminal": true, "abandoned": true, "abandonedDurable": false, "referenced": false, "expected": "keep"}
+  ],
+  "invalid": [
+    {"case": {"kind": "journal", "journaled": true, "durable": false, "referenced": false, "expected": "prune"}, "reason": "prune_before_level_2"},
+    {"case": {"kind": "step", "terminal": false, "journaled": false, "durable": true, "referenced": false, "expected": "prune"}, "reason": "prune_open_step"},
+    {"case": {"kind": "step", "terminal": true, "journaled": true, "durable": true, "referenced": true, "expected": "prune"}, "reason": "prune_referenced_step"}
+  ]
+}

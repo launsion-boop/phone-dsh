@@ -414,3 +414,89 @@ worker has the bytes.
    or 0.
 5. A live WebSocket reconnect in the same process is not recovery: the WAL tail is in memory and
    channel.md §9 applies; no file changes.
+
+## 11. Read-only projection of `materialized/home/sessions` (P02/P18, W1)
+
+The worker's in-memory VFS remains the single authority (§6). This section registers the one
+exception the app's browse path needs: a **read-only projection** of the materialized session
+copies. It is a view of §6's copy, not a second authority.
+
+- **Who may read.** Only the App process: the UI/model layer that lists sessions, opens any
+  session and pages backwards (the `ProbeKit/Transcript` reader), and the existing Bot
+  `phone record` path of bot/v1 §4.4. The worker, a device, a remote host and an arbitrary
+  process never read it through this exception.
+- **What may be read.** `materialized/home/sessions/**` only. The reader opens files read-only
+  (`O_RDONLY`/equivalent), never holds a write handle, and performs no create, write, append,
+  truncate, delete, move, rename, chmod or metadata rewrite anywhere under `materialized/`.
+  `materialized/workspace/**` and every other tree are outside this exception.
+- **Freshness.** The projection is the state of the materialized copy, so it may lag the WAL and
+  the worker's memory by up to the open epoch plus the materialization lag. It is a snapshot for
+  display and paging only: it never decides whether a turn is running, whether a send is
+  admitted, whether a step is finished, or which session is the active engine session. A line
+  that is not complete (a torn final line) is ignored; a file renamed or removed by the host
+  may make an open fail, and the reader then retries or falls back to the engine. The reader never
+  repairs, reconciles or "fixes" a file.
+- **Alignment.** Once the engine is ready, the reader aligns incrementally with the existing
+  `session/list` and `session/page` RPCs and the engine wins on any disagreement. An engine that
+  is `starting`, `failed` or absent does not block the projection; the UI may show the projected
+  copy until the engine answers.
+- **Not an input.** A write path may not read this projection to reconstruct a VFS mutation,
+  a WAL record or a journal decision. The projection is not a replay source and is not hashed
+  into any durable marker.
+
+## 12. Reclaiming droppable data (P02, W3)
+
+§9 defines which segment is droppable and the decided readings fix the conditions. This section
+fixes **when** the reclamation runs; it does not widen any condition.
+
+- **Every successful epoch close.** After the D18 order of §5.2 has completed (manifest durable,
+  level-2 ACK emitted), the host reclaims every segment that is droppable under §9: all mutations
+  `mseq <= materialized_upto_mseq`, the segment's epoch at or below `last_durable_epoch` and listed
+  in `segments[]`, and not the newest epoch-close segment or the open epoch. Reclaiming is not
+  limited to the quota path; the 512 MiB limit remains the fail-loud backstop, not the trigger.
+- **Order.** Drop oldest first and stop as soon as `used + reserve <= limit` is no longer needed
+  for quota; on the epoch-close path, drop all currently droppable segments. Manifest first, then
+  unlink (§7.2), fsync the materialized files and directories the dropped segments produced
+  (§9), and keep the newest close record.
+- **Crash.** A kill between the level-2 ACK and the reclaim leaves droppable segments on disk;
+  the next boot reclassifies them by §7.2 and reclaims them again. No acknowledged mutation and
+  no durable state is lost. A kill between the shorter manifest and the unlink leaves an unlisted
+  segment, which §7.2 replays as stale and re-lists, never drops silently.
+- **Idle close.** An epoch close that made no new mutation durable has nothing to reclaim; the
+  host may skip the close entirely under §13. Skipping is not a failure and does not lower
+  `last_durable_epoch`.
+- The response-log body deletion trigger at the same epoch-close point is fixed by
+  [gateway-security.md](gateway-security.md) §11; this section only fixes the WAL segment timing.
+- The absolute WAL quota is unchanged at 512 MiB (§9).
+
+## 13. Materialized watermark and idle epochs (P02/P03, W4)
+
+**Watermark timing.** Advancing `materialized_upto_mseq` in `manifest.json` only at epoch close
+**is compliant** with §7.1 and D18, and is the required write-path behaviour:
+
+- §7.1 requires a manifest rewrite at every epoch close, during reconcile and before a segment is
+  deleted, and requires §5.2 step 1 to have made every applied mutation durable first. It does not
+  require a manifest rewrite per mutation; the field is a property of the materialized copy (§5),
+  and §5.2 step 5 writes it after the copy is fsynced.
+- The **in-memory** watermark still advances per applied record; the persisted value may lag until
+  the next close. A crash replays every record above the persisted watermark with §6 idempotence
+  (§6.2 apply/skip and §5.1 repair), so the lag is safe. A manifest write before step 1 would
+  name an un-fsynced position and is forbidden.
+- Consequence: a segment is not droppable until the close that persists a watermark covering it.
+  This is exactly §9's "its epoch is durable" condition; advancing the manifest per mutation would
+  not make the segment droppable any earlier.
+- A host may still rewrite the manifest during reconcile and before a deletion; those writes carry
+  the same contiguous watermark and the same "after §5.2 step 1" rule.
+- **Contract conclusion.** "Only at epoch close" is allowed; a per-mutation `recordMaterializedUpto`
+  rewrite is an implementation choice that the contract neither requires nor forbids, but it must
+  not lower the durability order. The `WorkspaceLogService` per-change manifest rewrite is
+  therefore an optimisation defect, not a contract violation.
+
+**Idle epoch.** The periodic 30–60 s close may be skipped when, since the last successful close,
+no mutation was appended, no new segment was created, no materialization is pending, and no
+`VFS_RESYNC` is outstanding. The `durable_upto` of HELLO is the largest retained close record's
+`durable_upto` (§10 step 4); skipping does not change it. A close that is required for a handoff,
+a drain, a teardown seal or a planned restart still runs its §5.2 order when it has something to
+make durable, and may use `sealEpochCoveringTail` where the existing rule requires recording the
+current tail. Skipping an idle close performs no `F_FULLFSYNC`, writes no segment and sends no
+level-2 ACK.

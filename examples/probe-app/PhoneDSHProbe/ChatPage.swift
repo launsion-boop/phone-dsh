@@ -2873,8 +2873,8 @@ struct ChatPage: View {
         // the composer must not refuse the person mid-recovery, even if the
         // stale pre-park turn flag is still set until the resume reconciles it.
         if model.isHostRecovering { return model.canQueuePromptDuringRecovery }
-        if model.turnRunning { return busyEnterMode == "steer" ? model.canSteer : model.canSend }
-        return model.canSend || model.canStartBySending
+        if model.turnRunning { return busyEnterMode == "steer" ? model.canSteer : model.canAcceptSend }
+        return model.canAcceptSend || model.canStartBySending
     }
 
     private var canSubmit: Bool {
