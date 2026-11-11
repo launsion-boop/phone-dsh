@@ -3,7 +3,7 @@
 ```yaml
 change: PC-20261111-ui-drawer-interaction
 contracts: [P09]
-status: frozen
+status: implemented
 breaking: false
 version_decision: tokens.json 仍是 version 1。新增可選頂層組 `interaction` 和可選欄位 `shadows.*.x`（缺省 0）；既有 token 不改名、不改值。
 base: f0896a74
@@ -126,3 +126,4 @@ P09 — 會話抽屜（任務 tab 的會話列表、Bot tab 的名單共用同�
 | --- | --- | --- | --- |
 | 1 | Claude | 初版（draft） | — |
 | 2 | Claude | worker A: cross_check 註冊 golden；schema_diff 遞迴 oneOf（CCR，owner 採方案 a）；抽屜規則移入 interaction.md，README 上限維持 345 | — |
+| 3 | Claude | 實作完成（worker B，`4bcd7335`）。整合時補 `android/app/.../HostShell.kt`：抽屜在宿主關閉後保持掛載直到收起動畫結束（規則 8），原本 `if (drawerOpen)` 條件掛載會讓選會話、切 tab、導航時瞬間消失。驗證：`:lib:testDebugUnitTest` 1060/0 失敗；`:app:testDebugUnitTest` 338（7 skipped）/0 失敗；`phone-spec`、`phone-cross-tree` PASS；`phone-p0-conformance` 僅 main 既有的 7 個 page-structure 差異；`phone-android-structure` 僅 main 既有的 readme-map（Bot/PCLink/Venus 未登記）。真機、錄屏：NOT_RUN | Android |
