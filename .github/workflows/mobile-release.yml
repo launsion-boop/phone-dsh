@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: MIT
+name: Mobile release
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions: {}
+
+concurrency:
+  group: mobile-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'launsion-boop/phone-dsh' && github.event.created
+    runs-on: [self-hosted, macOS, ARM64, phone-dsh-release]
+    environment: mobile-release
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - name: Verify the release source
+        id: source
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tag_object="$(git rev-parse --verify "refs/tags/$RELEASE_TAG")"
+          commit="$(git rev-parse --verify "refs/tags/$RELEASE_TAG^{commit}")"
+          test "$(git rev-parse HEAD)" = "$commit"
+          test "$EVENT_SHA" = "$tag_object" || test "$EVENT_SHA" = "$commit"
+          printf 'commit=%s\n' "$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Build and sign APK and HAP
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          DEVECO_CLI_CLT_PATH: ${{ vars.DEVECO_CLI_CLT_PATH }}
+          DEVECO_CLI: ${{ vars.DEVECO_CLI }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PDSH_KEYSTORE_PASSWORD: ${{ secrets.PDSH_KEYSTORE_PASSWORD }}
+          PDSH_KEY_ALIAS: ${{ secrets.PDSH_KEY_ALIAS }}
+          PDSH_KEY_PASSWORD: ${{ secrets.PDSH_KEY_PASSWORD }}
+          HARMONY_KEYSTORE_BASE64: ${{ secrets.HARMONY_KEYSTORE_BASE64 }}
+          HARMONY_CERT_BASE64: ${{ secrets.HARMONY_CERT_BASE64 }}
+          HARMONY_PROFILE_BASE64: ${{ secrets.HARMONY_PROFILE_BASE64 }}
+          HARMONY_STORE_PASSWORD: ${{ secrets.HARMONY_STORE_PASSWORD }}
+          HARMONY_KEY_ALIAS: ${{ secrets.HARMONY_KEY_ALIAS }}
+          HARMONY_KEY_PASSWORD: ${{ secrets.HARMONY_KEY_PASSWORD }}
+        run: bash scripts/ci/build-mobile-release.sh "$RELEASE_TAG"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mobile-release
+          path: release-output/
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mobile-release
+          path: release-output
+
+      - uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: 1.3.6
+
+      - name: Publish the verified mobile packages to GHCR
+        working-directory: release-output
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          printf '%s' "$GITHUB_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          oras push "ghcr.io/launsion-boop/phone-dsh:$RELEASE_TAG" \
+            --artifact-type application/vnd.phonedsh.mobile.release.v1 \
+            --annotation "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --annotation "org.opencontainers.image.version=$RELEASE_TAG" \
+            --annotation "org.opencontainers.image.revision=$RELEASE_COMMIT" \
+            "phonedsh-android-$RELEASE_TAG.apk:application/vnd.android.package-archive" \
+            "phonedsh-harmony-$RELEASE_TAG.hap:application/octet-stream" \
+            "SHA256SUMS:text/plain"

@@ -408,6 +408,10 @@ val releaseSigningProblem: String? = when {
 }
 val releaseSigningConfigured: Boolean = releaseSigningProblem == null
 
+if (providers.gradleProperty("pdsh.requireReleaseSigning").orNull == "true") {
+    check(releaseSigningConfigured) { "Release signing is required: $releaseSigningProblem" }
+}
+
 /** The one sentence the app states about its own signature; `strings.xml` repeats it. */
 val releaseSigningNotice: String =
     if (releaseSigningConfigured) "正式签名，可发布" else "调试签名，不可发布"
@@ -434,8 +438,8 @@ android {
         applicationId = "com.phonedsh.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = providers.gradleProperty("pdsh.versionCode").map { it.toInt() }.getOrElse(1)
+        versionName = providers.gradleProperty("pdsh.versionName").getOrElse("0.1.0")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The demo target is arm64-v8a: the Rust JNI library, the Termux proot
         // stack and every 16 KB claim in this repository are arm64. Without this
