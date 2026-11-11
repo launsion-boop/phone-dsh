@@ -42,7 +42,7 @@ import {
 } from '../../shell-ext/src/index.ts'
 import type { UbuntuCapability } from '../../shell-ext/src/index.ts'
 import type { WorkerToolbox } from '../../wasi-toolbox/src/index.ts'
-import { gitCapability } from '../../wasi-toolbox/git/capability.ts'
+import { GIT_PHONE_NOTE, gitCapability } from '../../wasi-toolbox/git/capability.ts'
 import type { GitCapability, GitTrimFact } from '../../wasi-toolbox/git/capability.ts'
 
 /** Persisted instruction file the upstream loader injects (`$DSH_HOME/AGENTS.md`). */
@@ -632,6 +632,7 @@ function gitSection(git: NonNullable<CapabilityManifestDocument['git']>): string
     '## Git',
     `- supported: ${git.supported_forms.join('; ')}.`,
     `- trimmed: ${git.trimmed.map(fact => fact.note).join('; ')}.`,
+    `- ${GIT_PHONE_NOTE}`,
   ]
 }
 
@@ -654,7 +655,7 @@ export const MOBILE_RESOURCE_MAX_BYTES = 600
 export function mobileResourceSection(workspaceBytes: number): string[] {
   return [
     MOBILE_RESOURCE_HEADING,
-    '- 克隆用 `git clone --depth 1 --single-branch`；只需个别文件时直接读，不要整库克隆。',
+    '- 克隆用 `git clone --depth 1 --single-branch --no-tags`（裸 `git clone` 已是这个默认）；只需个别文件时直接读，不要整库克隆。',
     '- 不在手机上安装依赖、不跑构建。',
     '- 搜索时排除 `.git`、`node_modules`。',
     '- 大文件按片读取。',

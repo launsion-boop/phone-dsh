@@ -120,6 +120,13 @@ error, never the default format printed as if the request had succeeded.
 
 ## Shallow and single-branch clones
 
+A bare `git clone <url>` (optional `-b <branch>` and `-q`) is the phone
+default: `--depth 1 --single-branch --no-tags`. stderr names that default.
+`--full` is the previous shape (every branch, the whole history, tags).
+`--full` combined with `--depth`, `--single-branch` or `--no-tags` is an
+error and writes nothing. An explicit `--depth`, `--single-branch` or
+`--no-tags` is left as written.
+
 `clone`, `fetch` and `pull` implement git's smart-HTTP v0 shallow
 negotiation; the server must advertise the `shallow` capability (otherwise the
 command fails and says so).
@@ -332,8 +339,11 @@ file here imports `node:zlib` again. The adapter boundaries stay `GitFs` and
   side's deletion or addition, as git does.
 - Smart-HTTP v0 only: protocol v2, dumb HTTP, file remotes, `--bare`,
   `--mirror`, partial clones (`--filter`), `--shallow-since`/`--shallow-exclude`
-  and `--unshallow` are not implemented. A received pack is stored whole with a
-  freshly built index that the system git can read.
+  and `--unshallow` are not implemented. A bare `git clone` is
+  `--depth 1 --single-branch --no-tags`; `--full` copies every branch and the
+  whole history. A received pack is stored whole with a freshly built index
+  that the system git can read. The delta-base cache is 32 MiB
+  (`PACK_DELTA_CACHE_BYTES`).
 - No hooks, `.gitattributes` filters, autocrlf, commit signing, replace
   objects, sparse checkout or multi-pack-index.
 - Nothing in this package has run on an iPhone. iOS/WebKit behaviour is

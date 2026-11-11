@@ -17,6 +17,7 @@ import type { GitFs } from './fs.ts'
 import { discoverRepository } from './repo.ts'
 import type { Repository } from './repo.ts'
 import { commandTable } from './commands.ts'
+import { GIT_PHONE_NOTE } from './phone.ts'
 import { REFLOG_COMMANDS, captureReflogState, recordReflog } from './reflog.ts'
 import type { RemoteTransport } from './http.ts'
 
@@ -337,4 +338,6 @@ delete), checkout (including checkout -- <paths>),
 switch, merge (fast-forward only), clone, fetch, pull, push, remote, show, rm.
 Unsupported commands and options fail loud with a message naming the
 unsupported word and stating the Worker git's limitation.
+
+${GIT_PHONE_NOTE}
 `
