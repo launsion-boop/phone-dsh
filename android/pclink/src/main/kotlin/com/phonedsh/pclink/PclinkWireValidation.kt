@@ -183,14 +183,14 @@ object PclinkWire {
             "relay.pair.open", "relay.pair.join" -> {
                 val objectValue = value.closedObject(setOf("v", "type", "rendezvous"))
                 if (objectValue["v"]?.longValue != 1L) throw badFrame("pair v")
-                PclinkBase64Url.decode(value.requiredString("rendezvous"), expectedLength = 16)
+                requireRendezvous(value.requiredString("rendezvous"))
             }
             "relay.pair.joined" -> {
                 val objectValue = value.closedObject(
                     setOf("v", "type", "rendezvous", "role", "peerMachineId"),
                 )
                 if (objectValue["v"]?.longValue != 1L) throw badFrame("pair v")
-                PclinkBase64Url.decode(value.requiredString("rendezvous"), expectedLength = 16)
+                requireRendezvous(value.requiredString("rendezvous"))
                 if (value.requiredString("role") !in setOf("pc", "phone")) {
                     throw badFrame("pair role")
                 }
@@ -199,13 +199,13 @@ object PclinkWire {
             "relay.pair.message" -> {
                 val objectValue = value.closedObject(setOf("v", "type", "rendezvous", "payload"))
                 if (objectValue["v"]?.longValue != 1L) throw badFrame("pair v")
-                PclinkBase64Url.decode(value.requiredString("rendezvous"), expectedLength = 16)
+                requireRendezvous(value.requiredString("rendezvous"))
                 if (objectValue["payload"]?.objectValue == null) throw badFrame("pair payload")
             }
             "relay.pair.close" -> {
                 val objectValue = value.closedObject(setOf("v", "type", "rendezvous", "reason"))
                 if (objectValue["v"]?.longValue != 1L) throw badFrame("pair v")
-                PclinkBase64Url.decode(value.requiredString("rendezvous"), expectedLength = 16)
+                requireRendezvous(value.requiredString("rendezvous"))
                 val reason = objectValue["reason"]?.stringValue
                 if (reason == null || reason !in pairCloseReasons) {
                     throw badFrame("pair close reason")
@@ -705,6 +705,15 @@ object PclinkWire {
     }
 
     private fun badFrame(message: String): PclinkError = PclinkError.BadFrame(message)
+
+    // §4.3: the rendezvous is the first 22 characters of the b64url *text* of a
+    // hash, not a canonical 16-byte encoding, so it is matched as text
+    // (relay-pair.schema.json pattern), never decoded.
+    private val RENDEZVOUS_PATTERN = Regex("^[A-Za-z0-9_-]{22}$")
+
+    private fun requireRendezvous(value: String) {
+        if (!RENDEZVOUS_PATTERN.matches(value)) throw badFrame("pair rendezvous")
+    }
 
     private val FINGERPRINT_PATTERN = Regex("^[a-z2-7]{4}-[a-z2-7]{4}-[a-z2-7]{4}$")
     private val CAPABILITY_PATTERN = Regex("^[A-Za-z0-9._/-]{1,64}$")
