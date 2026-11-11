@@ -63,6 +63,9 @@ object SpecFixtures {
     fun notes(case: String): JsonObject =
         readJson(repoRoot.resolve("spec/v1/golden/trajectory/$case/notes.json"))
 
+    /** Reads any normative JSON fixture by repository-relative path. */
+    fun repoJson(relative: String): JsonObject = readJson(repoRoot.resolve(relative))
+
     /**
      * Rebuilds the host stream from normalized rows, re-inserting the turn
      * boundary the fixtures omit (`turn/start` is `golden: no` in
@@ -278,7 +281,7 @@ fun SpecFixtures.tokenNames(): Set<String> {
     (tokens["colors"] as JsonObject).members.forEach { (key, _) -> names.add("colors.$key") }
     ((tokens["typography"] as JsonObject)["styles"] as JsonObject).members
         .forEach { (key, _) -> names.add("typography.$key") }
-    for (family in listOf("spacing", "radius", "stroke", "motion", "geometry")) {
+    for (family in listOf("spacing", "radius", "stroke", "motion", "geometry", "shadows")) {
         (tokens[family] as JsonObject).members.forEach { (key, _) -> names.add("$family.$key") }
     }
     return names

@@ -146,6 +146,56 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         val aliases = spec["aliases"] as? Map<String, Map<String, String>> ?: emptyMap()
         val surfaces = spec["signatureSurfaces"] as Map<String, Any?>
 
+        // `interaction.drawer` is the drawer contract's one parameter table. It
+        // is required (change PC-20261111-ui-drawer-interaction §3): the tokens
+        // and the app ship from this repository, so there is no older file to
+        // keep building. A missing group or an unresolved token reference is a
+        // generation failure, never a silent fallback.
+        val interaction = requireNotNull(spec["interaction"] as? Map<String, Any?>) {
+            "tokens.json is missing 'interaction' (spec/ui/v1/tokens.json#interaction.drawer)"
+        }
+        val drawerSpec = requireNotNull(interaction["drawer"] as? Map<String, Any?>) {
+            "tokens.json is missing 'interaction.drawer' (spec/ui/v1/tokens.json#interaction.drawer)"
+        }
+
+        fun drawerRef(key: String, family: String): String {
+            val entry = drawerSpec[key] as? Map<*, *>
+            require(entry != null) { "interaction.drawer.$key must be a token reference" }
+            val token = entry["token"] as? String
+            require(token != null) { "interaction.drawer.$key is missing its 'token' reference" }
+            val parts = token.split(".", limit = 2)
+            require(parts.size == 2 && parts[0] == family) {
+                "interaction.drawer.$key must reference a $family token, got '$token'"
+            }
+            val leaf = parts[1]
+            val exists = when (family) {
+                "geometry" -> leaf in geometry
+                "radius" -> leaf in radius
+                "motion" -> leaf in motion
+                "shadows" -> leaf in shadows
+                else -> false
+            }
+            require(exists) { "interaction.drawer.$key references missing token '$token'" }
+            return when (family) {
+                "geometry" -> "geometry${camel(leaf)}"
+                "radius" -> "radius${camel(leaf)}"
+                "motion" -> "motion${camel(leaf)}"
+                "shadows" -> "shadow${camel(leaf)}"
+                else -> error("interaction.drawer.$key: unsupported token family '$family'")
+            }
+        }
+
+        fun drawerParam(key: String, unit: String): Float {
+            val entry = drawerSpec[key] as? Map<*, *>
+            require(entry != null) { "interaction.drawer.$key must be a parameter" }
+            require(entry["token"] == null) { "interaction.drawer.$key must be a parameter, not a token reference" }
+            require(entry["unit"] == unit) {
+                "interaction.drawer.$key must use unit '$unit', got '${entry["unit"]}'"
+            }
+            return (entry["value"] as? Number)?.toFloat()
+                ?: error("interaction.drawer.$key is missing a numeric 'value'")
+        }
+
         val names = StringBuilder()
         val fields = StringBuilder()
         val colorMap = StringBuilder()
@@ -155,6 +205,7 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         val strokeMap = StringBuilder()
         val motionMap = StringBuilder()
         val geometryMap = StringBuilder()
+        val shadowMap = StringBuilder()
         val surfaceFields = StringBuilder()
         val surfaceList = StringBuilder()
 
@@ -235,6 +286,23 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             motionMap.append("        \"$token\" to motion${camel(key)},\n")
         }
 
+        shadows.forEach { (key, entry) ->
+            val token = nameConst("shadows", key)
+            // `x` was added after the first two shadow roles; absent means the
+            // source had no horizontal offset (0), never a guessed value.
+            val x = (entry["x"] as? Number)?.toFloat() ?: 0f
+            fields.append(
+                "    public val shadow${camel(key)}: TokenShadow = TokenShadow(\n" +
+                    "        name = \"$token\",\n" +
+                    "        opacity = ${(entry["opacity"] as Number).toFloat()}f,\n" +
+                    "        radius = ${(entry["radius"] as Number).toFloat()}f,\n" +
+                    "        x = ${x}f,\n" +
+                    "        y = ${(entry["y"] as Number).toFloat()}f,\n" +
+                    "    )\n"
+            )
+            shadowMap.append("        \"$token\" to shadow${camel(key)},\n")
+        }
+
         geometry.forEach { (key, raw) ->
             val entry = raw as Map<String, Any?>
             val token = nameConst("geometry", key)
@@ -248,6 +316,22 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             )
             geometryMap.append("        \"$token\" to geometry${camel(key)},\n")
         }
+
+        fields.append(
+            "    public val drawer: TokenDrawerInteraction = TokenDrawerInteraction(\n" +
+                "        width = ${drawerRef("width", "geometry")},\n" +
+                "        panelTrailingRadius = ${drawerRef("panelTrailingRadius", "radius")},\n" +
+                "        shadow = ${drawerRef("shadow", "shadows")},\n" +
+                "        openMotion = ${drawerRef("openMotion", "motion")},\n" +
+                "        closeMotion = ${drawerRef("closeMotion", "motion")},\n" +
+                "        settleMotion = ${drawerRef("settleMotion", "motion")},\n" +
+                "        closedOverhangPt = ${drawerParam("closedOverhang", "pt")}f,\n" +
+                "        scrimMaxOpacity = ${drawerParam("scrimMaxOpacity", "opacity")}f,\n" +
+                "        dragMinimumDistancePt = ${drawerParam("dragMinimumDistance", "pt")}f,\n" +
+                "        closeThresholdFraction = ${drawerParam("closeThreshold", "widthFraction")}f,\n" +
+                "        velocityProjectionSeconds = ${drawerParam("velocityProjection", "s")}f,\n" +
+                "    )\n"
+        )
 
         // Compatibility accessors are generated from declared canonical JSON
         // leaves; aliases never add duplicate token objects to UiTokenData and
@@ -340,6 +424,18 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("public data class TokenMotion(\n")
         out.append("    public val name: String,\n    public val durationMs: Int,\n")
         out.append("    public val curve: String,\n    public val repeat: String,\n)\n\n")
+        out.append("/** A shadow token: black at `opacity`, SwiftUI blur `radius`, offset x/y, in pt. */\n")
+        out.append("public data class TokenShadow(\n")
+        out.append("    public val name: String,\n    public val opacity: Float,\n")
+        out.append("    public val radius: Float,\n    public val x: Float,\n    public val y: Float,\n)\n\n")
+        out.append("/** `interaction.drawer`: every drawer parameter resolved to its generated token. */\n")
+        out.append("public data class TokenDrawerInteraction(\n")
+        out.append("    public val width: TokenGeometry,\n    public val panelTrailingRadius: TokenDp,\n")
+        out.append("    public val shadow: TokenShadow,\n    public val openMotion: TokenMotion,\n")
+        out.append("    public val closeMotion: TokenMotion,\n    public val settleMotion: TokenMotion,\n")
+        out.append("    public val closedOverhangPt: Float,\n    public val scrimMaxOpacity: Float,\n")
+        out.append("    public val dragMinimumDistancePt: Float,\n    public val closeThresholdFraction: Float,\n")
+        out.append("    public val velocityProjectionSeconds: Float,\n)\n\n")
         out.append("/** A page-layer geometry token; `unit` is `pt` or `screenRatio`. */\n")
         out.append("public data class TokenGeometry(\n")
         out.append("    public val name: String,\n    public val value: Float,\n    public val unit: String,\n")
@@ -367,9 +463,10 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("    public val stroke: Map<String, TokenDp> = mapOf(\n").append(strokeMap).append("    )\n")
         out.append("    public val motion: Map<String, TokenMotion> = mapOf(\n").append(motionMap).append("    )\n")
         out.append("    public val geometry: Map<String, TokenGeometry> = mapOf(\n").append(geometryMap).append("    )\n")
+        out.append("    public val shadows: Map<String, TokenShadow> = mapOf(\n").append(shadowMap).append("    )\n")
         out.append("    /** Every canonical leaf token name, in the spec's own spelling. */\n")
         out.append("    public val allNames: Set<String> =\n")
-        out.append("        colors.keys + types.keys + spacing.keys + radius.keys + stroke.keys + motion.keys + geometry.keys\n")
+        out.append("        colors.keys + types.keys + spacing.keys + radius.keys + stroke.keys + motion.keys + geometry.keys + shadows.keys\n")
         out.append("}\n")
 
         // The HomeSpec compatibility facade is generated exclusively from the
@@ -419,12 +516,13 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             asLong("light")?.let { home.append("    public const val ${upperSnake(key)}_LIGHT: Long = ${it}L\n") }
             asLong("dark")?.let { home.append("    public const val ${upperSnake(key)}_DARK: Long = ${it}L\n") }
         }
-        home.append("\n    /** Shadow helpers: black opacity, SwiftUI blur radius and y offset, in pt. */\n")
+        home.append("\n    /** Shadow helpers: black opacity, SwiftUI blur radius and x/y offset, in pt. */\n")
         home.append("    public object Shadow {\n")
-        for ((role, prefix) in listOf("floating" to "FLOATING", "composer" to "COMPOSER")) {
+        for ((role, prefix) in listOf("floating" to "FLOATING", "composer" to "COMPOSER", "drawer" to "DRAWER")) {
             val entry = shadows[role] ?: continue
-            for (part in listOf("opacity", "radius", "y")) {
-                home.append("        public const val ${prefix}_${part.uppercase()}: Float = ${(entry.getValue(part) as Number).toFloat()}f\n")
+            for (part in listOf("opacity", "radius", "x", "y")) {
+                val value = (entry[part] as? Number)?.toFloat() ?: 0f
+                home.append("        public const val ${prefix}_${part.uppercase()}: Float = ${value}f\n")
             }
         }
         home.append("    }\n")
