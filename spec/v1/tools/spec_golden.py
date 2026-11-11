@@ -206,7 +206,11 @@ LINE_CAPS = {
     # §9's decided reading now states that a listed epoch at or below
     # `last_durable_epoch` is durable without its own retained close record and
     # is not "unclosed history" for §10. The cap moves 412 -> 416.
-    "wal.md": 416,
+    # D16 amendment (2026-11-12, PC-20261112-bot-session-epoch):
+    # §5.3 freezes the host-only closed-session rewrite (quiesce, fresh segment,
+    # tombstone records, compaction proof, derived-copy removal) and §9 gains
+    # its compaction trigger. This is new normative text. The cap moves 416 -> 462.
+    "wal.md": 462,
     # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
     # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
     # refusal). The implementation and the spec disagreed; the spec was the narrower one.

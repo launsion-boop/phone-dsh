@@ -887,7 +887,7 @@ private struct BotMemoryPage: View {
             Button("抹除本 Bot 的 agent/ 文档", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("物理删除这个 Bot 的 agent/ 文档树和全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。共享 user/ 不受影响。DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
+            Text("物理删除这个 Bot 的 agent/ 文档树和全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。共享 user/ 不受影响。已关闭会话里的对应聊天原文也会被墓碑替换；对话会接续到新会话。此操作不可撤销。")
         }
         .confirmationDialog("抹除所有 Bot 共享的 user/ 文档？", isPresented: $confirmShared) {
             Button("继续", role: .destructive) {
@@ -898,13 +898,13 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会影响每一个 Bot：共享 user/ 文档树和全部历史版本会被物理删除；DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
+            Text("这会影响每一个 Bot：共享 user/ 文档树和全部历史版本会被物理删除；已关闭会话里的对应聊天原文也会被墓碑替换。此操作不可撤销。")
         }
         .confirmationDialog("最后确认：抹除全部共享 user/ 记忆？", isPresented: $confirmSharedAgain) {
             Button("抹除共享 user/ 记忆", role: .destructive) { Task { await model.eraseShared() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("物理删除所有 Bot 共享的 user/ 文档树、全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。所有 Bot 会立即失去这些记忆。DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
+            Text("物理删除所有 Bot 共享的 user/ 文档树、全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。所有 Bot 会立即失去这些记忆。已关闭会话里的对应聊天原文也会被墓碑替换。此操作不可撤销。")
         }
     }
 
@@ -1115,7 +1115,7 @@ private struct BotMemoryDocumentView: View {
                 }
                 .accessibilityIdentifier("bot.memory.document.erase")
             } footer: {
-                Text("忘记只移除当前版本；历史版本和原始记录仍保留。抹除会物理删除这份文档、全部历史版本，以及事件载荷和派生视图中与它相同的内容；DSH 会话日志（聊天原始记录）暂未覆盖。抹除不可撤销。")
+                Text("忘记只移除当前版本；历史版本和原始记录仍保留。抹除会物理删除这份文档、全部历史版本，以及事件载荷和派生视图中与它相同的内容；已关闭会话里的对应聊天原文也会被墓碑替换，对话会接续到新会话。抹除不可撤销。")
             }
         }
         .confirmationDialog("抹除这份文档？", isPresented: $confirmErase) {
@@ -1125,7 +1125,7 @@ private struct BotMemoryDocumentView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("物理删除 \(document.path) 的全部版本，并清除事件载荷和派生视图中与它相同的内容。共享记忆的其他文档不受影响；DSH 会话日志暂未覆盖。此操作不可撤销。")
+            Text("物理删除 \(document.path) 的全部版本，并清除事件载荷和派生视图中与它相同的内容。共享记忆的其他文档不受影响；已关闭会话里的对应聊天原文也会被墓碑替换。此操作不可撤销。")
         }
         .homeGroupedList()
         .navigationTitle(document.path)

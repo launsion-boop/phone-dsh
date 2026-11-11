@@ -300,9 +300,13 @@ ASCII 大小写、十进制前导零；session id 本身大小写敏感，不做
 `record://event/<commitSeq>` 被宿主的 `erasure` 路径物理清除后，事件头、序号、类型和摘要仍存在，但
 引用进入「已抹除」状态：`phone record read` 返回 `ok:false` 且 `error.code == "record_erased"`
 （不返回原文、摘要或相邻记录），`search` 跳过该事件，`resolveEvidence` 拒绝把它当作证据。
-`record://session/...` 的区间抹除属 S6 第二步，本修订尚未实现；界面文案必须如实说明会话日志暂未
-覆盖。引用存在性与调用者范围校验顺序不变：先按既有规则判断引用/会话是否属于该 Bot，再判断是否
-已抹除；不得用「已抹除」泄露别的 Bot 的记录。
+`record://session/<sessionId>#<seq>` 在会话纪元抹除后若该行已被墓碑替换，引用进入同一「已抹除」
+状态；`search` 跳过墓碑行，`resolveEvidence` 拒绝。未抹除的行仍可读，行窗口也不得把墓碑内容当作
+原文返回。墓碑是 `phone-dsh/session-erasure` 事件，带 `ignorable: true`、原 `seq`/`time` 和
+`record://session/<sessionId>#<seq>`，不含原文；DSH 加载会话时忽略它。旧会话归档、新会话接续，切换
+由旧会话的 `runtime.exited{reason:"session-erased"}` 与新会话的 `runtime.started` 记录。引用存在性
+与调用者范围校验顺序不变：先按既有规则判断引用/会话是否属于该 Bot，再判断是否已抹除；不得用
+「已抹除」泄露别的 Bot 的记录。
 
 ### 4.3 观察信封（observation envelope）
 
@@ -409,15 +413,19 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
 - **忘记（forget）**：逻辑删除。记忆文档从 live 集合移除、不再注入/检索/显示，历史版本和原始记录
   保留。模型工具 `UpdateMemory{"action":"delete"}` 和记忆页的「忘记」只走这个强度。
 - **抹除（erase）**：物理删除。由宿主专用路径执行，作用于原始记录和派生物：事件载荷、记忆文档及其
-  全部历史版本、检索结果、UI 行、`phone record` 结果，以及观察信封/脱敏留痕中指向被抹除事件的
-  内容。S6 第一步覆盖 `bot_events` 与记忆/派生视图；DSH 会话日志（session log）的区间改写在第二步，
-  在上述入口的确认文案中必须写明「暂未覆盖历史会话日志」。
+  全部历史版本、检索结果、UI 行、`phone record` 结果、观察信封/脱敏留痕中指向被抹除事件的内容，
+  以及已关闭会话纪元的 DSH 会话日志行。当前主会话在抹除时先切换到新纪元（旧会话归档、新会话从
+  未抹除记录和记忆索引接续），然后宿主按 [P02 WAL §5.3](../../v1/wal.md) 的受控改写把旧会话的命中行
+  替换成墓碑；确认文案与结果不得再声称会话日志未覆盖。
 
 **事件存储。** 拆分为事件头与载荷（§1）。只有宿主的抹除路径能清空载荷；每次抹除追加一条 durable
 `erasure` 事件，列出目标（`memory` scope/path）、每个路径被抹除的版本号、被清除事件的
-`record://event/...`、类型、原摘要、字节数、`legacyFactIDs` 和未覆盖的 `record://session/...`
-引用（reason `session-log-erasure-not-implemented`）。`erasure` 事件自己的载荷不清除；它的
-`data` 由 [erasure-event.schema.json](erasure-event.schema.json) 冻结，正反向量在
+`record://event/...`、类型、原摘要、字节数、`legacyFactIDs`、被墓碑替换的
+`record://session/...`（`erasedSessionRecords`）和切换的会话纪元（`sessionEpochs`）。只有确实
+无法覆盖的 session 引用才进入 `uncoveredRecords`，reason 为
+`session-log-erasure-not-implemented`（旧数据）或 `session-log-session-not-closed`（该会话仍有活动
+回合）。`erasure` 事件自己的载荷不清除；它的 `data` 由
+[erasure-event.schema.json](erasure-event.schema.json) 冻结，正反向量在
 [golden/erasure-event.phone.json](golden/erasure-event.phone.json)。`event-envelope.schema.json`
 的 durable type enum 追加 `erasure`（P25 additive event type），旧读者按未知 durable 规则处理。
 
@@ -427,9 +435,12 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
 2. 共享 `user/` scope 跨 Bot；`agent/` scope 只限该 Bot（`erasure` 事件按写入者的 principal 限定）；
 3. 与版本文本相同的事件载荷，以及由版本文本中唯一标记（含 `_` 或数字、长度 ≥ 8）匹配到的副本；
 4. `redaction.applied`、观察信封等非 memory 事件中指向被清除 `record://event/...` 的内容；
-5. 未被覆盖的 session 引用只登记在 `uncoveredRecords`，不改写会话文件。
+5. 版本文本和证据中的 `record://session/...` 引用，以及由版本文本唯一标记匹配到的会话日志行：
+   先切换/关闭会话纪元，再按 P02 §5.3 用墓碑替换；替换成功后才清空事件载荷并写 `erasure` 事件。
+   仍处于活动回合或宿主无法改写的会话行留在 `uncoveredRecords`，不得伪称已覆盖。
 
 清除范围之外的内容不得因为抹除被误删；其他 Bot 的 `agent/` 文档和保留的 `user/` 文档必须存活。
+会话日志中未命中的行、旧纪元归档和新纪元的接续上下文必须保留；接续上下文不含墓碑行。
 抹除是幂等的：重复执行不再产生第二条 `erasure` 事件，目标已不存在时返回 `memory-not-found`（单文档）
 或 `removed=0`（scope）。失败路径：不存在的路径、越权 scope、事件不存在或已经抹除都不得伪造成功。
 

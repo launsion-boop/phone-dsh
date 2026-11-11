@@ -125,7 +125,9 @@
                 "path": "user/preferences/drinks.md",
                 "content": "# Drinks\n\n- 美式咖啡 AMERICANO_A",
                 "expected_version": 0,
-                "evidence": ["current-user-turn"]
+                "evidence": [
+                  "current-user-turn"
+                ]
               }
             },
             "final_text": "已记住：美式咖啡。"
@@ -151,7 +153,9 @@
                   "find": "美式咖啡 AMERICANO_A",
                   "replace": "燕麦拿铁 OAT_LATTE_B",
                   "expected_version": 1,
-                  "evidence": ["current-user-turn"]
+                  "evidence": [
+                    "current-user-turn"
+                  ]
                 }
               }
             ],
@@ -555,6 +559,10 @@
           "kind": "erase_shared_memory"
         },
         {
+          "type": "restart_worker",
+          "mode": "planned_restart"
+        },
+        {
           "type": "user_message",
           "text": "我刚才让你记住的那个随机词是什么？如果记忆里没有就只回 UNKNOWN，不要猜，也不要去翻聊天记录。",
           "mock": {
@@ -584,6 +592,11 @@
           "type": "no_bot_event",
           "event": "memory.document_written",
           "payload_contains": "QUOKKA_7F3A9"
+        },
+        {
+          "type": "session_log_absent",
+          "value": "QUOKKA_7F3A9",
+          "description": "The closed session epoch is byte-tombstoned: no session log file still contains the erased word."
         }
       ]
     },

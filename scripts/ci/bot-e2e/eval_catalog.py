@@ -45,7 +45,7 @@ SUPPORTED_ASSERTIONS = {
     "workspace_command", "reply_contains", "reply_not_contains",
     "bot_event", "no_bot_event", "tool_called", "no_tool_call",
     "memory_contains", "memory_absent", "approval_count", "echo_requests",
-    "tool_surface",
+    "tool_surface", "session_log_absent",
 }
 UI_KINDS = {
     "card_answer", "card_dismiss", "approval", "erase_memory",
@@ -303,6 +303,8 @@ def _check_assertion(errors, path, assertion):
         method = assertion.get("method")
         if not isinstance(method, str) or not method.isalpha():
             _error(errors, path, "echo_requests method must be an alphabetic HTTP method")
+    if kind == "session_log_absent" and not assertion.get("value"):
+        _error(errors, path, f"{kind} requires a non-empty value")
     if kind == "tool_surface":
         session = assertion.get("session")
         if session is not None and session not in ("main", "task", "verifier", "maintainer"):

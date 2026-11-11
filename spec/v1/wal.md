@@ -118,7 +118,8 @@ diverged:
   repair is applied. A superseded record holds the watermark exactly like a mismatch until its
   covering record has been applied inside the prefix, but it is not a failure and needs no resync.
 - keep the mismatching record and every later append of the path in the WAL. An accepted record is
-  **never discarded** and never rewritten.
+  **never discarded by recovery** and never rewritten in place; §9 compaction and the §5.3
+  closed-session rewrite may retire whole segments.
 - the worker replies with a complete `op = 1` write (`mflags` bit 1 clear) of the current file at
   the **next normal mseq**; the worker's in-memory VFS is authoritative while it lives. The host
   applies that write as the new base, then re-applies the path's pending appended records in mseq
@@ -164,6 +165,48 @@ step 5 leaves the old manifest; replay from its watermark re-applies the durable
 (§6.2), so no level-2 state is lost or duplicated. An unlisted epoch-close segment is adopted by
 §7.2 and the manifest repaired. Power loss loses at most the open epoch; the worker's memory is
 gone then, so no side re-sends it, and the tool journal (channel.md §3.5, exec.md §4) shows.
+
+### 5.3 Closed-session rewrite (session erasure)
+
+A **closed session epoch** is a DSH session the Worker will never append to again: its last
+turn has settled, it has been archived or detached, and the host has stopped admission. The
+host may replace erased lines of that session's materialized JSONL log with tombstones. This
+is the only exception to "committed events are never rewritten"; it is host-only and the
+Worker never issues it. The rewrite runs in this order:
+
+1. **Quiesce.** Park the Worker and wait until no append is in flight; close the current
+   epoch in the §5.2 order. Require `materialized_upto_mseq` to equal the accepted tail.
+2. **Fresh segment.** The rewrite starts with a complete `op = 1` write in the segment of
+   the epoch opened by step 1. No earlier record may share that segment.
+3. **Tombstone records.** Append ordinary mutations whose bytes are the rewritten log:
+   every erased line is a tombstone record, every other line is byte-identical, and an
+   older generation is an ordinary `op = 3` remove. A file larger than one mutation is one
+   complete write plus §3 appended suffixes; the host never writes the erased bytes. A
+   tombstone is a `phone-dsh/session-erasure` event with `ignorable: true`, its original
+   `seq` and `time`, and no original content.
+4. **Durability and compaction.** Close the epoch in the §5.2 order, then compact every
+   segment older than the rewrite segment under §9. Those segments are droppable: their
+   mutations are at or below the watermark, their epochs are durable and listed, and they
+   are neither the open epoch nor the newest epoch-close segment.
+5. **Proof.** Before returning success the host rescans `wal/` and requires that no older
+   segment remains; it also requires the rewritten files to match the materialized copy and
+   removes every derived copy: `overlay-cache.tar`, `overlay-*.tar`,
+   `materialized.staging/` and `recovery-backup/`. A pending `reconcile.inprogress` refuses
+   the rewrite.
+
+Crash windows preserve one of two states. Before step 3 the old session is intact (the
+operation has not happened). After the first tombstone record is durable, recovery replays
+it over the old prefix and ends in the tombstone state; a crash between steps 4 and 5 leaves
+the durable manifest listing the rewrite segment, and the next compaction completes. There
+is no window that restores the erased bytes after the operation returns success.
+
+The rewrite adds no manifest field, changes `format` and never allocates an mseq twice.
+`record://session/<sessionId>#<seq>` for a tombstoned seq is an erased record: readers must
+report `record_erased` and must not return the tombstone's data as the original line. DSH
+admits an unknown `ignorable` event and excludes it from the surface, so the closed session
+stays loadable; `session/list` may still show it as archived. The guarantee is bounded to
+host-accessible copies. Secure erase of filesystem blocks, snapshots, device backups and
+flash wear-levelling is not promised.
 
 ## 6. Materialized copy (D8, D9)
 
@@ -355,6 +398,9 @@ worker has the bytes.
   completed, then fsyncs the materialized files and directories produced by the segments to be
   dropped, writes the shorter manifest, and unlinks whole segment files. A segment is never
   partially truncated except by the torn-tail rule of §10.
+- A **closed-session rewrite** (§5.3) closes a fresh epoch and then compacts: every segment older
+  than its rewrite segment is droppable under this section, including segments whose records
+  predate the rewrite. The rewrite segment is the newest epoch-close segment and is retained.
 - If the WAL still exceeds 512 MiB after compaction, the host fails loud: admission closes and the
   state becomes `Failed`. Data is not silently evicted.
 

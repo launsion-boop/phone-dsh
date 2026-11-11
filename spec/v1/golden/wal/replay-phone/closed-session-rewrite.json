@@ -1,0 +1,51 @@
+{
+  "id": "closed-session-rewrite",
+  "title": "A retained WAL that starts at a closed-session rewrite replays the tombstone and removes the older generation",
+  "materialized_upto_mseq": 6,
+  "copy": {
+    "/dsh/home/sessions/project/gb-main/session.v4.jsonl": {
+      "content_utf8": "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":1,\"isSeeded\":false,\"delegationDepth\":0}\n{\"type\":\"user/message\",\"seq\":0,\"time\":2,\"data\":{\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"remember QUOKKA_7F3A9\"}]}}}\n"
+    },
+    "/dsh/home/sessions/project/gb-main/session.v3.jsonl": {
+      "content_utf8": "{\"type\":\"session\",\"version\":3,\"id\":\"gb-main\"}\n{\"type\":\"user/message\",\"seq\":0,\"time\":2,\"data\":{\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"remember QUOKKA_7F3A9\"}]}}}\n"
+    }
+  },
+  "records": [
+    {
+      "mseq": 7,
+      "op": 1,
+      "path": "/dsh/home/sessions/project/gb-main/session.v4.jsonl",
+      "appended": false,
+      "append_from": 0,
+      "data": {
+        "content_utf8": "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":1,\"isSeeded\":false,\"delegationDepth\":0}\n{\"type\":\"phone-dsh/session-erasure\",\"seq\":0,\"time\":2,\"data\":{\"erased\":true,\"erasureId\":\"erasure-1\",\"record\":\"record://session/gb-main#0\"},\"ignorable\":true}\n"
+      }
+    },
+    {
+      "mseq": 8,
+      "op": 3,
+      "path": "/dsh/home/sessions/project/gb-main/session.v3.jsonl",
+      "appended": false
+    }
+  ],
+  "expected": {
+    "records": [
+      {
+        "mseq": 7,
+        "verdict": "applied"
+      },
+      {
+        "mseq": 8,
+        "verdict": "applied"
+      }
+    ],
+    "materialized_upto_mseq": 8,
+    "tree": {
+      "/dsh/home/sessions/project/gb-main/session.v4.jsonl": {
+        "content_utf8": "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":1,\"isSeeded\":false,\"delegationDepth\":0}\n{\"type\":\"phone-dsh/session-erasure\",\"seq\":0,\"time\":2,\"data\":{\"erased\":true,\"erasureId\":\"erasure-1\",\"record\":\"record://session/gb-main#0\"},\"ignorable\":true}\n"
+      }
+    },
+    "failed": false,
+    "rebuilt_from_wal": false
+  }
+}

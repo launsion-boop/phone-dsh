@@ -300,8 +300,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
 
     // MARK: - physical erasure (S6)
 
-    public func erase(path: String, author: BotMemoryAuthor,
-                      atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome {
+    public func erase(path: String, author: BotMemoryAuthor, atMS: Int64,
+                      sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome {
         try await mutationMutex.withLock {
             let snapshot = try await replay()
             guard let scope = BotMemoryAuthorizer.scope(of: path) else {
@@ -321,12 +321,13 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 scopeErase: false,
                 author: author,
                 atMS: atMS,
+                sessionEraser: sessionEraser,
                 snapshot: snapshot)
         }
     }
 
-    public func erase(scope: BotMemoryScope, author: BotMemoryAuthor,
-                      atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome {
+    public func erase(scope: BotMemoryScope, author: BotMemoryAuthor, atMS: Int64,
+                      sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome {
         try await mutationMutex.withLock {
             let snapshot = try await replay()
             let paths = Self.paths(in: scope, snapshot: snapshot)
@@ -337,6 +338,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 scopeErase: true,
                 author: author,
                 atMS: atMS,
+                sessionEraser: sessionEraser,
                 snapshot: snapshot)
         }
     }
@@ -360,6 +362,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         scopeErase: Bool,
         author: BotMemoryAuthor,
         atMS: Int64,
+        sessionEraser: BotSessionEraser?,
         snapshot: ReplayState
     ) async throws -> BotMemoryPhysicalEraseOutcome {
         let targetPaths = Set(paths)
@@ -383,6 +386,27 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             }
         }
         let needleList = Array(needles)
+
+        var sessionRefs = Set<String>()
+        for versions in versionsByPath.values {
+            for version in versions {
+                for raw in version.evidence {
+                    if case .session = BotRecordReference.parse(raw) {
+                        sessionRefs.insert(BotRecordReference.parse(raw)?.canonical ?? raw)
+                    }
+                }
+            }
+        }
+        var sessionReport = BotSessionErasureReport()
+        if let sessionEraser {
+            sessionReport = try await sessionEraser(BotSessionErasureRequest(
+                botID: author.botID ?? botID ?? "",
+                callerSessionID: author.sessionID ?? botID ?? "",
+                needles: needleList,
+                records: sessionRefs.sorted(),
+                atMS: atMS,
+                scope: scope.rawValue))
+        }
 
         let allEvents = try await allDurableEvents()
         var targetSequences = Set<Int>()
@@ -447,22 +471,23 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         let payloadTargets = metadata.filter { $0.payloadBytes > 0 }
         var erasureRecord: String?
         var erasedBytes = 0
-        if !payloadTargets.isEmpty {
+        var uncovered: [BotErasureEventData.UncoveredRecord] = []
+        if !payloadTargets.isEmpty
+            || !sessionReport.erasedSessionRecords.isEmpty
+            || !sessionReport.sessionEpochs.isEmpty {
             let erasureID = "erasure-\(UUID().uuidString.lowercased())"
             let erasedEvents = payloadTargets.map {
                 BotErasureEventData.ErasedEvent(
                     record: $0.record, type: $0.type, digest: $0.digest,
                     payloadBytes: $0.payloadBytes)
             }
-            var uncovered = Set<String>()
-            for versions in versionsByPath.values {
-                for version in versions {
-                    for raw in version.evidence {
-                        if case .session = BotRecordReference.parse(raw) {
-                            uncovered.insert(BotRecordReference.parse(raw)?.canonical ?? raw)
-                        }
-                    }
+            if sessionEraser == nil {
+                uncovered = sessionRefs.sorted().map {
+                    BotErasureEventData.UncoveredRecord(
+                        record: $0, reason: "session-log-erasure-not-implemented")
                 }
+            } else {
+                uncovered = sessionReport.uncoveredRecords
             }
             let memoryVersions = versionsByPath.keys.sorted().compactMap { path -> BotErasureEventData.MemoryVersionRange? in
                 guard let versions = versionsByPath[path] else { return nil }
@@ -478,11 +503,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 targets: targets,
                 memoryVersions: memoryVersions,
                 erasedEvents: erasedEvents,
-                uncoveredRecords: uncovered.sorted().map {
-                    BotErasureEventData.UncoveredRecord(
-                        record: $0, reason: "session-log-erasure-not-implemented")
-                },
-                legacyFactIDs: legacyFactIDs.sorted())
+                uncoveredRecords: uncovered,
+                legacyFactIDs: legacyFactIDs.sorted(),
+                erasedSessionRecords: sessionReport.erasedSessionRecords,
+                sessionEpochs: sessionReport.sessionEpochs)
             let event = BotEvent(
                 type: "erasure",
                 eventId: "erasure-\(erasureID)",
@@ -493,10 +517,15 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 causationId: nil,
                 correlationId: nil,
                 data: try Self.encode(data))
-            let commit = try await eventLog.erasePayloads(
-                payloadTargets.map(\.commitSeq), erasureEvent: event, atMS: atMS)
-            erasureRecord = "record://event/\(commit.erasureCommitSeq)"
-            erasedBytes = payloadTargets.reduce(0) { $0 + $1.payloadBytes }
+            if payloadTargets.isEmpty {
+                let sequence = try await eventLog.append(event)
+                erasureRecord = "record://event/\(sequence)"
+            } else {
+                let commit = try await eventLog.erasePayloads(
+                    payloadTargets.map(\.commitSeq), erasureEvent: event, atMS: atMS)
+                erasureRecord = "record://event/\(commit.erasureCommitSeq)"
+                erasedBytes = payloadTargets.reduce(0) { $0 + $1.payloadBytes }
+            }
         }
 
         removeFromState(paths: targetPaths, scope: scope,
@@ -510,12 +539,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             erasedEvents: payloadTargets.count,
             erasedBytes: erasedBytes,
             erasureRecord: erasureRecord,
-            uncoveredRecords: versionsByPath.values.flatMap { versions in
-                versions.flatMap(\.evidence)
-            }.compactMap { raw -> String? in
-                guard case .session = BotRecordReference.parse(raw) else { return nil }
-                return BotRecordReference.parse(raw)?.canonical
-            }.sorted())
+            uncoveredRecords: uncovered.map(\.record).sorted(),
+            erasedSessionRecords: sessionReport.erasedSessionRecords,
+            sessionEpochs: sessionReport.sessionEpochs)
     }
 
     private func legacyFactBelongs(_ fact: BotMemoryFact, event: BotEvent,

@@ -9,6 +9,14 @@
 结论先说：**条件可行，但当前 P02/WAL 与 DSH session persistence 契约下不可直接实现。** 本 spike
 不实现第二步，也不改任何会话文件。
 
+> 2026-11-12 后续（PC-20261112-bot-session-epoch）：本 spike 的「必须有上游
+> `closeSession`/`rewriteClosedSession`」不是唯一路径。宿主在 Worker park 后把墓碑版本作为
+> ordinary complete-write/append/remove 记录写入 WAL，再用既有 §9 compaction 退役旧段，并在
+> 返回前重扫 `wal/` 证明旧段不存在；DSH 只看到改写后的 JSONL。契约冻结在
+> [wal.md §5.3](../../spec/v1/wal.md) 和
+> [PC-20261112-bot-session-epoch](../protocol-changes/PC-20261112-bot-session-epoch.md)。本节以下
+> 的「不可直接实现」指 spike 当时未设计该顺序，不是最终状态。
+
 ## 1. 问题
 
 总方案 §3.1 的第二步是：主对话换到新的 DSH 会话（「会话纪元」），接续上下文从原始记录和记忆

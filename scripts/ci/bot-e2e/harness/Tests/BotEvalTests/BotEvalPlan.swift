@@ -79,7 +79,7 @@ struct EvalPlan: Decodable {
         "workspace_command", "reply_contains", "reply_not_contains",
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
-        "tool_surface",
+        "tool_surface", "session_log_absent",
     ]
 }
 
