@@ -278,12 +278,20 @@ final class BotRuntimeUnit {
             runtimeState: runtimeState)
     }
 
-    private static func proactiveDelivery() -> (any ProactiveDelivering)? {
+    private static var isHeadlessXCTestProcess: Bool {
         // The macOS eval harness is a bare XCTest process: UserNotifications
         // throws at `currentNotificationCenter`, and a headless runner has no
-        // application bundle to display to. The eval plan sets this variable;
-        // the App never does. The proactive decision/event chain still runs.
-        if ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
+        // application bundle to display to. eval.sh sets PDSH_BOT_EVAL_PLAN;
+        // a plain `swift test` does not, so detect XCTest itself as well. The
+        // App has neither and keeps the real delivery. The proactive
+        // decision/event chain still runs in both cases.
+        NSClassFromString("XCTestCase") != nil
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    private static func proactiveDelivery() -> (any ProactiveDelivering)? {
+        if isHeadlessXCTestProcess
+            || ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
         #if canImport(UserNotifications)
         return UNUserNotificationProactiveDelivery()
         #else
@@ -292,7 +300,8 @@ final class BotRuntimeUnit {
     }
 
     private static func notificationScheduling() -> (any RoutineNotificationScheduling)? {
-        if ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
+        if isHeadlessXCTestProcess
+            || ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
         #if canImport(UserNotifications)
         return UNUserNotificationRoutineScheduling()
         #else

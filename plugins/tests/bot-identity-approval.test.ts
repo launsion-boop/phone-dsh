@@ -537,6 +537,63 @@ test('BLE native-MCP effects match the shared golden and stay ask-gated', async 
   }
 })
 
+test('read-only memory tools are read + auto and never ask for structural approval', async () => {
+  const golden = readBotGoldenMerged('tool-effects') as {
+    valid: Array<{ name: string, args: Record<string, unknown>, policy: string, effect: ApprovalEffect }>
+  }
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ['ReadMemory', { path: 'user/profile.md' }],
+    ['RecallMemory', { query: 'tone', limit: 5 }],
+  ]
+  for (const [name, args] of cases) {
+    assert.deepEqual(phoneEffectsForApproval(`mcp__phone__${name}`, args), [],
+      `${name} is auto-policy and must not produce an approval effect`)
+    const entry = golden.valid.find(candidate => candidate.name === name)
+    assert.ok(entry, `${name} must be frozen in the shared tool-effects golden`)
+    assert.equal(entry.policy, 'auto')
+    assert.equal(entry.effect.mutability, 'read')
+    assert.equal(entry.effect.policy, 'auto')
+    // The structural gate still sees the phone tool; it just must not ask.
+    assert.equal(needsStructuralApproval(`mcp__phone__${name}`), true)
+  }
+
+  const ctx = await mount()
+  const payloads: Record<string, unknown>[] = []
+  let executed = 0
+  try {
+    for (const [name] of cases) {
+      ctx.tools.register(defineTool({
+        name: `mcp__phone__${name}`,
+        description: 'probe',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => { executed += 1; return 'ok' },
+      }))
+    }
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-memory-read' }),
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async payload => {
+        payloads.push(payload)
+        return { ok: true, allowed: true }
+      },
+    })
+    for (const [name, args] of cases) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`read-memory-${name}`), name: `mcp__phone__${name}`,
+        arguments: args, signal: new AbortController().signal, agent: agent(),
+      })
+      assert.equal(result.isError, false, `${name} must execute without an approval card`)
+    }
+    assert.equal(executed, cases.length)
+    assert.deepEqual(payloads, [], 'read-only memory tools must never reach the approval endpoint')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('approval memory effect matches the Swift execution resource and sensitive reads never reach approval', async () => {
   const effects = phoneEffectsForApproval('mcp__phone__UpdateMemory', {
     action: 'forget', scope: 'user', fact: '  private   fact ',

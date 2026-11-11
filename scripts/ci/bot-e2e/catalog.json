@@ -293,11 +293,17 @@
         },
         {
           "type": "advance_clock",
-          "seconds": 120
+          "seconds": 120,
+          "mock": {
+            "final_text": "[quiet]"
+          }
         },
         {
           "type": "advance_clock",
-          "seconds": 120
+          "seconds": 120,
+          "mock": {
+            "final_text": "[quiet]"
+          }
         },
         {
           "type": "user_message",
@@ -315,7 +321,10 @@
         },
         {
           "type": "advance_clock",
-          "seconds": 120
+          "seconds": 120,
+          "mock": {
+            "final_text": "CHANGED_V2"
+          }
         }
       ],
       "assertions": [

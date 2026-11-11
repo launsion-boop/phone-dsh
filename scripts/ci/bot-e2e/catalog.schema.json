@@ -439,6 +439,9 @@
             },
             "bot": {
               "$ref": "#/$defs/botRef"
+            },
+            "mock": {
+              "$ref": "#/$defs/mock"
             }
           },
           "required": [

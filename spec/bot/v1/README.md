@@ -36,7 +36,7 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 
 `canvas`、`product`、`gift` 不在手机卡片词汇中。未知工具、未知 `cardType`、缺少渲染所需数据的卡片一律 fail-closed；工具返回失败，不生成半空卡片。
 
-`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具、`FishAction` 与记忆三原语增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`ReadMemory` 是 [v2 §1.2](../v2/README.md#12-三个原语) 的新增原语，`UpdateMemory`/`RecallMemory` 的 fact 参数由同一节替换。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计），`ReadMemory` 为 `read + auto`；前两者不再向用户出审批卡。
+`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具、`FishAction` 与记忆三原语增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`ReadMemory` 是 [v2 §1.2](../v2/README.md#12-三个原语) 的新增原语，`UpdateMemory`/`RecallMemory` 的 fact 参数由同一节替换。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计），`ReadMemory` 为 `read + auto`；`RecallMemory` 沿用上游 `golden/tool-effects.json` 的 `read + auto`。`auto` 分类的工具不向用户出审批卡；结构审批门禁必须使用同一分类，不得把已冻结的 `read + auto` 工具当作 `tool.unclassified` 再请求审批（否则 `alwaysScope` 与宿主期望不一致，调用会以 `stale:always_scope` 失败）。
 
 `card-payload.schema.json` 的字段来自 dsh-bot `cardPayloads.cjs` 的白名单。`golden/card-payload.json` 是 `export-vectors.mjs` 的原样导出，不得手改；phoneDSH 对卡片负载的增量（宿主分配的 `optionID`、recommended 移到首位、负向 fixture）放在 `golden/card-payload.phone.json`，两个文件都由 `validate_vectors.py` 校验 schema/负向结果，并由 Swift `BotCardPayloadTests` 用真实 builder 对拍。重跑导出器后 `card-payload.json` 必须无 diff；`card-payload.phone.json` 不需要重新导出。链接只接受 HTTP/HTTPS；卡片数据必须自带，不能假设存在服务端 callback 补全。
 
@@ -506,7 +506,7 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、负向 fixture。
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
 - `tool-catalog.phone.json`：团队工具、`FishAction` 与记忆三原语（`UpdateMemory`/`ReadMemory`/`RecallMemory`）的目录增量。
-- `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory` 与原生 MCP BLE 工具的效果分类。
+- `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory`（`RecallMemory` 沿用上游 `tool-effects.json`）与原生 MCP BLE 工具的效果分类。
 - `approval-patterns.phone.json`：把 upstream 的 curl/wget/python 网络命令模式登记为手机端降级（`matches=[]`），并列出脚本文件/变量拼接/解释器与 `python3 /tmp/x.py`；`rm`/`git reset --hard`/`find -delete` 仍匹配 upstream，不得降级。出口写审批与文件 Grant 的向量在 `mcp-egress.phone.json` 的 `egress-approval`、`grant-directory` 套件。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
 - `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`、`erasure-event.phone.json`：原始记录引用、观察信封、`phone record` 结果和 `erasure` 事件的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这四个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。

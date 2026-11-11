@@ -587,6 +587,10 @@ final class BotEvalRunnerTests: XCTestCase {
             }
             let botID = try context.botID(for: action.bot)
             let unit = try await context.unit(for: botID)
+            // A due routine runs a hidden model turn. Install this action's
+            // script (or the scenario default) before advancing so the routine
+            // turn does not replay the previous user action's mock.
+            context.installMock(action.mock ?? context.scenario.mock)
             let before = try await BotProductionEventReader.all(domain: context.store)
             let priorEventIDs = Set(before.map(\.eventId))
             context.schedulerClock.advance(seconds: Int64(seconds))

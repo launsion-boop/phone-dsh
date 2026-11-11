@@ -39,7 +39,13 @@ const UI_TOOLS = new Set([
   'show_checklist', 'show_link', 'RequestApproval',
 ])
 const AUTO_TOOLS = new Set([
-  'RecallMemory', 'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
+  // Both memory readers are read-only and frozen as `read + auto` in
+  // spec/bot/v1/golden/tool-effects{,.phone}.json. ReadMemory was added after
+  // this table and was missing here, so the Worker proposed an `unknown`
+  // effect (alwaysScope=session) while the host classified it as a known read
+  // (alwaysScope=until) and rejected the call with `stale:always_scope`.
+  'ReadMemory', 'RecallMemory',
+  'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
   // Team tools are auto-policy but audited by the App: SendToAgent is an
   // external send and CreateTeammate creates a local Bot. Neither asks the
   // user for another approval card. FishAction is cosmetic only; playing a
