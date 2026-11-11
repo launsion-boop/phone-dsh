@@ -64,11 +64,20 @@ final class BotFishStateMachine {
     private(set) var elapsed: Double = 0
     private(set) var isStatic: Bool
     private(set) var reduced: Bool
+    private(set) var profile: BotFishMotionProfile
+    private(set) var workStyle: BotFishWorkStyle
 
     private let playing = true
     private let random: () -> Double
     private var idleEntered: Double = 0
     private var nextIdleAt: Double = .infinity
+    /// Lively-only periodic blink (3–5s) and state-change pose springs.
+    private var nextBlinkAt: Double = .infinity
+    private let poseXSpring = BotFishSpring(0, omega: BotFishLivelyMotion.poseSpringOmega)
+    private let poseYSpring = BotFishSpring(0, omega: BotFishLivelyMotion.poseSpringOmega)
+    private let poseRollSpring = BotFishSpring(0, omega: BotFishLivelyMotion.poseSpringOmega)
+    private let poseScaleXSpring = BotFishSpring(1, omega: BotFishLivelyMotion.poseSpringOmega)
+    private let poseScaleYSpring = BotFishSpring(1, omega: BotFishLivelyMotion.poseSpringOmega)
     private var directGaze: (x: Double, y: Double)?
     private var lookOverride: (x: Double, y: Double, until: Double)?
     private var blinkStart: Double = -.infinity
@@ -104,12 +113,17 @@ final class BotFishStateMachine {
     var hasActiveReaction: Bool { activeReaction != nil }
 
     init(state: BotFishLifecycle = .idle, reduced: Bool = false, isStatic: Bool = false,
+         profile: BotFishMotionProfile = .standard,
+         workStyle: BotFishWorkStyle = .generic,
          random: @escaping () -> Double = { Double.random(in: 0..<1) }) {
         self.state = state == .poke ? .idle : state
         self.reduced = reduced
         self.isStatic = isStatic
+        self.profile = profile
+        self.workStyle = workStyle
         self.random = random
         armIdle()
+        armBlink()
         if state == .poke { poke() }
     }
 
@@ -119,10 +133,40 @@ final class BotFishStateMachine {
             : .infinity
     }
 
+    private func armBlink() {
+        guard profile == .lively, playing, !reduced, !isStatic else {
+            nextBlinkAt = .infinity
+            return
+        }
+        nextBlinkAt = time + BotFishLivelyMotion.blinkIntervalMilliseconds.lowerBound
+            + BotFishMath.clamp(random(), 0, 1)
+            * (BotFishLivelyMotion.blinkIntervalMilliseconds.upperBound
+                - BotFishLivelyMotion.blinkIntervalMilliseconds.lowerBound)
+    }
+
     func updateFlags(isStatic: Bool? = nil, reduced: Bool? = nil) {
         if let isStatic { self.isStatic = isStatic }
         if let reduced { self.reduced = reduced }
         armIdle()
+        armBlink()
+    }
+
+    /// The profile is fixed per view in production (`.lively` only for the
+    /// activity line, `.standard` everywhere else). If a caller flips it, end
+    /// the old transition and restart the lively blink timer.
+    func updateProfile(_ profile: BotFishMotionProfile, workStyle: BotFishWorkStyle) {
+        guard profile != self.profile || workStyle != self.workStyle else { return }
+        self.profile = profile
+        self.workStyle = workStyle
+        if let last {
+            poseXSpring.value = last.x
+            poseYSpring.value = last.y
+            poseRollSpring.value = last.roll
+            poseScaleXSpring.value = last.sx
+            poseScaleYSpring.value = last.sy
+        }
+        armIdle()
+        armBlink()
     }
 
     /// The view's lifecycle input is authoritative; the caller (or the
@@ -138,6 +182,20 @@ final class BotFishStateMachine {
             artFrom = (eye: last.eyeArt, mouth: last.mouthArt)
         } else {
             artFrom = nil
+        }
+        if profile == .lively, let last {
+            // Start the pose springs from the outgoing frame so a state change
+            // is a damped transition, never a snap.
+            poseXSpring.value = last.x
+            poseXSpring.velocity = 0
+            poseYSpring.value = last.y
+            poseYSpring.velocity = 0
+            poseRollSpring.value = last.roll
+            poseRollSpring.velocity = 0
+            poseScaleXSpring.value = last.sx
+            poseScaleXSpring.velocity = 0
+            poseScaleYSpring.value = last.sy
+            poseScaleYSpring.velocity = 0
         }
         artStart = time
         state = value
@@ -237,8 +295,9 @@ final class BotFishStateMachine {
             elapsed += dt
         }
 
-        if state == .idle, reaction == nil, time - idleEntered >= 3000,
-           time >= nextIdleAt, playing, !reduced, !isStatic {
+        if profile == .standard, state == .idle, reaction == nil,
+           time - idleEntered >= 3000, time >= nextIdleAt,
+           playing, !reduced, !isStatic {
             if random() < 0.6 {
                 blink()
             } else {
@@ -248,6 +307,11 @@ final class BotFishStateMachine {
                 lookOverride = (direction.x, direction.y, time + 700)
             }
             armIdle()
+        }
+        // Lively avatars blink on a 3–5s timer in every state, not only idle.
+        if profile == .lively, playing, !reduced, !isStatic, time >= nextBlinkAt {
+            blink()
+            armBlink()
         }
 
         expireReactionIfNeeded()
@@ -269,7 +333,11 @@ final class BotFishStateMachine {
             sampledState = state
             sampledTime = stateTime
         }
-        var p = BotFishModel.sample(state: sampledState, time: sampledTime)
+        let livelySample = profile == .lively && !poking && action == nil
+            ? BotFishLivelyMotion.sample(state: sampledState, workStyle: workStyle,
+                                         elapsed: stateTime)
+            : nil
+        var p = livelySample ?? BotFishModel.sample(state: sampledState, time: sampledTime)
         if !poking, let expression, let expressionLifecycle = reactionLifecycle {
             // Upstream expressive.js: an expression only changes the face and
             // art, never the body pose or displacement.
@@ -310,8 +378,15 @@ final class BotFishStateMachine {
         p.gazeX = gazeXSpring.step(dt / 1000)
         p.gazeY = gazeYSpring.step(dt / 1000)
 
-        headXSpring.target = gaze.0
-        headYSpring.target = gaze.1
+        if profile == .lively {
+            // Lively clips carry their own small head-slice travel so the
+            // reader sees a head turn, not just a whole-fish rotation.
+            headXSpring.target = BotFishMath.clamp(gaze.0 + p.headX, -2, 2)
+            headYSpring.target = BotFishMath.clamp(gaze.1 + p.headY, -1, 1)
+        } else {
+            headXSpring.target = gaze.0
+            headYSpring.target = gaze.1
+        }
         p.headX = headXSpring.step(dt / 1000)
         p.headY = headYSpring.step(dt / 1000)
         bodyXSpring.target = p.headX
@@ -352,6 +427,32 @@ final class BotFishStateMachine {
             p.morphX = 1
             p.morphY = 1
             p.finWave = 0
+        }
+        // State changes run the pose through critically damped springs (the
+        // per-key face/gaze/head springs above are shared with `.standard`).
+        if profile == .lively {
+            poseXSpring.target = p.x
+            poseYSpring.target = p.y
+            poseRollSpring.target = p.roll
+            poseScaleXSpring.target = p.sx
+            poseScaleYSpring.target = p.sy
+            if reduced || isStatic {
+                poseXSpring.value = p.x
+                poseYSpring.value = p.y
+                poseRollSpring.value = p.roll
+                poseScaleXSpring.value = p.sx
+                poseScaleYSpring.value = p.sy
+                poseXSpring.velocity = 0
+                poseYSpring.velocity = 0
+                poseRollSpring.velocity = 0
+                poseScaleXSpring.velocity = 0
+                poseScaleYSpring.velocity = 0
+            }
+            p.x = poseXSpring.step(dt / 1000)
+            p.y = poseYSpring.step(dt / 1000)
+            p.roll = poseRollSpring.step(dt / 1000)
+            p.sx = poseScaleXSpring.step(dt / 1000)
+            p.sy = poseScaleYSpring.step(dt / 1000)
         }
 
         p.artMix = (reduced || isStatic) ? 1 : BotFishMath.clamp((time - artStart) / 180, 0, 1)
@@ -403,6 +504,8 @@ final class BotFishEngine {
     private var configuredState: BotFishLifecycle?
     private(set) var currentFrame: BotFishFrame?
     private var configuredReactionID: String?
+    private var configuredProfile: BotFishMotionProfile
+    private var configuredWorkStyle: BotFishWorkStyle
 
     /// 0.25 output pixel, matching the renderer's pose quantisation. Scale is
     /// quantised so the edge of the crop moves by the same threshold; roll
@@ -413,12 +516,21 @@ final class BotFishEngine {
     init() {
         machine = BotFishStateMachine()
         configuredState = machine.state
+        configuredProfile = machine.profile
+        configuredWorkStyle = machine.workStyle
     }
 
     var needsAnimation: Bool { machine.needsAnimation }
 
     func configure(state: BotFishLifecycle, still: Bool, reduced: Bool,
-                   reaction: BotFishReaction? = nil) {
+                   reaction: BotFishReaction? = nil,
+                   profile: BotFishMotionProfile = .standard,
+                   workStyle: BotFishWorkStyle = .generic) {
+        if configuredProfile != profile || configuredWorkStyle != workStyle {
+            configuredProfile = profile
+            configuredWorkStyle = workStyle
+            machine.updateProfile(profile, workStyle: workStyle)
+        }
         // `.poke` is a transient: the machine keeps its lifecycle state, so
         // compare against the last requested value instead of machine.state.
         if configuredState != state {
@@ -444,8 +556,11 @@ final class BotFishEngine {
                  size: CGFloat, displayScale: CGFloat,
                  appearance: BotFishAppearance = .classic,
                  crowned: Bool = false,
-                 reaction: BotFishReaction? = nil) -> BotFishFrame? {
-        configure(state: state, still: still, reduced: reduced, reaction: reaction)
+                 reaction: BotFishReaction? = nil,
+                 profile: BotFishMotionProfile = .standard,
+                 workStyle: BotFishWorkStyle = .generic) -> BotFishFrame? {
+        configure(state: state, still: still, reduced: reduced, reaction: reaction,
+                  profile: profile, workStyle: workStyle)
         let timestamp = date.timeIntervalSinceReferenceDate
         let delta = lastTimestamp.map { min(100, max(0, (timestamp - $0) * 1000)) } ?? 0
         lastTimestamp = timestamp
@@ -453,7 +568,8 @@ final class BotFishEngine {
 
         // Small avatars get the upstream 2.2× readable-motion boost. The
         // boost is part of the pose now, so it no longer forces a repaint.
-        let boost = BotFishRenderer.motionBoost(for: size)
+        // Lively clips are already calibrated for 28pt and are never boosted.
+        let boost = params.isLivelyMotion ? 1 : BotFishRenderer.motionBoost(for: size)
         params.motionScale = boost
         if boost > 1 {
             params.x = BotFishMath.clamp(params.x * boost,
@@ -468,10 +584,18 @@ final class BotFishEngine {
         }
 
         let target = BotFishRenderer.pixelSide(size: size, displayScale: displayScale)
-        guard let prepared = renderer.prepare(params, time: machine.time, size: size,
-                                              displayScale: displayScale,
-                                              appearance: appearance,
-                                              crowned: crowned) else {
+        let headSlicing = profile == .lively
+            ? size >= BotFishRenderer.livelyHeadSlicingMinimumSize
+            : size > BotFishRenderer.headSlicingMinimumSize
+        guard let prepared = renderer.prepare(
+            params, time: machine.time, size: size,
+            displayScale: displayScale,
+            appearance: appearance,
+            crowned: crowned,
+            headSlicing: headSlicing,
+            headSliceQuantum: profile == .lively
+                ? BotFishRenderer.livelyHeadSliceQuantum
+                : BotFishRenderer.headSliceQuantum) else {
             return currentFrame
         }
         let baseID = ObjectIdentifier(prepared.base)

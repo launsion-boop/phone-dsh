@@ -23,6 +23,8 @@ enum BotFishBenchmark {
         let frames: Int
         var crowned = false
         var reaction: BotFishReaction?
+        var profile: BotFishMotionProfile = .standard
+        var workStyle: BotFishWorkStyle = .generic
     }
 
     static let framesPerConfiguration = 3000
@@ -43,6 +45,23 @@ enum BotFishBenchmark {
                           displayScale: 3, frames: frames, crowned: true),
             Configuration(name: "96pt-crowned-idle", size: 96, state: .idle,
                           displayScale: 3, frames: frames, crowned: true),
+        ]
+    }
+
+    /// App-only `.lively` profile at the 28pt status-line size. These are
+    /// additive measurements: the regression set and its thresholds above do
+    /// not change.
+    static func livelyConfigurations(frames: Int = framesPerConfiguration) -> [Configuration] {
+        [
+            Configuration(name: "28pt-lively-thinking", size: 28, state: .thinking,
+                          displayScale: 3, frames: frames, profile: .lively),
+            Configuration(name: "28pt-lively-working", size: 28, state: .working,
+                          displayScale: 3, frames: frames, profile: .lively),
+            Configuration(name: "28pt-lively-writing", size: 28, state: .working,
+                          displayScale: 3, frames: frames, profile: .lively,
+                          workStyle: .writing),
+            Configuration(name: "28pt-lively-speaking", size: 28, state: .speaking,
+                          displayScale: 3, frames: frames, profile: .lively),
         ]
     }
 
@@ -71,7 +90,8 @@ enum BotFishBenchmark {
     static func runAll(frames: Int = framesPerConfiguration) -> [String: Any] {
         var results: [[String: Any]] = []
         for configuration in configurations(frames: frames)
-            + reactionConfigurations(frames: frames) {
+            + reactionConfigurations(frames: frames)
+            + livelyConfigurations(frames: frames) {
             results.append(run(configuration))
         }
         let arguments = ProcessInfo.processInfo.arguments
@@ -94,7 +114,9 @@ enum BotFishBenchmark {
 
     static func run(_ configuration: Configuration) -> [String: Any] {
         let engine = BotFishEngine()
-        engine.configure(state: configuration.state, still: false, reduced: false)
+        engine.configure(state: configuration.state, still: false, reduced: false,
+                         profile: configuration.profile,
+                         workStyle: configuration.workStyle)
         let origin = Date(timeIntervalSinceReferenceDate: CACurrentMediaTime())
 
         // Warm up long enough for the shared tint/scaling caches and the
@@ -105,7 +127,9 @@ enum BotFishBenchmark {
                                state: configuration.state, still: false, reduced: false,
                                size: configuration.size,
                                displayScale: configuration.displayScale,
-                               appearance: .classic, crowned: configuration.crowned)
+                               appearance: .classic, crowned: configuration.crowned,
+                               profile: configuration.profile,
+                               workStyle: configuration.workStyle)
         }
 
         var renderedFrames = 0
@@ -120,7 +144,9 @@ enum BotFishBenchmark {
                                        displayScale: configuration.displayScale,
                                        appearance: .classic,
                                        crowned: configuration.crowned,
-                                       reaction: configuration.reaction)
+                                       reaction: configuration.reaction,
+                                       profile: configuration.profile,
+                                       workStyle: configuration.workStyle)
             renderTime += CACurrentMediaTime() - frameStart
             if image != nil { renderedFrames += 1 }
         }
@@ -133,6 +159,8 @@ enum BotFishBenchmark {
             "displayScale": Double(configuration.displayScale),
             "crowned": configuration.crowned,
             "reaction": configuration.reaction?.name ?? "",
+            "motionProfile": configuration.profile.rawValue,
+            "workStyle": configuration.workStyle.rawValue,
             "frames": configuration.frames,
             "renderedFrames": renderedFrames,
             "totalMs": elapsed * 1000,

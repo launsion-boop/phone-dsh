@@ -220,9 +220,31 @@ enum BotProductionChecks {
             botID: "main", sessionID: "main", sessionEvents: [turn, tool], uiEvents: [], now: 1_100)
         try require(working.fishState == .working && working.runningTurnID == "7"
                     && working.activity?.status == .toolRunning
-                    && working.activity?.detail.contains("report.md") == true,
+                    && working.activity?.category == .reading
+                    && working.activity?.detail.contains("report.md") == true
+                    && working.activity?.startedAt == 1_100,
                     "real turn/tool presentation failed")
-        let stream = BotDSHSessionEvent(type: "assistant/stream", seq: 12, time: 1_200,
+        let toolResult = BotDSHSessionEvent(type: "tool/result", seq: 12, time: 1_150, data: [
+            "message": .object(["toolCallId": .string("read-report")]),
+        ])
+        let reviewing = BotRuntimePresentationFactory.make(
+            botID: "main", sessionID: "main", sessionEvents: [turn, tool, toolResult],
+            uiEvents: [], now: 1_200)
+        try require(reviewing.activity?.status == .toolRunning
+                    && reviewing.activity?.category == .reviewing
+                    && reviewing.activity?.detail.contains("report.md") == true
+                    && reviewing.activity?.startedAt == 1_150,
+                    "finished tool call did not become the reviewing phase")
+        let step = BotDSHSessionEvent(type: "step/start", seq: 13, time: 1_250, data: [:])
+        let thinking = BotRuntimePresentationFactory.make(
+            botID: "main", sessionID: "main", sessionEvents: [turn, tool, toolResult, step],
+            uiEvents: [], now: 1_300)
+        try require(thinking.activity?.status == .thinking
+                    && thinking.activity?.category == .thinking
+                    && thinking.activity?.detail.isEmpty == true
+                    && thinking.activity?.startedAt == 1_250,
+                    "step/start did not return the activity line to thinking")
+        let stream = BotDSHSessionEvent(type: "assistant/stream", seq: 14, time: 1_400,
                                         data: ["channel": .string("text")])
         let speaking = BotRuntimePresentationFactory.make(
             botID: "main", sessionID: "main", sessionEvents: [turn, stream], uiEvents: [], now: 1_200)
@@ -273,6 +295,7 @@ enum BotProductionChecks {
             "memory-routine-grant-read-only-info",
             "runtime-context-read",
             "fish-production-presentation-activity-ttl",
+            "activity-tool-reviewing-thinking-phases",
         ]
     }
 
