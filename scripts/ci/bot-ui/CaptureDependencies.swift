@@ -12,6 +12,10 @@ import SwiftUI
 import UIKit
 import PhoneDSHAgentCore
 
+enum NativeToolState: Equatable {
+    case preparing, running, ok, error, stopped
+}
+
 struct ChatItem: Identifiable, Equatable {
     enum Kind: Equatable {
         case toolCall
@@ -26,6 +30,7 @@ struct ChatItem: Identifiable, Equatable {
     var callID: String? = nil
     var argumentsRaw: String? = nil
     var toolOutput: String? = nil
+    var toolState: NativeToolState? = nil
 }
 
 enum NativeTranscriptProjector {
@@ -48,6 +53,7 @@ enum NativeTranscriptProjector {
                 item.toolName = name
                 item.callID = callID
                 item.argumentsRaw = raw
+                item.toolState = .running
                 if !callID.isEmpty { callIndexes[callID] = result.count }
                 result.append(item)
             case "tool/result":
@@ -55,10 +61,14 @@ enum NativeTranscriptProjector {
                 let callID = message["toolCallId"]?.stringValue
                     ?? message["source"]?["callId"]?.stringValue ?? ""
                 let error = data["error"] != nil || message["isError"]?.boolValue == true
-                let output = message["content"]?.stringValue ?? ""
+                let output = (message["content"]?.arrayValue ?? []).compactMap { block -> String? in
+                    guard block["type"]?.stringValue == "text" else { return nil }
+                    return block["text"]?.stringValue
+                }.joined()
                 if let index = callIndexes[callID] {
                     result[index].kind = .toolResult(isError: error)
                     result[index].toolOutput = output
+                    result[index].toolState = error ? .error : .ok
                 } else {
                     var item = ChatItem(id: "\(sessionID):\(seq)",
                                         kind: .toolResult(isError: error),
@@ -66,6 +76,7 @@ enum NativeTranscriptProjector {
                                         text: output)
                     item.callID = callID
                     item.toolOutput = output
+                    item.toolState = error ? .error : .ok
                     result.append(item)
                 }
             default:
@@ -139,21 +150,45 @@ struct NativeTurnProcessRow: View {
 struct ToolRunRow: View {
     let items: [ChatItem]
     /// Mirrors the app's shared ToolRunRow override; the Bot page passes the
-    /// same action-name mapping used in production.
+    /// same action-name mapping used in production. The Bot page has already
+    /// replaced a failed call's wire output with the human summary.
     var titleForItem: ((ChatItem) -> String)? = nil
+
+    private var uniqueItems: [ChatItem] {
+        var seen: Set<String> = []
+        return items.filter { seen.insert($0.id).inserted }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ForEach(items) { item in
-                HStack(spacing: 8) {
-                    Image(systemName: "wrench.and.screwdriver")
+            ForEach(uniqueItems) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: item.toolState == .error
+                          ? "exclamationmark.triangle" : "wrench.and.screwdriver")
                         .font(.system(size: 12))
-                        .foregroundStyle(HomeSpec.textTertiary)
-                    Text(titleForItem?(item) ?? item.title)
-                        .font(.system(size: 13))
-                        .foregroundStyle(HomeSpec.textPrimary)
+                        .foregroundStyle(item.toolState == .error
+                                         ? BotUIPalette.danger : HomeSpec.textTertiary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(titleForItem?(item) ?? item.title)
+                            .font(.system(size: 13))
+                            .foregroundStyle(HomeSpec.textPrimary)
+                        if item.toolState == .error,
+                           let summary = item.toolOutput, !summary.isEmpty {
+                            Text(summary)
+                                .font(.system(size: 11))
+                                .foregroundStyle(HomeSpec.textTertiary)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer(minLength: 0)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    [titleForItem?(item) ?? item.title,
+                     item.toolState == .error ? item.toolOutput ?? "" : ""]
+                        .filter { !$0.isEmpty }
+                        .joined(separator: "，"))
+                .accessibilityIdentifier("bot.tool.row")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

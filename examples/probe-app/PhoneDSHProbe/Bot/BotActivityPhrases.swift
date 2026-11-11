@@ -208,6 +208,25 @@ enum BotActivityPhrases {
         return rule.category == .generic ? genericToolRowLabel : rule.phrase
     }
 
+    /// The collapsed Bot tool row's one-line summary for a failed call. The
+    /// recorded output can be a wire error with internal terms; keep the user
+    /// action instead. `NativeDisclosureRow` applies the single-line limit.
+    static func toolRowSummary(forErrorText raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.contains("unauthorized") || lower.contains("identity-bridge")
+            || lower.contains("did not accept the call registration") {
+            return "操作授权失效，请重新打开 App 后再试"
+        }
+        if lower.contains("timed out") || lower.contains("timeout") || raw.contains("超时") {
+            return "操作超时，请稍后再试"
+        }
+        if lower.contains("not allowed") || lower.contains("denied") || lower.contains("rejected")
+            || raw.contains("未允许") || raw.contains("拒绝") {
+            return "操作未被允许"
+        }
+        return "操作没有完成，请稍后再试"
+    }
+
     /// The category alone, for callers that only need the avatar style.
     static func category(forToolNamed rawName: String) -> BotActivityCategory {
         (rules[bareToolName(rawName).lowercased()] ?? genericRule).category

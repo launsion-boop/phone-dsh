@@ -74,8 +74,26 @@ enum BotTurnProcessProjector {
     }
 
     /// DSH tool rows for these events, minus the tools shown as Bot cards.
+    ///
+    /// The same journal record can reach a live view twice: a resumed turn
+    /// replays its frames and a late WAL poll can deliver the same event again.
+    /// `ChatItem.id` is the record seq, so projecting a duplicate creates two
+    /// rows with the same id; `ForEach` requires unique ids, and a duplicate id
+    /// in a lazy transcript is what froze the Bot chat page in a layout loop.
+    /// Deduplicate by the record's own seq before projecting.
     static func processItems(_ records: [JSONValue]) -> [ChatItem] {
-        NativeTranscriptProjector.items(from: records, sessionID: "bot").filter(isProcessTool)
+        var seen: Set<Int> = []
+        let unique = records.filter { record in
+            guard let seq = record["seq"]?.intValue else { return true }
+            return seen.insert(seq).inserted
+        }
+        // Defensive: two distinct records can still project to the same item
+        // (a call and a result that did not correlate). Keep the first item in
+        // transcript order so every downstream ForEach sees unique ids.
+        var itemIDs: Set<String> = []
+        return NativeTranscriptProjector.items(from: unique, sessionID: "bot")
+            .filter(isProcessTool)
+            .filter { itemIDs.insert($0.id).inserted }
     }
 
     private static func isProcessTool(_ item: ChatItem) -> Bool {
@@ -109,9 +127,15 @@ struct BotLiveTurn: Equatable {
     /// Row-projection polls since `turn/end`; the live view gives way to the
     /// durable rows once they carry this turn (or after a few polls).
     var pollsSinceEnd = 0
+    /// Journal seqs already folded into this live turn. A live observer can be
+    /// re-attached across a park/resume, and the resumed stream replays the
+    /// open turn from its first record; without this guard the replay appends
+    /// duplicate segments and duplicate `ChatItem` ids.
+    private var seenSeqs: Set<Int> = []
 
     mutating func apply(event: JSONValue) {
         guard let type = event["type"]?.stringValue else { return }
+        if let seq = event["seq"]?.intValue, !seenSeqs.insert(seq).inserted { return }
         let data = event["data"] ?? .null
         if turn == nil { turn = data["turn"]?.intValue }
         switch type {
@@ -133,8 +157,17 @@ struct BotLiveTurn: Equatable {
             if type == "tool/call", let callID = data["callId"]?.stringValue,
                tools.contains(where: { $0.callID == callID }) {
                 if case .tools(let ids)? = segments.last {
-                    segments[segments.count - 1] = .tools(ids + [callID])
-                } else {
+                    // A replay may deliver the call once per observer. Never
+                    // put the same call id in the segment twice: `tools(for:)`
+                    // would return the same ChatItem twice and the row's
+                    // ForEach would see duplicate ids.
+                    if !ids.contains(callID) {
+                        segments[segments.count - 1] = .tools(ids + [callID])
+                    }
+                } else if !segments.contains(where: { segment in
+                    if case .tools(let ids) = segment { return ids.contains(callID) }
+                    return false
+                }) {
                     segments.append(.tools([callID]))
                 }
             }
@@ -152,6 +185,10 @@ struct BotLiveTurn: Equatable {
     }
 
     func tools(for ids: [String]) -> [ChatItem] {
-        ids.compactMap { id in tools.first(where: { $0.callID == id }) }
+        var seen: Set<String> = []
+        return ids.compactMap { id in
+            guard seen.insert(id).inserted else { return nil }
+            return tools.first(where: { $0.callID == id })
+        }
     }
 }

@@ -261,16 +261,22 @@ struct BotChatPage: View {
                         }
                         let anchors = processAnchors
                         ForEach(model.displayRows) { row in
-                            if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
-                                BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
-                                    withAnimation(.easeOut(duration: 0.16)) {
-                                        if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
+                            // One ForEach entry owns exactly one id. Emitting the
+                            // process block and the row as two separately-id'd
+                            // siblings used to change the lazy item's child count
+                            // when turnProcesses arrived, re-creating the rows
+                            // while the live turn was settling.
+                            Group {
+                                if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
+                                    BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
+                                        withAnimation(.easeOut(duration: 0.16)) {
+                                            if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
+                                        }
                                     }
                                 }
-                                .id("process-\(turn)")
+                                transcriptRow(row)
                             }
-                            transcriptRow(row)
-                                .id(row.id)
+                            .id(row.id)
                         }
                         if let live = model.live {
                             BotLiveTurnView(live: live)
@@ -924,13 +930,33 @@ private struct BotAnswerBubbleContent: View {
 /// effect label; execution tools reuse the activity phrase. The raw wire name
 /// never becomes the visible title.
 private func botToolRowTitle(_ item: ChatItem) -> String {
+    // A failed call says so in the title; the action name alone read like the
+    // call was still working after both attempts were rejected. The projector
+    // keeps a correlated result on the `.toolCall` item and only moves
+    // `toolState` to `.error`, so test the state, not just the kind.
+    if item.toolState == .error || item.kind == .toolResult(isError: true) {
+        return "处理失败"
+    }
     if let name = item.toolName, !name.isEmpty {
         return BotActivityPhrases.toolRowLabel(forToolNamed: name)
     }
-    if case .toolResult(let isError) = item.kind {
-        return isError ? "处理失败" : "处理结果"
-    }
+    if case .toolResult(false) = item.kind { return "处理结果" }
     return BotActivityPhrases.toolRowLabel(forToolNamed: "")
+}
+
+/// The Bot page's tool-row input. A failed call is handed over with its wire
+/// output replaced by one short human line, so the collapsed summary and the
+/// expanded output never show `identity-bridge ... unauthorized`.
+private func botToolRowItems(_ items: [ChatItem]) -> [ChatItem] {
+    items.map { item in
+        let failed = item.toolState == .error || item.kind == .toolResult(isError: true)
+        guard failed else { return item }
+        var copy = item
+        let summary = BotActivityPhrases.toolRowSummary(forErrorText: item.toolOutput ?? item.text)
+        copy.toolOutput = summary
+        copy.text = summary
+        return copy
+    }
 }
 
 /// A finished turn's process row ("已完成，用时 …"); open, it lists the
@@ -944,7 +970,7 @@ private struct BotTurnProcessBlock: View {
         VStack(alignment: .leading, spacing: 8) {
             NativeTurnProcessRow(state: process.state, isOpen: isOpen, isFoldable: true, onToggle: onToggle)
             if isOpen {
-                ToolRunRow(items: process.items, titleForItem: botToolRowTitle)
+                ToolRunRow(items: botToolRowItems(process.items), titleForItem: botToolRowTitle)
             }
         }
         .padding(.horizontal, HomeSpec.contentInset)
@@ -966,7 +992,7 @@ private struct BotLiveTurnView: View {
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 case .tools(let ids):
-                    ToolRunRow(items: live.tools(for: ids), titleForItem: botToolRowTitle)
+                    ToolRunRow(items: botToolRowItems(live.tools(for: ids)), titleForItem: botToolRowTitle)
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 }

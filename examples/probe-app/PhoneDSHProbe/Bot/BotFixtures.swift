@@ -9,7 +9,8 @@ import SwiftUI
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
-    case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone, agentComm
+    case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
+    case runningToolUnauthorized, runningToolReplay, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -52,6 +53,124 @@ enum BotUIFixtures {
             "time": .number(Date().timeIntervalSince1970 * 1_000),
             "data": .object(values),
         ])
+    }
+
+    /// The real incident's turn: two `bash` calls rejected by the session
+    /// bridge as `unauthorized`, then the model's explanation. Kept as the
+    /// exact journal records so the live projection, the finished process row
+    /// and the tests all consume the same event shapes as production.
+    static func unauthorizedRecords(turn: Int = 1, replayed: Bool = false,
+                                    includeEnd: Bool = true) -> [JSONValue] {
+        let error = "Error: [identity-bridge] App MCP did not accept the call registration: unauthorized"
+        func result(seq: Int, callID: String) -> JSONValue {
+            liveEvent("tool/result", turn: turn, seq: seq, data: [
+                "message": .object([
+                    "toolCallId": .string(callID),
+                    "content": .array([
+                        .object(["type": .string("text"), "text": .string(error)]),
+                    ]),
+                    "isError": .bool(true),
+                ]),
+            ])
+        }
+        var records: [JSONValue] = [
+            liveEvent("turn/start", turn: turn, seq: 1),
+            liveEvent("tool/call", turn: turn, seq: 2, data: [
+                "callId": .string("call_unauthorized_first"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"echo probe-15\",\"description\":\"执行 echo 探测\"}"),
+            ]),
+            result(seq: 3, callID: "call_unauthorized_first"),
+            liveEvent("tool/call", turn: turn, seq: 4, data: [
+                "callId": .string("call_unauthorized_retry"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"echo probe-15\",\"description\":\"重试 echo 探测\"}"),
+            ]),
+            result(seq: 5, callID: "call_unauthorized_retry"),
+        ]
+        if replayed {
+            // A re-attached observer replays the same open-turn records with
+            // their original seqs. The second copy must not create a second
+            // ChatItem with the same id.
+            records.append(liveEvent("tool/call", turn: turn, seq: 2, data: [
+                "callId": .string("call_unauthorized_first"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"echo probe-15\",\"description\":\"执行 echo 探测\"}"),
+            ]))
+            records.append(result(seq: 3, callID: "call_unauthorized_first"))
+        }
+        records.append(liveEvent("assistant/message", turn: turn, seq: 6, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([
+                    .object([
+                        "type": .string("text"),
+                        "text": .string("probe-15 没有跑成，两次都卡在同一个 identity-bridge unauthorized 错误，没有输出可报。"),
+                    ]),
+                ]),
+            ]),
+        ]))
+        if includeEnd {
+            records.append(liveEvent("turn/end", turn: turn, seq: 7, data: [
+                "reason": .object(["kind": .string("completed")]),
+            ]))
+        }
+        return records
+    }
+
+    /// The durable rows the journal projects to after the failed turn: the
+    /// prompt, the answer the process block anchors above. The driver below
+    /// returns the same rows on every poll, so `settleLive` performs the same
+    /// live → durable transition production does.
+    static func unauthorizedRows() -> [BotUIRow] {
+        var user = BotUIRow.text(id: "unauthorized-user", seq: 1, role: "user",
+                                 text: "用 bash 执行 echo probe-15，只回结果")
+        user.body.values["turn"] = .number(1)
+        var answer = BotUIRow.text(id: "unauthorized-answer", seq: 7, role: "assistant",
+                                   text: "probe-15 没有跑成，两次都卡在同一个 identity-bridge unauthorized 错误，没有输出可报。")
+        answer.body.values["turn"] = .number(1)
+        return [user, answer]
+    }
+
+    @MainActor
+    static func unauthorizedDriver(rows: [BotUIRow], process: BotTurnProcess) -> BotChatDriver {
+        BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { _ in BotUIRowBatch(rows: rows, deletes: [], cursor: 1, reset: true) },
+            perform: { _ in .rejected(reason: "fixture") },
+            stopCurrentTurn: { _ in },
+            turnProcesses: { [1: process] },
+            presentation: { BotRuntimePresentation() })
+    }
+
+    /// One live-turn playback for the unauthorized fixture. The real page
+    /// observes frames after it has mounted, so the fixture must not hand the
+    /// whole turn to the model before the first body pass.
+    @MainActor
+    final class UnauthorizedPlayback {
+        var durableRows: [BotUIRow]
+        var process: BotTurnProcess
+        let records: [JSONValue]
+
+        init(durableRows: [BotUIRow], process: BotTurnProcess, records: [JSONValue]) {
+            self.durableRows = durableRows
+            self.process = process
+            self.records = records
+        }
+
+        var liveRows: [BotUIRow] { durableRows }
+
+        func driver() -> BotChatDriver {
+            BotChatDriver(
+                history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+                watch: { [self] _ in
+                    BotUIRowBatch(rows: durableRows, deletes: [], cursor: 1, reset: true)
+                },
+                perform: { _ in .rejected(reason: "fixture") },
+                stopCurrentTurn: { _ in },
+                turnProcesses: { [self] in [1: process] },
+                presentation: { BotRuntimePresentation() })
+        }
     }
 
     static func rows(for fixture: BotUIFixtureCase, diagnostics: Bool = false) -> [BotUIRow] {
@@ -192,6 +311,9 @@ enum BotUIFixtures {
              .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .runningToolUnauthorized, .runningToolReplay:
+            return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
+                                  text: "用 bash 执行 echo probe-15，只回结果")]
         case .agentComm:
             let outbound = BotUIRow.fixture(
                 id: "comm-outbound", seq: 2, kind: "sendMessage", role: "assistant",
@@ -501,17 +623,47 @@ struct BotUIFixtureRootView: View {
     @State private var showInfo = false
     @State private var infoSection: BotInfoSection?
     @State private var hostActions: [String] = []
+    private let playback: BotUIFixtures.UnauthorizedPlayback?
 
     init(fixture: BotUIFixtureCase, diagnostics: Bool = false) {
         self.fixture = fixture
         self.diagnostics = diagnostics
-        let chat = BotChatModel(
-            rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
-            context: .fixture,
-            fixtureHistory: fixture == .failClosed || fixture == .empty
-                ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
-            fixtureActions: true
-        )
+        let chat: BotChatModel
+        if fixture == .runningToolUnauthorized {
+            let durable = BotUIFixtures.unauthorizedRows()
+            let records = BotUIFixtures.unauthorizedRecords(includeEnd: false)
+            let process = BotTurnProcessProjector.make(records: records)[1]
+                ?? BotTurnProcess(turn: 1, items: BotTurnProcessProjector.processItems(records))
+            let playback = BotUIFixtures.UnauthorizedPlayback(
+                durableRows: Array(durable.prefix(1)), process: process, records: records)
+            self.playback = playback
+            chat = BotChatModel(
+                rows: playback.liveRows,
+                context: .fixture,
+                driver: playback.driver(),
+                fixtureActions: true)
+        } else if fixture == .runningToolReplay {
+            // Keep the live turn mounted so the replayed tool rows stay on
+            // screen for the error-row screenshot and the UI test.
+            let rows = BotUIFixtures.unauthorizedRows()
+            let records = BotUIFixtures.unauthorizedRecords(replayed: true)
+            let process = BotTurnProcessProjector.make(records: records)[1]
+                ?? BotTurnProcess(turn: 1, items: BotTurnProcessProjector.processItems(records))
+            self.playback = nil
+            chat = BotChatModel(
+                rows: rows,
+                context: .fixture,
+                driver: BotUIFixtures.unauthorizedDriver(rows: rows, process: process),
+                fixtureActions: true)
+        } else {
+            self.playback = nil
+            chat = BotChatModel(
+                rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
+                context: .fixture,
+                fixtureHistory: fixture == .failClosed || fixture == .empty
+                    ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
+                fixtureActions: true)
+        }
         switch fixture {
         case .infoPresence:
             break
@@ -548,6 +700,12 @@ struct BotUIFixtureRootView: View {
                 "name": .string("mcp__phone__ReadMemory"),
                 "arguments": .string("{\"path\":\"user/diary.md\"}"),
             ])))
+        case .runningToolReplay:
+            // The replay variant re-delivers the first call/result pair, as a
+            // resumed live observer does.
+            for record in BotUIFixtures.unauthorizedRecords(replayed: true) {
+                chat.receive(.event(record))
+            }
         default:
             break
         }
@@ -661,6 +819,20 @@ struct BotUIFixtureRootView: View {
                         .id(infoSection)
                 }
             }
+        }
+        .task {
+            // The production page owns the 800ms watch loop. The lost-end
+            // fixture needs it too: the durable projection is what closes the
+            // live turn when the live `turn/end` frame never arrives.
+            guard fixture == .runningToolUnauthorized, let playback else { return }
+            Task { await chatModel.watchLoop() }
+            for record in playback.records {
+                chatModel.receive(.event(record))
+                try? await Task.sleep(for: .milliseconds(120))
+            }
+            // The durable answer lands while the live turn is still open; the
+            // live `turn/end` frame is the one that was lost in the incident.
+            playback.durableRows = BotUIFixtures.unauthorizedRows()
         }
     }
 

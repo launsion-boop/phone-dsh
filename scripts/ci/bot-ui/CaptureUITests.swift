@@ -196,6 +196,44 @@ final class BotCaptureUITests: XCTestCase {
         ).firstMatch.exists)
     }
 
+    // MARK: - Unauthorized tool turn
+
+    /// The incident's two rejected same-name calls. The collapsed rows must
+    /// carry the human failure + action, not the wire error, and both rows
+    /// must be unique (``ForEach`` ids).
+    func testUnauthorizedToolRowsAreHumanAndUnique() throws {
+        launch("runningToolReplay")
+        let rows = app.descendants(matching: .any).matching(identifier: "bot.tool.row")
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(rows.count, 2, "the replayed call must not create a third row")
+        for index in 0..<rows.count {
+            let label = rows.element(boundBy: index).label
+            XCTAssertTrue(label.contains("处理失败"), "row label: \(label)")
+            XCTAssertTrue(label.contains("操作授权失效"), "row label: \(label)")
+            XCTAssertFalse(label.contains("unauthorized"), "wire error leaked: \(label)")
+            XCTAssertFalse(label.contains("identity-bridge"), "wire error leaked: \(label)")
+        }
+    }
+
+    /// A lost live `turn/end` must not pin the live tool group forever. The
+    /// 800ms durable watch is authoritative; once it carries the answer the
+    /// stop control and tool-running activity go away.
+    func testLostTurnEndSettlesToDurableRows() throws {
+        launch("runningToolUnauthorized")
+        let runtime = app.descendants(matching: .any)["bot.fixture.runtime"]
+        XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 8) { runtime.label.contains("running=none") },
+                      "live turn did not settle: \(runtime.label)")
+        XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
+        let process = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "已完成")).firstMatch
+        XCTAssertTrue(process.waitForExistence(timeout: 4))
+        process.tap()
+        let rows = app.descendants(matching: .any).matching(identifier: "bot.tool.row")
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertEqual(rows.count, 2)
+    }
+
     // MARK: - Bot drawer
 
     private func drawerRow(_ name: String) -> XCUIElement {
