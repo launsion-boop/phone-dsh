@@ -194,9 +194,12 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 - **范围**：单份文档只作用于该路径的全部版本；`agent/` 只作用于该 Bot（`erasure` 事件按写入者
   principal 限定，其他 Bot 的 agent 文档必须存活）；`user/` 是所有 Bot 共享的根，抹除会跨 Bot
   清除共享文档和事件副本。`user/` 与 `agent/` 的入口必须分开确认，文案写明范围。
-- **未覆盖**：DSH 会话日志（`record://session/...`）的区间改写在 S6 第二步；本修订只在
-  `erasure.uncovered_records` 登记这些引用，并在记忆页确认文案写明「DSH 会话日志暂未覆盖」。
-  因此 `record://event/...` 已抹除的引用返回 `record_erased`，而 session 引用仍按 v1 §4.4 读取。
+- **会话日志**：S6 第二步起，抹除还会命中版本内容、唯一标记和 `evidence` 指向的
+  `record://session/...` 行。主会话先切换到新纪元（旧会话归档、新会话从未抹除记录和记忆索引
+  接续），宿主再按 P02 `wal.md` §5.3 把命中行替换成墓碑；抹除成功后
+  `record://session/...` 的命中行与 `record://event/...` 一样返回 `record_erased`。仍处于活动
+  回合、无法关闭的会话行留在 `erasure.uncovered_records`，reason 为
+  `session-log-session-not-closed`，不得伪称已覆盖。确认文案不再声明会话日志未覆盖。
 - **幂等与失败**：重复抹除不再写第二条 `erasure` 事件；单文档不存在返回 `memory-not-found`，
   scope 无文档返回 `removed=0`；路径非法返回 `memory-path-invalid`；任何失败都不能伪称已清除。
 - **向量**：`golden/memory-erasure.json` 冻结单文档全版本、agent scope 隔离、共享 user 跨 Bot、
@@ -247,8 +250,8 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
   `task`、`task-wake`、`agent`、`held`、`unknown`，以及隐藏回合）里创建 routine 或放宽已有 routine，
   必须先走现有审批卡并把 `approvalID` 写入 `creator`。用户回合不需要额外确认。删除、暂停、读取、
   以及不改变频率/交付/紧急度的更新不要求确认。
-- 审批卡是 durable `approval.requested`；拒绝或超时都不写 routine。审批被拒绝时的返回是
-  `permission_denied`，理由明确指出需要用户确认。
+- 审批卡是 durable `approval.requested`；在 `routine`/`task` 会话的无用户来源回合里它是持久待办（[v1 §2.7](../v1/README.md#27-持久待办审批s5-实现)），不会在 300 秒后按拒绝处理；`chat` 会话（含隐藏唤醒）仍在原回合内完成 300 秒审批。拒绝、取消或 24 小时过期都不写 routine；只有批准后的恢复才继续。审批被拒绝/过期时的返回是 `permission_denied`，理由明确指出需要用户确认。
+- 运行中的 routine 若停在 pending 持久审批，`run_state.status` 为 `waiting-approval` 并记录 `waiting_approval_id`/`waiting_session_id`；该 attempt 不产生交付，tick 跳过。批准后同一 run 在恢复的会话里继续；拒绝/过期按 `failed` 交付，`error` 为 `approval_denied`/`approval_expired`。手动取消停住的运行写 `approval.decided{status:"cancelled",reason:"routine_stopped"}`。
 - 手动取消运行中的 routine 走宿主 `RoutineScheduler` 的同一取消链（`reason:"user"`），结果是交付行里的
   `cancelOrigin:"user"`，不产生新的强制通知；`needs-reconciliation` 的人工处理见
   [v1 §5](../v1/README.md#5-行与交互) 的 Bot 信息页。

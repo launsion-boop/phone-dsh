@@ -12,7 +12,26 @@
         "properties": {
           "name": {"enum": ["ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress", "show_checklist", "show_link", "UpdateMemory", "RecallMemory", "Task", "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser"]},
           "description": {"type": "string"},
-          "inputSchema": {"type": "object"}
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "properties": {
+                "type": "object",
+                "properties": {
+                  "final": {
+                    "type": "object",
+                    "required": ["type"],
+                    "properties": {
+                      "type": {"const": "boolean"},
+                      "default": {"const": false},
+                      "description": {"type": "string", "minLength": 1}
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              }
+            }
+          }
         },
         "additionalProperties": false
       }

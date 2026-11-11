@@ -3,6 +3,7 @@
 """Validate Bot v1 schemas and the exported positive/negative conformance vectors."""
 from __future__ import annotations
 
+import copy
 import json
 import posixpath
 import re
@@ -154,6 +155,23 @@ CALLER_CATALOG_TOOLS = frozenset({
     "BotVolatileContext", "FishAction", "SendToAgent", "CreateTeammate",
 })
 CALLER_MAIN_ONLY_TOOLS = frozenset({"CreateTeammate"})
+
+# P26 additive (PC-20261111-bot-content-card-final): the five content-card
+# tools accept an optional `final` control flag. It is not part of the card
+# payload; it only tells the host/Worker to suppress the rest of the turn.
+CONTENT_CARD_FINAL_TOOLS = (
+    "show_attachment", "show_document", "show_progress", "show_checklist", "show_link",
+)
+CONTENT_CARD_FINAL_SCHEMA = {
+    "type": "object",
+    "required": ["type"],
+    "properties": {
+        "type": {"const": "boolean"},
+        "default": {"const": False},
+        "description": {"type": "string", "minLength": 1},
+    },
+    "additionalProperties": False,
+}
 
 
 def load(name: str):
@@ -1196,6 +1214,18 @@ def validate_erasure_event_fixture(fixture):
             versions = range_case["versions"]
             if versions != sorted(set(versions)):
                 raise AssertionError(f"{where}: versions must be sorted and unique")
+        session_records = data.get("erasedSessionRecords", [])
+        if len(session_records) != len({item["record"] for item in session_records}):
+            raise AssertionError(f"{where}: erased session records must be unique")
+        for item in session_records:
+            match = re.fullmatch(r"record://session/([A-Za-z0-9._-]{1,64})#(0|[1-9][0-9]*)",
+                                 item["record"], re.ASCII)
+            if match is None or match.group(1) != item["sessionId"] \
+                    or int(match.group(2)) != item["seq"]:
+                raise AssertionError(f"{where}: erased session record must match sessionId and seq")
+        for epoch in data.get("sessionEpochs", []):
+            if epoch["fromSessionId"] == epoch["toSessionId"]:
+                raise AssertionError(f"{where}: a session epoch must switch to a new session id")
     for index, case in enumerate(invalid):
         rejects(case.get("data"), "erasure-event.schema.json",
                 f"erasure-event.invalid[{index}]")
@@ -1220,6 +1250,12 @@ def validate_erasure_event_fixture(fixture):
                    .__setitem__("record", "record://event/0"))
     expect_failure("byte-sum",
                    lambda value: value["valid"][0]["data"].__setitem__("erasedBytes", 1))
+    expect_failure("session-seq",
+                   lambda value: value["valid"][0]["data"]["erasedSessionRecords"][0]
+                   .__setitem__("seq", 9))
+    expect_failure("session-epoch-identity",
+                   lambda value: value["valid"][0]["data"]["sessionEpochs"][0]
+                   .__setitem__("toSessionId", "gb-main"))
     return len(valid), len(invalid), count
 
 
@@ -1562,6 +1598,80 @@ def validate_authority_fixture(fixture) -> tuple[int, int, int]:
     return (len(creator_cases), len(change_cases), len(task_cases), mutations)
 
 
+def _content_card_entries(catalog):
+    p0 = catalog.get("p0")
+    if not isinstance(p0, list):
+        raise AssertionError("tool-catalog.phone: p0 must be an array")
+    entries = {}
+    for item in p0:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if name in CONTENT_CARD_FINAL_TOOLS:
+            if name in entries:
+                raise AssertionError(f"tool-catalog.phone: duplicate p0 tool {name!r}")
+            entries[name] = item
+    return entries
+
+
+def validate_content_card_final(catalog):
+    """Require the five content-card tools to advertise optional final:false.
+
+    The flag is control metadata, not card content: it must be a boolean whose
+    default is false and must never be required, so omitted/false keeps the
+    previous mid-task behaviour. The semantic suppression itself is proven by
+    the Swift and TS runtime tests.
+    """
+    entries = _content_card_entries(catalog)
+    if sorted(entries) != sorted(CONTENT_CARD_FINAL_TOOLS):
+        missing = sorted(set(CONTENT_CARD_FINAL_TOOLS) - set(entries))
+        raise AssertionError(f"tool-catalog.phone: missing content-card tools {missing}")
+    for name in CONTENT_CARD_FINAL_TOOLS:
+        schema = entries[name].get("inputSchema")
+        if not isinstance(schema, dict):
+            raise AssertionError(f"tool-catalog.phone.{name}: inputSchema must be an object")
+        properties = schema.get("properties")
+        if not isinstance(properties, dict) or "final" not in properties:
+            raise AssertionError(f"tool-catalog.phone.{name}: inputSchema must declare final")
+        validate_json(properties["final"], CONTENT_CARD_FINAL_SCHEMA,
+                      f"tool-catalog.phone.{name}.final")
+        required = schema.get("required", [])
+        if not isinstance(required, list):
+            raise AssertionError(f"tool-catalog.phone.{name}: required must be an array")
+        if "final" in required:
+            raise AssertionError(f"tool-catalog.phone.{name}: final must stay optional")
+    return len(CONTENT_CARD_FINAL_TOOLS)
+
+
+def content_card_final_mutations(catalog):
+    """Mutation self-check: each wrong final declaration must be rejected."""
+    count = 0
+
+    def expect_failure(label, mutate):
+        nonlocal count
+        mutated = copy.deepcopy(catalog)
+        entries = _content_card_entries(mutated)
+        mutate(entries["show_progress"])
+        try:
+            validate_content_card_final(mutated)
+        except Exception:
+            count += 1
+            return
+        raise AssertionError(f"content-card-final mutation {label!r} unexpectedly passed")
+
+    expect_failure("missing",
+                   lambda entry: entry["inputSchema"]["properties"].pop("final"))
+    expect_failure("wrong-type",
+                   lambda entry: entry["inputSchema"]["properties"].__setitem__(
+                       "final", {"type": "string", "default": False, "description": "x"}))
+    expect_failure("default-true",
+                   lambda entry: entry["inputSchema"]["properties"]["final"].__setitem__(
+                       "default", True))
+    expect_failure("required",
+                   lambda entry: entry["inputSchema"].setdefault("required", []).append("final"))
+    return count
+
+
 def main() -> int:
     check_overlays()
     check(load("event-envelope.json")["valid"]["event"], "event-envelope.schema.json", "event")
@@ -1592,6 +1702,13 @@ def main() -> int:
                 f"event-envelope.phone.invalidCases[{index}]")
 
     check(load("tool-catalog.json")["valid"], "tool-catalog.schema.json", "tool-catalog")
+    # phoneDSH P26 additive: the content-card `final` flag lives in the
+    # append-only overlay, so the runtime view is the merged p0/p1 catalog.
+    phone_catalog = load_merged("tool-catalog.json")["valid"]
+    check({"p0": phone_catalog["p0"], "p1": phone_catalog["p1"]},
+          "tool-catalog.schema.json", "tool-catalog.phone")
+    content_cards = validate_content_card_final(phone_catalog)
+    content_card_mutations = content_card_final_mutations(phone_catalog)
     check(load("volatile-context.json")["valid"], "volatile-context.schema.json", "volatile-context")
     check(load("card-payload.json")["valid"], "card-payload.schema.json", "card-payload")
     for index, case in enumerate(load("card-payload.json")["invalid"]):
@@ -1698,7 +1815,8 @@ def main() -> int:
           f"verification {verify_valid_outputs} valid / {verify_invalid_outputs} invalid outputs, "
           f"{verify_budget_valid} valid / {verify_budget_invalid} invalid budgets, "
           f"{verify_valid_reports} valid / {verify_invalid_reports} invalid reports, "
-          f"{verify_mutations} mutation checks)")
+          f"{verify_mutations} mutation checks; "
+          f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks)")
     return 0
 
 

@@ -57,6 +57,72 @@ final class BotRecordServiceTests: XCTestCase {
     }
 
 
+    func testErasedSessionLineReturnsRecordErasedAndSearchSkipsIt() async throws {
+        let header: [String: Any] = [
+            "type": "session", "version": 4, "id": "gb-main",
+            "createdAt": 1_760_000_000_000, "isSeeded": false, "delegationDepth": 0,
+        ]
+        let events: [[String: Any]] = [
+            ["type": "user/message", "seq": 0, "time": 1_760_000_001_000,
+             "data": ["message": ["role": "user", "content": [
+                ["type": "text", "text": "remember QUOKKA_7F3A9"]]],
+                      "source": ["kind": "user", "rpcId": "bot-1"]]],
+            ["type": "assistant/message", "seq": 1, "time": 1_760_000_002_000,
+             "data": ["message": ["role": "assistant", "content": [
+                ["type": "text", "text": "noted the harmless context"]]]]],
+        ]
+        try writeLog(sessionID: "gb-main", header: header, events: events)
+        let planner = BotSessionErasurePlanner(workspaceRoot: root)
+        let scan = planner.scan(
+            botID: "bot-a", ownedSessionIDs: ["gb-main"],
+            needles: ["QUOKKA_7F3A9"], records: [])
+        XCTAssertEqual(scan.targets.first?.seqs, [0])
+        let seam = try XCTUnwrap(planner.continuation(
+            sessionID: "gb-main", erasedSeqs: [0]))
+        XCTAssertTrue(seam.contains("noted the harmless context"))
+        XCTAssertFalse(seam.contains("QUOKKA_7F3A9"))
+        XCTAssertTrue(seam.hasPrefix(BotSessionErasureTombstone.marker))
+
+        // Simulate the host replacing line 0 with the frozen tombstone.
+        let tombstone = try BotSessionErasureTombstone.line(
+            sessionID: "gb-main", seq: 0, time: 1_760_000_001_000,
+            erasureID: "erasure-test")
+        try writeLog(sessionID: "gb-main", header: header, events: [
+            ["type": "user/message", "seq": 0, "time": 1_760_000_001_000,
+             "data": ["message": ["role": "user", "content": [
+                ["type": "text", "text": "remember QUOKKA_7F3A9"]]]]],
+            ["type": "assistant/message", "seq": 1, "time": 1_760_000_002_000,
+             "data": ["message": ["role": "assistant", "content": [
+                ["type": "text", "text": "noted the harmless context"]]]]],
+        ])
+        let url = root.appendingPathComponent(
+            "materialized/home/sessions/gb-main/session.v4.jsonl")
+        let raw = try String(contentsOf: url, encoding: .utf8)
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
+        let rewritten = lines.enumerated().map { index, line in
+            index == 1 ? String(decoding: tombstone, as: UTF8.self) : String(line)
+        }.joined(separator: "\n")
+        try rewritten.write(to: url, atomically: true, encoding: .utf8)
+
+        let readErased = await service.execute(
+            arguments: ["read", "record://session/gb-main#0"], callerSessionID: "gb-main")
+        XCTAssertEqual(readErased.exitCode, 1)
+        XCTAssertEqual(try errorCode(readErased.stdout), "record_erased")
+        XCTAssertFalse(readErased.stdout.contains("QUOKKA_7F3A9"))
+
+        let readSurvivor = await service.execute(
+            arguments: ["read", "record://session/gb-main#1"], callerSessionID: "gb-main")
+        XCTAssertEqual(readSurvivor.exitCode, 0, readSurvivor.stdout)
+        XCTAssertTrue(readSurvivor.stdout.contains("harmless context"))
+
+        let search = await service.execute(
+            arguments: ["search", "QUOKKA_7F3A9"], callerSessionID: "gb-main")
+        XCTAssertEqual(search.exitCode, 0, search.stdout)
+        let searchObject = try json(search.stdout)
+        let hits = (searchObject["data"] as? [String: Any])?["hits"] as? [[String: Any]]
+        XCTAssertEqual(hits?.count, 0)
+    }
+
     func testProjectScopedSessionLogIsReadable() async throws {
         try writeCompactionFixture()
         let sessions = root.appendingPathComponent("materialized/home/sessions", isDirectory: true)

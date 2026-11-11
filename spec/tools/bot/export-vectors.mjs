@@ -161,6 +161,11 @@ vector('volatile-context', {
   { error: { isError: true, message: 'context unavailable' }, reason: 'no_partial_or_stale_snapshot' },
 ]);
 
+// This exporter is the read-only dsh-bot batch and must stay byte-identical on
+// a fresh export. phoneDSH-only card inputs (the optional content-card `final`
+// control flag and the option-id/recommended normalization) are deliberately
+// not written here: they live in `spec/bot/v1/golden/card-payload.phone.json`
+// and `tool-catalog.phone.json`, which the exporter never touches.
 const cardInputs = [
   { tool: 'ask_user', args: { question: '继续吗？', options: [{ label: '继续', recommended: true }, { label: '停止' }] },
     card: { cardType: 'question', question: '继续吗？', options: [{ label: '继续', recommended: true }, { label: '停止' }] } },

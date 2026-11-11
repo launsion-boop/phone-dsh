@@ -38,9 +38,10 @@ struct BotScriptedEvent {
         ]), time: time, stream: true)
     }
 
-    static func toolCall(_ name: String, id: String = "call-1", time: Int64 = 1_002) -> Self {
+    static func toolCall(_ name: String, id: String = "call-1", arguments: String = "{}",
+                         time: Int64 = 1_002) -> Self {
         Self("tool/call", .object([
-            "callId": .string(id), "name": .string(name), "arguments": .string("{}"),
+            "callId": .string(id), "name": .string(name), "arguments": .string(arguments),
         ]), time: time)
     }
 

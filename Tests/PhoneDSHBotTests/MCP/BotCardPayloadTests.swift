@@ -113,6 +113,71 @@ final class BotCardPayloadTests: XCTestCase {
         XCTAssertEqual(steps[0]["style"], .string("danger"))
     }
 
+    func testContentCardFinalIsAcceptedValidatedAndStripped() throws {
+        let cases: [(String, [String: BotJSONValue])] = [
+            ("show_progress", ["title": .string("Wrap up"), "state": .string("done")]),
+            ("show_checklist", ["title": .string("Release"), "items": .array([.object(["text": .string("Test")])])]),
+            ("show_link", ["links": .array([.object(["url": .string("https://example.test/docs")])])]),
+            ("show_attachment", ["path": .string("/tmp/report.txt")]),
+            ("show_document", ["title": .string("Report"), "content": .string("# Report")]),
+        ]
+        for (tool, base) in cases {
+            var final = base
+            final["final"] = .bool(true)
+            let built = try BotCardPayloads.build(tool: tool, arguments: .object(final))
+            XCTAssertNil(built["card"]?["final"], "\(tool) must strip final from the payload")
+            XCTAssertEqual(try BotCardPayloads.contentCardFinal(tool: tool, arguments: .object(final)),
+                           true, tool)
+            var omitted = base
+            XCTAssertEqual(try BotCardPayloads.contentCardFinal(tool: tool, arguments: .object(omitted)), false)
+            omitted["final"] = .bool(false)
+            XCTAssertEqual(try BotCardPayloads.contentCardFinal(tool: tool, arguments: .object(omitted)), false)
+            var invalid = base
+            invalid["final"] = .string("yes")
+            XCTAssertThrowsError(try BotCardPayloads.build(tool: tool, arguments: .object(invalid))) { error in
+                guard case BotCardPayloadError.invalid(let message) = error else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+                XCTAssertEqual(message, "final 必须是 boolean。")
+            }
+        }
+        // ask_user/show_next_steps already end the turn; `final` is not their flag.
+        XCTAssertFalse(try BotCardPayloads.contentCardFinal(
+            tool: "ask_user",
+            arguments: .object(["question": .string("Continue?"), "options": .array([]), "final": .bool(true)])))
+    }
+
+    func testContentCardsAdvertiseTheOptionalFinalFlag() {
+        let byName = Dictionary(uniqueKeysWithValues: BotToolCatalog.definitions.map { ($0.name, $0) })
+        for name in BotToolCatalog.contentCardNames {
+            let schema = byName[name]?.inputSchema
+            XCTAssertEqual(schema?["properties"]?["final"]?["type"], .string("boolean"), name)
+            XCTAssertEqual(schema?["properties"]?["final"]?["default"], .bool(false), name)
+            let required = schema?["required"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            XCTAssertFalse(required.contains("final"), "\(name) must keep final optional")
+        }
+        for name in ["ask_user", "show_next_steps"] {
+            XCTAssertNil(byName[name]?.inputSchema["properties"]?["final"], name)
+        }
+    }
+
+    func testContentCardFinalMatchesThePhoneCatalogGolden() throws {
+        let fixture = try RowTestSupport.golden("tool-catalog.phone")
+        let valid = try RowTestSupport.object(fixture["valid"], in: "tool-catalog.phone.valid")
+        let p0 = try RowTestSupport.array(valid["p0"], in: "tool-catalog.phone.valid.p0")
+        let runtime = Dictionary(uniqueKeysWithValues: BotToolCatalog.definitions.map { ($0.name, $0) })
+        var checked = Set<String>()
+        for entry in p0 {
+            guard let name = entry["name"] as? String,
+                  BotToolCatalog.contentCardNames.contains(name) else { continue }
+            checked.insert(name)
+            let expected = try RowTestSupport.decode(
+                BotJSONValue.self, entry["inputSchema"])["properties"]?["final"]
+            XCTAssertEqual(runtime[name]?.inputSchema["properties"]?["final"], expected, name)
+        }
+        XCTAssertEqual(checked, BotToolCatalog.contentCardNames)
+    }
+
     func testCatalogRegistersExactlyP0AndVolatileContext() {
         XCTAssertEqual(BotToolCatalog.definitions.map(\.name), BotToolCatalog.p0Names)
         XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 4)

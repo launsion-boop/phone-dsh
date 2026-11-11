@@ -137,6 +137,7 @@ enum BotUIFixtures {
         case .approval:
             body = BotUIBody(type: "approval", values: [
                 "approvalID": "approval-fixture", "digest": "sha256:fixture", "status": "pending",
+                "persistent": true, "kind": "routine", "sessionId": "routine-fixture",
                 "title": "允许执行这个操作吗？", "action": "删除旧的临时报告",
                 "command": "rm -f /tmp/phone-dsh-old-report.pdf",
                 "detail": "文件位于临时目录，删除后无法在页面内恢复。",

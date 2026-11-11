@@ -518,6 +518,26 @@ public actor WorkspaceLog: WorkspaceLogging {
                               lastDurableEpoch: await writer.lastDurableEpoch)
     }
 
+    /// Host-only compaction used by the closed-session rewrite (wal.md §5.3,
+    /// §9). The caller has already parked the Worker, closed the rewrite epoch
+    /// in the D18 order and made the materialized copy durable; this method
+    /// refuses to drop anything unless the materialized watermark covers the
+    /// accepted tail.
+    @discardableResult
+    public func compactDroppableSegments() async throws -> [String] {
+        await beginClose()
+        defer { endClose() }
+        try await writer.flush()
+        let accepted = await writer.lastMseq
+        guard materializer.materializedUptoMseq == accepted else {
+            throw LogError.corrupt(
+                "host compaction with materialized_upto \(materializer.materializedUptoMseq) "
+                    + "below the accepted tail \(accepted)")
+        }
+        await writer.setMaterializedUpto(materializer.materializedUptoMseq)
+        return try await writer.compactDroppableSegments()
+    }
+
     // MARK: - Journal
 
     /// Appends one `0x30` record; the level-1 journal ack follows write().

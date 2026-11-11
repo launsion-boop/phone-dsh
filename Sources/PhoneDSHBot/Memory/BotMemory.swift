@@ -405,11 +405,21 @@ public actor BotMemory {
     /// cleared; the event headers and an `erasure` event stay.
     @discardableResult
     public func erase(path: String) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await erase(path: path, sessionEraser: nil)
+    }
+
+    /// Physical erase of one document with an optional session-epoch callback.
+    /// The callback runs before any event payload is cleared, so a failed
+    /// session rewrite leaves the memory store untouched.
+    @discardableResult
+    public func erase(path: String,
+                      sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome {
         try await prepare()
         let outcome = try await store.erase(
             path: path,
             author: BotMemoryAuthor(botID: botID, kind: .ui),
-            atMS: now())
+            atMS: now(),
+            sessionEraser: sessionEraser)
         if outcome.ok { recallIndex = BotMemoryDocumentRecallIndex() }
         return outcome
     }
@@ -418,11 +428,19 @@ public actor BotMemory {
     /// shared root). Returns the count of cleared payloads and versions.
     @discardableResult
     public func erase(scope: BotMemoryScope) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await erase(scope: scope, sessionEraser: nil)
+    }
+
+    /// Root erase with an optional session-epoch callback (see the path form).
+    @discardableResult
+    public func erase(scope: BotMemoryScope,
+                      sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome {
         try await prepare()
         let outcome = try await store.erase(
             scope: scope,
             author: BotMemoryAuthor(botID: botID, kind: .ui),
-            atMS: now())
+            atMS: now(),
+            sessionEraser: sessionEraser)
         if outcome.ok { recallIndex = BotMemoryDocumentRecallIndex() }
         return outcome
     }

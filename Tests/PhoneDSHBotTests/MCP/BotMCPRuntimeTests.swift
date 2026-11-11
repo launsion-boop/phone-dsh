@@ -108,6 +108,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -144,6 +145,54 @@ final class BotMCPRuntimeTests: XCTestCase {
         XCTAssertTrue(events.contains { $0.type == "grant.consumed" })
     }
 
+    func testFinalContentCardSuppressesSendToUserOnlyWhenSuccessful() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+
+        await beginUserTurn(fixture.runtime)
+        let finalProgress = try await registerAndExecute(fixture.runtime, name: "show_progress", arguments: .object([
+            "title": .string("Wrap up"), "state": .string("done"), "final": .bool(true),
+        ]))
+        XCTAssertNotEqual(finalProgress.isError, true)
+        XCTAssertNil(finalProgress.structuredContent?["card"]?["final"])
+        let suppressed = try await registerAndExecute(fixture.runtime, name: "SendToUser", arguments: .object([
+            "message": .string("must not escape"),
+        ]))
+        XCTAssertEqual(suppressed.isError, true)
+        XCTAssertEqual(suppressed.structuredContent?["error"]?["message"],
+                       .string("Text output is suppressed for this turn"))
+
+        // beginTurn clears the previous suppression for the next synthetic turn.
+        await beginUserTurn(fixture.runtime)
+        let failedFinal = try await registerAndExecute(fixture.runtime, name: "show_progress", arguments: .object([
+            "title": .string(""), "final": .bool(true),
+        ]))
+        XCTAssertEqual(failedFinal.isError, true)
+        let afterFailure = try await registerAndExecute(fixture.runtime, name: "SendToUser", arguments: .object([
+            "message": .string("failure text stays visible"),
+        ]))
+        XCTAssertNotEqual(afterFailure.isError, true)
+
+        await beginUserTurn(fixture.runtime)
+        let nonFinal = try await registerAndExecute(fixture.runtime, name: "show_progress", arguments: .object([
+            "title": .string("Progress update"),
+        ]))
+        XCTAssertNotEqual(nonFinal.isError, true)
+        let afterUpdate = try await registerAndExecute(fixture.runtime, name: "SendToUser", arguments: .object([
+            "message": .string("mid-task text stays visible"),
+        ]))
+        XCTAssertNotEqual(afterUpdate.isError, true)
+
+        await beginUserTurn(fixture.runtime)
+        let invalid = try await registerAndExecute(fixture.runtime, name: "show_progress", arguments: .object([
+            "title": .string("Bad flag"), "final": .string("yes"),
+        ]))
+        XCTAssertEqual(invalid.isError, true)
+        XCTAssertEqual(invalid.structuredContent?["error"]?["code"], .string("invalid_arguments"))
+        XCTAssertEqual(invalid.structuredContent?["error"]?["message"], .string("final 必须是 boolean。"))
+    }
+
     func testRoutineAndTaskSessionsCannotSendToUser() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
@@ -158,6 +207,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -246,6 +296,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -289,6 +340,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object([
             "action": .string("delete"), "path": .string("user/private.md"),
             "expected_version": .number(0),
@@ -572,6 +624,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         let args = BotJSONValue.object(["command": .string("printf safe")])
         let digest = try BotArgumentsDigest.string(for: args)
         _ = try await fixture.runtime.registerIdentity(

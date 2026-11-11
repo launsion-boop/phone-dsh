@@ -49,12 +49,13 @@ public enum RoutineRunStatus: String, Codable, Sendable, Equatable {
     case timedOut = "timed-out"
     case cancelled
     case needsReconciliation = "needs-reconciliation"
+    case waitingApproval = "waiting-approval"
 
     public var isTerminal: Bool {
         switch self {
         case .succeeded, .failed, .timedOut, .cancelled, .needsReconciliation:
             return true
-        case .scheduled, .started:
+        case .scheduled, .started, .waitingApproval:
             return false
         }
     }
@@ -179,12 +180,17 @@ public struct RoutineRunState: Codable, Sendable, Equatable {
     public var reconciliationRequired: Bool
     public var recovered: Bool
     public var quietDeferred: RoutineQuietDefer?
+    /// Set while the attempt is parked on a durable approval. Both fields are
+    /// additive inside the existing free-form `run_state` object.
+    public var waitingApprovalID: String?
+    public var waitingSessionID: String?
 
     public init(runId: String, attempt: Int, status: RoutineRunStatus, scheduledFor: Int64? = nil,
                 startedAt: Int64, finishedAt: Int64? = nil, leaseOwner: String? = nil,
                 leaseExpiresAt: Int64? = nil, error: String? = nil,
                 reconciliationRequired: Bool = false, recovered: Bool = false,
-                quietDeferred: RoutineQuietDefer? = nil) {
+                quietDeferred: RoutineQuietDefer? = nil,
+                waitingApprovalID: String? = nil, waitingSessionID: String? = nil) {
         self.runId = runId
         self.attempt = attempt
         self.status = status
@@ -197,6 +203,8 @@ public struct RoutineRunState: Codable, Sendable, Equatable {
         self.reconciliationRequired = reconciliationRequired
         self.recovered = recovered
         self.quietDeferred = quietDeferred
+        self.waitingApprovalID = waitingApprovalID
+        self.waitingSessionID = waitingSessionID
     }
 }
 

@@ -124,4 +124,6 @@ Worker 插件与 Swift 宿主需一起发布；`phone record` 的 `record_erased
 | `scripts/ci/bot-ui/capture.sh`（沙箱绕行、`BOT_UI_SKIP_UI_TESTS=1`） | capture app `** BUILD SUCCEEDED **`，fixture conformance PASS（21 checks）；XCUITest `NOT_RUN`（沙箱 Pseudo Terminal）。全量 76 张截图在时间预算内只完成 8 张后改为用同一 app `simctl launch -BotUIFixture infoMemory` 截取所需记忆页：`/tmp/s2-s6-shots/{light,dark}/infoMemory.png`，两页均显示两个根各自的「含全部版本」抹除入口；截图后已 `simctl terminate` 并确认无 `PhoneDSHBotUICapture` 进程。 |
 
 第二步只读证据见 [bot-session-erasure-spike-20261112.md](../research/bot-session-erasure-spike-20261112.md)；
-本单未改 P02/WAL、未实现会话区间改写，也未在界面宣称覆盖会话日志。
+本单未改 P02/WAL、未实现会话区间改写，也未在界面宣称覆盖会话日志。后续
+[PC-20261112-bot-session-epoch](PC-20261112-bot-session-epoch.md) 已实现会话纪元、P02 §5.3 受控改写和
+`record://session` 的 `record_erased`，并把界面文案改为覆盖已关闭会话纪元。

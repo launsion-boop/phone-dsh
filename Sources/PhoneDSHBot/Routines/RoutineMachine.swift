@@ -212,6 +212,10 @@ public actor RoutineMachine {
                 let claim = RoutineClaim(routine: routine, claimed: false, skipReason: "needs-reconciliation")
                 return RoutineMutation(value: claim, persistSnapshot: false, botId: botId)
             }
+            if routine.runState?.status == .waitingApproval {
+                let claim = RoutineClaim(routine: routine, claimed: false, skipReason: "waiting-approval")
+                return RoutineMutation(value: claim, persistSnapshot: false, botId: botId)
+            }
             let attempt = routine.attempt + 1
             let resolvedRunId = runId ?? "run-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16))"
             let deferred = routine.quietDefer
@@ -235,10 +239,110 @@ public actor RoutineMachine {
         }
     }
 
+    /// Parks one started attempt on a durable approval. The run keeps its
+    /// runId/attempt and produces no delivery until the user decides.
+    @discardableResult
+    public func waitForApproval(botId: String, routineId: String, approvalID: String,
+                                sessionID: String, now: Int64) async throws -> Routine? {
+        try await store.mutate(botId: botId) { document -> RoutineMutation<Routine?> in
+            guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
+                return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
+            }
+            var routine = document.routines[index]
+            guard var state = routine.runState, state.status == .started else {
+                return RoutineMutation(value: routine, persistSnapshot: false, botId: botId)
+            }
+            state.status = .waitingApproval
+            state.waitingApprovalID = approvalID
+            state.waitingSessionID = sessionID
+            state.error = "approval_pending"
+            state.leaseOwner = nil
+            state.leaseExpiresAt = nil
+            routine.runState = state
+            document.routines[index] = routine
+            return RoutineMutation(
+                value: routine, botId: botId,
+                snapshotEventId: "routine-snapshot:\(state.runId):\(state.attempt):waiting-approval")
+        }
+    }
+
+    /// Reopens the same attempt after the user approved. The scheduler runs
+    /// the resumed turn; it never emits a second `routine.run_started` for this
+    /// attempt (the original one is the logical start).
+    @discardableResult
+    public func resumeWaitingApproval(botId: String, routineId: String, approvalID: String,
+                                      now: Int64, leaseOwner: String? = nil,
+                                      leaseTTLMs: Int64? = nil) async throws -> RoutineClaim? {
+        try await store.mutate(botId: botId) { document -> RoutineMutation<RoutineClaim?> in
+            guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
+                return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
+            }
+            var routine = document.routines[index]
+            guard var state = routine.runState,
+                  state.status == .waitingApproval,
+                  state.waitingApprovalID == approvalID else {
+                return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
+            }
+            state.status = .started
+            state.error = nil
+            state.waitingApprovalID = nil
+            state.waitingSessionID = nil
+            state.leaseOwner = leaseOwner
+            state.leaseExpiresAt = leaseTTLMs.map { now + $0 }
+            routine.runState = state
+            routine.lastResult?.status = .started
+            routine.lastResult?.error = nil
+            document.routines[index] = routine
+            return RoutineMutation(
+                value: RoutineClaim(routine: routine, claimed: true),
+                botId: botId,
+                snapshotEventId: "routine-snapshot:\(state.runId):\(state.attempt):resumed")
+        }
+    }
+
+    /// Explicit user stop of a parked run: clear the waiting state and record
+    /// the terminal cancelled status without creating a delivery (the caller
+    /// writes the user-facing cancellation through the ordinary stop path).
+    @discardableResult
+    public func cancelWaitingApproval(botId: String, routineId: String,
+                                      approvalID: String, now: Int64,
+                                      error: String = "approval_cancelled") async throws -> Routine? {
+        try await store.mutate(botId: botId) { document -> RoutineMutation<Routine?> in
+            guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
+                return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
+            }
+            var routine = document.routines[index]
+            guard var state = routine.runState,
+                  state.status == .waitingApproval,
+                  state.waitingApprovalID == approvalID else {
+                return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
+            }
+            state.status = .cancelled
+            state.waitingApprovalID = nil
+            state.waitingSessionID = nil
+            state.finishedAt = now
+            state.error = String(error.prefix(1000))
+            routine.runState = state
+            routine.lastResult?.status = .cancelled
+            routine.lastResult?.error = state.error
+            routine.lastResult?.finishedAt = now
+            if routine.enabled {
+                routine.nextRunAt = try RoutineScheduleMath.nextAfterAttempt(
+                    routine, startedAt: state.startedAt, finishedAt: now,
+                    scheduledFor: state.scheduledFor ?? state.startedAt)
+            } else {
+                routine.nextRunAt = nil
+            }
+            document.routines[index] = routine
+            return RoutineMutation(
+                value: routine, botId: botId,
+                snapshotEventId: "routine-snapshot:\(state.runId):\(state.attempt):approval-cancelled")
+        }
+    }
+
     @discardableResult
     public func recordSkip(botId: String, routineId: String, reason: String = "overlap",
-                           at: Int64, triggerAt: Int64? = nil) async throws -> RoutineSkip? {
-        try await store.mutate(botId: botId) { document in
+                           at: Int64, triggerAt: Int64? = nil) async throws -> RoutineSkip? {        try await store.mutate(botId: botId) { document in
             guard let index = document.routines.firstIndex(where: { $0.id == routineId }) else {
                 return RoutineMutation(value: nil, persistSnapshot: false, botId: botId)
             }

@@ -26,6 +26,14 @@ export interface ApprovalOutcome {
   readonly allowed?: boolean
   readonly message?: string
   readonly error?: string
+  /** The host parked a durable (non-interactive) approval as a todo. */
+  readonly pending?: boolean
+  readonly approvalId?: string
+  readonly expiresAt?: number
+}
+
+type CancelableAgent = Agent & {
+  cancel?: (cause: { kind: 'hook'; reason: string }, options?: { keepInbox?: boolean }) => void
 }
 
 export interface ApprovalGateConfig {
@@ -289,6 +297,10 @@ export async function postApproval(url: string, token: string, payload: Record<s
   const egressToken = String(process.env.PDSH_MCP_EGRESS_TOKEN ?? '')
   const egress: Record<string, string> = egressToken === '' ? {} : { 'X-PDSH-MCP-Egress': egressToken }
   const controller = new AbortController()
+  // This deadline only covers the interactive card (the host answers it
+  // within 300 s). Durable approvals answer immediately with
+  // `{ok:true,allowed:false,pending:true}`; they never keep the tool call
+  // blocked across this timer (spec/bot/v1 §2.7).
   const timer = setTimeout(() => controller.abort(new Error('approval timed out')), 330_000)
   try {
     const response = await fetch(url, {
@@ -303,6 +315,22 @@ export async function postApproval(url: string, token: string, payload: Record<s
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * A durable approval ends the turn instead of holding `tools/pre-execute`
+ * open. The host parks the task/routine and wakes it after the user decision;
+ * the Worker must not keep the tool call (or its identity registration)
+ * waiting for up to 24 hours. `hook` is the stable non-user cause.
+ */
+function stopTurnForDurableApproval(agent: Agent | undefined): void {
+  const cancelable = agent as CancelableAgent | undefined
+  try {
+    cancelable?.cancel?.({ kind: 'hook', reason: 'approval-pending' }, { keepInbox: true })
+  } catch {
+    // The host still parks on the turn result; a failed cancel is not a
+    // permission to execute the tool.
   }
 }
 
@@ -355,6 +383,13 @@ export default function dshbotApprovalGate(ctx: Context, config: ApprovalGateCon
     }
     const decision = await send(payload, exec.signal)
     if (decision.ok && decision.allowed) return next()
+    if (decision.pending === true) {
+      stopTurnForDurableApproval(exec.agent)
+      return {
+        kind: 'deny',
+        reason: `[approval pending] ${decision.message ?? 'The user is away; this approval is a durable todo.'} The tool call was NOT executed. The task is parked; the host will resume it after the user decides. Do not retry or work around it in this turn.`,
+      }
+    }
     const reason = decision.message ?? decision.error ?? 'approval was denied'
     return {
       kind: 'deny',

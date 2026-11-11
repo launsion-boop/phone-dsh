@@ -23,7 +23,7 @@
 ## 3. 添加 Bot 对话框
 
 - 只保留名字 + 发型 + 颜色：名字输入在 binding setter 中即按字素簇安全截断到最多 60 个 UTF-16 单元（输入与粘贴同一路径，绝不切坏 emoji/组合字符），因此不会出现超长态；输入框下方不显示任何校验或字数提示，也不留空白占位（不存在的 `bot.add.name.hint` 不再渲染）。去空格后为空时禁用「创建」；名字非空时输入框右侧有清除按钮（id `bot.add.name.clear`）；默认 `long` + `blue`。
-- 104pt 实时预览随发型/颜色即时更新；发型和颜色直接复用信息页的 `BotAppearancePicker`（4 个 40pt 发型静帧 + 15 个 24pt 色点，44pt 命中区）。
+- 104pt 实时预览随发型/颜色即时更新；发型和颜色直接复用信息页的 `BotAppearancePicker`（4 个 40pt 发型静帧 + 15 个 24pt 色点，44pt 命中区）。信息页不另设预览，对话框保留这里的 104pt 预览。
 - 「创建」调用 `create(name:description:color:hairstyle:)`；成功后选中新 Bot 并关闭抽屉；失败在对话框内显示错误，不关闭。UI 的 60 单元截断只限制可编辑文本；模型层 `BotRosterModel.create` / `BotProfileStore.validateName` 仍拒绝空白和超过 60 个 UTF-16 单元的名字（fixture 的 create 路径直接验证该拒绝）。id：`bot.add.name`、`bot.add.name.clear`、`bot.add.create`、`bot.add.cancel`、`bot.add.error`。
 
 ## 4. 管理 Bot

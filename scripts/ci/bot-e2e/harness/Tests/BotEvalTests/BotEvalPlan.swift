@@ -17,6 +17,7 @@ struct EvalPlan: Decodable {
     var upstream: String
     var repeatCount: Int
     var selftest: Bool
+    var contextProfile: String?
     var keepBodies: Bool
     var fixturesRoot: String
     var results: String
@@ -26,6 +27,7 @@ struct EvalPlan: Decodable {
     enum CodingKeys: String, CodingKey {
         case version, catalog, upstream, repeatCount = "repeat", selftest
         case catalogSHA256 = "catalog_sha256"
+        case contextProfile = "context_profile"
         case keepBodies = "keep_bodies"
         case fixturesRoot = "fixtures_root"
         case results
@@ -71,15 +73,17 @@ struct EvalPlan: Decodable {
     }
 
     static let knownActions: Set<String> = [
-        "create_bot", "user_message", "ui_action", "approval_policy",
+        "create_bot", "user_message", "agent_message", "ui_action", "approval_policy",
         "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
     ]
     static let knownAssertions: Set<String> = [
         "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
         "workspace_command", "reply_contains", "reply_not_contains",
+        "reply_regex", "reply_not_regex", "reply_length",
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
-        "tool_surface",
+        "tool_surface", "session_log_absent", "session_event", "no_session_event",
+        "card_count", "card_placement", "card_file_exists",
     ]
 }
 
@@ -209,6 +213,7 @@ struct EvalAction: Decodable {
     var type: String
     var index: Int?
     var bot: String?
+    var fromBot: String?
     var text: String?
     var name: String?
     var description: String?
@@ -262,6 +267,7 @@ struct EvalAction: Decodable {
         case timeoutS = "timeout_s"
         case policyDefault = "default"
         case policyRules = "rules"
+        case fromBot = "from_bot"
     }
 
     init(from decoder: Decoder) throws {
@@ -269,6 +275,7 @@ struct EvalAction: Decodable {
         type = try container.decode(String.self, forKey: .type)
         index = try container.decodeIfPresent(Int.self, forKey: .index)
         bot = try container.decodeIfPresent(String.self, forKey: .bot)
+        fromBot = try container.decodeIfPresent(String.self, forKey: .fromBot)
         text = try container.decodeIfPresent(String.self, forKey: .text)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)
@@ -321,21 +328,46 @@ struct EvalAssertion: Decodable {
     var method: String?
     var equals: Int?
     var max: Int?
+    var min: Int?
     var present: [String]?
     var absent: [String]?
     /// Session whose model-facing surface a `tool_surface` assertion checks.
     var session: String?
     /// Exact advertised tool set for a `tool_surface` assertion.
     var exactly: [String]?
+    /// Case-insensitive `reply_contains`/`reply_not_contains`/regex matching.
+    var ignoreCase: Bool
+    /// Reply-length thresholds (characters) for `reply_length`.
+    var medianMax: Int?
+    var eachMax: Int?
+    var allowNoReply: Bool
+    /// Card filters shared by the `card_*` assertions.
+    var cardTypes: [String]?
+    var excludeCardTypes: [String]?
+    var tool: String?
+    /// `card_placement` directions.
+    var afterReply: Bool
+    var terminal: Bool
+    /// DSH session-log surface placement filter for `session_event`.
+    var surfaceOp: String?
 
     enum CodingKeys: String, CodingKey {
         case type, bot, value, path, command, turn, event, name, scope, tier, source, method, equals, max
-        case present, absent, session, exactly
+        case present, absent, session, exactly, min, tool
         case expectOK = "expect_ok"
         case timeoutS = "timeout_s"
         case whereFields = "where"
         case argumentsContains = "arguments_contains"
         case payloadContains = "payload_contains"
+        case ignoreCase = "ignore_case"
+        case medianMax = "median_max"
+        case eachMax = "each_max"
+        case allowNoReply = "allow_no_reply"
+        case cardTypes = "card_types"
+        case excludeCardTypes = "exclude_card_types"
+        case afterReply = "after_reply"
+        case terminal
+        case surfaceOp = "surface_op"
     }
 
     init(type: String, bot: String? = nil, expectOK: Bool = true,
@@ -346,7 +378,12 @@ struct EvalAssertion: Decodable {
          scope: String? = nil, tier: String? = nil, source: String? = nil,
          method: String? = nil, equals: Int? = nil, max: Int? = nil,
          session: String? = nil, exactly: [String]? = nil,
-         present: [String]? = nil, absent: [String]? = nil) {
+         present: [String]? = nil, absent: [String]? = nil,
+         min: Int? = nil, ignoreCase: Bool = false,
+         medianMax: Int? = nil, eachMax: Int? = nil, allowNoReply: Bool = false,
+         cardTypes: [String]? = nil, excludeCardTypes: [String]? = nil,
+         tool: String? = nil, afterReply: Bool = false, terminal: Bool = false,
+         surfaceOp: String? = nil) {
         self.type = type
         self.bot = bot
         self.expectOK = expectOK
@@ -370,6 +407,17 @@ struct EvalAssertion: Decodable {
         self.exactly = exactly
         self.present = present
         self.absent = absent
+        self.min = min
+        self.ignoreCase = ignoreCase
+        self.medianMax = medianMax
+        self.eachMax = eachMax
+        self.allowNoReply = allowNoReply
+        self.cardTypes = cardTypes
+        self.excludeCardTypes = excludeCardTypes
+        self.tool = tool
+        self.afterReply = afterReply
+        self.terminal = terminal
+        self.surfaceOp = surfaceOp
     }
 
     init(from decoder: Decoder) throws {
@@ -397,5 +445,16 @@ struct EvalAssertion: Decodable {
         absent = try container.decodeIfPresent([String].self, forKey: .absent)
         session = try container.decodeIfPresent(String.self, forKey: .session)
         exactly = try container.decodeIfPresent([String].self, forKey: .exactly)
+        min = try container.decodeIfPresent(Int.self, forKey: .min)
+        ignoreCase = try container.decodeIfPresent(Bool.self, forKey: .ignoreCase) ?? false
+        medianMax = try container.decodeIfPresent(Int.self, forKey: .medianMax)
+        eachMax = try container.decodeIfPresent(Int.self, forKey: .eachMax)
+        allowNoReply = try container.decodeIfPresent(Bool.self, forKey: .allowNoReply) ?? false
+        cardTypes = try container.decodeIfPresent([String].self, forKey: .cardTypes)
+        excludeCardTypes = try container.decodeIfPresent([String].self, forKey: .excludeCardTypes)
+        tool = try container.decodeIfPresent(String.self, forKey: .tool)
+        afterReply = try container.decodeIfPresent(Bool.self, forKey: .afterReply) ?? false
+        terminal = try container.decodeIfPresent(Bool.self, forKey: .terminal) ?? false
+        surfaceOp = try container.decodeIfPresent(String.self, forKey: .surfaceOp)
     }
 }

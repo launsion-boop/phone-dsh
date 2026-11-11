@@ -3068,6 +3068,28 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         }
     }
 
+    /// Host-only closed-session rewrite (wal.md §5.3). The host must be parked:
+    /// the Worker is gone, the current epoch is closed and no frame can append.
+    /// The caller supplies the tombstone lines; this method controls the WAL
+    /// order, removes older generations, compacts pre-rewrite segments and
+    /// verifies none survived before returning.
+    public func eraseClosedSession(
+        _ request: PhoneDSHSessionErasureRequest
+    ) async throws -> PhoneDSHSessionErasureResult {
+        guard let runtime else {
+            throw PhoneDSHError.notStarted
+        }
+        let state = await runtime.machine.currentState()
+        guard state == .parked else {
+            throw PhoneDSHError.invalidState(
+                "eraseClosedSession requires a parked host (current \(state))")
+        }
+        return try await SessionLogErasure.apply(
+            request: request,
+            workspaceRoot: configuration.workspaceRoot,
+            log: runtime.log)
+    }
+
     /// Stops the host. Running/draining hosts are parked first so the WAL epoch
     /// closes in the D18 order and the fence covers the tail; then the
     /// listener, controller and gateway are released. A `Remote`/`Reclaiming`

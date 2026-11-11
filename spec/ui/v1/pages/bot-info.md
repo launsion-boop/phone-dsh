@@ -10,17 +10,17 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 
 名称下方是「外观」区，与桌面 DSH Bot 的 `NameBotDialog`/`InfoPane` 对齐，只暴露发型和颜色：
 
-- 112pt 实时预览（idle，可 poke），使用当前 Bot 资料的外观。
+- 信息页不另设预览，顶部 80pt 头像随发型 / 颜色点选即时更新，不画第二个头像。
 - 「发型」一行 4 个 40pt 静帧大肥鱼（`long`、`twin-tail`、`bob`、`side-braid`），每个以当前颜色着色；选中的外圈 44pt；accessibility label 用简体 displayName（经典长卷发、高双马尾、短鲍伯、粗侧辫）。
 - 「颜色」15 个 24pt 色点，44pt 点击区，自动换行；选中外圈；accessibility label 用简体 displayName。
-- 该外观选择器抽成 `BotAppearancePicker`，信息页与「添加 Bot」对话框共用同一个组件和同一组 accessibility id 前缀；对话框只保留草稿状态，信息页仍点选即保存。
-- 点选即保存（`BotProfileStore.upsert` 只带改动字段）并全页实时生效；预览、4 个发型缩略图与 Bot 页头部/空状态/状态行同步。
+- 该外观选择器抽成 `BotAppearancePicker`，信息页与「添加 Bot」对话框共用同一个组件（信息页 id 前缀 `bot.info.appearance`，对话框前缀 `bot.add.appearance`）；是否显示组件内预览由调用方决定。信息页关闭组件内预览；「添加 Bot」对话框没有顶部头像，保留其 104pt 预览和草稿状态，信息页仍点选即保存。
+- 点选即保存（`BotProfileStore.upsert` 只带改动字段）并全页实时生效；顶部 80pt 头像、4 个发型缩略图与 Bot 页头部/空状态/状态行同步。
 - 本轮不提供「自动」选项；资料模型的 `nil` 保留给以后的多 Bot 导入。页面不显示自动外观标记，也不伪造未保存状态。
 
 - 记忆：按 `user/` 和 `agent/` 两个根展示文档树，目录可展开；文档详情显示完整 Markdown、当前版本、更新时间、作者/会话类型和 `evidence`（`record://` 引用）；可查看历史版本列表和每个版本的正文/删除标记。路径、版本和 evidence 均来自宿主 `ReadMemory` 同一权威，不伪造条目或来源。删除有两个强度且文案不能混用：
   - 每份文档的「忘记」是逻辑删除：只移除 live 版本，历史版本和原始记录仍保留。
   - 文档详情的「抹除这份文档和全部历史版本」、`agent/` 根的「抹除这个 Bot 的 agent 文档（含全部版本）」和共享 `user/` 根的双重确认「抹除所有 Bot 共享的 user/ 文档（含全部版本）」是物理删除：清除文档、全部历史版本、事件载荷、检索/注入/UI 行中的对应内容，并追加 `erasure` 事件；其他 Bot 的 `agent/` 文档不受影响，`user/` 抹除影响所有 Bot。
-  - 所有抹除入口都必须有明确范围说明和不可撤销提示，并写明「DSH 会话日志（聊天原始记录）暂未覆盖」。宿主确认后重读权威状态；失败显示失败，不把失败当成功或本地伪装已删除。
+  - 所有抹除入口都必须有明确范围说明和不可撤销提示。抹除同时命中已关闭会话纪元的聊天记录：命中行被墓碑替换，`record://session` 不再返回原文；主对话切到新会话并显示一行「对话已接续」notice，旧纪元中未命中的内容仍可见。宿主确认后重读权威状态；失败显示失败，不把失败当成功或本地伪装已删除。
   - 不提供第一版未实现的自动抽取、反思或衰减开关，也不在页面内编辑文档正文。accessibility id 前缀 `bot.memory.*`、`bot.info.memory`，单文档抹除为 `bot.memory.document.erase`。
 - 记忆页顶部有「后台整理」开关（id `bot.memory.maintenance.toggle`），默认关闭；开关持久化为 P18 键 `phone-dsh.bot.memory-maintenance.v1`（`{enabled, runTokenBudget, dailyTokenBudget}`，所有 Bot 共享）。下方「上次整理」卡片（id `bot.memory.maintenance.batch`）只显示最近一次真实批次：状态、时间、改动文档数、每个路径的前后版本/删除、检查是否通过、失败码和 token 用量，数据来自 durable `memory.maintenance_finished` 事件，不伪造一次运行。批次仍可回滚时显示「回滚这次整理」（id `bot.memory.maintenance.rollback`），确认后调用宿主按 S2 版本恢复整批回滚；已回滚或不可回滚时不显示按钮，历史批次仍保留。页面不显示模型的过程文本，也不提供编辑批次内容的入口。
 - Routines：展示 schedule、timezone、delivery、quiet/urgent 标记、下一次到期/安静时段延后、运行结果、设立者（`creator.rpcId`／`turnId`／`origin`／`authorization`）、`completion_criteria` 与 `constraints`；动作通过 UserAction/宿主服务，不直接修改数据库。运行中（`run_state.status == "started"`）显示「取消运行」；`run_state.status == "needs-reconciliation"` 显示已产生效果的文字摘要，并提供「确认完成」和「重试」两个独立动作，分别走 `RoutineMachine.resolveReconciliation` 与 `BotEffectOutbox.ackReconciled`／`retryNeedsReconciliation`。取消、对账后重读权威状态；读取失败显示失败，不显示为零。

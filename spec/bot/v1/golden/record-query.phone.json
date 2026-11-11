@@ -10,7 +10,8 @@
     "Freeze the `phone record search` / `phone record read` answers as the P19 bounded phone-tool envelope with scope bot.",
     "Freeze the caller rule: the host resolves the caller from the claimed DSH session carried out-of-band by the shell, never from --session or any argv word.",
     "Freeze that a compaction replace checkpoint keeps its shadowed session lines readable, and that reading either side exposes the range/reference relation.",
-    "Freeze the P25 erased-payload answer: reading a record://event reference whose payload the host erased returns ok:false with code record_erased and never the original bytes; search skips it."
+    "Freeze the P25 erased-payload answer: reading a record://event reference whose payload the host erased returns ok:false with code record_erased and never the original bytes; search skips it.",
+    "Freeze the S6 step-2 session answer: a record://session reference whose line was replaced by a tombstone returns the same ok:false record_erased shape and message; reading nearby surviving lines never reconstructs the erased one."
   ],
   "valid": [
     {
@@ -209,6 +210,17 @@
     },
     {
       "name": "record-erased",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "record_erased",
+          "message": "该记录已被抹除"
+        }
+      }
+    },
+    {
+      "name": "record-erased-session",
       "result": {
         "ok": false,
         "tool": "record.read",

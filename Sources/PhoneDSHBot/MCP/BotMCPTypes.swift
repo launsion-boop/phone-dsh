@@ -150,6 +150,20 @@ public protocol BotTaskRestarting: Actor {
     func workerRestarted() async
 }
 
+/// Optional task-executor hook: a durable approval reached a terminal state.
+/// The executor resumes or closes the task/routine that was parked on it. It
+/// is also called for decisions restored after a process restart.
+public protocol BotApprovalResuming: Actor {
+    func approvalResolved(_ notice: BotApprovalResolutionNotice) async
+}
+
+/// Optional task-executor hook: an egress write became a durable todo while a
+/// tool call was still running. The executor may stop the turn so the task can
+/// park in one deterministic place (the Worker structural gate stops itself).
+public protocol BotApprovalPendingObserving: Actor {
+    func approvalBecamePending(_ state: BotDurableApprovalState) async
+}
+
 /// The optional work budget declared with a Task. `maxDurationMs` defaults to
 /// the existing `timeout_ms`; the verifier budget is derived from it and is
 /// never separately negotiable (P26 §2.8).

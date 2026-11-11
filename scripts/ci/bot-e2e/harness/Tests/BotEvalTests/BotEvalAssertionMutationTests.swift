@@ -50,16 +50,63 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             author: BotMemoryAuthor(botID: "main", sessionID: "session", kind: .chat),
             evidence: [], trust: "user",
             source: BotMemorySource(kind: .userTurn, sessionID: "session"))
+        let assistant = try BotEvent(
+            type: "conversation.assistant_message", eventId: "assistant-1",
+            commitSeq: 1, time: 1,
+            origin: .local(source: "test"), traceId: "trace-assistant",
+            principal: BotPrincipal(botId: "main", sessionId: "session", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object(["text": .string("hello world")]))
+        let progressCard = try BotEvent(
+            type: "card.presented", eventId: "card-progress",
+            commitSeq: 2, time: 2,
+            origin: .local(source: "test"), traceId: "trace-card",
+            principal: BotPrincipal(botId: "main", sessionId: "session", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object([
+                "id": .string("card-progress"), "cardType": .string("progress"),
+                "cardKey": .string("progress-1"), "tool": .string("show_progress"),
+                "title": .string("working"),
+            ]))
+        let fileCard = try BotEvent(
+            type: "card.presented", eventId: "card-file",
+            commitSeq: 3, time: 3,
+            origin: .local(source: "test"), traceId: "trace-card-file",
+            principal: BotPrincipal(botId: "main", sessionId: "session", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object([
+                "id": .string("card-file"), "cardType": .string("attachment"),
+                "tool": .string("show_attachment"),
+                "path": .string("/dsh/workspace/a.txt"),
+            ]))
+        let lateReply = try BotEvent(
+            type: "conversation.assistant_message", eventId: "assistant-2",
+            commitSeq: 4, time: 4,
+            origin: .local(source: "test"), traceId: "trace-assistant-2",
+            principal: BotPrincipal(botId: "main", sessionId: "session", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object(["text": .string("done")]))
+        let compaction = BotDSHSessionEvent(
+            type: "compaction/summary", seq: 19, time: 19,
+            data: ["compactionId": .string("cmp-1"), "summary": .string("PINEAPPLE summary")])
+        let checkpoint = BotDSHSessionEvent(
+            type: "user/message", seq: 20, time: 20,
+            data: ["source": .object(["kind": .string("compact-checkpoint")]),
+                   "message": .object(["content": .array([.string("summary")])])],
+            surfaceOp: .replace(startSeq: 3, endSeq: 9))
         let snapshot = EvalSnapshot(
             mainBotID: "main",
             botIDs: ["side": "bot-side"],
-            events: [event, approval],
+            events: [event, approval, assistant, progressCard, fileCard, lateReply],
             replies: [EvalReply(botID: "main", text: "hello world", turnNumber: 1, actionIndex: 1)],
             toolCalls: [EvalToolCallRecord(
                 botID: "main", name: "mcp__phone__bash", arguments: #"{"command":"printf hi"}"#)],
             memories: ["main": [memory], "bot-side": []],
             workspaces: ["main": workspace, "bot-side": workspace],
+            workspaceRoot: root,
             scratchRoot: root.appendingPathComponent("scratch", isDirectory: true),
+            workspaceVolume: workspace,
+            sessionEvents: ["main": [compaction, checkpoint]],
             echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")],
             advertisedTools: ["bash", "read", "todo_write"],
             advertisedToolsBySession: [
@@ -73,8 +120,36 @@ final class BotEvalAssertionMutationTests: XCTestCase {
         let cases: [(pass: EvalAssertion, fail: EvalAssertion)] = [
             (EvalAssertion(type: "reply_contains", value: "hello"),
              EvalAssertion(type: "reply_contains", value: "not in the reply")),
+            (EvalAssertion(type: "reply_contains", value: "HELLO", ignoreCase: true),
+             EvalAssertion(type: "reply_contains", value: "HELLO")),
             (EvalAssertion(type: "reply_not_contains", value: "absent"),
              EvalAssertion(type: "reply_not_contains", value: "hello")),
+            (EvalAssertion(type: "reply_regex", value: "hel+o"),
+             EvalAssertion(type: "reply_regex", value: "^goodbye$")),
+            (EvalAssertion(type: "reply_not_regex", value: "^goodbye$"),
+             EvalAssertion(type: "reply_not_regex", value: "hel+o")),
+            (EvalAssertion(type: "reply_length", medianMax: 20),
+             EvalAssertion(type: "reply_length", eachMax: 3)),
+            (EvalAssertion(type: "card_count", min: 0, cardTypes: ["question", "steps"]),
+             EvalAssertion(type: "card_count", min: 1, cardTypes: ["question", "steps"])),
+            (EvalAssertion(type: "card_count",
+                           max: 2, min: 1, excludeCardTypes: ["question", "steps"]),
+             EvalAssertion(type: "card_count",
+                           max: 1, excludeCardTypes: ["question", "steps"])),
+            (EvalAssertion(type: "card_placement",
+                           excludeCardTypes: ["question", "steps"], afterReply: true),
+             EvalAssertion(type: "card_placement",
+                           excludeCardTypes: ["question", "steps"], terminal: true)),
+            (EvalAssertion(type: "card_file_exists", cardTypes: ["attachment"]),
+             EvalAssertion(type: "card_file_exists", cardTypes: ["progress"])),
+            (EvalAssertion(type: "session_event", event: "compaction/summary"),
+             EvalAssertion(type: "session_event", event: "never.happened")),
+            (EvalAssertion(type: "session_event", event: "user/message",
+                           payloadContains: "compact-checkpoint", surfaceOp: "replace"),
+             EvalAssertion(type: "session_event", event: "user/message",
+                           payloadContains: "compact-checkpoint", surfaceOp: "append")),
+            (EvalAssertion(type: "no_session_event", event: "never.happened"),
+             EvalAssertion(type: "no_session_event", event: "compaction/summary")),
             (EvalAssertion(type: "bot_event", event: "demo.event"),
              EvalAssertion(type: "bot_event", event: "never.happened")),
             (EvalAssertion(type: "bot_event", event: "demo.event",
@@ -145,6 +220,7 @@ final class BotEvalAssertionMutationTests: XCTestCase {
         let snapshot = EvalSnapshot(
             mainBotID: "main", botIDs: [:], events: [], replies: [],
             toolCalls: [], memories: [:], workspaces: ["main": workspace],
+            workspaceRoot: root,
             scratchRoot: root.appendingPathComponent("scratch-empty", isDirectory: true))
         try FileManager.default.createDirectory(
             at: snapshot.scratchRoot, withIntermediateDirectories: true)
@@ -168,6 +244,7 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             mainBotID: "main", botIDs: ["side": "bot-side"],
             events: [mainEvent], replies: [],
             toolCalls: [], memories: [:], workspaces: ["main": workspace, "bot-side": workspace],
+            workspaceRoot: root,
             scratchRoot: root.appendingPathComponent("scratch-scope", isDirectory: true))
         let mainOnly = EvalAssertions.evaluate(
             EvalAssertion(type: "bot_event", bot: "main", event: "demo.event"),
