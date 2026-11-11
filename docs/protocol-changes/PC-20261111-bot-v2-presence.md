@@ -41,7 +41,7 @@ Protocol impact: P18; P26; P27; P09; P16: none — `ChatModel.swift` changes onl
 | 在场可见 | 无 → Bot 信息页只读「在场」区：前台／后台保活／预定通知、实际登记的通知数、`quiet_defer` 延后列表。 |
 | 保活条件 | DSH 聊天页回合或任一 Bot 回合 → 追加“保活窗口内（15 分钟）有到期 routine”；routine 完成后仍有窗口内到期项时不停止静音音频。 |
 | 设备任务结果 | 落盘 journal 后直接入队，至多一次，崩溃窗口丢失 → 先写 durable `comm.inbound` 终态记录，入队后写 `comm.reply` 确认；启动按未确认记录补投，`requestId` 去重（v2 §2）。 |
-| 设备任务证据 | `UpdateMemory.evidence` 引用 `comm.inbound` 的 `deviceTaskResult` 终态时，按 v2 §1.1「可核验的观察记录」推导为 `observation`；`comm.reply` 确认事件不升级，仍为 `assistant`。 |
+| 设备任务证据 | `UpdateMemory.evidence` 引用 `comm.inbound` 的 `deviceTaskResult` 终态时，按 v2 §1.5「可核验的观察记录」推导为 `observation`；`comm.reply` 确认事件不升级，仍为 `assistant`。 |
 | 持久化格式 | 没有 Bot 偏好键 → 新 UserDefaults key；没有新事件类型；routine 文档、held inbox 文档与行 schema 不变。 |
 | 条款状态 | v2 仍为 `target`；本单不把 v2 升级为 `implemented`，因为没有真机后台／通知证据。 |
 

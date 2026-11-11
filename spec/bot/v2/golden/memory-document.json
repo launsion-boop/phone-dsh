@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-document",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "valid": [
+    {
+      "path": "user/profile.md",
+      "scope": "user",
+      "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+      "version": 3,
+      "updated_at_ms": 1760000005000,
+      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
+      "evidence": ["record://session/gb-main#3"],
+      "trust": "user",
+      "source": {"kind": "user-turn", "sessionId": "gb-main", "turnId": "1"}
+    },
+    {
+      "path": "agent/INDEX.md",
+      "scope": "agent",
+      "content": "# Index\n\n- profile.md\n- notes/routine.md",
+      "version": 2,
+      "updated_at_ms": 1760000006000,
+      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
+      "evidence": [],
+      "trust": "assistant",
+      "source": {"kind": "agent-message", "sessionId": "gb-main"}
+    },
+    {
+      "path": "agent/log/2025-10.md",
+      "scope": "agent",
+      "content": "# 2025-10\n\n- 我负责 iOS 工作",
+      "version": 1,
+      "updated_at_ms": 1760000007000,
+      "author": {"bot_id": "bot-b", "kind": "migration"},
+      "evidence": [],
+      "trust": "import"
+    }
+  ],
+  "invalid": [
+    {
+      "reason": "missing-version",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "content": "x",
+        "updated_at_ms": 1,
+        "author": {"kind": "chat"},
+        "evidence": []
+      }
+    },
+    {
+      "reason": "version-zero",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "content": "x",
+        "version": 0,
+        "updated_at_ms": 1,
+        "author": {"kind": "chat"},
+        "evidence": []
+      }
+    },
+    {
+      "reason": "unknown-scope",
+      "document": {
+        "path": "shared/a.md",
+        "scope": "shared",
+        "content": "x",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {"kind": "chat"},
+        "evidence": []
+      }
+    },
+    {
+      "reason": "unknown-author-kind",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "content": "x",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {"kind": "root"},
+        "evidence": []
+      }
+    },
+    {
+      "reason": "too-many-evidence-refs",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "content": "x",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {"kind": "chat"},
+        "evidence": [
+          "record://event/1", "record://event/2", "record://event/3", "record://event/4",
+          "record://event/5", "record://event/6", "record://event/7", "record://event/8",
+          "record://event/9"
+        ]
+      }
+    },
+    {
+      "reason": "malformed-evidence-ref",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "content": "x",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {"kind": "chat"},
+        "evidence": ["record://session/gb-main"]
+      }
+    },
+    {
+      "reason": "extra-property",
+      "document": {
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "content": "x",
+        "version": 1,
+        "updated_at_ms": 1,
+        "author": {"kind": "chat"},
+        "evidence": [],
+        "tier": "note"
+      }
+    }
+  ]
+}

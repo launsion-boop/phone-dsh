@@ -378,9 +378,14 @@ struct BotProductionReconciliation: Sendable, Equatable, Identifiable {
     var effectSummary: String?
 }
 
+struct BotProductionMemoryDocument: Sendable {
+    var document: PhoneDSHBot.BotMemoryDocument
+    var versions: [PhoneDSHBot.BotMemoryDocumentVersion]
+}
+
 struct BotProductionInfoSnapshot: Sendable {
     var botName: String
-    var memories: [PhoneDSHBot.BotMemoryFact]
+    var memories: [BotProductionMemoryDocument]
     var routines: [Routine]
     var approvals: [BotProductionApproval]
     var grants: [BotProductionGrant]
@@ -408,7 +413,13 @@ actor BotProductionInfoService {
         let memory = environment.memory
         let machine = environment.routineMachine
         let botName = try await environment.context().botName
-        async let facts = memory.facts(scope: nil)
+        let documents = try await memory.documents(scope: nil)
+        var memories: [BotProductionMemoryDocument] = []
+        for document in documents {
+            memories.append(BotProductionMemoryDocument(
+                document: document,
+                versions: try await memory.versions(path: document.path)))
+        }
         async let routines = machine.list(botId: environment.botID)
         async let approvals = approvalRecords()
         let context = await BotPresenceCenter.shared.context()
@@ -425,7 +436,7 @@ actor BotProductionInfoService {
         let grants = await standingGrants()
         let reconciliations = try await reconciliationRecords(provided: routines)
         return try await BotProductionInfoSnapshot(
-            botName: botName, memories: facts, routines: routines, approvals: approvals,
+            botName: botName, memories: memories, routines: routines, approvals: approvals,
             grants: grants, reconciliations: reconciliations,
             presence: presence, proactiveSettings: settingsStore.settings())
     }
@@ -537,8 +548,9 @@ actor BotProductionInfoService {
         _ = try await environment.domain.append(event)
     }
 
-    func forget(factID: String) async throws {
-        let result = try await environment.memory.forget(factID: factID)
+    func forget(path: String, expectedVersion: Int) async throws {
+        let result = try await environment.memory.forget(
+            path: path, expectedVersion: expectedVersion)
         guard result.ok else {
             throw BotProductionError.invalidService(result.error ?? "忘记记忆失败")
         }

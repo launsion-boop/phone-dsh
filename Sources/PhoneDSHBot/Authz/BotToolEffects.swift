@@ -103,6 +103,10 @@ public enum BotToolEffectClassifier {
             return memoryEffect(args, forceForget: false, language: language, isMcp: isMcp)
         case "ForgetMemory":
             return memoryEffect(args, forceForget: true, language: language, isMcp: isMcp)
+        case "ReadMemory":
+            return readEffect(name: name, bareName: bareName, operation: "memory.read",
+                              zhLabel: "讀取記憶", args: args,
+                              language: language, isMcp: isMcp)
         case "RecallMemory", "SortMemories":
             let operation = bareName == "RecallMemory" ? "memory.recall" : "memory.sort"
             let label = bareName == "RecallMemory" ? "回想記憶" : "檢視記憶順序"
@@ -283,6 +287,44 @@ public enum BotToolEffectClassifier {
                                      language: BotToolLanguage, isMcp: Bool) -> BotToolEffect {
         let action = forceForget || string(args["action"]).trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "forget" ? "forget" : "write"
+        let path = string(args["path"])
+        if !path.isEmpty {
+            let requested = string(args["action"]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let documentAction = requested.isEmpty ? "write" : requested
+            let scope = path.hasPrefix("user/") ? "user" : "agent"
+            let resource = mergedResource(["path=\(path)",
+                                           documentAction == "move" ? "to=\(string(args["to"]))" : ""])
+            let mutability: BotToolMutability
+            switch documentAction {
+            case "delete", "move": mutability = .destructive
+            default: mutability = .write
+            }
+            let label: String
+            if language == .zh {
+                switch documentAction {
+                case "delete": label = "忘记记忆文档 \(path)"
+                case "move": label = "移动记忆文档 \(path)"
+                case "restore": label = "恢复记忆版本 \(path)"
+                default: label = "写入记忆：\(path)"
+                }
+            } else {
+                switch documentAction {
+                case "delete": label = "Forget memory document \(path)"
+                case "move": label = "Move memory document \(path)"
+                case "restore": label = "Restore memory version \(path)"
+                default: label = "Save memory: \(path)"
+                }
+            }
+            return BotToolEffect(
+                tool: "memory", operation: documentAction == "delete" ? "memory.forget" : "memory.write",
+                resource: resource, mutability: mutability,
+                policy: mutability == .destructive && scope == "user" ? .ask : .auto,
+                label: label,
+                detail: language == .zh
+                    ? "对 \(scope == "user" ? "使用者共用" : "這個 Bot 的")记忆文档执行 \(documentAction)。"
+                    : "Apply \(documentAction) to a \(scope == "user" ? "shared user" : "Bot") memory document.",
+                execution: "memory", isMcp: isMcp)
+        }
         let scope = string(args["scope"]) == "user" ? "user" : "agent"
         if action == "forget" {
             let fact = clip(firstNonEmpty(args["fact"], args["key"]), max: 300)

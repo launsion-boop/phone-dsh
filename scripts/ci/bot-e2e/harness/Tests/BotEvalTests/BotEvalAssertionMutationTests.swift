@@ -44,9 +44,11 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             principal: BotPrincipal(botId: "main", sessionId: "session", kind: "chat"),
             causationId: nil, correlationId: nil,
             data: .object(["approvalID": .string("approval-1")]))
-        let memory = BotMemoryFact(
-            factID: "fact-1", text: "likes tea", learnedAtMS: 1,
-            tier: .profile, scope: .user,
+        let memory = BotMemoryDocument(
+            path: "user/profile.md", scope: .user, content: "likes tea",
+            version: 1, updatedAtMS: 1,
+            author: BotMemoryAuthor(botID: "main", sessionID: "session", kind: .chat),
+            evidence: [], trust: "user",
             source: BotMemorySource(kind: .userTurn, sessionID: "session"))
         let snapshot = EvalSnapshot(
             mainBotID: "main",

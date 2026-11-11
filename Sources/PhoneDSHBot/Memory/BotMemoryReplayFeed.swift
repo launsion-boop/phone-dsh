@@ -48,9 +48,10 @@ struct BotMemoryReplayFeedDiagnostics: Sendable, Equatable {
     let scannedEventCount: Int
 }
 
-/// One incremental, append-only view of the memory events in a durable log.
+/// One incremental, append-only view of the memory events (legacy facts and
+/// document-tree versions) in a durable log.
 ///
-/// The feed owns the SQLite cursor; each `SQLiteBotMemoryFactStore` keeps its
+/// The feed owns the SQLite cursor; each `SQLiteBotMemoryDocumentStore` keeps its
 /// own index into the returned history. Consequently the first store to read
 /// pays for the only full SQLite replay, and every other store (including a
 /// store created later) consumes the same in-memory history and then only the
@@ -91,7 +92,8 @@ actor BotMemoryReplayFeed {
                 cursor = commitSeq
                 scannedEventCount += 1
                 switch event.type {
-                case "memory.written", "memory.forgotten":
+                case "memory.written", "memory.forgotten",
+             "memory.document_written", "memory.document_deleted":
                     history.append(event)
                 default:
                     break

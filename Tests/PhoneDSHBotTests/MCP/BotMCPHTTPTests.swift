@@ -9,8 +9,8 @@ final class BotMCPHTTPTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
         let memory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, now: { 1_000 }),
-            dataRoot: directory.path, botID: "main", now: { 1_000 })
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, now: { 1_000 }),
+            botID: "main", now: { 1_000 })
         let machine = RoutineMachine(store: SQLiteRoutineStore(domainStore: store))
         _ = try await machine.create(
             botId: "main", title: "Morning", prompt: "report", schedule: .interval(everyMinutes: 60), now: 1_000)
@@ -60,7 +60,7 @@ final class BotMCPHTTPTests: XCTestCase {
             "jsonrpc": .string("2.0"), "id": .number(2), "method": .string("tools/list"),
         ]), token: server.token)
         let tools = try XCTUnwrap(listed["result"]?["tools"]?.arrayValue)
-        XCTAssertEqual(tools.count, 20)
+        XCTAssertEqual(tools.count, BotToolCatalog.allDefinitions.count)
         XCTAssertTrue(tools.contains { $0["name"]?.stringValue == "SendToAgent" })
         XCTAssertTrue(tools.contains { $0["name"]?.stringValue == "CreateTeammate" })
         XCTAssertTrue(tools.contains { $0["name"]?.stringValue == "FishAction" })

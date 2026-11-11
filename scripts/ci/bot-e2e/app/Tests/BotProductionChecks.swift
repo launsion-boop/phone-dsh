@@ -56,11 +56,12 @@ enum BotProductionChecks {
 
         let domain = try SQLiteDomainStore(fileURL: databaseURL, now: { 5_000 })
         let planner = BotProductionCheckPlanner()
-        let memoryStore = SQLiteBotMemoryFactStore(eventLog: domain, botID: "main", now: { 5_000 })
+        let memoryStore = SQLiteBotMemoryDocumentStore(eventLog: domain, botID: "main", now: { 5_000 })
         let environment = BotProductionEnvironment(
             domain: domain, botID: "main", sessionID: "main",
             routineMachine: RoutineMachine(store: SQLiteRoutineStore(domainStore: domain)),
-            memory: BotMemory(store: memoryStore, dataRoot: root.path, botID: "main", now: { 5_000 }),
+            memory: BotMemory(store: memoryStore, botID: "main", now: { 5_000 }),
+            grants: BotGrantStore(domainStore: domain, now: { 5_000 }),
             planner: planner, sessionLogURL: sessionURL)
         let rows = BotProductionRowService(environment: environment)
         try await rows.start()
@@ -100,9 +101,11 @@ enum BotProductionChecks {
         try require(try await domain.eventID(botID: action.botID, nonce: action.nonce)
                     == "check-action-nonce-persistent", "durable nonce missing")
 
-        _ = try await memoryStore.append(PhoneDSHBot.BotMemoryFact(
-            factID: "memory-check", text: "真实只读记忆", learnedAtMS: 5_000,
-            tier: .note, scope: .agent, source: BotMemorySource(kind: .userTurn)))
+        _ = try await memoryStore.write(BotMemoryStoreWriteRequest(
+            action: .write, path: "agent/notes/check.md", content: "真实只读记忆",
+            expectedVersion: 0,
+            author: BotMemoryAuthor(botID: "main", kind: .system),
+            atMS: 5_000))
         _ = try await environment.routineMachine.create(
             botId: "main", title: "真实 Routine", prompt: "生成报告",
             schedule: .interval(everyMinutes: 5, timezone: "UTC"), now: 5_000, id: "routine-check")
@@ -123,7 +126,8 @@ enum BotProductionChecks {
         _ = try await domain.append(rename)
         let infoDriver = BotProductionInfoDriver.production(environment: environment)
         let snapshot = try await infoDriver.load()
-        try require(snapshot.botName == "真实大肥鱼" && snapshot.memories.map(\.factID) == ["memory-check"]
+        try require(snapshot.botName == "真实大肥鱼" && snapshot.memories.map(\.document.path) == ["agent/notes/check.md"]
+                    && snapshot.memories.first?.document.content == "真实只读记忆"
                     && snapshot.routines.map(\.id) == ["routine-check"] && snapshot.routines[0].enabled,
                     "production info read interface failed")
         try require(snapshot.approvals.count == 1 && snapshot.approvals[0].decision == .allow
@@ -137,8 +141,9 @@ enum BotProductionChecks {
             domain: reopened, botID: "main", sessionID: "main",
             routineMachine: RoutineMachine(store: SQLiteRoutineStore(domainStore: reopened)),
             memory: BotMemory(
-                store: SQLiteBotMemoryFactStore(eventLog: reopened, botID: "main", now: { 7_000 }),
-                dataRoot: root.path, botID: "main", now: { 7_000 }),
+                store: SQLiteBotMemoryDocumentStore(eventLog: reopened, botID: "main", now: { 7_000 }),
+                botID: "main", now: { 7_000 }),
+            grants: BotGrantStore(domainStore: reopened, now: { 7_000 }),
             planner: planner, sessionLogURL: sessionURL)
         let reopenedRows = BotProductionRowService(environment: reopenedEnvironment)
         let persistedDuplicate = try await reopenedRows.perform(action)
@@ -169,8 +174,9 @@ enum BotProductionChecks {
             domain: reopened, botID: "main", sessionID: "main",
             routineMachine: RoutineMachine(store: SQLiteRoutineStore(domainStore: reopened)),
             memory: BotMemory(
-                store: SQLiteBotMemoryFactStore(eventLog: reopened, botID: "main"),
-                dataRoot: root.path, botID: "main"),
+                store: SQLiteBotMemoryDocumentStore(eventLog: reopened, botID: "main"),
+                botID: "main"),
+            grants: BotGrantStore(domainStore: reopened),
             sessionLogURL: sessionURL))
         let unavailableAction = BotUserAction(nonce: "nonce-unavailable", botID: "main", kind: .chat, text: "不会执行")
         let unavailableResult = try await unavailableRows.perform(unavailableAction)

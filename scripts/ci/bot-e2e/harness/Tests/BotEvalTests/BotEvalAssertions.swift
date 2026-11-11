@@ -29,7 +29,7 @@ struct EvalSnapshot {
     var events: [BotEvent]
     var replies: [EvalReply]
     var toolCalls: [EvalToolCallRecord]
-    var memories: [String: [BotMemoryFact]]
+    var memories: [String: [BotMemoryDocument]]
     var workspaces: [String: URL]
     var scratchRoot: URL
     var echoRequests: [EvalEchoRequest] = []
@@ -218,13 +218,12 @@ enum EvalAssertions {
 
     private static func matchingMemories(_ assertion: EvalAssertion,
                                          botID: String,
-                                         snapshot: EvalSnapshot) -> [BotMemoryFact] {
+                                         snapshot: EvalSnapshot) -> [BotMemoryDocument] {
         let value = assertion.value ?? ""
-        return (snapshot.memories[botID] ?? []).filter { fact in
-            guard fact.text.contains(value) else { return false }
-            if let scope = assertion.scope, fact.scope.rawValue != scope { return false }
-            if let tier = assertion.tier, fact.tier.rawValue != tier { return false }
-            if let source = assertion.source, fact.source?.kind.rawValue != source { return false }
+        return (snapshot.memories[botID] ?? []).filter { document in
+            guard document.content.contains(value) else { return false }
+            if let scope = assertion.scope, document.scope.rawValue != scope { return false }
+            if let source = assertion.source, document.source?.kind.rawValue != source { return false }
             return true
         }
     }

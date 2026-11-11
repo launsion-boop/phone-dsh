@@ -30,86 +30,181 @@ final class MemoryEvidenceTests: XCTestCase {
         if let root { try? FileManager.default.removeItem(at: root) }
     }
 
-    func testProfileWriteRequiresUserMessageEvidenceAndStoresTrust() async throws {
+    func testUserWriteRequiresUserMessageEvidenceAndStoresTrust() async throws {
         let userRef = "record://session/gb-main#3"
         let written = try await call([
-            "action": "write", "fact": "用户叫小林", "scope": "user", "tier": "profile",
+            "action": "write", "path": "user/profile.md",
+            "content": "# Profile\n\n- 用户叫小林",
+            "expected_version": 0,
             "evidence": [userRef],
         ])
         XCTAssertNotEqual(written.isError, true)
-        let facts = try await runtime.memory(for: "bot-a").facts(scope: .user)
-        XCTAssertEqual(facts.count, 1)
-        XCTAssertEqual(facts[0].trust, .string("user"))
-        XCTAssertEqual(facts[0].evidence, [userRef])
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "user/profile.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.content, "# Profile\n\n- 用户叫小林")
+        XCTAssertEqual(document.trust, "user")
+        XCTAssertEqual(document.evidence, [userRef])
     }
 
     func testUserBoundaryRejectsMissingOrNonUserEvidence() async throws {
         let missing = try await call([
-            "action": "write", "fact": "没有引用的用户事实", "scope": "user", "tier": "log",
+            "action": "write", "path": "user/profile.md",
+            "content": "没有引用的用户事实", "expected_version": 0,
         ])
         XCTAssertEqual(missing.structuredContent?["ok"], .bool(false))
         XCTAssertEqual(missing.structuredContent?["code"]?.stringValue,
                        "memory-evidence-required")
 
         let observed = try await call([
-            "action": "write", "fact": "网页观察", "scope": "user", "tier": "log",
+            "action": "write", "path": "user/log/2025-10.md",
+            "content": "网页观察", "expected_version": 0,
             "evidence": ["record://session/gb-main#4"],
         ])
         XCTAssertEqual(observed.structuredContent?["ok"], .bool(false))
         XCTAssertEqual(observed.structuredContent?["code"]?.stringValue,
                        "memory-evidence-required")
 
-        let facts = try await runtime.memory(for: "bot-a").facts(scope: .user)
-        XCTAssertTrue(facts.isEmpty)
+        let memory = await runtime.memory(for: "bot-a")
+        let userDocuments = try await memory.documents(scope: .user)
+        XCTAssertFalse(userDocuments.contains { !$0.path.hasSuffix("INDEX.md") })
     }
 
     func testObservationEvidenceWritesAgentScopeWithObservationTrust() async throws {
         let written = try await call([
-            "action": "write", "fact": "网页说今天下雨", "scope": "agent", "tier": "log",
+            "action": "write", "path": "agent/notes/weather.md",
+            "content": "网页说今天下雨", "expected_version": 0,
             "evidence": ["record://session/gb-main#4"],
         ])
         XCTAssertNotEqual(written.isError, true)
-        let facts = try await runtime.memory(for: "bot-a").facts(scope: .agent)
-        XCTAssertEqual(facts.count, 1)
-        XCTAssertEqual(facts[0].trust, .string("observation"))
-        XCTAssertEqual(facts[0].evidence, ["record://session/gb-main#4"])
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "agent/notes/weather.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.trust, "observation")
+        XCTAssertEqual(document.evidence, ["record://session/gb-main#4"])
     }
 
     func testInvalidOrForeignEvidenceFailsClosed() async throws {
         let invalid = try await call([
-            "action": "write", "fact": "坏引用", "scope": "agent", "tier": "log",
-            "evidence": ["record://session/gb-main"],
+            "action": "write", "path": "agent/notes/a.md", "content": "坏引用",
+            "expected_version": 0, "evidence": ["record://session/gb-main"],
         ])
         XCTAssertEqual(invalid.isError, true)
         XCTAssertEqual(invalid.structuredContent?["error"]?["code"]?.stringValue,
                        "memory-evidence-invalid")
 
         let unknown = try await call([
-            "action": "write", "fact": "不存在的记录", "scope": "agent", "tier": "log",
-            "evidence": ["record://event/999"],
+            "action": "write", "path": "agent/notes/a.md", "content": "不存在的记录",
+            "expected_version": 0, "evidence": ["record://event/999"],
         ])
         XCTAssertEqual(unknown.isError, true)
         XCTAssertEqual(unknown.structuredContent?["error"]?["code"]?.stringValue,
                        "memory-evidence-invalid")
+    }
 
-        let forget = try await call([
-            "action": "forget", "fact": "坏引用", "scope": "agent",
-            "evidence": ["record://session/gb-main#3"],
+    func testStaleVersionIsRejectedWithoutDowngrading() async throws {
+        let first = try await call([
+            "action": "write", "path": "agent/notes/a.md", "content": "one",
+            "expected_version": 0,
         ])
-        XCTAssertEqual(forget.isError, true)
-        XCTAssertEqual(forget.structuredContent?["error"]?["code"]?.stringValue,
-                       "invalid_arguments")
+        XCTAssertEqual(first.structuredContent?["version"], .number(1))
+        let stale = try await call([
+            "action": "write", "path": "agent/notes/a.md", "content": "two",
+            "expected_version": 0,
+        ])
+        XCTAssertEqual(stale.structuredContent?["ok"], .bool(false))
+        XCTAssertEqual(stale.structuredContent?["code"]?.stringValue,
+                       "memory-version-conflict")
+        XCTAssertEqual(stale.structuredContent?["current_version"], .number(1))
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "agent/notes/a.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.content, "one")
+    }
+
+    func testReadMemoryDocumentDirectoryAndHistory() async throws {
+        _ = try await call([
+            "action": "write", "path": "agent/notes/a.md", "content": "v1",
+            "expected_version": 0,
+        ])
+        _ = try await call([
+            "action": "append", "path": "agent/notes/a.md", "content": "\nv2",
+            "expected_version": 1,
+        ])
+        let read = try await call(["path": "agent/notes/a.md"], name: "ReadMemory")
+        XCTAssertEqual(read.structuredContent?["kind"], .string("document"))
+        XCTAssertEqual(read.structuredContent?["version"], .number(2))
+        XCTAssertEqual(read.structuredContent?["content"], .string("v1\nv2"))
+        XCTAssertNotNil(read.structuredContent?["evidence"])
+
+        let history = try await call(
+            ["path": "agent/notes/a.md", "version": 1], name: "ReadMemory")
+        XCTAssertEqual(history.structuredContent?["version"], .number(1))
+        XCTAssertEqual(history.structuredContent?["content"], .string("v1"))
+
+        let listing = try await call(["path": "agent/notes"], name: "ReadMemory")
+        XCTAssertEqual(listing.structuredContent?["kind"], .string("directory"))
+        XCTAssertEqual(listing.structuredContent?["entries"]?.arrayValue?.count, 1)
+    }
+
+    /// S5 writes the device-task terminal record as `comm.inbound`; the
+    /// integration trust fix must still work through S2's document write path.
+    func testDeviceTaskResultEvidenceDerivesObservationThroughDocumentWrite() async throws {
+        // S4's grant store fails closed on a non-empty event stream without a
+        // snapshot. Production recovers at composition start; seed it here
+        // before appending the integration's comm.inbound record.
+        try await runtime.grants.recover()
+        let commitSeq = try await store.append(BotEvent(
+            type: DeviceTaskResultOutbox.recordEventType,
+            eventId: "device-task-result:memory-evidence",
+            time: 1_760_000_000_500,
+            origin: .local(source: "comm-service"),
+            traceId: "device-task-result:memory-evidence",
+            principal: BotPrincipal(botId: "bot-a", sessionId: "gb-main", kind: "chat"),
+            causationId: nil,
+            correlationId: "device-task-1",
+            data: .object([
+                "deviceTaskResult": .object([
+                    "deviceID": .string("device-1"),
+                    "taskID": .string("task-1"),
+                    "status": .string("completed"),
+                    "result": .string("页面已打开"),
+                ]),
+            ])))
+        let ref = "record://event/\(commitSeq)"
+        let written = try await call([
+            "action": "write", "path": "agent/notes/device.md",
+            "content": "设备任务完成：页面已打开", "expected_version": 0,
+            "evidence": [ref],
+        ])
+        XCTAssertNotEqual(written.isError, true,
+                          "\(String(describing: written.structuredContent))")
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true),
+                       "\(String(describing: written.structuredContent))")
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "agent/notes/device.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.trust, "observation")
+        XCTAssertEqual(document.evidence, [ref])
     }
 
     // MARK: - Helpers
 
-    private func call(_ fields: [String: Any]) async throws -> BotMCPCallResult {
+    private func call(
+        _ fields: [String: Any],
+        name: String = "UpdateMemory"
+    ) async throws -> BotMCPCallResult {
         let arguments = try BotJSONValue.parse(
             JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]))
         await runtime.beginTurn(sessionId: "gb-main", hidden: false,
                                 origin: BotTurnOrigin(rpcId: "bot-1"))
         return try await registerAndExecute(
-            runtime, name: "UpdateMemory", arguments: arguments,
+            runtime, name: name, arguments: arguments,
             sessionId: "gb-main", callId: UUID().uuidString)
     }
 
