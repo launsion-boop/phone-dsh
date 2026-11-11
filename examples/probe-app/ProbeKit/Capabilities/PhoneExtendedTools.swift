@@ -14,6 +14,20 @@ public struct PhoneLiveActivityAttributes: ActivityAttributes {
     public let sessionID: String
 }
 
+/// A tool that brings another app to the foreground (Shortcuts) sends this app
+/// to the background in the middle of a turn. The App target installs these
+/// hooks so it can arm its background keep-alive while it is still in the
+/// foreground; arming it only after `didEnterBackground` can be refused by the
+/// system, and the fallback park cannot settle a turn whose Worker iOS has
+/// already frozen (field report: "Park failed … did not quiesce").
+@MainActor
+public enum PhoneExternalAppHandoff {
+    /// Called right before the other app is opened.
+    public static var willOpen: (@MainActor () -> Void)?
+    /// Called after the open attempt with whether the system opened it.
+    public static var didOpen: (@MainActor (Bool) -> Void)?
+}
+
 @MainActor
 public struct PhoneExtendedTools {
     private let permissions: PhoneExtendedPermissionController
@@ -153,8 +167,13 @@ public struct PhoneExtendedTools {
             query.append(URLQueryItem(name: "text", value: input))
         }
         components?.queryItems = query
-        guard let url = components?.url, UIApplication.shared.canOpenURL(url),
-              await UIApplication.shared.open(url) else {
+        guard let url = components?.url, UIApplication.shared.canOpenURL(url) else {
+            throw PhoneToolError.unavailable(.shortcuts, "无法打开快捷指令；请确认已安装并可访问该应用")
+        }
+        PhoneExternalAppHandoff.willOpen?()
+        let opened = await UIApplication.shared.open(url)
+        PhoneExternalAppHandoff.didOpen?(opened)
+        guard opened else {
             throw PhoneToolError.unavailable(.shortcuts, "无法打开快捷指令；请确认已安装并可访问该应用")
         }
         return PhoneToolPayload(data: [
