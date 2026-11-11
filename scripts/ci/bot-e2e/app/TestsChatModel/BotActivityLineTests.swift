@@ -9,24 +9,28 @@ final class BotActivityLineTests: XCTestCase {
 
     func testToolTableMapsNativeAndPhoneToolsToCategories() {
         let cases: [(String, String, BotActivityCategory, String)] = [
+            ("bash", "{\"command\":\"xcodebuild build\"}", .running, "在电脑上操作"),
             ("read", "{\"path\":\"/tmp/report.md\"}", .reading, "在翻文件 · report.md"),
             ("write", "{\"path\":\"/tmp/notes.md\"}", .writing, "在写文件 · notes.md"),
             ("edit", "{\"file_path\":\"/tmp/a.swift\"}", .writing, "在改文件 · a.swift"),
             ("grep", "{\"pattern\":\"TODO\"}", .searching, "在搜内容 · TODO"),
             ("web_search", "{\"queries\":[\"东京天气\"]}", .searching, "在网上搜 · 东京天气"),
             ("web_fetch", "{\"url\":\"https://www.example.com/a/b\"}", .browsing, "在开网页 · example.com"),
-            ("job_output", "{\"job_id\":\"job-7\"}", .running, "等个结果 · job-7"),
+            ("job_output", "{\"job_id\":\"job-7\"}", .running, "等待结果"),
             ("todo_write", "{}", .writing, "整理待办"),
             ("mcp__phone__ReadMemory", "{\"path\":\"user/diary.md\"}", .memory, "在翻记忆 · diary.md"),
             ("mcp__phone__UpdateMemory", "{\"path\":\"agent/notes.md\"}", .memory, "在记笔记 · notes.md"),
             ("mcp__phone__RecallMemory", "{\"query\":\"上周的约定\"}", .memory, "回想一下 · 上周的约定"),
             ("mcp__phone__SendToUser", "{}", .messaging, "整理回复"),
-            ("mcp__phone__SendToAgent", "{\"name\":\"小海\"}", .messaging, "给队友发消息 · 小海"),
+            ("mcp__phone__SendToAgent", "{\"bot_name\":\"小海\",\"agent_id\":\"agent-9\"}",
+             .messaging, "给其他 Bot 发消息 · 小海"),
             ("mcp__phone__show_progress", "{\"title\":\"整理发布材料\"}", .writing, "更新进度 · 整理发布材料"),
-            ("mcp__phone__RequestApproval", "{\"action\":\"删除旧文件\"}", .messaging, "请你确认 · 删除旧文件"),
+            ("mcp__phone__RequestApproval", "{\"action\":\"delete.files\",\"detail\":\"删除旧文件\"}",
+             .messaging, "请你确认 · 删除旧文件"),
             ("mcp__phone__android_tap", "{}", .running, "点点屏幕"),
-            ("mcp__phone__android_open_uri", "{\"uri\":\"https://example.com/x\"}", .browsing, "打开链接 · example.com"),
-            ("mcp__phone__ble_read", "{}", .reading, "读设备数据"),
+            ("mcp__phone__android_open_uri", "{\"uri\":\"https://example.com/x\"}",
+             .browsing, "打开链接 · example.com"),
+            ("mcp__phone__ble_read", "{}", .reading, "看看设备状态"),
         ]
         for (name, json, category, text) in cases {
             let phrase = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments(json))
@@ -43,6 +47,166 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(phrase.text, "")
         XCTAssertFalse(phrase.text.contains("MysteryTool"))
         XCTAssertEqual(BotActivityPhrases.primaryPhrase(for: .generic), "处理中")
+    }
+
+    /// Every internal identifier class the old targets leaked: job/agent/task/
+    /// routine/device/request IDs, Android package/permission, the approval
+    /// action code, and Android's internal list filter. None may gain a
+    /// `· target`, and none may appear in the phrase.
+    func testInternalIdentifiersNeverBecomeTargets() {
+        let cases: [(String, String, String)] = [
+            ("job_output", "{\"job_id\":\"job-7\"}", "等待结果"),
+            ("job_kill", "{\"job_id\":\"job-7\"}", "停止任务"),
+            ("task", "{\"agent_id\":\"agent-9\"}", "启动子任务"),
+            ("awaittask", "{\"task_id\":\"task-42\"}", "等子任务结果"),
+            ("stopsubagent", "{\"task_id\":\"task-42\"}", "停止子任务"),
+            ("updateroutine", "{\"routine_id\":\"routine-3\"}", "修改例行任务"),
+            ("sendtoagent", "{\"agent_id\":\"agent-9\"}", "给其他 Bot 发消息"),
+            ("requestapproval", "{\"action\":\"delete.files\"}", "请你确认"),
+            ("android_launch_app", "{\"package\":\"com.example.app\"}", "打开应用"),
+            ("android_force_stop", "{\"package\":\"com.example.app\"}", "关掉应用"),
+            ("android_clear_app_data", "{\"package\":\"com.example.app\"}", "清除应用数据"),
+            ("android_set_app_enabled", "{\"package\":\"com.example.app\",\"enabled\":true}",
+             "启用或停用应用"),
+            ("android_install_existing_app", "{\"package\":\"com.example.app\"}", "恢复应用"),
+            ("android_uninstall_app", "{\"package\":\"com.example.app\"}", "卸载应用"),
+            ("android_app_permission",
+             "{\"package\":\"com.example.app\",\"permission\":\"android.permission.CAMERA\"}",
+             "调整应用权限"),
+            ("android_package_info", "{\"package\":\"com.example.app\"}", "看看应用信息"),
+            ("android_list_packages", "{\"kind\":\"third-party\"}", "看看有哪些应用"),
+            ("android_list_apk_files", "{\"directory\":\"/sdcard/Download\"}", "找找安装包"),
+            ("ble_read", "{\"device_id\":\"device-a\",\"profile\":\"battery\"}", "看看设备状态"),
+            ("ble_alert", "{\"device_id\":\"device-a\"}", "让设备提醒"),
+            ("ble_link_tools", "{\"device_id\":\"device-a\"}", "看看设备功能"),
+            ("ble_link_call", "{\"device_id\":\"device-a\",\"name\":\"light.set\"}", "操作设备"),
+            ("ble_link_result", "{\"device_id\":\"device-a\",\"request_id\":\"req-5\"}",
+             "看看设备反馈"),
+        ]
+        let forbidden = ["job-7", "agent-9", "task-42", "routine-3", "device-a", "req-5",
+                         "com.example", "android.permission", "light.set", "delete.files",
+                         "third-party", "/sdcard"]
+        for (name, json, expected) in cases {
+            let phrase = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments(json))
+            XCTAssertEqual(phrase.text, expected, "text for \(name)")
+            XCTAssertFalse(phrase.text.contains(" · "), "unexpected target for \(name)")
+            for token in forbidden {
+                XCTAssertFalse(phrase.text.contains(token), "\(name) leaked \(token)")
+            }
+        }
+    }
+
+    /// The positive half of the rule: targets may only be file names, search
+    /// terms, domains, task/Bot/routine titles, device display names or a
+    /// human approval detail — even when an internal ID rides along.
+    func testTargetsUseOnlyHumanReadableValues() {
+        let cases: [(String, String, String)] = [
+            ("read", "{\"path\":\"/tmp/报告.md\"}", "在翻文件 · 报告.md"),
+            ("web_search", "{\"query\":\"东京天气\"}", "在网上搜 · 东京天气"),
+            ("web_fetch", "{\"url\":\"https://docs.example.com/a/b\"}",
+             "在开网页 · docs.example.com"),
+            ("task", "{\"task_title\":\"整理周报\",\"agent_id\":\"agent-9\"}",
+             "启动子任务 · 整理周报"),
+            ("updateroutine", "{\"title\":\"早间简报\",\"routine_id\":\"routine-3\"}",
+             "修改例行任务 · 早间简报"),
+            ("sendtoagent", "{\"bot_name\":\"小海\",\"agent_id\":\"agent-9\"}",
+             "给其他 Bot 发消息 · 小海"),
+            ("createteammate", "{\"name\":\"小海\"}", "创建协作 Bot · 小海"),
+            ("requestapproval", "{\"detail\":\"删除旧文件\",\"action\":\"delete.files\"}",
+             "请你确认 · 删除旧文件"),
+            ("android_install_apk", "{\"path\":\"/sdcard/下载/更新.apk\"}",
+             "安装应用 · 更新.apk"),
+            ("android_delete_apk_file", "{\"path\":\"/sdcard/下载/旧包.apk\"}",
+             "删除安装包 · 旧包.apk"),
+            ("android_list_packages", "{\"query\":\"聊天\"}", "看看有哪些应用 · 聊天"),
+            ("show_attachment", "{\"path\":\"/tmp/发布说明.pdf\"}",
+             "送上附件 · 发布说明.pdf"),
+            ("ble_read", "{\"device_id\":\"device-a\",\"device_name\":\"客厅灯\"}",
+             "看看设备状态 · 客厅灯"),
+        ]
+        for (name, json, expected) in cases {
+            let phrase = BotActivityPhrases.toolActivity(forToolNamed: name, arguments: arguments(json))
+            XCTAssertEqual(phrase.text, expected, "text for \(name)")
+        }
+    }
+
+    /// The jargon audit: activity phrases must not describe the mechanism
+    /// (command/shell/background/context/log) or the team/subagent machinery.
+    func testActivityPhrasesUsePlainUserLanguage() {
+        let cases: [(String, String)] = [
+            ("bash", "在电脑上操作"),
+            ("mcp__phone__android_shell", "在手机上操作"),
+            ("mcp__phone__android_command_help", "看看怎么操作"),
+            ("job_list", "看看进展"),
+            ("mcp__phone__BotVolatileContext", "看看情况"),
+            ("mcp__phone__android_logcat", "看看手机情况"),
+            ("mcp__phone__Task", "启动子任务"),
+            ("mcp__phone__AwaitTask", "等子任务结果"),
+            ("mcp__phone__StopSubagent", "停止子任务"),
+            ("mcp__phone__ListRoutines", "看看例行任务"),
+            ("mcp__phone__SendToAgent", "给其他 Bot 发消息"),
+            ("mcp__phone__CreateTeammate", "创建协作 Bot"),
+            ("mcp__phone__ble_link_tools", "看看设备功能"),
+            ("mcp__phone__ble_link_call", "操作设备"),
+            ("mcp__phone__ble_link_result", "看看设备反馈"),
+        ]
+        let banned = ["命令", "Shell", "后台", "上下文", "日志", "委派", "子代理", "队友"]
+        for (name, expected) in cases {
+            let text = BotActivityPhrases.toolActivity(forToolNamed: name,
+                                                       arguments: arguments("{}")).text
+            XCTAssertEqual(text, expected, "text for \(name)")
+            for word in banned {
+                XCTAssertFalse(text.contains(word), "\(name) leaked \(word)")
+            }
+        }
+    }
+
+    // MARK: - Chat tool row labels
+
+    /// The Bot chat tool row reuses the host effect labels for UI cards and the
+    /// activity phrases elsewhere. It must never fall back to the raw wire name.
+    func testChatToolRowLabelsUseExistingVocabularyWithoutRawNames() {
+        let cases: [(String, String)] = [
+            ("bash", "在电脑上操作"),
+            ("mcp__phone__android_shell", "在手机上操作"),
+            ("mcp__phone__ReadMemory", "在翻记忆"),
+            ("mcp__phone__SendToAgent", "给其他 Bot 发消息"),
+            ("mcp__phone__ask_user", "询问用户"),
+            ("mcp__phone__show_progress", "显示进度卡片"),
+            ("mcp__phone__show_document", "显示文件卡片"),
+            ("mcp__phone__RequestApproval", "请求用户授权"),
+            ("mcp__phone__MysteryTool", "工具操作"),
+            ("", "工具操作"),
+        ]
+        for (name, expected) in cases {
+            let label = BotActivityPhrases.toolRowLabel(forToolNamed: name)
+            XCTAssertEqual(label, expected, "label for \(name)")
+            XCTAssertFalse(label.contains("mcp__"), "raw namespace for \(name)")
+            XCTAssertFalse(label.contains("__"), "raw separator for \(name)")
+        }
+    }
+
+    // MARK: - Drawer status line
+
+    /// The drawer contract reuses the chat line's minute suffix; the drawer has
+    /// no rotation, so an empty detail keeps the category's first phrase.
+    func testDrawerStatusLineReusesTheChatMinuteSuffix() {
+        let running = activity("在电脑上操作", category: .running, startedAt: 1_000)
+        XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: running, now: 1_000),
+                       "在电脑上操作")
+        XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: running, now: 61_000),
+                       "在电脑上操作 · 1 分钟")
+        XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: running, now: 121_000),
+                       "在电脑上操作 · 2 分钟")
+
+        let thinking = activity("", category: .thinking, startedAt: 1_000)
+        XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: thinking, now: 1_000), "思考中")
+        XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: thinking, now: 121_000),
+                       "思考中 · 2 分钟")
+
+        let unknownStart = activity("处理中", category: .generic, startedAt: 0)
+        XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: unknownStart, now: 10_000_000),
+                       "处理中")
     }
 
     // MARK: - Fish work style

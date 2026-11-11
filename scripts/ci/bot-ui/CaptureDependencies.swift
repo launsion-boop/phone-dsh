@@ -138,6 +138,9 @@ struct NativeTurnProcessRow: View {
 
 struct ToolRunRow: View {
     let items: [ChatItem]
+    /// Mirrors the app's shared ToolRunRow override; the Bot page passes the
+    /// same action-name mapping used in production.
+    var titleForItem: ((ChatItem) -> String)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -146,7 +149,7 @@ struct ToolRunRow: View {
                     Image(systemName: "wrench.and.screwdriver")
                         .font(.system(size: 12))
                         .foregroundStyle(HomeSpec.textTertiary)
-                    Text(item.title)
+                    Text(titleForItem?(item) ?? item.title)
                         .font(.system(size: 13))
                         .foregroundStyle(HomeSpec.textPrimary)
                     Spacer(minLength: 0)

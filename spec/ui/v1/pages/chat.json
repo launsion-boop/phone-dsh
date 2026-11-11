@@ -9,7 +9,7 @@
   "source": {
     "file": "ChatPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
-    "lines": 5301,
+    "lines": 5306,
     "structLine": 12,
     "renderedFrom": [
       "body",
@@ -1090,13 +1090,13 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:5018",
+      "provenance": "ChatPage.swift:5023",
       "anchor": "ToolbarItem(placement: .confirmationAction) { Button(\"完成\") { dismiss() }.fontWei",
       "extraction": "syntax",
       "presentedBy": "sheet-517"
     },
     {
-      "id": "share-5020",
+      "id": "share-5025",
       "label": null,
       "labelExpr": null,
       "kind": "share",
@@ -1105,7 +1105,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:5020",
+      "provenance": "ChatPage.swift:5025",
       "anchor": "ShareLink(item: execution.text ?? execution.line,",
       "extraction": "manual",
       "presentedBy": "sheet-517"
@@ -1150,7 +1150,7 @@
       "writes": true,
       "destination": null,
       "condition": "pending permission card",
-      "provenance": "ChatPage.swift:5205",
+      "provenance": "ChatPage.swift:5210",
       "anchor": "Text(\"允许一次\")",
       "extraction": "manual"
     },
@@ -1164,7 +1164,7 @@
       "writes": true,
       "destination": null,
       "condition": "pending permission card",
-      "provenance": "ChatPage.swift:5218",
+      "provenance": "ChatPage.swift:5223",
       "anchor": "Text(\"拒绝\")",
       "extraction": "manual"
     },
@@ -1854,28 +1854,28 @@
   "subpages": [
     {
       "name": "RuntimeDetailsPage",
-      "line": 4901,
+      "line": 4906,
       "private": false,
       "embedded": false,
       "sections": [
         {
           "title": "本次运行",
-          "provenance": "ChatPage.swift:4947"
+          "provenance": "ChatPage.swift:4952"
         },
         {
           "title": "最近出错",
-          "provenance": "ChatPage.swift:4954"
+          "provenance": "ChatPage.swift:4959"
         }
       ],
-      "provenance": "ChatPage.swift:4901"
+      "provenance": "ChatPage.swift:4906"
     },
     {
       "name": "CommandExecutionResultPage",
-      "line": 4985,
+      "line": 4990,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "ChatPage.swift:4985"
+      "provenance": "ChatPage.swift:4990"
     }
   ],
   "unreachable": [],
