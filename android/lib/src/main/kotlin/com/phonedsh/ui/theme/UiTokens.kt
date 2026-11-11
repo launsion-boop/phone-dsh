@@ -12,9 +12,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.theme.generated.HomeSpecData
+import com.phonedsh.ui.theme.generated.Measured
 import com.phonedsh.ui.theme.generated.TokenColor
+import com.phonedsh.ui.theme.generated.TokenComposerSendInteraction
+import com.phonedsh.ui.theme.generated.TokenContextMenuInteraction
+import com.phonedsh.ui.theme.generated.TokenDisclosureInteraction
 import com.phonedsh.ui.theme.generated.TokenDp
 import com.phonedsh.ui.theme.generated.TokenGeometry
+import com.phonedsh.ui.theme.generated.TokenPressedInteraction
+import com.phonedsh.ui.theme.generated.TokenPushInteraction
+import com.phonedsh.ui.theme.generated.TokenSheetInteraction
 import com.phonedsh.ui.theme.generated.UiTokenData
 
 /** The parity colour roles plus the appended PR22 HomeSpec palette, resolved for one mode. */
@@ -159,6 +166,12 @@ public data class UiMotion(
     public val drawerCloseCurve: String,
     public val drawerSettleMs: Int,
     public val drawerSettleCurve: String,
+    public val pressedMs: Int,
+    public val pressedCurve: String,
+    public val folderCollapseMs: Int,
+    public val folderCollapseCurve: String,
+    public val chevronMs: Int,
+    public val chevronCurve: String,
 ) {
     /**
      * Maps a spec curve name to a Compose easing.
@@ -180,6 +193,9 @@ public data class UiMotion(
     public val drawerOpenEasing: androidx.compose.animation.core.Easing get() = easing(drawerOpenCurve)
     public val drawerCloseEasing: androidx.compose.animation.core.Easing get() = easing(drawerCloseCurve)
     public val drawerSettleEasing: androidx.compose.animation.core.Easing get() = easing(drawerSettleCurve)
+    public val pressedEasing: androidx.compose.animation.core.Easing get() = easing(pressedCurve)
+    public val folderCollapseEasing: androidx.compose.animation.core.Easing get() = easing(folderCollapseCurve)
+    public val chevronEasing: androidx.compose.animation.core.Easing get() = easing(chevronCurve)
 
     public companion object {
         public const val LINEAR: String = "linear"
@@ -316,6 +332,18 @@ public data class UiTokens(
     public val geometry: UiGeometry,
     public val shadow: UiShadow,
     public val drawer: UiDrawer,
+    /** `interaction.sheet`: detents, measured system values and chrome tokens. */
+    public val sheet: TokenSheetInteraction,
+    /** `interaction.contextMenu`: ordered surfaces/items with frozen roles and conditions. */
+    public val contextMenu: TokenContextMenuInteraction,
+    /** `interaction.push`: back-layer order, bar visibility and the unmeasured system motion. */
+    public val push: TokenPushInteraction,
+    /** `interaction.composerSend`: fill/ink roles, transition and the canSubmit/stop rules. */
+    public val composerSend: TokenComposerSendInteraction,
+    /** `interaction.pressed`: overlay/fill alphas and the no-scaling rule. */
+    public val pressed: TokenPressedInteraction,
+    /** `interaction.disclosure`: collapse motions and the reduced-motion fallback. */
+    public val disclosure: TokenDisclosureInteraction,
 ) {
     public companion object {
         /**
@@ -416,6 +444,12 @@ public data class UiTokens(
                 drawerCloseCurve = UiTokenData.drawer.closeMotion.curve,
                 drawerSettleMs = UiTokenData.drawer.settleMotion.durationMs,
                 drawerSettleCurve = UiTokenData.drawer.settleMotion.curve,
+                pressedMs = UiTokenData.motionPressed.durationMs,
+                pressedCurve = UiTokenData.motionPressed.curve,
+                folderCollapseMs = UiTokenData.motionFolderCollapse.durationMs,
+                folderCollapseCurve = UiTokenData.motionFolderCollapse.curve,
+                chevronMs = UiTokenData.motionChevron.durationMs,
+                chevronCurve = UiTokenData.motionChevron.curve,
             ),
             geometry = UiGeometry(
                 disclosureRowHeight = UiTokenData.geometryDisclosureRowHeight.dp(),
@@ -492,9 +526,18 @@ public data class UiTokens(
                 closeThresholdFraction = UiTokenData.drawer.closeThresholdFraction,
                 velocityProjectionSeconds = UiTokenData.drawer.velocityProjectionSeconds,
             ),
+            sheet = UiTokenData.sheet,
+            contextMenu = UiTokenData.contextMenu,
+            push = UiTokenData.push,
+            composerSend = UiTokenData.composerSend,
+            pressed = UiTokenData.pressed,
+            disclosure = UiTokenData.disclosure,
         )
     }
 }
+
+/** True only for a `needsDeviceMeasure` member; read the value through a `when` on [Measured]. */
+public val Measured<*>.isUnmeasured: Boolean get() = this is Measured.Unmeasured
 
 /** Resolves literal colour tokens; semantic and unmeasured colours remain unresolved. */
 internal fun TokenColor.color(dark: Boolean): Color {

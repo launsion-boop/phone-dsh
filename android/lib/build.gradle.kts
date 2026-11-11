@@ -158,6 +158,148 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             "tokens.json is missing 'interaction.drawer' (spec/ui/v1/tokens.json#interaction.drawer)"
         }
 
+        // PC-20261112-ui-interaction-batch freezes six more groups. The schema
+        // keeps them optional for older files, but this app requires all six at
+        // contract revision ad5cd444: a missing group must fail generation, not
+        // silently leave the Android components without values.
+        fun interactionGroup(name: String): Map<String, Any?> = requireNotNull(interaction[name] as? Map<String, Any?>) {
+            "tokens.json is missing 'interaction.$name' (required at contract revision ad5cd444)"
+        }
+
+        val sheetSpec = interactionGroup("sheet")
+        val contextMenuSpec = interactionGroup("contextMenu")
+        val pushSpec = interactionGroup("push")
+        val composerSendSpec = interactionGroup("composerSend")
+        val pressedSpec = interactionGroup("pressed")
+        val disclosureSpec = interactionGroup("disclosure")
+
+        fun objectField(path: String, raw: Any?): Map<*, *> = raw as? Map<*, *> ?: error("$path must be an object")
+        fun listField(path: String, raw: Any?): List<*> = raw as? List<*> ?: error("$path must be an array")
+
+        /**
+         * Resolves one token reference and checks both the family and the leaf.
+         * A wrong family (e.g. a motion name in `enabledFill`) fails here rather
+         * than producing a Kotlin expression that does not compile.
+         */
+        fun tokenRef(path: String, raw: Any?, family: String): String {
+            val entry = objectField(path, raw)
+            val token = entry["token"] as? String ?: error("$path is missing its 'token' reference")
+            require(entry["value"] == null) { "$path must not carry a 'value' next to a token reference" }
+            require(entry["needsDeviceMeasure"] != true) { "$path is a token reference and cannot be needsDeviceMeasure" }
+            val parts = token.split(".", limit = 2)
+            require(parts.size == 2 && parts[0] == family) {
+                "$path must reference a $family token, got '$token'"
+            }
+            val leaf = parts[1]
+            val exists = when (family) {
+                "colors" -> leaf in colors
+                "geometry" -> leaf in geometry
+                "radius" -> leaf in radius
+                "motion" -> leaf in motion
+                "shadows" -> leaf in shadows
+                else -> false
+            }
+            require(exists) { "$path references missing token '$token'" }
+            return when (family) {
+                "colors" -> "color${camel(leaf)}"
+                "geometry" -> "geometry${camel(leaf)}"
+                "radius" -> "radius${camel(leaf)}"
+                "motion" -> "motion${camel(leaf)}"
+                "shadows" -> "shadow${camel(leaf)}"
+                else -> error("$path: unsupported token family '$family'")
+            }
+        }
+
+        fun valueEntry(path: String, raw: Any?, unit: String): Any {
+            val entry = objectField(path, raw)
+            require(entry["token"] == null) { "$path must be a parameter, not a token reference" }
+            require(entry["needsDeviceMeasure"] != true) {
+                "$path sets needsDeviceMeasure but carries a value; it must use the unmeasured marker"
+            }
+            require(entry["unit"] == unit) { "$path must use unit '$unit', got '${entry["unit"]}'" }
+            return entry["value"] ?: error("$path is missing a 'value'")
+        }
+
+        fun floatValue(path: String, raw: Any?, unit: String): Float =
+            (valueEntry(path, raw, unit) as? Number)?.toFloat()
+                ?: error("$path must have a numeric 'value'")
+
+        fun boolValue(path: String, raw: Any?, unit: String): Boolean =
+            valueEntry(path, raw, unit) as? Boolean
+                ?: error("$path must have a boolean 'value'")
+
+        fun stringValue(path: String, raw: Any?, unit: String): String =
+            valueEntry(path, raw, unit) as? String
+                ?: error("$path must have a string 'value'")
+
+        fun enumValue(path: String, raw: Any?, allowed: Map<String, String>): String {
+            val text = raw as? String ?: error("$path must be a string")
+            return allowed[text]
+                ?: error("$path has unknown value '$text' (allowed: ${allowed.keys.joinToString()})")
+        }
+
+        fun enumParam(path: String, raw: Any?, unit: String, allowed: Map<String, String>): String =
+            enumValue(path, stringValue(path, raw, unit), allowed)
+
+        /** A `needsDeviceMeasure` member keeps its unit and note, never a number. */
+        fun measuredExpression(path: String, raw: Any?): String {
+            val entry = objectField(path, raw)
+            require(entry["needsDeviceMeasure"] == true) { "$path must set needsDeviceMeasure: true" }
+            require(entry["value"] == null) { "$path is needsDeviceMeasure and must not carry a 'value'" }
+            require(entry["token"] == null) { "$path is needsDeviceMeasure and must not carry a 'token'" }
+            val unit = entry["unit"] as? String ?: error("$path is missing its 'unit'")
+            return "Measured.Unmeasured(unit = ${kotlinString(unit)}, note = ${kotlinString(entry["note"] as String?)})"
+        }
+
+        val detentSetIdNames = linkedMapOf(
+            "default" to "DEFAULT",
+            "medium" to "MEDIUM",
+            "mediumLarge" to "MEDIUM_LARGE",
+            "large" to "LARGE",
+        )
+        val detentValueNames = linkedMapOf(
+            "default" to "DEFAULT",
+            "medium" to "MEDIUM",
+            "large" to "LARGE",
+            "medium+large" to "MEDIUM_LARGE",
+        )
+        val grabberNames = linkedMapOf("visible" to "VISIBLE", "hidden" to "HIDDEN")
+        val colorLiteralNames = linkedMapOf("black" to "BLACK", "clear" to "CLEAR")
+        val previewNames = linkedMapOf("system" to "SYSTEM")
+        val menuRoleNames = linkedMapOf("default" to "DEFAULT", "destructive" to "DESTRUCTIVE")
+        val menuKindNames = linkedMapOf("action" to "ACTION", "share" to "SHARE", "info" to "INFO")
+        val menuWhenNames = linkedMapOf(
+            "always" to "ALWAYS",
+            "foldersEnabled" to "FOLDERS_ENABLED",
+            "notExternal" to "NOT_EXTERNAL",
+            "hasAside" to "HAS_ASIDE",
+            "hasText" to "HAS_TEXT",
+            "notMainBot" to "NOT_MAIN_BOT",
+            "notLastBot" to "NOT_LAST_BOT",
+            "lastBot" to "LAST_BOT",
+        )
+        val stackScopeNames = linkedMapOf("perTab" to "PER_TAB")
+        val rootBackNames = linkedMapOf("exit" to "EXIT")
+        val backLayerNames = linkedMapOf(
+            "sheet" to "SHEET",
+            "drawer" to "DRAWER",
+            "stack" to "STACK",
+            "root" to "ROOT",
+        )
+        val predictiveBackNames = linkedMapOf("allowed" to "ALLOWED")
+        val disabledRuleNames = linkedMapOf("canSubmit" to "CAN_SUBMIT")
+        val stopRuleNames = linkedMapOf(
+            "!canSubmit && model.turnRunning" to "TURN_RUNNING_WITHOUT_CAN_SUBMIT",
+        )
+        val reducedMotionNames = linkedMapOf("snap" to "SNAP")
+
+        fun enumDefinition(name: String, allowed: Map<String, String>): String =
+            "public enum class $name(public val spec: String) {\n" +
+                allowed.entries.joinToString(",\n") { (spec, constant) ->
+                    "    $constant(${kotlinString(spec)})"
+                } +
+                "\n}\n\n"
+
         fun drawerRef(key: String, family: String): String {
             val entry = drawerSpec[key] as? Map<*, *>
             require(entry != null) { "interaction.drawer.$key must be a token reference" }
@@ -272,14 +414,20 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         dpFamily("radius", radius, radiusMap)
         dpFamily("stroke", stroke, strokeMap)
 
+        val knownMotionCurves = setOf("linear", "easeOut", "easeInOut")
         motion.forEach { (key, raw) ->
             val entry = raw as Map<String, Any?>
             val token = nameConst("motion", key)
+            val curve = entry["curve"] as? String
+                ?: error("motion.$key must have a string 'curve'")
+            require(curve in knownMotionCurves) {
+                "motion.$key has unknown curve '$curve' (UiTokens.easing can read: ${knownMotionCurves.joinToString()})"
+            }
             fields.append(
                 "    public val motion${camel(key)}: TokenMotion = TokenMotion(\n" +
                     "        name = \"$token\",\n" +
                     "        durationMs = ${(entry["durationMs"] as Number).toInt()},\n" +
-                    "        curve = \"${entry["curve"]}\",\n" +
+                    "        curve = \"$curve\",\n" +
                     "        repeat = \"${entry["repeat"]}\",\n" +
                     "    )\n"
             )
@@ -317,6 +465,67 @@ val generateUiTokens = tasks.register("generateUiTokens") {
             geometryMap.append("        \"$token\" to geometry${camel(key)},\n")
         }
 
+        // Tables are emitted in the JSON's order; their row identifiers and
+        // string values are enums whose accepted spellings are fixed here, so a
+        // new detent id, menu role/kind/condition or back layer fails generation.
+        val sheetDetentSets = listField("interaction.sheet.detentSets", sheetSpec["detentSets"])
+            .mapIndexed { index, raw ->
+                val path = "interaction.sheet.detentSets[$index]"
+                val row = objectField(path, raw)
+                val id = enumValue("$path.id", row["id"], detentSetIdNames)
+                val detents = enumValue("$path.detents", row["detents"], detentValueNames)
+                "TokenDetentSet(id = TokenDetentSetId.$id, detents = TokenDetent.$detents)"
+            }
+        val sheetPageDetents = listField("interaction.sheet.pageDetents", sheetSpec["pageDetents"])
+            .mapIndexed { index, raw ->
+                val path = "interaction.sheet.pageDetents[$index]"
+                val row = objectField(path, raw)
+                val id = row["id"] as? String ?: error("$path.id must be a string")
+                val detents = enumValue("$path.detents", row["detents"], detentSetIdNames)
+                "TokenSheetPageDetent(id = ${kotlinString(id)}, detents = TokenDetentSetId.$detents)"
+            }
+        val contextMenuSurfaces = listField("interaction.contextMenu.surfaces", contextMenuSpec["surfaces"])
+            .mapIndexed { surfaceIndex, raw ->
+                val surfacePath = "interaction.contextMenu.surfaces[$surfaceIndex]"
+                val surface = objectField(surfacePath, raw)
+                val surfaceId = surface["id"] as? String ?: error("$surfacePath.id must be a string")
+                val items = listField("$surfacePath.items", surface["items"]).mapIndexed { itemIndex, itemRaw ->
+                    val path = "$surfacePath.items[$itemIndex]"
+                    val item = objectField(path, itemRaw)
+                    val label = item["label"] as? String ?: error("$path.label must be a string")
+                    val altLabel = if (item.containsKey("altLabel")) {
+                        item["altLabel"] as? String ?: error("$path.altLabel must be a string")
+                    } else {
+                        null
+                    }
+                    val role = enumValue("$path.role", item["role"], menuRoleNames)
+                    val kind = enumValue("$path.kind", item["kind"], menuKindNames)
+                    val whenCondition = enumValue("$path.when", item["when"], menuWhenNames)
+                    val dividerBefore = if (item.containsKey("dividerBefore")) {
+                        item["dividerBefore"] as? Boolean ?: error("$path.dividerBefore must be a boolean")
+                    } else {
+                        false
+                    }
+                    "TokenContextMenuItem(" +
+                        "label = ${kotlinString(label)}, " +
+                        "altLabel = ${kotlinString(altLabel)}, " +
+                        "role = TokenContextMenuRole.$role, " +
+                        "kind = TokenContextMenuKind.$kind, " +
+                        "whenCondition = TokenContextMenuWhen.$whenCondition, " +
+                        "dividerBefore = $dividerBefore)"
+                }
+                "TokenContextMenuSurface(id = ${kotlinString(surfaceId)}, items = listOf(${items.joinToString(", ")}))"
+            }
+        val backOrderEntry = pushSpec["backOrder"] as? Map<*, *>
+        val backOrderValue = backOrderEntry?.let { stringValue("interaction.push.backOrder", it, "layerOrder") }
+            ?: error("interaction.push.backOrder must be a parameter")
+        val backOrder = backOrderValue.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            .map { layer ->
+                backLayerNames[layer]
+                    ?: error("interaction.push.backOrder has unknown layer '$layer' (allowed: ${backLayerNames.keys.joinToString()})")
+            }
+        require(backOrder.isNotEmpty()) { "interaction.push.backOrder must name at least one layer" }
+
         fields.append(
             "    public val drawer: TokenDrawerInteraction = TokenDrawerInteraction(\n" +
                 "        width = ${drawerRef("width", "geometry")},\n" +
@@ -330,6 +539,75 @@ val generateUiTokens = tasks.register("generateUiTokens") {
                 "        dragMinimumDistancePt = ${drawerParam("dragMinimumDistance", "pt")}f,\n" +
                 "        closeThresholdFraction = ${drawerParam("closeThreshold", "widthFraction")}f,\n" +
                 "        velocityProjectionSeconds = ${drawerParam("velocityProjection", "s")}f,\n" +
+                "    )\n"
+        )
+
+        fields.append(
+            "    public val sheet: TokenSheetInteraction = TokenSheetInteraction(\n" +
+                "        defaultDetents = TokenDetentSetId.${enumParam("interaction.sheet.defaultDetents", sheetSpec["defaultDetents"], "detentSet", detentSetIdNames)},\n" +
+                "        mediumFraction = ${measuredExpression("interaction.sheet.mediumFraction", sheetSpec["mediumFraction"])},\n" +
+                "        detentSets = listOf(${sheetDetentSets.joinToString(", ")}),\n" +
+                "        pageDetents = listOf(${sheetPageDetents.joinToString(", ")}),\n" +
+                "        grabberVisible = TokenGrabberVisibility.${enumParam("interaction.sheet.grabberVisible", sheetSpec["grabberVisible"], "grabberVisibility", grabberNames)},\n" +
+                "        grabberHidden = TokenGrabberVisibility.${enumParam("interaction.sheet.grabberHidden", sheetSpec["grabberHidden"], "grabberVisibility", grabberNames)},\n" +
+                "        background = ${tokenRef("interaction.sheet.background", sheetSpec["background"], "colors")},\n" +
+                "        backgroundClear = TokenColorLiteral.${enumParam("interaction.sheet.backgroundClear", sheetSpec["backgroundClear"], "color", colorLiteralNames)},\n" +
+                "        cornerRadiusDefault = ${measuredExpression("interaction.sheet.cornerRadiusDefault", sheetSpec["cornerRadiusDefault"])},\n" +
+                "        cornerRadiusConnector = ${floatValue("interaction.sheet.cornerRadiusConnector", sheetSpec["cornerRadiusConnector"], "pt")}f.dp,\n" +
+                "        cornerRadiusCatalog = ${floatValue("interaction.sheet.cornerRadiusCatalog", sheetSpec["cornerRadiusCatalog"], "pt")}f.dp,\n" +
+                "        presentMotion = ${measuredExpression("interaction.sheet.presentMotion", sheetSpec["presentMotion"])},\n" +
+                "        dismissMotion = ${measuredExpression("interaction.sheet.dismissMotion", sheetSpec["dismissMotion"])},\n" +
+                "    )\n"
+        )
+        fields.append(
+            "    public val contextMenu: TokenContextMenuInteraction = TokenContextMenuInteraction(\n" +
+                "        preview = TokenContextMenuPreview.${enumParam("interaction.contextMenu.preview", contextMenuSpec["preview"], "preview", previewNames)},\n" +
+                "        surfaces = listOf(${contextMenuSurfaces.joinToString(", ")}),\n" +
+                "    )\n"
+        )
+        fields.append(
+            "    public val push: TokenPushInteraction = TokenPushInteraction(\n" +
+                "        stackScope = TokenPushStackScope.${enumParam("interaction.push.stackScope", pushSpec["stackScope"], "scope", stackScopeNames)},\n" +
+                "        rootBack = TokenPushRootBack.${enumParam("interaction.push.rootBack", pushSpec["rootBack"], "rootAction", rootBackNames)},\n" +
+                "        backOrder = listOf(${backOrder.joinToString(", ") { "TokenBackLayer.$it" }}),\n" +
+                "        barVisibleAtRoot = ${boolValue("interaction.push.barVisibleAtRoot", pushSpec["barVisibleAtRoot"], "bool")},\n" +
+                "        barHiddenWhenPushed = ${boolValue("interaction.push.barHiddenWhenPushed", pushSpec["barHiddenWhenPushed"], "bool")},\n" +
+                "        predictiveBack = TokenPredictiveBack.${enumParam("interaction.push.predictiveBack", pushSpec["predictiveBack"], "gesture", predictiveBackNames)},\n" +
+                "        systemMotion = ${measuredExpression("interaction.push.systemMotion", pushSpec["systemMotion"])},\n" +
+                "    )\n"
+        )
+        fields.append(
+            "    public val composerSend: TokenComposerSendInteraction = TokenComposerSendInteraction(\n" +
+                "        motion = ${tokenRef("interaction.composerSend.motion", composerSendSpec["motion"], "motion")},\n" +
+                "        transitionScale = ${floatValue("interaction.composerSend.transitionScale", composerSendSpec["transitionScale"], "scale")}f,\n" +
+                "        transitionOpacity = ${floatValue("interaction.composerSend.transitionOpacity", composerSendSpec["transitionOpacity"], "opacity")}f,\n" +
+                "        buttonSize = ${tokenRef("interaction.composerSend.buttonSize", composerSendSpec["buttonSize"], "geometry")},\n" +
+                "        enabledFill = ${tokenRef("interaction.composerSend.enabledFill", composerSendSpec["enabledFill"], "colors")},\n" +
+                "        disabledFill = ${tokenRef("interaction.composerSend.disabledFill", composerSendSpec["disabledFill"], "colors")},\n" +
+                "        enabledInk = ${tokenRef("interaction.composerSend.enabledInk", composerSendSpec["enabledInk"], "colors")},\n" +
+                "        disabledInk = ${tokenRef("interaction.composerSend.disabledInk", composerSendSpec["disabledInk"], "colors")},\n" +
+                "        disabledRule = TokenComposerDisabledRule.${enumParam("interaction.composerSend.disabledRule", composerSendSpec["disabledRule"], "enabledWhen", disabledRuleNames)},\n" +
+                "        stopRule = TokenComposerStopRule.${enumParam("interaction.composerSend.stopRule", composerSendSpec["stopRule"], "showWhen", stopRuleNames)},\n" +
+                "    )\n"
+        )
+        fields.append(
+            "    public val pressed: TokenPressedInteraction = TokenPressedInteraction(\n" +
+                "        motion = ${tokenRef("interaction.pressed.motion", pressedSpec["motion"], "motion")},\n" +
+                "        pillOverlay = ${floatValue("interaction.pressed.pillOverlay", pressedSpec["pillOverlay"], "opacity")}f,\n" +
+                "        pillOverlayColor = TokenColorLiteral.${enumParam("interaction.pressed.pillOverlayColor", pressedSpec["pillOverlayColor"], "color", colorLiteralNames)},\n" +
+                "        rowFill = ${tokenRef("interaction.pressed.rowFill", pressedSpec["rowFill"], "colors")},\n" +
+                "        rowFillOpacity = ${floatValue("interaction.pressed.rowFillOpacity", pressedSpec["rowFillOpacity"], "opacity")}f,\n" +
+                "        primaryPressedOpacity = ${floatValue("interaction.pressed.primaryPressedOpacity", pressedSpec["primaryPressedOpacity"], "opacity")}f,\n" +
+                "        primaryDisabledOpacity = ${floatValue("interaction.pressed.primaryDisabledOpacity", pressedSpec["primaryDisabledOpacity"], "opacity")}f,\n" +
+                "        scale = ${floatValue("interaction.pressed.scale", pressedSpec["scale"], "scale")}f,\n" +
+                "    )\n"
+        )
+        fields.append(
+            "    public val disclosure: TokenDisclosureInteraction = TokenDisclosureInteraction(\n" +
+                "        bodyMotion = ${tokenRef("interaction.disclosure.bodyMotion", disclosureSpec["bodyMotion"], "motion")},\n" +
+                "        folderMotion = ${tokenRef("interaction.disclosure.folderMotion", disclosureSpec["folderMotion"], "motion")},\n" +
+                "        chevronMotion = ${tokenRef("interaction.disclosure.chevronMotion", disclosureSpec["chevronMotion"], "motion")},\n" +
+                "        reducedMotion = TokenReducedMotion.${enumParam("interaction.disclosure.reducedMotion", disclosureSpec["reducedMotion"], "a11yFallback", reducedMotionNames)},\n" +
                 "    )\n"
         )
 
@@ -406,6 +684,8 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("// SPDX-License-Identifier: MIT\n")
         out.append("// Regenerate with: ./gradlew :lib:generateUiTokens\n")
         out.append("package com.phonedsh.ui.theme.generated\n\n")
+        out.append("import androidx.compose.ui.unit.Dp\n")
+        out.append("import androidx.compose.ui.unit.dp\n\n")
         out.append("/** One colour token; a null channel is `tier: unmeasured` and MUST NOT be invented. */\n")
         out.append("public data class TokenColor(\n")
         out.append("    public val name: String,\n    public val light: Long?,\n    public val dark: Long?,\n")
@@ -436,6 +716,84 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("    public val closedOverhangPt: Float,\n    public val scrimMaxOpacity: Float,\n")
         out.append("    public val dragMinimumDistancePt: Float,\n    public val closeThresholdFraction: Float,\n")
         out.append("    public val velocityProjectionSeconds: Float,\n)\n\n")
+
+        // PC-20261112-ui-interaction-batch: typed enums keep every frozen string
+        // spelling in one place. The generator's maps above are the accepted set;
+        // an unknown spelling in tokens.json fails before Kotlin is written.
+        out.append("/** A parameter the platform must measure; an unmeasured value is never a guessed number. */\n")
+        out.append("public sealed interface Measured<out T> {\n")
+        out.append("    public data class Known<T>(public val value: T) : Measured<T>\n")
+        out.append("    public data class Unmeasured(public val unit: String, public val note: String?) : Measured<Nothing>\n")
+        out.append("}\n\n")
+        out.append(enumDefinition("TokenDetentSetId", detentSetIdNames))
+        out.append(enumDefinition("TokenDetent", detentValueNames))
+        out.append(enumDefinition("TokenGrabberVisibility", grabberNames))
+        out.append(enumDefinition("TokenColorLiteral", colorLiteralNames))
+        out.append(enumDefinition("TokenContextMenuPreview", previewNames))
+        out.append(enumDefinition("TokenContextMenuRole", menuRoleNames))
+        out.append(enumDefinition("TokenContextMenuKind", menuKindNames))
+        out.append(enumDefinition("TokenContextMenuWhen", menuWhenNames))
+        out.append(enumDefinition("TokenPushStackScope", stackScopeNames))
+        out.append(enumDefinition("TokenPushRootBack", rootBackNames))
+        out.append(enumDefinition("TokenBackLayer", backLayerNames))
+        out.append(enumDefinition("TokenPredictiveBack", predictiveBackNames))
+        out.append(enumDefinition("TokenComposerDisabledRule", disabledRuleNames))
+        out.append(enumDefinition("TokenComposerStopRule", stopRuleNames))
+        out.append(enumDefinition("TokenReducedMotion", reducedMotionNames))
+
+        out.append("/** `interaction.sheet`: detent tables and the measured system values. */\n")
+        out.append("public data class TokenDetentSet(\n")
+        out.append("    public val id: TokenDetentSetId,\n    public val detents: TokenDetent,\n)\n\n")
+        out.append("public data class TokenSheetPageDetent(\n")
+        out.append("    public val id: String,\n    public val detents: TokenDetentSetId,\n)\n\n")
+        out.append("public data class TokenSheetInteraction(\n")
+        out.append("    public val defaultDetents: TokenDetentSetId,\n    public val mediumFraction: Measured<Float>,\n")
+        out.append("    public val detentSets: List<TokenDetentSet>,\n    public val pageDetents: List<TokenSheetPageDetent>,\n")
+        out.append("    public val grabberVisible: TokenGrabberVisibility,\n    public val grabberHidden: TokenGrabberVisibility,\n")
+        out.append("    public val background: TokenColor,\n    public val backgroundClear: TokenColorLiteral,\n")
+        out.append("    public val cornerRadiusDefault: Measured<Dp>,\n")
+        out.append("    public val cornerRadiusConnector: Dp,\n    public val cornerRadiusCatalog: Dp,\n")
+        out.append("    public val presentMotion: Measured<TokenMotion>,\n    public val dismissMotion: Measured<TokenMotion>,\n)\n\n")
+
+        out.append("/** One long-press menu row; `whenCondition` is evaluated against the row state. */\n")
+        out.append("public data class TokenContextMenuItem(\n")
+        out.append("    public val label: String,\n    public val altLabel: String?,\n")
+        out.append("    public val role: TokenContextMenuRole,\n    public val kind: TokenContextMenuKind,\n")
+        out.append("    public val whenCondition: TokenContextMenuWhen,\n    public val dividerBefore: Boolean,\n)\n\n")
+        out.append("public data class TokenContextMenuSurface(\n")
+        out.append("    public val id: String,\n    public val items: List<TokenContextMenuItem>,\n)\n\n")
+        out.append("public data class TokenContextMenuInteraction(\n")
+        out.append("    public val preview: TokenContextMenuPreview,\n    public val surfaces: List<TokenContextMenuSurface>,\n)\n\n")
+
+        out.append("/** `interaction.push`: the frozen back layer order and platform motion gap. */\n")
+        out.append("public data class TokenPushInteraction(\n")
+        out.append("    public val stackScope: TokenPushStackScope,\n    public val rootBack: TokenPushRootBack,\n")
+        out.append("    public val backOrder: List<TokenBackLayer>,\n")
+        out.append("    public val barVisibleAtRoot: Boolean,\n    public val barHiddenWhenPushed: Boolean,\n")
+        out.append("    public val predictiveBack: TokenPredictiveBack,\n    public val systemMotion: Measured<TokenMotion>,\n)\n\n")
+
+        out.append("/** `interaction.composerSend`: fill/ink roles, scale and the two visibility rules. */\n")
+        out.append("public data class TokenComposerSendInteraction(\n")
+        out.append("    public val motion: TokenMotion,\n    public val transitionScale: Float,\n")
+        out.append("    public val transitionOpacity: Float,\n    public val buttonSize: TokenGeometry,\n")
+        out.append("    public val enabledFill: TokenColor,\n    public val disabledFill: TokenColor,\n")
+        out.append("    public val enabledInk: TokenColor,\n    public val disabledInk: TokenColor,\n")
+        out.append("    public val disabledRule: TokenComposerDisabledRule,\n")
+        out.append("    public val stopRule: TokenComposerStopRule,\n)\n\n")
+
+        out.append("/** `interaction.pressed`: overlay/fill alphas and the no-scaling rule. */\n")
+        out.append("public data class TokenPressedInteraction(\n")
+        out.append("    public val motion: TokenMotion,\n    public val pillOverlay: Float,\n")
+        out.append("    public val pillOverlayColor: TokenColorLiteral,\n")
+        out.append("    public val rowFill: TokenColor,\n    public val rowFillOpacity: Float,\n")
+        out.append("    public val primaryPressedOpacity: Float,\n    public val primaryDisabledOpacity: Float,\n")
+        out.append("    public val scale: Float,\n)\n\n")
+
+        out.append("/** `interaction.disclosure`: the three collapse motions and reduced-motion fallback. */\n")
+        out.append("public data class TokenDisclosureInteraction(\n")
+        out.append("    public val bodyMotion: TokenMotion,\n    public val folderMotion: TokenMotion,\n")
+        out.append("    public val chevronMotion: TokenMotion,\n    public val reducedMotion: TokenReducedMotion,\n)\n\n")
+
         out.append("/** A page-layer geometry token; `unit` is `pt` or `screenRatio`. */\n")
         out.append("public data class TokenGeometry(\n")
         out.append("    public val name: String,\n    public val value: Float,\n    public val unit: String,\n")
@@ -550,6 +908,11 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 // as a system property so no test hard-codes a machine path.
 tasks.withType<Test>().configureEach {
     systemProperty("pdsh.repo.root", repoRoot.absolutePath)
+    // docs/parity/bench.md "Build input registration": a fixture edit alone must
+    // not leave :lib:testDebugUnitTest UP-TO-DATE.
+    inputs.dir(repoRoot.resolve("scripts/parity/fixtures"))
+        .withPropertyName("parityFixtures")
+        .withPathSensitivity(org.gradle.api.tasks.PathSensitivity.RELATIVE)
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
