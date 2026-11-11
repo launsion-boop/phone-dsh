@@ -559,9 +559,12 @@ public actor ResponseLog: ResponseLogging {
                                             headers: [String: String],
                                             body: Data,
                                             headerAllowList: Set<String>) -> String {
-        var canonical = Data()
-        canonical.append(Data("\(method.uppercased())\n".utf8))
-        canonical.append(Data("\(canonicalURL(url).absoluteString)\n".utf8))
+        // The frozen recipe (§12) is a concatenation; hash the small prefix and
+        // the request body incrementally instead of materialising one more full
+        // copy of the body for the key.
+        var prefix = Data()
+        prefix.append(Data("\(method.uppercased())\n".utf8))
+        prefix.append(Data("\(canonicalURL(url).absoluteString)\n".utf8))
         let allowed = Set(headerAllowList.map { $0.lowercased() })
         let selected = headers
             .map { (name: $0.key.lowercased(), value: $0.value) }
@@ -569,11 +572,10 @@ public actor ResponseLog: ResponseLogging {
             .sorted { $0.name < $1.name }
         for header in selected {
             let value = header.value.trimmingCharacters(in: .whitespaces)
-            canonical.append(Data("\(header.name):\(value)\n".utf8))
+            prefix.append(Data("\(header.name):\(value)\n".utf8))
         }
-        canonical.append(Data("\n".utf8))
-        canonical.append(canonicalBody(body))
-        return GatewaySHA256.hexDigest(canonical)
+        prefix.append(Data("\n".utf8))
+        return GatewaySHA256.hexDigest(parts: [prefix, canonicalBody(body)])
     }
 
     /// Canonical body used by `cacheKey`: JSON bodies are re-encoded with

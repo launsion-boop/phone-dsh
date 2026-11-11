@@ -885,7 +885,6 @@ public actor ModelGateway {
         let maximumAttempts = max(1, configuration.backoff.maximumAttempts)
         let requestMayRetry = webProvider == nil && Self.isReplaySafeRequest(
             method: method, url: url, replaySafeModelEndpoints: configuration.replaySafeModelEndpoints)
-        var logSequence: UInt64 = 0
         // spec/v1/tono-account.md §5: the cloud origin's own rejections are
         // re-sent outside the backoff budget, with their own small counters.
         let inspectsCloudAnswers = webProvider == nil && cloudResponsePolicy.applies(to: url)
@@ -945,6 +944,10 @@ public actor ModelGateway {
             var headReceived = false
             var headForwarded = false
             var logStarted = false
+            // W7 (§13): buffer response-log writes so a chunk is forwarded
+            // before the log's disk I/O; the bytes and their order are
+            // unchanged and a partial stream is still discarded by `abort`.
+            var logAccumulator = ResponseLogAccumulator()
             var attemptFailed = false
             var attemptFailure: Error?
             var retryDelay: TimeInterval?
@@ -1105,12 +1108,12 @@ public actor ModelGateway {
                     }
                     // Record after forwarding so the caller's first byte never
                     // waits for the response log's disk I/O.
-                    if !sensitive, logStarted, let log = responseLog {
+                    if !sensitive, logStarted, let log = responseLog,
+                       let batch = logAccumulator.append(data) {
                         do {
                             try await log.append(ResponseLogEntry(requestID: requestID,
-                                                                  sequence: logSequence,
-                                                                  body: data))
-                            logSequence &+= 1
+                                                                  sequence: batch.sequence,
+                                                                  body: batch.body))
                         } catch {
                             // A failed append leaves the recording incomplete;
                             // `finish` below only commits a consistent body and
@@ -1147,6 +1150,16 @@ public actor ModelGateway {
                 if attemptFailed {
                     await log.abort(requestID: requestID)
                 } else {
+                    if let batch = logAccumulator.flush() {
+                        do {
+                            try await log.append(ResponseLogEntry(requestID: requestID,
+                                                                  sequence: batch.sequence,
+                                                                  body: batch.body))
+                        } catch {
+                            // The incomplete recording is aborted by `finish`
+                            // below only if it cannot be committed consistently.
+                        }
+                    }
                     do {
                         // One atomic call: the receipt is non-nil only when the
                         // commit is still retained after quota eviction. A
