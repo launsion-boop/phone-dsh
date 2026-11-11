@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryMaintenanceBatch v2",
+  "description": "Durable data of memory.maintenance_finished. A batch is visible on the memory page and can be rolled back as one unit; a failed mechanical check rolls the whole batch back before this event is written.",
+  "type": "object",
+  "required": [
+    "batch_id",
+    "bot_id",
+    "status",
+    "trigger",
+    "started_at_ms",
+    "finished_at_ms",
+    "maintainer_session_id",
+    "changes",
+    "checks",
+    "budget",
+    "failure_code",
+    "notification",
+    "user_scope_owner"
+  ],
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "pattern": "^mm-[a-z0-9-]{8,64}$"
+    },
+    "bot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": ["committed", "cancelled", "failed", "rolled_back", "rollback_failed"]
+    },
+    "trigger": {
+      "enum": ["writes", "index", "contradiction", "manual"]
+    },
+    "started_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "finished_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "maintainer_session_id": {
+      "type": "string",
+      "pattern": "^gb-maintainer-[A-Za-z0-9._-]{1,64}$"
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["path", "scope", "before_version", "after_version", "deleted"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "scope": {
+            "enum": ["agent", "user"]
+          },
+          "before_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "after_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": [
+        "references_resolve",
+        "index_within_limit",
+        "documents_not_longer_than_evidence",
+        "change_budget_within_limit"
+      ],
+      "properties": {
+        "references_resolve": {
+          "type": "boolean"
+        },
+        "index_within_limit": {
+          "type": "boolean"
+        },
+        "documents_not_longer_than_evidence": {
+          "type": "boolean"
+        },
+        "change_budget_within_limit": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "budget": {
+      "type": "object",
+      "required": ["run_tokens", "daily_tokens", "tokens_used", "changed_documents", "changed_scalars"],
+      "properties": {
+        "run_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "daily_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tokens_used": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_documents": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_scalars": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "failure_code": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "maintenance-evidence-unresolved",
+        "maintenance-index-too-long",
+        "maintenance-document-longer-than-evidence",
+        "maintenance-change-budget-exceeded",
+        "maintenance-budget-exceeded",
+        "maintenance-rollback-conflict"
+      ]
+    },
+    "notification": {
+      "type": "boolean"
+    },
+    "user_scope_owner": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

@@ -4,6 +4,9 @@ import Foundation
 import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One Bot's runtime half. The App shares exactly one `BotMCPRuntime`, one
 /// `BotMCPHTTPServer` and one effect outbox; every Bot gets its own DSH remote
@@ -32,6 +35,7 @@ final class BotRuntimeUnit {
     let routineOutbox: BotRoutineOutbox
     let rows: BotProductionRowService
     let info: BotProductionInfoService
+    let maintenance: BotMemoryMaintenanceController
     let proactive: ProactiveEngine
     let deviceResults: DeviceTaskResultOutbox
     private let routineActivity: BotRoutineActivityFlag
@@ -47,7 +51,9 @@ final class BotRuntimeUnit {
                  remote: BotDSHRemoteRuntime, scheduler: RoutineScheduler,
                  wakeInbox: WakeInbox, planner: BotRemoteActionPlanner,
                  routineOutbox: BotRoutineOutbox, rows: BotProductionRowService,
-                 info: BotProductionInfoService, proactive: ProactiveEngine,
+                 info: BotProductionInfoService,
+                 maintenance: BotMemoryMaintenanceController,
+                 proactive: ProactiveEngine,
                  deviceResults: DeviceTaskResultOutbox,
                  routineActivity: BotRoutineActivityFlag,
                  nowProvider: @escaping @Sendable () -> Int64) {
@@ -60,6 +66,7 @@ final class BotRuntimeUnit {
         self.routineOutbox = routineOutbox
         self.rows = rows
         self.info = info
+        self.maintenance = maintenance
         self.proactive = proactive
         self.deviceResults = deviceResults
         self.routineActivity = routineActivity
@@ -70,6 +77,8 @@ final class BotRuntimeUnit {
     static func make(runtime: BotMCPRuntime, handler: BotMCPHandler,
                      store: SQLiteDomainStore, botID: String,
                      displayName: String,
+                     recordService: BotRecordService? = nil,
+                     isMainBot: @escaping @Sendable () -> Bool = { true },
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
@@ -126,8 +135,48 @@ final class BotRuntimeUnit {
                 try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
             },
             leaseOwner: "bot-runtime-composition")
+        let maintenance = BotMemoryMaintenanceController(
+            store: store, botID: botID, memory: memory, runtime: runtime,
+            remote: remote, recordReading: recordService,
+            isMainBot: isMainBot,
+            isAppActive: {
+#if canImport(UIKit)
+                if Thread.isMainThread {
+                    return UIApplication.shared.applicationState == .active
+                }
+                return DispatchQueue.main.sync {
+                    UIApplication.shared.applicationState == .active
+                }
+#else
+                // The macOS eval harness drives the same production unit; it
+                // has no iOS application state, so the foreground opportunity
+                // is always eligible there.
+                return true
+#endif
+            },
+            notify: { text in
+                let item = try? WakeInboxItem(
+                    id: "memory-maintenance-\(UUID().uuidString.lowercased())",
+                    kind: "memory-maintenance",
+                    title: "记忆整理",
+                    text: text,
+                    requestId: "memory-maintenance:\(UUID().uuidString.lowercased())",
+                    createdAt: resolvedNow())
+                if let item { _ = try? await inbox.enqueue(item) }
+            },
+            now: resolvedNow)
+        // A user turn yields immediately: cancel quiet timer and any running
+        // maintenance batch (committed writes stay).
+        await remote.setUserTurnObservers(
+            started: { [weak maintenance] in
+                await maintenance?.noteUserTurnStarted()
+            },
+            finished: { [weak maintenance] in
+                await maintenance?.noteUserTurnFinished()
+            })
         let info = BotProductionInfoService(
-            environment: environment, scheduler: scheduler, settingsStore: settingsStore)
+            environment: environment, scheduler: scheduler, settingsStore: settingsStore,
+            maintenance: maintenance)
         let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
         await environment.setRoutineCanceller { [scheduler] routineID in
             await scheduler.cancelRunning(routineId: routineID)
@@ -136,6 +185,7 @@ final class BotRuntimeUnit {
             botID: botID, environment: environment, remote: remote,
             scheduler: scheduler, wakeInbox: inbox, planner: planner,
             routineOutbox: routineOutbox, rows: rows, info: info,
+            maintenance: maintenance,
             proactive: proactive, deviceResults: deviceResults,
             routineActivity: routineActivity, nowProvider: resolvedNow)
     }
@@ -156,6 +206,9 @@ final class BotRuntimeUnit {
         _ = try? await deviceResults.redeliver(botID: botID, in: wakeInbox)
         await scheduler.start()
         await startLiveObservation()
+        // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
+        // main-chat idle, pending approvals and triggers itself.
+        Task { await maintenance.maybeRun(reason: "foreground") }
         started = true
     }
 

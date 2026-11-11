@@ -177,6 +177,7 @@ instead of the generated id. Aliases must be declared before use.
 | `seed_held_item` | `WakeInbox.enqueue` on the target Bot's production inbox; the next `user_message` stages and injects it through `HeldMessages.block` | implemented |
 | `restart_worker` | `PhoneDSHHost.plannedRestart` (G2's `planned_restart`) and waits for a new Worker HELLO plus a ready composition before the next action | implemented for `planned_restart`; `worker_kill` is recorded as `degraded` and uses the same production `plannedRestart` path |
 | `advance_clock` | advances the injected `RoutineScheduler` clock by `seconds`, wakes one scheduler tick, and waits for every routine due at the new time to emit `routine.run_finished` | implemented |
+| `run_maintenance` | optional `enabled` toggles the shared maintenance switch; the production `BotMemoryMaintenanceController.runNow(trigger: .manual, force:)` runs one hidden maintainer batch with this action's `mock`. The next model request gets the scripted maintenance tools | implemented (mock); real-model evidence belongs to the product catalog |
 
 `approval_policy` is also accepted at the top of a scenario's `actions`; there
 is no hidden global approval behaviour. A policy only runs while an action is in

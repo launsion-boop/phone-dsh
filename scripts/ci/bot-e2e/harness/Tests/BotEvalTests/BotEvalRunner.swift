@@ -520,6 +520,33 @@ final class BotEvalRunnerTests: XCTestCase {
                     : "plannedRestart completed",
                 replies: [])
 
+        case "run_maintenance":
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            if let enabled = action.enabled {
+                await unit.info.setMaintenanceEnabled(enabled)
+            }
+            context.installMock(action.mock ?? context.scenario.mock)
+            let before = try await context.lastCommitSeq()
+            let batch = try await pumped(timeout: context.actionTimeout(action)) {
+                await unit.maintenance.runNow(trigger: .manual, force: action.force ?? true)
+            }
+            let after = try await BotProductionEventReader.all(domain: context.store)
+            let started = after.contains {
+                ($0.commitSeq ?? 0) > before && $0.type == "memory.maintenance_started"
+            }
+            if let batch {
+                return EvalActionOutcome(
+                    status: "ok",
+                    detail: "maintenance \(batch.batch.batchID): \(batch.batch.status.rawValue) "
+                        + "changes=\(batch.batch.changes.count) started=\(started)",
+                    replies: [])
+            }
+            return EvalActionOutcome(
+                status: "skipped",
+                detail: "maintenance did not run (disabled, busy, or no trigger; started=\(started))",
+                replies: [])
+
         case "advance_clock":
             guard let seconds = action.seconds, seconds > 0 else {
                 throw EvalRunnerError.invalid("advance_clock needs positive seconds")

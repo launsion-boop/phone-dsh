@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "vector": "llm-ledger.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": "llm-ledger.json",
+  "delta": [
+    "phoneDSH P25 additive ledger purpose memory-maintenance: the maintainer run's model usage is recorded under its own purpose so the per-run and daily budgets can be read from the ledger."
+  ],
+  "valid": {
+    "ts": "2026-11-12T08:53:20.000Z",
+    "botId": "bot-a",
+    "sessionId": "gb-maintainer-0123456789abcdef0123456789abcdef",
+    "purpose": "memory-maintenance",
+    "model": "deepseek-flash",
+    "provider": "deepseek",
+    "inputTokens": 8000,
+    "outputTokens": 1500,
+    "cacheReadTokens": 2000,
+    "cacheWriteTokens": 0,
+    "cacheHitRatio": 0.2,
+    "ttftMs": 120,
+    "durationMs": 4000,
+    "status": "ok",
+    "errorKind": null
+  },
+  "invalid": [
+    {
+      "field": "cacheHitRatio",
+      "rule": "cacheRead/(input+cacheRead+cacheWrite)"
+    }
+  ]
+}

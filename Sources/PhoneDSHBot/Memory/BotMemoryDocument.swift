@@ -9,6 +9,7 @@ public enum BotMemoryAuthorKind: String, Codable, Sendable, CaseIterable {
     case team
     case proactive
     case watchdog
+    case maintainer
     case ui
     case migration
     case system
@@ -41,7 +42,7 @@ public struct BotMemoryAuthor: Codable, Sendable, Equatable {
     /// The P25 event envelope only accepts the existing principal kinds.
     var principalKind: String {
         switch kind {
-        case .chat, .task, .routine, .team, .proactive, .watchdog:
+        case .chat, .task, .routine, .team, .proactive, .watchdog, .maintainer:
             return kind.rawValue
         case .ui, .migration, .system:
             return "ipc"
@@ -52,7 +53,7 @@ public struct BotMemoryAuthor: Codable, Sendable, Equatable {
         switch kind {
         case .task, .routine, .team, .proactive, .watchdog:
             return true
-        case .chat, .ui, .migration, .system:
+        case .chat, .maintainer, .ui, .migration, .system:
             return false
         }
     }
@@ -67,6 +68,7 @@ extension BotSessionKind {
         case .team: return .team
         case .proactive: return .proactive
         case .watchdog: return .watchdog
+        case .maintainer: return .maintainer
         }
     }
 }
@@ -282,13 +284,39 @@ public enum BotMemoryAuthorizer {
     public static func userBoundaryError(
         sourceKind: BotMemorySourceKind,
         trust: BotRecordTrust?,
-        path: String
+        path: String,
+        authorKind: BotMemoryAuthorKind = .chat,
+        hostRollback: Bool = false
     ) -> String? {
         guard scope(of: path) == .user else { return nil }
+        // A rollback restores a version that already passed this boundary. It
+        // is a host operation, never a model write, so the source rule does
+        // not apply; the version premise still does.
+        if hostRollback { return nil }
+        if authorKind == .maintainer || sourceKind == .maintenance {
+            // A maintainer has no user turn. Its user/ boundary is evidence:
+            // at least one reference must derive `user`, and only the maintainer
+            // principal takes this branch.
+            guard authorKind == .maintainer, sourceKind == .maintenance else {
+                return "memory-source-boundary"
+            }
+            return trust == .user ? nil : "memory-evidence-required"
+        }
         guard sourceKind == .userTurn else { return "memory-source-boundary" }
         if let trust, trust != .user { return "memory-evidence-required" }
         if trust == nil { return "memory-evidence-required" }
         return nil
+    }
+
+    /// The shared `user/` root has exactly one maintainer: the main Bot's.
+    /// Non-main maintainers only maintain their own `agent/`.
+    public static func maintenanceScopeDenial(
+        author: BotMemoryAuthor, path: String, isMainBot: Bool
+    ) -> String? {
+        guard author.kind == .maintainer, !isMainBot, scope(of: path) == .user else {
+            return nil
+        }
+        return "memory-scope-denied"
     }
 
     public static func indexOverflow(path: String, content: String) -> Int? {

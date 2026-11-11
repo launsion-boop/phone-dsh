@@ -141,6 +141,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private var taskStates: [String: TaskState] = [:]
     private var interruptedTaskWakes: [String] = []
     private var routineSessions: [String: String] = [:]
+    private var maintainerSessionId: String?
     private var mainSessionTask: Task<String, Error>?
     private var liveObservers: [BotLiveFrameSubscription: @Sendable (BotLiveTurnFrame) -> Void] = [:]
     /// The one compatibility observer installed by `setLiveObserver`.
@@ -207,6 +208,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         guard attachments.count <= BotAttachmentPolicy.maxCount else {
             throw BotMCPError.invalidRequest("too_many_attachments")
         }
+        await onUserTurnStarted?()
         let sessionId = try await ensureMainSession()
         let steer = canSteer(sessionId: sessionId)
         var body = text
@@ -239,9 +241,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             let result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
                                            requestId: promptRequestId)
             if let stagedKey { _ = try await wakeInbox?.commit(stagedKey) }
+            await onUserTurnFinished?()
             return result
         } catch {
             if let stagedKey { _ = try await wakeInbox?.revert(stagedKey) }
+            await onUserTurnFinished?()
             throw error
         }
     }
@@ -861,6 +865,24 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     public func mainSessionIdentifier() -> String? { mainSessionId }
 
+    /// Installed by the maintenance controller. Called before a visible/user
+    /// main-chat turn starts so a running maintenance batch yields immediately;
+    /// committed memory writes stay.
+    private var onUserTurnStarted: (@Sendable () async -> Void)?
+    /// Called after a user main-chat turn finishes so the controller can wait
+    /// for quiet before starting an eligible batch.
+    private var onUserTurnFinished: (@Sendable () async -> Void)?
+
+    /// Installs the maintenance yield hooks. Mutating actor state from the
+    /// composition root goes through this method instead of the properties.
+    public func setUserTurnObservers(
+        started: (@Sendable () async -> Void)?,
+        finished: (@Sendable () async -> Void)?
+    ) {
+        onUserTurnStarted = started
+        onUserTurnFinished = finished
+    }
+
     public func isAvailable() async -> Bool {
         guard let mainSessionId else { return false }
         return await validateRemoteSession(mainSessionId)
@@ -1087,14 +1109,37 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         return sessionId
     }
 
+    /// The maintainer preset must be composed at `session/create` time: the
+    /// session controller resolves and mounts the preset before announcing
+    /// `agent/created`, so a later `agentPresets.select` is already locked.
+    public static let maintainerAgentPreset = "phone-bot-maintainer"
+
+    private static func requestedPreset(for kind: BotSessionKind) -> String? {
+        kind == .maintainer ? maintainerAgentPreset : nil
+    }
+
     private func createSession(kind: BotSessionKind, sessionID: String? = nil,
                                capabilities: [String] = []) async throws -> String {
         var fields: [String: BotJSONValue] = ["cwd": .string(botRoot())]
         fields["sessionId"] = .string(sessionID ?? mintedSessionID(kind: kind))
+        let expectedPreset = Self.requestedPreset(for: kind)
+        if let expectedPreset { fields["agentPreset"] = .string(expectedPreset) }
         let request: BotJSONValue = .object(fields)
         let created = try await transport.call("session/create", args: .object(["request": request]))
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
             throw BotMCPError.unavailable("session/create returned no sessionId")
+        }
+        // Fail closed if the Worker composed a different preset: a maintainer
+        // running the user-facing tool surface would violate §4.1.
+        if let expectedPreset {
+            guard let composed = created["agentPreset"]?.stringValue else {
+                throw BotMCPError.unavailable(
+                    "session/create did not report the maintainer preset; refusing to run the maintainer turn")
+            }
+            guard composed == expectedPreset else {
+                throw BotMCPError.unavailable(
+                    "maintainer session composed preset \(composed) instead of \(expectedPreset)")
+            }
         }
         _ = try await issueAndClaimSession(sessionId, kind: kind, capabilities: capabilities)
         return sessionId
@@ -1106,6 +1151,52 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private func mintedSessionID(kind: BotSessionKind) -> String {
         if kind == .chat { return "gb-\(BotWorkspaceLayout.safePathComponent(botId))" }
         return "gb-\(kind.rawValue)-\(UUID().uuidString.lowercased())"
+    }
+
+    /// One host-issued maintainer session per Bot runtime. The session is
+    /// hidden, memory-only and claimed like every other Bot session; a Worker
+    /// restart drops the credential and `ensureSession` reclaims it.
+    public func ensureMaintenanceSession() async throws -> String {
+        if let existing = maintainerSessionId {
+            if await validateRemoteSession(existing) {
+                _ = try await ensureSession(sessionId: existing, kind: .maintainer)
+                return existing
+            }
+            maintainerSessionId = nil
+        }
+        let sessionId = try await createSession(kind: .maintainer)
+        maintainerSessionId = sessionId
+        return sessionId
+    }
+
+    /// Runs one maintenance batch in the hidden maintainer session. The
+    /// controller owns candidate selection, the prompt, budgets and the
+    /// post-run checks; the runtime only provides the isolated turn.
+    public func runMaintenanceTurn(prompt: String, batchID: String) async throws -> BotRemoteTurnResult {
+        let sessionId = try await ensureMaintenanceSession()
+        await runtime.beginMaintenanceTurn(sessionId: sessionId, batchID: batchID)
+        do {
+            let result = try await startCoordinatedTurn(
+                sessionId: sessionId, kind: .maintainer, prompt: prompt,
+                hidden: true, held: false,
+                attemptId: UUID().uuidString.lowercased(),
+                requestId: "maintenance:\(batchID)",
+                origin: BotTurnOrigin(rpcId: nil))
+            await runtime.endMaintenanceTurn(sessionId: sessionId)
+            return result
+        } catch {
+            await runtime.endMaintenanceTurn(sessionId: sessionId)
+            throw error
+        }
+    }
+
+    public func maintenanceSessionIdentifier() -> String? { maintainerSessionId }
+
+    /// Cancels the active maintenance turn, if any. Called when the user starts
+    /// a main-chat turn; the controller still checks whatever was committed.
+    public func cancelMaintenanceTurn() async {
+        guard let maintainerSessionId else { return }
+        try? await cancelTurn(sessionId: maintainerSessionId, includeQueued: true)
     }
 
     /// Issues the registry token for a session first, then hands exactly that
@@ -1453,7 +1544,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let record = BotLLMLedgerRecord(
                     ts: BotLLMLedgerRecord.timestamp(Date(timeIntervalSince1970: Double(eventTime) / 1_000)),
                     botId: botId, sessionId: sessionId,
-                    purpose: kind == .chat ? .frontTurn : .workerTurn,
+                    purpose: kind == .chat
+                        ? .frontTurn
+                        : (kind == .maintainer ? .memoryMaintenance : .workerTurn),
                     model: data["model"]?.stringValue ?? model,
                     provider: data["provider"]?.stringValue ?? providerName,
                     inputTokens: usage?["inputTokens"]?.intValue ?? 0,
@@ -1563,7 +1656,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         case .chat: return .turn
         case .task: return .task
         case .routine: return .routine
-        case .team, .proactive, .watchdog: return .turn
+        case .team, .proactive, .watchdog, .maintainer: return .turn
         }
     }
 

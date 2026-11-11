@@ -36,6 +36,28 @@ actor BotRuntimeTurnStopper: BotProductionTurnStopping {
     func stopCurrentTurn(turnID: String?) async throws { try await remote.stopMainTurn(turnID: turnID) }
 }
 
+/// Thread-safe snapshot of the roster's main-Bot pointer. The maintainer write
+/// rule and candidate selection are synchronous host checks, so they cannot
+/// await the profile store; the roster observation keeps this pointer current.
+final class BotMainBotPointer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var mainBotID: String?
+
+    init(_ mainBotID: String?) { self.mainBotID = mainBotID }
+
+    func update(_ mainBotID: String?) {
+        lock.lock()
+        self.mainBotID = mainBotID
+        lock.unlock()
+    }
+
+    func isMain(_ botID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return mainBotID == botID
+    }
+}
+
 /// Per-Bot delivery/cycle context. The team tool host owns it; it is not
 /// durable, because only a live hand-off chain needs it.
 @MainActor
@@ -101,6 +123,8 @@ final class BotRuntimeComposition {
     let rosterModel: BotRosterModel
     let selectionStore: BotSelectionStore
     let agentCommTracker = BotAgentCommTracker()
+    /// Synchronous main-Bot pointer for the maintainer write rule.
+    let mainBotPointer: BotMainBotPointer
 
     /// The Worker environment carrying the Bot MCP endpoint/token. The whole
     /// roster shares one listener, so one URL (and one token) feeds the single
@@ -291,6 +315,17 @@ final class BotRuntimeComposition {
         self.schedulerNow = schedulerNow
         self.schedulerSleep = schedulerSleep
         self.outbox = BotProductionEffectRunner(store: domain)
+        let mainBotPointer = BotMainBotPointer(rosterModel.mainBotID)
+        self.mainBotPointer = mainBotPointer
+        // Shared `user/` memory has exactly one maintainer: the main Bot's.
+        // Keep the synchronous pointer current from the roster observation and
+        // from the write rule's own view of the same pointer.
+        rosterModel.onRosterChange = { [mainBotPointer] roster in
+            mainBotPointer.update(roster.mainBotID)
+        }
+        await runtime.setMainBotProvider { [mainBotPointer] botID in
+            mainBotPointer.isMain(botID)
+        }
         // A rebind that was not requested through ensureListening() (for
         // example a future automatic recovery) still updates the environment
         // the next Host build reads.
@@ -341,6 +376,8 @@ final class BotRuntimeComposition {
         let unit = try await BotRuntimeUnit.make(
             runtime: runtime, handler: handler, store: domain,
             botID: botID, displayName: profile.name,
+            recordService: recordService,
+            isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             now: schedulerNow, sleep: schedulerSleep)
         units[botID] = unit
         rosterModel.setRuntimeState(BotRosterRuntimeState(runtimeState: state), for: botID)

@@ -42,7 +42,7 @@ final class BotEventEnvelopeTests: XCTestCase {
     func testPhoneGoldenAgentCommUsesRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
         let valid = fixture["validCases"] as! [[String: Any]]
-        XCTAssertEqual(valid.count, 4)
+        XCTAssertEqual(valid.count, 7)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
@@ -58,6 +58,12 @@ final class BotEventEnvelopeTests: XCTestCase {
                 XCTAssertEqual(decoded.origin, .local(source: "user"))
                 XCTAssertEqual(decoded.principal.kind, "ipc")
                 XCTAssertEqual(decoded.data["erasureId"]?.stringValue, "erasure-20261112-a")
+            case "maintenance-started", "maintenance-finished", "maintenance-rolled-back":
+                XCTAssertTrue(decoded.type.hasPrefix("memory.maintenance_"))
+                XCTAssertEqual(decoded.origin, .local(source: "memory-service"))
+                XCTAssertEqual(decoded.principal.kind, "maintainer")
+                XCTAssertEqual(decoded.data["batch_id"]?.stringValue,
+                               "mm-0123456789abcdef0123456789abcdef")
             default:
                 XCTAssertEqual(decoded.type, "agent.comm")
                 XCTAssertEqual(decoded.origin, .local(source: "comm-service"))

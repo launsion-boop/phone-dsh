@@ -39,6 +39,8 @@ public struct BotEventEnvelopeCodec: Sendable {
         "routine.deleted", "routine.run_started", "routine.run_finished", "memory.written",
         "memory.forgotten", "memory.document_written", "memory.document_deleted",
         "memory.imported", "memory.review_requested", "memory.review_resolved",
+        "memory.maintenance_started", "memory.maintenance_finished",
+        "memory.maintenance_rolled_back",
         "effect.enqueued", "effect.attempted", "effect.acked", "effect.failed", "effect.dead_lettered",
         "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started",
         "runtime.exited", "proactive.considered", "ledger.usage_recorded", "watchdog.flagged",
@@ -57,7 +59,7 @@ public struct BotEventEnvelopeCodec: Sendable {
     ]
 
     private static let principalKinds: Set<String> = [
-        "chat", "task", "routine", "team", "proactive", "watchdog", "ipc",
+        "chat", "task", "routine", "team", "proactive", "watchdog", "maintainer", "ipc",
     ]
 
     public init() {}

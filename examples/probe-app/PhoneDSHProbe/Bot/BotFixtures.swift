@@ -368,7 +368,31 @@ enum BotUIFixtures {
             scheduledNotificationCount: 1),
            proactiveSettings: ProactiveSettings(
                 mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
-                timeZone: "Asia/Shanghai"))
+                timeZone: "Asia/Shanghai"),
+           maintenance: BotMaintenanceBatchInfo(
+                batchID: "mm-0123456789abcdef0123456789abcdef",
+                status: "committed",
+                trigger: "index",
+                startedAt: Date(timeIntervalSince1970: 1_760_019_000),
+                finishedAt: Date(timeIntervalSince1970: 1_760_019_120),
+                changedDocuments: 2,
+                changes: [
+                    BotMaintenanceChangeInfo(
+                        path: "user/INDEX.md", scope: "user",
+                        beforeVersion: 3, afterVersion: 4, deleted: false),
+                    BotMaintenanceChangeInfo(
+                        path: "agent/profile.md", scope: "agent",
+                        beforeVersion: 2, afterVersion: 3, deleted: false),
+                ],
+                failureCode: nil,
+                checksPassed: true,
+                rolledBack: false,
+                canRollback: true,
+                tokensUsed: 12_400,
+                notification: true),
+           maintenanceEnabled: true,
+           maintenanceDailyTokens: 12_400,
+           maintenanceDailyBudget: 96_000)
     }
 
     static func memoryDocument(

@@ -145,6 +145,9 @@ def permission_error(author, path):
 def boundary_error(source_kind, trust, path):
     if scope_of(path) != "user":
         return None
+    if source_kind == "maintenance":
+        # The maintainer has no user turn; its user/ boundary is the evidence.
+        return None if trust == "user" else "memory-evidence-required"
     if source_kind != "user-turn":
         return "memory-source-boundary"
     if trust != "user":
@@ -852,8 +855,171 @@ def validate_erasure_vectors_from(fixture) -> None:
             raise AssertionError(f"{case.get('name')}: {error!r} != {case.get('error')!r}")
 
 
-# ── wake / held fixtures (ownership moved to v2) ──────────────────────────
+# ── maintenance (S3: host-only batch checks) ──────────────────────────────
 
+MAINTENANCE_MAX_CANDIDATES = 12
+MAINTENANCE_MAX_CHANGED_DOCUMENTS = 12
+MAINTENANCE_MAX_CHANGED_SCALARS = 24_000
+MAINTENANCE_INDEX_TRIGGER = 1_350
+INDEX_LIMIT_SCALARS = INDEX_LIMIT
+
+
+def scalar_count(text):
+    return len(text)
+
+
+def maintenance_check(case):
+    """Reference implementation of the four host-only batch checks.
+
+    Returns the failure code, or ``None`` when every check passes. The order is
+    the one in ``spec/bot/v2/README.md`` §4.4 and the same order the Swift
+    controller uses, so one shared vector can drive both ends.
+    """
+    records = case.get("records", {})
+    bot_id = case.get("botId")
+    is_main_bot = case.get("isMainBot", True)
+    for document in case.get("documents", []):
+        path = document["path"]
+        evidence = document.get("evidence", [])
+        parsed = []
+        for raw in evidence:
+            parsed_ref = record_parser()(raw)
+            if parsed_ref is None:
+                return "maintenance-evidence-unresolved"
+            record = records.get(parsed_ref["canonical"])
+            if record is None or record.get("botId") != bot_id:
+                return "maintenance-evidence-unresolved"
+            parsed.append((parsed_ref, record))
+        if scope_of(path) == "user":
+            if not is_main_bot:
+                return "memory-scope-denied"
+            if not any(record.get("trust") == "user" for _, record in parsed):
+                return "memory-evidence-required"
+        if is_index(path):
+            actual = case.get("indexOverrides", {}).get(path, scalar_count(document.get("content", "")))
+            if actual > INDEX_LIMIT_SCALARS:
+                return "maintenance-index-too-long"
+        if evidence:
+            original = sum(scalar_count(record.get("text", "")) for _, record in parsed)
+            if scalar_count(document.get("content", "")) > original:
+                return "maintenance-document-longer-than-evidence"
+    if (case.get("changedDocuments", 0) > MAINTENANCE_MAX_CHANGED_DOCUMENTS
+            or case.get("changedScalars", 0) > MAINTENANCE_MAX_CHANGED_SCALARS):
+        return "maintenance-change-budget-exceeded"
+    return None
+
+
+def validate_maintenance_vectors(fixture=None) -> tuple[int, int, int]:
+    fixture = fixture if fixture is not None else load("memory-maintenance")
+    start = fixture["valid"]["start"]
+    for name in ("committed", "cancelled", "rolledBack"):
+        check(fixture["valid"][name], "memory-maintenance.schema.json",
+              f"maintenance.valid.{name}")
+    check(start, "memory-maintenance-start.schema.json", "maintenance.valid.start")
+    check(fixture["valid"]["rollback"], "memory-maintenance-rollback.schema.json",
+          "maintenance.valid.rollback")
+
+    schema_by_case = {
+        "startTooManyCandidates": "memory-maintenance-start.schema.json",
+        "startUnknownTrigger": "memory-maintenance-start.schema.json",
+        "startWrongSessionKind": "memory-maintenance-start.schema.json",
+        "finishedRunningStatus": "memory-maintenance.schema.json",
+        "finishedMissingCheck": "memory-maintenance.schema.json",
+        "finishedUnknownFailure": "memory-maintenance.schema.json",
+        "rollbackEmptyBatch": "memory-maintenance-rollback.schema.json",
+    }
+    for name, case in fixture["invalid"].items():
+        rejects(case, schema_by_case[name], f"maintenance.invalid.{name}")
+
+    for index, case in enumerate(fixture["checkCases"]):
+        actual = maintenance_check(case)
+        if actual != case["expected"]:
+            raise AssertionError(
+                f"maintenance.checkCases[{index}] {case['name']} "
+                f"{actual!r} != {case['expected']!r}")
+
+    for index, case in enumerate(fixture["rollbackCases"]):
+        batch = fixture["valid"][case["batch"]]
+        rollback = case["rollback"]
+        actual = None
+        if rollback["batch_id"] != batch["batch_id"] or rollback["bot_id"] != batch["bot_id"]:
+            actual = "maintenance-rollback-conflict"
+        else:
+            after = {change["path"]: change["after_version"] for change in batch["changes"]}
+            for item in rollback["restored"]:
+                if after.get(item["path"]) != item["from_version"] or item["to_version"] <= item["from_version"]:
+                    actual = "maintenance-rollback-conflict"
+                    break
+        if actual != case["expected"]:
+            raise AssertionError(
+                f"maintenance.rollbackCases[{index}] {case['name']} "
+                f"{actual!r} != {case['expected']!r}")
+    return len(fixture["valid"]) - 2, len(fixture["invalid"]), len(fixture["checkCases"])
+
+
+def mutation_count_for_maintenance() -> int:
+    """Mutate the shared maintenance fixture and require each check to fail."""
+    import copy
+
+    def expect_failure(label, action):
+        try:
+            action()
+        except Exception:
+            return 1
+        raise AssertionError(f"maintenance mutation {label!r} unexpectedly passed")
+
+    count = 0
+    mutated = copy.deepcopy(load("memory-maintenance"))
+    for record in mutated["checkCases"][0]["records"].values():
+        record["botId"] = "bot-b"
+    count += expect_failure(
+        "foreign-record",
+        lambda: validate_maintenance_fixture(mutated))
+
+    mutated = copy.deepcopy(load("memory-maintenance"))
+    mutated["checkCases"][0]["records"]["record://session/gb-main#3"]["text"] = "短。"
+    count += expect_failure(
+        "document-longer-than-evidence",
+        lambda: validate_maintenance_fixture(mutated))
+
+    mutated = copy.deepcopy(load("memory-maintenance"))
+    mutated["valid"]["committed"]["changes"] = [
+        {"path": f"agent/notes/{index}.md", "scope": "agent",
+         "before_version": 0, "after_version": 1, "deleted": False}
+        for index in range(13)
+    ]
+    count += expect_failure(
+        "rollback-version-mismatch",
+        lambda: validate_maintenance_fixture(mutated))
+    mutated = copy.deepcopy(load("memory-maintenance"))
+    mutated["checkCases"][4]["isMainBot"] = True
+    count += expect_failure(
+        "non-main-user-write",
+        lambda: validate_maintenance_fixture(mutated))
+    return count
+
+
+def validate_maintenance_fixture(fixture) -> None:
+    for index, case in enumerate(fixture["checkCases"]):
+        if maintenance_check(case) != case["expected"]:
+            raise AssertionError(f"checkCases[{index}]")
+    for index, case in enumerate(fixture["rollbackCases"]):
+        batch = fixture["valid"][case["batch"]]
+        rollback = case["rollback"]
+        actual = None
+        if rollback["batch_id"] != batch["batch_id"] or rollback["bot_id"] != batch["bot_id"]:
+            actual = "maintenance-rollback-conflict"
+        else:
+            after = {change["path"]: change["after_version"] for change in batch["changes"]}
+            for item in rollback["restored"]:
+                if after.get(item["path"]) != item["from_version"] or item["to_version"] <= item["from_version"]:
+                    actual = "maintenance-rollback-conflict"
+                    break
+        if actual != case["expected"]:
+            raise AssertionError(f"rollbackCases[{index}]")
+
+
+# ── wake / held fixtures (ownership moved to v2) ──────────────────────────
 
 def validate_wake_and_held() -> tuple[int, int]:
     check(load("wake-routine")["valid"], "wake-routine.schema.json", "wake-routine")
@@ -889,16 +1055,20 @@ def main() -> int:
     erasure_cases, erasure_invalid, erasure_mutations = validate_erasure_vectors()
     held_valid, held_invalid = validate_wake_and_held()
     notifications_valid, notifications_invalid = validate_routine_notification()
+    maintenance_valid, maintenance_invalid, maintenance_checks = validate_maintenance_vectors()
+    maintenance_mutations = mutation_count_for_maintenance()
     mutations = mutation_count_for_evidence()
     print("bot v2 vectors: PASS (memory documents, write/version/index/single-author, "
-          "read, recall, injection, migration; wake/routine/held/notification; schema-positive "
+          "read, recall, injection, migration, maintenance; wake/routine/held/notification; schema-positive "
           f"and negative vectors; documents {documents}; evidence {evidence_valid} valid / "
           f"{evidence_invalid} invalid / {boundary} boundary / {mutations} mutations; "
           f"writes {writes}; reads {reads}; recall {recall}; injection {injection}; "
           f"migration {migration} bots; erasure {erasure_cases} valid / "
           f"{erasure_invalid} invalid / {erasure_mutations} mutations; "
           f"held {held_valid} valid / {held_invalid} invalid; "
-          f"notifications {notifications_valid} valid / {notifications_invalid} invalid)")
+          f"notifications {notifications_valid} valid / {notifications_invalid} invalid; "
+          f"maintenance {maintenance_valid} batches / {maintenance_invalid} invalid / "
+          f"{maintenance_checks} checks / {maintenance_mutations} mutations)")
     return 0
 
 

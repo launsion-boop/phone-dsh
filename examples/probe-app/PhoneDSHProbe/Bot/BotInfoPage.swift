@@ -30,6 +30,32 @@ struct BotMemoryDocumentInfo: Identifiable, Hashable {
     var fileName: String { path.split(separator: "/").last.map(String.init) ?? path }
 }
 
+struct BotMaintenanceChangeInfo: Identifiable, Hashable {
+    var id: String { path }
+    var path: String
+    var scope: String
+    var beforeVersion: Int
+    var afterVersion: Int
+    var deleted: Bool
+}
+
+struct BotMaintenanceBatchInfo: Identifiable, Hashable {
+    var id: String { batchID }
+    var batchID: String
+    var status: String
+    var trigger: String
+    var startedAt: Date
+    var finishedAt: Date
+    var changedDocuments: Int
+    var changes: [BotMaintenanceChangeInfo]
+    var failureCode: String?
+    var checksPassed: Bool
+    var rolledBack: Bool
+    var canRollback: Bool
+    var tokensUsed: Int
+    var notification: Bool
+}
+
 struct BotMemoryTreeItem: Identifiable, Equatable {
     let id: String
     var name: String
@@ -93,6 +119,10 @@ struct BotInfoSnapshot {
     var reconciliations: [BotReconciliationInfo] = []
     var presence: RoutinePresence = RoutinePresence(level: .foreground)
     var proactiveSettings: ProactiveSettings = ProactiveSettingsStore.productionDefault
+    var maintenance: BotMaintenanceBatchInfo?
+    var maintenanceEnabled = false
+    var maintenanceDailyTokens = 0
+    var maintenanceDailyBudget = 0
 }
 
 struct BotInfoDriver {
@@ -111,6 +141,8 @@ struct BotInfoDriver {
     var resolveReconciliation: (String, String) async throws -> Void = { _, _ in }
     /// Returns the normalized value the host actually persisted.
     var saveProactiveSettings: (ProactiveSettings) async throws -> ProactiveSettings = { $0 }
+    var setMaintenanceEnabled: (Bool) async throws -> Void = { _ in }
+    var rollbackMaintenance: (String) async throws -> Void = { _ in }
 }
 
 enum BotInfoLoadState: Equatable {
@@ -130,6 +162,10 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var reconciliations: [BotReconciliationInfo]
     @Published private(set) var presence: RoutinePresence
     @Published private(set) var proactiveSettings: ProactiveSettings
+    @Published private(set) var maintenance: BotMaintenanceBatchInfo?
+    @Published private(set) var maintenanceEnabled = false
+    @Published private(set) var maintenanceDailyTokens = 0
+    @Published private(set) var maintenanceDailyBudget = 0
     @Published var highlightedRoutineID: String?
     @Published private(set) var memoryState: BotInfoLoadState
     @Published private(set) var routinesState: BotInfoLoadState
@@ -158,6 +194,10 @@ final class BotInfoModel: ObservableObject {
         reconciliations = snapshot?.reconciliations ?? []
         presence = snapshot?.presence ?? RoutinePresence(level: .foreground)
         proactiveSettings = snapshot?.proactiveSettings ?? ProactiveSettingsStore.productionDefault
+        maintenance = snapshot?.maintenance
+        maintenanceEnabled = snapshot?.maintenanceEnabled ?? false
+        maintenanceDailyTokens = snapshot?.maintenanceDailyTokens ?? 0
+        maintenanceDailyBudget = snapshot?.maintenanceDailyBudget ?? 0
         let initial: BotInfoLoadState
         if let fixtureError { initial = .failed(fixtureError) }
         else { initial = snapshot == nil && driver != nil ? .loading : .loaded }
@@ -256,6 +296,10 @@ final class BotInfoModel: ObservableObject {
             reconciliations = snapshot.reconciliations
             presence = snapshot.presence
             proactiveSettings = snapshot.proactiveSettings
+            maintenance = snapshot.maintenance
+            maintenanceEnabled = snapshot.maintenanceEnabled
+            maintenanceDailyTokens = snapshot.maintenanceDailyTokens
+            maintenanceDailyBudget = snapshot.maintenanceDailyBudget
             memoryState = .loaded
             routinesState = .loaded
             approvalsState = .loaded
@@ -339,6 +383,27 @@ final class BotInfoModel: ObservableObject {
             await refresh()
         } catch {
             actionError = "抹除共享 user/ 记忆失败：\(error.localizedDescription)"
+        }
+    }
+
+    func setMaintenanceEnabled(_ enabled: Bool) async {
+        let previous = maintenanceEnabled
+        maintenanceEnabled = enabled
+        do {
+            try await driver?.setMaintenanceEnabled(enabled)
+        } catch {
+            maintenanceEnabled = previous
+            actionError = "保存记忆整理开关失败：\(error.localizedDescription)"
+        }
+    }
+
+    func rollbackMaintenance() async {
+        guard let batch = maintenance else { return }
+        do {
+            try await driver?.rollbackMaintenance(batch.batchID)
+            await refresh()
+        } catch {
+            actionError = "回滚记忆整理失败：\(error.localizedDescription)"
         }
     }
 
@@ -714,6 +779,7 @@ private struct BotMemoryPage: View {
     @State private var confirmErase = false
     @State private var confirmShared = false
     @State private var confirmSharedAgain = false
+    @State private var confirmRollback = false
 
     private var botDocuments: [BotMemoryDocumentInfo] {
         model.memories.filter { $0.scope != "user" }
@@ -734,6 +800,31 @@ private struct BotMemoryPage: View {
                 }
                 .listRowBackground(Color.clear)
             case .loaded:
+                Section {
+                    Toggle("后台记忆整理", isOn: Binding(
+                        get: { model.maintenanceEnabled },
+                        set: { value in
+                            Task { await model.setMaintenanceEnabled(value) }
+                        }))
+                        .accessibilityIdentifier("bot.memory.maintenance.toggle")
+                } header: {
+                    Text("后台整理")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("默认关闭。开启后，只在对话安静、没有待审批且 App 在前台时，宿主才会发起一次独立的后台会话，对照原始记录整理记忆。每次运行是一个批次，检查不过会整批回滚。")
+                        if model.maintenanceDailyBudget > 0 {
+                            let exhausted = model.maintenanceDailyTokens >= model.maintenanceDailyBudget
+                            Text(exhausted
+                                 ? "今日整理预算已用完（\(model.maintenanceDailyTokens)/\(model.maintenanceDailyBudget) token）。"
+                                 : "今日整理已用 \(model.maintenanceDailyTokens)/\(model.maintenanceDailyBudget) token。")
+                                .foregroundStyle(exhausted ? BotUIPalette.danger : HomeSpec.textTertiary)
+                                .accessibilityIdentifier("bot.memory.maintenance.budget")
+                        }
+                    }
+                }
+                if let batch = model.maintenance {
+                    maintenanceSection(batch)
+                }
                 if botDocuments.isEmpty && sharedDocuments.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 6) {
@@ -773,6 +864,14 @@ private struct BotMemoryPage: View {
                 onErase: { Task { await model.erase(document) } }
             )
         }
+        .confirmationDialog("回滚这次整理？", isPresented: $confirmRollback) {
+            Button("整批回滚", role: .destructive) {
+                Task { await model.rollbackMaintenance() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("本批改动过的每份文档都会恢复到整理前的版本；之后又被改过的文档会保留并报告冲突。")
+        }
         .confirmationDialog("忘记这份文档？", isPresented: Binding(
             get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }
         )) {
@@ -806,6 +905,60 @@ private struct BotMemoryPage: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("物理删除所有 Bot 共享的 user/ 文档树、全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。所有 Bot 会立即失去这些记忆。DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
+        }
+    }
+
+    @ViewBuilder
+    private func maintenanceSection(_ batch: BotMaintenanceBatchInfo) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(maintenanceStatusLabel(batch.status, rolledBack: batch.rolledBack))
+                        .foregroundStyle(HomeSpec.textPrimary)
+                    Spacer()
+                    Text(batch.finishedAt.formatted(date: .abbreviated, time: .shortened))
+                        .botCaptionFont()
+                        .foregroundStyle(HomeSpec.textTertiary)
+                }
+                Text("\(batch.changedDocuments) 份文档 · \(batch.tokensUsed) token · 检查\(batch.checksPassed ? "通过" : "未通过")")
+                    .botCaptionFont()
+                    .foregroundStyle(HomeSpec.textTertiary)
+                ForEach(batch.changes) { change in
+                    Text("\(change.deleted ? "删除" : "v\(change.beforeVersion)→v\(change.afterVersion)") · \(change.path)")
+                        .botCaptionFont()
+                        .foregroundStyle(HomeSpec.textSecondary)
+                }
+                if let failure = batch.failureCode, !failure.isEmpty {
+                    Text("失败原因：\(failure)")
+                        .botCaptionFont()
+                        .foregroundStyle(BotUIPalette.danger)
+                }
+            }
+            .accessibilityIdentifier("bot.memory.maintenance.batch")
+            if batch.canRollback {
+                Button("回滚这次整理", role: .destructive) {
+                    confirmRollback = true
+                }
+                .accessibilityIdentifier("bot.memory.maintenance.rollback")
+            }
+        } header: {
+            Text("上次整理")
+        } footer: {
+            Text(batch.rolledBack
+                 ? "这一批已整批回滚，历史仍保留在记录里。"
+                 : "只显示最近一次批次；本批的每一次写入都带版本前提和引用。")
+        }
+    }
+
+    private func maintenanceStatusLabel(_ status: String, rolledBack: Bool) -> String {
+        if rolledBack { return "已回滚" }
+        switch status {
+        case "committed": return "已完成"
+        case "cancelled": return "已取消（已写入的保留）"
+        case "failed": return "未完成"
+        case "rolled_back": return "已整批回滚"
+        case "rollback_failed": return "回滚有冲突"
+        default: return status
         }
     }
 

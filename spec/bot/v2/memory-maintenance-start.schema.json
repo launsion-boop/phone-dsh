@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryMaintenanceStart v2",
+  "description": "Durable data of memory.maintenance_started. One maintenance run is one batch; the maintainer session is host-issued and claimed before this event is written.",
+  "type": "object",
+  "required": [
+    "batch_id",
+    "bot_id",
+    "trigger",
+    "started_at_ms",
+    "maintainer_session_id",
+    "candidates",
+    "budget"
+  ],
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "pattern": "^mm-[a-z0-9-]{8,64}$"
+    },
+    "bot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "trigger": {
+      "enum": ["writes", "index", "contradiction", "manual"]
+    },
+    "started_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "maintainer_session_id": {
+      "type": "string",
+      "pattern": "^gb-maintainer-[A-Za-z0-9._-]{1,64}$"
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["path", "reasons"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "reasons": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "enum": ["most-read", "most-changed", "least-verified", "overlong", "inbox", "contradiction", "index"]
+            },
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "budget": {
+      "type": "object",
+      "required": ["run_tokens", "daily_tokens"],
+      "properties": {
+        "run_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "daily_tokens": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

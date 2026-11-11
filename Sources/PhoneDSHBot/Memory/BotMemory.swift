@@ -8,21 +8,37 @@ public struct BotMemoryWriteContext: Sendable {
     public let authorKind: BotMemoryAuthorKind
     public let source: BotMemorySource
     public let trust: BotRecordTrust?
+    /// True for the roster's main Bot (the only maintainer allowed to write user/).
+    public let isMainBot: Bool
+    /// Non-nil only inside a maintenance run; becomes the event correlation id.
+    public let batchID: String?
+    /// Host-only batch rollback. The version being restored was already
+    /// accepted by whichever writer created it, so the user-turn source
+    /// boundary does not apply to the restore itself. Never set from an MCP
+    /// tool call.
+    public let isHostRollback: Bool
 
     public init(
         botID: String,
         sessionID: String?,
         authorKind: BotMemoryAuthorKind,
         source: BotMemorySource,
-        trust: BotRecordTrust?
+        trust: BotRecordTrust?,
+        isMainBot: Bool = true,
+        batchID: String? = nil,
+        isHostRollback: Bool = false
     ) {
         self.botID = botID
         self.sessionID = sessionID
         self.authorKind = authorKind
         self.source = source
         self.trust = trust
+        self.isMainBot = isMainBot
+        self.batchID = batchID
+        self.isHostRollback = isHostRollback
     }
 
+    /// Convenience for tests and non-Bot internal callers.
     public init(source: BotMemorySource, trust: BotRecordTrust? = nil) {
         self.init(
             botID: "main",
@@ -228,13 +244,26 @@ public actor BotMemory {
             return failure(request, code: denial,
                            error: "The move destination is outside this session's inbox.")
         }
+        if let denial = BotMemoryAuthorizer.maintenanceScopeDenial(
+            author: author, path: request.path, isMainBot: context.isMainBot) {
+            return failure(request, code: denial,
+                           error: "Only the main Bot's maintainer may write shared user/ memory.")
+        }
+        if request.action == .move, let to = request.to,
+           let denial = BotMemoryAuthorizer.maintenanceScopeDenial(
+            author: author, path: to, isMainBot: context.isMainBot) {
+            return failure(request, code: denial,
+                           error: "Only the main Bot's maintainer may write shared user/ memory.")
+        }
         if let boundary = BotMemoryAuthorizer.userBoundaryError(
-            sourceKind: context.source.kind, trust: context.trust, path: request.path) {
+            sourceKind: context.source.kind, trust: context.trust, path: request.path,
+            authorKind: context.authorKind, hostRollback: context.isHostRollback) {
             return boundaryFailure(request, code: boundary)
         }
         if request.action == .move, let to = request.to,
            let boundary = BotMemoryAuthorizer.userBoundaryError(
-            sourceKind: context.source.kind, trust: context.trust, path: to) {
+            sourceKind: context.source.kind, trust: context.trust, path: to,
+            authorKind: context.authorKind, hostRollback: context.isHostRollback) {
             return boundaryFailure(request, code: boundary)
         }
         let evidence = request.evidence.isEmpty ? nil : Array(request.evidence.prefix(8))
@@ -251,7 +280,8 @@ public actor BotMemory {
             evidence: evidence ?? [],
             trust: context.trust,
             source: context.source,
-            atMS: now())
+            atMS: now(),
+            correlationID: context.batchID.map { "memory-maintenance:\($0)" })
         let outcome = try await store.write(storeRequest)
         switch outcome {
         case let .written(document, replaced):

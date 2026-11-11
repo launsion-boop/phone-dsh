@@ -392,6 +392,10 @@ struct BotProductionInfoSnapshot: Sendable {
     var reconciliations: [BotProductionReconciliation]
     var presence: RoutinePresence
     var proactiveSettings: ProactiveSettings
+    var maintenance: BotMemoryMaintenanceBatchView?
+    var maintenanceEnabled: Bool
+    var maintenanceDailyTokens: Int
+    var maintenanceDailyBudget: Int
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
@@ -400,13 +404,16 @@ actor BotProductionInfoService {
     private let environment: BotProductionEnvironment
     private let scheduler: RoutineScheduler?
     private let settingsStore: ProactiveSettingsStore
+    private let maintenance: BotMemoryMaintenanceController?
 
     init(environment: BotProductionEnvironment,
          scheduler: RoutineScheduler? = nil,
-         settingsStore: ProactiveSettingsStore = .shared) {
+         settingsStore: ProactiveSettingsStore = .shared,
+         maintenance: BotMemoryMaintenanceController? = nil) {
         self.environment = environment
         self.scheduler = scheduler
         self.settingsStore = settingsStore
+        self.maintenance = maintenance
     }
 
     func load() async throws -> BotProductionInfoSnapshot {
@@ -435,10 +442,45 @@ actor BotProductionInfoService {
         }
         let grants = await standingGrants()
         let reconciliations = try await reconciliationRecords(provided: routines)
+        let maintenanceBatch = try? await maintenance?.lastBatch()
+        let maintenanceSettings = await maintenance?.settings()
+        let maintenanceEnabled = maintenanceSettings?.enabled ?? false
+        let maintenanceBudget = await maintenance?.budgetStatus()
         return try await BotProductionInfoSnapshot(
             botName: botName, memories: memories, routines: routines, approvals: approvals,
             grants: grants, reconciliations: reconciliations,
-            presence: presence, proactiveSettings: settingsStore.settings())
+            presence: presence, proactiveSettings: settingsStore.settings(),
+            maintenance: maintenanceBatch,
+            maintenanceEnabled: maintenanceEnabled,
+            maintenanceDailyTokens: maintenanceBudget?.dailyTokensUsed ?? 0,
+            maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0)
+    }
+
+    /// S3: enable/disable the background maintainer (default off). The switch
+    /// is shared by every Bot and persisted under one P18 key.
+    func setMaintenanceEnabled(_ enabled: Bool) async {
+        if let maintenance {
+            await maintenance.setEnabled(enabled)
+        } else {
+            var settings = BotMemoryMaintenanceSettingsStore.shared.settings()
+            settings.enabled = enabled
+            BotMemoryMaintenanceSettingsStore.shared.save(settings)
+        }
+    }
+
+    /// S3: roll one batch back using the S2 restore primitive.
+    func rollbackMaintenance(batchID: String) async throws {
+        guard let maintenance else {
+            throw BotProductionError.invalidService("记忆整理服务未接线")
+        }
+        let result = try await maintenance.rollback(batchID: batchID)
+        guard let result else {
+            throw BotProductionError.invalidService("找不到这次整理批次")
+        }
+        if !result.conflicts.isEmpty {
+            throw BotProductionError.invalidService(
+                "有 \(result.conflicts.count) 份文档在整理后又被改过，未覆盖")
+        }
     }
 
     /// Standing grants only. A `once` grant is one execution permission, not a

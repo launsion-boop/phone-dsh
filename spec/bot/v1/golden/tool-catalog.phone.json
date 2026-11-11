@@ -117,7 +117,8 @@
         "to",
         "expected_version",
         "restore_version",
-        "evidence"
+        "evidence",
+        "marked_contradiction"
       ],
       "actions": [
         "write",
@@ -139,7 +140,8 @@
         "expected_version",
         "evidence",
         "INDEX.md",
-        "agent/inbox"
+        "agent/inbox",
+        "marked_contradiction"
       ]
     },
     "readMemory": {

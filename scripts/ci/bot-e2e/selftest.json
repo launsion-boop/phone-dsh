@@ -950,6 +950,137 @@
           "payload_contains": "SELFTEST_CLOCK_DONE"
         }
       ]
+    },
+    {
+      "id": "BOT-SELFTEST-MAINTENANCE",
+      "title": "A planted contradiction is corrected by the maintainer batch",
+      "user_story": "The main chat writes a memory that contradicts the user's own message and marks it as a contradiction; the maintainer batch reads it back, corrects it, updates the index, passes the host checks and commits a visible batch. No model is contacted.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 12
+      },
+      "workspace": {
+        "bot": "main",
+        "fixture": "selftest",
+        "files": {
+          "input.txt": "SELFTEST_INPUT"
+        }
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "我每天早上八点起床，七点是被叫醒的不是我起床。",
+          "mock": {
+            "tools": [
+              {
+                "name": "mcp__phone__UpdateMemory",
+                "arguments": {
+                  "action": "write",
+                  "path": "agent/notes/wake.md",
+                  "content": "用户每天七点起床。",
+                  "expected_version": 0,
+                  "marked_contradiction": true
+                }
+              }
+            ],
+            "final_text": "记下了。"
+          }
+        },
+        {
+          "type": "run_maintenance",
+          "bot": "main",
+          "enabled": true,
+          "force": true,
+          "mock": {
+            "tools": [
+              {
+                "name": "mcp__phone__ReadMemory",
+                "arguments": {
+                  "path": "agent/notes/wake.md"
+                }
+              },
+              {
+                "name": "mcp__phone__UpdateMemory",
+                "arguments": {
+                  "action": "write",
+                  "path": "agent/notes/wake.md",
+                  "content": "用户每天八点起床。",
+                  "expected_version": 1
+                }
+              },
+              {
+                "name": "mcp__phone__UpdateMemory",
+                "arguments": {
+                  "action": "write",
+                  "path": "agent/INDEX.md",
+                  "content": "# Index\n- agent/notes/wake.md",
+                  "expected_version": 1
+                }
+              }
+            ],
+            "final_text": "已整理。"
+          }
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "记下了。"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.review_requested",
+          "where": {
+            "path": "agent/notes/wake.md"
+          }
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_started"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_finished",
+          "where": {
+            "status": "committed"
+          }
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.maintenance_finished",
+          "where": {
+            "trigger": "manual"
+          }
+        },
+        {
+          "type": "no_bot_event",
+          "event": "memory.maintenance_rolled_back"
+        },
+        {
+          "type": "memory_contains",
+          "value": "用户每天八点起床。",
+          "scope": "agent"
+        },
+        {
+          "type": "memory_absent",
+          "value": "用户每天七点起床。"
+        },
+        {
+          "type": "bot_event",
+          "event": "memory.review_resolved",
+          "where": {
+            "path": "agent/notes/wake.md",
+            "outcome": "resolved"
+          }
+        }
+      ]
     }
   ]
 }

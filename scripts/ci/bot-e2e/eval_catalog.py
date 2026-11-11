@@ -38,7 +38,7 @@ DEFAULT_ACTION_TIMEOUT = 180.0
 EVIDENCE_FILES = ("report.json", "transcript.jsonl", "bot-events.jsonl", "workspace.tar")
 SUPPORTED_ACTIONS = {
     "create_bot", "user_message", "ui_action", "approval_policy",
-    "advance_clock", "seed_held_item", "restart_worker",
+    "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
 }
 SUPPORTED_ASSERTIONS = {
     "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
@@ -267,6 +267,10 @@ def _check_action(errors, path, action, aliases):
     elif kind == "restart_worker":
         if action.get("mode") not in (None, "planned_restart", "worker_kill"):
             _error(errors, path, "restart_worker mode must be planned_restart or worker_kill")
+    elif kind == "run_maintenance":
+        for name in ("enabled", "force"):
+            if name in action and not isinstance(action[name], bool):
+                _error(errors, path, f"run_maintenance {name} must be a boolean")
 
 
 def _check_assertion(errors, path, assertion):

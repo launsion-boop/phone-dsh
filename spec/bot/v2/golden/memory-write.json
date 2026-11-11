@@ -232,6 +232,28 @@
       "ok": false,
       "error": "memory-scope-denied",
       "sessionId": "gb-task-1"
+    },
+    {
+      "name": "maintainer-user-path-user-evidence",
+      "sourceKind": "maintenance",
+      "trust": "user",
+      "path": "user/profile.md",
+      "ok": true
+    },
+    {
+      "name": "maintainer-user-path-no-user-evidence",
+      "sourceKind": "maintenance",
+      "trust": "assistant",
+      "path": "user/profile.md",
+      "ok": false,
+      "error": "memory-evidence-required"
+    },
+    {
+      "name": "maintainer-agent-path",
+      "sourceKind": "maintenance",
+      "trust": "assistant",
+      "path": "agent/notes/maintained.md",
+      "ok": true
     }
   ],
   "cases": [

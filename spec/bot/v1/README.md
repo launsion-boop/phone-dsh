@@ -136,8 +136,8 @@ PC-20261111-bot-v2-unwired 删除。本文件不再定义 facts、注入、召�
 
 routine 投递、安静时段延后、held inbox、隐藏唤醒、`<automation_status>`、宿主拼入文本的
 转义和主动提醒规则链自 2026-11-10 起迁到 [v2/README.md](../v2/README.md) §§2–3，由 phoneDSH
-作准。本文件保留与之一同使用的回合来源判定（§4.1），以及原始记录引用、观察信封、`phone record`
-与脱敏留痕（§§4.2–4.5）；前缀表仍是本文件拥有的契约。
+作准。本文件保留与之一同使用的回合来源判定（§4.1），以及原始记录引用、观察信封、`phone record`、
+脱敏留痕与抹除（§§4.2–4.6）；前缀表仍是本文件拥有的契约。
 
 ### 4.1 回合来源（turn origin）
 
@@ -361,8 +361,8 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 
 ## 8. 一致性向量
 
-本节只描述仍由 dsh-bot 钉版导出的 v1 批次。记忆、唤醒标记和主动提醒的向量已移到
-[v2](../v2/README.md) §4，`export-vectors.mjs` 不写、`export-manifest.json` 也不列它们。
+本节只描述仍由 dsh-bot 钉版导出的 v1 批次。记忆、后台整理、唤醒标记和主动提醒的向量已移到
+[v2](../v2/README.md) §5，`export-vectors.mjs` 不写、`export-manifest.json` 也不列它们。
 
 从仓库根运行：
 

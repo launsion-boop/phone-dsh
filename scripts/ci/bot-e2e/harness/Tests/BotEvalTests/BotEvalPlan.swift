@@ -72,7 +72,7 @@ struct EvalPlan: Decodable {
 
     static let knownActions: Set<String> = [
         "create_bot", "user_message", "ui_action", "approval_policy",
-        "advance_clock", "seed_held_item", "restart_worker",
+        "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
     ]
     static let knownAssertions: Set<String> = [
         "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
@@ -233,6 +233,8 @@ struct EvalAction: Decodable {
     var mode: String?
     var perturbation: String?
     var degraded: String?
+    var enabled: Bool?
+    var force: Bool?
     var mock: EvalMock?
     var timeoutS: Double?
     var policyDefault: String?

@@ -105,6 +105,47 @@ final class MemoryEvidenceTests: XCTestCase {
                        "memory-evidence-invalid")
     }
 
+    func testMaintainerWriteRejectsErasedEvidenceAsRecordErased() async throws {
+        let first = try await call([
+            "action": "write", "path": "agent/notes/secret.md", "content": "secret",
+            "expected_version": 0,
+        ])
+        XCTAssertEqual(first.structuredContent?["ok"], .bool(true))
+        let events = try await store.events(after: 0, limit: 100)
+        let written = try XCTUnwrap(events.first {
+            $0.type == "memory.document_written"
+                && $0.data["path"]?.stringValue == "agent/notes/secret.md"
+        })
+        let sequence = try XCTUnwrap(written.commitSeq)
+        let memory = await runtime.memory(for: "bot-a")
+        let erased = try await memory.erase(path: "agent/notes/secret.md")
+        XCTAssertTrue(erased.ok, erased.error ?? "")
+
+        let maintainerSession = "gb-maintainer-0123456789abcdef0123456789abcdef"
+        _ = try await runtime.issueSession(
+            botId: "bot-a", sessionId: maintainerSession, kind: .maintainer)
+        await runtime.beginMaintenanceTurn(
+            sessionId: maintainerSession,
+            batchID: "mm-0123456789abcdef0123456789abcdef")
+        await runtime.beginTurn(sessionId: maintainerSession, hidden: true)
+        let arguments = try BotJSONValue.parse(
+            JSONSerialization.data(withJSONObject: [
+                "action": "write", "path": "agent/notes/after-erased-evidence.md",
+                "content": "must not be written", "expected_version": 0,
+                "evidence": ["record://event/\(sequence)"],
+            ], options: [.sortedKeys]))
+        let rejected = try await registerAndExecute(
+            runtime, name: "UpdateMemory", arguments: arguments,
+            sessionId: maintainerSession, callId: UUID().uuidString)
+        XCTAssertEqual(rejected.isError, true)
+        XCTAssertEqual(rejected.structuredContent?["error"]?["code"]?.stringValue,
+                       "record_erased")
+        let documents = try await memory.documents(scope: .agent)
+        XCTAssertFalse(documents.contains {
+            $0.path == "agent/notes/after-erased-evidence.md"
+        })
+    }
+
     func testStaleVersionIsRejectedWithoutDowngrading() async throws {
         let first = try await call([
             "action": "write", "path": "agent/notes/a.md", "content": "one",

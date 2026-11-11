@@ -520,6 +520,34 @@
           "required": [
             "type"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "run_maintenance"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "mock": {
+              "$ref": "#/$defs/mock"
+            },
+            "timeout_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "force": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type"
+          ]
         }
       ]
     },
