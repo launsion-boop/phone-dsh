@@ -705,6 +705,7 @@ final class ChatModel {
     /// count only drives the lightweight queued hint.
     private(set) var queuedSendCount = 0
     private var outboxNeedsDrain = false
+    private var isDrainingOutbox = false
     private var isStartingEngine = false
     /// Read-only projection currently painted by W1-A. Non-nil means the page
     /// is showing a materialized copy and no send may go to `sessionID` until
@@ -3564,7 +3565,9 @@ final class ChatModel {
     /// the engine's active session is activated only when no turn is running;
     /// otherwise the entry stays queued and is delivered after the turn.
     private func drainSendOutbox() async {
-        guard pcRuntime == nil else { return }
+        guard pcRuntime == nil, !isDrainingOutbox else { return }
+        isDrainingOutbox = true
+        defer { isDrainingOutbox = false }
         let entries = await sendOutbox.entries()
         guard !entries.isEmpty else {
             queuedSendCount = 0
@@ -3584,6 +3587,14 @@ final class ChatModel {
                     || entry.state == .accepted
                     || entry.state == .outcomeUnknown else { continue }
             if entry.state != .queued {
+                if entry.state == .submitting {
+                    // A process that died mid-submit left this state. Treat it
+                    // as outcomeUnknown and read the authority back before any
+                    // resend; never auto-resend.
+                    _ = try? await sendOutbox.markOutcomeUnknown(
+                        rpcId: entry.rpcId,
+                        lastError: "resumed after a crash mid-submit")
+                }
                 await reconcileOutboxEntry(entry)
                 continue
             }
@@ -3612,6 +3623,15 @@ final class ChatModel {
             }
         }
         await refreshQueuedSendCount()
+        // A send that arrived while this drain was in flight must not wait for
+        // an unrelated lifecycle event. Only reschedule when delivery can
+        // actually progress now; a turn on another session waits for its own
+        // turn-end callback.
+        let remaining = await sendOutbox.pending()
+        let deliverable = remaining.contains {
+            $0.state == .queued && (!turnRunning || $0.sessionId == sessionID)
+        }
+        if deliverable { scheduleRecoveryQueueFlush() }
     }
 
     /// Reads the same authoritative history that makes an entry durable. The
