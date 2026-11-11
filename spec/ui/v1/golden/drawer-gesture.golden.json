@@ -1,0 +1,148 @@
+{
+  "kind": "drawer-gesture",
+  "version": 1,
+  "source": "tokens.json#interaction.drawer",
+  "width": 320,
+  "closeThreshold": 0.5,
+  "velocityProjection": 0.25,
+  "scrimMaxOpacity": 0.28,
+  "dragMinimumDistance": 12,
+  "release": [
+    {
+      "id": "release-t-170-v0",
+      "dx": -170,
+      "velocity": 0,
+      "result": "close"
+    },
+    {
+      "id": "release-t-160-v0",
+      "dx": -160,
+      "velocity": 0,
+      "result": "settle"
+    },
+    {
+      "id": "release-t-150-v0",
+      "dx": -150,
+      "velocity": 0,
+      "result": "settle"
+    },
+    {
+      "id": "release-t-100-v-300",
+      "dx": -100,
+      "velocity": -300,
+      "result": "close"
+    },
+    {
+      "id": "release-t-100-v-200",
+      "dx": -100,
+      "velocity": -200,
+      "result": "settle"
+    },
+    {
+      "id": "release-t-170-v200",
+      "dx": -170,
+      "velocity": 200,
+      "result": "close"
+    },
+    {
+      "id": "release-t-40-v-600",
+      "dx": -40,
+      "velocity": -600,
+      "result": "close"
+    },
+    {
+      "id": "release-t-20-v-560",
+      "dx": -20,
+      "velocity": -560,
+      "result": "settle"
+    },
+    {
+      "id": "release-t-20-v-600",
+      "dx": -20,
+      "velocity": -600,
+      "result": "close"
+    },
+    {
+      "id": "release-t50-v0",
+      "dx": 50,
+      "velocity": 0,
+      "result": "settle"
+    }
+  ],
+  "follow": [
+    {
+      "id": "follow-vertical-dominant",
+      "dx": -30,
+      "dy": 40,
+      "follows": false,
+      "offset": 0
+    },
+    {
+      "id": "follow-left-horizontal",
+      "dx": -40,
+      "dy": 30,
+      "follows": true,
+      "offset": -40
+    },
+    {
+      "id": "follow-right-clamped",
+      "dx": 25,
+      "dy": 5,
+      "follows": true,
+      "offset": 0
+    },
+    {
+      "id": "follow-left-unbounded",
+      "dx": -400,
+      "dy": 0,
+      "follows": true,
+      "offset": -400
+    },
+    {
+      "id": "follow-equal-axes",
+      "dx": -30,
+      "dy": -30,
+      "follows": false,
+      "offset": 0
+    }
+  ],
+  "minimumDistance": [
+    {
+      "id": "minimum-distance-11",
+      "distance": 11,
+      "drag": false
+    },
+    {
+      "id": "minimum-distance-12",
+      "distance": 12,
+      "drag": true
+    }
+  ],
+  "scrim": [
+    {
+      "id": "scrim-offset-0",
+      "offset": 0,
+      "opacity": 0.28
+    },
+    {
+      "id": "scrim-offset-minus160",
+      "offset": -160,
+      "opacity": 0.14
+    },
+    {
+      "id": "scrim-offset-minus320",
+      "offset": -320,
+      "opacity": 0
+    },
+    {
+      "id": "scrim-offset-minus80",
+      "offset": -80,
+      "opacity": 0.21
+    },
+    {
+      "id": "scrim-offset-minus400",
+      "offset": -400,
+      "opacity": 0
+    }
+  ]
+}
