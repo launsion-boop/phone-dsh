@@ -75,11 +75,19 @@ struct BotRoutineInfo: Identifiable, Equatable {
     var urgentReason: String?
     var lastResult: String
     var enabled: Bool
+    /// Human-readable creator source for the main row. Raw references belong
+    /// to `creatorDetail` and stay in the routine detail disclosure.
     var creator: String?
     var completionCriteria: String?
     var routineConstraints: String?
     var runStatus: String?
     var runID: String?
+    var nextDue: Date?
+    var quietDeferredFrom: Date?
+    var quietDeferredUntil: Date?
+    var creatorDetail: String?
+    /// Raw error behind `lastResult`; display-only, never in the main row.
+    var lastResultDetail: String?
 }
 
 struct BotGrantInfo: Identifiable, Equatable {
@@ -100,7 +108,11 @@ struct BotReconciliationInfo: Identifiable, Equatable {
     var attempt: Int
     var runID: String
     var error: String?
+    /// Human-readable effect summary shown in the one reconciliation block.
     var effectSummary: String?
+    /// Raw effect record (`operation · target · reason`) for the detail
+    /// disclosure; never shown in the main row.
+    var effectDetail: String?
 }
 
 struct BotApprovalRecord: Identifiable, Equatable {
@@ -1224,86 +1236,156 @@ private struct BotRoutinesPage: View {
     @ViewBuilder
     private func routineRow(_ routine: BotRoutineInfo) -> some View {
         let reconciliation = model.reconciliation(for: routine)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        let showsReconciliation = routine.runStatus == "needs-reconciliation"
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
                 Text(routine.title)
                     .botTitleFont()
                     .foregroundStyle(HomeSpec.textPrimary)
-                Spacer()
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
                 BotStatusPill(text: routineStatus(routine), tone: routineTone(routine))
             }
-            LabeledContent("排程", value: routine.schedule)
-            LabeledContent("时区", value: routine.timeZone)
-            LabeledContent("交付", value: routine.delivery)
-            if let creator = routine.creator {
-                LabeledContent("设立者", value: creator)
+
+            VStack(alignment: .leading, spacing: 10) {
+                BotDetailField(label: "排程", value: routine.schedule)
+                if let nextDue = routine.nextDue {
+                    BotDetailField(label: "下次到期", value: BotUIFormat.dateTime(nextDue))
+                }
+                BotDetailField(label: "时区",
+                               value: BotUIFormat.routineTimeZone(routine.timeZone))
+                BotDetailField(label: "交付",
+                               value: BotUIFormat.routineDelivery(routine.delivery))
+                if let from = routine.quietDeferredFrom,
+                   let until = routine.quietDeferredUntil {
+                    BotDetailField(
+                        label: "安静时段延后",
+                        value: "原定 \(BotUIFormat.dateTime(from))，延后至 \(BotUIFormat.dateTime(until))",
+                        layout: .stacked)
+                } else if routine.quiet {
+                    Label("安静时段会延后", systemImage: "moon")
+                        .botCaptionFont()
+                        .foregroundStyle(HomeSpec.textSecondary)
+                }
+                if let creator = routine.creator, !creator.isEmpty {
+                    BotDetailField(label: "设立者", value: creator)
+                }
+                if let criteria = routine.completionCriteria, !criteria.isEmpty {
+                    BotDetailField(
+                        label: "完成条件",
+                        value: BotUIFormat.routineFreeTextNeedsDetail(criteria)
+                            ? routineFreeTextSummary : criteria,
+                        layout: .stacked)
+                }
+                if let constraints = routine.routineConstraints, !constraints.isEmpty {
+                    BotDetailField(
+                        label: "约束",
+                        value: BotUIFormat.routineFreeTextNeedsDetail(constraints)
+                            ? routineFreeTextSummary : constraints,
+                        layout: .stacked)
+                }
             }
-            if let criteria = routine.completionCriteria, !criteria.isEmpty {
-                LabeledContent("完成条件", value: criteria)
-            }
-            if let constraints = routine.routineConstraints, !constraints.isEmpty {
-                LabeledContent("约束", value: constraints)
-            }
-            if routine.quiet {
-                Label("安静时段会延后", systemImage: "moon")
-                    .botCaptionFont()
-                    .foregroundStyle(HomeSpec.textSecondary)
-            }
+
             if routine.urgent {
                 Label("紧急：\(routine.urgentReason ?? "未说明")", systemImage: "exclamationmark")
                     .botCaptionFont()
                     .foregroundStyle(NativeParityTokens.warning)
             }
-            Text(routine.lastResult)
-                .botSecondaryFont()
-                .foregroundStyle(HomeSpec.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
 
-            if routine.runStatus == "started" || routine.runStatus == "waiting-approval" {
-                Button("取消运行") { confirmingCancel = routine }
-                    .buttonStyle(BotTextButtonStyle())
-                    .botHitTarget()
-                    .accessibilityIdentifier("bot.routine.cancel.\(routine.id)")
+            if showsReconciliation {
+                reconciliationBlock(reconciliation)
+            } else {
+                Text(routine.lastResult)
+                    .botSecondaryFont()
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if routine.runStatus == "needs-reconciliation", let reconciliation {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("执行结果未知，需要确认", systemImage: "exclamationmark.triangle")
-                        .botCaptionFont()
-                        .foregroundStyle(NativeParityTokens.warning)
-                    if let summary = reconciliation.effectSummary {
-                        Text("已产生的效果：\(summary)")
-                            .botCaptionFont()
-                            .foregroundStyle(HomeSpec.textSecondary)
-                    }
-                    if let error = reconciliation.error {
-                        Text("原因：\(error)")
-                            .botCaptionFont()
-                            .foregroundStyle(HomeSpec.textSecondary)
-                    }
-                    HStack(spacing: 16) {
-                        Button("确认完成") {
-                            Task { await model.resolve(reconciliation, decision: "acknowledge") }
-                        }
-                        .buttonStyle(BotTextButtonStyle())
-                        .botHitTarget()
-                        .accessibilityIdentifier("bot.routine.reconcile.ack.\(routine.id)")
-                        Button("重试") {
-                            Task { await model.resolve(reconciliation, decision: "retry") }
-                        }
-                        .buttonStyle(BotTextButtonStyle())
-                        .botHitTarget()
-                        .accessibilityIdentifier("bot.routine.reconcile.retry.\(routine.id)")
-                    }
-                }
-            }
-            Button(routine.enabled ? "暂停" : "恢复") {
-                Task { await model.setRoutine(routine, enabled: !routine.enabled) }
-            }
-            .buttonStyle(BotTextButtonStyle())
-            .botHitTarget()
-            .accessibilityIdentifier("bot.routine.toggle.\(routine.id)")
+
+            BotRoutineActionArea(
+                routine: routine,
+                showsReconciliation: showsReconciliation,
+                onCancel: { confirmingCancel = routine },
+                onAcknowledge: {
+                    guard let reconciliation else { return }
+                    Task { await model.resolve(reconciliation, decision: "acknowledge") }
+                },
+                onRetry: {
+                    guard let reconciliation else { return }
+                    Task { await model.resolve(reconciliation, decision: "retry") }
+                },
+                onToggle: {
+                    Task { await model.setRoutine(routine, enabled: !routine.enabled) }
+                })
+
+            routineDetailDisclosure(routine, reconciliation: reconciliation)
         }
         .padding(.vertical, 4)
+    }
+
+    private var routineFreeTextSummary: String {
+        "原文包含执行提示，展开「详情」可查看。"
+    }
+
+    @ViewBuilder
+    private func reconciliationBlock(_ reconciliation: BotReconciliationInfo?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("这次运行的结果没有确认", systemImage: "exclamationmark.triangle")
+                .botSecondaryFont(weight: .medium)
+                .foregroundStyle(NativeParityTokens.warning)
+            Text(reconciliation?.effectSummary ?? "已尝试执行这次运行，结果未确认。")
+                .botSecondaryFont()
+                .foregroundStyle(HomeSpec.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let error = reconciliation?.error,
+               let reason = BotUIFormat.routineReconciliationReason(error) {
+                Text("原因：\(reason)")
+                    .botSecondaryFont()
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NativeParityTokens.warning.opacity(0.08),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func routineDetailDisclosure(_ routine: BotRoutineInfo,
+                                         reconciliation: BotReconciliationInfo?) -> some View {
+        let fields = routineRawFields(routine, reconciliation: reconciliation)
+        if !fields.isEmpty {
+            BotRoutineDetailDisclosure(routineID: routine.id, fields: fields)
+        }
+    }
+
+    private func routineRawFields(_ routine: BotRoutineInfo,
+                                  reconciliation: BotReconciliationInfo?) -> [(String, String)] {
+        var fields: [(String, String)] = [("任务编号", routine.id), ("时区标识", routine.timeZone)]
+        if let creatorDetail = routine.creatorDetail, !creatorDetail.isEmpty {
+            fields.append(("设立者原始信息", creatorDetail))
+        }
+        if let constraints = routine.routineConstraints,
+           BotUIFormat.routineFreeTextNeedsDetail(constraints) {
+            fields.append(("约束原文", constraints))
+        }
+        if let criteria = routine.completionCriteria,
+           BotUIFormat.routineFreeTextNeedsDetail(criteria) {
+            fields.append(("完成条件原文", criteria))
+        }
+        if let runID = routine.runID, !runID.isEmpty {
+            fields.append(("运行编号", runID))
+        }
+        if let effectDetail = reconciliation?.effectDetail, !effectDetail.isEmpty {
+            fields.append(("效果记录", effectDetail))
+        }
+        if let error = reconciliation?.error, !error.isEmpty {
+            fields.append(("原始原因", error))
+        }
+        if let lastResultDetail = routine.lastResultDetail, !lastResultDetail.isEmpty {
+            fields.append(("上次运行详情", lastResultDetail))
+        }
+        return fields
     }
 
     private func routineStatus(_ routine: BotRoutineInfo) -> String {
@@ -1321,6 +1403,142 @@ private struct BotRoutinesPage: View {
         case "started": return .accent
         case "needs-reconciliation": return .warning
         default: return routine.enabled ? .success : .neutral
+        }
+    }
+}
+
+private enum BotDetailFieldLayout {
+    case inline, stacked
+}
+
+/// One routine field. Short values keep a stable two-column grid with the
+/// label and value both left aligned; long values put the label on its own
+/// line above the value. The old `LabeledContent` rows right-aligned short
+/// values and switched alignment when a value wrapped.
+private struct BotDetailField: View {
+    let label: String
+    let value: String
+    var layout: BotDetailFieldLayout = .inline
+
+    var body: some View {
+        Group {
+            switch layout {
+            case .inline:
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    labelView.frame(width: 64, alignment: .leading)
+                    valueView.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            case .stacked:
+                VStack(alignment: .leading, spacing: 6) {
+                    labelView
+                    valueView
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var labelView: some View {
+        Text(label)
+            .botSecondaryFont()
+            .foregroundStyle(HomeSpec.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var valueView: some View {
+        Text(value)
+            .botFont(size: 15, lineHeight: 22, style: .subheadline)
+            .foregroundStyle(HomeSpec.textPrimary)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The routine action area: at most two rows, primary/secondary capsules for
+/// the reconciliation decision, then the text-level pause/resume and the red
+/// destructive cancel action separated from it.
+private struct BotRoutineActionArea: View {
+    let routine: BotRoutineInfo
+    let showsReconciliation: Bool
+    let onCancel: () -> Void
+    let onAcknowledge: () -> Void
+    let onRetry: () -> Void
+    let onToggle: () -> Void
+
+    private var canCancel: Bool {
+        routine.runStatus == "started" || routine.runStatus == "waiting-approval"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            if showsReconciliation {
+                HStack(spacing: 10) {
+                    Button("确认完成", action: onAcknowledge)
+                        .buttonStyle(BotCardButtonStyle(kind: .primary))
+                        .accessibilityIdentifier("bot.routine.reconcile.ack.\(routine.id)")
+                    Button("重试", action: onRetry)
+                        .buttonStyle(BotCardButtonStyle(kind: .secondary))
+                        .accessibilityIdentifier("bot.routine.reconcile.retry.\(routine.id)")
+                }
+            }
+            HStack(spacing: 0) {
+                if canCancel {
+                    Button("取消运行", action: onCancel)
+                        .buttonStyle(BotDestructiveButtonStyle())
+                        .accessibilityIdentifier("bot.routine.cancel.\(routine.id)")
+                    Divider().frame(height: 20)
+                }
+                Button(routine.enabled ? "暂停" : "恢复", action: onToggle)
+                    .buttonStyle(BotTextButtonStyle())
+                    .accessibilityIdentifier("bot.routine.toggle.\(routine.id)")
+            }
+        }
+    }
+}
+
+/// The single "详情" surface for raw routine references: ids, the IANA time
+/// zone, raw creator/effect records and the unedited constraints. Values are
+/// selectable so they can be copied; none of them is printed in the main row.
+private struct BotRoutineDetailDisclosure: View {
+    let routineID: String
+    let fields: [(String, String)]
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(expanded ? "收起详情" : "查看详情")
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                }
+            }
+            .buttonStyle(BotTextButtonStyle())
+            .accessibilityIdentifier("bot.routine.detail.\(routineID)")
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(fields.indices, id: \.self) { index in
+                        let field = fields[index]
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(field.0)
+                                .botCaptionFont()
+                                .foregroundStyle(HomeSpec.textSecondary)
+                            Text(field.1)
+                                .font(.system(size: 13, design: .monospaced))
+                                .foregroundStyle(HomeSpec.textPrimary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(HomeSpec.userBubble.opacity(0.6),
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
         }
     }
 }

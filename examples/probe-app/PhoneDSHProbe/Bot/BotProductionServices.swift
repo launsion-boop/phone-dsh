@@ -425,7 +425,11 @@ struct BotProductionReconciliation: Sendable, Equatable, Identifiable {
     var effectKey: String?
     var effectGeneration: Int?
     var effectAttempt: Int?
+    /// Human-readable effect summary for the single reconciliation block.
     var effectSummary: String?
+    /// Raw effect record (`operation · target · reason`) for the detail
+    /// disclosure; the main row never prints the effect key.
+    var effectDetail: String?
 }
 
 struct BotProductionMemoryDocument: Sendable {
@@ -593,8 +597,15 @@ actor BotProductionInfoService {
                 effectGeneration: matching?.generation,
                 effectAttempt: matching?.attempt,
                 effectSummary: matching.map {
-                    "\($0.effect.operation) · \($0.effect.target) · "
-                        + "\( $0.reconciliationReason ?? "unknown" )"
+                    BotUIFormat.routineEffectSummary(
+                        operation: $0.effect.operation,
+                        reason: $0.reconciliationReason)
+                },
+                effectDetail: matching.map {
+                    BotUIFormat.routineEffectReference(
+                        operation: $0.effect.operation,
+                        target: $0.effect.target,
+                        reason: $0.reconciliationReason)
                 }))
         }
         return records

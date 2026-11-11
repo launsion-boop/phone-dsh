@@ -215,22 +215,46 @@ extension BotInfoSnapshot {
                     })
             },
             routines: snapshot.routines.map { routine in
-                BotRoutineInfo(
+                let creatorLabel = routine.creator.map {
+                    BotUIFormat.routineCreator(origin: $0.origin.rawValue,
+                                               authorization: $0.authorization.rawValue)
+                }
+                let creatorDetail = routine.creator.map {
+                    BotUIFormat.routineCreatorDetail(
+                        origin: $0.origin.rawValue,
+                        authorization: $0.authorization.rawValue,
+                        references: [$0.rpcId, $0.turnId, $0.sessionId].compactMap { $0 })
+                }
+                let nextDue = routine.nextRunAt.map {
+                    Date(timeIntervalSince1970: Double($0) / 1_000)
+                }
+                let quietDeferredFrom = routine.quietDefer.map {
+                    Date(timeIntervalSince1970: Double($0.scheduledFor) / 1_000)
+                }
+                let quietDeferredUntil = routine.quietDefer.map {
+                    Date(timeIntervalSince1970: Double($0.until) / 1_000)
+                }
+                return BotRoutineInfo(
                     id: routine.id,
                     title: routine.title,
                     schedule: Self.scheduleText(routine.schedule),
                     timeZone: routine.schedule.timezone,
-                    delivery: routine.delivery == .interrupt ? "立即打断" : "存入待处理",
+                    delivery: routine.delivery.rawValue,
                     quiet: routine.delivery == .held,
                     urgent: routine.urgent,
                     urgentReason: routine.urgentReason.isEmpty ? nil : routine.urgentReason,
                     lastResult: Self.lastResultText(routine.lastResult),
                     enabled: routine.enabled,
-                    creator: Self.creatorText(routine.creator),
+                    creator: creatorLabel,
                     completionCriteria: routine.completionCriteria.isEmpty ? nil : routine.completionCriteria,
                     routineConstraints: routine.constraints.isEmpty ? nil : routine.constraints,
                     runStatus: routine.runState?.status.rawValue,
-                    runID: routine.runState?.runId)
+                    runID: routine.runState?.runId,
+                    nextDue: nextDue,
+                    quietDeferredFrom: quietDeferredFrom,
+                    quietDeferredUntil: quietDeferredUntil,
+                    creatorDetail: creatorDetail,
+                    lastResultDetail: routine.lastResult?.error)
             },
             approvals: snapshot.approvals.map { approval in
                 BotApprovalRecord(
@@ -251,7 +275,8 @@ extension BotInfoSnapshot {
                 BotReconciliationInfo(
                     routineID: item.routineID, routineTitle: item.routineTitle,
                     attempt: item.attempt, runID: item.runID, error: item.error,
-                    effectSummary: item.effectSummary)
+                    effectSummary: item.effectSummary,
+                    effectDetail: item.effectDetail)
             },
             presence: snapshot.presence,
             proactiveSettings: snapshot.proactiveSettings,
@@ -288,17 +313,6 @@ extension BotInfoSnapshot {
             notification: batch.notification)
     }
 
-    private static func creatorText(_ creator: RoutineCreator?) -> String? {
-        guard let creator else { return nil }
-        let source: String
-        switch creator.authorization {
-        case .userTurn: source = "用户回合"
-        case .userConfirmed: source = "经用户确认"
-        }
-        let reference = creator.rpcId ?? creator.turnId ?? creator.sessionId
-        return reference.map { "\(source) · \($0)" } ?? source
-    }
-
     private static func scheduleText(_ schedule: RoutineSchedule) -> String {
         switch schedule.kind {
         case .interval:
@@ -328,8 +342,7 @@ extension BotInfoSnapshot {
 
     private static func lastResultText(_ result: RoutineResult?) -> String {
         guard let result else { return "还没有运行结果。" }
-        if !result.text.isEmpty { return result.text }
-        if let error = result.error, !error.isEmpty { return error }
-        return "运行状态：\(result.status.rawValue)"
+        return BotUIFormat.routineRunResult(
+            status: result.status.rawValue, text: result.text, error: result.error)
     }
 }

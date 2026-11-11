@@ -326,3 +326,180 @@ enum BotUIFormat {
         trimmed(value).lowercased()
     }
 }
+
+// MARK: - Routine page/card presentation (appended for ui-rou)
+
+extension BotUIFormat {
+    /// `Asia/Shanghai` → `上海时间（UTC+8）`. The raw IANA identifier stays in
+    /// the routine detail surface; an unknown zone falls back to
+    /// ``unknownValue`` instead of leaking the identifier into the main row.
+    static func routineTimeZone(_ rawValue: String) -> String {
+        let identifier = trimmed(rawValue)
+        guard !identifier.isEmpty, let zone = TimeZone(identifier: identifier) else {
+            return unknownValue
+        }
+        let cityName: String
+        switch key(identifier) {
+        case "asia/shanghai", "prc", "asia/chongqing", "asia/harbin": cityName = "上海时间"
+        case "asia/tokyo", "japan": cityName = "东京时间"
+        case "asia/seoul", "rok": cityName = "首尔时间"
+        case "asia/singapore": cityName = "新加坡时间"
+        case "asia/hong_kong", "hongkong": cityName = "香港时间"
+        case "asia/taipei": cityName = "台北时间"
+        case "asia/macau": cityName = "澳门时间"
+        case "asia/bangkok": cityName = "曼谷时间"
+        case "asia/jakarta": cityName = "雅加达时间"
+        case "asia/kolkata", "asia/calcutta": cityName = "印度时间"
+        case "asia/dubai": cityName = "迪拜时间"
+        case "europe/london", "gb": cityName = "伦敦时间"
+        case "europe/paris": cityName = "巴黎时间"
+        case "europe/berlin": cityName = "柏林时间"
+        case "america/new_york": cityName = "纽约时间"
+        case "america/los_angeles": cityName = "洛杉矶时间"
+        case "australia/sydney": cityName = "悉尼时间"
+        case "utc", "gmt", "etc/utc", "etc/gmt": cityName = "协调世界时"
+        default: cityName = identifier == TimeZone.current.identifier ? "当前时区" : ""
+        }
+        let offset = utcOffset(zone.secondsFromGMT(for: Date()))
+        return cityName.isEmpty ? "\(offset) 时区" : "\(cityName)（\(offset)）"
+    }
+
+    /// `succeeded` + text → the result text; without text, a human status
+    /// sentence. Raw error/status values stay in the detail surface.
+    static func routineRunResult(status: String, text: String, error: String?) -> String {
+        let result = trimmed(text)
+        if !result.isEmpty { return result }
+        switch key(status) {
+        case "succeeded": return "已完成。"
+        case "failed": return "上次运行失败。"
+        case "timed-out": return "上次运行超时，已结束。"
+        case "cancelled": return "上次运行已取消。"
+        case "needs-reconciliation": return "上次运行结果未确认。"
+        case "started": return "正在运行。"
+        case "scheduled": return "等待下次触发。"
+        case "waiting-approval": return "等待审批。"
+        default:
+            return trimmed(error ?? "").isEmpty ? "还没有运行结果。" : "上次运行没有完成。"
+        }
+    }
+
+    /// The effect record (`routine.deliver · … · unknown-outcome`) becomes one
+    /// human sentence. The raw record is kept in the routine detail surface.
+    static func routineEffectSummary(operation: String, reason: String?) -> String {
+        let operationKey = key(operation)
+        let reasonKey = key(reason ?? "")
+        if operationKey == "routine.deliver" || operationKey.hasSuffix(".deliver") {
+            switch reasonKey {
+            case "generation-conflict":
+                return "已尝试发送提醒，但发送记录被覆盖，结果未确认。"
+            case "receiver-mismatch":
+                return "已尝试发送提醒，但接收方不一致，结果未确认。"
+            default:
+                return "已尝试发送提醒，送达结果未确认。"
+            }
+        }
+        return "已尝试执行这次操作，结果未确认。"
+    }
+
+    /// Raw effect reference for the detail disclosure (operation · target ·
+    /// reason), never shown in the main routine row.
+    static func routineEffectReference(operation: String, target: String, reason: String?) -> String {
+        "\(trimmed(operation)) · \(trimmed(target)) · \(trimmed(reason ?? "unknown"))"
+    }
+
+    /// `投递结果未知：连接在确认前中断` → `连接在确认前中断。`. Known internal
+    /// tokens or an all-English error fall back to a neutral sentence; the raw
+    /// error stays in the detail disclosure.
+    static func routineReconciliationReason(_ rawValue: String?) -> String? {
+        guard var reason = rawValue.map(trimmed), !reason.isEmpty else { return nil }
+        let prefixes = [
+            "投递结果未知：", "投递结果未知:", "執行結果未知，需要確認：",
+            "执行结果未知，需要确认：", "执行结果未知：", "结果未知：", "未知原因：",
+        ]
+        for prefix in prefixes where reason.hasPrefix(prefix) {
+            reason.removeFirst(prefix.count)
+            break
+        }
+        reason = trimmed(reason)
+        guard !reason.isEmpty else { return nil }
+        let asciiOnly = reason.unicodeScalars.allSatisfy(\.isASCII)
+            && reason.contains(where: { $0.isLetter })
+        if asciiOnly || routineFreeTextNeedsDetail(reason) {
+            return "这次运行在确认结果前中断。"
+        }
+        if let last = reason.last, "。！？.!?".contains(last) { return reason }
+        return reason + "。"
+    }
+
+    /// Free text written by the routine creator (constraints / completion
+    /// criteria) that carries internal tool names, bracketed prompt tokens,
+    /// record references or backticked snippets. Such text is not paraphrased:
+    /// the main row shows a short factual pointer and the raw text moves to the
+    /// detail disclosure.
+    static func routineFreeTextNeedsDetail(_ rawValue: String) -> Bool {
+        let value = trimmed(rawValue)
+        guard !value.isEmpty else { return false }
+        if value.contains("`") || value.contains("://") { return true }
+        if value.range(of: #"\[[^\]\n]{1,40}\]"#, options: .regularExpression) != nil {
+            return true
+        }
+        if value.range(of: #"\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b"#,
+                       options: .regularExpression) != nil {
+            return true
+        }
+        let lowered = value.lowercased()
+        let knownTokens = [
+            "sendtouser", "sendtoagent", "updateroutine", "listroutines",
+            "createteammate", "readmemory", "writememory", "recallmemory",
+            "forgetmemory", "awaittask", "stopsubagent", "record://",
+        ]
+        return knownTokens.contains { lowered.contains($0) }
+    }
+
+    /// Detail-only creator reference: human origin/authorization plus the raw
+    /// ids the main row never prints.
+    static func routineCreatorDetail(origin: String, authorization: String,
+                                     references: [String]) -> String {
+        let originLabel: String
+        switch key(origin) {
+        case "user": originLabel = "用户回合"
+        case "agent": originLabel = "其他 Bot"
+        case "routine": originLabel = "例行任务"
+        case "task", "task-wake": originLabel = "子任务"
+        case "held": originLabel = "后台回合"
+        default: originLabel = "其他来源"
+        }
+        let authorizationLabel = key(authorization) == "user-confirmed"
+            ? "你确认后创建" : "由你在对话中创建"
+        var parts = ["来源：\(originLabel)", "授权：\(authorizationLabel)"]
+        let ids = references.map(trimmed).filter { !$0.isEmpty }
+        if !ids.isEmpty { parts.append("引用：\(ids.joined(separator: "、"))") }
+        return parts.joined(separator: "；")
+    }
+
+    /// The scheduler's free-form context may carry a raw delivery mode in old
+    /// rows (`held · 非紧急`). Drop those raw tokens and render the remaining
+    /// sentences on their own line instead of concatenating them under the
+    /// title.
+    static func routineAutomationContext(_ rawValue: String) -> String? {
+        let value = trimmed(rawValue)
+        guard !value.isEmpty else { return nil }
+        let rawDeliveryTokens: Set<String> = [
+            "held", "interrupt", "queued", "存入待处理", "立即打断", "立即提醒",
+            "下次聊天时送达",
+        ]
+        let parts = value.split(separator: "·")
+            .map { trimmed(String($0)) }
+            .filter { !$0.isEmpty && !rawDeliveryTokens.contains(key($0)) }
+        return parts.isEmpty ? nil : parts.joined(separator: "；")
+    }
+
+    private static func utcOffset(_ seconds: Int) -> String {
+        let sign = seconds < 0 ? "-" : "+"
+        let magnitude = abs(seconds)
+        let hours = magnitude / 3_600
+        let minutes = (magnitude % 3_600) / 60
+        if minutes == 0 { return "UTC\(sign)\(hours)" }
+        return "UTC\(sign)\(hours):\(String(format: "%02d", minutes))"
+    }
+}
