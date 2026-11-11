@@ -66,6 +66,26 @@ struct BotTextButtonStyle: ButtonStyle {
     }
 }
 
+/// Red text button for irreversible Bot actions (delete Bot, erase memory,
+/// revoke a standing grant). The global `HomeSpec` tint stays untouched; the
+/// approval card's neutral "reject" button must not use this style.
+struct BotDestructiveButtonStyle: ButtonStyle {
+    /// `true` for a full list row (the delete-Bot row); `false` for an inline
+    /// text button (revoke/erase actions).
+    var fillsWidth = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .botSecondaryFont(weight: .medium)
+            .foregroundStyle(BotUIPalette.danger)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: fillsWidth ? .infinity : nil, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(BotUIPalette.danger.opacity(configuration.isPressed ? 0.08 : 0),
+                        in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
 /// Bot-page-only palette roles. Keeping the few values the page needs here
 /// avoids importing app-only page types into the DEBUG capture target.
 enum BotUIPalette {

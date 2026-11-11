@@ -190,7 +190,7 @@ public enum BotTeamHostError: Error, Sendable, Equatable, CustomStringConvertibl
         switch self {
         case .botNotFound(let id): return "Unknown Bot: \(id)"
         case .invalidTarget(let reason): return "Invalid agent target: \(reason)"
-        case .deliveryTimeout: return "目標 bot 未在時限內完成回合。"
+        case .deliveryTimeout: return "目标 Bot 未在时限内完成回合。"
         case .deliveryFailed(let reason): return "Agent delivery failed: \(reason)"
         case .rejected(let reason): return reason
         }

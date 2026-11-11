@@ -411,13 +411,6 @@ struct BotChatPage: View {
             .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
             .homeComposerShadow()
             .simultaneousGesture(TapGesture().onEnded { model.noteInteraction() })
-            if model.runningTurnID != nil {
-                Text("发送会并入当前回合，不会排队；停止只取消当前回合。")
-                    .botCaptionFont()
-                    .foregroundStyle(HomeSpec.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
-            }
         }
         .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.activity != nil)
         .padding(.horizontal, HomeSpec.chromeInset)
@@ -1050,7 +1043,7 @@ private struct BotDocumentPreview: View {
                                 .botBodyFont()
                                 .foregroundStyle(HomeSpec.textSecondary)
                         }
-                        BotFailureRow(message: "此卡片没有内嵌正文；由宿主打开原始文档。")
+                        BotFailureRow(message: "没有内嵌正文。")
                     }
                     if let path = row.body.string("path", "url") {
                         Text(path)

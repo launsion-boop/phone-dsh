@@ -399,8 +399,13 @@ actor BotProductionRowService {
 
 struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var id: String
+    /// Human-readable action + operation labels; never an id or digest.
     var parameterSummary: String
     var decision: BotGrantDecision
+    /// `once` / `session` / `until` for an allow; nil for a deny.
+    var scope: String?
+    /// `allowed` / `denied` / `timed-out` / `expired` / `cancelled`.
+    var status: String?
     var decidedAtMS: Int64
 }
 
@@ -425,7 +430,11 @@ struct BotProductionReconciliation: Sendable, Equatable, Identifiable {
     var effectKey: String?
     var effectGeneration: Int?
     var effectAttempt: Int?
+    /// Human-readable effect summary for the single reconciliation block.
     var effectSummary: String?
+    /// Raw effect record (`operation · target · reason`) for the detail
+    /// disclosure; the main row never prints the effect key.
+    var effectDetail: String?
 }
 
 struct BotProductionMemoryDocument: Sendable {
@@ -593,8 +602,15 @@ actor BotProductionInfoService {
                 effectGeneration: matching?.generation,
                 effectAttempt: matching?.attempt,
                 effectSummary: matching.map {
-                    "\($0.effect.operation) · \($0.effect.target) · "
-                        + "\( $0.reconciliationReason ?? "unknown" )"
+                    BotUIFormat.routineEffectSummary(
+                        operation: $0.effect.operation,
+                        reason: $0.reconciliationReason)
+                },
+                effectDetail: matching.map {
+                    BotUIFormat.routineEffectReference(
+                        operation: $0.effect.operation,
+                        target: $0.effect.target,
+                        reason: $0.reconciliationReason)
                 }))
         }
         return records
@@ -696,23 +712,71 @@ actor BotProductionInfoService {
     }
 
     private func approvalRecords() async throws -> [BotProductionApproval] {
+        var requested: [String: BotEvent] = [:]
         var records: [BotProductionApproval] = []
         for event in try await BotProductionEventReader.all(domain: environment.domain) {
-            guard ["grant.added", "grant.consumed", "grant.revoked"].contains(event.type),
-                  let record = try? JSONDecoder().decode(BotAuditRecord.self, from: event.data.encoded()),
-                  record.principal.botId == environment.botID else { continue }
-            let effects = record.effects.map {
-                "\($0.tool)/\($0.operation) · \($0.resourceDigest.prefix(16))"
-            }.joined(separator: "\n")
-            let grants = record.grants.map {
-                "Grant \($0.id) · \($0.scope.rawValue) · \($0.resourceDigest.prefix(16))"
-            }.joined(separator: "\n")
-            records.append(BotProductionApproval(
-                id: event.eventId,
-                parameterSummary: [effects, grants].filter { !$0.isEmpty }.joined(separator: "\n"),
-                decision: record.decision, decidedAtMS: record.at))
+            guard event.principal.botId == environment.botID else { continue }
+            switch event.type {
+            case "approval.requested":
+                guard let id = event.data["approvalID"]?.stringValue else { continue }
+                requested[id] = event
+            case "approval.decided":
+                guard let id = event.data["approvalID"]?.stringValue else { continue }
+                let data = event.data
+                let decisionRaw = data["decision"]?.stringValue ?? "deny"
+                let decision: BotGrantDecision = decisionRaw == "deny" ? .deny : .allow
+                let status: String
+                if data["timedOut"]?.boolValue == true {
+                    status = "timed-out"
+                } else {
+                    status = data["status"]?.stringValue
+                        ?? (decision == .allow ? "allowed" : "denied")
+                }
+                let scope: String?
+                if decision == .allow {
+                    if decisionRaw == "always" {
+                        scope = data["alwaysScope"]?.stringValue
+                            ?? requested[id]?.data["alwaysScope"]?.stringValue
+                            ?? "until"
+                    } else {
+                        scope = "once"
+                    }
+                } else {
+                    scope = nil
+                }
+                records.append(BotProductionApproval(
+                    id: id,
+                    parameterSummary: Self.approvalSummary(request: requested[id]),
+                    decision: decision,
+                    scope: scope,
+                    status: status,
+                    decidedAtMS: event.time))
+            default:
+                continue
+            }
         }
         return records.sorted { $0.decidedAtMS > $1.decidedAtMS }
+    }
+
+    /// A user-readable summary built from the approval request's action and
+    /// effect labels. Digests, grant ids and raw scopes never reach this string.
+    private static func approvalSummary(request: BotEvent?) -> String {
+        guard let data = request?.data else { return "一次操作" }
+        let action = (data["action"]?.stringValue ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var labels: [String] = []
+        for effect in data["effects"]?.arrayValue ?? [] {
+            let raw = (effect["label"]?.stringValue ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = raw.isEmpty ? "工具操作" : raw
+            guard !labels.contains(label) else { continue }
+            labels.append(label)
+        }
+        if action.isEmpty {
+            return labels.isEmpty ? "一次操作" : labels.joined(separator: "、")
+        }
+        if labels.isEmpty || labels.contains(action) { return action }
+        return "\(action) · \(labels.joined(separator: "、"))"
     }
 }
 

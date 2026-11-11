@@ -261,6 +261,8 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # Shared Bot display formatting; Foundation-only so both suites can test it.
+      - path: PhoneDSHProbe/Bot/BotUIFormat.swift
       # The scripted model upstream, the smoke evidence readers (WAL
       # replay/journal/step formats) and the kill-matrix support ship as the
       # regular SwiftPM target `PhoneDSHHarness`; this target links its
@@ -389,6 +391,8 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # Shared Bot display formatting; Foundation-only so both suites can test it.
+      - path: PhoneDSHProbe/Bot/BotUIFormat.swift
     dependencies:
       - target: PhoneDSHProbe
       - target: ProbeKit

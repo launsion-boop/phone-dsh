@@ -199,7 +199,7 @@ final class BotTeamToolsTests: XCTestCase {
         ], callID: "queued-call")
         XCTAssertNotEqual(result.isError, true, botTeamResultText(result))
         XCTAssertEqual(botTeamResultText(result),
-                       "已扣住給 Bee：訊息會在對方下一個回合開頭交付，不會喚醒對方。")
+                       "已扣住给 Bee：消息会在对方下一个回合开头交付，不会唤醒对方。")
 
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
@@ -261,7 +261,7 @@ final class BotTeamToolsTests: XCTestCase {
         ], callID: "now-call")
         XCTAssertNotEqual(result.isError, true, botTeamResultText(result))
         XCTAssertEqual(botTeamResultText(result),
-                       "已送出給 Bee，回覆稍後以 agent-comm 訊息送達。")
+                       "已发送给 Bee，回复稍后以 agent-comm 消息送达。")
 
         let delivered = await host.delivered
         XCTAssertEqual(delivered.count, 1)
@@ -325,7 +325,7 @@ final class BotTeamToolsTests: XCTestCase {
         ], callID: "timeout-call")
         XCTAssertEqual(result.isError, true)
         XCTAssertEqual(result.structuredContent?["error"]?["code"], .string("timeout"))
-        XCTAssertEqual(botTeamResultText(result), "目標 bot 未在時限內完成回合。")
+        XCTAssertEqual(botTeamResultText(result), "目标 Bot 未在时限内完成回合。")
         let records = await host.records
         XCTAssertEqual(records.map(\.direction), [.outbound, .inbound])
         XCTAssertEqual(records[1].text, "")
@@ -354,10 +354,10 @@ final class BotTeamToolsTests: XCTestCase {
             "section_id": .string("ignored-section"),
         ])
         XCTAssertNotEqual(allowed.isError, true, botTeamResultText(allowed))
-        XCTAssertTrue(botTeamResultText(allowed).contains("已建立隊友「Builder」"))
+        XCTAssertTrue(botTeamResultText(allowed).contains("已创建队友「Builder」"))
         XCTAssertTrue(botTeamResultText(allowed).contains("agent_id: agent-"))
-        XCTAssertTrue(botTeamResultText(allowed).contains("顏色=amber"))
-        XCTAssertTrue(botTeamResultText(allowed).contains("髮型=twin-tail"))
+        XCTAssertTrue(botTeamResultText(allowed).contains("颜色=amber"))
+        XCTAssertTrue(botTeamResultText(allowed).contains("发型=twin-tail"))
         XCTAssertFalse(botTeamResultText(allowed).contains("ignored-section"))
         let createdAfter = await host.created
         XCTAssertEqual(createdAfter.count, 1)
@@ -395,7 +395,7 @@ final class BotTeamToolsTests: XCTestCase {
             "name": .string("  Builder  "), "description": .string(description),
         ])
         XCTAssertNotEqual(success.isError, true, botTeamResultText(success))
-        XCTAssertTrue(botTeamResultText(success).contains("外觀：依 Bot ID 自動組合"))
+        XCTAssertTrue(botTeamResultText(success).contains("外观：按 Bot ID 自动组合"))
         let createdAfter = await host.created
         XCTAssertEqual(createdAfter.first?.name, "Builder")
         XCTAssertEqual(createdAfter.first?.description.count, 300)
