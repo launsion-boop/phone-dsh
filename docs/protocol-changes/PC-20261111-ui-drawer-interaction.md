@@ -69,10 +69,10 @@ P09 — 會話抽屜（任務 tab 的會話列表、Bot tab 的名單共用同�
 ### 2.3 規則（寫進 README §3.2，規範性）
 
 1. 打開只由導航鈕觸發（任務頁、Bot 頁、PC 佔位頁的抽屜鈕）；**沒有**邊緣右滑打開。已打開時再觸發不做任何事。打開前收起鍵盤。
-2. 偏移 `offset ∈ [−width, 0]`；拖動只跟隨向左：`offset = min(0, dx)`。
+2. 拖動只跟隨向左：`offset = min(0, dx)`，向左不設下限（與 iOS `NativeShell.swift:400` 一致）。
 3. 只有 `|dx| > |dy|` 的移動才跟手（抽屜內上下滑列表不能帶走抽屜）；拖動距離（歐氏）未達 `dragMinimumDistance` 不算拖動。
 4. 拖動同時在遮罩和面板上生效。
-5. 進度 `progress = 1 + offset / width`（打開時），遮罩不透明度 = `scrimMaxOpacity × progress`。
+5. 進度 `progress = max(0, 1 + offset / width)`（打開時，`NativeShell.swift:377`），遮罩不透明度 = `scrimMaxOpacity × progress`。
 6. 鬆手：`dx < −closeThreshold × width` **或** `dx + velocity × velocityProjection < −closeThreshold × width` → 以 `closeMotion` 收起；
    否則以 `settleMotion` 回到 0。比較為嚴格小於。`dx` 是鬆手時的原始橫向位移（不經 `min(0, …)`），velocity 單位 pt/s（Android dp/s）。
 7. 點遮罩收起（`closeMotion`）。
