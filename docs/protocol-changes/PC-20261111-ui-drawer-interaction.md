@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261111-ui-drawer-interaction
 contracts: [P09]
-status: draft
+status: frozen
 breaking: false
 version_decision: tokens.json 仍是 version 1。新增可選頂層組 `interaction` 和可選欄位 `shadows.*.x`（缺省 0）；既有 token 不改名、不改值。
 base: f0896a74
-contract_revision: <worker A 落地並驗收後填>
+contract_revision: 0114b516   # 數值與 golden 自 5773807b 起不變；rev 2 只搬移文件位置
 ```
 
 Protocol impact: P09

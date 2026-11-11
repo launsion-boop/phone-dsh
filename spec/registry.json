@@ -836,7 +836,8 @@
         "spec/ui/v1/tokens.json",
         "spec/ui/v1/pages",
         "spec/v1/trajectory.md",
-        "spec/ui/v1/page-completeness.md"
+        "spec/ui/v1/page-completeness.md",
+        "spec/ui/v1/interaction.md"
       ],
       "ends": {
         "Swift": [
