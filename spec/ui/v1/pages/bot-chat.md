@@ -49,6 +49,8 @@ question/steps 选项为整行可点并支持 recommended，提交时只使用�
 
 所有卡片先验证 `body.type`、`cardType` 和必需数据。未登记或数据不足时不渲染，不用空白卡或猜测默认值补齐。
 
+Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8）：`verdict=passed` 显示「验证通过」success，`failed` 显示「验证未通过」danger，`uncertain` 显示「验证不确定」warning；摘要最多 3 行，另显示依据的 `record://` 条数。验证行是已有 Task 卡的附加行，不新增卡片类型，也不把 Task 状态和验证结论合并成一个标签；没有 `verification` 时保持原样。accessibility id 为 `bot.task.verification`。
+
 ## 4. 最新基线的表现与接线
 
 - Bot 色彩：用户气泡和推荐卡表面使用真实 Bot 色彩，但必须满足 phoneDSH 深浅色与对比度 token；不能把桌面任意色值直接用于正文或背景。推荐色不能掩盖文字层级或失败语义。

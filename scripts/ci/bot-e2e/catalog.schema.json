@@ -344,7 +344,8 @@
                 "erase_memory",
                 "erase_shared_memory",
                 "forget_memory",
-                "stop_task"
+                "stop_task",
+                "await_task"
               ]
             },
             "card": {

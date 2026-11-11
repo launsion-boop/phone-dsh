@@ -176,4 +176,15 @@ test('only blank gb- sessions select the Bot preset; locked sessions stay recove
     },
   }
   await assert.rejects(selectBotAgentPreset(broken, bot, 'phone-bot'), /agent-preset\/not-found/)
+
+  // The committed identity is the tool boundary: a Worker that mounted a
+  // different preset must fail closed instead of keeping a wider surface.
+  const miscomposed: BotAgentPresetSelector = {
+    async select() {
+      return 'standard'
+    },
+  }
+  await assert.rejects(
+    selectBotAgentPreset(miscomposed, bot, 'phone-bot'),
+    /committed "standard" instead of "phone-bot"/)
 })

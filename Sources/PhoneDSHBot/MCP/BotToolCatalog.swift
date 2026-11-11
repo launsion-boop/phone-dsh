@@ -89,8 +89,14 @@ public enum BotToolCatalog {
             "query": string(), "limit": .object(["type": .string("number"), "minimum": .number(1), "maximum": .number(50)]),
             "scope": enumString(["agent", "user", "all"]),
         ], additionalProperties: false)),
-        tool("Task", "Delegate work to another DSH session in the same runtime; async tasks wake the parent with a hidden turn.", schema([
+        tool("Task", "Delegate work to another DSH session in the same runtime. Give a checkable completion condition when the result matters; an async Task with completion is verified read-only before its wake, and the wake carries the verifier's evidence, not the child's self-report.", schema([
             "description": string(), "prompt": string(), "task_description": string(), "task_title": string(),
+            "completion": .object(["type": .string("string"), "minLength": .number(1), "maxLength": .number(4_000)]),
+            "purpose": .object(["type": .string("string"), "maxLength": .number(2_000)]),
+            "constraints": .object(["type": .string("array"), "maxItems": .number(8), "items": .object(["type": .string("string"), "maxLength": .number(500)])]),
+            "budget": .object(["type": .string("object"), "properties": .object([
+                "max_duration_ms": .object(["type": .string("integer"), "minimum": .number(1_000), "maximum": .number(300_000)]),
+            ]), "additionalProperties": .bool(false)]),
             "subagent_type": enumString(["executor"]), "async": bool(),
             "model": string(), "model_override": string(), "allowed_write_directories": array(string()),
             "max_mode_override": bool(), "default_expanded_while_running": bool(), "agent_id": string(),

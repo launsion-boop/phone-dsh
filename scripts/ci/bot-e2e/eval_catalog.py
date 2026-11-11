@@ -48,7 +48,7 @@ SUPPORTED_ASSERTIONS = {
 }
 UI_KINDS = {
     "card_answer", "card_dismiss", "approval", "erase_memory",
-    "erase_shared_memory", "forget_memory", "stop_task",
+    "erase_shared_memory", "forget_memory", "stop_task", "await_task",
 }
 BOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SCENARIO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")

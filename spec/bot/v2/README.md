@@ -224,6 +224,11 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
   字段记录，改为引用需另开变更单，不新增第二种字段。
 - routine 另带 `completion_criteria` 与 `constraints`（各最多 2,000 字符，可空）。创建/更新可携带；
   空字符串表示没有记录，不伪造内容。
+- `completion_criteria` 非空且本次运行以 `succeeded` 结束时，宿主按
+  [v1 §2.8](../v1/README.md#28-task-交付终态与独立验证s3) 起一次只读 verifier；预算取本次 routine
+  运行预算的 30%。结论写入 durable `verification.reported`，`subjectKind:"routine"`。若结论不是
+  `passed`，交付文本以「验证未通过：…」或「验证不确定：…」开头并保留 verifier 的依据引用，不能把
+  未验证的运行说成成功；安静运行在这种情况下不再保持 `[quiet]`。
 - **放宽**指：排程比当前更频繁、`delivery` 从 `held` 改为 `interrupt`、`urgent` 从 false 改为 true、
   `resume` 一个暂停的 routine。排程频率按同一时区下接下来两次运行的平均间隔比较。
 - 在**没有用户消息来源**的回合（[v1 §4.1](../v1/README.md#41-回合来源turn-origin) 的 `routine`、
@@ -320,14 +325,22 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
   `Task`／`AwaitTask`／`StopSubagent`、routine、goal 或卡片工具。guard 对每个调用再按
   bare name 检查一次，restrict 只是可见面。`bash` 实参也必须匹配
   `phone record search|read`，否则 guard 拒绝；这是“能读原始记录”的唯一 shell 能力。
+- **与 verifier 共用受限会话机制。** maintainer 和 [v1 §2.8](../v1/README.md#28-task-交付终态与独立验证s3)
+  的只读 verifier 使用同一份 `restricted-session` 实现：同一个 guard 函数、同一套
+  `session/create` 创建头 + 返回值核对、同一组 `gb-<kind>-` 保留前缀约定，以及 volatile
+  上下文同一处排除逻辑。两者的差别只有 allow-list 与 bash 规则；不存在第二套 guard。
 - **preset 在 `session/create` 时指定。** 会话控制器在发布 `agent/created` 之前就已经
   解析并挂载 preset，之后再 `agentPresets.select` 会被 `agent-preset/locked` 拒绝。宿主
   必须在创建 maintainer 会话时带 `agentPreset: "phone-bot-maintainer"`，并核对
-  `session/create` 返回值里的 `agentPreset`；不一致时 fail-closed，不运行该批次。
-- **全局兜底 guard。** 另有一个全局 `maintainer-guard` 行，按 `gb-maintainer-` 前缀识别
-  会话并在执行点复检同一个 allow-list 与 bash 规则。它覆盖“会话在升级前已创建”或
-  “preset 解析失败但会话仍被复用”的情况；`tools.restrict` 只是可见面，执行边界不依赖
-  preset 是否成功挂载。
+  `session/create` 返回值里的 `agentPreset`；不一致时 fail-closed，不运行该批次。若传输
+  丢了创建头，`agent/created` 仍按 `gb-maintainer-` 前缀选择同一 preset，并同样核对返回。
+- **全局兜底 guard。** 只有一个全局 `restricted-session-guard` 行：先按不可变创建头、再按
+  保留前缀解析会话，然后在执行点应用对应策略的 allow-list 与 bash 规则。它同时覆盖 verifier
+  和 maintainer，覆盖“会话在升级前已创建”或“preset 解析失败但会话仍被复用”的情况；
+  `tools.restrict` 只是可见面，执行边界不依赖 preset 是否成功挂载。
+- **volatile 上下文。** 两种受限会话（verifier 与 maintainer）都按创建头或保留前缀在
+  [v1 §2.8](../v1/README.md#28-task-交付终态与独立验证s3) 的同一处逻辑排除，不注入
+  variant/persona/memory/automation。
 - maintainer 的回合是 hidden turn，不进入主对话行、不向用户显示过程。它的工具调用和
   结果仍按 P25 记录 durable 事件（`principal.kind = "maintainer"`），供审计与批次检查。
 - 会话只用于整理：不与另一个 maintainer 并发、不派 Task、不改 routine 或授权。

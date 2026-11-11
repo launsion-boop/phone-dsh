@@ -7,6 +7,10 @@ public enum BotSessionKind: String, Codable, Sendable {
     case chat
     case task
     case routine
+    /// A read-only verification session. It is a distinct principal kind so a
+    /// verifier credential can never be mistaken for the doer's task/routine
+    /// credential (P26 §2.8).
+    case verifier
     case team
     case proactive
     case watchdog

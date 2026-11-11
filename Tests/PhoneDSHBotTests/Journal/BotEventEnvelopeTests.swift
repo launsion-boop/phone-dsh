@@ -42,7 +42,7 @@ final class BotEventEnvelopeTests: XCTestCase {
     func testPhoneGoldenAgentCommUsesRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
         let valid = fixture["validCases"] as! [[String: Any]]
-        XCTAssertEqual(valid.count, 7)
+        XCTAssertEqual(valid.count, 8)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
@@ -64,10 +64,19 @@ final class BotEventEnvelopeTests: XCTestCase {
                 XCTAssertEqual(decoded.principal.kind, "maintainer")
                 XCTAssertEqual(decoded.data["batch_id"]?.stringValue,
                                "mm-0123456789abcdef0123456789abcdef")
-            default:
+            case "verification-reported":
+                XCTAssertEqual(decoded.type, "verification.reported")
+                XCTAssertEqual(decoded.principal.kind, "verifier")
+                XCTAssertEqual(decoded.data["subjectKind"]?.stringValue, "task")
+                XCTAssertEqual(decoded.data["verification"]?["verdict"]?.stringValue, "failed")
+                XCTAssertEqual(decoded.data["verification"]?["refs"]?.arrayValue?.first?.stringValue,
+                               "record://session/gb-task-abc#10")
+            case "agent-comm-outbound", "agent-comm-inbound":
                 XCTAssertEqual(decoded.type, "agent.comm")
                 XCTAssertEqual(decoded.origin, .local(source: "comm-service"))
                 XCTAssertEqual(decoded.principal.kind, "team")
+            default:
+                XCTFail("unhandled phone event case \(vector["name"] ?? "?")")
             }
             XCTAssertEqual(try codec.decode(codec.encode(decoded)), decoded)
         }

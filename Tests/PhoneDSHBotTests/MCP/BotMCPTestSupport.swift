@@ -37,6 +37,15 @@ final class FixedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked 
     }
 }
 
+/// Simulates S6 physical erasure for any cited record: the verifier must map
+/// this to `uncertain` with an explicit `record_erased` reason, never `passed`.
+final class ErasedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked Sendable {
+    func resolveEvidence(_ references: [String], callerBotID: String,
+                         callerSessionID: String) async throws -> BotRecordEvidence {
+        throw BotRecordServiceError.erasedRecord
+    }
+}
+
 func makeBotMCPFixture(
     volatileProvider: (any BotVolatileContextProviding)? = nil,
     taskExecutor: (any BotTaskExecuting)? = nil,

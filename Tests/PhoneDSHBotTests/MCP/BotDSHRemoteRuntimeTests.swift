@@ -249,6 +249,416 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertFalse(events.contains { $0.type == "conversation.assistant_message" && $0.data["text"] == .string("hidden result must not render") })
     }
 
+    func testAsyncTaskWithCompletionIsVerifiedAndWakeCarriesEvidence() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let verifierOutput = #"{"verdict":"failed","summary":"REPORT.md is missing from the workspace.","refs":["record://session/gb-created-1#2"],"unverified":[]}"#
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-2": [[
+                .turn(), .assistant(verifierOutput), .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("DONE: I wrote REPORT.md"), .end(),
+        ])
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Write REPORT.md", prompt: "write it",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "REPORT.md exists in the workspace",
+            purpose: "deliver the report"))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        XCTAssertEqual(settled.status, "completed")
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .failed)
+        XCTAssertEqual(verification.refs, ["record://session/gb-created-1#2"])
+        XCTAssertEqual(verification.output, "valid")
+        XCTAssertEqual(verification.budget.limitMs, 3_000)
+
+        let doerPrompt = try XCTUnwrap(transport.prompts["gb-created-1"]?.text)
+        XCTAssertTrue(doerPrompt.contains("<task_contract>"))
+        XCTAssertTrue(doerPrompt.contains("REPORT.md exists in the workspace"))
+        let verifierPrompt = try XCTUnwrap(transport.prompts["gb-created-2"]?.text)
+        XCTAssertTrue(verifierPrompt.contains("REPORT.md exists in the workspace"))
+        XCTAssertTrue(verifierPrompt.contains("record://session/gb-created-1#2"))
+        XCTAssertFalse(verifierPrompt.contains("DONE: I wrote REPORT.md"),
+                       "the verifier gets raw record refs, not the child's self-report")
+        XCTAssertEqual(transport.promptRequestIds.last?.requestId, "task-settled:\(started.taskId)")
+
+        let wake = try XCTUnwrap(transport.prompts["gb-main"]?.text)
+        XCTAssertTrue(wake.contains("[verification] failed"))
+        XCTAssertTrue(wake.contains("REPORT.md is missing"))
+        XCTAssertTrue(wake.contains("record://session/gb-created-1#2"))
+        XCTAssertFalse(wake.contains("DONE: I wrote REPORT.md"))
+        XCTAssertTrue(wake.contains("Tell the user honestly"))
+
+        XCTAssertTrue(transport.claimedSessions.contains("gb-created-2"),
+                      "the verifier session gets and claims its own credential")
+        XCTAssertTrue(transport.claimedSessionTokens.contains { (session, token) in
+            session == "gb-created-2" && token?.isEmpty == false
+        })
+        XCTAssertEqual(transport.createdAgentPresets["gb-created-2"], "pdsh-verifier",
+                       "the read-only preset is part of the immutable creation header")
+        XCTAssertTrue(transport.requestedSessionIds.contains { $0.hasPrefix("gb-verifier-") },
+                      "the verifier is minted in its own reserved session namespace")
+        let events = try await botEvents(fixture.store)
+        let reported = try XCTUnwrap(events.first { $0.type == "verification.reported" })
+        XCTAssertEqual(reported.principal.kind, "verifier")
+        XCTAssertEqual(reported.data["subjectKind"]?.stringValue, "task")
+        XCTAssertEqual(reported.data["verification"]?["verdict"]?.stringValue, "failed")
+        XCTAssertEqual(reported.data["verification"]?["output"]?.stringValue, "valid")
+    }
+
+    func testCompletedTaskVerificationSurvivesWorkerRestart() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let verifierOutput = #"{"verdict":"failed","summary":"REPORT.md is missing.","refs":["record://session/gb-created-1#2"],"unverified":[]}"#
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-1": [[.turn(), .assistant("DONE: wrote it"), .end()]],
+            "gb-created-2": [[.turn(), .assistant(verifierOutput), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Write REPORT.md", prompt: "write it",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "REPORT.md exists in the workspace",
+            purpose: "deliver the report",
+            constraints: ["Do not use the network"],
+            budget: BotTaskBudget(maxDurationMs: 10_000)))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        XCTAssertEqual(settled.verification?.verdict, .failed)
+
+        // A replaced Worker restores the durable snapshot instead of trusting
+        // an in-memory record; the verification contract must survive.
+        let resumed = try await BotDSHRemoteRuntime(
+            transport: BotScriptedRemoteTransport(scripts: [:]), runtime: fixture.runtime)
+        let restored = try await resumed.await(
+            taskId: started.taskId, timeoutMs: 1_000, parent: parent)
+        XCTAssertEqual(restored.status, "completed")
+        XCTAssertEqual(restored.completion, "REPORT.md exists in the workspace")
+        XCTAssertEqual(restored.purpose, "deliver the report")
+        XCTAssertEqual(restored.constraints, ["Do not use the network"])
+        XCTAssertEqual(restored.budget?.maxDurationMs, 10_000)
+        XCTAssertEqual(restored.verification?.verdict, .failed)
+        XCTAssertEqual(restored.verification?.output, "valid")
+    }
+
+    func testRestartRestoresVerificationContractAndAuthorizationSubsetTogether() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let verifierOutput = #"{"verdict":"failed","summary":"REPORT.md is missing.","refs":["record://session/gb-created-1#2"],"unverified":[]}"#
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-2": [[.turn(), .assistant(verifierOutput), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("claimed done"), .end(),
+        ])
+        let authorization = try BotTaskAuthorization.resolve(
+            requestedDirectories: ["notes"],
+            workspaceRoot: BotWorkspaceLayout.botRoot(botId: "main"))
+        let started = try await remote.start(
+            request: BotTaskRequest(
+                parent: parent, title: "Scoped verified task", prompt: "work",
+                asynchronous: true, timeoutMs: 10_000,
+                completion: "notes/REPORT.md exists",
+                purpose: "both contracts persist",
+                constraints: ["No network"],
+                budget: BotTaskBudget(maxDurationMs: 10_000)),
+            authorization: authorization)
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        XCTAssertEqual(settled.verification?.verdict, .failed)
+        let dispatchedValue = try await remote.authorization(
+            taskId: started.taskId, parent: parent)
+        let dispatched = try XCTUnwrap(dispatchedValue)
+        XCTAssertEqual(dispatched.allowedWriteDirectories, authorization.allowedWriteDirectories)
+
+        // A replaced Worker restores the same durable record: both the S3
+        // completion contract/verification and the S4 authorization subset.
+        let resumed = try await BotDSHRemoteRuntime(
+            transport: BotScriptedRemoteTransport(scripts: [:]), runtime: fixture.runtime)
+        let restored = try await resumed.await(
+            taskId: started.taskId, timeoutMs: 1_000, parent: parent)
+        XCTAssertEqual(restored.status, "completed")
+        XCTAssertEqual(restored.completion, "notes/REPORT.md exists")
+        XCTAssertEqual(restored.purpose, "both contracts persist")
+        XCTAssertEqual(restored.constraints, ["No network"])
+        XCTAssertEqual(restored.budget?.maxDurationMs, 10_000)
+        XCTAssertEqual(restored.verification?.verdict, .failed)
+        XCTAssertEqual(restored.verification?.output, "valid")
+        let restoredAuthorizationValue = try await resumed.authorization(
+            taskId: started.taskId, parent: parent)
+        let restoredAuthorization = try XCTUnwrap(restoredAuthorizationValue)
+        XCTAssertEqual(restoredAuthorization, authorization,
+                       "the S4 subset must survive the same restart as the S3 fields")
+    }
+
+    func testVerifierSessionCreationFailureIsUncertainWithoutFakeEvent() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-1": [[.turn(), .assistant("done"), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Unavailable verifier", prompt: "claim",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "artifact exists"))
+        transport.failCreate(times: 1)
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        XCTAssertEqual(settled.status, "completed")
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .uncertain)
+        XCTAssertEqual(verification.output, "unavailable")
+        XCTAssertEqual(verification.refs, [])
+        let events = try await botEvents(fixture.store)
+        XCTAssertFalse(events.contains { $0.type == "verification.reported" },
+                       "no verifier credential exists, so no verifier-principal event is fabricated")
+        let settledEvent = try XCTUnwrap(events.last {
+            $0.type == "task.settled" && $0.data["task_id"]?.stringValue == started.taskId
+        })
+        XCTAssertEqual(settledEvent.data["verification"]?["output"]?.stringValue, "unavailable")
+        let wake = try XCTUnwrap(transport.prompts["gb-main"]?.text)
+        XCTAssertTrue(wake.contains("[verification] uncertain"))
+    }
+
+    func testVerifierComposedPresetMismatchFailsClosedAsUncertain() async throws {
+        // The creation header is only an authority if the Worker reports the
+        // composition it actually mounted. A different preset must abort the
+        // verifier session instead of running the user-facing surface.
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+        ])
+        transport.createPresetOverride = "phone-bot"
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("done"), .end(),
+        ])
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Miscomposed verifier", prompt: "claim",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "artifact exists"))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .uncertain)
+        XCTAssertEqual(verification.output, "unavailable")
+        let events = try await botEvents(fixture.store)
+        XCTAssertFalse(events.contains { $0.type == "verification.reported" },
+                       "a miscomposed verifier never gets a verifier credential or event")
+    }
+
+    func testVerifierMalformedOutputBecomesUncertain() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-2": [[
+                .turn(), .assistant("Looks fine to me."), .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("done"), .end(),
+        ])
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Untrusted claim", prompt: "claim",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "artifact exists"))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .uncertain)
+        XCTAssertEqual(verification.output, "invalid")
+        XCTAssertTrue(verification.unverified.contains("Verifier output format invalid"))
+        let wake = try XCTUnwrap(transport.prompts["gb-main"]?.text)
+        XCTAssertTrue(wake.contains("[verification] uncertain"))
+        let events = try await botEvents(fixture.store)
+        let reported = try XCTUnwrap(events.first { $0.type == "verification.reported" })
+        XCTAssertEqual(reported.data["verification"]?["output"]?.stringValue, "invalid")
+        XCTAssertEqual(reported.data["verification"]?["refs"]?.arrayValue?.count, 0,
+                       "a host failure path must not fabricate evidence refs")
+    }
+
+    func testVerifierCitedErasedRecordBecomesUncertainRecordErased() async throws {
+        // S6 physical erasure removes the payload but keeps the header. A
+        // verifier claim that cites the erased record must be downgraded to
+        // `uncertain` and named `record_erased`; it can never stay `passed`.
+        let fixture = try makeBotMCPFixture(recordEvidence: ErasedRecordEvidenceResolver())
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let verifiedOutput = #"{"verdict":"passed","summary":"The report exists.","refs":["record://session/gb-created-1#2"],"unverified":[]}"#
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-2": [[.turn(), .assistant(verifiedOutput), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("done"), .end(),
+        ])
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Erased evidence", prompt: "claim",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "REPORT.md exists"))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .uncertain,
+                       "an erased record is missing evidence, not a pass and not a crash")
+        XCTAssertEqual(verification.output, "invalid")
+        XCTAssertEqual(verification.refs, [])
+        XCTAssertTrue(verification.unverified.contains {
+            $0.contains("record_erased")
+        }, "the honest reason must name record_erased: \(verification.unverified)")
+        let events = try await botEvents(fixture.store)
+        let reported = try XCTUnwrap(events.first { $0.type == "verification.reported" })
+        XCTAssertEqual(reported.principal.kind, "verifier")
+        XCTAssertEqual(reported.data["verification"]?["verdict"]?.stringValue, "uncertain")
+        XCTAssertEqual(reported.data["verification"]?["output"]?.stringValue, "invalid")
+        let wake = try XCTUnwrap(transport.prompts["gb-main"]?.text)
+        XCTAssertTrue(wake.contains("[verification] uncertain"))
+        XCTAssertFalse(wake.contains("[verification] passed"))
+    }
+
+    func testVerifierBudgetExceededBecomesUncertain() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-2": [[.turn(), .assistant("never finishes"), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("done"), .end(),
+        ])
+        transport.pause("gb-created-2")
+        let releaseVerifier = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            transport.resume("gb-created-2")
+        }
+        defer { releaseVerifier.cancel() }
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Budgeted", prompt: "claim",
+            asynchronous: true, timeoutMs: 1_000,
+            completion: "artifact exists",
+            budget: BotTaskBudget(maxDurationMs: 1_000)))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .uncertain)
+        XCTAssertEqual(verification.output, "budget_exceeded")
+        XCTAssertEqual(verification.budget.limitMs, 300)
+        XCTAssertTrue(verification.budget.exceeded)
+    }
+
+    func testRoutineWithCompletionIsVerifiedAndFailedConclusionBreaksQuiet() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let verifierOutput = #"{"verdict":"failed","summary":"state.txt is missing from the workspace.","refs":["record://session/gb-created-1#2"],"unverified":[]}"#
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(), .assistant("parent"), .end()]],
+            "gb-created-1": [[.turn(), .assistant("[quiet]"), .end()]],
+            "gb-created-2": [[.turn(), .assistant(verifierOutput), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        let routine = Routine(
+            id: "routine-1", agentId: "main", title: "Check state", prompt: "check state.txt",
+            schedule: .interval(everyMinutes: 60), createdAt: 1,
+            completionCriteria: "state.txt says READY",
+            constraints: "Only inspect the local workspace")
+        let request = RoutineRunRequest(
+            botId: "main", routine: routine, runId: "run-1", attempt: 1,
+            startedAt: 1, timeoutMs: 60_000,
+            wake: RoutineWake(text: "run the routine", mode: .due))
+        let result = await remote.runRoutine(request)
+        XCTAssertEqual(result.status, .succeeded)
+        XCTAssertTrue(result.text.hasPrefix("验证未通过：state.txt is missing"))
+        XCTAssertFalse(result.quiet, "a failed verification must not stay a quiet routine run")
+
+        let verifierPrompt = try XCTUnwrap(transport.prompts["gb-created-2"]?.text)
+        XCTAssertTrue(verifierPrompt.contains("state.txt says READY"))
+        XCTAssertTrue(verifierPrompt.contains("Only inspect the local workspace"))
+        XCTAssertTrue(verifierPrompt.contains("record://session/gb-created-1#2"))
+        XCTAssertEqual(transport.createdAgentPresets["gb-created-2"], "pdsh-verifier")
+
+        let events = try await botEvents(fixture.store)
+        let reported = try XCTUnwrap(events.first { $0.type == "verification.reported" })
+        XCTAssertEqual(reported.principal.kind, "verifier")
+        XCTAssertEqual(reported.data["subjectKind"]?.stringValue, "routine")
+        XCTAssertEqual(reported.data["routine_id"]?.stringValue, "routine-1")
+        XCTAssertEqual(reported.data["runId"]?.stringValue, "run-1")
+        XCTAssertEqual(reported.data["verification"]?["verdict"]?.stringValue, "failed")
+        let finished = try XCTUnwrap(events.first { $0.type == "routine.run_finished" })
+        XCTAssertEqual(finished.data["quiet"], .bool(false))
+        XCTAssertEqual(finished.data["verification"]?["verdict"]?.stringValue, "failed")
+    }
+
     func testTaskStopFencesLateCompletionAndParentOwnership() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

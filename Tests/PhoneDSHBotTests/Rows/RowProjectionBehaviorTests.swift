@@ -54,6 +54,66 @@ final class RowProjectionBehaviorTests: XCTestCase {
         XCTAssertEqual(rows.first?.provenance.eventIDs.count, 4)
     }
 
+    func testVerificationReportUpdatesTheExistingTaskRowInPlace() throws {
+        let task = RowTestSupport.uiEvent(type: "task.settled", id: "event-task", commitSeq: 2, time: 2, data: [
+            "task_id": .string("task-1"), "title": .string("Write REPORT.md"),
+            "status": .string("completed"),
+            "steps": .array([.object(["id": .string("write"), "label": .string("Write it"),
+                                      "state": .string("done")])]),
+        ])
+        let report = RowTestSupport.uiEvent(type: "verification.reported", id: "event-verification",
+                                            commitSeq: 1, time: 1, data: [
+            "verificationId": .string("verification-1"),
+            "subjectKind": .string("task"),
+            "subjectId": .string("task-1"),
+            "subjectSessionId": .string("gb-task-1"),
+            "task_id": .string("task-1"),
+            "title": .string("Write REPORT.md"),
+            "status": .string("completed"),
+            "verification": .object([
+                "verdict": .string("failed"),
+                "summary": .string("REPORT.md is missing."),
+                "refs": .array([.string("record://session/gb-task-1#2")]),
+                "unverified": .array([]),
+                "budget": .object([
+                    "ratio": .number(0.3), "limitMs": .number(3_000),
+                    "usedMs": .number(900), "exceeded": .bool(false),
+                ]),
+                "output": .string("valid"),
+            ]),
+            "createdAt": .number(3),
+        ])
+        let snapshot = BotSessionLogProjector().project(
+            botID: "main", sessionID: "main", sessionEvents: [], uiEvents: [report, task])
+        XCTAssertEqual(snapshot.rows.map(\.id), ["e-main-task-task-1"])
+        let row = try XCTUnwrap(snapshot.rows.first)
+        XCTAssertEqual(row.body.cardType, .task)
+        XCTAssertEqual(row.body["title"], .string("Write REPORT.md"))
+        XCTAssertEqual(row.body["verification"]?["verdict"], .string("failed"))
+        XCTAssertEqual(row.body["verification"]?["refs"]?.arrayValue?.count, 1)
+        XCTAssertEqual(row.body["steps"]?.arrayValue?.count, 1,
+                       "the verifier report must not erase the Task card step list")
+        XCTAssertEqual(row.provenance.eventIDs.count, 2)
+
+        let routine = RowTestSupport.uiEvent(type: "verification.reported", id: "event-routine",
+                                             commitSeq: 3, time: 3, data: [
+            "subjectKind": .string("routine"), "subjectId": .string("routine-1"),
+            "routine_id": .string("routine-1"), "title": .string("Morning"),
+            "status": .string("succeeded"),
+            "verification": .object([
+                "verdict": .string("passed"), "summary": .string("ok"),
+                "refs": .array([.string("record://event/1")]), "unverified": .array([]),
+                "budget": .object(["ratio": .number(0.3), "limitMs": .number(1_000),
+                                   "usedMs": .number(1), "exceeded": .bool(false)]),
+                "output": .string("valid"),
+            ]),
+            "createdAt": .number(4),
+        ])
+        let routineRows = BotSessionLogProjector().project(
+            botID: "main", sessionID: "main", sessionEvents: [], uiEvents: [routine]).rows
+        XCTAssertTrue(routineRows.isEmpty, "routine verification is shown on the routine card, not as a Task row")
+    }
+
     func testHeldPromptUsesUnmatchedChatActionInSameTurn() {
         let turn = BotDSHSessionEvent(type: "turn/start", seq: 1, time: 1, data: ["turn": .number(7)])
         func message(seq: Int, rpcID: String) -> BotDSHSessionEvent {

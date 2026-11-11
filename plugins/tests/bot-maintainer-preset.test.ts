@@ -11,10 +11,8 @@ import {
   maintainerBashAllowed,
   maintainerToolAllowed,
 } from '../lifecycle-gate/src/maintainer-scope.ts'
-import {
-  isMaintainerSession,
-  apply as applyMaintainerGuard,
-} from '../lifecycle-gate/src/maintainer-guard.ts'
+import * as restrictedGuard from '../lifecycle-gate/src/restricted-guard.ts'
+import { isRestrictedAgent } from '../lifecycle-gate/src/restricted-session.ts'
 import { botRuntimeAvailable } from '../bot-runtime/src/identity-bridge.ts'
 import { botOwnedSessions } from '../bot-runtime/src/bot-sessions.ts'
 import {
@@ -144,18 +142,21 @@ test('global guard confines a maintainer session even when its preset was not co
   const ctx = await mountRuntime()
   const maintainer = { id: 'gb-maintainer-global', session: { id: 'gb-maintainer-global' } }
   const normal = { id: 'gb-main', session: { id: 'gb-main' } }
-  assert.equal(isMaintainerSession(maintainer as never), true)
-  assert.equal(isMaintainerSession(normal as never), false)
+  const verifier = {
+    id: 'gb-verifier-global',
+    session: { id: 'gb-verifier-global', header: { agentPreset: 'pdsh-verifier' } },
+  }
+  assert.equal(isRestrictedAgent(maintainer as never), true)
+  assert.equal(isRestrictedAgent(verifier as never), true)
+  assert.equal(isRestrictedAgent(normal as never), false)
   try {
     for (const name of [
       'bash', 'mcp__phone__UpdateMemory', 'mcp__phone__Task',
-      'mcp__phone__SendToUser', 'write',
+      'mcp__phone__SendToUser', 'write', 'read',
     ]) {
       ctx.tools.register(tool(name))
     }
-    await ctx.plugin({
-      name: 'maintainer-guard-test', inject: ['tools'], apply: applyMaintainerGuard,
-    })
+    await ctx.plugin(restrictedGuard)
     async function run(agent: object, name: string, command?: string) {
       const args = command === undefined
         ? '{}'
@@ -175,6 +176,14 @@ test('global guard confines a maintainer session even when its preset was not co
       maintainer, 'bash', 'phone record read record://session/gb-main#3'), false)
     assert.equal(await run(
       maintainer, 'bash', 'phone notify.local {"text":"hi"}'), true)
+    // The one shared guard also confines a verifier whose preset scope never
+    // composed, so neither restricted kind can fall back to the full surface.
+    assert.equal(await run(verifier, 'write'), true)
+    assert.equal(await run(verifier, 'mcp__phone__Task'), true)
+    assert.equal(await run(verifier, 'mcp__phone__UpdateMemory'), true)
+    assert.equal(await run(verifier, 'read'), false)
+    assert.equal(await run(verifier, 'bash', 'cat notes.md'), false)
+    assert.equal(await run(verifier, 'bash', 'printf x > notes.md'), true)
     assert.equal(await run(normal, 'mcp__phone__Task'), false)
   } finally {
     await ctx.fiber.dispose()
@@ -280,6 +289,9 @@ test('host maintainer sessions select the maintainer preset, other Bot sessions 
   assert.equal(
     agentPresetForSession('gb-task-1', 'phone-bot', 'phone-bot-maintainer'),
     'phone-bot')
+  assert.equal(
+    agentPresetForSession('gb-verifier-abc', 'phone-bot', 'phone-bot-maintainer'),
+    'pdsh-verifier')
 
   const selected: Array<[string, string]> = []
   const selector: BotAgentPresetSelector = {

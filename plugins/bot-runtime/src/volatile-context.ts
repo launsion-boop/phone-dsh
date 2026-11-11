@@ -4,6 +4,34 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import { createPhoneVolatileContextSource } from './volatile-mcp.ts'
 import { BOT_SESSION_PREFIX } from './bot-sessions.ts'
+import {
+  MAINTAINER_AGENT_PRESET,
+  MAINTAINER_SESSION_PREFIX,
+  VERIFIER_AGENT_PRESET,
+  VERIFIER_SESSION_PREFIX,
+  isRestrictedAgent,
+  restrictedPolicyForHeader,
+  restrictedPresetForSessionId,
+} from '../../lifecycle-gate/src/restricted-session.ts'
+
+export {
+  MAINTAINER_AGENT_PRESET,
+  MAINTAINER_SESSION_PREFIX,
+  VERIFIER_AGENT_PRESET,
+  VERIFIER_SESSION_PREFIX,
+}
+
+/**
+ * Both host-minted restricted sessions (the read-only verifier and the
+ * background maintainer) are excluded from the ordinary Bot volatile blocks
+ * (memory, automation, variant, persona): a verifier would otherwise receive
+ * evidence it is supposed to re-check itself, and the maintainer would receive
+ * the user-facing persona/automation surface. The exclusion is decided by the
+ * shared mechanism in `restricted-session.ts`, so the two kinds cannot drift.
+ */
+export function isRestrictedVolatileAgent(agent: Agent | undefined): boolean {
+  return isRestrictedAgent(agent)
+}
 
 export const VOLATILE_BLOCK_ORDER = Object.freeze([
   'variant',
@@ -44,23 +72,25 @@ export interface VolatileContextConfig {
   readonly botAgentPreset?: string
   /**
    * Agent preset for the host-issued maintainer session (`gb-maintainer-*`,
-   * spec/bot/v2 §4.1). Empty/absent means the Bot preset is used, which would
-   * be wrong for maintenance; the profile sets it.
+   * spec/bot/v2 §4.1). Empty/absent means no selection is attempted; the
+   * profile sets it. The read-only verifier preset is frozen by contract
+   * (`pdsh-verifier`) and is not configurable.
    */
   readonly maintainerAgentPreset?: string
 }
 
-/** Session prefix the host mints for one Bot's maintenance session. */
-export const MAINTAINER_SESSION_PREFIX = 'gb-maintainer-'
-
-/** Pick the preset for one freshly created Bot-owned session. */
+/**
+ * Pick the preset for one freshly created Bot-owned session. Restricted
+ * sessions are selected by the same reserved prefixes the App mints; every
+ * other Bot session gets the ordinary Bot surface.
+ */
 export function agentPresetForSession(
   sessionId: string,
   botAgentPreset: string,
   maintainerAgentPreset: string,
 ): string {
   if (sessionId.startsWith(MAINTAINER_SESSION_PREFIX)) return maintainerAgentPreset
-  return botAgentPreset
+  return restrictedPresetForSessionId(sessionId) ?? botAgentPreset
 }
 
 /** Session id of an Agent; `agent.id` is a SessionId, but resumed agents may
@@ -92,7 +122,12 @@ export async function selectBotAgentPreset(
   if (presets === undefined || preset === ''
       || !agentSessionIdOf(agent).startsWith(BOT_SESSION_PREFIX)) return false
   try {
-    await presets.select(agent, preset)
+    const committed = await presets.select(agent, preset)
+    // The preset is the tool boundary, so a Worker that committed a different
+    // composition must fail closed instead of silently keeping a wider one.
+    if (committed !== preset) {
+      throw new Error(`agent preset selection committed "${committed}" instead of "${preset}"`)
+    }
     return true
   } catch (error) {
     if ((error as { code?: unknown }).code === 'agent-preset/locked') return false
@@ -198,6 +233,14 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
 
   if (botAgentPreset !== '' || maintainerAgentPreset !== '') {
     ctx.on('agent/created', async ({ agent }) => {
+      // A host-minted restricted session (verifier or maintainer) already
+      // carries its immutable creation header preset. Never overwrite it with
+      // the ordinary Bot surface; the preset decides the tool boundary.
+      // Ordinary sessions also have a header preset (`standard` is the
+      // controller default), so only a *restricted* header may skip selection.
+      if (restrictedPolicyForHeader(agent) !== undefined) return
+      // Defense in depth: a transport that dropped the explicit header still
+      // resolves the reserved session id to its frozen restricted preset.
       const preset = agentPresetForSession(
         agentSessionIdOf(agent), botAgentPreset, maintainerAgentPreset)
       if (preset === '') return
@@ -246,11 +289,13 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
   ctx.systemPrompt.context({
     name: 'dshbot:volatile',
     order: 300,
-    text: context => renderVolatileContext(snapshotFor(context), { now: now(), lang: lang() }),
+    text: context => isRestrictedAgent(context.agent)
+      ? ''
+      : renderVolatileContext(snapshotFor(context), { now: now(), lang: lang() }),
   })
 
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-    await refresh(context)
+    if (!isRestrictedAgent(context.agent)) await refresh(context)
     const transformed = await next()
     return ctx.systemPrompt.refreshContext({ ...transformed, tools: [] }, context)
   })

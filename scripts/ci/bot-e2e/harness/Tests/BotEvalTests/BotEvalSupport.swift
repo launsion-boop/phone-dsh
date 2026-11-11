@@ -247,9 +247,25 @@ enum EvalMockScripts {
         let prompt = lastUserText(from: body)
         guard !rules.isEmpty else { return nil }
         for rule in rules where prompt.contains(rule.contains) {
-            return .sequence(tools: [], finalText: rule.finalText)
+            return .sequence(tools: [], finalText: replacingRecordRef(rule.finalText, in: prompt))
         }
         return nil
+    }
+
+    /// Scripted verifier output cannot know a runtime session id. The eval
+    /// harness lets one rule echo the last canonical record:// reference the
+    /// host itself supplied in the prompt; the host still validates existence.
+    static func replacingRecordRef(_ text: String, in prompt: String) -> String {
+        guard text.contains("{{record_ref}}") else { return text }
+        let pattern = try? NSRegularExpression(
+            pattern: #"record://(session/[A-Za-z0-9._-]{1,64}#[0-9]+|event/[0-9]+)"#)
+        let range = NSRange(prompt.startIndex..<prompt.endIndex, in: prompt)
+        let matches = pattern?.matches(in: prompt, range: range) ?? []
+        guard let match = matches.last,
+              let matchRange = Range(match.range, in: prompt) else {
+            return text.replacingOccurrences(of: "{{record_ref}}", with: "record://event/1")
+        }
+        return text.replacingOccurrences(of: "{{record_ref}}", with: String(prompt[matchRange]))
     }
 }
 

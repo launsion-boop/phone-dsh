@@ -9,8 +9,10 @@
     "./gate": "./src/gate.ts",
     "./device-scope": "./src/device-scope.ts",
     "./device-guard": "./src/device-guard.ts",
+    "./verifier-scope": "./src/verifier-scope.ts",
     "./maintainer-scope": "./src/maintainer-scope.ts",
-    "./maintainer-guard": "./src/maintainer-guard.ts"
+    "./restricted-session": "./src/restricted-session.ts",
+    "./restricted-guard": "./src/restricted-guard.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",

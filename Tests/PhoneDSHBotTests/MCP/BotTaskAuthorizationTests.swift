@@ -20,6 +20,12 @@ final class BotTaskAuthorizationTests: XCTestCase {
             fixture.runtime, name: "Task", arguments: .object([
                 "task_title": .string("Scoped task"), "prompt": .string("inspect"),
                 "allowed_write_directories": .array([.string("notes")]),
+                // S3 completion contract and S4 authorization subset travel
+                // through the same Task dispatch.
+                "completion": .string("notes/REPORT.md exists"),
+                "purpose": .string("prove both contracts coexist"),
+                "constraints": .array([.string("Do not use the network")]),
+                "budget": .object(["max_duration_ms": .number(5_000)]),
                 "async": .bool(false),
             ]))
         await fixture.runtime.endTurn(sessionId: "gb-main")
@@ -32,6 +38,10 @@ final class BotTaskAuthorizationTests: XCTestCase {
         XCTAssertEqual(authorization["canWriteOutsideWorkspace"], .bool(false))
         XCTAssertEqual(authorization["canNetworkWrite"], .bool(false))
         XCTAssertEqual(authorization["canDelegateTasks"], .bool(false))
+        XCTAssertEqual(started.structuredContent?["completion"], .string("notes/REPORT.md exists"))
+        XCTAssertEqual(started.structuredContent?["purpose"], .string("prove both contracts coexist"))
+        XCTAssertEqual(started.structuredContent?["constraints"], .array([.string("Do not use the network")]))
+        XCTAssertEqual(started.structuredContent?["budget"]?["max_duration_ms"], .number(5_000))
 
         let awaited = try await registerAndExecute(
             fixture.runtime, name: "AwaitTask", arguments: .object([
@@ -44,6 +54,10 @@ final class BotTaskAuthorizationTests: XCTestCase {
                       "the child must be told its capability subset: \(prompt)")
         XCTAssertTrue(prompt.contains("network_write: false"))
         XCTAssertTrue(prompt.contains("delegate_tasks: false"))
+        XCTAssertTrue(prompt.contains("<task_contract>"),
+                      "the same dispatch must carry the S3 completion contract: \(prompt)")
+        XCTAssertTrue(prompt.contains("notes/REPORT.md exists"))
+        XCTAssertTrue(prompt.contains("Do not use the network"))
     }
 
     func testChildTaskCannotDispatchAnotherTaskByDefault() async throws {

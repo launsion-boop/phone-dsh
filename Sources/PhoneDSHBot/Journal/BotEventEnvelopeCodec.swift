@@ -59,7 +59,7 @@ public struct BotEventEnvelopeCodec: Sendable {
     ]
 
     private static let principalKinds: Set<String> = [
-        "chat", "task", "routine", "team", "proactive", "watchdog", "maintainer", "ipc",
+        "chat", "task", "routine", "verifier", "team", "proactive", "watchdog", "maintainer", "ipc",
     ]
 
     public init() {}

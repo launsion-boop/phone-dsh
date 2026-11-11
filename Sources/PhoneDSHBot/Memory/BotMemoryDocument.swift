@@ -30,7 +30,7 @@ public struct BotMemoryAuthor: Codable, Sendable, Equatable {
         self.init(
             botID: botID,
             sessionID: nil,
-            kind: sessionKind.memoryAuthorKind)
+            kind: sessionKind.memoryAuthorKind ?? .system)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -60,7 +60,11 @@ public struct BotMemoryAuthor: Codable, Sendable, Equatable {
 }
 
 extension BotSessionKind {
-    var memoryAuthorKind: BotMemoryAuthorKind {
+    /// `verifier` has no memory write surface: the preset allow-list and the
+    /// Worker guard both deny `UpdateMemory`, and the MCP runtime rejects a
+    /// verifier call explicitly. Keeping the mapping optional means no code
+    /// path can silently record a verifier write under another author kind.
+    var memoryAuthorKind: BotMemoryAuthorKind? {
         switch self {
         case .chat: return .chat
         case .task: return .task
@@ -69,6 +73,7 @@ extension BotSessionKind {
         case .proactive: return .proactive
         case .watchdog: return .watchdog
         case .maintainer: return .maintainer
+        case .verifier: return nil
         }
     }
 }

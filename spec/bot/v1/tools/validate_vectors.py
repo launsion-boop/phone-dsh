@@ -31,12 +31,14 @@ RECORD_REFERENCE_VECTOR = "record-reference.phone.json"
 OBSERVATION_ENVELOPE_VECTOR = "observation-envelope.phone.json"
 RECORD_QUERY_VECTOR = "record-query.phone.json"
 ERASURE_EVENT_VECTOR = "erasure-event.phone.json"
+VERIFICATION_VECTOR = "verification.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
 PHONE_ONLY_VECTORS = frozenset({
     TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR,
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
+    VERIFICATION_VECTOR,
 })
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
@@ -1658,6 +1660,9 @@ def main() -> int:
         load(ERASURE_EVENT_VECTOR))
     record_mutations = mutation_count_for_record_contracts(
         load(RECORD_REFERENCE_VECTOR), load(OBSERVATION_ENVELOPE_VECTOR), load(RECORD_QUERY_VECTOR))
+    verify_valid_outputs, verify_invalid_outputs, verify_budget_valid, verify_budget_invalid, \
+        verify_valid_reports, verify_invalid_reports, verify_mutations = (
+            validate_verification_fixture(load(VERIFICATION_VECTOR)))
     check_v2_tree()
     check_many(load("row-projection.json")["valid"], "row-projection.schema.json", "row-projection")
     row_fixture = load_merged("row-protocol.json")
@@ -1689,8 +1694,258 @@ def main() -> int:
           f"record-query {query_valid} valid / {query_invalid} invalid, "
           f"erasure-event {erasure_valid} valid / {erasure_invalid} invalid / "
           f"{erasure_mutations} mutations, "
-          f"{record_mutations} mutation checks)")
+          f"{record_mutations} mutation checks; "
+          f"verification {verify_valid_outputs} valid / {verify_invalid_outputs} invalid outputs, "
+          f"{verify_budget_valid} valid / {verify_budget_invalid} invalid budgets, "
+          f"{verify_valid_reports} valid / {verify_invalid_reports} invalid reports, "
+          f"{verify_mutations} mutation checks)")
     return 0
+
+
+VERIFICATION_RATIO = 0.3
+VERIFICATION_TOOLS = ("read", "grep", "glob", "bash")
+VERIFICATION_VERDICTS = ("passed", "failed", "uncertain")
+VERIFICATION_SUBJECTS = ("task", "routine")
+VERIFICATION_OUTPUT_STATES = ("valid", "invalid", "budget_exceeded", "unavailable")
+
+
+def verifier_budget_limit_ms(budget_ms):
+    """Reference implementation of P26 §2.8: floor(task budget × 30%)."""
+    if not isinstance(budget_ms, int) or isinstance(budget_ms, bool):
+        raise AssertionError("verifier budget: budgetMs must be an integer")
+    if budget_ms < 0:
+        raise AssertionError("verifier budget: budgetMs must be non-negative")
+    return budget_ms * 3 // 10
+
+
+def _canonical_verification_ref(raw):
+    parsed = parse_record_reference(raw)
+    return parsed is not None and parsed["canonical"] == raw
+
+
+def _verification_output_semantics(output, require_refs=True):
+    """Rules the JSON schema cannot express: passed => nothing unverified."""
+    if not isinstance(output, dict):
+        return "output must be an object"
+    verdict = output.get("verdict")
+    if verdict not in VERIFICATION_VERDICTS:
+        return "unknown verdict"
+    refs = output.get("refs")
+    if not isinstance(refs, list) or (require_refs and not refs):
+        return "refs must be a non-empty array"
+    for ref in refs:
+        if not _canonical_verification_ref(ref):
+            return f"reference is not canonical: {ref!r}"
+    unverified = output.get("unverified")
+    if not isinstance(unverified, list):
+        return "unverified must be an array"
+    if verdict == "passed" and unverified:
+        return "a passed verdict requires an empty unverified array"
+    return None
+
+
+def _verification_report_semantics(report):
+    if not isinstance(report, dict):
+        return "report must be an object"
+    subject_kind = report.get("subjectKind")
+    if subject_kind not in VERIFICATION_SUBJECTS:
+        return "unknown subjectKind"
+    subject_id = report.get("subjectId")
+    if subject_kind == "task":
+        if report.get("task_id") != subject_id:
+            return "task report must carry the identical task_id"
+    else:
+        if report.get("routine_id") != subject_id:
+            return "routine report must carry the identical routine_id"
+        if not isinstance(report.get("runId"), str) or not report["runId"]:
+            return "routine report must carry runId"
+    verification = report.get("verification")
+    if not isinstance(verification, dict):
+        return "verification must be an object"
+    budget = verification.get("budget")
+    if not isinstance(budget, dict):
+        return "budget must be an object"
+    if budget.get("ratio") != VERIFICATION_RATIO:
+        return "budget ratio must be 0.3"
+    limit = budget.get("limitMs")
+    used = budget.get("usedMs")
+    exceeded = budget.get("exceeded")
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+        return "limitMs must be a non-negative integer"
+    if not isinstance(used, int) or isinstance(used, bool) or used < 0:
+        return "usedMs must be a non-negative integer"
+    if exceeded is not (used > limit):
+        return "exceeded must be true exactly when usedMs > limitMs"
+    if verification.get("output") not in VERIFICATION_OUTPUT_STATES:
+        return "unknown output state"
+    output_state = verification.get("output")
+    if output_state != "valid" and verification.get("verdict") != "uncertain":
+        return "a non-valid host output must be uncertain"
+    raw = {key: verification[key] for key in ("verdict", "summary", "refs", "unverified")}
+    return _verification_output_semantics(raw, require_refs=output_state == "valid")
+
+
+def validate_verification_fixture(fixture):
+    """Validate P26 §2.8 verifier policy, output, report and budget vectors."""
+    if fixture.get("schemaVersion") != 1:
+        raise AssertionError("verification: schemaVersion must be 1")
+    if fixture.get("vector") != "verification.phone":
+        raise AssertionError("verification: vector must be verification.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("verification: phone-only vector must declare upstream: []")
+    delta = fixture.get("delta")
+    if not isinstance(delta, list) or not delta:
+        raise AssertionError("verification: delta must be a non-empty string array")
+    policy = fixture.get("policy")
+    if not isinstance(policy, dict):
+        raise AssertionError("verification: policy must be an object")
+    if policy.get("presetId") != "pdsh-verifier":
+        raise AssertionError("verification: the verifier preset is pdsh-verifier")
+    if policy.get("principalKind") != "verifier":
+        raise AssertionError("verification: the principal kind is verifier")
+    if policy.get("budgetRatio") != VERIFICATION_RATIO:
+        raise AssertionError("verification: budgetRatio must be 0.3")
+    if tuple(policy.get("tools", [])) != VERIFICATION_TOOLS:
+        raise AssertionError(f"verification: tool whitelist must be {VERIFICATION_TOOLS}")
+    denied = policy.get("deniedTools")
+    if not isinstance(denied, list) or not denied:
+        raise AssertionError("verification: deniedTools must be a non-empty array")
+    if set(policy["tools"]) & set(denied):
+        raise AssertionError("verification: a tool cannot be both allowed and denied")
+    for required in ("write", "edit", "SendToUser", "SendToAgent", "Task",
+                     "UpdateMemory", "web_fetch"):
+        if required not in denied:
+            raise AssertionError(f"verification: {required} must be denied")
+    if policy.get("hiddenGlobalTools") is not True:
+        raise AssertionError("verification: inherited global tools must be hidden")
+    bash = policy.get("bash")
+    if not isinstance(bash, dict) or not bash.get("allowed") or not bash.get("denied"):
+        raise AssertionError("verification: bash allow/deny vectors must be non-empty")
+    for command in bash["allowed"]:
+        if not isinstance(command, str) or not (
+                command.startswith("phone record search ")
+                or command.startswith("phone record read ")
+                or command.split(" ", 1)[0] in {
+                    "cat", "ls", "grep", "rg", "head", "tail", "wc", "pwd",
+                    "stat", "file", "diff", "git",
+                }):
+            raise AssertionError(f"verification: unexpected read-only command {command!r}")
+    for command in bash["denied"]:
+        if command in bash["allowed"]:
+            raise AssertionError(f"verification: command both allowed and denied: {command!r}")
+
+    valid_outputs = fixture.get("valid")
+    invalid_outputs = fixture.get("invalid")
+    if not isinstance(valid_outputs, list) or not valid_outputs:
+        raise AssertionError("verification: valid outputs must be non-empty")
+    if not isinstance(invalid_outputs, list) or not invalid_outputs:
+        raise AssertionError("verification: invalid outputs must be non-empty")
+    covered_verdicts = set()
+    for index, case in enumerate(valid_outputs):
+        where = f"verification.valid[{index}]"
+        check(case.get("output"), "verifier-output.schema.json", where)
+        reason = _verification_output_semantics(case.get("output"))
+        if reason is not None:
+            raise AssertionError(f"{where}: {reason}")
+        covered_verdicts.add(case["output"]["verdict"])
+    if covered_verdicts != set(VERIFICATION_VERDICTS):
+        raise AssertionError("verification: valid outputs must cover passed/failed/uncertain")
+    invalid_reasons = set()
+    for index, case in enumerate(invalid_outputs):
+        where = f"verification.invalid[{index}]"
+        reason = case.get("reason")
+        if not isinstance(reason, str) or not reason:
+            raise AssertionError(f"{where}: invalid case needs a reason")
+        invalid_reasons.add(reason)
+        accepted = True
+        try:
+            check(case.get("output"), "verifier-output.schema.json", where)
+        except Exception:
+            accepted = False
+        if accepted and _verification_output_semantics(case.get("output")) is None:
+            raise AssertionError(f"{where}: negative fixture unexpectedly validates")
+    for reason in ("verdict", "required", "minItems", "maxItems", "session-id",
+                   "passed-requires-empty-unverified", "minLength", "additionalProperties"):
+        if reason not in invalid_reasons:
+            raise AssertionError(f"verification: missing output negative {reason!r}")
+
+    budgets = fixture.get("budgets")
+    if not isinstance(budgets, dict):
+        raise AssertionError("verification: budgets must be an object")
+    for case in budgets.get("valid", []):
+        expected = verifier_budget_limit_ms(case["budgetMs"])
+        if case.get("limitMs") != expected:
+            raise AssertionError(f"verification.budgets.valid[{case.get('name')}]: "
+                                 f"limit {case.get('limitMs')} != {expected}")
+        if "usedMs" in case and case.get("exceeded") is not (case["usedMs"] > expected):
+            raise AssertionError(f"verification.budgets.valid[{case.get('name')}]: exceeded mismatch")
+    if not any(case.get("exceeded") is True for case in budgets.get("valid", [])):
+        raise AssertionError("verification: budget vectors must cover the over-limit case")
+    for case in budgets.get("invalid", []):
+        accepted = True
+        try:
+            if case.get("limitMs") != verifier_budget_limit_ms(case["budgetMs"]):
+                raise AssertionError("wrong limit")
+        except AssertionError:
+            accepted = False
+        if accepted:
+            raise AssertionError(f"verification.budgets.invalid[{case.get('name')}]: "
+                                 "negative fixture unexpectedly validates")
+
+    reports = fixture.get("reports")
+    if not isinstance(reports, dict):
+        raise AssertionError("verification: reports must be an object")
+    valid_reports = reports.get("valid")
+    invalid_reports = reports.get("invalid")
+    if not isinstance(valid_reports, list) or not valid_reports:
+        raise AssertionError("verification: reports.valid must be non-empty")
+    if not isinstance(invalid_reports, list) or not invalid_reports:
+        raise AssertionError("verification: reports.invalid must be non-empty")
+    subjects = set()
+    for index, case in enumerate(valid_reports):
+        where = f"verification.reports.valid[{index}]"
+        check(case.get("report"), "verification-report.schema.json", where)
+        reason = _verification_report_semantics(case.get("report"))
+        if reason is not None:
+            raise AssertionError(f"{where}: {reason}")
+        subjects.add(case["report"]["subjectKind"])
+    if subjects != set(VERIFICATION_SUBJECTS):
+        raise AssertionError("verification: valid reports must cover task and routine")
+    for index, case in enumerate(invalid_reports):
+        where = f"verification.reports.invalid[{index}]"
+        if not case.get("reason"):
+            raise AssertionError(f"{where}: invalid case needs a reason")
+        accepted = True
+        try:
+            check(case.get("report"), "verification-report.schema.json", where)
+        except Exception:
+            accepted = False
+        if accepted and _verification_report_semantics(case.get("report")) is None:
+            raise AssertionError(f"{where}: negative fixture unexpectedly validates")
+
+    mutations = 0
+
+    def expect_failure(label, mutate):
+        nonlocal mutations
+        mutated = json.loads(json.dumps(fixture))
+        mutate(mutated)
+        try:
+            validate_verification_fixture(mutated)
+        except AssertionError:
+            mutations += 1
+            return
+        raise AssertionError(f"verification mutation {label!r} unexpectedly passed")
+
+    expect_failure("passed-with-unverified", lambda value: value["valid"][0]["output"]
+                   .__setitem__("unverified", ["not checked"]))
+    expect_failure("budget-ratio", lambda value: value["policy"].__setitem__("budgetRatio", 0.5))
+    expect_failure("tool-widened", lambda value: value["policy"]["tools"].append("write"))
+    expect_failure("task-id-mismatch", lambda value: value["reports"]["valid"][0]["report"]
+                   .__setitem__("task_id", "task-other"))
+    expect_failure("budget-exceeded", lambda value: value["reports"]["valid"][0]["report"]["verification"]["budget"]
+                   .__setitem__("exceeded", True))
+    return (len(valid_outputs), len(invalid_outputs), len(budgets.get("valid", [])),
+            len(budgets.get("invalid", [])), len(valid_reports), len(invalid_reports), mutations)
 
 
 def check_v2_tree() -> None:

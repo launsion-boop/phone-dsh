@@ -105,3 +105,4 @@ change.
 | PC-20261112-bot-memory-maintenance | coordinator | S3 总方案 §3.4 / §6 决定 2；maintainer 与批次 | Swift、Worker preset、iOS UI、spec checkers |
 | PC-20261112-bot-memory-maintenance-r2 | coordinator | 实测发现 `agent/created` 时 preset 已锁定：改为 `session/create` 指定 `agentPreset` 并核对；新增全局 `maintainer-guard` 与 `tools/change` 后的可见面收敛；`bash` 实参限制 | Swift MCP、Worker profile、lifecycle-gate、eval selftest |
 | PC-20261112-bot-memory-maintenance-r3 | coordinator | 与 S6 集成分支合并：维护写入引用的 `record://event` 已被物理抹除时返回 `record_erased`（不降级 trust）；整批回滚遇到已抹除载荷跳过并记 `conflicts`，不复活原文；maintenance 事件沿用 P25 v3 头/载荷存储 | Swift `BotMCPRuntime`/`BotMemoryMaintenance`、v1/v2 向量与 Swift 测试 |
+| PC-20261112-bot-memory-maintenance-r4 | s2-int integrator | 与 S3v 合并：maintainer 与 verifier 共用同一受限会话机制（`restricted-session`/`restricted-guard`、创建头核对、`gb-<kind>-` 前缀、volatile 同处排除），旧 `maintainer-guard` 行由单一全局 guard 取代；本节 delta 与语义不变 | Swift 宿主、Worker profile/lifecycle-gate、spec、eval |

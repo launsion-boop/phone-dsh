@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotVerifierOutput v1",
+  "description": "The exact JSON object a verifier session must return. Shape only; a passed verdict additionally requires an empty unverified array (P26 §2.8).",
+  "type": "object",
+  "required": ["verdict", "summary", "refs", "unverified"],
+  "properties": {
+    "verdict": {"enum": ["passed", "failed", "uncertain"]},
+    "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "refs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^record://(session/[A-Za-z0-9._-]{1,64}#[0-9]+|event/[0-9]+)$"
+      }
+    },
+    "unverified": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500}
+    }
+  },
+  "additionalProperties": false
+}
