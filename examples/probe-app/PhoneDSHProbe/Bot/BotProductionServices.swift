@@ -455,6 +455,9 @@ struct BotProductionInfoSnapshot: Sendable {
     var maintenanceEnabled: Bool
     var maintenanceDailyTokens: Int
     var maintenanceDailyBudget: Int
+    /// Last failed App identity registration for this runtime, if any. Read
+    /// only; the info page renders it as one status line.
+    var bridgeStatus: PhoneDSHBot.BotBridgeDiagnostic?
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
@@ -464,16 +467,19 @@ actor BotProductionInfoService {
     private let scheduler: RoutineScheduler?
     private let settingsStore: ProactiveSettingsStore
     private let maintenance: BotMemoryMaintenanceController?
+    private let bridgeDiagnostic: (@Sendable () async -> BotBridgeDiagnostic?)?
     private var sessionEraser: BotSessionEraser?
 
     init(environment: BotProductionEnvironment,
          scheduler: RoutineScheduler? = nil,
          settingsStore: ProactiveSettingsStore = .shared,
-         maintenance: BotMemoryMaintenanceController? = nil) {
+         maintenance: BotMemoryMaintenanceController? = nil,
+         bridgeDiagnostic: (@Sendable () async -> BotBridgeDiagnostic?)? = nil) {
         self.environment = environment
         self.scheduler = scheduler
         self.settingsStore = settingsStore
         self.maintenance = maintenance
+        self.bridgeDiagnostic = bridgeDiagnostic
     }
 
     /// Installs the session-epoch eraser for this Bot unit. The composition
@@ -514,6 +520,12 @@ actor BotProductionInfoService {
         let maintenanceSettings = await maintenance?.settings()
         let maintenanceEnabled = maintenanceSettings?.enabled ?? false
         let maintenanceBudget = await maintenance?.budgetStatus()
+        let bridgeStatus: BotBridgeDiagnostic?
+        if let bridgeDiagnostic {
+            bridgeStatus = await bridgeDiagnostic()
+        } else {
+            bridgeStatus = nil
+        }
         return try await BotProductionInfoSnapshot(
             botName: botName, memories: memories, routines: routines, approvals: approvals,
             grants: grants, reconciliations: reconciliations,
@@ -521,7 +533,8 @@ actor BotProductionInfoService {
             maintenance: maintenanceBatch,
             maintenanceEnabled: maintenanceEnabled,
             maintenanceDailyTokens: maintenanceBudget?.dailyTokensUsed ?? 0,
-            maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0)
+            maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0,
+            bridgeStatus: bridgeStatus)
     }
 
     /// S3: enable/disable the background maintainer (default off). The switch
@@ -951,17 +964,27 @@ final class BotSessionEpochEraser: Sendable {
     private let recordService: BotRecordService
     private let hostReference: BotHostReference
     private let workspaceRoot: URL
+    /// The composition owns the automatic Worker-boot recovery. This eraser
+    /// parks/resumes the host itself and then reattaches the Bot remote, so it
+    /// suppresses that automatic path for the duration and releases it (with
+    /// the new boot id recorded) before returning.
+    private let beginManualWorkerRebind: (@Sendable () async -> Void)?
+    private let endManualWorkerRebind: (@Sendable () async -> Void)?
 
     init(remote: BotDSHRemoteRuntime,
          environment: BotProductionEnvironment,
          recordService: BotRecordService,
          hostReference: BotHostReference,
-         workspaceRoot: URL) {
+         workspaceRoot: URL,
+         beginManualWorkerRebind: (@Sendable () async -> Void)? = nil,
+         endManualWorkerRebind: (@Sendable () async -> Void)? = nil) {
         self.remote = remote
         self.environment = environment
         self.recordService = recordService
         self.hostReference = hostReference
         self.workspaceRoot = workspaceRoot
+        self.beginManualWorkerRebind = beginManualWorkerRebind
+        self.endManualWorkerRebind = endManualWorkerRebind
     }
 
     func erase(_ request: BotSessionErasureRequest) async throws -> BotSessionErasureReport {
@@ -1002,6 +1025,7 @@ final class BotSessionEpochEraser: Sendable {
             throw BotProductionError.invalidService("会话宿主尚未连接，无法改写已关闭会话日志。")
         }
         var erased: [BotErasureEventData.ErasedSessionRecord] = []
+        await beginManualWorkerRebind?()
         do {
             try await host.park()
             for target in scan.targets {
@@ -1032,6 +1056,7 @@ final class BotSessionEpochEraser: Sendable {
             await remote.attachTransport(transport)
             _ = try await remote.startMainSession()
             await environment.updateSessionID(switched.new)
+            await endManualWorkerRebind?()
         } catch {
             // Never leave the App parked: the session switch is already
             // durable, so a resume failure is reported separately from the
@@ -1042,6 +1067,7 @@ final class BotSessionEpochEraser: Sendable {
                     _ = try? await remote.startMainSession()
                 }
             }
+            await endManualWorkerRebind?()
             throw error
         }
 

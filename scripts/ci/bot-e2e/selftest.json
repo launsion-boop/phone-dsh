@@ -525,7 +525,7 @@
     },
     {
       "id": "BOT-SELFTEST-RESTART",
-      "title": "restart_worker keeps the same Bot session (expected PASS)",
+      "title": "park/resume keeps the same Bot session and identity (expected PASS)",
       "expect": "pass",
       "budget": {
         "max_minutes": 5,
@@ -542,13 +542,20 @@
         },
         {
           "type": "restart_worker",
-          "mode": "planned_restart"
+          "mode": "park_resume"
         },
         {
           "type": "user_message",
           "bot": "main",
-          "text": "after restart",
+          "text": "after park resume",
           "mock": {
+            "tool": {
+              "name": "bash",
+              "arguments": {
+                "command": "printf AFTER_PARK_RESUME",
+                "description": "Print the post-resume marker"
+              }
+            },
             "final_text": "AFTER_RESTART"
           }
         }
@@ -563,6 +570,16 @@
           "type": "reply_not_contains",
           "turn": 2,
           "value": "BEFORE_RESTART"
+        },
+        {
+          "type": "tool_called",
+          "name": "bash",
+          "arguments_contains": "AFTER_PARK_RESUME"
+        },
+        {
+          "type": "bot_event",
+          "event": "conversation.tool_result",
+          "payload_contains": "AFTER_PARK_RESUME"
         },
         {
           "type": "bot_event",

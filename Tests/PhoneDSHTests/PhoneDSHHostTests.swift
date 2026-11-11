@@ -353,6 +353,37 @@ final class PhoneDSHHostTests: XCTestCase {
         try await host.stop()
     }
 
+    /// A foreground resume boots a fresh Worker. Its HELLO carries a new boot
+    /// id; the Bot composition watches exactly that change to re-claim every
+    /// session credential. Without this signal a parked/resumed App keeps
+    /// sending the old (host-current) token to a Worker that lost its map.
+    func testResumePublishesANewWorkerHelloAndBootID() async throws {
+        let fixture = try FacadeFixture()
+        defer { fixture.cleanup() }
+        let engine = MockEngine(worker: MockWorker())
+        let host = try makeHost(fixture, engine: engine)
+        try await host.start()
+        let before = await host.currentWorkerBootID
+
+        let stream = host.eventStream()
+        let helloTask = Task { () -> PhoneDSHWorkerHello? in
+            for await event in stream {
+                if case .workerHello(let hello) = event { return hello }
+            }
+            return nil
+        }
+        try await host.park()
+        try await host.resume()
+        let helloValue = await helloTask.value
+        let hello = try XCTUnwrap(helloValue)
+        XCTAssertNotEqual(hello.bootID, before,
+                          "park/resume must boot a new Worker incarnation")
+        let current = await host.currentWorkerBootID
+        XCTAssertEqual(current, hello.bootID,
+                       "the Bot composition seeds from this value and compares the HELLO")
+        try await host.stop()
+    }
+
     /// The shipped resume used the cold-start 600 s boot timeout and the 300 s
     /// App watchdog only released a flag; the host stayed wedged. The resume
     /// budget must fail inside its own bound, classify as a transient boot

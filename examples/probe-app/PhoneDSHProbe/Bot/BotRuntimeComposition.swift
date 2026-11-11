@@ -144,6 +144,17 @@ final class BotRuntimeComposition {
     private let workspaceRoot: URL
     private var hostTask: Task<Void, Never>?
     private var observedHost: PhoneDSHHost?
+    /// Worker boot id the composition has already re-bound. A foreground
+    /// resume replaces the Worker without a host process restart; its fresh
+    /// `.workerHello` is the observable signal that every session credential
+    /// must be re-claimed before the next turn.
+    private var observedWorkerBootID: String?
+    private var workerRecoveryInFlight = false
+    /// Set while a caller deliberately parks/resumes the host and then
+    /// reattaches the Bot remote itself (the session-epoch eraser). The
+    /// automatic `.workerHello` recovery would race that manual sequence with
+    /// a second attach, so it stays out until the manual rebind completes.
+    private var suppressesWorkerBootRebind = false
     /// The live MCP egress policy this composition installed the Bot write
     /// approver on. Cleared on detach so a stopped Bot runtime cannot answer
     /// for a later `/v1/http` write.
@@ -273,6 +284,15 @@ final class BotRuntimeComposition {
             selectionStore: selectionStore,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot(),
             schedulerNow: now, schedulerSleep: sleep)
+        // A Worker rebuilt by a foreground resume loses its in-memory
+        // credential map. On the first rejected registration the App
+        // re-claims that exact session's current token and the Worker retries
+        // once; the body sessionId alone never authenticates.
+        await runtime.installSessionReclaimer { [weak composition] sessionId, suppliedToken in
+            guard let composition else { return false }
+            return await composition.reclaimSessionForIdentity(
+                sessionId, suppliedToken: suppliedToken)
+        }
         composition.workerEnvironment = [
             "PDSH_PHONE_MCP_URL": url.absoluteString,
             "PDSH_PHONE_MCP_TOKEN": workerTokenPlaceholder,
@@ -392,7 +412,13 @@ final class BotRuntimeComposition {
             environment: unit.environment,
             recordService: recordService,
             hostReference: hostReference,
-            workspaceRoot: workspaceRoot)
+            workspaceRoot: workspaceRoot,
+            beginManualWorkerRebind: { [weak self] in
+                await self?.beginManualWorkerRebind()
+            },
+            endManualWorkerRebind: { [weak self] in
+                await self?.endManualWorkerRebind()
+            })
         await unit.info.setSessionEraser { request in
             try await eraser.erase(request)
         }
@@ -487,6 +513,7 @@ final class BotRuntimeComposition {
                 botEgressPolicy = policy
             }
             try await newHost.start()
+            observedWorkerBootID = await newHost.currentWorkerBootID
 
             // Always have the selected Bot and every routine owner attached
             // before the outbox/schedulers start.
@@ -520,7 +547,7 @@ final class BotRuntimeComposition {
 
             await installOutboxHandlers()
             started = true
-            observeHost(newHost)
+            await observeHost(newHost)
             await outbox.start()
             startTick()
             installDeviceTaskResultDelivery()
@@ -730,10 +757,36 @@ final class BotRuntimeComposition {
         }
     }
 
-    private func observeHost(_ host: PhoneDSHHost) {
+    /// Re-claims one session after the Worker rejected its registration. The
+    /// Bot that owns the session does the claim; a session from another unit
+    /// is never touched, and a cross-session token is refused by the remote.
+    private func reclaimSessionForIdentity(_ sessionId: String,
+                                           suppliedToken: String) async -> Bool {
+        for unit in units.values {
+            if await unit.remote.reclaimSessionForIdentity(
+                sessionId, suppliedToken: suppliedToken) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func beginManualWorkerRebind() {
+        suppressesWorkerBootRebind = true
+    }
+
+    private func endManualWorkerRebind() async {
+        if let host {
+            observedWorkerBootID = await host.currentWorkerBootID
+        }
+        suppressesWorkerBootRebind = false
+    }
+
+    private func observeHost(_ host: PhoneDSHHost) async {
         if observedHost === host, hostTask != nil { return }
         hostTask?.cancel()
         observedHost = host
+        observedWorkerBootID = await host.currentWorkerBootID
         hostTask = Task { [weak self, remote] in
             defer {
                 if let self, self.observedHost === host {
@@ -752,7 +805,9 @@ final class BotRuntimeComposition {
                         evidence: ["count": .number(Double(count))])
                     await self.recoverAfterWorkerTermination(host)
                 case .restarted:
-                    await self.recoverAfterWorkerTermination(host)
+                    await self.recoverIfWorkerBootChanged(host)
+                case .workerHello(let hello):
+                    await self.recoverIfWorkerBootChanged(host, bootID: hello.bootID)
                 default:
                     break
                 }
@@ -762,8 +817,25 @@ final class BotRuntimeComposition {
 
     private func isAttached(_ host: PhoneDSHHost) -> Bool { self.host === host }
 
+    /// One signal for "a Worker boot was replaced": a planned restart, a
+    /// termination recovery, or a foreground resume. The boot id, not the
+    /// event kind, decides whether this is new; a channel reconnect in the same
+    /// Worker boot is ignored.
+    private func recoverIfWorkerBootChanged(_ host: PhoneDSHHost,
+                                            bootID: String? = nil) async {
+        guard self.host === host, !suppressesWorkerBootRebind else { return }
+        let current: String
+        if let bootID { current = bootID } else { current = await host.currentWorkerBootID }
+        guard current != observedWorkerBootID else { return }
+        observedWorkerBootID = current
+        await recoverAfterWorkerTermination(host)
+    }
+
     private func recoverAfterWorkerTermination(_ host: PhoneDSHHost) async {
         guard self.host === host else { return }
+        guard !workerRecoveryInFlight else { return }
+        workerRecoveryInFlight = true
+        defer { workerRecoveryInFlight = false }
         state = .recovering
         do { try await bind(to: host, recovering: true) }
         catch {

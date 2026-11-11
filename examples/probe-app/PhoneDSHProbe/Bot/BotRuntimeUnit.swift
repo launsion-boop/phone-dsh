@@ -186,7 +186,12 @@ final class BotRuntimeUnit {
             })
         let info = BotProductionInfoService(
             environment: environment, scheduler: scheduler, settingsStore: settingsStore,
-            maintenance: maintenance)
+            maintenance: maintenance,
+            bridgeDiagnostic: { [runtime, remote] in
+                guard let diagnostic = await runtime.lastBridgeError(),
+                      await remote.ownsSession(diagnostic.sessionId) else { return nil }
+                return diagnostic
+            })
         let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
         await environment.setRoutineCanceller { [scheduler] routineID in
             await scheduler.cancelRunning(routineId: routineID)
@@ -208,6 +213,13 @@ final class BotRuntimeUnit {
     func start(transport: any DSHRemoteTransport) async throws {
         await remote.attachTransport(transport)
         let sessionID = try await remote.startMainSession()
+        // A foreground resume parks the host and boots a fresh Worker; its
+        // in-memory credential map is empty. Re-claim every session this Bot
+        // still owns before the next turn, so the first tool call after the
+        // lock screen does not race the claim. A session whose host token no
+        // longer resolves is reissued here (same kind/capabilities), never by
+        // extending the TTL.
+        _ = await remote.reclaimOwnedSessions()
         try await environment.connect(BotProductionComposition(
             sessionID: sessionID, planner: planner,
             turnStopping: BotRuntimeTurnStopper(remote: remote)))

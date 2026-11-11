@@ -35,8 +35,9 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 
 - 一行「当前级别」：`前台` / `后台保活` / `预定通知`。App 处于 active 时为前台；App 不在前台且静音音频保活开启（任一 Bot 有回合，或保活窗口内有到期的 routine）时为后台保活；否则为预定通知。页面不把「有 routine」写成「正在运行」。
 - 一行 `已登记提醒 N 条`：N 是宿主实际登记成功的 routine 到期通知数，不是 routine 总数；登记失败或被系统丢弃时显示实际值或读取失败，不伪造 0。
+- 一行只读「桥状态」：仅在宿主内存里存在最近一次失败的身份登记时显示，文案来自宿主保存的本地时间和错误码（例如「最近一次身份登记失败：unauthorized · 11月11日 22:44」）。宿主记录里还有 session id 供诊断，但这一行不显示 token、参数、请求体或完整 session id；成功后宿主清除，页面不推断、不缓存旧错误。没有错误时不显示这一行，也不显示「正常」占位。
 - 「因安静时段延后」列表：每项显示 routine 标题、原定时间和延后到的时间，来自 `quiet_defer`；没有延后时不显示假条目。列表只读，运行/暂停仍在例行任务区操作。
-- accessibility id：`bot.info.presence`、`bot.info.presence.level`、`bot.info.presence.notifications`、`bot.info.presence.deferred.<routineID>`。
+- accessibility id：`bot.info.presence`、`bot.info.presence.level`、`bot.info.presence.notifications`、`bot.info.presence.bridge`、`bot.info.presence.deferred.<routineID>`。
 
 ## 打扰设置（P26 §3.8）
 
