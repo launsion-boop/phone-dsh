@@ -64,7 +64,7 @@ public enum BotApprovalPatternAnalyzer {
                                workspace: String, language: BotToolLanguage = .en) -> [BotToolEffect] {
         analyze(tool: tool, arguments: arguments, workspace: workspace, language: language).map {
             BotToolEffect(tool: tool, operation: $0.kind, resource: $0.resource,
-                          target: $0.target, mutability: $0.kind == "network-egress" ? .externalSend : .destructive,
+                          target: $0.target, mutability: .destructive,
                           policy: .ask, label: $0.label, detail: $0.detail)
         }
     }

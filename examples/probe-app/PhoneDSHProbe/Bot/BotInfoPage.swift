@@ -24,6 +24,32 @@ struct BotRoutineInfo: Identifiable, Equatable {
     var urgentReason: String?
     var lastResult: String
     var enabled: Bool
+    var creator: String?
+    var completionCriteria: String?
+    var routineConstraints: String?
+    var runStatus: String?
+    var runID: String?
+}
+
+struct BotGrantInfo: Identifiable, Equatable {
+    let id: String
+    var tool: String
+    var operation: String
+    var resource: String
+    var scope: String
+    var sessionID: String?
+    var createdAt: Date
+    var source: String
+}
+
+struct BotReconciliationInfo: Identifiable, Equatable {
+    var id: String { routineID }
+    let routineID: String
+    var routineTitle: String
+    var attempt: Int
+    var runID: String
+    var error: String?
+    var effectSummary: String?
 }
 
 struct BotApprovalRecord: Identifiable, Equatable {
@@ -38,6 +64,8 @@ struct BotInfoSnapshot {
     var memories: [BotMemoryFact]
     var routines: [BotRoutineInfo]
     var approvals: [BotApprovalRecord]
+    var grants: [BotGrantInfo] = []
+    var reconciliations: [BotReconciliationInfo] = []
 }
 
 struct BotInfoDriver {
@@ -49,6 +77,9 @@ struct BotInfoDriver {
     /// Erases the shared user scope for every Bot; a separate confirmed entry.
     var eraseShared: () async throws -> Void = {}
     var setRoutineEnabled: (String, Bool) async throws -> Void
+    var revokeGrant: (String) async throws -> Void = { _ in }
+    var cancelRoutine: (String) async throws -> Void = { _ in }
+    var resolveReconciliation: (String, String) async throws -> Void = { _, _ in }
 }
 
 enum BotInfoLoadState: Equatable {
@@ -64,6 +95,8 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var memories: [BotMemoryFact]
     @Published private(set) var routines: [BotRoutineInfo]
     @Published private(set) var approvals: [BotApprovalRecord]
+    @Published private(set) var grants: [BotGrantInfo]
+    @Published private(set) var reconciliations: [BotReconciliationInfo]
     @Published private(set) var memoryState: BotInfoLoadState
     @Published private(set) var routinesState: BotInfoLoadState
     @Published private(set) var approvalsState: BotInfoLoadState
@@ -87,6 +120,8 @@ final class BotInfoModel: ObservableObject {
         memories = snapshot?.memories ?? []
         routines = snapshot?.routines ?? []
         approvals = snapshot?.approvals ?? []
+        grants = snapshot?.grants ?? []
+        reconciliations = snapshot?.reconciliations ?? []
         let initial: BotInfoLoadState
         if let fixtureError { initial = .failed(fixtureError) }
         else { initial = snapshot == nil && driver != nil ? .loading : .loaded }
@@ -181,6 +216,8 @@ final class BotInfoModel: ObservableObject {
             memories = snapshot.memories
             routines = snapshot.routines
             approvals = snapshot.approvals
+            grants = snapshot.grants
+            reconciliations = snapshot.reconciliations
             memoryState = .loaded
             routinesState = .loaded
             approvalsState = .loaded
@@ -255,6 +292,38 @@ final class BotInfoModel: ObservableObject {
             actionError = "例行任务更新失败：\(error.localizedDescription)"
         }
     }
+
+    func cancelRoutine(_ routine: BotRoutineInfo) async {
+        do {
+            try await driver?.cancelRoutine(routine.id)
+            await refresh()
+        } catch {
+            actionError = "取消运行失败：\(error.localizedDescription)"
+        }
+    }
+
+    func revocation(of grant: BotGrantInfo) async {
+        do {
+            try await driver?.revokeGrant(grant.id)
+            grants.removeAll { $0.id == grant.id }
+        } catch {
+            actionError = "撤销授权失败：\(error.localizedDescription)"
+        }
+    }
+
+    func reconciliation(for routine: BotRoutineInfo) -> BotReconciliationInfo? {
+        reconciliations.first { $0.routineID == routine.id }
+    }
+
+    func resolve(_ item: BotReconciliationInfo, decision: String) async {
+        do {
+            try await driver?.resolveReconciliation(item.routineID, decision)
+            reconciliations.removeAll { $0.routineID == item.routineID }
+            await refresh()
+        } catch {
+            actionError = "处理对账失败：\(error.localizedDescription)"
+        }
+    }
 }
 
 /// The three data destinations also reachable from the Bot page's “…” menu.
@@ -262,6 +331,7 @@ enum BotInfoSection: Hashable {
     case memory
     case routines
     case approvals
+    case grants
 }
 
 /// Bot 信息: the avatar and name on top, the name editor, then the Bot's own
@@ -352,6 +422,11 @@ struct BotInfoPage: View {
                                           count: model.approvals.count)
                     }
                     .accessibilityIdentifier("bot.info.approvals")
+                    NavigationLink(value: BotInfoSection.grants) {
+                        BotInfoEntryLabel(title: "常设授权", systemImage: "key", state: model.approvalsState,
+                                          count: model.grants.count)
+                    }
+                    .accessibilityIdentifier("bot.info.grants")
                 }
 
                 if let error = model.actionError {
@@ -395,6 +470,7 @@ struct BotInfoPage: View {
                 case .memory: BotMemoryPage(model: model)
                 case .routines: BotRoutinesPage(model: model)
                 case .approvals: BotApprovalHistoryPage(model: model)
+                case .grants: BotGrantsPage(model: model)
                 }
             }
             .toolbar {
@@ -618,6 +694,7 @@ private struct BotMemoryPage: View {
 
 private struct BotRoutinesPage: View {
     @ObservedObject var model: BotInfoModel
+    @State private var confirmingCancel: BotRoutineInfo?
 
     var body: some View {
         List {
@@ -635,46 +712,188 @@ private struct BotRoutinesPage: View {
                         .foregroundStyle(HomeSpec.textSecondary)
                 } else {
                     ForEach(model.routines) { routine in
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text(routine.title)
-                                    .botTitleFont()
-                                    .foregroundStyle(HomeSpec.textPrimary)
-                                Spacer()
-                                BotStatusPill(text: routine.enabled ? "已启用" : "已暂停",
-                                              tone: routine.enabled ? .success : .neutral)
-                            }
-                            LabeledContent("排程", value: routine.schedule)
-                            LabeledContent("时区", value: routine.timeZone)
-                            LabeledContent("交付", value: routine.delivery)
-                            if routine.quiet {
-                                Label("安静时段会延后", systemImage: "moon")
-                                    .botCaptionFont()
-                                    .foregroundStyle(HomeSpec.textSecondary)
-                            }
-                            if routine.urgent {
-                                Label("紧急：\(routine.urgentReason ?? "未说明")", systemImage: "exclamationmark")
-                                    .botCaptionFont()
-                                    .foregroundStyle(NativeParityTokens.warning)
-                            }
-                            Text(routine.lastResult)
-                                .botSecondaryFont()
-                                .foregroundStyle(HomeSpec.textSecondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Button(routine.enabled ? "暂停" : "恢复") {
-                                Task { await model.setRoutine(routine, enabled: !routine.enabled) }
-                            }
-                            .buttonStyle(BotTextButtonStyle())
-                            .botHitTarget()
-                            .accessibilityIdentifier("bot.routine.toggle.\(routine.id)")
-                        }
-                        .padding(.vertical, 4)
+                        routineRow(routine)
                     }
                 }
             }
         }
         .homeGroupedList()
         .navigationTitle("例行任务")
+        .confirmationDialog("取消这次运行？", isPresented: Binding(
+            get: { confirmingCancel != nil }, set: { if !$0 { confirmingCancel = nil } }
+        )) {
+            Button("取消运行", role: .destructive) {
+                if let routine = confirmingCancel {
+                    Task { await model.cancelRoutine(routine) }
+                }
+                confirmingCancel = nil
+            }
+            Button("返回", role: .cancel) { confirmingCancel = nil }
+        } message: {
+            Text("正在执行的回合会被中止；已经产生的效果会保留。")
+        }
+    }
+
+    @ViewBuilder
+    private func routineRow(_ routine: BotRoutineInfo) -> some View {
+        let reconciliation = model.reconciliation(for: routine)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(routine.title)
+                    .botTitleFont()
+                    .foregroundStyle(HomeSpec.textPrimary)
+                Spacer()
+                BotStatusPill(text: routineStatus(routine), tone: routineTone(routine))
+            }
+            LabeledContent("排程", value: routine.schedule)
+            LabeledContent("时区", value: routine.timeZone)
+            LabeledContent("交付", value: routine.delivery)
+            if let creator = routine.creator {
+                LabeledContent("设立者", value: creator)
+            }
+            if let criteria = routine.completionCriteria, !criteria.isEmpty {
+                LabeledContent("完成条件", value: criteria)
+            }
+            if let constraints = routine.routineConstraints, !constraints.isEmpty {
+                LabeledContent("约束", value: constraints)
+            }
+            if routine.quiet {
+                Label("安静时段会延后", systemImage: "moon")
+                    .botCaptionFont()
+                    .foregroundStyle(HomeSpec.textSecondary)
+            }
+            if routine.urgent {
+                Label("紧急：\(routine.urgentReason ?? "未说明")", systemImage: "exclamationmark")
+                    .botCaptionFont()
+                    .foregroundStyle(NativeParityTokens.warning)
+            }
+            Text(routine.lastResult)
+                .botSecondaryFont()
+                .foregroundStyle(HomeSpec.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if routine.runStatus == "started" {
+                Button("取消运行") { confirmingCancel = routine }
+                    .buttonStyle(BotTextButtonStyle())
+                    .botHitTarget()
+                    .accessibilityIdentifier("bot.routine.cancel.\(routine.id)")
+            }
+            if routine.runStatus == "needs-reconciliation", let reconciliation {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("执行结果未知，需要确认", systemImage: "exclamationmark.triangle")
+                        .botCaptionFont()
+                        .foregroundStyle(NativeParityTokens.warning)
+                    if let summary = reconciliation.effectSummary {
+                        Text("已产生的效果：\(summary)")
+                            .botCaptionFont()
+                            .foregroundStyle(HomeSpec.textSecondary)
+                    }
+                    if let error = reconciliation.error {
+                        Text("原因：\(error)")
+                            .botCaptionFont()
+                            .foregroundStyle(HomeSpec.textSecondary)
+                    }
+                    HStack(spacing: 16) {
+                        Button("确认完成") {
+                            Task { await model.resolve(reconciliation, decision: "acknowledge") }
+                        }
+                        .buttonStyle(BotTextButtonStyle())
+                        .botHitTarget()
+                        .accessibilityIdentifier("bot.routine.reconcile.ack.\(routine.id)")
+                        Button("重试") {
+                            Task { await model.resolve(reconciliation, decision: "retry") }
+                        }
+                        .buttonStyle(BotTextButtonStyle())
+                        .botHitTarget()
+                        .accessibilityIdentifier("bot.routine.reconcile.retry.\(routine.id)")
+                    }
+                }
+            }
+            Button(routine.enabled ? "暂停" : "恢复") {
+                Task { await model.setRoutine(routine, enabled: !routine.enabled) }
+            }
+            .buttonStyle(BotTextButtonStyle())
+            .botHitTarget()
+            .accessibilityIdentifier("bot.routine.toggle.\(routine.id)")
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func routineStatus(_ routine: BotRoutineInfo) -> String {
+        switch routine.runStatus {
+        case "started": return "运行中"
+        case "needs-reconciliation": return "待确认"
+        case "scheduled": return "等待触发"
+        default: return routine.enabled ? "已启用" : "已暂停"
+        }
+    }
+
+    private func routineTone(_ routine: BotRoutineInfo) -> BotStatusTone {
+        switch routine.runStatus {
+        case "started": return .accent
+        case "needs-reconciliation": return .warning
+        default: return routine.enabled ? .success : .neutral
+        }
+    }
+}
+
+private struct BotGrantsPage: View {
+    @ObservedObject var model: BotInfoModel
+
+    var body: some View {
+        List {
+            switch model.approvalsState {
+            case .loading:
+                ProgressView().frame(maxWidth: .infinity)
+            case .failed(let message):
+                BotFailureRow(message: "常设授权读取失败：\(message)。这不代表没有授权。") {
+                    Task { await model.refresh() }
+                }
+                .listRowBackground(Color.clear)
+            case .loaded:
+                loadedContent
+            }
+        }
+        .homeGroupedList()
+        .navigationTitle("常设授权")
+    }
+
+    @ViewBuilder
+    private var loadedContent: some View {
+            if model.grants.isEmpty {
+                Text("还没有常设授权。一次性授权只在执行时有效，不会出现在这里。")
+                    .foregroundStyle(HomeSpec.textSecondary)
+            } else {
+                Section {
+                    ForEach(model.grants) { grant in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(grant.tool)
+                                    .botTitleFont()
+                                    .foregroundStyle(HomeSpec.textPrimary)
+                                Spacer()
+                                BotStatusPill(text: grant.scope, tone: .neutral)
+                            }
+                            Text("\(grant.operation) · \(grant.resource)")
+                                .botCaptionFont()
+                                .foregroundStyle(HomeSpec.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("来源：\(grant.source) · \(grant.createdAt.formatted(date: .abbreviated, time: .shortened))")
+                                .botCaptionFont()
+                                .foregroundStyle(HomeSpec.textTertiary)
+                            Button("撤销这条授权", role: .destructive) {
+                                Task { await model.revocation(of: grant) }
+                            }
+                            .buttonStyle(BotTextButtonStyle())
+                            .botHitTarget()
+                            .accessibilityIdentifier("bot.grant.revoke.\(grant.id)")
+                        }
+                        .padding(.vertical, 4)
+                    }
+                } footer: {
+                    Text("撤销后，同一操作需要重新审批；常设授权只属于这个 Bot。")
+                }
+            }
     }
 }
 

@@ -135,9 +135,9 @@ and exact-MCP gate, the host asks `POST`/`PUT`/`PATCH`/`DELETE` (never `GET`/`HE
 MCP route) through `BotEgressWriteApproving`. A live Bot `bash` registration resolves the principal; a DSH background job keeps
 that registration alive and refreshed until it settles, and several live registrations of one Bot are one owner. With none, the
 workbench-turn probe keeps `notBot` for a running workbench turn; otherwise one active Bot gets the card, several fail
-`bot_egress_ambiguous`, and none fails `bot_egress_unattributed`. A missing Grant uses `tool=egress`,
-`operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no
-credential, socket or response log; an approved write's 3xx is never followed. Kotlin has no Bot runtime, so the `gw-*` goldens stay unchanged.
+`bot_egress_ambiguous`, and none fails `bot_egress_unattributed`. After attribution, a Task without `task.network-write` is refused
+403 `task_network_write_denied` before any card; a standing Grant cannot widen the host-issued subset. A missing Grant uses
+`tool=egress`, `operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no credential, socket or response log; an approved write's 3xx is never followed. Kotlin has no Bot runtime, so the `gw-*` goldens stay unchanged.
 
 ## 6. Response side — `response-redaction`
 
@@ -174,7 +174,7 @@ credential, socket or response log; an approved write's 3xx is never followed. K
 - **Fail loud and structured.** A denial carries a stable lower-snake cause in body and
   `X-PDSH-Proxy-Error`, mapped `host_not_allowed` → 403/`forbidden`, `invalid_request` →
   400/`bad_request`, `credential_unavailable` → 502/`credential_unavailable`,
-  `egress_approval_denied` → 403/`egress_approval_denied` (`ModelGateway.swift`).
+  `egress_approval_denied` → 403/`egress_approval_denied`; `task_network_write_denied` is the same 403 class, keeps its specific `error.code`/`X-PDSH-Proxy-Error`, and reports `xl_error.code = egress_approval_denied` (`ModelGateway.swift`, `HTTPEgressFailure.swift`).
 - **Nothing secret in the diagnostic.** Messages carry a host or short reason; credential, request
   headers and body never appear, and the provider error text is not forwarded
   (`ModelGateway.swift:229`, `:651`, `Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1242`).

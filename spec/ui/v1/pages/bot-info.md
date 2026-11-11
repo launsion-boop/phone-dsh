@@ -18,8 +18,10 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 - 本轮不提供「自动」选项；资料模型的 `nil` 保留给以后的多 Bot 导入。页面不显示自动外观标记，也不伪造未保存状态。
 
 - 记忆：展示 facts 的 tier/scope/source/时间，支持已有 forget/erase 语义；不提供第一版未实现的自动抽取、反思或衰减开关。
-- Routines：展示 schedule、timezone、delivery、quiet/urgent 标记和运行结果，动作通过 UserAction/宿主服务，不直接修改数据库。
+- Routines：展示 schedule、timezone、delivery、quiet/urgent 标记、运行结果、设立者（`creator.rpcId`／`turnId`／`origin`／`authorization`）、`completion_criteria` 与 `constraints`；动作通过 UserAction/宿主服务，不直接修改数据库。运行中（`run_state.status == "started"`）显示「取消运行」；`run_state.status == "needs-reconciliation"` 显示已产生效果的文字摘要，并提供「确认完成」和「重试」两个独立动作，分别走 `RoutineMachine.resolveReconciliation` 与 `BotEffectOutbox.ackReconciled`／`retryNeedsReconciliation`。取消、对账后重读权威状态；读取失败显示失败，不显示为零。
+- 常设授权：单独入口，列出本 Bot 的 `scope != once` Grant（tool、operation、resource、scope、sessionId、createdAt、source），每行可撤销。撤销调用 `BotGrantStore.revoke(id:)` 并重读；不把 once 授权显示为常设，也不在撤销失败时本地移除。授权状态未知时显示读取失败，不伪造“无授权”。accessibility id 前缀 `bot.grant.*`。
 - 审批记录：只显示参数摘要和实际决定，不显示密钥或完整敏感参数。
 - 深链 `phonedsh://bot/<botID>/row/<rowID>` 定位真实行；未知或过期行显示不可用，不跳到无关会话。
+- 上述条目和动作只增不改：分组列表、导航和 token 沿用现有 Bot 信息页，不新增独立页面框架。
 
 浅色、深色、空状态、读取失败和长文本需要模拟器截图与交互证据；当前状态为 target，不代表页面已经实现。

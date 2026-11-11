@@ -226,6 +226,29 @@ final class LoopbackEgressFailureTests: XCTestCase {
         XCTAssertEqual(details["underlying_code"] as? Int, NSURLErrorTimedOut)
     }
 
+    /// A Task subset denial keeps its specific `error.code` while the closed
+    /// taxonomy still classifies it as an egress-approval denial (403).
+    func testTaskNetworkWriteDeniedKeepsTheSpecificCodeAndTheApprovalClass() async throws {
+        let failure = HTTPEgressFailure(
+            status: 403, code: "task_network_write_denied",
+            message: "the Task session has no task.network-write authorization")
+        let (_, client) = try await startServer(
+            egress: TypedFailureHTTPEgress(failure: failure))
+        let (http, data) = try await client.send(
+            "POST", "/v1/http",
+            headers: ["X-PDSH-Target-URL": "https://example.test/upload",
+                      "X-PDSH-Target-Method": "POST"])
+        XCTAssertEqual(http.statusCode, 403)
+        XCTAssertEqual(http.value(forHTTPHeaderField: "X-PDSH-Proxy-Error"),
+                       "task_network_write_denied")
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let error = try XCTUnwrap(object?["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "task_network_write_denied")
+        let xlError = try XCTUnwrap(object?["xl_error"] as? [String: Any])
+        XCTAssertEqual(xlError["code"] as? String, "egress_approval_denied")
+        XCTAssertEqual(xlError["host"] as? String, "example.test")
+    }
+
     /// An error with no structured code still carries its bridged identity, so
     /// an unknown `HTTPEgress` implementation is diagnosable too.
     func testUnstructuredErrorStillCarriesSourceIdentity() async throws {

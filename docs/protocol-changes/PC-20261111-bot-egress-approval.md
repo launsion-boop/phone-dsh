@@ -9,7 +9,7 @@ status: implemented
 breaking: false
 version_decision: Additive host-composition seam and phone-only vectors. No wire field, route, JSON-RPC method, frame, schema or BotEvent shape changes. New App + new Worker is the supported pair; mixed old/new pairs keep an approval layer (old host keeps its command-pattern card; new host asks at the exit for the live bash registration).
 base: 0bbe253f62f22f8ab99f31a11dd1121ab65c15da
-contract_revision: spec/bot/v1/README.md@PC-20261111-bot-egress-approval@2 + spec/v1/gateway-security.md@PC-20261111-bot-egress-approval@2 + spec/bot/v1/golden/mcp-egress.phone.json@PC-20261111-bot-egress-approval@2 + spec/bot/v1/golden/approval-patterns.phone.json@PC-20261111-bot-egress-approval
+contract_revision: spec/bot/v1/README.md@PC-20261111-bot-egress-approval@3 + spec/v1/gateway-security.md@PC-20261111-bot-egress-approval@3 + spec/bot/v1/golden/mcp-egress.phone.json@PC-20261111-bot-egress-approval@3 + spec/bot/v1/golden/approval-patterns.phone.json@PC-20261111-bot-egress-approval
 ```
 
 Protocol impact: P05; P16: none — the Worker environment is unchanged (no new token or variable); P26; P27: none — the new `approval.requested`/`approval.decided` events reuse the existing P25/P27 shapes and the existing approval row, and no row/user-action/projection field changed; P09: none — no UI page or eval catalog assertion changed.
@@ -20,7 +20,8 @@ Protocol impact: P05; P16: none — the Worker environment is unchanged (no new 
   - WP3 取证显示 `phoneEffectsForApproval('bash')` / `BotApprovalPatternAnalyzer` 对脚本文件、变量拼接、`python3 /tmp/x.py` 的网络写返回空效果；宿主对空效果直接 `auto-policy`，模型可在“一次 bash 批准”后静默发出 POST。即使正则命中，命令文本也不是安全边界。
   - 现在要求：任何经宿主 `/v1/http` 的 `POST`/`PUT`/`PATCH`/`DELETE`，不论命令怎么写，都在**宿主出口**按“主机 + 方法”判断；无 Grant 就挂起现有 Bot 审批卡，拒绝/超时/取消 fail-closed。`GET`/`HEAD` 维持 allow-list。
   - 同时把 `write`/`edit` 的结构审批从“参数摘要”改成“目录粒度”，并让 Bot 自己工作区根内的写不再出结构审批卡；根外写仍按目录授权，DSH 文件沙箱是执行边界。
-- **责任。** 本单元 `s2-s4a` 兼任 contract owner 与 implementer；本文件是契约冻结与实施记录，不是独立 reviewer 的验收。
+  - S4 整合时发现：S4 后半把 Task 网络写门禁挂在已删除的 `curl-post`/`network-egress` 命令效果上，合并后会静默失效。现把该门禁移到出口：写归属到 Task 会话后，capabilities 不含 `task.network-write` 即 403 `task_network_write_denied`，不创建审批卡、不写 Grant，也不被命令文本或已有 Grant 绕过。
+- **责任。** 本单元 `s2-s4a` 兼任 contract owner 与 implementer；S4 整合单元 `s2-s4` 补上 Task 出口门禁并维护本记录；本文件是契约冻结与实施记录，不是独立 reviewer 的验收。
 - **Owning contracts / schemas / fixtures。**
   - P05 出口：[spec/v1/gateway-security.md](../../spec/v1/gateway-security.md) §5.1、§7；实现 `Sources/PhoneDSHGateway/{ModelGateway,GatewaySession}.swift`、`Sources/PhoneDSHLoopback/HTTPEgressFailure.swift`、`Sources/PhoneDSH/PhoneMCPAccessSettings.swift`、`Sources/PhoneDSH/PhoneDSHHost.swift`（接线）。
   - P26 审批/Grant/效果：[spec/bot/v1/README.md](../../spec/bot/v1/README.md) §2.4；实现 `Sources/PhoneDSHBot/Authz/{BotApprovalPatterns,BotEgressEffects}.swift`、`Sources/PhoneDSHBot/MCP/{BotApprovalCoordinator,BotMCPRuntime}.swift`、`plugins/bot-runtime/src/approval-gate.ts`、`examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeComposition.swift`（接线）。
@@ -41,7 +42,8 @@ Protocol impact: P05; P16: none — the Worker environment is unchanged (no new 
 | 归属（B：失败关闭兜底） | 无存活登记时，宿主读取 `PhoneDSHHost` 的 journal turn state（排除活动 Bot 会话）：有工作台回合 → `notBot`（工作台不变）；无工作台回合且恰好 1 个活动 Bot → 该 Bot 送审；多个活动 Bot → `bot_egress_ambiguous` 拒绝；无活动 Bot → `bot_egress_unattributed` 拒绝。已归属的 job 写不经过 B。 |
 | 后台 job 续期 | Worker `identity-bridge` 在 `tools/execute` 识别 `background`/`promoted` bash 结果；不再在返回边界 cancel，改为 `ctx.jobs.events` 监听 settled/removed、heartbeat 续期、24 小时上限和插件 dispose 清理。宿主 `BotAttributionRegistry.refresh` 只延长同一 id，不发布第二个登记。 |
 | 审批卡 / Grant | `tool=egress`、`operation=egress.<lowercase method>`、`resource=host=<lowercase host>`；`alwaysScope=until`。同一主机+方法复用 `until` Grant；`allow_once` 在放行后立即消费。 |
-| 拒绝/超时/取消 | 明确错误：HTTP 403；`xl_error.code`/`X-PDSH-Proxy-Error` 统一 `egress_approval_denied`，`error.code` 保留具体原因（拒绝/超时/取消 `egress_approval_denied`，歧义 `bot_egress_ambiguous`，未归属 `bot_egress_unattributed`）。不解析凭据、不开 socket、不写 response log。审批默认 300 s。 |
+| Task 子集 | 归属完成后检查被归属会话：`kind=task` 且 capabilities 不含 `task.network-write` → HTTP 403 `task_network_write_denied`，0 张审批卡、0 个 Grant，已有 Grant 也不放行；带 `task.network-write` 的 Task 会话走同一主机+方法审批卡。主对话没有这个子集检查。不再依赖 `curl-post`/`network-egress` 命令分类。 |
+| 拒绝/超时/取消 | 明确错误：HTTP 403；`xl_error.code` 统一 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 保留具体原因（拒绝/超时/取消 `egress_approval_denied`，歧义 `bot_egress_ambiguous`，未归属 `bot_egress_unattributed`，Task 子集 `task_network_write_denied`）。不解析凭据、不开 socket、不写 response log。审批默认 300 s。 |
 | 取消传播 | 消费者取消 → `BotApprovalCoordinator.cancel` 写 `approval.decided`（`status=cancelled`、`reason=consumer_cancelled`）；`workerRestarted`/Bot 删除沿用 `cancelAll`（`approval unavailable`）。 |
 | 重定向 | 被批准的写不跟随 3xx；原 3xx 返回，调用方对新目标重新走审批。GET/HEAD 与非 Bot 写不变。 |
 | Bot 工作区根 | 契约值 = `BotWorkspaceLayout.botRoot(botId:)` = `/dsh/workspace/.dshbot/agents/<safe botID>`；chat/task/routine 共享该 Bot 根，不同 Bot 隔离。根内 `write`/`edit` 无结构审批卡；根外是跨出口。 |
@@ -69,19 +71,18 @@ Protocol impact: P05; P16: none — the Worker environment is unchanged (no new 
 - Swift 真实路径：`BotEgressApprovalTests` 驱动真实 `BotMCPRuntime.registerIdentity` + `BotApprovalCoordinator`（含拒绝、always Grant 复用、取消、同 Bot 分组、不同 Bot 歧义、无工作台回合的单 Bot 送审/B 兜底、refresh 延期、GET/HEAD、WP3 的四种写法）；`BotEgressApprovalGatewayTests` 驱动真实 `ModelGateway`（拒绝不触上游、允许触上游、GET/HEAD 不调用、模型端点豁免、重定向不跟随）；`BotGoldenVectorTests` 驱动真实 `BotApprovalPatternAnalyzer`；`BotToolEffectClassifier` 目录效果由同一文件覆盖。
 - Eval runner wiring：`scripts/ci/bot-e2e/harness/Tests/BotEvalTests/BotEvalRunner.swift` 现在把 mock model base 的 `ModelGatewayConfiguration.standardModelEndpoints` 传给 `replaySafeModelEndpoints`，与生产 App 一致；否则 B 兜底会把 mock 模型请求误判为 Bot 工具网络写。这是测试装配修正，不放宽契约。
 - Worker 真实路径：`bot-identity-approval.test.ts` 驱动真实 `approval-gate.ts` 与 `defineTool`（根内空效果、根外目录效果、缺失路径 fail-closed）；`bot-egress-job-attribution.test.ts` 驱动真实 identity bridge + 工具管线 + fake `ctx.jobs` 与真实 `dsh-jobs-local`（background/promoted 登记跨工具返回存活、heartbeat 续期、settled 清理、foreground 立即清理）；`bot-egress-spike.test.ts` 驱动真实 `runCurl` + WorkerShell（脚本文件/变量拼接都到达 `/v1/http` 并有 POST 目标）。
-- 共享 fixtures：`mcp-egress.phone.json` 的 `egress-approval` 37 valid / 43 invalid（含 Grant 命中、一次/always、GET/HEAD、模型端点、workbench、消歧、后台 job 存活登记、同 Bot 多登记、无登记单 Bot/多 Bot/无 Bot、workbench 回合、拒绝、超时、歧义、未归属、PUT/PATCH/DELETE）；`grant-directory` 同上文件（根内、同目录、session Grant、无 Grant、异目录、旧参数摘要、traversal、异工具、拒绝、缺失路径）。`approval-patterns.phone.json` 6 条降级。
-- Exact commands → result（本单元实际运行）：
-  - `swift test --disable-sandbox --filter 'PhoneDSHBotTests|PhoneDSHGatewayTests|BotMCPEgressCredentialInjectionTests|MCPEgressPolicyTests'` → PASS（632 tests，0 failures）。
-  - `swift test --disable-sandbox --filter 'PhoneDSHLoopbackTests'` → PASS（116 tests，0 failures；八类 taxonomy 与具体 Bot 出口原因）。
+- 共享 fixtures：`mcp-egress.phone.json` 共 39 valid / 46 invalid / 22 mutation checks（含 Grant 命中、一次/always、GET/HEAD、模型端点、workbench、消歧、后台 job 存活登记、同 Bot 多登记、无登记单 Bot/多 Bot/无 Bot、workbench 回合、拒绝、超时、歧义、未归属、PUT/PATCH/DELETE，以及 Task 有/无 `task.network-write`、Grant 不能扩权、Task-only 兜底、主对话不受影响）；`grant-directory` 同上文件（根内、同目录、session Grant、无 Grant、异目录、旧参数摘要、traversal、异工具、拒绝、缺失路径）。`approval-patterns.phone.json` 6 条降级。
+- Exact commands → result（`s2-s4` 整合后实际运行）：
+  - `swift test --disable-sandbox --filter 'PhoneDSHBotTests|PhoneDSHGatewayTests|PhoneDSHLoopbackTests|BotMCPEgressCredentialInjectionTests|MCPEgressPolicyTests'` → PASS（777 tests，0 failures；新增 Task 无授权出口拒绝、Task 有授权送审、Task-only 兜底、主对话不受影响、routine/egress 取消与超时互不干扰、Loopback 新原因码分类）。
   - `cd plugins && npm run typecheck` → PASS。
   - `cd plugins && node scripts/run-tests.mjs "tests/bot-*.test.ts"` → PASS（89 tests：88 pass，1 pre-existing skip，0 fail；0 todo）。
-  - `python3 spec/bot/v1/tools/validate_vectors.py` → PASS（`mcp-egress` 37 valid / 43 invalid / 20 mutation checks；`approval-patterns` 降级 overlay PASS）。
-  - `python3 spec/tools/bot/check_golden.py --root .` → PASS（31 files，22 upstream，9 overlays）。
-  - `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main) bash scripts/ci/check.sh --only phone-spec,phone-cross-tree` → PASS（phone-cross-tree 8/8 invariants，87 Python tests）。
-  - `bash scripts/ci/check.sh --only phone-bundle-fresh,phone-license` → PASS（rebuilt `worker-entry.js`/`tool-worker*.js`/`image.tar.gz` first）。
+  - `python3 spec/bot/v1/tools/validate_vectors.py` → PASS（`mcp-egress` 39 valid / 46 invalid / 22 mutation checks；authority 5 creators / 8 changes / 5 task subsets / 19 mutation；turn-origin 9 valid / 32 invalid / 10 mutation）。
+  - `python3 spec/tools/bot/check_golden.py --root .` → PASS（32 files，22 upstream，10 overlays）。
+  - `CI_PROTOCOL_BASE=$(git merge-base HEAD origin/main) bash scripts/ci/check.sh --only phone-spec,phone-cross-tree` → PASS（phone-spec 95 files；phone-cross-tree 8/8 invariants，87 Python tests）。
+  - `node plugins/worker-entry/build.mjs --out examples/probe-app/Bundle/worker` + `PDSH_DSH_CHECKOUT=<pinned checkout> node plugins/scripts/pack-image.mjs --out examples/probe-app/Bundle/worker` + `bash scripts/ci/check.sh --only phone-bundle-fresh,phone-license` → PASS（6 fresh，0 stale；license PASS）。
   - `bash scripts/ci/bot-e2e/eval.sh --catalog scripts/ci/bot-e2e/selftest.json --upstream mock` → PASS（10/10 scenarios）。
-  - `bash scripts/ci/bot-e2e/eval.sh --catalog scripts/ci/bot-e2e/catalog.json --only BOT-E05 --upstream mock` → PASS（approval_requests main=1；files LOCAL_OK/REVISED_MARKER；echo POST /wp2/e05=0）。
-  - `xcodegen generate` + `CFFIXED_USER_HOME=/tmp/s2-s4a-home HOME=/tmp/s2-s4a-home PDSH_WITH_SHELL=1 OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' xcodebuild -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/s2-s4a-dd -packageCachePath /tmp/s2-s4a-spm -clonedSourcePackagesDirPath <repo>/.build build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES` → **PASS**（`** BUILD SUCCEEDED **`）。
+  - `bash scripts/ci/bot-e2e/eval.sh --catalog scripts/ci/bot-e2e/catalog.json --only BOT-E05,BOT-E06 --upstream mock` → PASS（2/2 scenarios）。
+  - `xcodegen generate` + `CFFIXED_USER_HOME=/tmp/s2-s4-home HOME=/tmp/s2-s4-home PDSH_WITH_SHELL=1 OTHER_SWIFT_FLAGS='$(inherited) -disable-sandbox' xcodebuild -scheme PhoneDSHProbe -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/s2-s4-dd -packageCachePath /tmp/s2-s4-spm -clonedSourcePackagesDirPath <repo>/.build build CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES` → **PASS**（`** BUILD SUCCEEDED **`）。
 - 未验证：真机、Android/HarmonyOS、真实模型、锁屏/铃声、设备唤醒；跨进程 job id 对账（A 失效 + 工作台回合并发的残余风险）。
 
 ## 5. 修订记录
@@ -90,3 +91,4 @@ Protocol impact: P05; P16: none — the Worker environment is unchanged (no new 
 | --- | --- | --- | --- |
 | PC-20261111-bot-egress-approval@1 | s2-s4a contract owner | 首次冻结：出口写审批、工作区根、目录 Grant、正则降级、向量 | Swift 宿主、Worker/plugins、docs/spec；Android/HarmonyOS 无 Bot runtime，记录为 not started |
 | PC-20261111-bot-egress-approval@2 | s2-s4a contract owner | 堵 Remaining risk ①：A（job 生命周期登记续期、同 Bot 分组）+ B（无登记时按工作台回合失败关闭/单 Bot 送审/多 Bot 拒绝）；向量新增 job-lifecycle、single-bot、multi-bot、workbench-turn | Swift 宿主、Worker/plugins、docs/spec；Android/HarmonyOS 不变 |
+| PC-20261111-bot-egress-approval@3 | s2-s4 整合 owner | 补 Task 网络写门禁到宿主出口：`task_network_write_denied`、无卡/无 Grant、主对话不受影响；删除对已移除的 `curl-post`/`network-egress` 命令效果的依赖；向量新增 task-network-write、chat-unaffected 与 Grant 不能扩权 | Swift 宿主、docs/spec；Worker/plugins、Android/HarmonyOS 无 consumer 变更 |

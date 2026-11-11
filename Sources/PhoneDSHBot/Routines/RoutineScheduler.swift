@@ -161,6 +161,25 @@ public actor RoutineScheduler {
         }
     }
 
+    /// Cancel the currently running attempt of one routine. This is the user
+    /// exit from the Bot information page: it uses the same cancellation chain
+    /// as a timeout but passes `reason:"user"`, so the settled delivery keeps
+    /// `cancelOrigin:"user"` and is not treated as a failure notification.
+    public func cancelRunning(routineId: String) async -> RoutineCancellationResult {
+        guard active.contains(routineId),
+              let routine = try? await machine.get(botId: botId, routineId: routineId),
+              let state = routine.runState,
+              state.status == .started else {
+            return RoutineCancellationResult(cancelled: false, reason: "routine is not running")
+        }
+        guard let cancelRunner else {
+            return RoutineCancellationResult(cancelled: false, reason: "no-cancel-handler")
+        }
+        return await cancelRunner(RoutineCancellation(
+            botId: botId, routineId: routineId, runId: state.runId,
+            timeoutMs: cancelGraceMs, reason: "user"))
+    }
+
     public func waitForIdle() async {
         while ticking || !active.isEmpty { await sleeper(1) }
     }

@@ -36,7 +36,10 @@ public enum BotEgressApproval: Sendable, Equatable {
     /// The write is attributable to a Bot and the user (now or earlier)
     /// authorized this host + method.
     case allowed
-    /// Fail closed with a stable lower-snake cause.
+    /// Fail closed with a stable lower-snake cause. Besides the approval
+    /// outcomes (`egress_approval_denied`, `bot_egress_ambiguous`,
+    /// `bot_egress_unattributed`), a Task session without
+    /// `task.network-write` is `task_network_write_denied` before any card.
     case denied(code: String, message: String)
 }
 

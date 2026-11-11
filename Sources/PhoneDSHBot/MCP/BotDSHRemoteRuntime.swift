@@ -49,7 +49,7 @@ public struct BotLiveTurnFrame: Sendable {
     public let kind: Kind
 }
 
-public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
+public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAuthorizing {
     /// Durable task projection. It is stored as `persistedTask` inside the
     /// existing `task.created`/`task.updated` events, so no new table, event
     /// type or wire field is introduced.
@@ -70,6 +70,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         var error: String?
         var createdAt: Int64
         var wakeDelivered: Bool
+        /// Optional for old persisted rows. A missing value restores the
+        /// workspace-only default rather than an unrestricted child.
+        var authorization: BotTaskAuthorization?
     }
 
     private struct TaskState {
@@ -81,6 +84,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         var prompt: String
         var asynchronous: Bool
         var timeoutMs: Int
+        var authorization: BotTaskAuthorization
         var record: BotTaskRecord
         var generation: Int
         var work: Task<BotTaskRecord, Error>?
@@ -414,8 +418,21 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     }
 
     public func start(request: BotTaskRequest) async throws -> BotTaskRecord {
+        let authorization = try BotTaskAuthorization.resolve(
+            requestedDirectories: [], workspaceRoot: botRoot())
+        return try await start(request: request, authorization: authorization)
+    }
+
+    /// Authorized Task dispatch. The requested subset is resolved against this
+    /// Bot's workspace root, narrowed to the parent task's own subset when the
+    /// caller is a task, persisted with the durable record and baked into the
+    /// child session's principal capabilities before any prompt is sent.
+    public func start(request: BotTaskRequest,
+                      authorization requested: BotTaskAuthorization) async throws -> BotTaskRecord {
+        let authorization = try resolveAuthorization(requested, parent: request.parent)
         let taskId = "task-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12))"
-        let sessionId = try await createSession(kind: .task)
+        let sessionId = try await createSession(
+            kind: .task, capabilities: authorization.capabilities)
         let record = BotTaskRecord(
             taskId: taskId, sessionId: sessionId, status: "running", title: request.title,
             result: nil, partial: "")
@@ -426,6 +443,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             parentKind: request.parent.principal.kind,
             title: request.title, prompt: request.prompt,
             asynchronous: request.asynchronous, timeoutMs: request.timeoutMs,
+            authorization: authorization,
             record: record, generation: 1, work: nil, stopWork: nil,
             live: true, wakeDelivered: false)
         taskStates[taskId] = state
@@ -443,6 +461,58 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             return record
         }
         return try await executeTask(taskId: taskId, generation: 1)
+    }
+
+    /// The resolved subset stored with one task. Used by `AwaitTask` so the
+    /// parent sees the same capabilities it was told at dispatch time.
+    public func authorization(taskId: String,
+                              parent: BotResolvedToolCall) async throws -> BotTaskAuthorization? {
+        guard let state = try ownedTask(taskId: taskId, parent: parent) else {
+            throw BotMCPError.invalidRequest("unknown task: \(taskId)")
+        }
+        return state.authorization
+    }
+
+    private func resolveAuthorization(_ requested: BotTaskAuthorization,
+                                      parent: BotResolvedToolCall) throws -> BotTaskAuthorization {
+        var resolved = try BotTaskAuthorization.resolve(
+            requestedDirectories: requested.allowedWriteDirectories,
+            workspaceRoot: botRoot(),
+            canNetworkWrite: false, canDelegateTasks: false)
+        guard parent.principal.kind == .task,
+              let parentAuthorization = BotTaskAuthorization.from(
+                capabilities: parent.principal.capabilities) else {
+            return resolved
+        }
+        // A task child can only narrow its own write scope; delegation is
+        // rejected by BotMCPRuntime before this path can run in this revision.
+        let narrowed = resolved.allowedWriteDirectories.filter { directory in
+            parentAuthorization.allowedWriteDirectories.contains { allowed in
+                directory == allowed || directory.hasPrefix(allowed + "/")
+            }
+        }
+        resolved = try BotTaskAuthorization.resolve(
+            requestedDirectories: narrowed.isEmpty
+                ? parentAuthorization.allowedWriteDirectories : narrowed,
+            workspaceRoot: resolved.workspaceRoot,
+            canNetworkWrite: parentAuthorization.canNetworkWrite,
+            canDelegateTasks: false)
+        return resolved
+    }
+
+    static func authorizationPrompt(_ authorization: BotTaskAuthorization) -> String {
+        let escapedRoot = HeldMessages.escapedHeldField(authorization.workspaceRoot)
+        let directories = authorization.allowedWriteDirectories
+            .map(HeldMessages.escapedHeldField).joined(separator: ", ")
+        return """
+        <task_authorization>
+        workspace_root: \(escapedRoot)
+        allowed_write_directories: \(directories)
+        write_outside_workspace: \(authorization.canWriteOutsideWorkspace)
+        network_write: \(authorization.canNetworkWrite)
+        delegate_tasks: \(authorization.canDelegateTasks)
+        </task_authorization>
+        """
     }
 
     public func await(taskId: String, timeoutMs: Int, parent: BotResolvedToolCall) async throws -> BotTaskRecord {
@@ -507,9 +577,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 taskId: taskId, sessionId: "", status: "stopped", title: "")
         }
         do {
+            let prompt = Self.authorizationPrompt(state.authorization)
+                + "\n\n" + state.prompt
             let turn = try await runTurn(
                 sessionId: state.record.sessionId, kind: .task,
-                prompt: state.prompt, requestId: BotTurnOrigin.taskTurnRequestId(taskId: taskId))
+                prompt: prompt, requestId: BotTurnOrigin.taskTurnRequestId(taskId: taskId))
             guard let current = taskStates[taskId], current.generation == generation,
                   current.record.status == "running" else {
                 return taskStates[taskId]?.record ?? state.record
@@ -651,7 +723,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             title: state.title, prompt: state.prompt, asynchronous: state.asynchronous,
             timeoutMs: state.timeoutMs, status: state.record.status,
             result: state.record.result, partial: state.record.partial,
-            error: state.record.error, createdAt: now(), wakeDelivered: state.wakeDelivered)
+            error: state.record.error, createdAt: now(), wakeDelivered: state.wakeDelivered,
+            authorization: state.authorization)
         let principal = sessions[state.ownerSessionId]?.principal ?? BotGatewayPrincipal(
             botId: state.ownerBotId, sessionId: state.ownerSessionId,
             kind: state.parentKind, expiresAt: Int64.max,
@@ -724,6 +797,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
                 ownerIncarnation: snapshot.parentIncarnation, parentKind: kind,
                 title: snapshot.title, prompt: snapshot.prompt,
                 asynchronous: snapshot.asynchronous, timeoutMs: snapshot.timeoutMs,
+                authorization: snapshot.authorization ?? (try? BotTaskAuthorization.resolve(
+                    requestedDirectories: [], workspaceRoot: botRoot()))
+                    ?? BotTaskAuthorization(
+                        workspaceRoot: botRoot(), allowedWriteDirectories: [botRoot()],
+                        canWriteOutsideWorkspace: false, canNetworkWrite: false,
+                        canDelegateTasks: false),
                 record: record, generation: 1, work: nil, stopWork: nil,
                 live: false, wakeDelivered: snapshot.wakeDelivered)
             if interrupted {
@@ -1008,7 +1087,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         return sessionId
     }
 
-    private func createSession(kind: BotSessionKind, sessionID: String? = nil) async throws -> String {
+    private func createSession(kind: BotSessionKind, sessionID: String? = nil,
+                               capabilities: [String] = []) async throws -> String {
         var fields: [String: BotJSONValue] = ["cwd": .string(botRoot())]
         fields["sessionId"] = .string(sessionID ?? mintedSessionID(kind: kind))
         let request: BotJSONValue = .object(fields)
@@ -1016,7 +1096,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
             throw BotMCPError.unavailable("session/create returned no sessionId")
         }
-        _ = try await issueAndClaimSession(sessionId, kind: kind)
+        _ = try await issueAndClaimSession(sessionId, kind: kind, capabilities: capabilities)
         return sessionId
     }
 
@@ -1033,9 +1113,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
     /// Worker without a credential for the first turn. A Worker that predates
     /// the claim method is tolerated only for `gb-` ids, and the missing token
     /// then fails identity registration closed.
-    private func issueAndClaimSession(_ sessionId: String, kind: BotSessionKind) async throws -> BotGatewayPrincipal {
+    private func issueAndClaimSession(_ sessionId: String, kind: BotSessionKind,
+                                      capabilities: [String] = []) async throws -> BotGatewayPrincipal {
         let issued = try await runtime.issueSessionToken(
-            botId: botId, sessionId: sessionId, kind: kind)
+            botId: botId, sessionId: sessionId, kind: kind, capabilities: capabilities)
         let acknowledged = try await claimOwnedSession(sessionId, sessionToken: issued.token)
         sessions[sessionId] = SessionCredential(
             token: issued.token, principal: issued.principal,
@@ -1095,7 +1176,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting {
             }
         }
         // New session or no current incarnation: issue first, then claim.
-        return try await issueAndClaimSession(sessionId, kind: kind)
+        // A restored task session derives its subset from the durable task
+        // state; starting with an empty capability list would silently tighten
+        // every restored task to "no writes".
+        let restoredTaskCapabilities = taskStates.values
+            .first { $0.record.sessionId == sessionId }?.authorization.capabilities
+        return try await issueAndClaimSession(
+            sessionId, kind: kind,
+            capabilities: sessions[sessionId]?.principal.capabilities
+                ?? restoredTaskCapabilities ?? [])
     }
 
     private func canSteer(sessionId: String) -> Bool {

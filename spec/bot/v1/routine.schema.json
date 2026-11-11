@@ -16,6 +16,9 @@
     "delivery": {"enum": ["held", "interrupt"]},
     "interrupt_reason": {"type": "string"},
     "created_at": {"type": "integer", "minimum": 0},
+    "creator": {"type": "object", "required": ["origin", "authorization"], "properties": {"rpcId": {"type": "string", "minLength": 1}, "turnId": {"type": "string", "minLength": 1}, "sessionId": {"type": "string", "minLength": 1}, "origin": {"enum": ["user", "held", "agent", "routine", "task", "task-wake", "unknown"]}, "authorization": {"enum": ["user-turn", "user-confirmed"]}, "approvalID": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "completion_criteria": {"type": "string", "maxLength": 2000},
+    "constraints": {"type": "string", "maxLength": 2000},
     "attempt": {"type": "integer", "minimum": 0},
     "run_state": {"type": ["object", "null"]},
     "quiet_defer": {"type": ["object", "null"], "required": ["until", "scheduledFor", "at"], "properties": {"until": {"type": "integer", "minimum": 0}, "scheduledFor": {"type": "integer", "minimum": 0}, "at": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
@@ -26,5 +29,6 @@
     "next_run_at": {"type": ["integer", "null"], "minimum": 0},
     "last_result": {"type": ["object", "null"]}
   },
+  "allOf": [{"if": {"properties": {"creator": {"type": "object", "properties": {"authorization": {"const": "user-confirmed"}}, "required": ["authorization"]}}, "required": ["creator"]}, "then": {"properties": {"creator": {"required": ["approvalID"]}}}}],
   "additionalProperties": true
 }

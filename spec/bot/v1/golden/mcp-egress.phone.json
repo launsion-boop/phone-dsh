@@ -38,6 +38,55 @@
   ],
   "valid": [
     {
+      "suite": "egress-approval",
+      "name": "chat-session-ignores-task-subset",
+      "boundary": "chat-unaffected",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "sessionKind": "chat",
+        "capabilities": [],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "the task.network-write subset applies only to Task sessions; the main chat still asks"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "task-with-network-write-asks",
+      "boundary": "task-network-write",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "sessionKind": "task",
+        "capabilities": [
+          "task.workspace:/dsh/workspace/.dshbot/agents/main",
+          "task.network-write"
+        ],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "a Task session carrying task.network-write uses the same host+method card as any other Bot session"
+    },
+    {
       "suite": "egress",
       "name": "bot-mcp-correct-token",
       "target": "http://127.0.0.1:8787/mcp",
@@ -762,6 +811,91 @@
     }
   ],
   "invalid": [
+    {
+      "suite": "egress-approval",
+      "name": "task-without-network-write-denied",
+      "boundary": "task-network-write",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "sessionKind": "task",
+        "capabilities": [
+          "task.workspace:/dsh/workspace/.dshbot/agents/main"
+        ],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "task_network_write_denied"
+      },
+      "reason": "a Task session without task.network-write is refused at the egress exit before any card"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "task-without-network-write-ignores-standing-grant",
+      "boundary": "task-network-write-grant",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "sessionKind": "task",
+        "capabilities": [
+          "task.workspace:/dsh/workspace/.dshbot/agents/main"
+        ],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": [
+          {
+            "tool": "egress",
+            "operation": "egress.post",
+            "resource": "host=api.example.test",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "task_network_write_denied"
+      },
+      "reason": "a standing host+method Grant cannot widen the Task authorization subset"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-task-without-network-write-denied",
+      "boundary": "task-network-write-fallback",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "workbenchTurnActive": false,
+        "activeBots": [
+          "bot-a"
+        ],
+        "sessionKind": "task",
+        "capabilities": [
+          "task.workspace:/dsh/workspace/.dshbot/agents/main"
+        ],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "task_network_write_denied"
+      },
+      "reason": "the fail-closed fallback applies the same Task subset check before presenting a card"
+    },
     {
       "suite": "egress",
       "name": "bot-mcp-missing-token",

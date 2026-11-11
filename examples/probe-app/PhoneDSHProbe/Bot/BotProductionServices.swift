@@ -95,12 +95,15 @@ actor BotProductionEnvironment {
     let domain: SQLiteDomainStore
     let routineMachine: RoutineMachine
     let memory: BotMemory
+    let grants: BotGrantStore
     let runtimeContext: BotProductionRuntimeContext
     private var planner: any BotUserActionPlanning
     private var turnStopping: (any BotProductionTurnStopping)?
+    private var routineCanceller: (@Sendable (String) async -> RoutineCancellationResult)?
 
     init(domain: SQLiteDomainStore, botID: String, sessionID: String,
          routineMachine: RoutineMachine, memory: BotMemory,
+         grants: BotGrantStore,
          planner: (any BotUserActionPlanning)? = nil,
          turnStopping: (any BotProductionTurnStopping)? = nil,
          sessionLogURL: URL? = nil,
@@ -111,6 +114,7 @@ actor BotProductionEnvironment {
         self.domain = domain
         self.routineMachine = routineMachine
         self.memory = memory
+        self.grants = grants
         self.runtimeContext = BotProductionRuntimeContext(botID: botID, fallbackName: fallbackName)
         self.planner = planner ?? BotProductionUnavailablePlanner()
         self.turnStopping = turnStopping
@@ -135,6 +139,19 @@ actor BotProductionEnvironment {
 
     func currentPlanner() -> any BotUserActionPlanning { planner }
     func currentTurnStopping() -> (any BotProductionTurnStopping)? { turnStopping }
+
+    func setRoutineCanceller(
+        _ canceller: (@Sendable (String) async -> RoutineCancellationResult)?
+    ) {
+        routineCanceller = canceller
+    }
+
+    func cancelRoutine(_ routineID: String) async -> RoutineCancellationResult {
+        guard let routineCanceller else {
+            return RoutineCancellationResult(cancelled: false, reason: "routine canceller is not configured")
+        }
+        return await routineCanceller(routineID)
+    }
 }
 
 enum BotProductionEventReader {
@@ -337,11 +354,37 @@ struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var decidedAtMS: Int64
 }
 
+struct BotProductionGrant: Sendable, Equatable, Identifiable {
+    var id: String
+    var tool: String
+    var operation: String
+    var resource: String
+    var scope: String
+    var sessionID: String?
+    var createdAtMS: Int64
+    var source: String
+}
+
+struct BotProductionReconciliation: Sendable, Equatable, Identifiable {
+    var id: String { routineID }
+    var routineID: String
+    var routineTitle: String
+    var attempt: Int
+    var runID: String
+    var error: String?
+    var effectKey: String?
+    var effectGeneration: Int?
+    var effectAttempt: Int?
+    var effectSummary: String?
+}
+
 struct BotProductionInfoSnapshot: Sendable {
     var botName: String
     var memories: [PhoneDSHBot.BotMemoryFact]
     var routines: [Routine]
     var approvals: [BotProductionApproval]
+    var grants: [BotProductionGrant]
+    var reconciliations: [BotProductionReconciliation]
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
@@ -360,8 +403,96 @@ actor BotProductionInfoService {
         async let facts = memory.facts(scope: nil)
         async let routines = machine.list(botId: environment.botID)
         async let approvals = approvalRecords()
+        let grants = await standingGrants()
+        let reconciliations = try await reconciliationRecords(provided: routines)
         return try await BotProductionInfoSnapshot(
-            botName: botName, memories: facts, routines: routines, approvals: approvals)
+            botName: botName, memories: facts, routines: routines, approvals: approvals,
+            grants: grants, reconciliations: reconciliations)
+    }
+
+    /// Standing grants only. A `once` grant is one execution permission, not a
+    /// standing authorization, so the information page never shows it.
+    func standingGrants() async -> [BotProductionGrant] {
+        await environment.grants.list(botId: environment.botID)
+            .filter { $0.scope != .once }
+            .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
+            .map {
+                BotProductionGrant(
+                    id: $0.id, tool: $0.tool, operation: $0.operation,
+                    resource: $0.resource, scope: $0.scope.rawValue,
+                    sessionID: $0.sessionId, createdAtMS: $0.createdAt, source: $0.source)
+            }
+    }
+
+    func revokeGrant(_ id: String) async throws {
+        _ = try await environment.grants.revoke(id: id)
+    }
+
+    func cancelRoutine(_ routineID: String) async throws {
+        let result = await environment.cancelRoutine(routineID)
+        guard result.cancelled else {
+            throw BotProductionError.invalidService(
+                "取消例行任务失败：\(result.reason ?? "routine is not running")")
+        }
+    }
+
+    /// Every routine that stopped in `needs-reconciliation`, plus the effect
+    /// record that produced it when one still exists. The effect is the
+    /// "already produced" evidence shown before the user chooses.
+    func reconciliationRecords(provided: [Routine]? = nil) async throws -> [BotProductionReconciliation] {
+        let routines: [Routine]
+        if let provided {
+            routines = provided
+        } else {
+            routines = try await environment.routineMachine.list(botId: environment.botID)
+        }
+        var records: [BotProductionReconciliation] = []
+        for routine in routines {
+            guard let state = routine.runState, state.status == .needsReconciliation else { continue }
+            let deliveryKey = RoutineDelivery.key(routineId: routine.id, attempt: state.attempt)
+            let effectKey = "routine:\(deliveryKey)"
+            let effect = try? await environment.domain.effect(effectKey)
+            let matching = effect?.state == .needsReconciliation ? effect : nil
+            records.append(BotProductionReconciliation(
+                routineID: routine.id, routineTitle: routine.title,
+                attempt: state.attempt, runID: state.runId,
+                error: state.error ?? routine.lastResult?.error,
+                effectKey: matching?.effectKey,
+                effectGeneration: matching?.generation,
+                effectAttempt: matching?.attempt,
+                effectSummary: matching.map {
+                    "\($0.effect.operation) · \($0.effect.target) · "
+                        + "\( $0.reconciliationReason ?? "unknown" )"
+                }))
+        }
+        return records
+    }
+
+    /// Resolve a routine reconciliation from the user's explicit choice. The
+    /// routine state and its delivery effect are two different authorities;
+    /// both are advanced when each is still in the reconciliation state.
+    func resolveReconciliation(routineID: String, decision: String) async throws {
+        let now = botProductionNowMilliseconds()
+        let updated = try await environment.routineMachine.resolveReconciliation(
+            botId: environment.botID, routineId: routineID, decision: decision, now: now)
+        guard let updated else {
+            throw BotProductionError.invalidService("例行任务不存在")
+        }
+        guard let state = updated.runState else { return }
+        let deliveryKey = RoutineDelivery.key(routineId: routineID, attempt: state.attempt)
+        let effectKey = "routine:\(deliveryKey)"
+        guard let record = try? await environment.domain.effect(effectKey),
+              record.state == .needsReconciliation else { return }
+        switch decision {
+        case "acknowledge":
+            try await environment.domain.ackReconciled(
+                effectKey: effectKey, generation: record.generation,
+                attempt: record.attempt, resultRef: "user-acknowledged")
+        case "retry":
+            try await environment.domain.retryNeedsReconciliation(effectKey)
+        default:
+            throw RoutineError.unsupportedDecision(decision)
+        }
     }
 
     func rename(_ name: String) async throws {

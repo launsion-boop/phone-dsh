@@ -84,13 +84,17 @@ public actor RoutineMachine {
     public func create(botId: String, title: String, prompt: String, schedule: RoutineSchedule,
                        enabled: Bool = true, idempotent: Bool = false, urgent: Bool = false,
                        urgentReason: String = "", delivery: RoutineDeliveryMode = .held,
-                       interruptReason: String = "", now: Int64, id: String? = nil) async throws -> Routine {
+                       interruptReason: String = "", creator: RoutineCreator? = nil,
+                       completionCriteria: String = "", constraints: String = "",
+                       now: Int64, id: String? = nil) async throws -> Routine {
         let routineId = id ?? "routine-\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12))"
         let next = enabled ? try RoutineScheduleMath.nextRunAt(schedule, now: now, createdAt: now) : nil
         let routine = try Routine(id: routineId, agentId: botId, title: title, prompt: prompt,
                                   schedule: schedule, enabled: enabled, idempotent: idempotent,
                                   urgent: urgent, urgentReason: urgentReason, delivery: delivery,
-                                  interruptReason: interruptReason, createdAt: now, nextRunAt: next).validated()
+                                  interruptReason: interruptReason, createdAt: now,
+                                  creator: creator, completionCriteria: completionCriteria,
+                                  constraints: constraints, nextRunAt: next).validated()
         return try await store.mutate(botId: botId) { document in
             guard !document.routines.contains(where: { $0.id == routineId }) else {
                 throw RoutineError.invalidRoutine("routine already exists: \(routineId)")
@@ -117,6 +121,8 @@ public actor RoutineMachine {
             if let urgentReason = patch.urgentReason { next.urgentReason = urgentReason }
             if let delivery = patch.delivery { next.delivery = delivery }
             if let interruptReason = patch.interruptReason { next.interruptReason = interruptReason }
+            if let completionCriteria = patch.completionCriteria { next.completionCriteria = completionCriteria }
+            if let constraints = patch.constraints { next.constraints = constraints }
             next = try next.validated()
 
             let scheduleChanged = patch.schedule != nil

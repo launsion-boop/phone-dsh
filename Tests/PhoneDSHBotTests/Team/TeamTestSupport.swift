@@ -26,6 +26,7 @@ actor FakeBotTeamHost: BotTeamHost {
     var rosterValue: BotRoster
     private(set) var created: [(name: String, description: String,
                                 color: BotFishColor?, hairstyle: BotFishHairstyle?)] = []
+    private(set) var createdAuthors: [BotTeammateAuthor?] = []
     private(set) var delivered: [BotAgentDeliveryRequest] = []
     private(set) var heldRequests: [BotTeamHeldRequest] = []
     private(set) var records: [BotTeamAgentCommRecord] = []
@@ -57,6 +58,14 @@ actor FakeBotTeamHost: BotTeamHost {
             createdAt: 1, updatedAt: 1, description: description)
         rosterValue.bots.append(profile)
         return profile
+    }
+
+    func createBot(name: String, description: String,
+                   color: BotFishColor?, hairstyle: BotFishHairstyle?,
+                   author: BotTeammateAuthor?) async throws -> BotProfile {
+        createdAuthors.append(author)
+        return try await createBot(
+            name: name, description: description, color: color, hairstyle: hairstyle)
     }
 
     func agentCommContext(for botID: String) async -> BotAgentCommContext {

@@ -314,11 +314,12 @@ public enum ModelGatewayError: Error, Equatable, Sendable {
     /// response-log entry is written (spec/bot/v1/mcp-endpoint.md §1.1).
     case mcpEgressForbidden
     /// A Bot session's network write was denied, cancelled or timed out at the
-    /// Bot egress approval layer. `code` is the specific stable cause
+    /// Bot egress approval layer, or a Task session lacks
+    /// `task.network-write`. `code` is the specific stable cause
     /// (`egress_approval_denied`, `bot_egress_ambiguous`,
-    /// `bot_egress_unattributed`); the loopback class stays one
-    /// `egress_approval_denied` 403. Answered before credential resolution, any
-    /// socket and any response-log entry.
+    /// `bot_egress_unattributed`, `task_network_write_denied`); the loopback
+    /// class stays one `egress_approval_denied` 403. Answered before
+    /// credential resolution, any socket and any response-log entry.
     case egressApprovalDenied(code: String, message: String)
 }
 
@@ -391,7 +392,9 @@ extension ModelGatewayError {
         }
     }
 
-    /// Value of the `X-PDSH-Proxy-Error` header for `proxyStatusCode`.
+    /// Value of the `X-PDSH-Proxy-Error` header for `proxyStatusCode`. An
+    /// egress-approval denial keeps its specific stable cause; only the
+    /// loopback `xl_error.code` class is the generic `egress_approval_denied`.
     public var proxyErrorCode: String {
         switch self {
         case .hostNotAllowed:
@@ -406,8 +409,8 @@ extension ModelGatewayError {
             return "shutting_down"
         case .mcpEgressForbidden:
             return "mcp_egress_forbidden"
-        case .egressApprovalDenied:
-            return "egress_approval_denied"
+        case .egressApprovalDenied(let code, _):
+            return code.isEmpty ? "egress_approval_denied" : code
         }
     }
 }

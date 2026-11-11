@@ -295,6 +295,7 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         let started = try await spikeStartServer(fixture, token: token)
         defer { started.server.stop() }
 
+        await beginUserTurn(fixture.runtime, sessionId: "gb-bot-a", rpcId: "bot-trusted-team")
         let arguments = BotJSONValue.object(["name": .string("Trusted teammate")])
         let registration = try await spikeRegister(
             started.base, token: token, sessionId: "gb-bot-a", callId: "wp3-trusted-team",
@@ -306,5 +307,6 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         XCTAssertNotEqual(called.isError, true, String(describing: called.json))
         let created = await host.created
         XCTAssertEqual(created.map(\.name), ["Trusted teammate"])
+        await fixture.runtime.endTurn(sessionId: "gb-bot-a")
     }
 }

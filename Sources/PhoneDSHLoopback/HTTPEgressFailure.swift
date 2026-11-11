@@ -65,7 +65,8 @@ public enum HTTPEgressFailureClass: String, CaseIterable, Equatable, Sendable {
     /// implicit cap).
     case bodyTooLarge = "body_too_large"
     /// A Bot session's network write was denied, cancelled or timed out at
-    /// the Bot egress approval layer before any credential or socket.
+    /// the Bot egress approval layer, or a Task session lacked
+    /// `task.network-write`, before any credential or socket.
     case egressApprovalDenied = "egress_approval_denied"
     /// Any other transport failure (connection reset, offline, truncated body,
     /// stream ended before the response head, …).
@@ -88,7 +89,8 @@ public enum HTTPEgressFailureClass: String, CaseIterable, Equatable, Sendable {
     /// the cause must be inferred from the bridged `NSError` identity.
     init?(explicitCode: String) {
         switch explicitCode {
-        case "bot_egress_ambiguous", "bot_egress_unattributed":
+        case "bot_egress_ambiguous", "bot_egress_unattributed",
+             "task_network_write_denied":
             self = .egressApprovalDenied
         default:
             self.init(rawValue: explicitCode)
@@ -263,7 +265,8 @@ public struct HTTPEgressFailure: Error, Equatable, Sendable {
     public static func status(forCode code: String) -> Int {
         switch code {
         case "host_not_allowed", "forbidden", "mcp_egress_forbidden",
-             "egress_approval_denied", "bot_egress_ambiguous", "bot_egress_unattributed":
+             "egress_approval_denied", "bot_egress_ambiguous", "bot_egress_unattributed",
+             "task_network_write_denied":
             return 403
         case "invalid_request", "bad_request":
             return 400

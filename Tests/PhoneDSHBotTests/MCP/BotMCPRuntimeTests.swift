@@ -42,10 +42,12 @@ final class BotMCPRuntimeTests: XCTestCase {
         ]))
         XCTAssertEqual(recalled.structuredContent?["count"], .number(1))
 
+        await beginUserTurn(fixture.runtime)
         let created = try await registerAndExecute(fixture.runtime, name: "UpdateRoutine", arguments: .object([
             "action": .string("create"), "title": .string("Morning"), "prompt": .string("Report once"),
             "schedule": .string("@every 60m"),
         ]))
+        await fixture.runtime.endTurn(sessionId: "gb-main")
         XCTAssertNotNil(created.structuredContent?["id"]?.stringValue)
         let routines = try await registerAndExecute(fixture.runtime, name: "ListRoutines")
         XCTAssertEqual(routines.structuredContent?["count"], .number(1))
@@ -537,10 +539,12 @@ final class BotMCPRuntimeTests: XCTestCase {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
         _ = try await registerAndExecute(fixture.runtime, name: "UpdateRoutine", arguments: .object([
             "action": .string("create"), "title": .string("Morning"),
             "prompt": .string("Report"), "schedule": .string("@every 60m"),
         ]))
+        await fixture.runtime.endTurn(sessionId: "gb-main")
         let recovered = RoutineMachine(store: SQLiteRoutineStore(domainStore: fixture.store))
         let routines = try await recovered.list(botId: "main")
         XCTAssertEqual(routines.map(\.title), ["Morning"])

@@ -108,6 +108,34 @@ final class BotEgressApprovalGatewayTests: XCTestCase {
         XCTAssertEqual(approver.requests.first?.resource, "host=127.0.0.1")
     }
 
+    func testTaskNetworkWriteDenialNeverContactsTheUpstream() async throws {
+        let server = try MockUpstreamServer { _ in
+            .full(status: 200, headers: [:], body: Data("should not run".utf8))
+        }
+        _ = try await server.start()
+        addTeardownBlock { server.stop() }
+        let approver = RecordingApprover(.deny(
+            code: "task_network_write_denied",
+            message: "the Task session has no task.network-write authorization"))
+        let gateway = makeGateway(port: server.port, approver: approver)
+
+        let error = try await expectGatewayFailure(gateway.handle(request(port: server.port)))
+        guard case .egressApprovalDenied(let code, let message)? = error as? ModelGatewayError else {
+            XCTFail("expected egressApprovalDenied, got \(error)")
+            return
+        }
+        XCTAssertEqual(code, "task_network_write_denied")
+        XCTAssertEqual(message, "the Task session has no task.network-write authorization")
+        XCTAssertEqual((error as? ModelGatewayError)?.structuredErrorCode,
+                       "task_network_write_denied")
+        XCTAssertEqual((error as? ModelGatewayError)?.proxyStatusCode, 403)
+        XCTAssertEqual((error as? ModelGatewayError)?.proxyErrorCode,
+                       "task_network_write_denied")
+        XCTAssertEqual(server.requestCount, 0,
+                       "a Task subset denial must not open a socket")
+        XCTAssertEqual(approver.requests.count, 1)
+    }
+
     func testAllowedWriteReachesTheUpstreamOnce() async throws {
         let server = try MockUpstreamServer { _ in
             .full(status: 200, headers: ["content-type": "text/plain"],
