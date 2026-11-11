@@ -36,10 +36,11 @@ Enforces these rules:
    surface declares (a row is a subset of the composition — partial projection is legal, a token
    outside the composition is not);
 11. no external URL host, e-mail address or absolute user path appears in the data files;
-12. `interaction.drawer` keeps the drawer contract executable: every token reference resolves,
-    every `source` line still contains its `expect` snippet (skipped with the probe app, like
-    rule 4b), every parameter's value/valueLiteral is anchored in its `expect`, and every
-    `golden/drawer-gesture.golden.json` case is recomputed from those values.
+12. every `interaction.*` group keeps its contract executable: the group's key set is frozen,
+    every token reference resolves, every `source` line still contains its `expect` snippet
+    (skipped with the probe app, like rule 4b), every numeric parameter is anchored in its
+    `expect` (or marked `needsDeviceMeasure`), table rows are complete, and every row of the
+    group's golden is recomputed from those values.
 
 Usage:
     python3 spec/ui/v1/tools/ui_check.py [--root DIR] [--strict]
@@ -66,7 +67,6 @@ PROBE_REL = Path("examples") / "probe-app" / "PhoneDSHProbe"
 README_MAX_LINES = 345
 MAX_DEFERRED_PAIRS = 7
 DRAWER_GOLDEN_REL = Path("golden") / "drawer-gesture.golden.json"
-DRAWER_DOC_SOURCE = "tokens.json#interaction.drawer"
 DRAWER_KEYS = (
     "width",
     "panelTrailingRadius",
@@ -80,7 +80,6 @@ DRAWER_KEYS = (
     "closeThreshold",
     "velocityProjection",
 )
-DRAWER_GROUPS = ("release", "follow", "minimumDistance", "scrim")
 DRAWER_TOKEN_RE = re.compile(r"^(geometry|radius|shadows|motion)\.[A-Za-z][A-Za-z0-9]*$")
 FLOAT_TOLERANCE = 1e-9
 REQUIRED_SURFACES = (
@@ -1152,16 +1151,116 @@ def check_forbidden_content(files) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rule 12: the drawer interaction contract stays executable.
+# Rule 12: every `interaction.*` group stays executable.
 #
-# `interaction.drawer` is the one place the drawer width, motions, drag and
-# scrim values live.  A token reference that stops resolving, a source line that
-# moves, an expect anchor that no longer carries its value, or a golden case that
-# drifts from the token values would each let Android and iOS disagree while the
-# schema stayed valid.  The golden is recomputed here from the token values and
-# change record rules 2, 3, 5 and 6; the Swift-line half skips when the probe app
-# is absent, exactly like rule 4b.
+# Each `interaction.<group>` is the one place its interaction values live.  A
+# token reference that stops resolving, a source line that moves, an expect
+# anchor that no longer carries its value, or a golden row that drifts from the
+# token values would each let Android and iOS disagree while the schema stayed
+# valid.  Every group is validated with the same member rules; each group's
+# golden is then recomputed from the token values.  The Swift-line half skips
+# when the probe app is absent, exactly like rule 4b.
 # ---------------------------------------------------------------------------
+
+INTERACTION_GROUPS = (
+    "drawer",
+    "sheet",
+    "contextMenu",
+    "push",
+    "composerSend",
+    "pressed",
+    "disclosure",
+)
+INTERACTION_KEYS = {
+    "drawer": DRAWER_KEYS,
+    "sheet": (
+        "defaultDetents",
+        "mediumFraction",
+        "detentSets",
+        "pageDetents",
+        "grabberVisible",
+        "grabberHidden",
+        "background",
+        "backgroundClear",
+        "cornerRadiusDefault",
+        "cornerRadiusConnector",
+        "cornerRadiusCatalog",
+        "presentMotion",
+        "dismissMotion",
+    ),
+    "contextMenu": ("preview", "surfaces"),
+    "push": (
+        "stackScope",
+        "rootBack",
+        "backOrder",
+        "barVisibleAtRoot",
+        "barHiddenWhenPushed",
+        "predictiveBack",
+        "systemMotion",
+    ),
+    "composerSend": (
+        "motion",
+        "transitionScale",
+        "transitionOpacity",
+        "buttonSize",
+        "enabledFill",
+        "disabledFill",
+        "enabledInk",
+        "disabledInk",
+        "disabledRule",
+        "stopRule",
+    ),
+    "pressed": (
+        "motion",
+        "pillOverlay",
+        "pillOverlayColor",
+        "rowFill",
+        "rowFillOpacity",
+        "primaryPressedOpacity",
+        "primaryDisabledOpacity",
+        "scale",
+    ),
+    "disclosure": ("bodyMotion", "folderMotion", "chevronMotion", "reducedMotion"),
+}
+INTERACTION_TOKEN_RE = {
+    "drawer": DRAWER_TOKEN_RE,
+    "sheet": re.compile(r"^colors\.[A-Za-z][A-Za-z0-9]*$"),
+    "composerSend": re.compile(r"^(geometry|colors|motion)\.[A-Za-z][A-Za-z0-9]*$"),
+    "pressed": re.compile(r"^(colors|motion)\.[A-Za-z][A-Za-z0-9]*$"),
+    "disclosure": re.compile(r"^motion\.[A-Za-z][A-Za-z0-9]*$"),
+}
+INTERACTION_TOKEN_DESC = {
+    "drawer": "geometry/radius/shadows/motion",
+    "sheet": "colors",
+    "composerSend": "geometry/colors/motion",
+    "pressed": "colors/motion",
+    "disclosure": "motion",
+}
+INTERACTION_TABLES = {
+    "sheet": {"detentSets", "pageDetents"},
+    "contextMenu": {"surfaces"},
+}
+INTERACTION_GOLDEN_FILES = {
+    "drawer": (DRAWER_GOLDEN_REL, "drawer-gesture", "interaction.drawer"),
+    "sheet": (Path("golden") / "sheet-detents.golden.json", "sheet-detents", "interaction.sheet"),
+    "contextMenu": (
+        Path("golden") / "context-menu-items.golden.json",
+        "context-menu-items",
+        "interaction.contextMenu",
+    ),
+    "push": (Path("golden") / "push-back.golden.json", "push-back", "interaction.push"),
+    "composerSend": (
+        Path("golden") / "composer-send.golden.json",
+        "composer-send",
+        "interaction.composerSend",
+    ),
+    "pressed": (Path("golden") / "pressed-states.golden.json", "pressed-states", "interaction.pressed"),
+    "disclosure": (
+        Path("golden") / "disclosure-motion.golden.json",
+        "disclosure-motion",
+        "interaction.disclosure",
+    ),
+}
 
 
 def _is_number(value) -> bool:
@@ -1170,7 +1269,7 @@ def _is_number(value) -> bool:
 
 def _number_literal(value) -> str:
     if not _is_number(value):
-        raise CheckError(f"drawer value {value!r} is not a number")
+        raise CheckError(f"interaction value {value!r} is not a number")
     if float(value).is_integer():
         return str(int(value))
     return repr(value)
@@ -1181,7 +1280,7 @@ def _close_enough(left, right) -> bool:
 
 
 def _drawer_value(document, key: str, entry: dict):
-    """Resolve one `interaction.drawer` member to its numeric value."""
+    """Resolve one interaction member to its numeric value."""
     if "token" in entry:
         token = entry.get("token")
         if not isinstance(token, str) or DRAWER_TOKEN_RE.match(token) is None:
@@ -1216,7 +1315,7 @@ def _drawer_case_number(case: dict, member: str, group: str) -> float:
     return float(value)
 
 
-def _drawer_source_line(root: Path, source: str, where: str) -> str:
+def _interaction_source_line(root: Path, source: str, where: str) -> str:
     """Resolve a Swift source the same way check_provenance_sources does."""
     files = {}
     for path in sorted((root / PROBE_REL).rglob("*.swift")):
@@ -1236,72 +1335,374 @@ def _drawer_source_line(root: Path, source: str, where: str) -> str:
     return lines[line_number - 1]
 
 
-def check_drawer_interaction(root: Path, document, golden) -> int:
-    interaction = document.get("interaction")
-    if not isinstance(interaction, dict):
-        raise CheckError("tokens.json has no interaction object (the drawer contract needs it)")
-    drawer = interaction.get("drawer")
-    if not isinstance(drawer, dict):
-        raise CheckError("tokens.json has no interaction.drawer object")
-    missing = sorted(set(DRAWER_KEYS) - set(drawer))
-    extra = sorted(set(drawer) - set(DRAWER_KEYS))
+def _check_anchor(root: Path, entry: dict, where: str, probe_present: bool) -> None:
+    """Validate `source` + `expect`, resolving the Swift line when present."""
+    source = entry.get("source")
+    expect = entry.get("expect")
+    if source is None:
+        return
+    if not isinstance(source, str) or not is_swift_source(source):
+        raise CheckError(f"{where}.source {source!r} is not a Swift file:line anchor")
+    if expect is None:
+        raise CheckError(f"{where}: a source anchor needs an expect string")
+    if not isinstance(expect, str):
+        raise CheckError(f"{where}.expect must be a string")
+    if probe_present:
+        cited = _interaction_source_line(root, source, where)
+        if expect not in cited:
+            raise CheckError(
+                f"{where}: stale source {source!r}; expected {expect!r} on that line"
+            )
+
+
+def _check_member(root: Path, document, group: str, key: str, entry, probe_present: bool) -> str:
+    """Validate one `interaction.<group>.<key>` member; return its kind."""
+    where = f"interaction.{group}.{key}"
+    if not isinstance(entry, dict):
+        raise CheckError(f"{where} is not an object")
+    if "token" in entry:
+        token = entry.get("token")
+        pattern = INTERACTION_TOKEN_RE.get(group)
+        if not isinstance(token, str) or pattern is None or pattern.match(token) is None:
+            desc = INTERACTION_TOKEN_DESC.get(group)
+            if desc is None:
+                raise CheckError(f"{where}.token is not allowed in this group")
+            raise CheckError(f"{where}.token {token!r} is not a {desc} reference")
+        if resolve_token(document, token) is None:
+            raise CheckError(f"{where} references unknown token {token!r}")
+        _check_anchor(root, entry, where, probe_present)
+        return "token"
+
+    if "value" in entry:
+        value = entry["value"]
+        if not isinstance(value, (str, bool)) and not _is_number(value):
+            raise CheckError(f"{where}.value {value!r} is not a number, string or boolean")
+        measure = entry.get("needsDeviceMeasure") is True
+        source = entry.get("source")
+        expect = entry.get("expect")
+        if source is None:
+            if not measure and not isinstance(value, (str, bool)):
+                raise CheckError(
+                    f"{where}: a numeric value needs a source/expect anchor or needsDeviceMeasure"
+                )
+            if expect is not None:
+                raise CheckError(f"{where}: expect without a source is not anchored")
+            return "value"
+        if not isinstance(expect, str):
+            raise CheckError(f"{where}: a parameter needs an expect string")
+        _check_anchor(root, entry, where, probe_present)
+        if measure:
+            return "value"
+        literal = entry.get("valueLiteral")
+        if literal is not None:
+            if not isinstance(literal, str) or not literal:
+                raise CheckError(f"{where}.valueLiteral must be a non-empty string")
+            if literal not in expect:
+                raise CheckError(
+                    f"{where}: valueLiteral {literal!r} does not occur in expect {expect!r}"
+                )
+        elif isinstance(value, bool):
+            text = "true" if value else "false"
+            if text not in expect:
+                raise CheckError(f"{where}: value {text!r} does not occur in expect {expect!r}")
+        elif isinstance(value, str):
+            if value not in expect:
+                raise CheckError(f"{where}: value {value!r} does not occur in expect {expect!r}")
+        else:
+            canonical = _number_literal(value)
+            if canonical not in expect:
+                raise CheckError(
+                    f"{where}: value {canonical} does not occur in expect {expect!r}"
+                )
+        return "value"
+
+    if entry.get("needsDeviceMeasure") is True:
+        if "source" in entry or "expect" in entry:
+            raise CheckError(
+                f"{where}: a needsDeviceMeasure entry without a value cannot carry a source/expect"
+            )
+        return "system"
+    raise CheckError(f"{where} needs a token reference, a value or needsDeviceMeasure")
+
+
+def _check_row_keys(row, where: str, required, optional=()) -> None:
+    if not isinstance(row, dict):
+        raise CheckError(f"{where} is not an object")
+    missing = sorted(set(required) - set(row))
+    extra = sorted(set(row) - set(required) - set(optional))
     if missing or extra:
         raise CheckError(
-            f"interaction.drawer keys must be exactly the drawer contract "
+            f"{where} keys must be exactly the contract "
             f"(missing {missing}, extra {extra})"
         )
 
-    probe_present = (root / PROBE_REL).is_dir()
-    for key in DRAWER_KEYS:
-        entry = drawer[key]
-        if not isinstance(entry, dict):
-            raise CheckError(f"interaction.drawer.{key} is not an object")
-        if "token" in entry:
-            token = entry.get("token")
-            if not isinstance(token, str) or DRAWER_TOKEN_RE.match(token) is None:
-                raise CheckError(
-                    f"interaction.drawer.{key}.token {token!r} is not a "
-                    "geometry/radius/shadows/motion reference"
-                )
-            if resolve_token(document, token) is None:
-                raise CheckError(f"interaction.drawer.{key} references unknown token {token!r}")
-        source = entry.get("source")
-        expect = entry.get("expect")
-        if source is not None:
-            if not isinstance(source, str) or not is_swift_source(source):
-                raise CheckError(
-                    f"interaction.drawer.{key}.source {source!r} is not a Swift file:line anchor"
-                )
-            if probe_present:
-                cited = _drawer_source_line(root, source, f"interaction.drawer.{key}")
-                if isinstance(expect, str):
-                    if expect not in cited:
-                        raise CheckError(
-                            f"interaction.drawer.{key}: stale source {source!r}; "
-                            f"expected {expect!r} on that line"
-                        )
-                elif expect is not None:
-                    raise CheckError(f"interaction.drawer.{key}.expect must be a string")
-        if "value" in entry:
-            if not isinstance(expect, str):
-                raise CheckError(f"interaction.drawer.{key}: a parameter needs an expect string")
-            literal = entry.get("valueLiteral")
-            if literal is not None:
-                if not isinstance(literal, str) or not literal:
-                    raise CheckError(f"interaction.drawer.{key}.valueLiteral must be a non-empty string")
-                if literal not in expect:
-                    raise CheckError(
-                        f"interaction.drawer.{key}: valueLiteral {literal!r} does not occur "
-                        f"in expect {expect!r}"
-                    )
-            elif entry.get("needsDeviceMeasure") is not True:
-                canonical = _number_literal(entry["value"])
-                if canonical not in expect:
-                    raise CheckError(
-                        f"interaction.drawer.{key}: value {canonical} does not occur "
-                        f"in expect {expect!r}"
-                    )
 
+def _check_rows(value, where: str, minimum: int, maximum=None) -> list:
+    if not isinstance(value, list):
+        raise CheckError(f"{where} must be a list")
+    if len(value) < minimum or (maximum is not None and len(value) > maximum):
+        raise CheckError(f"{where} must have {minimum} row(s)")
+    return value
+
+
+def _unique_id(row, where: str, seen: set) -> str:
+    ident = row.get("id")
+    if not isinstance(ident, str) or not ident:
+        raise CheckError(f"{where} needs a stable id")
+    if ident in seen:
+        raise CheckError(f"{where} id {ident!r} is used twice")
+    seen.add(ident)
+    return ident
+
+
+def _check_sheet_tables(root: Path, sheet: dict, probe_present: bool) -> None:
+    seen = set()
+    set_ids = set()
+    for row in _check_rows(sheet.get("detentSets"), "interaction.sheet.detentSets", 4, 4):
+        ident = _unique_id(row, "interaction.sheet.detentSets", seen)
+        _check_row_keys(
+            row,
+            f"interaction.sheet.detentSets[{ident}]",
+            ("id", "detents", "source", "expect"),
+            ("note",),
+        )
+        if row["detents"] not in ("default", "medium", "large", "medium+large"):
+            raise CheckError(
+                f"interaction.sheet.detentSets[{ident}].detents {row['detents']!r} "
+                "is not a system detent set"
+            )
+        _check_anchor(root, row, f"interaction.sheet.detentSets[{ident}]", probe_present)
+        set_ids.add(ident)
+    seen = set()
+    pages = _check_rows(sheet.get("pageDetents"), "interaction.sheet.pageDetents", 13, 13)
+    for row in pages:
+        ident = _unique_id(row, "interaction.sheet.pageDetents", seen)
+        _check_row_keys(
+            row,
+            f"interaction.sheet.pageDetents[{ident}]",
+            ("id", "detents", "source", "expect"),
+        )
+        if row["detents"] not in set_ids:
+            raise CheckError(
+                f"interaction.sheet.pageDetents[{ident}] references unknown detent set "
+                f"{row['detents']!r}"
+            )
+        _check_anchor(root, row, f"interaction.sheet.pageDetents[{ident}]", probe_present)
+    if probe_present:
+        sites = 0
+        for path in (root / PROBE_REL).rglob("*.swift"):
+            text = read_text(path)
+            sites += len(re.findall(r"\.presentationDetents\s*\(", text))
+            for needle, reason in (
+                (".interactiveDismissDisabled", "interactive dismissal"),
+                (".presentationContentInteraction", "sheet content interaction"),
+                (".ignoresSafeArea(.keyboard", "custom keyboard avoidance"),
+            ):
+                if needle in text:
+                    raise CheckError(
+                        f"interaction.sheet: {path.name} uses {needle} ({reason}) "
+                        "that the sheet contract does not cover"
+                    )
+        if sites != len(pages):
+            raise CheckError(
+                "interaction.sheet: "
+                f"{sites} .presentationDetents site(s) in the probe app but "
+                f"{len(pages)} pageDetent row(s) in the contract"
+            )
+    default = sheet["defaultDetents"].get("value")
+    if default not in set_ids:
+        raise CheckError(
+            f"interaction.sheet.defaultDetents value {default!r} is not a detent set id"
+        )
+    for key in ("grabberVisible", "grabberHidden"):
+        if sheet[key].get("value") not in ("visible", "hidden"):
+            raise CheckError(
+                f"interaction.sheet.{key}.value must be 'visible' or 'hidden'"
+            )
+
+
+def _check_context_menu_tables(root: Path, menu: dict, probe_present: bool) -> None:
+    if menu.get("preview", {}).get("value") != "system":
+        raise CheckError("interaction.contextMenu.preview value must be 'system'")
+    seen = set()
+    total = 0
+    for surface in _check_rows(menu.get("surfaces"), "interaction.contextMenu.surfaces", 11, 11):
+        ident = _unique_id(surface, "interaction.contextMenu.surfaces", seen)
+        where = f"interaction.contextMenu.surfaces[{ident}]"
+        _check_row_keys(surface, where, ("id", "source", "expect", "items"))
+        _check_anchor(root, surface, where, probe_present)
+        items = _check_rows(surface["items"], f"{where}.items", 1, 8)
+        labels = set()
+        for index, item in enumerate(items):
+            item_where = f"{where}.items[{index}]"
+            _check_row_keys(
+                item,
+                item_where,
+                ("label", "role", "kind", "when", "source", "expect"),
+                ("altLabel", "dividerBefore"),
+            )
+            label = item["label"]
+            if not isinstance(label, str) or not label:
+                raise CheckError(f"{item_where}.label must be a non-empty string")
+            if label in labels:
+                raise CheckError(f"{where}: label {label!r} is used twice")
+            labels.add(label)
+            if item["role"] not in ("default", "destructive"):
+                raise CheckError(f"{item_where}.role {item['role']!r} is not a menu role")
+            if item["kind"] not in ("action", "share", "info"):
+                raise CheckError(f"{item_where}.kind {item['kind']!r} is not a menu item kind")
+            if not isinstance(item["when"], str) or not item["when"]:
+                raise CheckError(f"{item_where}.when must be a non-empty string")
+            if "dividerBefore" in item and not isinstance(item["dividerBefore"], bool):
+                raise CheckError(f"{item_where}.dividerBefore must be a boolean")
+            _check_anchor(root, item, item_where, probe_present)
+            total += 1
+    if probe_present:
+        sources = list((root / PROBE_REL).rglob("*.swift"))
+        sites = 0
+        for path in sources:
+            text = read_text(path)
+            sites += len(re.findall(r"\.contextMenu\s*\{", text))
+            if re.search(r"\.contextMenu\s*\(", text):
+                raise CheckError(
+                    f"interaction.contextMenu: {path.name} uses a custom context-menu "
+                    "preview/items closure that the contract does not cover"
+                )
+        if sites != len(menu["surfaces"]):
+            raise CheckError(
+                "interaction.contextMenu: "
+                f"{sites} .contextMenu site(s) in the probe app but "
+                f"{len(menu['surfaces'])} surface(s) in the contract"
+            )
+
+
+def _check_push_values(root: Path, push: dict, probe_present: bool) -> list:
+    order = push["backOrder"].get("value")
+    layers = [part for part in str(order).split(",") if part]
+    if layers != ["sheet", "drawer", "stack", "root"]:
+        raise CheckError(
+            "interaction.push.backOrder must be 'sheet,drawer,stack,root'"
+        )
+    if push["stackScope"].get("value") != "perTab":
+        raise CheckError("interaction.push.stackScope value must be 'perTab'")
+    if push["predictiveBack"].get("value") != "allowed":
+        raise CheckError("interaction.push.predictiveBack value must be 'allowed'")
+    if push["rootBack"].get("value") != "exit":
+        raise CheckError("interaction.push.rootBack value must be 'exit'")
+    if probe_present:
+        for path in (root / PROBE_REL).rglob("*.swift"):
+            text = read_text(path)
+            if ".navigationTransition(" in text or "matchedTransitionSource(" in text:
+                raise CheckError(
+                    f"interaction.push: {path.name} adds a custom navigation transition "
+                    "that the system-motion contract does not cover"
+                )
+    return layers
+
+
+def _check_composer_values(composer: dict) -> None:
+    scale = composer["transitionScale"].get("value")
+    opacity = composer["transitionOpacity"].get("value")
+    if not _is_number(scale) or not 0 < float(scale) <= 1:
+        raise CheckError("interaction.composerSend.transitionScale must be in (0, 1]")
+    if not _is_number(opacity) or not 0 <= float(opacity) <= 1:
+        raise CheckError("interaction.composerSend.transitionOpacity must be in [0, 1]")
+    for key in ("disabledRule", "stopRule"):
+        if not isinstance(composer[key].get("value"), str) or not composer[key]["value"]:
+            raise CheckError(f"interaction.composerSend.{key}.value must be a non-empty string")
+
+
+def _check_pressed_values(pressed: dict) -> None:
+    for key in ("pillOverlay", "rowFillOpacity", "primaryPressedOpacity", "primaryDisabledOpacity"):
+        value = pressed[key].get("value")
+        if not _is_number(value) or not 0 <= float(value) <= 1:
+            raise CheckError(f"interaction.pressed.{key} value must be in [0, 1]")
+    scale = pressed["scale"].get("value")
+    if not _is_number(scale) or float(scale) != 1.0:
+        raise CheckError("interaction.pressed.scale must be 1 (pressed states never scale)")
+
+
+def _motion_leaf(document, token: str, where: str) -> dict:
+    resolved = resolve_token(document, token)
+    if not isinstance(resolved, dict):
+        raise CheckError(f"{where} references non-motion token {token!r}")
+    if not _is_number(resolved.get("durationMs")) or not isinstance(resolved.get("curve"), str):
+        raise CheckError(f"{where} token {token!r} is not a motion token")
+    return resolved
+
+
+def _check_disclosure_values(document, disclosure: dict) -> None:
+    for key in ("bodyMotion", "folderMotion", "chevronMotion"):
+        token = disclosure[key].get("token")
+        _motion_leaf(document, token, f"interaction.disclosure.{key}")
+    if not isinstance(disclosure["reducedMotion"].get("value"), str):
+        raise CheckError("interaction.disclosure.reducedMotion.value must be a string")
+
+
+def check_interaction_members(root: Path, document) -> dict:
+    """Validate every `interaction.<group>` member; return per-group counts."""
+    interaction = document.get("interaction")
+    if not isinstance(interaction, dict):
+        raise CheckError("tokens.json has no interaction object (the interaction contracts need it)")
+    extra_groups = sorted(set(interaction) - set(INTERACTION_GROUPS))
+    if extra_groups:
+        raise CheckError(
+            "tokens.json interaction has unclassified group(s): " + ", ".join(extra_groups)
+        )
+    probe_present = (root / PROBE_REL).is_dir()
+    counts = {}
+    for group in INTERACTION_GROUPS:
+        spec = interaction.get(group)
+        if not isinstance(spec, dict):
+            raise CheckError(
+                f"tokens.json has no interaction.{group} object (its contract needs it)"
+            )
+        keys = INTERACTION_KEYS[group]
+        missing = sorted(set(keys) - set(spec))
+        extra = sorted(set(spec) - set(keys))
+        if missing or extra:
+            raise CheckError(
+                f"interaction.{group} keys must be exactly the contract "
+                f"(missing {missing}, extra {extra})"
+            )
+        kinds = {"token": 0, "value": 0, "system": 0}
+        for key in keys:
+            if key in INTERACTION_TABLES.get(group, set()):
+                continue
+            kind = _check_member(root, document, group, key, spec[key], probe_present)
+            kinds[kind] += 1
+        counts[group] = kinds
+        if group == "sheet":
+            _check_sheet_tables(root, spec, probe_present)
+        elif group == "contextMenu":
+            _check_context_menu_tables(root, spec, probe_present)
+        elif group == "push":
+            _check_push_values(root, spec, probe_present)
+        elif group == "composerSend":
+            _check_composer_values(spec)
+        elif group == "pressed":
+            _check_pressed_values(spec)
+        elif group == "disclosure":
+            _check_disclosure_values(document, spec)
+    return counts
+
+
+def _golden_header(golden, group: str, golden_name: str) -> tuple:
+    path, kind, source = INTERACTION_GOLDEN_FILES[group]
+    if not isinstance(golden, dict):
+        raise CheckError(f"{golden_name} is not an object")
+    if golden.get("kind") != kind:
+        raise CheckError(f"{golden_name} kind must be {kind!r}")
+    if golden.get("version") != 1:
+        raise CheckError(f"{golden_name} version must be 1")
+    if golden.get("source") != f"tokens.json#interaction.{group}":
+        raise CheckError(f"{golden_name} source must be 'tokens.json#interaction.{group}'")
+    return path, kind, source
+
+
+def check_drawer_golden(document, golden) -> int:
+    drawer = document["interaction"]["drawer"]
+    path, _, _ = _golden_header(golden, "drawer", "drawer-gesture.golden.json")
     width = _drawer_value(document, "width", drawer["width"])
     _drawer_value(document, "panelTrailingRadius", drawer["panelTrailingRadius"])
     close_threshold = _drawer_value(document, "closeThreshold", drawer["closeThreshold"])
@@ -1310,17 +1711,6 @@ def check_drawer_interaction(root: Path, document, golden) -> int:
     minimum_distance = _drawer_value(document, "dragMinimumDistance", drawer["dragMinimumDistance"])
     if width <= 0:
         raise CheckError("interaction.drawer.width must be positive")
-
-    if not isinstance(golden, dict):
-        raise CheckError("drawer-gesture.golden.json is not an object")
-    if golden.get("kind") != "drawer-gesture":
-        raise CheckError("drawer-gesture.golden.json kind must be 'drawer-gesture'")
-    if golden.get("version") != 1:
-        raise CheckError("drawer-gesture.golden.json version must be 1")
-    if golden.get("source") != DRAWER_DOC_SOURCE:
-        raise CheckError(
-            f"drawer-gesture.golden.json source must be {DRAWER_DOC_SOURCE!r}"
-        )
     for member, expected in (
         ("width", width),
         ("closeThreshold", close_threshold),
@@ -1340,19 +1730,7 @@ def check_drawer_interaction(root: Path, document, golden) -> int:
     seen_ids = set()
 
     def cases(group: str) -> list:
-        entries = golden.get(group)
-        if not isinstance(entries, list) or not entries:
-            raise CheckError(f"drawer-gesture.golden.json needs a non-empty {group} list")
-        for case in entries:
-            if not isinstance(case, dict):
-                raise CheckError(f"drawer golden {group} case is not an object")
-            ident = case.get("id")
-            if not isinstance(ident, str) or not ident:
-                raise CheckError(f"drawer golden {group} case needs a stable id")
-            if ident in seen_ids:
-                raise CheckError(f"drawer golden id {ident!r} is used twice")
-            seen_ids.add(ident)
-        return entries
+        return _golden_cases(golden, group, "drawer-gesture.golden.json", seen_ids)
 
     gate = -close_threshold * width
     for case in cases("release"):
@@ -1419,6 +1797,342 @@ def check_drawer_interaction(root: Path, document, golden) -> int:
     return len(seen_ids)
 
 
+def _golden_cases(golden: dict, group: str, golden_name: str, seen: set) -> list:
+    entries = golden.get(group)
+    if not isinstance(entries, list) or not entries:
+        raise CheckError(f"{golden_name} needs a non-empty {group} list")
+    for case in entries:
+        if not isinstance(case, dict):
+            raise CheckError(f"drawer golden {group} case is not an object")
+        ident = case.get("id")
+        if not isinstance(ident, str) or not ident:
+            raise CheckError(f"drawer golden {group} case needs a stable id")
+        if ident in seen:
+            raise CheckError(f"drawer golden id {ident!r} is used twice")
+        seen.add(ident)
+    return entries
+
+
+def check_sheet_golden(document, golden) -> int:
+    sheet = document["interaction"]["sheet"]
+    _golden_header(golden, "sheet", "sheet-detents.golden.json")
+    default = sheet["defaultDetents"]["value"]
+    if golden.get("defaultDetents") != default:
+        raise CheckError(
+            f"sheet-detents.golden.json defaultDetents {golden.get('defaultDetents')!r} "
+            f"does not match interaction.sheet.defaultDetents ({default!r})"
+        )
+    set_ids = sorted(row["id"] for row in sheet["detentSets"])
+    if golden.get("detentSets") != set_ids:
+        raise CheckError(
+            f"sheet-detents.golden.json detentSets {golden.get('detentSets')!r} "
+            f"does not match interaction.sheet.detentSets ({set_ids!r})"
+        )
+    expected = [(row["id"], row["detents"]) for row in sheet["pageDetents"]]
+    pages = golden.get("pages")
+    if not isinstance(pages, list):
+        raise CheckError("sheet-detents.golden.json pages must be a list")
+    stored = []
+    seen = set()
+    for page in pages:
+        _check_row_keys(page, "sheet golden page", ("id", "detents"))
+        ident = _unique_id(page, "sheet golden page", seen)
+        if page["detents"] not in set_ids:
+            raise CheckError(
+                f"sheet golden page {ident!r} uses unknown detent set {page['detents']!r}"
+            )
+        stored.append((ident, page["detents"]))
+    if stored != expected:
+        raise CheckError(
+            "sheet-detents.golden.json pages do not match interaction.sheet.pageDetents "
+            f"(stored {stored!r}, recomputed {expected!r})"
+        )
+    return len(set_ids) + len(pages)
+
+
+def check_context_menu_golden(document, golden) -> int:
+    menu = document["interaction"]["contextMenu"]
+    _golden_header(golden, "contextMenu", "context-menu-items.golden.json")
+    if golden.get("preview") != menu["preview"]["value"]:
+        raise CheckError(
+            "context-menu-items.golden.json preview does not match "
+            "interaction.contextMenu.preview"
+        )
+    expected = [
+        (
+            surface["id"],
+            [(item["label"], item["role"], item["kind"]) for item in surface["items"]],
+        )
+        for surface in menu["surfaces"]
+    ]
+    surfaces = golden.get("surfaces")
+    if not isinstance(surfaces, list):
+        raise CheckError("context-menu-items.golden.json surfaces must be a list")
+    stored = []
+    seen = set()
+    count = 0
+    for surface in surfaces:
+        _check_row_keys(surface, "context-menu golden surface", ("id", "items"))
+        ident = _unique_id(surface, "context-menu golden surface", seen)
+        items = surface.get("items")
+        if not isinstance(items, list):
+            raise CheckError(f"context-menu golden surface {ident!r}: items must be a list")
+        rows = []
+        for item in items:
+            _check_row_keys(item, f"context-menu golden surface {ident!r} item", ("label", "role", "kind"))
+            rows.append((item["label"], item["role"], item["kind"]))
+            count += 1
+        stored.append((ident, rows))
+    if stored != expected:
+        raise CheckError(
+            "context-menu-items.golden.json surfaces do not match "
+            f"interaction.contextMenu.surfaces (stored {stored!r}, recomputed {expected!r})"
+        )
+    return count
+
+
+def _composer_can_submit(case: dict) -> bool:
+    if case.get("composerEnabled") is not True:
+        return False
+    has_text = case.get("hasText") is True
+    has_attachments = case.get("hasAttachments") is True
+    if case.get("turnRunning") is True and case.get("steer") is True:
+        return has_text and not has_attachments
+    if case.get("turnRunning") is True:
+        return has_text
+    return has_text or has_attachments
+
+
+def check_composer_send_golden(document, golden) -> int:
+    composer = document["interaction"]["composerSend"]
+    _golden_header(golden, "composerSend", "composer-send.golden.json")
+    for member, expected in (
+        ("transitionScale", composer["transitionScale"]["value"]),
+        ("transitionOpacityFrom", composer["transitionOpacity"]["value"]),
+        ("buttonSize", document["geometry"]["sendButton"]["value"]),
+    ):
+        stored = golden.get(member)
+        if not _is_number(stored):
+            raise CheckError(f"composer-send.golden.json {member} must be a number")
+        if not _close_enough(stored, expected):
+            raise CheckError(
+                f"composer-send.golden.json {member} {stored!r} does not match "
+                f"interaction.composerSend ({expected!r})"
+            )
+    cases = _check_rows(golden.get("cases"), "composer-send.golden.json cases", 1)
+    seen = set()
+    for case in cases:
+        ident = _unique_id(case, "composer-send golden case", seen)
+        where = f"composer-send golden case {ident!r}"
+        _check_row_keys(
+            case,
+            where,
+            (
+                "id",
+                "composerEnabled",
+                "turnRunning",
+                "steer",
+                "hasText",
+                "hasAttachments",
+                "canSubmit",
+                "showsSend",
+                "showsStop",
+            ),
+        )
+        for key in ("composerEnabled", "turnRunning", "steer", "hasText", "hasAttachments"):
+            if not isinstance(case[key], bool):
+                raise CheckError(f"{where}: {key} must be a boolean")
+        for key in ("canSubmit", "showsSend", "showsStop"):
+            if not isinstance(case[key], bool):
+                raise CheckError(f"{where}: {key} must be a boolean")
+        actual = _composer_can_submit(case)
+        stop = case["turnRunning"] and not actual
+        if case["canSubmit"] != actual:
+            raise CheckError(
+                f"{where}: stored canSubmit={case['canSubmit']}, recomputed {actual}"
+            )
+        if case["showsStop"] != stop:
+            raise CheckError(
+                f"{where}: stored showsStop={case['showsStop']}, recomputed {stop}"
+            )
+        if case["showsSend"] != (not stop):
+            raise CheckError(
+                f"{where}: stored showsSend={case['showsSend']}, recomputed {not stop}"
+            )
+    return len(cases)
+
+
+def check_pressed_golden(document, golden) -> int:
+    pressed = document["interaction"]["pressed"]
+    _golden_header(golden, "pressed", "pressed-states.golden.json")
+    scale = pressed["scale"]["value"]
+    expected = {
+        "drawerPill": (0.0, pressed["pillOverlay"]["value"], None, scale),
+        "drawerRow": (0.0, pressed["rowFillOpacity"]["value"], None, scale),
+        "primaryButton": (1.0, pressed["primaryPressedOpacity"]["value"],
+                          pressed["primaryDisabledOpacity"]["value"], scale),
+    }
+    rows = _check_rows(golden.get("rows"), "pressed-states.golden.json rows", 3, 3)
+    seen = set()
+    for row in rows:
+        ident = _unique_id(row, "pressed-states golden row", seen)
+        if ident not in expected:
+            raise CheckError(f"pressed-states golden row {ident!r} is not a pressed surface")
+        _check_row_keys(
+            row,
+            f"pressed-states golden row {ident!r}",
+            ("id", "rest", "pressed", "disabled", "scale"),
+        )
+        rest, active, disabled, stored_scale = expected[ident]
+        if not _close_enough(row["rest"], rest):
+            raise CheckError(
+                f"pressed-states golden row {ident!r}: rest {row['rest']!r} != {rest!r}"
+            )
+        if not _close_enough(row["pressed"], active):
+            raise CheckError(
+                f"pressed-states golden row {ident!r}: pressed {row['pressed']!r} != {active!r}"
+            )
+        if disabled is None:
+            if row["disabled"] is not None:
+                raise CheckError(
+                    f"pressed-states golden row {ident!r}: disabled must be null"
+                )
+        elif row["disabled"] is None or not _close_enough(row["disabled"], disabled):
+            raise CheckError(
+                f"pressed-states golden row {ident!r}: disabled {row['disabled']!r} != {disabled!r}"
+            )
+        if not _close_enough(row["scale"], stored_scale):
+            raise CheckError(
+                f"pressed-states golden row {ident!r}: scale {row['scale']!r} != {stored_scale!r}"
+            )
+    if seen != set(expected):
+        raise CheckError("pressed-states.golden.json is missing a pressed surface row")
+    return len(rows)
+
+
+def check_disclosure_golden(document, golden) -> int:
+    disclosure = document["interaction"]["disclosure"]
+    _golden_header(golden, "disclosure", "disclosure-motion.golden.json")
+    if golden.get("reducedMotion") != disclosure["reducedMotion"]["value"]:
+        raise CheckError(
+            "disclosure-motion.golden.json reducedMotion does not match "
+            "interaction.disclosure.reducedMotion"
+        )
+    expected = []
+    for ident, key in (("body", "bodyMotion"), ("folder", "folderMotion"), ("chevron", "chevronMotion")):
+        token = disclosure[key]["token"]
+        leaf = _motion_leaf(document, token, f"interaction.disclosure.{key}")
+        expected.append((ident, token, leaf["durationMs"], leaf["curve"]))
+    rows = _check_rows(golden.get("rows"), "disclosure-motion.golden.json rows", 3, 3)
+    stored = []
+    seen = set()
+    for row in rows:
+        ident = _unique_id(row, "disclosure-motion golden row", seen)
+        _check_row_keys(
+            row,
+            f"disclosure-motion golden row {ident!r}",
+            ("id", "motion", "durationMs", "curve"),
+        )
+        stored.append((ident, row["motion"], row["durationMs"], row["curve"]))
+    if stored != expected:
+        raise CheckError(
+            "disclosure-motion.golden.json rows do not match interaction.disclosure "
+            f"(stored {stored!r}, recomputed {expected!r})"
+        )
+    return len(rows)
+
+
+def check_push_golden(document, golden) -> int:
+    push = document["interaction"]["push"]
+    _golden_header(golden, "push", "push-back.golden.json")
+    layers = [part for part in push["backOrder"]["value"].split(",") if part]
+    bar_at_root = push["barVisibleAtRoot"].get("value") is True
+    bar_hidden_pushed = push["barHiddenWhenPushed"].get("value") is True
+    cases = _check_rows(golden.get("cases"), "push-back.golden.json cases", 1)
+    seen = set()
+    for case in cases:
+        ident = _unique_id(case, "push-back golden case", seen)
+        where = f"push-back golden case {ident!r}"
+        _check_row_keys(
+            case,
+            where,
+            (
+                "id",
+                "depth",
+                "overlay",
+                "keyboard",
+                "action",
+                "depthAfter",
+                "overlayAfter",
+                "barVisible",
+                "exited",
+            ),
+        )
+        if not isinstance(case["depth"], int) or isinstance(case["depth"], bool) or case["depth"] < 0:
+            raise CheckError(f"{where}: depth must be a non-negative integer")
+        if not isinstance(case["keyboard"], bool):
+            raise CheckError(f"{where}: keyboard must be a boolean")
+        if case["action"] not in ("push", "back", "predictive-cancel"):
+            raise CheckError(f"{where}: unknown action {case['action']!r}")
+        overlays = [] if case["overlay"] == "none" else str(case["overlay"]).split(",")
+        if any(layer not in ("sheet", "drawer") for layer in overlays):
+            raise CheckError(f"{where}: overlay {case['overlay']!r} is not sheet/drawer/none")
+        depth = case["depth"]
+        after_depth = depth
+        after_overlays = list(overlays)
+        exited = False
+        if case["action"] == "push":
+            after_depth += 1
+        elif case["action"] == "back":
+            for layer in layers:
+                if layer == "sheet" and "sheet" in after_overlays:
+                    after_overlays.remove("sheet")
+                    break
+                if layer == "drawer" and "drawer" in after_overlays:
+                    after_overlays.remove("drawer")
+                    break
+                if layer == "stack" and after_depth > 0:
+                    after_depth -= 1
+                    break
+                if layer == "root":
+                    exited = True
+                    break
+        overlay_after = ",".join(after_overlays) if after_overlays else "none"
+        bar_visible = bar_at_root and (after_depth == 0 or not bar_hidden_pushed)
+        bar_visible = bar_visible and not case["keyboard"]
+        for member, actual in (
+            ("depthAfter", after_depth),
+            ("overlayAfter", overlay_after),
+            ("barVisible", bar_visible),
+            ("exited", exited),
+        ):
+            if case[member] != actual:
+                raise CheckError(
+                    f"{where}: stored {member}={case[member]!r}, recomputed {actual!r}"
+                )
+    return len(cases)
+
+
+INTERACTION_GOLDEN_CHECKS = {
+    "drawer": check_drawer_golden,
+    "sheet": check_sheet_golden,
+    "contextMenu": check_context_menu_golden,
+    "push": check_push_golden,
+    "composerSend": check_composer_send_golden,
+    "pressed": check_pressed_golden,
+    "disclosure": check_disclosure_golden,
+}
+
+
+def check_interaction_contracts(root: Path, document, goldens: dict) -> dict:
+    """Rule 12: member validation plus each group's golden recomputation."""
+    counts = check_interaction_members(root, document)
+    for group in INTERACTION_GROUPS:
+        path, kind, source = INTERACTION_GOLDEN_FILES[group]
+        counts[group] = INTERACTION_GOLDEN_CHECKS[group](document, goldens[group])
+    return counts
+
+
 # ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
@@ -1451,8 +2165,17 @@ def run(root: Path, strict: bool) -> int:
     readme_path = ui / "README.md"
     golden_tokens = ui / "golden" / "tokens.golden.json"
     golden_projection = ui / "golden" / "surface-projection.golden.json"
-    golden_drawer = ui / DRAWER_GOLDEN_REL
-    for path in (schema_path, tokens_path, readme_path, golden_tokens, golden_projection, golden_drawer):
+    interaction_goldens = {
+        group: ui / relative for group, (relative, _kind, _source) in INTERACTION_GOLDEN_FILES.items()
+    }
+    for path in (
+        schema_path,
+        tokens_path,
+        readme_path,
+        golden_tokens,
+        golden_projection,
+        *interaction_goldens.values(),
+    ):
         if not path.is_file():
             print(f"ui_check: missing {path.relative_to(root)}", file=sys.stderr)
             return 2
@@ -1465,7 +2188,9 @@ def run(root: Path, strict: bool) -> int:
         document = load_json(tokens_path)
         golden_doc = load_json(golden_tokens)
         projection = load_json(golden_projection)
-        drawer_golden = load_json(golden_drawer)
+        loaded_interaction_goldens = {
+            group: load_json(path) for group, path in interaction_goldens.items()
+        }
         readme = read_text(readme_path)
 
         variants = check_schema_is_self_contained(schema)
@@ -1485,7 +2210,7 @@ def run(root: Path, strict: bool) -> int:
         sourced, sourced_checked = check_provenance_sources(root, document)
         geometry_count = check_geometry(document)
         alias_count = check_aliases(document)
-        drawer_cases = check_drawer_interaction(root, document, drawer_golden)
+        interaction_counts = check_interaction_contracts(root, document, loaded_interaction_goldens)
         references = check_surfaces(document)
         contrast_lines, contrast_failures, deferred, pair_count = check_contrast(document, strict)
         for line in contrast_lines:
@@ -1548,7 +2273,7 @@ def run(root: Path, strict: bool) -> int:
                 (show(tokens_path), read_text(tokens_path)),
                 (show(golden_tokens), read_text(golden_tokens)),
                 (show(golden_projection), read_text(golden_projection)),
-                (show(golden_drawer), read_text(golden_drawer)),
+                *((show(path), read_text(path)) for path in interaction_goldens.values()),
                 (show(schema_path), read_text(schema_path)),
             ]
         )
@@ -1572,10 +2297,11 @@ def run(root: Path, strict: bool) -> int:
             f"schema ok, {len(projection['events'])} events -> {len(projection['rows'])} rows, "
             f"{len(seen_surfaces)}/6 surfaces",
         )
-        report.file_ok(
-            show(golden_drawer),
-            f"{drawer_cases} cases recomputed from interaction.drawer",
-        )
+        for group in INTERACTION_GROUPS:
+            report.file_ok(
+                show(interaction_goldens[group]),
+                f"{interaction_counts[group]} cases recomputed from interaction.{group}",
+            )
         page_note = f"{page_count} *Page structs documented" if page_checked else "probe app absent, cross-check skipped"
         report.file_ok(
             show(readme_path),

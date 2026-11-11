@@ -1,0 +1,183 @@
+{
+  "kind": "context-menu-items",
+  "version": 1,
+  "source": "tokens.json#interaction.contextMenu",
+  "preview": "system",
+  "surfaces": [
+    {
+      "id": "drawerFolder",
+      "items": [
+        {
+          "label": "在这里新建会话",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "重命名",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "删除文件夹",
+          "role": "destructive",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "drawerSession",
+      "items": [
+        {
+          "label": "编辑名称",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "归档",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "subagentRow",
+      "items": [
+        {
+          "label": "打开子会话",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "在侧边栏打开",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "userBubble",
+      "items": [
+        {
+          "label": "复制",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "分享",
+          "role": "default",
+          "kind": "share"
+        }
+      ]
+    },
+    {
+      "id": "assistantBody",
+      "items": [
+        {
+          "label": "复制全文",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "disclosurePayload",
+      "items": [
+        {
+          "label": "复制事件数据",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "botLink",
+      "items": [
+        {
+          "label": "打开链接",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "复制链接",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "botRow",
+      "items": [
+        {
+          "label": "改名",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "外观",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "设为主 Bot",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "隐藏",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "删除 Bot",
+          "role": "destructive",
+          "kind": "action"
+        },
+        {
+          "label": "这是最后一个 Bot，不能删除。",
+          "role": "default",
+          "kind": "info"
+        }
+      ]
+    },
+    {
+      "id": "botMessageRow",
+      "items": [
+        {
+          "label": "复制",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "查看来源",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "hostAddress",
+      "items": [
+        {
+          "label": "删除这个地址",
+          "role": "destructive",
+          "kind": "action"
+        }
+      ]
+    },
+    {
+      "id": "sessionsRow",
+      "items": [
+        {
+          "label": "重命名会话",
+          "role": "default",
+          "kind": "action"
+        },
+        {
+          "label": "归档会话",
+          "role": "default",
+          "kind": "action"
+        }
+      ]
+    }
+  ]
+}

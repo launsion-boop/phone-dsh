@@ -1,0 +1,28 @@
+{
+  "kind": "pressed-states",
+  "version": 1,
+  "source": "tokens.json#interaction.pressed",
+  "rows": [
+    {
+      "id": "drawerPill",
+      "rest": 0,
+      "pressed": 0.06,
+      "disabled": null,
+      "scale": 1
+    },
+    {
+      "id": "drawerRow",
+      "rest": 0,
+      "pressed": 0.7,
+      "disabled": null,
+      "scale": 1
+    },
+    {
+      "id": "primaryButton",
+      "rest": 1,
+      "pressed": 0.8,
+      "disabled": 0.25,
+      "scale": 1
+    }
+  ]
+}

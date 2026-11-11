@@ -1,0 +1,120 @@
+{
+  "kind": "composer-send",
+  "version": 1,
+  "source": "tokens.json#interaction.composerSend",
+  "transitionScale": 0.8,
+  "transitionOpacityFrom": 0,
+  "buttonSize": 36,
+  "cases": [
+    {
+      "id": "enabled-idle-text",
+      "composerEnabled": true,
+      "turnRunning": false,
+      "steer": false,
+      "hasText": true,
+      "hasAttachments": false,
+      "canSubmit": true,
+      "showsSend": true,
+      "showsStop": false
+    },
+    {
+      "id": "enabled-idle-attachment",
+      "composerEnabled": true,
+      "turnRunning": false,
+      "steer": false,
+      "hasText": false,
+      "hasAttachments": true,
+      "canSubmit": true,
+      "showsSend": true,
+      "showsStop": false
+    },
+    {
+      "id": "enabled-idle-empty",
+      "composerEnabled": true,
+      "turnRunning": false,
+      "steer": false,
+      "hasText": false,
+      "hasAttachments": false,
+      "canSubmit": false,
+      "showsSend": true,
+      "showsStop": false
+    },
+    {
+      "id": "enabled-steer-text",
+      "composerEnabled": true,
+      "turnRunning": true,
+      "steer": true,
+      "hasText": true,
+      "hasAttachments": false,
+      "canSubmit": true,
+      "showsSend": true,
+      "showsStop": false
+    },
+    {
+      "id": "enabled-steer-text-attachment",
+      "composerEnabled": true,
+      "turnRunning": true,
+      "steer": true,
+      "hasText": true,
+      "hasAttachments": true,
+      "canSubmit": false,
+      "showsSend": false,
+      "showsStop": true
+    },
+    {
+      "id": "enabled-steer-empty",
+      "composerEnabled": true,
+      "turnRunning": true,
+      "steer": true,
+      "hasText": false,
+      "hasAttachments": false,
+      "canSubmit": false,
+      "showsSend": false,
+      "showsStop": true
+    },
+    {
+      "id": "enabled-queue-text",
+      "composerEnabled": true,
+      "turnRunning": true,
+      "steer": false,
+      "hasText": true,
+      "hasAttachments": false,
+      "canSubmit": true,
+      "showsSend": true,
+      "showsStop": false
+    },
+    {
+      "id": "enabled-queue-attachment",
+      "composerEnabled": true,
+      "turnRunning": true,
+      "steer": false,
+      "hasText": false,
+      "hasAttachments": true,
+      "canSubmit": false,
+      "showsSend": false,
+      "showsStop": true
+    },
+    {
+      "id": "disabled-idle-text",
+      "composerEnabled": false,
+      "turnRunning": false,
+      "steer": false,
+      "hasText": true,
+      "hasAttachments": false,
+      "canSubmit": false,
+      "showsSend": true,
+      "showsStop": false
+    },
+    {
+      "id": "disabled-queue-text",
+      "composerEnabled": false,
+      "turnRunning": true,
+      "steer": false,
+      "hasText": true,
+      "hasAttachments": false,
+      "canSubmit": false,
+      "showsSend": false,
+      "showsStop": true
+    }
+  ]
+}
