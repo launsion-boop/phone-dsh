@@ -2,6 +2,8 @@ json-schema\.org
 @example\.invalid
 # public documentation host used by the G2 network scenarios (scripts/ci/scenarios/catalog.json)
 raw\.githubusercontent\.com
+# GitHub Container Registry for the mobile packages.
+^ghcr\.io$
 schemas\.openxmlformats\.org
 # Official pinned toolchain distribution hosts used by
 # android/tools/bootstrap-android-toolchain.sh: Android command-line tools and
