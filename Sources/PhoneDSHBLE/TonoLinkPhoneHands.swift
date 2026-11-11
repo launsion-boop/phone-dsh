@@ -80,7 +80,20 @@ public struct TonoLinkPoint: Codable, Equatable, Sendable {
 
     public func batch(_ steps: [[String: Any]]) async throws {
         let planned = steps.reduce(0.0) { $0 + Double(($1["delay_ms"] as? Int) ?? 0) / 1000 }
-        try await call("POST", "/v1/hid/batch", ["steps": steps, "wait": true], timeout: 15 + planned)
+        // 503 busy_exec: the board's HID executor was still finishing the previous batch and ran
+        // nothing of this one, so resending is safe (tonolink-board.md §2). Any other failure is not retried.
+        for attempt in 0..<10 {
+            do {
+                try await call("POST", "/v1/hid/batch", ["steps": steps, "wait": true], timeout: 15 + planned)
+                return
+            } catch let error as TonoLinkHandsError where Self.isBusy(error) && attempt < 9 {
+                try await Task.sleep(for: .milliseconds(300))
+            }
+        }
+    }
+
+    static func isBusy(_ error: TonoLinkHandsError) -> Bool {
+        error.description.contains("HTTP 503") && error.description.contains("busy_exec")
     }
 
     /// Waits until the phone has the board's keyboard and absolute pointer attached.
