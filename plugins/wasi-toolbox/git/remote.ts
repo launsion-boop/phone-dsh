@@ -9,7 +9,9 @@
  * `info/refs` discovery, one `git-upload-pack` request for fetch/clone, one
  * `git-receive-pack` request for push, and the pack reader/writer from
  * `pack.ts`. `--depth`/`--single-branch`/`--no-tags` shallow negotiation is
- * implemented for v0; partial clones, protocol v2 and dumb HTTP are not
+ * implemented for v0. A bare `git clone` uses the phone default
+ * (`--depth 1 --single-branch --no-tags`); `--full` keeps every branch and the
+ * whole history. Partial clones, protocol v2 and dumb HTTP are not
  * implemented and fail with a message stating that limitation.
  * @module @phone-dsh/dsh-wasi-toolbox/git/remote
  */
@@ -593,6 +595,8 @@ interface CloneOptions {
   readonly depth: number | undefined
   readonly singleBranch: boolean
   readonly noTags: boolean
+  /** True when no history flag was given and the phone default was applied. */
+  readonly phoneDefault: boolean
 }
 
 /** Parse `git clone` options, failing loud on the ones that are not modelled. */
@@ -602,6 +606,10 @@ function cloneOptions(args: readonly string[]): CloneOptions {
   let depth: number | undefined
   let singleBranch = false
   let noTags = false
+  let full = false
+  let explicitDepth = false
+  let explicitSingle = false
+  let explicitNoTags = false
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] as string
     if (arg === '-q' || arg === '--quiet') quiet = true
@@ -615,14 +623,22 @@ function cloneOptions(args: readonly string[]): CloneOptions {
       const value = args[index + 1]
       if (value === undefined) throw fatal("option '--depth' requires a value", 129)
       depth = parseDepth(value)
+      explicitDepth = true
       index += 1
-    } else if (arg.startsWith('--depth=')) depth = parseDepth(arg.slice('--depth='.length))
-    else if (arg === '--single-branch') singleBranch = true
-    else if (arg === '--no-tags') noTags = true
+    } else if (arg.startsWith('--depth=')) {
+      depth = parseDepth(arg.slice('--depth='.length))
+      explicitDepth = true
+    } else if (arg === '--single-branch') {
+      singleBranch = true
+      explicitSingle = true
+    } else if (arg === '--no-tags') {
+      noTags = true
+      explicitNoTags = true
+    } else if (arg === '--full') full = true
     else if (arg === '--no-single-branch') {
       throw fatal(
         'git clone --no-single-branch is not supported inside the Worker: --depth implies --single-branch. '
-        + 'Clone without --depth to copy every branch; nothing was changed.',
+        + 'Pass --full to copy every branch and the full history. Nothing was changed.',
       )
     } else if (arg === '--shallow-since' || arg.startsWith('--shallow-since=') || arg === '--shallow-exclude' || arg.startsWith('--shallow-exclude=')) {
       throw fatal(
@@ -645,7 +661,20 @@ function cloneOptions(args: readonly string[]): CloneOptions {
       throw fatal(`unsupported clone option '${arg}'`, 129)
     }
   }
-  return { quiet, branch, depth, singleBranch, noTags }
+  if (full && (explicitDepth || explicitSingle || explicitNoTags)) {
+    throw fatal(
+      'git clone --full cannot be combined with --depth, --single-branch or --no-tags. Nothing was changed.',
+    )
+  }
+  // A bare clone (optional `-b`/`-q`) is the phone default. An explicit
+  // history flag is left as written; `--full` is the previous all-branch clone.
+  const phoneDefault = !full && !explicitDepth && !explicitSingle && !explicitNoTags
+  if (phoneDefault) {
+    depth = 1
+    singleBranch = true
+    noTags = true
+  }
+  return { quiet, branch, depth, singleBranch, noTags, phoneDefault }
 }
 
 /** `git clone`. */
@@ -662,7 +691,15 @@ export async function clone(context: CommandContext): Promise<number> {
   const target = positional[1] ?? posix.basename(source.replace(/\/+$/, '').replace(/\.git$/, ''))
   const directory = context.absolute(target)
   if (await context.fs.exists(`${directory}/.git`)) throw fatal(`destination path '${target}' already exists and is not an empty directory`)
-  if (!options.quiet) context.output.stderr(`Cloning into '${target}'...\n`)
+  if (!options.quiet) {
+    context.output.stderr(`Cloning into '${target}'...\n`)
+    if (options.phoneDefault) {
+      context.output.stderr(
+        'phone default: --depth 1 --single-branch --no-tags '
+        + '(pass --full for every branch and the full history)\n',
+      )
+    }
+  }
   const transport = transportFor(context)
   const advertisement = await discoverRefs(transport, source, 'git-upload-pack')
   // Check before the skeleton is written so a server without the capability
@@ -803,7 +840,7 @@ export async function fetch(context: CommandContext): Promise<number> {
     else if (arg === '--unshallow') {
       throw fatal(
         'git fetch --unshallow is not supported inside the Worker; deepen the history with '
-        + '--depth <n> or clone again without --depth. Nothing was changed.',
+        + '--depth <n> or clone again with --full. Nothing was changed.',
       )
     } else if (arg === '--shallow-since' || arg.startsWith('--shallow-since=') || arg === '--shallow-exclude' || arg.startsWith('--shallow-exclude=')) {
       throw fatal(

@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { commandTable } from '../wasi-toolbox/git/commands.ts'
-import { GIT_SUPPORTED_FORMS, GIT_TRIM_FACTS } from '../wasi-toolbox/git/capability.ts'
+import { GIT_PHONE_NOTE, GIT_SUPPORTED_FORMS, GIT_TRIM_FACTS } from '../wasi-toolbox/git/capability.ts'
 import { WORKER_EXECUTION_LIMITS } from '../shell-ext/src/index.ts'
 import {
   buildCapabilityManifest,
@@ -61,6 +61,10 @@ test('AGENTS.md states the git trim facts and keeps <rev>:<path> supported', () 
   assert.doesNotMatch(markdown, /<rev>:<path>[^\n.]*(?:not supported|unsupported|not implemented)/iu)
   assert.ok(git.commands.includes('show'), 'the subcommand list is in the machine-readable document')
   assert.ok(GIT_SUPPORTED_FORMS.some(form => form.includes('<rev>:<path>')))
+  assert.ok(markdown.includes(GIT_PHONE_NOTE), 'AGENTS.md carries the phone git note')
+  assert.match(markdown, /--depth 1 --single-branch --no-tags/)
+  assert.match(markdown, /sparse-checkout/)
+  assert.match(markdown, /git worktree/)
 })
 
 test('the manifest omits the git section when the command table does not serve git', () => {

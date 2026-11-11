@@ -433,6 +433,31 @@ test('shallow and single-branch clone/fetch follow git smart HTTP v0', { skip },
     assert.equal(git(single, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '3')
     assert.equal(git(single, ['fsck', '--strict']).code, 0)
 
+    // A bare clone, including `-b`, is the phone default: one commit, one
+    // branch, no tags. `--full` is the previous all-branch history.
+    const phoneDefault = join(temp.path, 'phone-default')
+    const defaultClone = await worker(temp.path, ['clone', '-b', 'feature', remote('origin.git'), phoneDefault])
+    assert.equal(defaultClone.code, 0, defaultClone.stderr.toString())
+    assert.match(defaultClone.stderr.toString(), /phone default: --depth 1 --single-branch --no-tags/)
+    assert.equal(git(phoneDefault, ['symbolic-ref', '--short', 'HEAD']).stdout.toString().trim(), 'feature')
+    assert.equal(git(phoneDefault, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'true')
+    assert.equal(git(phoneDefault, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '1')
+    assert.equal(shallowFile(phoneDefault), featureTip)
+    assert.equal(git(phoneDefault, ['config', '--get', 'remote.origin.tagopt']).stdout.toString().trim(), '--no-tags')
+    assert.equal(systemGit(['for-each-ref', '--format=%(refname)', 'refs/tags'], phoneDefault, env).stdout.toString().trim(), '')
+    assert.notEqual(git(phoneDefault, ['rev-parse', '--verify', 'refs/remotes/origin/main']).code, 0)
+    const full = join(temp.path, 'full-history')
+    const fullClone = await worker(temp.path, ['clone', '--full', remote('origin.git'), full])
+    assert.equal(fullClone.code, 0, fullClone.stderr.toString())
+    assert.doesNotMatch(fullClone.stderr.toString(), /phone default/)
+    assert.equal(git(full, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'false')
+    assert.equal(git(full, ['rev-parse', 'refs/remotes/origin/feature']).stdout.toString().trim(), featureTip)
+    assert.equal(git(full, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '3')
+    const mixed = await worker(temp.path, ['clone', '--full', '--depth', '1', remote('origin.git'), join(temp.path, 'mixed')])
+    assert.notEqual(mixed.code, 0)
+    assert.match(mixed.stderr.toString(), /--full cannot be combined/)
+    assert.equal(existsSync(join(temp.path, 'mixed', '.git')), false)
+
     // `--no-tags` keeps every branch of a full clone but fetches no tags.
     const noTags = join(temp.path, 'no-tags')
     const noTagsClone = await worker(temp.path, ['clone', '--no-tags', remote('origin.git'), noTags])
