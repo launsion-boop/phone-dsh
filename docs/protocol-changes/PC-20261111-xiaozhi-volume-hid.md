@@ -6,7 +6,7 @@ contracts: [P07]
 status: implemented
 breaking: false
 version_decision: Add a closed consumer-control step to the existing TonoLink /v1/hid/batch contract; retain API v1 and reject it on old firmware before any HID output.
-base: 3d1c9ef08da9e553a31421e08256fe9b768358c9
+base: bddb6d5b
 contract_revision: spec/device/v1/tonolink-board.md@consumer-control-volume-v1-gatt-layout-v5
 ```
 
@@ -17,7 +17,7 @@ Protocol impact: P07; P09: none — voice-host command dispatch and diagnostics 
 - **Trigger → current → expected:** A wake-word command such as “调大音量” currently goes through the chat model and UI-Venus, where it depends on BLE keyboard/mouse readiness, screen mirroring, a vision model, and several UI actions. A narrow local voice path should send one Consumer Page Volume Increment or Decrement report through the existing TonoLink controller lease, with no LLM, screen, or vision dependency.
 - **Coordinator / contract owner / implementer / reviewer-integrator:** one coordinator holds all roles; implementation is sequential across both ends.
 - **Owning contract, schema, shared fixtures:** `spec/device/v1/tonolink-board.md` §2.1; `spec/device/v1/schema/tonolink-hid-consumer-step.schema.json`; `spec/device/v1/golden/tonolink-hid-consumer-control.json`.
-- **Producer:** TonoLink M21-R4 firmware in `/Users/macbook/Documents/tonolink-m21-r4-firmware`, HID Report Map plus `/v1/hid/batch` parser/executor/status.
+- **Producer:** TonoLink M21-R4 firmware in `$HOME/Documents/tonolink-m21-r4-firmware`, HID Report Map plus `/v1/hid/batch` parser/executor/status.
 - **Consumer:** this repo's `Sources/PhoneDSHBLE/TonoLinkPhoneHands.swift` and the iOS probe app's `TonoLinkVoiceHost.swift`. Android and HarmonyOS are not consumers of the iPhone-only board path.
 
 ## 2. Contract delta
@@ -50,7 +50,7 @@ Compatibility matrix:
 ## 4. Ownership and acceptance
 
 - **Contract owner paths:** `spec/device/v1/tonolink-board.md`, the schema and golden above, and this change record.
-- **Firmware producer paths:** `/Users/macbook/Documents/tonolink-m21-r4-firmware/main/hid_svc.c`, `main/shared/pa_hid.h`, `main/shared/pa_hid_encode.c`, `main/svc/hid_macro.{h,c}`, `main/svc/hid_exec.{h,c}`, `main/ctrl_svc.{h,c}`, `main/http/route_phone.c`, plus one firmware host test that consumes the shared golden.
+- **Firmware producer paths:** `$HOME/Documents/tonolink-m21-r4-firmware/main/hid_svc.c`, `main/shared/pa_hid.h`, `main/shared/pa_hid_encode.c`, `main/svc/hid_macro.{h,c}`, `main/svc/hid_exec.{h,c}`, `main/ctrl_svc.{h,c}`, `main/http/route_phone.c`, plus one firmware host test that consumes the shared golden.
 - **iOS consumer paths:** `Sources/PhoneDSHBLE/TonoLinkPhoneHands.swift`, a `PhoneDSHBLE` volume-intent helper, its tests, `examples/probe-app/PhoneDSHProbe/TonoLinkVoiceHost.swift`, and the device spec documentation.
 - **Shared fixture:** the golden above must drive the real firmware JSON expander and HID encoder, and the real Swift request builder / intent matcher. Include both valid directions, unsupported usage, extra field, wrong type, and unknown-outcome no-retry coverage.
 - **Acceptance commands:** `swift test --filter TonoLinkVolumeCommandTests`; `swift test --filter IPhoneAgentMCPTests`; firmware `bash host_tests/run.sh --filter ag12` and `--filter ag05`; `idf.py build`; signed iPhone app build/install; real iPhone + TonoLink board check that output volume moves one step in each direction and old firmware fails without screen fallback.
@@ -58,11 +58,11 @@ Compatibility matrix:
 
 ### Execution evidence
 
-- `swift test --filter TonoLinkVolumeCommandTests`: **PASS**, 5 tests. This includes shared request/lifecycle fixtures, narrow intent matching, and non-retryable old-firmware / uncertain-outcome errors.
+- `swift test --filter TonoLinkVolumeCommandTests`: **PASS**, 7 tests. This includes shared request/lifecycle fixtures, narrow intent matching, and non-retryable old-firmware / uncertain-outcome errors.
 - `swift test --filter IPhoneAgentMCPTests`: **PASS**, 10 tests covering the native tool catalog, strict arguments, volume task dispatch, and uncertain result handling.
 - `bash host_tests/run.sh --filter ag12`: **PASS**, 6 tests including the shared golden through the real firmware parser and encoder, report descriptor, executor readiness, and HID batch cases.
 - `bash host_tests/run.sh --filter ag05`: **PASS**, delegated AG-05 suite.
-- `source /Users/macbook/esp/esp-idf-v6.1/export.sh && idf.py build`: **PASS** — full ESP32-S3 image produced; ESP-IDF/Kconfig dependency warnings were emitted.
+- `source ~/esp/esp-idf-v6.1/export.sh && idf.py build`: **PASS** — full ESP32-S3 image produced; ESP-IDF/Kconfig dependency warnings were emitted.
 - `xcodebuild -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -configuration Debug -destination 'id=00008160-00023D1C2240000A' -derivedDataPath .build/PhoneDSHProbeDerived DEVELOPMENT_TEAM=Q322S2LD93 build`: **PASS**.
 - `xcrun devicectl device install app --device 00008160-00023D1C2240000A .build/PhoneDSHProbeDerived/Build/Products/Debug-iphoneos/PhoneDSHProbe.app`: **PASS**, installation confirmed by `devicectl`.
 - OTA update: **PASS**. The installed board reports slot `ota_0`, `needs_usb_confirmation=false`, `hid.consumer_control=true`, and version string `0.1.0-m21`; image SHA-256 `4e81bc6f2db5cb67e40ae7992819b2c22f012c8021d3247c7ab237c597c91ee6`.
@@ -101,7 +101,7 @@ Status per end:
   firmware: implemented, host tests and ESP-IDF build pass; not flashed to a board
   device: not verified; no Link USB serial device was present on this Mac or liguanghao Mac Studio
 Commands → result:
-  swift test --filter TonoLinkVolumeCommandTests → PASS (5)
+  swift test --filter TonoLinkVolumeCommandTests → PASS (7)
   swift test --filter IPhoneAgentMCPTests → PASS (10)
   bash host_tests/run.sh --filter ag12 → PASS (6)
   bash host_tests/run.sh --filter ag05 → PASS (delegated suite)

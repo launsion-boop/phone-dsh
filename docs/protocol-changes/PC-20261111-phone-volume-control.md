@@ -6,7 +6,7 @@ contracts: [P05]
 status: implemented
 breaking: false
 version_decision: Add task guidance to the existing iOS-only iphone_agent_run tool. Keep MCP methods, names, schema, results, errors, deadlines, receipts and version unchanged.
-base: 3d1c9ef08da9e553a31421e08256fe9b768358c9
+base: bddb6d5b
 contract_revision: spec/v1/native-mcp.md@sha256:3a5b58047bc5730a4a9c758371269eab907897fa81a1f1d4aac3cea9c298980b; spec/v1/golden/native-mcp/iphone-agent-volume-policy.json@sha256:48a80943ddfe30d3b767de84e09b9a96c57d0ad40f20de8e9825443d58686c7f
 ```
 
@@ -71,9 +71,9 @@ Commands → result:
 - `python3 -m unittest spec.v1.tools.test_native_mcp_check` → PASS, 6 tests.
 - `swift test --skip-build --filter IPhoneAgentMCPTests` → PASS, 10 tests.
 - `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` → `phone-spec` PASS; `phone-p0-conformance` FAIL because page-structure reports 7 divergences outside its baseline across `connected-computer`, `files`, `home-drawer`, `pc-pairing` and `settings` (none of those files changed here); `phone-cross-tree` PASS.
-- `PDSH_DSH_CHECKOUT=/Users/macbook/Documents/tonolink-artifacts/dsh-upstream-66491b05 PDSH_PNPM_STORE=/tmp/phone-dsh-pnpm-store examples/probe-app/scripts/copy-bundle-assets.sh --checkout /Users/macbook/Documents/tonolink-artifacts/dsh-upstream-66491b05 --force` → PASS; DSH `0.2.2-rc.1`, and the packed `mcp-phone` profile contains `X-PDSH-MCP-Egress`.
-- `PDSH_WITH_XZSHELL=1 xcodebuild -quiet -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination 'platform=iOS,id=00008160-00023D1C2240000A' -derivedDataPath /Users/macbook/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf -configuration Debug build DEVELOPMENT_TEAM=Q322S2LD93 CODE_SIGN_STYLE=Automatic` → exit 0; fresh signed app bundle verified.
-- `xcrun devicectl device install app --device 00008160-00023D1C2240000A /Users/macbook/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf/Build/Products/Debug-iphoneos/PhoneDSHProbe.app` → PASS; `xcrun devicectl device process launch --device 00008160-00023D1C2240000A --terminate-existing com.tono.phonedsh.probe` → PASS.
+- `PDSH_DSH_CHECKOUT=$HOME/Documents/tonolink-artifacts/dsh-upstream-66491b05 PDSH_PNPM_STORE=/tmp/phone-dsh-pnpm-store examples/probe-app/scripts/copy-bundle-assets.sh --checkout $HOME/Documents/tonolink-artifacts/dsh-upstream-66491b05 --force` → PASS; DSH `0.2.2-rc.1`, and the packed `mcp-phone` profile contains `X-PDSH-MCP-Egress`.
+- `PDSH_WITH_XZSHELL=1 xcodebuild -quiet -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination 'platform=iOS,id=00008160-00023D1C2240000A' -derivedDataPath $HOME/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf -configuration Debug build DEVELOPMENT_TEAM=Q322S2LD93 CODE_SIGN_STYLE=Automatic` → exit 0; fresh signed app bundle verified.
+- `xcrun devicectl device install app --device 00008160-00023D1C2240000A $HOME/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf/Build/Products/Debug-iphoneos/PhoneDSHProbe.app` → PASS; `xcrun devicectl device process launch --device 00008160-00023D1C2240000A --terminate-existing com.tono.phonedsh.probe` → PASS.
 - Device log evidence: after the refreshed image, a voice task reached UI-Venus and returned the Bluetooth HID-not-connected limitation; the prior `unknown tool` result was not repeated. No volume command was issued.
 
 Not verified: the physical volume slider was not moved by this MCP/UI task path; the MCP tool was observed running a different voice UI task and returning the missing-HID limitation.

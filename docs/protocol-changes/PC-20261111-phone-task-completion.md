@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261111-phone-task-completion
 contracts: [P05, P07]
-status: frozen
+status: implemented
 breaking: false
 version_decision: Keep the MCP payload, HID route and request body unchanged. Add caller guidance and use the already-supported POST /v1/hid/enable {"on":false} desired state after phone actions.
-base: 3d1c9ef08da9e553a31421e08256fe9b768358c9
-contract_revision: spec/v1/native-mcp.md@sha256:c1c049b410e2ee9f1cd7c134549548ea5e25f5d9148700a019f2751a69ff1fc2; spec/v1/golden/native-mcp/iphone-agent-volume-policy.json@sha256:2d95a894112f2e88dc0484c6af67d99e625d02a944d24b786e38bcd842ba8961; spec/device/v1/tonolink-board.md@sha256:da4473272da6ab08009839232baf9ea7ed2e4fe462c42ec4fcee94cb19e3e87f; spec/device/v1/golden/tonolink-hid-consumer-control.json@sha256:eaee8612ecdd2a2eddca41f4461f6bab99c94dfe0a8f86bd873ccae1565785f5
+base: bddb6d5b
+contract_revision: spec/v1/native-mcp.md@sha256:c1c049b410e2ee9f1cd7c134549548ea5e25f5d9148700a019f2751a69ff1fc2; spec/v1/golden/native-mcp/iphone-agent-volume-policy.json@sha256:2d95a894112f2e88dc0484c6af67d99e625d02a944d24b786e38bcd842ba8961; spec/device/v1/tonolink-board.md@94e0aa1c; spec/device/v1/golden/tonolink-hid-consumer-control.json@sha256:eaee8612ecdd2a2eddca41f4461f6bab99c94dfe0a8f86bd873ccae1565785f5
 ```
 
 Protocol impact: P05; P07. P09: none — the task reply and HID cleanup do not change page structure or projected UI state.

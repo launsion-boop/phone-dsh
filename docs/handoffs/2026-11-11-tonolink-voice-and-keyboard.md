@@ -79,9 +79,9 @@
 | `bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree` | phone-spec PASS；phone-cross-tree PASS（8 invariants、87 tests）；整体 FAIL，因为 P0 conformance 有 7 个已存在页面结构差异，涉及 connected-computer、files、home-drawer、pc-pairing、settings，与本次修改路径无关。 |
 | `bash host_tests/run.sh --filter ag12` | PASS，6 tests，真实固件 parser/encoder 使用共享 golden。 |
 | `bash host_tests/run.sh --filter ag05` | PASS，AG-05 suite。 |
-| `source /Users/macbook/esp/esp-idf-v6.1/export.sh && idf.py build` | PASS，ESP32-S3 固件镜像完成；ESP-IDF/Kconfig 输出依赖警告。 |
-| `PDSH_WITH_XZSHELL=1 xcodebuild -quiet -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination 'platform=iOS,id=00008160-00023D1C2240000A' -derivedDataPath /Users/macbook/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf -configuration Debug build DEVELOPMENT_TEAM=Q322S2LD93 CODE_SIGN_STYLE=Automatic` | exit 0；签名产物通过 `codesign --verify --deep --strict --verbose=2`。Xcode 有既存 concurrency/deprecation warnings 和“exit code 0 but produced no further output”诊断。 |
-| `xcrun devicectl device install app --device 00008160-00023D1C2240000A /Users/macbook/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf/Build/Products/Debug-iphoneos/PhoneDSHProbe.app` | PASS，安装成功；随后观察到 app 启动。 |
+| `source ~/esp/esp-idf-v6.1/export.sh && idf.py build` | PASS，ESP32-S3 固件镜像完成；ESP-IDF/Kconfig 输出依赖警告。 |
+| `PDSH_WITH_XZSHELL=1 xcodebuild -quiet -project examples/probe-app/PhoneDSHProbe.xcodeproj -scheme PhoneDSHProbe -destination 'platform=iOS,id=00008160-00023D1C2240000A' -derivedDataPath $HOME/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf -configuration Debug build DEVELOPMENT_TEAM=Q322S2LD93 CODE_SIGN_STYLE=Automatic` | exit 0；签名产物通过 `codesign --verify --deep --strict --verbose=2`。Xcode 有既存 concurrency/deprecation warnings 和“exit code 0 but produced no further output”诊断。 |
+| `xcrun devicectl device install app --device 00008160-00023D1C2240000A $HOME/Library/Developer/Xcode/DerivedData/PhoneDSHProbe-alqzbsreltgljaewqoctxbcaoouf/Build/Products/Debug-iphoneos/PhoneDSHProbe.app` | PASS，安装成功；随后观察到 app 启动。 |
 | TonoLink OTA | PASS；板端报告 slot `ota_0`、`needs_usb_confirmation=false`、`hid.consumer_control=true`，版本字符串 `0.1.0-m21`。`4e81bc6f…c91ee6` 是 app ELF SHA-256（板端 `/ota/state` 报的值），不是上传的 `.bin`。 |
 
 ## 真机核验（2026-11-11 追加）
