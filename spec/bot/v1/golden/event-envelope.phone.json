@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "vector": "event-envelope.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [
+    "event-envelope.json"
+  ],
+  "delta": [
+    "phoneDSH P25 additive durable event type: agent.comm. The envelope shape is unchanged.",
+    "agent.comm is written with local origin comm-service; team-tools is not a registered local source."
+  ],
+  "validCases": [
+    {
+      "name": "agent-comm-outbound",
+      "event": {
+        "schemaVersion": 1,
+        "type": "agent.comm",
+        "eventId": "agent.comm:agent-outbound-phone-1",
+        "commitSeq": 7,
+        "time": 1760000000000,
+        "origin": {
+          "kind": "local",
+          "source": "comm-service"
+        },
+        "traceId": "agent-comm:agent-outbound-phone-1@7:agent-comm",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": null,
+          "kind": "team",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "agent:call-1",
+        "data": {
+          "rowID": "agent-outbound-phone-1",
+          "id": "agent-outbound-phone-1",
+          "role": "assistant",
+          "text": "hello from bot-a",
+          "direction": "outbound",
+          "threadId": "agent-outbound-phone-1@7:agent-comm",
+          "requestId": "agent:call-1",
+          "toAgent": {
+            "id": "bot-b",
+            "name": "Bee",
+            "kind": "agent"
+          },
+          "delivery": "now",
+          "hop": 1
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "agent-comm-inbound",
+      "event": {
+        "schemaVersion": 1,
+        "type": "agent.comm",
+        "eventId": "agent.comm:t1u",
+        "commitSeq": 8,
+        "time": 1760000001000,
+        "origin": {
+          "kind": "local",
+          "source": "comm-service"
+        },
+        "traceId": "agent-comm:agent-outbound-phone-1@7:agent-comm",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": null,
+          "kind": "team",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "agent:call-1",
+        "data": {
+          "rowID": "t1u",
+          "id": "t1u",
+          "role": "user",
+          "text": "reply from bot-b",
+          "direction": "inbound",
+          "threadId": "agent-outbound-phone-1@7:agent-comm",
+          "requestId": "agent:call-1",
+          "fromAgent": {
+            "id": "bot-b",
+            "name": "Bee",
+            "kind": "agent"
+          },
+          "replyEntryId": "t1u"
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    }
+  ],
+  "invalidCases": [
+    {
+      "name": "agent-comm-unregistered-team-tools-origin",
+      "event": {
+        "schemaVersion": 1,
+        "type": "agent.comm",
+        "eventId": "agent.comm:bad-team-tools-origin",
+        "commitSeq": 7,
+        "time": 1760000000000,
+        "origin": {
+          "kind": "local",
+          "source": "team-tools"
+        },
+        "traceId": "agent-comm:agent-outbound-phone-1@7:agent-comm",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": null,
+          "kind": "team",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "agent:call-1",
+        "data": {
+          "rowID": "agent-outbound-phone-1",
+          "id": "agent-outbound-phone-1",
+          "role": "assistant",
+          "text": "hello from bot-a",
+          "direction": "outbound",
+          "threadId": "agent-outbound-phone-1@7:agent-comm",
+          "requestId": "agent:call-1",
+          "toAgent": {
+            "id": "bot-b",
+            "name": "Bee",
+            "kind": "agent"
+          },
+          "delivery": "now",
+          "hop": 1
+        }
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "INVALID_EVENT",
+            "field": "origin.source",
+            "message": "unknown local origin source"
+          }
+        ]
+      }
+    }
+  ]
+}

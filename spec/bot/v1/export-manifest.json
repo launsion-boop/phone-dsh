@@ -13,6 +13,7 @@
     "context-lint.json",
     "context-profiles.json",
     "event-envelope.json",
+    "event-envelope.phone.json",
     "fish-director.json",
     "held-inbox.json",
     "held-inbox.phone.json",
@@ -61,6 +62,7 @@
   ],
   "phoneOverlays": [
     "card-payload.phone.json",
+    "event-envelope.phone.json",
     "held-inbox.phone.json",
     "mcp-egress.phone.json",
     "row-protocol.phone.json",
@@ -97,6 +99,7 @@
     "turn-origin.phone.json": "97f5a6febb5e8adea5d34d8ecee615ce8095af87445112ce58f8b2c91d7b6b83",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
     "wake-routine.json": "121397f4e36a2467c5b65c924a7cfa1ddc7957bdc8cdd66868b32c47502b4f5e",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
+    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853"
   }
 }

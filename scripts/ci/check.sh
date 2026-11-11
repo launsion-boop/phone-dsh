@@ -42,7 +42,7 @@ stage_desc() {
         phone-license)         echo "SPDX MIT headers and plugins package licenses" ;;
         phone-modules)         echo "Package.swift dependency map of the 8 phone-DSH modules (SKIP without PhoneWire)" ;;
         phone-gate-contracts)  echo "Python regressions for scenario batch/evidence and gate contracts" ;;
-        phone-bot-eval-catalog) echo "Bot eval catalog schema/plan/gate regressions + selftest catalog and eval.sh syntax (no Worker, no model)" ;;
+        phone-bot-eval-catalog) echo "Bot eval catalog schema/plan/gate regressions + selftest and product catalog validation + eval.sh syntax (no Worker, no model)" ;;
         phone-android-structure) echo "android/tools structure_check (11 checks, incl. nested-comments and the two 16 KB page-alignment gates) + its tool unit tests + the packaged-APK 16 KB gate's mutation suite" ;;
         phone-android-tests)   echo "cargo build -p pdsh-jni, then every test-bearing Gradle module's JVM tests; 0 tests counted = FAIL" ;;
         phone-rust-tests)      echo "cargo test --workspace over shell/: the host read policy, the WAL planner and the accelerators; the JVM suite exercises them through JNI, but the authoritative policy tests live only here" ;;
@@ -380,6 +380,8 @@ stage_phone_bot_eval_catalog() {
     "$PYTHON" "$ROOT/scripts/ci/bot-e2e/eval_catalog_test.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/bot-e2e/eval_catalog.py" validate \
         --catalog "$ROOT/scripts/ci/bot-e2e/selftest.json" --selftest || return 1
+    "$PYTHON" "$ROOT/scripts/ci/bot-e2e/eval_catalog.py" validate \
+        --catalog "$ROOT/scripts/ci/bot-e2e/catalog.json" || return 1
     bash -n "$ROOT/scripts/ci/bot-e2e/eval.sh" || return 1
 }
 

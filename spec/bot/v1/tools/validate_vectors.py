@@ -637,6 +637,27 @@ def main() -> int:
     for index, case in enumerate(load("event-envelope.json")["invalid"]):
         rejects(case["event"], "event-envelope.schema.json", f"event.invalid[{index}]")
 
+    # phoneDSH P25 additive: `agent.comm` is a durable event type carried in
+    # the unchanged envelope. Its phone cases live in the append-only overlay
+    # so a fresh upstream export stays byte-identical.
+    phone_envelope = load("event-envelope.phone.json")
+    if phone_envelope.get("vector") != "event-envelope.phone":
+        raise AssertionError("event-envelope.phone: vector must be event-envelope.phone")
+    valid_phone_events = phone_envelope.get("validCases")
+    if not isinstance(valid_phone_events, list) or not valid_phone_events:
+        raise AssertionError("event-envelope.phone: validCases must be a non-empty array")
+    for index, case in enumerate(valid_phone_events):
+        where = f"event-envelope.phone.validCases[{index}]"
+        check(case["event"], "event-envelope.schema.json", where)
+        if case.get("validation", {}).get("valid") is not True:
+            raise AssertionError(f"{where}: validation.valid must be true")
+    invalid_phone_events = phone_envelope.get("invalidCases")
+    if not isinstance(invalid_phone_events, list) or not invalid_phone_events:
+        raise AssertionError("event-envelope.phone: invalidCases must be a non-empty array")
+    for index, case in enumerate(invalid_phone_events):
+        rejects(case["event"], "event-envelope.schema.json",
+                f"event-envelope.phone.invalidCases[{index}]")
+
     check(load("tool-catalog.json")["valid"], "tool-catalog.schema.json", "tool-catalog")
     check(load("volatile-context.json")["valid"], "volatile-context.schema.json", "volatile-context")
     check(load("card-payload.json")["valid"], "card-payload.schema.json", "card-payload")
