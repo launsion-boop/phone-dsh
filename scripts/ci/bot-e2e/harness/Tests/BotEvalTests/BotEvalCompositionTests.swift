@@ -32,4 +32,18 @@ final class BotEvalCompositionTests: XCTestCase {
         XCTAssertTrue(BotRuntimeComposition.workerTokenPlaceholder.hasPrefix("phone-host-injects"),
                       "the production composition must be the linked one")
     }
+
+    /// The scheduler clock is an eval input, not the wall clock. Starting a
+    /// scenario in the production quiet window (23:00–08:00) defers a
+    /// non-urgent routine to 08:00 and makes `advance_clock` wait forever on a
+    /// nightly run. The deterministic baseline is local noon.
+    func testSchedulerClockStartsOutsideProductionQuietHours() {
+        let clock = EvalSchedulerClock()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let hour = calendar.component(.hour, from: Date(timeIntervalSince1970: Double(clock.now) / 1_000))
+        XCTAssertEqual(hour, 12, "the eval scheduler clock must start at local noon")
+        XCTAssertFalse(RoutineQuietHours.contains(clock.now, settings: ProactiveSettingsStore.productionDefault),
+                       "the eval baseline must not start inside the quiet window")
+    }
 }

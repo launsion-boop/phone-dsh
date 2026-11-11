@@ -39,13 +39,14 @@ export const DEFAULT_BACKGROUND_JOB_MAX_LIFETIME_MS = 24 * 60 * 60 * 1_000
 export const BOT_RUNTIME_UNAVAILABLE_REASON =
   '[bot runtime] The App Bot MCP endpoint is unavailable; the tool call was NOT executed. Do not retry or work around it.'
 /**
- * The one user-visible answer after the single credential-reclaim retry also
- * fails. The App never accepted a token for this session, so the tool call did
- * not execute. The wording is deliberately human: the previous bare
- * `unauthorized` gave the model and the person nothing to act on.
+ * The one human answer after the single credential-reclaim retry also fails.
+ * The App never accepted a token for this session, so the tool call did not
+ * execute. This exact sentence is also the Chat tool row's summary
+ * (`BotActivityPhrases.toolRowSummary`), so the model and the person see the
+ * same short explanation instead of a bare `unauthorized` or an internal tag.
  */
 export const IDENTITY_RECLAIM_FAILED_REASON =
-  '[identity-bridge] 这个对话与 App 的连接已失效，已尝试自动恢复但仍未成功；这次工具调用没有执行。请稍后重试或重新打开对话。'
+  '与 App 的连接已失效，已尝试恢复，请稍后重试。'
 
 export interface ToolExecution {
   readonly name: string

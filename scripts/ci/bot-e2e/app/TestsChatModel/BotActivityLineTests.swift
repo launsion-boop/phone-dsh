@@ -9,7 +9,7 @@ final class BotActivityLineTests: XCTestCase {
 
     func testToolTableMapsNativeAndPhoneToolsToCategories() {
         let cases: [(String, String, BotActivityCategory, String)] = [
-            ("bash", "{\"command\":\"xcodebuild build\"}", .running, "在电脑上操作"),
+            ("bash", "{\"command\":\"xcodebuild build\"}", .running, "正在处理"),
             ("read", "{\"path\":\"/tmp/report.md\"}", .reading, "在翻文件 · report.md"),
             ("write", "{\"path\":\"/tmp/notes.md\"}", .writing, "在写文件 · notes.md"),
             ("edit", "{\"file_path\":\"/tmp/a.swift\"}", .writing, "在改文件 · a.swift"),
@@ -134,7 +134,7 @@ final class BotActivityLineTests: XCTestCase {
     /// (command/shell/background/context/log) or the team/subagent machinery.
     func testActivityPhrasesUsePlainUserLanguage() {
         let cases: [(String, String)] = [
-            ("bash", "在电脑上操作"),
+            ("bash", "正在处理"),
             ("mcp__phone__android_shell", "在手机上操作"),
             ("mcp__phone__android_command_help", "看看怎么操作"),
             ("job_list", "看看进展"),
@@ -167,7 +167,7 @@ final class BotActivityLineTests: XCTestCase {
     /// activity phrases elsewhere. It must never fall back to the raw wire name.
     func testChatToolRowLabelsUseExistingVocabularyWithoutRawNames() {
         let cases: [(String, String)] = [
-            ("bash", "在电脑上操作"),
+            ("bash", "正在处理"),
             ("mcp__phone__android_shell", "在手机上操作"),
             ("mcp__phone__ReadMemory", "在翻记忆"),
             ("mcp__phone__SendToAgent", "给其他 Bot 发消息"),
@@ -186,18 +186,32 @@ final class BotActivityLineTests: XCTestCase {
         }
     }
 
+    /// The failed-row summary and the Worker's final identity-reclaim error are
+    /// one sentence. The row must recognize both the legacy wire text and the
+    /// new human text, and neither may expose the internal tag.
+    func testFailedToolRowSummaryMatchesIdentityReclaimMessage() {
+        let reason = "与 App 的连接已失效，已尝试恢复，请稍后重试。"
+        let wire = "Error: [identity-bridge] App MCP did not accept the call registration: unauthorized"
+        for raw in [wire, reason] {
+            let summary = BotActivityPhrases.toolRowSummary(forErrorText: raw)
+            XCTAssertEqual(summary, reason, "summary for \(raw)")
+            XCTAssertFalse(summary.contains("identity-bridge"), "internal tag leaked")
+            XCTAssertFalse(summary.contains("unauthorized"), "wire error leaked")
+        }
+    }
+
     // MARK: - Drawer status line
 
     /// The drawer contract reuses the chat line's minute suffix; the drawer has
     /// no rotation, so an empty detail keeps the category's first phrase.
     func testDrawerStatusLineReusesTheChatMinuteSuffix() {
-        let running = activity("在电脑上操作", category: .running, startedAt: 1_000)
+        let running = activity("正在处理", category: .running, startedAt: 1_000)
         XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: running, now: 1_000),
-                       "在电脑上操作")
+                       "正在处理")
         XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: running, now: 61_000),
-                       "在电脑上操作 · 1 分钟")
+                       "正在处理 · 1 分钟")
         XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: running, now: 121_000),
-                       "在电脑上操作 · 2 分钟")
+                       "正在处理 · 2 分钟")
 
         let thinking = activity("", category: .thinking, startedAt: 1_000)
         XCTAssertEqual(BotActivityPhrases.drawerStatusText(for: thinking, now: 1_000), "思考中")

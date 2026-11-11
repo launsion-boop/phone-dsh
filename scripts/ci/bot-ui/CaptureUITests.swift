@@ -190,7 +190,10 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["本次会话允许"].exists)
 
         launch("infoMemoryDocument")
-        XCTAssertTrue(app.navigationBars["agent/notes/acceptance.md"].waitForExistence(timeout: 3))
+        // The document detail's navigation title is the file name; the full
+        // path stays visible in the body footer.
+        XCTAssertTrue(app.navigationBars["acceptance.md"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["路径：agent/notes/acceptance.md"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "验收记录")
         ).firstMatch.exists)
@@ -209,7 +212,7 @@ final class BotCaptureUITests: XCTestCase {
         for index in 0..<rows.count {
             let label = rows.element(boundBy: index).label
             XCTAssertTrue(label.contains("处理失败"), "row label: \(label)")
-            XCTAssertTrue(label.contains("操作授权失效"), "row label: \(label)")
+            XCTAssertTrue(label.contains("与 App 的连接已失效"), "row label: \(label)")
             XCTAssertFalse(label.contains("unauthorized"), "wire error leaked: \(label)")
             XCTAssertFalse(label.contains("identity-bridge"), "wire error leaked: \(label)")
         }

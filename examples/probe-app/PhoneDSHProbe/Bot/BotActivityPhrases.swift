@@ -61,7 +61,7 @@ enum BotActivityPhrases {
     /// absent, so a tool with no human value renders its phrase alone.
     private static let rules: [String: Rule] = [
         // DSH native tools (PHONE_NATIVE_TOOLS).
-        "bash": Rule(category: .running, phrase: "在电脑上操作"),
+        "bash": Rule(category: .running, phrase: "正在处理"),
         "read": Rule(category: .reading, phrase: "在翻文件",
                      targetKeys: ["path", "file_path", "filePath"]),
         "write": Rule(category: .writing, phrase: "在写文件",
@@ -214,8 +214,11 @@ enum BotActivityPhrases {
     static func toolRowSummary(forErrorText raw: String) -> String {
         let lower = raw.lowercased()
         if lower.contains("unauthorized") || lower.contains("identity-bridge")
-            || lower.contains("did not accept the call registration") {
-            return "操作授权失效，请重新打开 App 后再试"
+            || lower.contains("did not accept the call registration")
+            || raw.contains("与 App 的连接已失效") {
+            // The Worker's final identity-reclaim error and this row share one
+            // short sentence; see IDENTITY_RECLAIM_FAILED_REASON.
+            return "与 App 的连接已失效，已尝试恢复，请稍后重试。"
         }
         if lower.contains("timed out") || lower.contains("timeout") || raw.contains("超时") {
             return "操作超时，请稍后再试"

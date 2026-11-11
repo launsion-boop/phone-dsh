@@ -358,7 +358,7 @@ test('a permanently lost credential retries once, fails closed and explains why'
     assert.equal(result.isError, true)
     assert.equal(executed, 0)
     assert.equal(attempts, 2, 'exactly one retry, never a storm')
-    assert.match(JSON.stringify(result), /这个对话与 App 的连接已失效/)
+    assert.match(JSON.stringify(result), /与 App 的连接已失效，已尝试恢复，请稍后重试。/)
   } finally {
     await ctx.fiber.dispose()
   }

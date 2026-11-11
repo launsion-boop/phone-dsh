@@ -415,6 +415,14 @@ enum BotUIFixtures {
                 approvals: full.approvals, grants: full.grants,
                 reconciliations: full.reconciliations)
         }
+        if fixture == .infoPresence {
+            // The capture case exists to show all three presence rows, including
+            // the read-only bridge line after a rejected identity registration.
+            // Use the same human shape the production adapter builds.
+            var snapshot = infoSnapshot(for: .info)
+            snapshot.bridgeStatus = "最近一次身份登记失败：unauthorized · 11月11日 22:44"
+            return snapshot
+        }
         if fixture == .infoLong {
             return BotInfoSnapshot(botName: "大肥鱼 · 一个用于验证长名称的 Bot", memories: [
                 memoryDocument(
@@ -1113,7 +1121,7 @@ struct BotDrawerFixtureRootView: View {
                 roster.setRuntimeState(
                     BotRosterRuntimeState(
                         fishState: .working,
-                        activity: BotActivity(status: .toolRunning, detail: "在电脑上操作",
+                        activity: BotActivity(status: .toolRunning, detail: "正在处理",
                                               category: .running,
                                               // Older than a minute so drawer.png
                                               // also exercises the suffix.

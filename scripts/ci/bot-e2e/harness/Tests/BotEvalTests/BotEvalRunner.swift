@@ -158,7 +158,9 @@ final class BotEvalRunnerTests: XCTestCase {
         try echo.start()
         defer { echo.stop() }
         let scenario = scenario.resolvingEchoFixture(echo)
-        let schedulerClock = EvalSchedulerClock()
+        // Deterministic baseline: local noon, outside the production quiet
+        // window. See EvalSchedulerClock.deterministicStart.
+        let schedulerClock = EvalSchedulerClock(now: EvalSchedulerClock.deterministicStart)
         let workspaceRoot = runRoot.appendingPathComponent("host", isDirectory: true)
         let store = try SQLiteDomainStore(fileURL: runRoot.appendingPathComponent("domain.sqlite"))
         let profileStore = BotProfileStore(directory: runRoot.appendingPathComponent("profiles"))
