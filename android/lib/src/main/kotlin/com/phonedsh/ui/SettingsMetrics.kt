@@ -23,66 +23,74 @@ package com.phonedsh.ui
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.phonedsh.ui.theme.generated.UiTokenData
 
 /**
  * Current Settings chrome: navigation bar, segmented tab picker, inset-grouped
  * cards, rows, switch and chevron.
  *
- * None of these values is a page-level token in `spec/ui/v1/tokens.json`; the
- * closest tokens are `geometry.pageHeaderMinHeight` (44) and
- * `geometry.pageRowMinHeight` (44), both of which the rendered page exceeds.
+ * Most rows are page-local measurements. The four token-backed rows
+ * (`NAV_BAR_HEIGHT_PT`, `CARD_MARGIN_H_PT`, `ROW_HEIGHT_PT`,
+ * `GROUPED_LIST_MIN_ROW_HEIGHT_PT`) read the reviewed `spec/ui/v1/tokens.json`
+ * table directly; the remaining measured geometry has only PNG provenance.
  */
 public object SettingsMetrics {
-    /** 430pt PR22 workspace.png: 64pt text pill minus 32pt text => 16pt each side. */
+    /** 430pt PR22 workspace.png: 64pt text pill minus 32pt text => 16pt each side. Page-local, measured. */
     public const val WORKSPACE_TOOLBAR_TEXT_INSET_H_PT: Int = 16
-    /** UIKit toolbar halo is unmeasured on Android; preserve zero elevation until a native comparison. */
+    /** UIKit toolbar halo is unmeasured on Android; preserve zero elevation until a native comparison. Android-only platform adaptation. */
     public const val WORKSPACE_TOOLBAR_SHADOW_ELEVATION_PT: Int = 0
 
-    /** SettingsPage.swift ArchivedSessionsPage: title/time VStack spacing 2. */
+    /** SettingsPage.swift ArchivedSessionsPage: title/time VStack spacing 2. Page-local. */
     public const val ARCHIVE_TEXT_GAP_PT: Int = 2
 
     // --------------------------------------------------------------- nav bar
 
-    /** Inline navigation bar height. Source: system `.navigationBarTitleDisplayMode(.inline)` at `SettingsPage.swift:169` + `tokens.json` `geometry.pageHeaderMinHeight: 44`; PNG check: title ink centre at y=253 px with a 62 pt safe top → 44 pt bar. Confidence: measured (render), exact (token). */
-    public const val NAV_BAR_HEIGHT_PT: Int = 44
-
-    /** Inline title size. Source: `HomeAppearance.apply()` (`systemFont(ofSize: 17, weight: .semibold)`). Confidence: exact. */
-    public const val NAV_TITLE_REF_PT: Int = 17
-
-    /** Inline title weight. Source: `HomeAppearance.apply()` (`.semibold`). Confidence: exact. */
-    public const val NAV_TITLE_WEIGHT_REF: Int = 600
+    /** Inline navigation bar height; resolves `geometry.navButton` (44, `pageHeaderMinHeight` alias). Source: `SettingsPage.swift:105` (`navigationBarTitleDisplayMode(.inline)`); PNG check: title ink centre at y=253 px with a 62 pt safe top → 44 pt bar. */
+    public val NAV_BAR_HEIGHT_PT: Int get() = UiTokenData.geometryNavButton.value.toInt()
 
     // ------------------------------------------------------- segmented picker
 
-    /** Segmented control height. Source: PNG check `settings-chat.png` track y=378..473 px → 96 px = 32.0 pt. Confidence: measured. */
+    /** Segmented control height. Source: PNG check `settings-chat.png` track y=378..473 px → 96 px = 32.0 pt. Page-local, measured. Confidence: measured. */
     public const val SEGMENTED_HEIGHT_PT: Int = 32
 
-    /** Segmented control side inset. Source: `SettingsPage.swift:69` (`.padding(.horizontal, 16)`); PNG check: track x=48..1157 px → 16.0..385.7 pt. Confidence: exact. */
+    /**
+     * Legacy segmented-control side inset: 16 pt.
+     *
+     * PR22 removed the five-tab segmented picker from the current
+     * `SettingsPage.swift`, which now renders `.homeGroupedList()` with an inline
+     * title (`SettingsPage.swift:105`); this value survives only because the
+     * still-unported five-tab `SettingsPage.kt` compiles against it. The 16 pt
+     * also matches the current grouped-card margin ([CARD_MARGIN_H_PT]), but that
+     * is a different role. Historical evidence: `settings-chat.png` track
+     * x=48..1157 px → 16.0..385.7 pt. Confidence: measured (historical), no
+     * current Swift literal.
+     */
     public const val SEGMENTED_INSET_H_PT: Int = 16
 
     /**
      * Segmented control vertical padding, bottom half.
      *
-     * Source: `SettingsPage.swift:70` (`.padding(.vertical, 10)`) — but the
-     * *rendered* list starts at y=502 px = 167.33 pt, i.e. 9.33 pt below the
-     * track's bottom edge at 158.0, and [FIRST_CARD_TOP_INSET_PT] is measured from
-     * that edge. The baseline wins over the source literal by 2 px: with 10 the
-     * whole sheet below the picker sits 2 px low once the iOS safe area is
-     * applied, and a 2 px offset re-rasterises every glyph in the comparison.
-     * Confidence: measured (list background edge), not source.
+     * Historical five-tab picker: the old source literal was 10
+     * (`.padding(.vertical, 10)`), and PR22 removed that control. The *rendered*
+     * list starts at y=502 px = 167.33 pt, i.e. 9.33 pt below the track's bottom
+     * edge at 158.0, and [FIRST_CARD_TOP_INSET_PT] is measured from that edge. The
+     * baseline wins over the old source literal by 2 px: with 10 the whole sheet
+     * below the picker sits 2 px low once the iOS safe area is applied, and a
+     * 2 px offset re-rasterises every glyph in the comparison.
+     * Page-local, measured (list background edge), not source.
      */
     public const val SEGMENTED_PADDING_V_PT: Float = 9.33f
 
-    /** Segmented control track corner radius. The track is a capsule; PNG corner fit at the top edge is consistent with half the 32 pt height. Source: `settings-chat.png` (top-edge corner fit). Confidence: inferred (capsule = height / 2). */
+    /** Segmented control track corner radius. The track is a capsule; PNG corner fit at the top edge is consistent with half the 32 pt height. Source: `settings-chat.png` (top-edge corner fit). Page-local, measured. Confidence: inferred (capsule = height / 2). */
     public const val SEGMENTED_RADIUS_PT: Int = 16
 
-    /** Gap from the 44 pt bar to the track's top edge, measured. Source: `settings-chat.png`: bar bottom 62 + 44 = 106 pt = 318 px, track top 378 px → 60 px = 20 pt. The page declares 10 pt of vertical padding, so the other 10 pt is the navigation content inset the system adds; a page that lays out its own bar must add both. Confidence: measured (the 20), inferred (the split). */
+    /** Gap from the 44 pt bar to the track's top edge, measured. Source: `settings-chat.png`: bar bottom 62 + 44 = 106 pt = 318 px, track top 378 px → 60 px = 20 pt. The page declares 10 pt of vertical padding, so the other 10 pt is the navigation content inset the system adds; a page that lays out its own bar must add both. Page-local, measured (the 20), inferred (the split). */
     public const val SEGMENTED_TOP_GAP_PT: Int = 20
 
     // ------------------------------------------------------------ grouped list
 
-    /** Group card side margin. Source: PNG check card white starts at x=48 px and ends at 1157 px → 16.0..385.7 pt on the 402 pt screen. Confidence: measured. */
-    public const val CARD_MARGIN_H_PT: Int = 16
+    /** Group card side margin; resolves `geometry.chromeInset` (16). Source: PNG check card white starts at x=48 px and ends at 1157 px → 16.0..385.7 pt on the 402 pt screen. */
+    public val CARD_MARGIN_H_PT: Int get() = UiTokenData.geometryChromeInset.value.toInt()
 
     /**
      * Group card corner radius, measured.
@@ -92,7 +100,7 @@ public object SettingsMetrics {
      * y≈676; a circular fit through those points gives r≈77-79 px = 26 pt. The
      * top edge begins ~95 px in from the left, which is the signature of
      * SwiftUI's **continuous** corner style, so treat 26 as the nominal radius,
-     * not a circular arc. Confidence: measured.
+     * not a circular arc. Page-local, measured.
      */
     public const val CARD_RADIUS_PT: Int = 26
 
@@ -108,11 +116,11 @@ public object SettingsMetrics {
      * The previous 38.67 pt cited "card 1 bottom y=914 px, card 2 top y=1030 px"
      * (116 px). Those rows are not card edges in the cited file and 116 px is not
      * the gap that file draws; the Android render then carried the 3.67 pt error
-     * into every successive card. Confidence: measured (four bands).
+     * into every successive card. Page-local, measured (four bands).
      */
     public const val SECTION_GAP_PT: Float = 35f
 
-    /** Top inset from the list's top edge to the first card. Source: PNG check grouped list background starts y=502 px, card 1 top y=606 px → 104 px = 34.7 pt. Confidence: measured. */
+    /** Top inset from the list's top edge to the first card. Source: PNG check grouped list background starts y=502 px, card 1 top y=606 px → 104 px = 34.7 pt. Page-local, measured. */
     public const val FIRST_CARD_TOP_INSET_PT: Float = 34.67f
 
     /**
@@ -124,7 +132,7 @@ public object SettingsMetrics {
      * the general tab's list starts *below its segmented picker*, where SwiftUI
      * has already consumed part of the navigation content inset; a pushed page's
      * `List` starts directly under the bar and keeps the whole inset.
-     * Confidence: measured (one page, one card, 135 px).
+     * Page-local, measured (one page, one card, 135 px).
      */
     public const val SUB_PAGE_GROUPED_TOP_INSET_PT: Float = 45f
 
@@ -142,8 +150,8 @@ public object SettingsMetrics {
      *
      * It is an optical correction, not a layout length: it does not change the
      * row's height or its neighbours, which is why it is applied as a draw offset.
-     * Confidence: measured (ink boxes), and it buys the glyph overlap that a
-     * pixel comparison needs.
+     * Android-only glyph-metric correction, measured (ink boxes), and it buys the
+     * glyph overlap that a pixel comparison needs.
      */
     public const val ROW_TEXT_OPTICAL_OFFSET_PT: Float = -1f
 
@@ -161,119 +169,78 @@ public object SettingsMetrics {
      * device screenshot it is laid beside. The harness reserves this band so both
      * panels share an absolute y. It is **not** a page inset: on a device that
      * shows the system bars the page gets the band from the platform.
+     * Android-only capture harness value; the platform owns the inset on device.
      */
     public const val PARITY_SAFE_AREA_TOP_PT: Float = 62f
 
     /**
      * One grouped row's rendered height.
      *
-     * PR22's `HomeSpec.homeGroupedList()` sets
-     * `.environment(\.defaultMinListRowHeight, 48)`, so 48 is the source-owned
-     * minimum. The old 402 pt capture measured 52.33 pt for the pre-PR22
-     * 17 pt list; that render is superseded. Confidence: exact (PR22 source).
+     * Resolves `geometry.defaultMinListRowHeight` (48). PR22's
+     * `HomeSpec.homeGroupedList()` sets
+     * `.environment(\.defaultMinListRowHeight, 48)` (`HomeSpec.swift:207`), so 48
+     * is the source-owned minimum. The old 402 pt capture measured 52.33 pt for
+     * the pre-PR22 17 pt list; that render is superseded.
      */
-    public const val ROW_HEIGHT_PT: Float = 48f
+    public val ROW_HEIGHT_PT: Float get() = UiTokenData.geometryDefaultMinListRowHeight.value
 
-    /** PR22 grouped-list default row minimum. Source: `HomeSpec.homeGroupedList()` (`.environment(\.defaultMinListRowHeight, 48)`). Confidence: exact. */
-    public const val ROW_MIN_HEIGHT_PT: Int = 48
-
-    /** Row vertical padding implied by [ROW_HEIGHT_PT]: (48 - 24 line box) / 2. Source: arithmetic on [ROW_HEIGHT_PT] and the 16/24 body role. Confidence: inferred. */
-    public const val ROW_VERTICAL_PADDING_PT: Float = 12f
-
-    /** Row content leading inset inside the card. Source: PNG check label glyph starts x=98 px; card starts x=48 px → 16.7 pt (16 pt inset plus ~0.7 pt glyph bearing). Confidence: measured (glyph), inferred (the 16 pt). */
+    /** Row content leading inset inside the card. Source: PNG check label glyph starts x=98 px; card starts x=48 px → 16.7 pt (16 pt inset plus ~0.7 pt glyph bearing). Page-local: PNG-only provenance; tokenising it needs a provenance-tier change (`docs/parity/metrics-classification.md` §6 item 7). */
     public const val ROW_CONTENT_INSET_PT: Int = 16
 
-    /** Row separator thickness. Source: PNG check the hairline at y=760 occupies y=760..762 px → 3 px = 1.0 pt (iOS 26's grouped-list separator is thicker than the old flat list's 1 px). Confidence: measured. */
+    /** Row separator thickness. Source: PNG check the hairline at y=760 occupies y=760..762 px → 3 px = 1.0 pt (iOS 26's grouped-list separator is thicker than the old flat list's 1 px). Page-local: measured 1 pt, not the 0.5 pt `stroke.hairline` role. */
     public const val SEPARATOR_HEIGHT_PT: Float = 1f
 
-    /** Row separator horizontal inset inside the card. Source: PNG check hairline x=96..1109 px, card x=48..1157 px → 16.0 pt on both sides. Confidence: measured. */
+    /** Row separator horizontal inset inside the card. Source: PNG check hairline x=96..1109 px, card x=48..1157 px → 16.0 pt on both sides. Page-local, measured. */
     public const val SEPARATOR_INSET_PT: Int = 16
 
     // ------------------------------------------------------- row trailing items
 
-    /** Distance from the card's trailing edge to the chevron's trailing edge. Source: PNG check card right 1157 px, chevron right 1101 px → 56 px = 18.7 pt. Confidence: measured. */
-    public const val CHEVRON_TRAILING_INSET_PT: Float = 18.67f
-
-    /** Chevron glyph width. Source: PNG check x=1083..1101 px → 19 px = 6.3 pt. Confidence: measured. */
+    /** Chevron glyph width. Source: PNG check x=1083..1101 px → 19 px = 6.3 pt. Page-local, measured. */
     public const val CHEVRON_WIDTH_PT: Float = 6.33f
 
-    /** Chevron glyph height. Source: PNG check y=668..701 px → 34 px = 11.3 pt. Confidence: measured. */
+    /** Chevron glyph height. Source: PNG check y=668..701 px → 34 px = 11.3 pt. Page-local, measured. */
     public const val CHEVRON_HEIGHT_PT: Float = 11.33f
 
-    /** Slot from the value's right edge to the chevron's right edge ("值右缘 20.7"). Source: PNG check value right 1039 px, chevron right 1101 px → 62 px = 20.7 pt. Confidence: measured. */
+    /** Slot from the value's right edge to the chevron's right edge ("值右缘 20.7"). Source: PNG check value right 1039 px, chevron right 1101 px → 62 px = 20.7 pt. Page-local, measured. */
     public const val VALUE_CHEVRON_SLOT_PT: Float = 20.67f
 
-    /** Distance from the card's trailing edge to the value's right edge: 18.67 + 20.67. Source: arithmetic on the two measured edges; PNG check 1157-1039 = 118 px = 39.3 pt. Confidence: measured. */
+    /** Distance from the card's trailing edge to the value's right edge: 18.67 + 20.67. Source: arithmetic on the two measured edges; PNG check 1157-1039 = 118 px = 39.3 pt. Page-local, measured. */
     public const val VALUE_TRAILING_INSET_PT: Float = 39.33f
-    /** A *menu* row's trailing inset: 17.6 pt from the card edge to the up-down chevron's right edge (`ios-settings.png` 语言 chevron ink 359.3..367.7, card right 385.3). Confidence: measured. */
+    /** A *menu* row's trailing inset: 17.6 pt from the card edge to the up-down chevron's right edge (`ios-settings.png` 语言 chevron ink 359.3..367.7, card right 385.3). Page-local, measured. */
     public const val MENU_TRAILING_INSET_PT: Float = 17.6f
 
-    /** A *menu* row's glyph slot: 16.0 pt between the value's right edge (351.7) and the chevron's (367.7). Confidence: measured. */
+    /** A *menu* row's glyph slot: 16.0 pt between the value's right edge (351.7) and the chevron's (367.7). Page-local, measured. */
     public const val MENU_CHEVRON_SLOT_PT: Float = 16f
 
-    /** Switch width. Source: PNG check green track x=927..1115 px → 189 px = 63.0 pt. Confidence: measured. */
+    /** Switch width. Source: PNG check green track x=927..1115 px → 189 px = 63.0 pt. Page-local, measured. */
     public const val SWITCH_WIDTH_PT: Int = 63
 
-    /** Switch height. Source: PNG check green track y=2104..2192 px → 89 px = 29.7 pt. Confidence: measured. */
+    /** Switch height. Source: PNG check green track y=2104..2192 px → 89 px = 29.7 pt. Page-local, measured. */
     public const val SWITCH_HEIGHT_PT: Float = 29.67f
 
-    /** Switch trailing inset inside the card. Source: PNG check card right 1157 px, switch right 1115 px → 42 px = 14.0 pt. Confidence: measured. */
+    /** Switch trailing inset inside the card. Source: PNG check card right 1157 px, switch right 1115 px → 42 px = 14.0 pt. Page-local, measured. */
     public const val SWITCH_TRAILING_INSET_PT: Int = 14
-
-    // -------------------------------------------------------------------- type
-
-    /** Row label size. Source: `SettingsRowLabel` (`.font(.system(size: HomeSpec.bodySize))` = 16). Reference only. Confidence: exact. */
-    public const val ROW_LABEL_REF_PT: Int = 16
-
-    /** Row value size. Source: `SettingsRowLabel` value (`.font(.system(size: 15))`). Reference only. Confidence: exact. */
-    public const val ROW_VALUE_REF_PT: Int = 15
-
-    /** Footnote size: source `.font(.footnote)` at `SettingsPage.swift:105,127`; PNG check ink 35 px = 11.7 pt → 13 pt. Reference only. Source: `SettingsPage.swift:105,127` + `settings-chat.png`. Confidence: exact (role), measured (size). */
-    public const val FOOTNOTE_REF_PT: Int = 13
-
-    /** Caption size on the permissions subpage (`.font(.caption)`). Source: `PhonePermissionsPage.swift:116`; reference only. Confidence: exact. */
-    public const val CAPTION_REF_PT: Int = 12
 
     // ------------------------------------------------ PR22 grouped-list values
 
-    /** Row glyph box. Source: `SettingsRowLabel` (`.frame(width: 24, height: 24)`). Confidence: exact. */
-    public const val ROW_GLYPH_BOX_PT: Int = 24
-
-    /** Row glyph size. Source: `SettingsRowLabel` (`.font(.system(size: 17))`). Confidence: exact. */
-    public const val ROW_GLYPH_REF_PT: Int = 17
-
-    /** Glyph-to-label gap. Source: `SettingsRowLabel` (`HStack(spacing: 12)`). Confidence: exact. */
-    public const val ROW_GLYPH_GAP_PT: Int = 12
-
-    /** `SettingsRowLabel` minimum height. Source: `.frame(minHeight: 32)`. Confidence: exact. */
-    public const val ROW_LABEL_MIN_HEIGHT_PT: Int = 32
-
-    /** Value leading reserve. Source: `SettingsRowLabel` (`Spacer(minLength: 8)`). Confidence: exact. */
-    public const val ROW_VALUE_LEADING_PT: Int = 8
-
-    /** Settings page grouped-list row text size. Source: `HomeSpec.homeGroupedList()` (`.font(.system(size: HomeSpec.bodySize))`). Confidence: exact. */
-    public const val GROUPED_LIST_BODY_REF_PT: Int = 16
-
-    /** Settings page grouped-list minimum row height. Source: same helper (`defaultMinListRowHeight 48`). Confidence: exact. */
-    public const val GROUPED_LIST_MIN_ROW_HEIGHT_PT: Int = 48
-
-
+    /** Settings page grouped-list minimum row height; resolves `geometry.defaultMinListRowHeight` (48). Source: `HomeSpec.swift:207` (`.environment(\.defaultMinListRowHeight, 48)`). */
+    public val GROUPED_LIST_MIN_ROW_HEIGHT_PT: Int get() = UiTokenData.geometryDefaultMinListRowHeight.value.toInt()
 
     // Native component metrics required by the scoped C/D/F consumers.
 
-    /** Native Stepper painted bounds. Source: PR22 `settings-font-runtime.png`, 1290x2796 at 3x (gray fill 279px plus antialiasing). Confidence: measured. */
+    /** Native Stepper painted bounds. Source: PR22 `settings-font-runtime.png`, 1290x2796 at 3x (gray fill 279px plus antialiasing). Page-local, measured. */
     public const val FONT_STEPPER_WIDTH_PT: Int = 94
 
-    /** Native Stepper painted height: 96px / 3 in the same reference. Confidence: measured. */
+    /** Native Stepper painted height: 96px / 3 in the same reference. Page-local, measured. */
     public const val FONT_STEPPER_HEIGHT_PT: Int = 32
 
-    /** Plus/minus painted glyph extent in the same native Stepper capture. Confidence: measured (rounded). */
+    /** Plus/minus painted glyph extent in the same native Stepper capture. Page-local, measured (rounded). */
     public const val FONT_STEPPER_GLYPH_PT: Int = 14
 
-    /** Plus/minus stroke in the same 3x capture. Confidence: measured (rounded). */
+    /** Plus/minus stroke in the same 3x capture. Page-local, measured (rounded). */
     public const val FONT_STEPPER_STROKE_PT: Int = 2
 
-    /** Separator painted height inside the native Stepper. Confidence: measured (rounded). */
+    /** Separator painted height inside the native Stepper. Page-local, measured (rounded). */
     public const val FONT_STEPPER_SEPARATOR_HEIGHT_PT: Int = 24
 
     // ------------------------------------------------------------ dp accessors
