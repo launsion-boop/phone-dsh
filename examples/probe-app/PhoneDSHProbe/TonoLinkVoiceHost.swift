@@ -206,13 +206,25 @@ import ProbeKit
             note("error", "语音需要登录 Tono 账号，或在「模型服务」里使用云端（pdsh.tonoai.cn）密钥")
             return
         }
-        // Recognition connects while 我在 plays; recording starts only once it is ready.
+        // Recognition connects while 我在 plays. The board records right after 我在 (people start
+        // talking at once); its packets wait in this turn's stream (700 = 14 s, more than the board's
+        // 12 s turn) and are forwarded only after `started`, so they never run ahead of real time.
         var session = CloudASRSession(credential: credential, turnID: id)
         asr = session
         await session.open()
         do { try await speakHere(credential: credential, timing: { self.note("here_fetch_ms", ms()) }) }
         catch { note("here_error", error.localizedDescription) }
         note("here_ms", ms())
+        guard !Task.isCancelled else { await session.cancel(); return }
+        guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
+        do {
+            seq = seq &+ 1
+            let ack = try await ctrl.command(TonoLinkVoiceCommand.listen(seq: seq, id: id), seq: seq, timeout: .seconds(3))
+            guard ack.ok else { await session.cancel(); note("error", "板子拒绝录音：\(ack.error ?? "?")"); return }
+        } catch {
+            await session.cancel(); note("error", "listen 失败：\(error.localizedDescription)"); return
+        }
+        note("listen_ms", ms())
         if !(await session.ready()), await session.handshakeStatus == 401,
            let renewed = await renewedCredential(after: credential) {
             credential = renewed
@@ -229,14 +241,6 @@ import ProbeKit
             return
         }
         note("asr_ready_ms", ms())
-        guard let ctrl, ctrl.isConnected else { await session.cancel(); note("error", "板子已断开"); return }
-        do {
-            seq = seq &+ 1
-            let ack = try await ctrl.command(TonoLinkVoiceCommand.listen(seq: seq, id: id), seq: seq, timeout: .seconds(3))
-            guard ack.ok else { await session.cancel(); note("error", "板子拒绝录音：\(ack.error ?? "?")"); return }
-        } catch {
-            await session.cancel(); note("error", "listen 失败：\(error.localizedDescription)"); return
-        }
         let forward = Task {
             for await opus in audio { await session.send(opus) }
             await session.finish()

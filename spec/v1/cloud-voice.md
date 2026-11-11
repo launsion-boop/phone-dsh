@@ -33,8 +33,12 @@ the newly resolved value differs. Every other status is reported as the turn's f
   `zh`, Opus 16 kHz mono `frame_ms` 20, `single_utterance` true, hotwords 小智 and 托诺,
   `client_ref` `tonolink-<turn id>`).
 - Each binary message is one Opus body from the board (§4.1), unchanged and in arrival order; the
-  board produces them in real time. Bodies that arrive before `started` are queued, at most 100
-  (2 s); one more fails the turn with `cancel`.
+  board produces them in real time. The board is told to record right after 「我在」, without
+  waiting for `started` (a slow connection must not lose the start of what the user says). Its
+  bodies wait on the phone and are sent, in order, only after `started`: they begin after `start`
+  was sent, so the audio never runs ahead of real time. The phone holds at most the board's turn
+  (12 s); a body handed to a session before `started` is still queued at most 100 (2 s), and one
+  more fails the turn with `cancel`.
 - When the board's audio ends (§4.1) the client sends `{"type":"finish"}` unless a terminal message
   already arrived. A user cancel or a new wake sends `{"type":"cancel"}`.
 - Deadlines: the connection (TLS and upgrade) within 10 s; `started` within 5 s of `start` being
