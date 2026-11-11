@@ -492,7 +492,9 @@ struct HTTPResponseWriter {
         switch reply {
         case .full(let status, var headers, let body):
             headers = sanitized(headers)
-            headers["Cache-Control"] = "no-store"
+            // wal.md §8: only the two content-addressed routes may carry a
+            // cacheable policy; every other reply keeps the pre-W6 `no-store`.
+            if headers["Cache-Control"] == nil { headers["Cache-Control"] = "no-store" }
             headers["Content-Length"] = String(body.count)
             headers["Connection"] = keepAlive ? "keep-alive" : "close"
             try await channel.send(head(status: status, headers: headers))
@@ -505,7 +507,7 @@ struct HTTPResponseWriter {
             headers = sanitized(headers)
             headers["Content-Type"] = contentType
             headers["Content-Length"] = String(size)
-            headers["Cache-Control"] = "no-store"
+            if headers["Cache-Control"] == nil { headers["Cache-Control"] = "no-store" }
             headers["Connection"] = keepAlive ? "keep-alive" : "close"
             try await channel.send(head(status: 200, headers: headers))
             guard !headRequest else { return 200 }

@@ -58,8 +58,9 @@ pub use error::{WalError, WalResult};
 pub use header::{SegmentHeader, HEADER_BYTES, MAGIC};
 pub use manifest::{next_mseq, Manifest, ManifestSegment};
 pub use record::{
-    Mutation, MutationBody, ParsedRecord, Record, RecordChain, RecordParseError, BODY_HEADER_BYTES,
-    MFLAG_APPENDED, MFLAG_ENTRY_CHANGED, OP_CHMOD, OP_EPOCH_CLOSE, OP_MKDIR, OP_REMOVE, OP_WRITE,
+    BlobWrite, Mutation, MutationBody, ParsedRecord, Record, RecordChain, RecordParseError,
+    BLOB_DIGEST_BYTES, BLOB_WRITE_THRESHOLD, BODY_HEADER_BYTES, MAX_BLOB_BYTES, MFLAG_APPENDED,
+    MFLAG_ENTRY_CHANGED, OP_BLOB_WRITE, OP_CHMOD, OP_EPOCH_CLOSE, OP_MKDIR, OP_REMOVE, OP_WRITE,
     RECORD_PREFIX_BYTES,
 };
 pub use recovery::{RecoveryInput, RecoveryPlan, SegmentFacts};

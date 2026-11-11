@@ -170,6 +170,12 @@ public struct WorkspacePaths: Equatable, Sendable {
     }
     public var stepsDirectory: URL { root.appendingPathComponent("steps", isDirectory: true) }
     public var execDirectory: URL { root.appendingPathComponent("exec", isDirectory: true) }
+    /// W6 content-addressed mutation payloads (wal.md §14.1). Authoritative
+    /// while a retained record references them; never inside `Library/Caches`.
+    public var blobDirectory: URL { root.appendingPathComponent("blobs", isDirectory: true) }
+    public var blobShardRoot: URL {
+        blobDirectory.appendingPathComponent("sha256", isDirectory: true)
+    }
 
     /// `<root>/overlay-<boot_id>.tar`, rebuilt for every boot (wal.md §8).
     /// The name is the pre-D21 route contract; the bytes are gzip (D21).

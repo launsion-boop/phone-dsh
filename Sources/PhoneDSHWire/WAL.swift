@@ -199,6 +199,124 @@ public struct WALEpochClose: Equatable, Sendable {
     }
 }
 
+/// Blob-write body (wal.md §14.2, W6):
+/// `op 0xFE | mode u32 | mflags u8 | append_from u64 | blob_len u32 |
+/// blob_sha256 32 | path_len u16 | path`.
+///
+/// A write whose `data` lives in the content-addressed §14.1 store. It is not a
+/// `VFS_MUT` payload: the wire form of channel.md §3.1 is byte-identical and
+/// unchanged, and `blob_len`/`blob_sha256` describe the mutation's `data`, not
+/// the whole file. There is no new header `format`; the record kind is
+/// self-describing and an old decoder that does not know `op = 0xFE` must treat
+/// it as an unknown op and fail loudly (`WAL_CORRUPT`).
+public struct WALBlobWrite: Equatable, Sendable {
+    /// Fixed body bytes before `path` (wal.md §14.2 table).
+    public static let fixedBytes = 52
+
+    /// Permission bits for the materialized write.
+    public var mode: UInt32
+    /// `mflags`: bit0 `entryChanged`, bit1 `appended`, bits 2–7 zero.
+    public var mflags: VfsMutationFlags
+    /// Suffix offset; 0 unless `appended` is set.
+    public var appendFrom: UInt64
+    /// The mutation's `data` length, 1 ... 15 MiB.
+    public var blobLength: UInt32
+    /// Raw 32-byte SHA-256 of the mutation's `data`.
+    public var blobSHA256: Data
+    /// Absolute path under `/dsh/home/` or `/dsh/workspace/`.
+    public var path: String
+
+    public init(mode: UInt32,
+                mflags: VfsMutationFlags = [],
+                appendFrom: UInt64 = 0,
+                blobLength: UInt32,
+                blobSHA256: Data,
+                path: String) throws {
+        self.mode = mode
+        self.mflags = mflags
+        self.appendFrom = appendFrom
+        self.blobLength = blobLength
+        self.blobSHA256 = blobSHA256
+        self.path = path
+        try validate()
+    }
+
+    /// Lowercase hex form of `blob_sha256`.
+    public var sha256Hex: String {
+        blobSHA256.map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Structural validation of wal.md §14.2.
+    public func validate() throws {
+        guard mode <= 0o7777 else {
+            throw WALError.invalidRecord("blob-write mode exceeds 0o7777")
+        }
+        guard mflags.isWellFormed else {
+            throw WALError.invalidRecord("reserved blob-write flags are set")
+        }
+        if !mflags.contains(.appended) {
+            guard appendFrom == 0 else {
+                throw WALError.invalidRecord(
+                    "a complete blob write must have append_from = 0")
+            }
+        }
+        guard blobLength >= 1 else {
+            throw WALError.invalidRecord("blob_len must be at least 1")
+        }
+        guard blobLength <= UInt32(WireLimits.walBlobMaxBytes) else {
+            throw WALError.invalidRecord("blob_len exceeds one mutation's 15 MiB")
+        }
+        guard blobSHA256.count == WireLimits.walBlobDigestBytes else {
+            throw WALError.invalidRecord(
+                "blob_sha256 must be \(WireLimits.walBlobDigestBytes) bytes")
+        }
+        guard WireValidation.isValidMutationPath(path) else {
+            throw WALError.invalidRecord("blob-write path is outside the VFS sink")
+        }
+        guard path.utf8.count <= WireLimits.maxPathBytes else {
+            throw WALError.invalidRecord("blob-write path exceeds u16 length")
+        }
+    }
+
+    /// The §14.2 body bytes.
+    public func encoded() -> Data {
+        var writer = ByteWriter()
+        writer.writeUInt8(WireLimits.walBlobWriteOp)
+        writer.writeUInt32(mode)
+        writer.writeUInt8(mflags.rawValue)
+        writer.writeUInt64(appendFrom)
+        writer.writeUInt32(blobLength)
+        writer.writeData(blobSHA256)
+        let pathBytes = Data(path.utf8)
+        writer.writeUInt16(UInt16(pathBytes.count))
+        writer.writeData(pathBytes)
+        return writer.data
+    }
+
+    /// Decodes and validates a §14.2 body.
+    public static func decode(_ body: Data) throws -> WALBlobWrite {
+        var reader = ByteReader(data: body)
+        let op = try reader.readUInt8()
+        guard op == WireLimits.walBlobWriteOp else {
+            throw WALError.invalidRecord("blob-write body does not start with op 0xFE")
+        }
+        let mode = try reader.readUInt32()
+        let rawFlags = try reader.readUInt8()
+        let appendFrom = try reader.readUInt64()
+        let blobLength = try reader.readUInt32()
+        let digest = try reader.readData(count: WireLimits.walBlobDigestBytes)
+        let pathLength = Int(try reader.readUInt16())
+        let path = try reader.readString(count: pathLength)
+        try reader.requireEnd()
+        return try WALBlobWrite(mode: mode,
+                                mflags: VfsMutationFlags(rawValue: rawFlags),
+                                appendFrom: appendFrom,
+                                blobLength: blobLength,
+                                blobSHA256: digest,
+                                path: path)
+    }
+}
+
 /// One WAL record (wal.md §3): `len u32 | crc32c u32 | mseq u64 | body`.
 public struct WALRecord: Equatable, Sendable {
     /// `len` covers `mseq` and the body, excluding `len` and `crc32c`.
@@ -224,6 +342,11 @@ public struct WALRecord: Equatable, Sendable {
     public init(mseq: UInt64, mutation: VfsMutationBody) throws {
         let body = try mutation.encoded()
         try self.init(mseq: mseq, body: body)
+    }
+
+    /// Builds a blob-write record whose `data` lives in the §14.1 store.
+    public init(mseq: UInt64, blobWrite: WALBlobWrite) throws {
+        try self.init(mseq: mseq, body: blobWrite.encoded())
     }
 
     /// Builds the epoch-close record; its mseq field is `durable_upto` (D7).
@@ -257,6 +380,15 @@ public struct WALRecord: Equatable, Sendable {
         body.first == WireLimits.walEpochCloseOp
     }
 
+    /// `true` for the §14.2 write-by-reference record.
+    public var isBlobWrite: Bool {
+        body.first == WireLimits.walBlobWriteOp
+    }
+
+    /// `true` for any record that occupies an mseq: an inline mutation or a
+    /// blob write. The epoch close is not a mutation (wal.md §4).
+    public var isMutationRecord: Bool { !isEpochClose }
+
     /// Decodes the epoch-close body; `nil` for a mutation record.
     public func epochClose() throws -> WALEpochClose? {
         guard isEpochClose else { return nil }
@@ -267,10 +399,19 @@ public struct WALRecord: Equatable, Sendable {
         return close
     }
 
-    /// Decodes the mutation body; throws for the epoch-close record.
+    /// Decodes the §14.2 blob reference; `nil` for the other record kinds.
+    public func blobWrite() throws -> WALBlobWrite? {
+        guard isBlobWrite else { return nil }
+        return try WALBlobWrite.decode(body)
+    }
+
+    /// Decodes the mutation body; throws for the epoch-close and blob records.
     public func mutationBody() throws -> VfsMutationBody {
         guard !isEpochClose else {
             throw WALError.invalidRecord("epoch-close record has no mutation body")
+        }
+        guard !isBlobWrite else {
+            throw WALError.invalidRecord("blob-write record has no inline mutation body")
         }
         return try VfsMutationBody.decode(body)
     }
@@ -340,6 +481,10 @@ public struct WALRecord: Equatable, Sendable {
             }
             return body
         }
+        if body.first == WireLimits.walBlobWriteOp {
+            _ = try WALBlobWrite.decode(body)
+            return body
+        }
         _ = try VfsMutationBody.decode(body)
         return body
     }
@@ -407,7 +552,11 @@ public struct WALSegment: Equatable, Sendable {
                 throw WALError.invalidSegment("mutation mseq overflows u64")
             }
             expectedMseq += 1
-            _ = try record.mutationBody()
+            if record.isBlobWrite {
+                _ = try record.blobWrite()
+            } else {
+                _ = try record.mutationBody()
+            }
         }
     }
 }

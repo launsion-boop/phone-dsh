@@ -25,6 +25,21 @@ final class WALTests: XCTestCase {
                 mseq: try WireTestSupport.uint64(fields["mseq"], "mseq"),
                 mutation: try WireTestSupport.mutationBody(fields)
             )
+        case "blob_write":
+            // W6 (wal.md §14.2): the mutation's data is named by digest.
+            return try WALRecord(
+                mseq: try WireTestSupport.uint64(fields["mseq"], "mseq"),
+                blobWrite: try WALBlobWrite(
+                    mode: try WireTestSupport.uint32(fields["mode"], "mode"),
+                    mflags: VfsMutationFlags(
+                        rawValue: try WireTestSupport.uint8(fields["mflags"], "mflags")),
+                    appendFrom: try WireTestSupport.uint64(fields["append_from"], "append_from"),
+                    blobLength: try WireTestSupport.uint32(fields["blob_len"], "blob_len"),
+                    blobSHA256: try WireTestSupport.data(
+                        hex: try WireTestSupport.string(fields, "blob_sha256")),
+                    path: try WireTestSupport.string(fields, "path")
+                )
+            )
         case "epoch_close":
             return try WALRecord(
                 epochClose: try WireTestSupport.uint64(fields["wall_ms"], "wall_ms"),
@@ -127,6 +142,59 @@ final class WALTests: XCTestCase {
                                expectedRecord, name)
             }
         }
+    }
+
+    func testWALBlobWriteRecordsGolden() throws {
+        var seen = 0
+        for name in try WireTestSupport.walFiles() {
+            let fixture = try WireTestSupport.loadWAL(name)
+            for recordFixture in try WireTestSupport.records(fixture)
+            where (try WireTestSupport.string(recordFixture, "kind")) == "blob_write" {
+                seen += 1
+                let expected = try record(fixtureRecord: recordFixture)
+                let recordHex = try WireTestSupport.string(recordFixture, "record_hex")
+                XCTAssertEqual(WireTestSupport.hex(expected.encoded()), recordHex, name)
+                XCTAssertTrue(expected.isBlobWrite)
+                XCTAssertFalse(expected.isEpochClose)
+                let blob = try XCTUnwrap(try expected.blobWrite())
+                XCTAssertEqual(WireTestSupport.hex(Data(blob.encoded().prefix(1))), "fe", name)
+                XCTAssertThrowsError(try expected.mutationBody())
+                XCTAssertEqual(try WALRecord.decode(try WireTestSupport.data(hex: recordHex)),
+                               expected, name)
+            }
+        }
+        XCTAssertGreaterThan(seen, 0, "no blob_write golden record")
+    }
+
+    func testWALBlobWriteBodyLayout() throws {
+        let digest = Data(repeating: 0xAB, count: 32)
+        let blob = try WALBlobWrite(mode: 0o644,
+                                    mflags: [.entryChanged],
+                                    appendFrom: 0,
+                                    blobLength: 65_536,
+                                    blobSHA256: digest,
+                                    path: "/dsh/workspace/big.bin")
+        XCTAssertEqual(blob.encoded().first, 0xFE)
+        XCTAssertEqual(blob.encoded().count, WALBlobWrite.fixedBytes + blob.path.utf8.count)
+        XCTAssertEqual(try WALBlobWrite.decode(blob.encoded()), blob)
+        XCTAssertEqual(blob.sha256Hex, String(repeating: "ab", count: 32))
+    }
+
+    func testWALBlobWriteRejectsInvalidShapes() throws {
+        let digest = Data(repeating: 0x01, count: 32)
+        XCTAssertThrowsError(try WALBlobWrite(mode: 0o644, mflags: [], appendFrom: 4,
+                                              blobLength: 1, blobSHA256: digest,
+                                              path: "/dsh/workspace/a"))
+        XCTAssertThrowsError(try WALBlobWrite(mode: 0o10000, mflags: [], appendFrom: 0,
+                                              blobLength: 1, blobSHA256: digest,
+                                              path: "/dsh/workspace/a"))
+        XCTAssertThrowsError(try WALBlobWrite(mode: 0o644, mflags: [],
+                                              appendFrom: 0, blobLength: 0,
+                                              blobSHA256: digest, path: "/dsh/workspace/a"))
+        XCTAssertThrowsError(try WALBlobWrite(mode: 0o644, mflags: [],
+                                              appendFrom: 0, blobLength: 1,
+                                              blobSHA256: Data(count: 31),
+                                              path: "/dsh/workspace/a"))
     }
 
     func testWALRecordRejectsCRCMismatch() throws {

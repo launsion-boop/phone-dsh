@@ -42,6 +42,16 @@ public enum WireLimits {
     public static let walFormat: UInt16 = 1
     /// Epoch-close record op byte; wal.md §4.
     public static let walEpochCloseOp: UInt8 = 0xFF
+    /// Blob-write record op byte; wal.md §14.2 (W6).
+    public static let walBlobWriteOp: UInt8 = 0xFE
+    /// A write whose `data` is at or above this many bytes becomes a blob-write
+    /// record; the threshold is a writer policy, not a wire rule (wal.md §14.2).
+    public static let walBlobWriteThresholdBytes = 65_536
+    /// One blob carries one mutation's `data`, so it is bounded by the same
+    /// 15 MiB per-mutation limit (wal.md §14.2, channel.md §3.1).
+    public static let walBlobMaxBytes = maxMutationDataBytes
+    /// Raw SHA-256 digest length of a blob reference; wal.md §14.1.
+    public static let walBlobDigestBytes = 32
 }
 
 /// Identifier, capability, path and digest syntax of phone-dsh-v1.

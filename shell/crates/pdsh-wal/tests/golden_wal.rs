@@ -22,7 +22,7 @@ use common::{
 use pdsh_wal::json::Json;
 use pdsh_wal::{
     classify_tail, scan_segment, Record, RecordChain, SegmentHeader, SegmentName, TailVerdict,
-    HEADER_BYTES,
+    HEADER_BYTES, OP_BLOB_WRITE,
 };
 
 /// `spec/v1/README.md`: the Castagnoli known answer.
@@ -31,10 +31,10 @@ fn crc32c_known_answer() {
     assert_eq!(crc32c(b"123456789"), 0xE306_9283);
 }
 
-/// The directory holds exactly the two vectors the checker knows, so a vector
-/// that disappears (or an unexpected file) fails loudly.
+/// The directory holds exactly the three vectors the checker knows, so a
+/// vector that disappears (or an unexpected file) fails loudly.
 #[test]
-fn golden_wal_directory_holds_exactly_two_vectors() {
+fn golden_wal_directory_holds_exactly_three_vectors() {
     let dir = golden_wal_dir();
     let mut names: Vec<String> = fs::read_dir(&dir)
         .expect("the golden WAL directory exists")
@@ -52,9 +52,10 @@ fn golden_wal_directory_holds_exactly_two_vectors() {
         names,
         vec![
             "segment-1.json".to_string(),
+            "segment-blob-write.json".to_string(),
             "segment-epoch-only.json".to_string()
         ],
-        "expected exactly 2 golden WAL vectors in {}",
+        "expected exactly 3 golden WAL vectors in {}",
         dir.display()
     );
 }
@@ -63,6 +64,13 @@ fn golden_wal_directory_holds_exactly_two_vectors() {
 #[test]
 fn golden_segment_1_is_byte_exact() {
     check_vector(&golden_wal_dir().join("segment-1.json"), 6);
+}
+
+/// `segment-blob-write.json`: W6 blob records plus an inline write and the
+/// close, byte for byte.
+#[test]
+fn golden_segment_blob_write_is_byte_exact() {
+    check_vector(&golden_wal_dir().join("segment-blob-write.json"), 4);
 }
 
 /// `segment-epoch-only.json`: an idle epoch, `first_mseq = 88` and a close
@@ -178,6 +186,10 @@ fn check_vector(path: &Path, expected_records: usize) {
                 mutation.mseq,
                 mutation.body.emit().expect("mutation body re-emits"),
             ),
+            Record::BlobWrite(blob) => (
+                blob.mseq,
+                blob.emit().expect("blob-write body re-emits"),
+            ),
             Record::EpochClose(close) => (close.mseq(), close.body().to_vec()),
         };
         let mut payload = mseq.to_be_bytes().to_vec();
@@ -214,6 +226,22 @@ fn check_vector(path: &Path, expected_records: usize) {
                 assert_eq!(u64::try_from(data.len()).unwrap(), uint(fields, "data_len"));
                 assert_eq!(mutation.body.data, data);
                 assert_eq!(parsed.record.wire_mseq(), mutation.mseq);
+                assert!(parsed.record.advances_materialized());
+                assert!(parsed.record.epoch_close().is_none());
+            }
+            (Record::BlobWrite(blob), "blob_write") => {
+                assert_eq!(blob.mseq, uint(fields, "mseq"));
+                assert_eq!(u64::from(OP_BLOB_WRITE), uint(fields, "op"));
+                assert_eq!(u64::from(blob.mode), uint(fields, "mode"));
+                assert_eq!(u64::from(blob.mflags), uint(fields, "mflags"));
+                assert_eq!(blob.append_from, uint(fields, "append_from"));
+                assert_eq!(u64::from(blob.blob_len), uint(fields, "blob_len"));
+                assert_eq!(
+                    hex_encode(&blob.blob_sha256),
+                    fields.get("blob_sha256").and_then(Json::as_str).unwrap()
+                );
+                assert_eq!(blob.path, fields.get("path").and_then(Json::as_str).unwrap());
+                assert_eq!(parsed.record.wire_mseq(), blob.mseq);
                 assert!(parsed.record.advances_materialized());
                 assert!(parsed.record.epoch_close().is_none());
             }
