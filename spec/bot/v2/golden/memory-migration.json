@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-migration",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "bots": ["main", "bot-b"],
+  "facts": [
+    {
+      "owner": "shared",
+      "fact_id": "user-profile",
+      "text": "我叫小林",
+      "learned_at_ms": 1760000002000,
+      "tier": "profile",
+      "scope": "user",
+      "trust": "user",
+      "evidence": ["record://session/gb-main#3"]
+    },
+    {
+      "owner": "shared",
+      "fact_id": "user-coffee",
+      "text": "我喜欢咖啡",
+      "learned_at_ms": 1760000003000,
+      "tier": "log",
+      "scope": "user",
+      "trust": "user",
+      "evidence": ["record://session/gb-main#3"]
+    },
+    {
+      "owner": "main",
+      "fact_id": "main-profile",
+      "text": "我喜欢简洁的回复",
+      "learned_at_ms": 1760000004000,
+      "tier": "profile",
+      "scope": "agent",
+      "trust": "assistant"
+    },
+    {
+      "owner": "main",
+      "fact_id": "main-ios",
+      "text": "我负责 iOS 工作",
+      "learned_at_ms": 1760000005000,
+      "tier": "log",
+      "scope": "agent",
+      "trust": "assistant"
+    },
+    {
+      "owner": "main",
+      "fact_id": "main-routine",
+      "text": "工作日要早起",
+      "learned_at_ms": 1760000006000,
+      "tier": "note",
+      "scope": "agent",
+      "key": "routine",
+      "trust": "assistant"
+    },
+    {
+      "owner": "bot-b",
+      "fact_id": "botb-profile",
+      "text": "bot b 的私有偏好",
+      "learned_at_ms": 1760000007000,
+      "tier": "profile",
+      "scope": "agent",
+      "trust": "assistant"
+    },
+    {
+      "owner": "bot-b",
+      "fact_id": "botb-deploy",
+      "text": "部署前先跑测试",
+      "learned_at_ms": 1760000008000,
+      "tier": "note",
+      "scope": "agent",
+      "key": "deploy",
+      "trust": "assistant"
+    },
+    {
+      "owner": "bot-b",
+      "fact_id": "botb-log",
+      "text": "bot b 的工作日志",
+      "learned_at_ms": 1760000009000,
+      "tier": "log",
+      "scope": "agent",
+      "trust": "assistant"
+    }
+  ],
+  "expected": {
+    "main": {
+      "documents": {
+        "user/profile.md": "# Profile\n\n- 我叫小林",
+        "user/log/2025-10.md": "# 2025-10\n\n- 我喜欢咖啡",
+        "agent/profile.md": "# Profile\n\n- 我喜欢简洁的回复",
+        "agent/log/2025-10.md": "# 2025-10\n\n- 我负责 iOS 工作",
+        "agent/notes/routine.md": "# routine\n\n- 工作日要早起",
+        "user/INDEX.md": "# Index\n\n- user/log/2025-10.md\n- user/profile.md",
+        "agent/INDEX.md": "# Index\n\n- agent/log/2025-10.md\n- agent/notes/routine.md\n- agent/profile.md"
+      },
+      "evidence": {
+        "user/profile.md": ["record://session/gb-main#3"],
+        "user/log/2025-10.md": ["record://session/gb-main#3"]
+      }
+    },
+    "bot-b": {
+      "documents": {
+        "user/profile.md": "# Profile\n\n- 我叫小林",
+        "user/log/2025-10.md": "# 2025-10\n\n- 我喜欢咖啡",
+        "agent/profile.md": "# Profile\n\n- bot b 的私有偏好",
+        "agent/log/2025-10.md": "# 2025-10\n\n- bot b 的工作日志",
+        "agent/notes/deploy.md": "# deploy\n\n- 部署前先跑测试",
+        "user/INDEX.md": "# Index\n\n- user/log/2025-10.md\n- user/profile.md",
+        "agent/INDEX.md": "# Index\n\n- agent/log/2025-10.md\n- agent/notes/deploy.md\n- agent/profile.md"
+      },
+      "evidence": {
+        "user/profile.md": ["record://session/gb-main#3"],
+        "user/log/2025-10.md": ["record://session/gb-main#3"]
+      }
+    }
+  },
+  "properties": [
+    "every-fact-text-appears-in-a-document",
+    "second-run-writes-no-event",
+    "agent-documents-are-per-bot",
+    "user-documents-are-shared",
+    "indexes-fit-the-1500-scalar-limit"
+  ]
+}

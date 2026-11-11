@@ -27,7 +27,6 @@ public actor BotMCPRuntime {
     public let recordEvidence: (any BotRecordEvidenceResolving)?
 
     private let now: @Sendable () -> Int64
-    private let dataRoot: String
     private let memorySource: @Sendable (BotResolvedToolCall) -> BotMemorySourceKind
     private var taskExecutors: [String: any BotTaskExecuting] = [:]
     private var memories: [String: BotMemory] = [:]
@@ -70,11 +69,9 @@ public actor BotMCPRuntime {
         let mainExecutor = taskExecutor ?? UnimplementedBotTaskExecutor()
         tasks = mainExecutor
         taskExecutors = ["main": mainExecutor]
-        let dataRoot = store.fileURL.deletingLastPathComponent().path
-        self.dataRoot = dataRoot
         let mainMemory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "main", now: now),
-            dataRoot: dataRoot, botID: "main", now: now)
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "main", now: now),
+            botID: "main", now: now)
         memory = mainMemory
         memories = ["main": mainMemory]
         routineMachine = RoutineMachine(store: routineStore ?? SQLiteRoutineStore(domainStore: store))
@@ -103,8 +100,8 @@ public actor BotMCPRuntime {
     public func memory(for botID: String) -> BotMemory {
         if let existing = memories[botID] { return existing }
         let memory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, botID: botID, now: now),
-            dataRoot: dataRoot, botID: botID, now: now)
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: botID, now: now),
+            botID: botID, now: now)
         memories[botID] = memory
         return memory
     }
@@ -568,6 +565,7 @@ public actor BotMCPRuntime {
         }
         switch name {
         case "UpdateMemory": return try await updateMemory(arguments, call: call)
+        case "ReadMemory": return try await readMemory(arguments, call: call)
         case "RecallMemory": return try await recallMemory(arguments, call: call)
         case "Task": return try await startTask(arguments, call: call)
         case "AwaitTask": return try await awaitTask(arguments, call: call)
@@ -594,70 +592,93 @@ public actor BotMCPRuntime {
 
     private func updateMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
-        let memory = memory(for: call.principal.botId)
-        let action = string(args["action"]) ?? "write"
-        let scope = BotMemoryScope(rawValue: string(args["scope"]) ?? "agent") ?? .agent
-        switch action {
-        case "write":
-            guard let text = string(args["fact"]), !text.isEmpty else {
-                throw BotMCPError.invalidRequest("UpdateMemory write requires fact")
-            }
-            let tier = BotMemoryTier(rawValue: string(args["tier"]) ?? "log") ?? .log
-            let evidence: BotRecordEvidence
-            do {
-                evidence = try await validatedEvidence(args, call: call)
-                    ?? BotRecordEvidence(trust: .assistant, refs: [])
-            } catch {
-                return .failure("memory-evidence-invalid",
-                                "Every evidence entry must be an existing record:// reference owned by this Bot.")
-            }
-            let sourceKind = memorySourceKind(for: call)
-            if (scope == .user || tier == .profile) && sourceKind != .userTurn {
-                // Keep the existing bounded `ok:false` shape: the tool ran and
-                // refused the write; it is not a malformed invocation.
-                return .success(.object([
-                    "ok": .bool(false),
-                    "code": .string("memory-source-boundary"),
-                    "error": .string("Source \(sourceKind.rawValue) cannot write scope:\"user\" or tier:\"profile\"."),
-                ]))
-            }
-            if (scope == .user || tier == .profile) && evidence.trust != .user {
-                return .success(.object([
-                    "ok": .bool(false),
-                    "code": .string("memory-evidence-required"),
-                    "error": .string("Writing scope:\"user\" or tier:\"profile\" needs at least one record:// reference to a user message."),
-                ]))
-            }
-            let request = BotMemoryWriteRequest(
-                text: text, tier: tier, scope: scope, key: string(args["key"]),
-                source: BotMemorySource(
-                    kind: sourceKind,
-                    sessionID: call.principal.sessionId, turnID: turnIDs[call.sessionId],
-                    role: call.principal.kind.rawValue),
-                evidence: evidence.refs)
-            let result = try await memory.write(
-                request, context: BotMemoryWriteContext(source: request.source,
-                                                        trust: evidence.trust))
-            return .success(.object([
-                "ok": .bool(result.ok), "fact_id": result.factID.map(BotJSONValue.string) ?? .null,
-                "duplicated": .bool(result.duplicated), "tier": .string(result.tier.rawValue),
-                "scope": .string(result.scope.rawValue), "count": .number(Double(result.count ?? 0)),
-                "error": result.error.map(BotJSONValue.string) ?? .null,
-            ]))
-        case "forget":
-            guard args["evidence"] == nil else {
-                return .failure("invalid_arguments", "evidence applies to action \"write\" only.")
-            }
-            let result = try await memory.forget(text: string(args["fact"]), factID: string(args["fact_id"]), scope: scope)
-            return .success(.object([
-                "ok": .bool(result.ok), "removed": .number(Double(result.removed)),
-                "removed_facts": .number(Double(result.removedFacts)),
-                "fact_ids": .array(result.factIDs.map(BotJSONValue.string)),
-                "count": .number(Double(result.count)), "scope": .string(result.scope.rawValue),
-                "error": result.error.map(BotJSONValue.string) ?? .null,
-            ]))
-        default: throw BotMCPError.invalidRequest("UpdateMemory action must be write or forget")
+        guard let actionName = string(args["action"]), let action = BotMemoryAction(rawValue: actionName) else {
+            throw BotMCPError.invalidRequest("UpdateMemory requires action write|append|replace|move|delete|restore")
         }
+        guard let path = string(args["path"]), !path.isEmpty else {
+            throw BotMCPError.invalidRequest("UpdateMemory requires path")
+        }
+        guard let expectedVersion = try optionalInt(args["expected_version"]), expectedVersion >= 0 else {
+            throw BotMCPError.invalidRequest("UpdateMemory requires a non-negative expected_version")
+        }
+        let evidence: BotRecordEvidence
+        do {
+            evidence = try await validatedEvidence(args, call: call)
+                ?? BotRecordEvidence(trust: .assistant, refs: [])
+        } catch {
+            return .failure("memory-evidence-invalid",
+                            "Every evidence entry must be an existing record:// reference owned by this Bot.")
+        }
+        let sourceKind = memorySourceKind(for: call)
+        let authorKind = call.principal.kind.memoryAuthorKind
+        let content: String?
+        switch action {
+        case .write, .append:
+            guard args["content"] != nil else {
+                throw BotMCPError.invalidRequest("UpdateMemory \(action.rawValue) requires content")
+            }
+            content = string(args["content"]) ?? ""
+        case .replace:
+            guard let find = string(args["find"]), !find.isEmpty else {
+                throw BotMCPError.invalidRequest("UpdateMemory replace requires non-empty find")
+            }
+            guard args["replace"] != nil else {
+                throw BotMCPError.invalidRequest("UpdateMemory replace requires replace")
+            }
+            content = nil
+        default:
+            content = nil
+        }
+        if action == .move {
+            guard let to = string(args["to"]), !to.isEmpty else {
+                throw BotMCPError.invalidRequest("UpdateMemory move requires to")
+            }
+        }
+        let restoreVersion: Int?
+        if action == .restore {
+            guard let restore = try optionalInt(args["restore_version"]), restore >= 1 else {
+                throw BotMCPError.invalidRequest("UpdateMemory restore requires restore_version >= 1")
+            }
+            restoreVersion = restore
+        } else {
+            restoreVersion = nil
+        }
+        let request = BotMemoryWriteRequest(
+            action: action,
+            path: path,
+            content: content,
+            find: action == .replace ? string(args["find"]) : nil,
+            replace: action == .replace ? (string(args["replace"]) ?? "") : nil,
+            to: action == .move ? string(args["to"]) : nil,
+            expectedVersion: expectedVersion,
+            restoreVersion: restoreVersion,
+            evidence: evidence.refs)
+        let context = BotMemoryWriteContext(
+            botID: call.principal.botId,
+            sessionID: call.principal.sessionId,
+            authorKind: authorKind,
+            source: BotMemorySource(
+                kind: sourceKind,
+                sessionID: call.principal.sessionId,
+                turnID: turnIDs[call.sessionId],
+                role: call.principal.kind.rawValue),
+            trust: evidence.trust)
+        let result = try await memory(for: call.principal.botId).write(request, context: context)
+        var output: [String: BotJSONValue] = [
+            "ok": .bool(result.ok),
+            "action": .string(result.action.rawValue),
+            "path": .string(result.path),
+        ]
+        if let scope = result.scope { output["scope"] = .string(scope.rawValue) }
+        if let version = result.version { output["version"] = .number(Double(version)) }
+        if let previous = result.previousVersion { output["previous_version"] = .number(Double(previous)) }
+        if let replaced = result.replaced { output["replaced"] = .number(Double(replaced)) }
+        if let code = result.code { output["code"] = .string(code) }
+        if let error = result.error { output["error"] = .string(error) }
+        if let current = result.currentVersion { output["current_version"] = .number(Double(current)) }
+        if let limit = result.limit { output["limit"] = .number(Double(limit)) }
+        if let actual = result.actual { output["actual"] = .number(Double(actual)) }
+        return .success(.object(output))
     }
 
     /// Validates the optional evidence array. `nil` means the call supplied
@@ -678,13 +699,66 @@ public actor BotMCPRuntime {
             }
             refs.append(reference.canonical)
         }
-        // An explicitly empty array carries no evidence, same as omitting it.
         guard !refs.isEmpty else { return nil }
         guard let resolver = recordEvidence else {
             throw BotRecordServiceError.unavailable("record evidence resolver is not attached")
         }
         return try await resolver.resolveEvidence(
             refs, callerBotID: call.principal.botId, callerSessionID: call.principal.sessionId)
+    }
+
+    private func readMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
+        guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
+        guard let path = string(args["path"]), !path.isEmpty else {
+            throw BotMCPError.invalidRequest("ReadMemory requires path")
+        }
+        let version = try optionalInt(args["version"])
+        let result = try await memory(for: call.principal.botId).read(path: path, version: version)
+        switch result {
+        case let .document(document):
+            var output: [String: BotJSONValue] = [
+                "ok": .bool(true),
+                "kind": .string("document"),
+                "path": .string(document.path),
+                "scope": .string(document.scope.rawValue),
+                "version": .number(Double(document.version)),
+                "content": .string(document.content),
+                "updated_at_ms": .number(Double(document.updatedAtMS)),
+                "author": try encode(document.author),
+                "evidence": .array(document.evidence.map(BotJSONValue.string)),
+            ]
+            if let trust = document.trust { output["trust"] = .string(trust) }
+            if document.deleted {
+                output["deleted"] = .bool(true)
+                output["deletion_reason"] = .string(document.deletionReason ?? "forget")
+            }
+            return .success(.object(output))
+        case let .directory(path, scope, entries):
+            return .success(.object([
+                "ok": .bool(true),
+                "kind": .string("directory"),
+                "path": .string(path),
+                "scope": .string(scope.rawValue),
+                "entries": .array(entries.map { entry in
+                    var value: [String: BotJSONValue] = [
+                        "path": .string(entry.path),
+                        "name": .string(entry.name),
+                        "kind": .string(entry.kind.rawValue),
+                    ]
+                    if let version = entry.version { value["version"] = .number(Double(version)) }
+                    if let updated = entry.updatedAtMS {
+                        value["updated_at_ms"] = .number(Double(updated))
+                    }
+                    return .object(value)
+                }),
+            ]))
+        case let .failure(code, error, _):
+            return .success(.object([
+                "ok": .bool(false),
+                "code": .string(code),
+                "error": .string(error),
+            ]))
+        }
     }
 
     private func recallMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
@@ -696,19 +770,20 @@ public actor BotMCPRuntime {
         guard ["agent", "user", "all"].contains(requestedScope) else {
             throw BotMCPError.invalidRequest("invalid memory scope")
         }
-        // An explicit scope searches only that store with the full limit, as
-        // upstream dshAgent.cjs does. Filtering the merged top-N afterwards
-        // could return fewer hits than that scope actually has.
         let recallScope: BotMemoryScope?
         switch requestedScope {
         case "agent": recallScope = .agent
         case "user": recallScope = .user
         default: recallScope = nil
         }
-        let hits = try await memory.recall(
+        let page = try await memory.recallPage(
             string(args["query"]) ?? "", limit: limit, scope: recallScope)
         return .success(.object([
-            "ok": .bool(true), "facts": .array(try hits.map { try encode($0) }), "count": .number(Double(hits.count)),
+            "ok": .bool(true),
+            "hits": .array(try page.hits.map { try encode($0) }),
+            "count": .number(Double(page.hits.count)),
+            "total": .number(Double(page.total)),
+            "truncated": .bool(page.total > page.hits.count),
         ]))
     }
 

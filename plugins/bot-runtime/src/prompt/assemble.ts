@@ -7,7 +7,7 @@ import type { MountContext } from './markup.ts'
 
 export const PHONE_P0_TOOLS = Object.freeze([
   'ask_user', 'show_next_steps', 'show_attachment', 'show_document', 'show_progress',
-  'show_checklist', 'show_link', 'UpdateMemory', 'RecallMemory', 'Task', 'AwaitTask',
+  'show_checklist', 'show_link', 'UpdateMemory', 'ReadMemory', 'RecallMemory', 'Task', 'AwaitTask',
   'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'RequestApproval', 'SendToUser',
   'SendToAgent', 'CreateTeammate',
 ])

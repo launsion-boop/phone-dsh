@@ -122,9 +122,9 @@
               "name": "mcp__phone__UpdateMemory",
               "arguments": {
                 "action": "write",
-                "fact": "我喜欢美式咖啡 AMERICANO_A",
-                "tier": "profile",
-                "scope": "user"
+                "path": "agent/profile.md",
+                "content": "# Profile\n\n- 我喜欢美式咖啡 AMERICANO_A",
+                "expected_version": 0
               }
             },
             "final_text": "已记住：美式咖啡。"
@@ -145,18 +145,11 @@
               {
                 "name": "mcp__phone__UpdateMemory",
                 "arguments": {
-                  "action": "forget",
-                  "fact": "我喜欢美式咖啡 AMERICANO_A",
-                  "scope": "user"
-                }
-              },
-              {
-                "name": "mcp__phone__UpdateMemory",
-                "arguments": {
-                  "action": "write",
-                  "fact": "我喜欢燕麦拿铁 OAT_LATTE_B",
-                  "tier": "profile",
-                  "scope": "user"
+                  "action": "replace",
+                  "path": "agent/profile.md",
+                  "find": "我喜欢美式咖啡 AMERICANO_A",
+                  "replace": "我喜欢燕麦拿铁 OAT_LATTE_B",
+                  "expected_version": 1
                 }
               }
             ],
@@ -534,9 +527,9 @@
               "name": "mcp__phone__UpdateMemory",
               "arguments": {
                 "action": "write",
-                "fact": "QUOKKA_7F3A9",
-                "tier": "profile",
-                "scope": "user"
+                "path": "agent/profile.md",
+                "content": "QUOKKA_7F3A9",
+                "expected_version": 0
               }
             },
             "final_text": "已记住。"
@@ -570,7 +563,7 @@
         },
         {
           "type": "bot_event",
-          "event": "memory.written",
+          "event": "memory.document_written",
           "payload_contains": "QUOKKA_7F3A9"
         }
       ]
@@ -630,16 +623,16 @@
           "scope": "user"
         },
         {
-          "type": "memory_absent",
+          "type": "no_bot_event",
           "bot": "side",
-          "value": "INJECT_PREF_8812",
-          "tier": "profile"
+          "event": "memory.document_written",
+          "payload_contains": "user/profile.md"
         },
         {
           "type": "no_bot_event",
           "bot": "side",
-          "event": "memory.written",
-          "payload_contains": "\"kind\":\"user-turn\""
+          "event": "memory.document_written",
+          "payload_contains": "\"trust\":\"user\""
         },
         {
           "type": "no_tool_call",

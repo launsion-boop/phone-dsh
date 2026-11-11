@@ -337,9 +337,14 @@ struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var decidedAtMS: Int64
 }
 
+struct BotProductionMemoryDocument: Sendable {
+    var document: PhoneDSHBot.BotMemoryDocument
+    var versions: [PhoneDSHBot.BotMemoryDocumentVersion]
+}
+
 struct BotProductionInfoSnapshot: Sendable {
     var botName: String
-    var memories: [PhoneDSHBot.BotMemoryFact]
+    var memories: [BotProductionMemoryDocument]
     var routines: [Routine]
     var approvals: [BotProductionApproval]
 }
@@ -357,11 +362,17 @@ actor BotProductionInfoService {
         let memory = environment.memory
         let machine = environment.routineMachine
         let botName = try await environment.context().botName
-        async let facts = memory.facts(scope: nil)
-        async let routines = machine.list(botId: environment.botID)
-        async let approvals = approvalRecords()
-        return try await BotProductionInfoSnapshot(
-            botName: botName, memories: facts, routines: routines, approvals: approvals)
+        let documents = try await memory.documents(scope: nil)
+        var memories: [BotProductionMemoryDocument] = []
+        for document in documents {
+            memories.append(BotProductionMemoryDocument(
+                document: document,
+                versions: try await memory.versions(path: document.path)))
+        }
+        let routines = try await machine.list(botId: environment.botID)
+        let approvals = try await approvalRecords()
+        return BotProductionInfoSnapshot(
+            botName: botName, memories: memories, routines: routines, approvals: approvals)
     }
 
     func rename(_ name: String) async throws {
@@ -377,8 +388,9 @@ actor BotProductionInfoService {
         _ = try await environment.domain.append(event)
     }
 
-    func forget(factID: String) async throws {
-        let result = try await environment.memory.forget(factID: factID)
+    func forget(path: String, expectedVersion: Int) async throws {
+        let result = try await environment.memory.forget(
+            path: path, expectedVersion: expectedVersion)
         guard result.ok else {
             throw BotProductionError.invalidService(result.error ?? "忘记记忆失败")
         }

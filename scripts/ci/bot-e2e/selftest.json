@@ -31,9 +31,9 @@
             "name": "mcp__phone__UpdateMemory",
             "arguments": {
               "action": "write",
-              "fact": "SELFTEST_MEMORY",
-              "scope": "agent",
-              "tier": "log"
+              "path": "agent/notes/selftest-memory.md",
+              "content": "SELFTEST_MEMORY",
+              "expected_version": 0
             }
           },
           {
@@ -103,9 +103,7 @@
         {
           "type": "memory_contains",
           "value": "SELFTEST_MEMORY",
-          "scope": "agent",
-          "tier": "log",
-          "source": "user-turn"
+          "scope": "agent"
         },
         {
           "type": "memory_absent",
@@ -139,10 +137,10 @@
         },
         {
           "type": "bot_event",
-          "event": "memory.written",
+          "event": "memory.document_written",
           "where": {
-            "text": "SELFTEST_MEMORY",
-            "scope": "agent"
+            "scope": "agent",
+            "content": "SELFTEST_MEMORY"
           }
         },
         {
@@ -151,7 +149,7 @@
         },
         {
           "type": "bot_event",
-          "event": "memory.written",
+          "event": "memory.document_written",
           "payload_contains": "SELFTEST_MEMORY"
         }
       ]
@@ -379,24 +377,27 @@
             "name": "mcp__phone__UpdateMemory",
             "arguments": {
               "action": "write",
-              "fact": "FORGET_AGENT",
-              "scope": "agent"
+              "path": "agent/notes/forget-agent.md",
+              "content": "FORGET_AGENT",
+              "expected_version": 0
             }
           },
           {
             "name": "mcp__phone__UpdateMemory",
             "arguments": {
               "action": "write",
-              "fact": "FORGET_SINGLE",
-              "scope": "agent"
+              "path": "agent/notes/forget-single.md",
+              "content": "FORGET_SINGLE",
+              "expected_version": 0
             }
           },
           {
             "name": "mcp__phone__UpdateMemory",
             "arguments": {
               "action": "write",
-              "fact": "FORGET_USER",
-              "scope": "agent"
+              "path": "agent/notes/forget-user.md",
+              "content": "FORGET_USER",
+              "expected_version": 0
             }
           }
         ],
@@ -443,7 +444,7 @@
         },
         {
           "type": "bot_event",
-          "event": "memory.forgotten"
+          "event": "memory.document_deleted"
         },
         {
           "type": "reply_contains",
@@ -577,9 +578,9 @@
             "name": "mcp__phone__UpdateMemory",
             "arguments": {
               "action": "write",
-              "fact": "SELFTEST_MEMORY",
-              "scope": "agent",
-              "tier": "log"
+              "path": "agent/notes/selftest-memory.md",
+              "content": "SELFTEST_MEMORY",
+              "expected_version": 0
             }
           },
           {
@@ -623,7 +624,7 @@
         },
         {
           "type": "no_bot_event",
-          "event": "memory.written",
+          "event": "memory.document_written",
           "expect_ok": false
         },
         {
@@ -674,7 +675,7 @@
         },
         {
           "type": "no_bot_event",
-          "event": "memory.written",
+          "event": "memory.document_written",
           "payload_contains": "SELFTEST_MEMORY",
           "expect_ok": false
         }

@@ -72,7 +72,9 @@ extension BotProductionInfoService {
         BotInfoDriver(
             load: { [self] in try await BotInfoSnapshot.production(self.load()) },
             rename: { [self] name in try await self.rename(name) },
-            forget: { [self] fact in try await self.forget(factID: fact.id) },
+            forget: { [self] document in
+                try await self.forget(path: document.path, expectedVersion: document.version)
+            },
             erase: { [self] in try await self.eraseMemories() },
             eraseShared: { [self] in try await self.eraseSharedMemories() },
             setRoutineEnabled: { [self] id, enabled in
@@ -163,14 +165,29 @@ extension BotInfoSnapshot {
     static func production(_ snapshot: BotProductionInfoSnapshot) -> BotInfoSnapshot {
         BotInfoSnapshot(
             botName: snapshot.botName,
-            memories: snapshot.memories.map { fact in
-                BotMemoryFact(
-                    id: fact.factID,
-                    text: fact.text,
-                    tier: fact.tier.rawValue,
-                    scope: fact.scope.rawValue,
-                    source: fact.source?.kind.rawValue ?? "unknown",
-                    learnedAt: Date(timeIntervalSince1970: Double(fact.learnedAtMS) / 1_000))
+            memories: snapshot.memories.map { entry in
+                let document = entry.document
+                return BotMemoryDocumentInfo(
+                    id: document.path,
+                    path: document.path,
+                    scope: document.scope.rawValue,
+                    content: document.content,
+                    version: document.version,
+                    updatedAt: Date(timeIntervalSince1970: Double(document.updatedAtMS) / 1_000),
+                    author: document.author.kind.rawValue
+                        + (document.source.map { " · \($0.kind.rawValue)" } ?? ""),
+                    evidence: document.evidence,
+                    versions: entry.versions.map { version in
+                        BotMemoryVersionInfo(
+                            id: "\(version.path)#\(version.version)",
+                            version: version.version,
+                            content: version.content,
+                            deleted: version.deleted,
+                            deletionReason: version.deletionReason,
+                            updatedAt: Date(timeIntervalSince1970: Double(version.updatedAtMS) / 1_000),
+                            author: version.author.kind.rawValue,
+                            evidence: version.evidence)
+                    })
             },
             routines: snapshot.routines.map { routine in
                 BotRoutineInfo(

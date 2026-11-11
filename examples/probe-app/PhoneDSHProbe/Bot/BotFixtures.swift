@@ -12,7 +12,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case empty, runningThinking, runningTool, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
-    case info, infoEmpty, infoError, infoLong
+    case info, infoEmpty, infoError, infoLong, infoMemory
 
     var id: String { rawValue }
 
@@ -236,7 +236,7 @@ enum BotUIFixtures {
                 BotUIRow.text(id: "attachments-assistant", seq: 2, role: "assistant",
                               text: "收到。我会先读 PDF，再看图片，然后把要点整理成一页摘要。"),
             ]
-        case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
+        case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong, .infoMemory:
             return []
         case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
             return []
@@ -277,8 +277,18 @@ enum BotUIFixtures {
     static func infoSnapshot(for fixture: BotUIFixtureCase = .info) -> BotInfoSnapshot {
         if fixture == .infoLong {
             return BotInfoSnapshot(botName: "大肥鱼 · 一个用于验证长名称的 Bot", memories: [
-                BotMemoryFact(id: "long-memory", text: String(repeating: "用户希望所有验收报告都包含实际执行的命令、结果、未验证项和剩余风险；", count: 8),
-                              tier: "profile", scope: "agent", source: "user-turn", learnedAt: Date(timeIntervalSince1970: 1_760_000_000)),
+                memoryDocument(
+                    path: "agent/notes/acceptance.md",
+                    scope: "agent",
+                    content: String(repeating: "用户希望所有验收报告都包含实际执行的命令、结果、未验证项和剩余风险；\n", count: 8),
+                    version: 4,
+                    evidence: ["record://session/gb-main#12"]),
+                memoryDocument(
+                    path: "user/preferences/reporting.md",
+                    scope: "user",
+                    content: "验收报告必须区分模拟器与真机证据。",
+                    version: 2,
+                    evidence: ["record://event/7"]),
             ], routines: [
                 BotRoutineInfo(id: "long-routine", title: String(repeating: "很长的例行任务名称", count: 5),
                                schedule: "每周一至周五 07:30", timeZone: "Asia/Shanghai", delivery: "interrupt",
@@ -290,10 +300,14 @@ enum BotUIFixtures {
             ])
         }
         return BotInfoSnapshot(botName: "大肥鱼", memories: [
-            BotMemoryFact(id: "memory-1", text: "验收报告必须区分模拟器与真机证据。", tier: "profile", scope: "agent",
-                          source: "user-turn", learnedAt: Date(timeIntervalSince1970: 1_760_000_000)),
-            BotMemoryFact(id: "memory-2", text: "默认使用中文。", tier: "log", scope: "user",
-                          source: "user-turn", learnedAt: Date(timeIntervalSince1970: 1_760_000_050)),
+            memoryDocument(
+                path: "agent/profile.md", scope: "agent",
+                content: "# Profile\n\n- 验收报告必须区分模拟器与真机证据。",
+                version: 2, evidence: ["record://session/gb-main#3"]),
+            memoryDocument(
+                path: "user/profile.md", scope: "user",
+                content: "# Profile\n\n- 默认使用中文。",
+                version: 1, evidence: ["record://event/7"]),
         ], routines: [
             BotRoutineInfo(id: "routine-1", title: "晨间简报", schedule: "每天 07:30", timeZone: "Asia/Shanghai",
                            delivery: "held", quiet: true, urgent: false, urgentReason: nil,
@@ -307,6 +321,37 @@ enum BotUIFixtures {
             BotApprovalRecord(id: "record-2", parameterSummary: "创建本周发布报告（参数摘要）",
                               decision: "允许一次", decidedAt: Date(timeIntervalSince1970: 1_760_000_200)),
         ])
+    }
+
+    static func memoryDocument(
+        path: String,
+        scope: String,
+        content: String,
+        version: Int,
+        evidence: [String]
+    ) -> BotMemoryDocumentInfo {
+        let date = Date(timeIntervalSince1970: 1_760_000_000 + Double(version * 60))
+        let versions = (1...max(1, version)).map { number in
+            BotMemoryVersionInfo(
+                id: "\(path)#\(number)",
+                version: number,
+                content: content,
+                deleted: false,
+                deletionReason: nil,
+                updatedAt: date,
+                author: scope == "user" ? "chat · 用户消息" : "chat · 这个 Bot",
+                evidence: evidence)
+        }
+        return BotMemoryDocumentInfo(
+            id: path,
+            path: path,
+            scope: scope,
+            content: content,
+            version: version,
+            updatedAt: date,
+            author: scope == "user" ? "chat · 用户消息" : "chat · 这个 Bot",
+            evidence: evidence,
+            versions: versions)
     }
 }
 
@@ -354,8 +399,10 @@ struct BotUIFixtureRootView: View {
     var body: some View {
         Group {
             switch fixture {
-            case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
-                BotInfoPage(model: infoModel)
+            case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong, .infoMemory:
+                BotInfoPage(
+                    model: infoModel,
+                    initialSection: fixture == .infoMemory ? .memory : nil)
             case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
                 BotDrawerFixtureRootView(fixture: fixture)
             default:

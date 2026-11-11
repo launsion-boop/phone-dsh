@@ -638,19 +638,24 @@ final class BotEvalRunnerTests: XCTestCase {
             return EvalActionOutcome(status: "ok", detail: "erased user scope", replies: [])
 
         case "forget_memory":
-            let facts = try await unit.info.load().memories
-            let match: BotMemoryFact?
+            let documents = try await unit.info.load().memories
+            let match: BotProductionMemoryDocument?
             if let id = action.factID {
-                match = facts.first { $0.factID == id }
+                match = documents.first { $0.document.path == id }
             } else {
-                match = facts.first { $0.text.contains(action.factContains ?? "") }
+                match = documents.first {
+                    $0.document.content.contains(action.factContains ?? "")
+                }
             }
-            guard let fact = match else {
+            guard let document = match else {
                 throw EvalRunnerError.invalid(
-                    "no memory fact matched \(action.factID ?? action.factContains ?? "")")
+                    "no memory document matched \(action.factID ?? action.factContains ?? "")")
             }
-            try await unit.info.forget(factID: fact.factID)
-            return EvalActionOutcome(status: "ok", detail: "forgot \(fact.factID)", replies: [])
+            try await unit.info.forget(
+                path: document.document.path,
+                expectedVersion: document.document.version)
+            return EvalActionOutcome(
+                status: "ok", detail: "forgot \(document.document.path)", replies: [])
 
         case "stop_task":
             let events = try await BotProductionEventReader.all(domain: context.store)
@@ -700,12 +705,12 @@ final class BotEvalRunnerTests: XCTestCase {
         return calls
     }
 
-    private func collectMemories(context: EvalRunContext) async -> [String: [BotMemoryFact]] {
-        var result: [String: [BotMemoryFact]] = [:]
+    private func collectMemories(context: EvalRunContext) async -> [String: [BotMemoryDocument]] {
+        var result: [String: [BotMemoryDocument]] = [:]
         for botID in context.knownBotIDs {
             guard let unit = context.composition.unit(for: botID) else { continue }
             if let snapshot = try? await unit.info.load() {
-                result[botID] = snapshot.memories
+                result[botID] = snapshot.memories.map(\.document)
             }
         }
         return result
@@ -1113,7 +1118,7 @@ struct EvalRepeatRecord {
     var events: [BotEvent]
     var replies: [EvalReply]
     var toolCalls: [EvalToolCallRecord]
-    var memories: [String: [BotMemoryFact]]
+    var memories: [String: [BotMemoryDocument]]
     var workspaces: [String: URL]
     var autoDecisions: [String]
     var approvalRequests: [String: Int]

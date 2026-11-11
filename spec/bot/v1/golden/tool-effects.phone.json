@@ -71,6 +71,27 @@
         "known": true,
         "isMcp": false
       }
+    },
+    {
+      "name": "ReadMemory",
+      "args": {
+        "path": "user/profile.md"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "ReadMemory",
+        "operation": "memory.read",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "讀取記憶",
+        "detail": "工具 ReadMemory（path=user/profile.md）",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ],
   "nativeMcp": [

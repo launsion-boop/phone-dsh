@@ -34,7 +34,7 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 
 `canvas`、`product`、`gift` 不在手机卡片词汇中。未知工具、未知 `cardType`、缺少渲染所需数据的卡片一律 fail-closed；工具返回失败，不生成半空卡片。
 
-`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具与 `FishAction` 增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计）；前两者不再向用户出审批卡。
+`golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具、`FishAction` 与记忆三原语增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`ReadMemory` 是 [v2 §1.2](../v2/README.md#12-三个原语) 的新增原语，`UpdateMemory`/`RecallMemory` 的 fact 参数由同一节替换。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计），`ReadMemory` 为 `read + auto`；前两者不再向用户出审批卡。
 
 `card-payload.schema.json` 的字段来自 dsh-bot `cardPayloads.cjs` 的白名单。`golden/card-payload.json` 是 `export-vectors.mjs` 的原样导出，不得手改；phoneDSH 对卡片负载的增量（宿主分配的 `optionID`、recommended 移到首位、负向 fixture）放在 `golden/card-payload.phone.json`，两个文件都由 `validate_vectors.py` 校验 schema/负向结果，并由 Swift `BotCardPayloadTests` 用真实 builder 对拍。重跑导出器后 `card-payload.json` 必须无 diff；`card-payload.phone.json` 不需要重新导出。链接只接受 HTTP/HTTPS；卡片数据必须自带，不能假设存在服务端 callback 补全。
 
@@ -70,7 +70,7 @@ P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-2026
 
 ## 3. 记忆（已迁至 v2）
 
-记忆契约（`memory-fact`、`memory-injection`、`memory-recall`）自 2026-11-10 起迁到
+记忆契约（`memory-document`、`memory-write-*`、`memory-read-result`、`memory-injection`、`memory-recall`）自 2026-11-10 起迁到
 [v2/README.md](../v2/README.md) §1，由 phoneDSH 作准；`memory-policy` 随后按
 PC-20261111-bot-v2-unwired 删除。本文件不再定义 facts、注入、召回、来源边界或 MemoryPolicy。
 

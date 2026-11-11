@@ -2,131 +2,80 @@
 
 import Foundation
 
-public struct BotMemoryRankedFact: Sendable, Equatable {
-    public let fact: BotMemoryFact
+public struct BotMemoryRecallHit: Codable, Sendable, Equatable {
+    public let path: String
+    public let scope: BotMemoryScope
+    public let snippet: String
     public let score: Double
     public let relevance: Double
     public let recency: Double
-    public let importance: Double
     public let matched: Bool
+    public let updatedAtMS: Int64
+    public let version: Int
+    public let evidence: [String]
 
     public init(
-        fact: BotMemoryFact,
+        path: String,
+        scope: BotMemoryScope,
+        snippet: String,
         score: Double,
         relevance: Double,
         recency: Double,
-        importance: Double,
-        matched: Bool
+        matched: Bool,
+        updatedAtMS: Int64,
+        version: Int,
+        evidence: [String]
     ) {
-        self.fact = fact
+        self.path = path
+        self.scope = scope
+        self.snippet = snippet
         self.score = score
         self.relevance = relevance
         self.recency = recency
-        self.importance = importance
         self.matched = matched
+        self.updatedAtMS = updatedAtMS
+        self.version = version
+        self.evidence = evidence
     }
-}
-
-public struct BotMemoryRecallHit: Codable, Sendable, Equatable {
-    public let source: String
-    public let text: String
-    public let factID: String
-    public let learnedAtMS: Int64
-    public let tier: BotMemoryTier
-    public let scope: BotMemoryScope
-    public let key: String?
-    public let score: Double
-    public let relevance: Double
-    public let recency: Double
-    public let importance: Double
-    public let lastUsedMS: Int64
-    public let applicableWhen: String?
-    public let notApplicableWhen: String?
-    public let archived: Bool?
-    public let archivedAtMS: Int64?
 
     enum CodingKeys: String, CodingKey {
-        case source
-        case text
-        case factID = "fact_id"
-        case learnedAtMS = "learned_at_ms"
-        case tier
+        case path
         case scope
-        case key
+        case snippet
         case score
         case relevance
         case recency
-        case importance
-        case lastUsedMS = "last_used_ms"
-        case applicableWhen
-        case notApplicableWhen
-        case archived
-        case archivedAtMS = "archived_at_ms"
-    }
-
-    init(ranked: BotMemoryRankedFact, sourcePrefix: String, now: Int64, lastUsedMS: Int64? = nil) {
-        let fact = ranked.fact
-        let base: String
-        switch fact.tier {
-        case .profile:
-            base = "profile"
-        case .note:
-            base = "notes"
-        case .log:
-            base = "log/\(Self.dayString(fact.learnedAtMS, fallback: now))"
-        }
-        source = "\(sourcePrefix)/\(base)"
-        text = fact.text
-        factID = fact.factID
-        learnedAtMS = fact.learnedAtMS
-        tier = fact.tier
-        scope = fact.scope
-        key = fact.key
-        score = Self.round(ranked.score)
-        relevance = Self.round(ranked.relevance)
-        recency = Self.round(ranked.recency)
-        importance = Self.round(ranked.importance)
-        self.lastUsedMS = lastUsedMS ?? fact.lastUsedMS
-        applicableWhen = fact.applicableWhen
-        notApplicableWhen = fact.notApplicableWhen
-        archived = fact.archived == true ? true : nil
-        archivedAtMS = fact.archived == true ? fact.archivedAtMS ?? 0 : nil
-    }
-
-    private static func round(_ value: Double) -> Double {
-        value.isFinite ? (value * 1_000_000).rounded() / 1_000_000 : 0
-    }
-
-    private static func dayString(_ learnedAtMS: Int64, fallback: Int64) -> String {
-        let timestamp = learnedAtMS == 0 ? fallback : learnedAtMS
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.formatOptions = [.withFullDate]
-        return formatter.string(from: Date(timeIntervalSince1970: Double(timestamp) / 1_000))
+        case matched
+        case updatedAtMS = "updated_at_ms"
+        case version
+        case evidence
     }
 }
 
-public struct BotMemoryRecallIndex {
-    public static let relevanceWeight = 0.72
-    public static let recencyWeight = 0.18
-    public static let importanceWeight = 0.10
+/// BM25 + CJK tokenization over document bodies. `importance` is gone; the
+/// score is `0.85 * relevance + 0.15 * recency`.
+public struct BotMemoryDocumentRecallIndex {
+    public static let relevanceWeight = 0.85
+    public static let recencyWeight = 0.15
     public static let recencyHalfLifeDays = 180.0
+    public static let maximumSnippetScalars = 500
 
     private static let bm25K1 = 1.2
     private static let bm25B = 0.75
     private static let bm25Saturation = 3.0
-    private static let minimumMatchedIDF = 0.85
-    private static let smallCorpusSize = 8
     private static let maximumPrefixTerms = 64
     private static let dayMS = 24.0 * 60 * 60 * 1_000
 
     private struct Document {
-        var fact: BotMemoryFact
-        var text: String
-        var normalizedText: String
+        var path: String
+        var scope: BotMemoryScope
+        var content: String
+        var normalizedContent: String
         var tokens: BotMemoryTokenAnalysis
         var length: Double
-        var learnedAtMS: Int64
+        var updatedAtMS: Int64
+        var version: Int
+        var evidence: [String]
     }
 
     private struct QueryTerm {
@@ -138,7 +87,6 @@ public struct BotMemoryRecallIndex {
     private struct Candidate {
         var document: Document
         var bm25: Double = 0
-        var matchedIDF: Double = 0
         var termHits: Int = 0
     }
 
@@ -148,101 +96,93 @@ public struct BotMemoryRecallIndex {
     private var termOrder: [String] = []
     private var totalLength = 0.0
 
-    public init(facts: [BotMemoryFact] = []) {
-        for fact in facts {
-            _ = add(fact)
-        }
+    public init(documents: [BotMemoryDocument] = []) {
+        sync(documents)
     }
 
     public var count: Int { documents.count }
 
-    @discardableResult
-    public mutating func add(_ fact: BotMemoryFact) -> Bool {
-        let id = fact.factID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if id.isEmpty { return false }
-        if documents[id] != nil {
-            _ = remove(id)
+    public mutating func sync(_ values: [BotMemoryDocument]) {
+        let live = Set(values.map(\.path))
+        for path in documentOrder where !live.contains(path) {
+            remove(path)
         }
-        let tokens = BotMemoryTokenizer.analyzeText(fact.text)
+        for value in values {
+            if let existing = documents[value.path],
+               existing.content == value.content,
+               existing.version == value.version,
+               existing.updatedAtMS == value.updatedAtMS {
+                documents[value.path]?.evidence = value.evidence
+                continue
+            }
+            add(value)
+        }
+    }
+
+    @discardableResult
+    public mutating func add(_ value: BotMemoryDocument) -> Bool {
+        let path = value.path
+        guard !path.isEmpty else { return false }
+        if documents[path] != nil { remove(path) }
+        let tokens = BotMemoryTokenizer.analyzeText(value.content)
         let length = tokens.counts.values.reduce(0, +)
-        var storedFact = fact
-        storedFact.factID = id
         let document = Document(
-            fact: storedFact,
-            text: fact.text,
-            normalizedText: BotMemoryTokenizer.normalize(fact.text),
+            path: path,
+            scope: value.scope,
+            content: value.content,
+            normalizedContent: BotMemoryTokenizer.normalize(value.content),
             tokens: tokens,
             length: length,
-            learnedAtMS: fact.learnedAtMS
-        )
-        documents[id] = document
-        documentOrder.append(id)
+            updatedAtMS: value.updatedAtMS,
+            version: value.version,
+            evidence: value.evidence)
+        documents[path] = document
+        documentOrder.append(path)
         totalLength += length
         for term in tokens.order {
-            if postings[term] == nil {
-                termOrder.append(term)
-            }
-            postings[term, default: [:]][id] = tokens.counts[term]
+            if postings[term] == nil { termOrder.append(term) }
+            postings[term, default: [:]][path] = tokens.counts[term]
         }
         return true
     }
 
     @discardableResult
-    public mutating func remove(_ factID: String) -> Bool {
-        let id = factID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let document = documents.removeValue(forKey: id) else { return false }
+    public mutating func remove(_ path: String) -> Bool {
+        guard let document = documents.removeValue(forKey: path) else { return false }
         for term in document.tokens.order {
-            postings[term]?.removeValue(forKey: id)
-            if postings[term]?.isEmpty == true {
-                postings.removeValue(forKey: term)
-            }
+            postings[term]?.removeValue(forKey: path)
+            if postings[term]?.isEmpty == true { postings.removeValue(forKey: term) }
         }
-        documentOrder.removeAll { $0 == id }
+        documentOrder.removeAll { $0 == path }
         totalLength -= document.length
         return true
-    }
-
-    public mutating func sync(_ facts: [BotMemoryFact]) {
-        let live = Set(facts.map { $0.factID.trimmingCharacters(in: .whitespacesAndNewlines) })
-        for id in documentOrder where !live.contains(id) {
-            _ = remove(id)
-        }
-        for fact in facts {
-            let id = fact.factID.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !id.isEmpty else { continue }
-            if documents[id]?.text != fact.text {
-                _ = add(fact)
-            } else {
-                documents[id]?.fact = fact
-                documents[id]?.learnedAtMS = fact.learnedAtMS
-            }
-        }
-    }
-
-    public static func normalizeImportance(_ value: Double) -> Double {
-        if !value.isFinite { return 0.5 }
-        if value <= 1 { return min(1, max(0, value)) }
-        if value <= 5 { return min(1, max(0, value / 5)) }
-        return 1
     }
 
     public func search(
         _ query: String = "",
         limit: Int = 40,
         now: Int64? = nil,
-        includeArchived: Bool = false
-    ) -> [BotMemoryRankedFact] {
-        let total = documents.count
-        if total == 0 { return [] }
+        includeScope: BotMemoryScope? = nil
+    ) -> [BotMemoryRecallHit] {
+        searchPage(query, limit: limit, now: now, includeScope: includeScope).hits
+    }
+
+    public func searchPage(
+        _ query: String = "",
+        limit: Int = 40,
+        now: Int64? = nil,
+        includeScope: BotMemoryScope? = nil
+    ) -> (hits: [BotMemoryRecallHit], total: Int) {
+        let totalDocuments = documents.count
+        if totalDocuments == 0 { return ([], 0) }
         let nowMS = now ?? Int64(Date().timeIntervalSince1970 * 1_000)
         let analysis = BotMemoryTokenizer.analyzeQuery(query)
         let blank = analysis.normalizedQuery.isEmpty
-        let latinOnly = analysis.cjkCharacters == 0 && analysis.latinWords >= 2
         var queryTerms: [QueryTerm] = []
         var seen: Set<String> = []
 
         func idf(_ df: Int) -> Double {
-            log(1 + (Double(total - df) + 0.5) / (Double(df) + 0.5))
+            log(1 + (Double(totalDocuments - df) + 0.5) / (Double(df) + 0.5))
         }
 
         func addQueryTerm(_ key: String, weight: Double) {
@@ -281,100 +221,116 @@ public struct BotMemoryRecallIndex {
             let weight = analysis.tokens.counts[key] ?? 1
             if key.hasPrefix("w:") && String(key.dropFirst(2)).utf16.count <= 2 {
                 addQueryTerm(key, weight: weight)
-                for expanded in prefixTerms(key) {
-                    addQueryTerm(expanded.key, weight: weight * 0.7)
-                }
+                for expanded in prefixTerms(key) { addQueryTerm(expanded.key, weight: weight * 0.7) }
             } else if postings[key] != nil {
                 addQueryTerm(key, weight: weight)
             } else {
-                for expanded in prefixTerms(key) {
-                    addQueryTerm(expanded.key, weight: weight * 0.7)
-                }
+                for expanded in prefixTerms(key) { addQueryTerm(expanded.key, weight: weight * 0.7) }
             }
         }
-        if !blank && queryTerms.isEmpty { return [] }
+        if !blank && queryTerms.isEmpty { return ([], 0) }
 
-        let averageDocumentLength = totalLength / Double(total)
-        let average = averageDocumentLength == 0 ? 1 : averageDocumentLength
-        let exactQuery = !blank
-            && analysis.normalizedQuery.rangeOfCharacter(from: .whitespacesAndNewlines) == nil
-            && analysis.normalizedQuery.utf16.count >= 2
-            ? analysis.normalizedQuery
-            : ""
+        let averageLength = totalLength / Double(totalDocuments)
+        let average = averageLength == 0 ? 1 : averageLength
         var candidates: [String: Candidate] = [:]
         for queryTerm in queryTerms {
             guard let posting = postings[queryTerm.key] else { continue }
-            for (id, termFrequency) in posting {
-                guard let document = documents[id] else { continue }
-                var candidate = candidates[id] ?? Candidate(document: document)
+            for (path, termFrequency) in posting {
+                guard let document = documents[path] else { continue }
+                var candidate = candidates[path] ?? Candidate(document: document)
                 let denominator = termFrequency + Self.bm25K1
                     * (1 - Self.bm25B + Self.bm25B * (document.length / average))
                 candidate.bm25 += queryTerm.weight * queryTerm.idf
                     * ((termFrequency * (Self.bm25K1 + 1)) / denominator)
-                candidate.matchedIDF += queryTerm.weight * (queryTerm.idf + 0.1)
                 candidate.termHits += 1
-                candidates[id] = candidate
+                candidates[path] = candidate
             }
         }
 
-        var ranked: [BotMemoryRankedFact] = []
+        var ranked: [BotMemoryRecallHit] = []
         func consider(_ document: Document, _ candidate: Candidate) {
-            guard BotMemoryVisibility.isActive(document.fact, now: nowMS) else { return }
-            let exact = !exactQuery.isEmpty && document.normalizedText.contains(exactQuery)
-            if !blank && !exact && total >= Self.smallCorpusSize && candidate.matchedIDF < Self.minimumMatchedIDF {
-                return
-            }
-            if !blank && !exact && latinOnly
-                && Double(candidate.termHits) / Double(queryTerms.count) < 0.5 {
-                return
-            }
+            if let includeScope, document.scope != includeScope { return }
+            let exact = !blank && document.normalizedContent.contains(analysis.normalizedQuery)
+            if !blank && !exact && candidate.bm25 <= 0 { return }
             let rawRelevance = candidate.bm25 > 0
                 ? candidate.bm25 / (candidate.bm25 + Self.bm25Saturation)
                 : 0
             let relevance = exact ? max(0.95, rawRelevance) : rawRelevance
-            let recency = document.learnedAtMS > 0
-                ? pow(0.5, max(0, Double(nowMS) - Double(document.learnedAtMS)) / Self.dayMS / Self.recencyHalfLifeDays)
+            let recency = document.updatedAtMS > 0
+                ? pow(0.5, max(0, Double(nowMS) - Double(document.updatedAtMS))
+                    / Self.dayMS / Self.recencyHalfLifeDays)
                 : 0
-            let importance = Self.normalizeImportance(document.fact.importance)
-            let score = Self.relevanceWeight * relevance
-                + Self.recencyWeight * recency
-                + Self.importanceWeight * importance
-            ranked.append(BotMemoryRankedFact(
-                fact: document.fact,
-                score: score,
-                relevance: relevance,
-                recency: recency,
-                importance: importance,
-                matched: candidate.bm25 > 0 || exact
-            ))
+            let score = Self.relevanceWeight * relevance + Self.recencyWeight * recency
+            ranked.append(BotMemoryRecallHit(
+                path: document.path,
+                scope: document.scope,
+                snippet: Self.snippet(document.content, query: query, normalizedQuery: analysis.normalizedQuery),
+                score: Self.round(score),
+                relevance: Self.round(relevance),
+                recency: Self.round(recency),
+                matched: blank ? false : (candidate.bm25 > 0 || exact),
+                updatedAtMS: document.updatedAtMS,
+                version: document.version,
+                evidence: document.evidence))
         }
 
         if blank {
-            for id in documentOrder {
-                guard let document = documents[id] else { continue }
+            for path in documentOrder {
+                guard let document = documents[path] else { continue }
                 consider(document, Candidate(document: document))
             }
         } else {
-            for id in documentOrder {
-                guard let candidate = candidates[id] else { continue }
+            for path in documentOrder {
+                guard let candidate = candidates[path] else { continue }
                 consider(candidate.document, candidate)
             }
         }
         ranked.sort { left, right in
             if left.score != right.score { return left.score > right.score }
-            if left.fact.learnedAtMS != right.fact.learnedAtMS {
-                return left.fact.learnedAtMS > right.fact.learnedAtMS
-            }
-            return left.fact.factID < right.fact.factID
+            if left.updatedAtMS != right.updatedAtMS { return left.updatedAtMS > right.updatedAtMS }
+            return left.path < right.path
         }
         let maximum = max(0, limit)
-        if includeArchived {
-            return Array(ranked.prefix(maximum))
+        return (Array(ranked.prefix(maximum)), ranked.count)
+    }
+
+    private static func round(_ value: Double) -> Double {
+        value.isFinite ? (value * 1_000_000).rounded() / 1_000_000 : 0
+    }
+
+    static func snippet(_ content: String, query: String, normalizedQuery: String) -> String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "（空）" }
+        let haystack = trimmed
+        var match: String.Index?
+        let pieces = query.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        for piece in pieces where !piece.isEmpty {
+            if let range = haystack.range(of: piece, options: [.caseInsensitive, .diacriticInsensitive]) {
+                match = range.lowerBound
+                break
+            }
         }
-        let archivedCount = documents.values.reduce(0) { $0 + ($1.fact.archived == true ? 1 : 0) }
-        return Array(ranked.prefix(maximum + archivedCount))
-            .filter { $0.fact.archived != true }
-            .prefix(maximum)
-            .map { $0 }
+        if match == nil, !normalizedQuery.isEmpty {
+            let normalized = BotMemoryTokenizer.normalize(haystack)
+            if let range = normalized.range(of: normalizedQuery) {
+                let offset = normalized[..<range.lowerBound].unicodeScalars.count
+                match = haystack.index(
+                    haystack.startIndex,
+                    offsetBy: min(offset, haystack.count))
+            }
+        }
+        let scalars = Array(trimmed.unicodeScalars)
+        let matchOffset: Int
+        if let match {
+            matchOffset = trimmed[..<match].unicodeScalars.count
+        } else {
+            matchOffset = 0
+        }
+        let start = max(0, min(scalars.count, matchOffset - 120))
+        let end = min(scalars.count, start + maximumSnippetScalars - 40)
+        var body = String(String.UnicodeScalarView(scalars[start..<end]))
+        if start > 0 { body = "…" + body }
+        if end < scalars.count { body += "…" }
+        return body
     }
 }

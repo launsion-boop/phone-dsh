@@ -104,16 +104,28 @@
   "memory": {
     "updateMemory": {
       "required": [
-        "action"
+        "action",
+        "path",
+        "expected_version"
       ],
       "properties": [
         "action",
-        "fact",
-        "fact_id",
-        "tier",
-        "scope",
-        "key",
+        "path",
+        "content",
+        "find",
+        "replace",
+        "to",
+        "expected_version",
+        "restore_version",
         "evidence"
+      ],
+      "actions": [
+        "write",
+        "append",
+        "replace",
+        "move",
+        "delete",
+        "restore"
       ],
       "evidence": {
         "type": "array",
@@ -124,9 +136,43 @@
         }
       },
       "descriptionContains": [
+        "expected_version",
         "evidence",
-        "user message"
+        "INDEX.md",
+        "agent/inbox"
       ]
-    }
+    },
+    "readMemory": {
+      "required": [
+        "path"
+      ],
+      "properties": [
+        "path",
+        "version"
+      ],
+      "descriptionContains": [
+        "document",
+        "directory",
+        "version"
+      ]
+    },
+    "recallMemory": {
+      "properties": [
+        "query",
+        "limit",
+        "scope"
+      ],
+      "descriptionContains": [
+        "path",
+        "snippet",
+        "evidence"
+      ]
+    },
+    "roots": [
+      "user",
+      "agent"
+    ],
+    "indexLimit": 1500,
+    "injectionTotalLimit": 4000
   }
 }

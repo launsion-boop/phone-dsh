@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-read",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "state": {
+    "documents": [
+      {
+        "path": "user/profile.md",
+        "scope": "user",
+        "content": "# Profile\n\n- 我叫小林",
+        "version": 2,
+        "updated_at_ms": 1760000005000,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [
+          "record://session/gb-main#3"
+        ],
+        "trust": "user"
+      },
+      {
+        "path": "agent/INDEX.md",
+        "scope": "agent",
+        "content": "# Index\n\n- profile.md",
+        "version": 1,
+        "updated_at_ms": 1760000006000,
+        "author": {
+          "bot_id": "bot-a",
+          "kind": "system"
+        },
+        "evidence": [],
+        "trust": "system"
+      },
+      {
+        "path": "agent/notes/routine.md",
+        "scope": "agent",
+        "content": "# routine\n\n- 工作日要早起",
+        "version": 1,
+        "updated_at_ms": 1760000007000,
+        "author": {
+          "bot_id": "bot-a",
+          "session_id": "gb-main",
+          "kind": "chat"
+        },
+        "evidence": [],
+        "trust": "assistant"
+      }
+    ],
+    "history": {
+      "user/profile.md": [
+        {
+          "version": 1,
+          "content": "# Profile\n\n- 我叫小林",
+          "deleted": false
+        },
+        {
+          "version": 2,
+          "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+          "deleted": false
+        }
+      ],
+      "agent/notes/routine.md": [
+        {
+          "version": 1,
+          "content": "# routine\n\n- 工作日要早起",
+          "deleted": false
+        }
+      ],
+      "agent/old.md": [
+        {
+          "version": 1,
+          "content": "old",
+          "deleted": false
+        },
+        {
+          "version": 2,
+          "content": "",
+          "deleted": true,
+          "deletion_reason": "forget"
+        }
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "read-document",
+      "request": {
+        "path": "user/profile.md"
+      },
+      "expect": {
+        "ok": true,
+        "kind": "document",
+        "version": 2,
+        "contentContains": "我叫小林"
+      }
+    },
+    {
+      "name": "read-historical-version",
+      "request": {
+        "path": "user/profile.md",
+        "version": 1
+      },
+      "expect": {
+        "ok": true,
+        "kind": "document",
+        "version": 1,
+        "contentContains": "我叫小林",
+        "contentExcludes": "简洁"
+      }
+    },
+    {
+      "name": "read-deleted-version",
+      "request": {
+        "path": "agent/old.md",
+        "version": 2
+      },
+      "expect": {
+        "ok": true,
+        "kind": "document",
+        "version": 2,
+        "deleted": true
+      }
+    },
+    {
+      "name": "list-root",
+      "request": {
+        "path": "agent"
+      },
+      "expect": {
+        "ok": true,
+        "kind": "directory",
+        "entries": [
+          "agent/INDEX.md",
+          "agent/notes"
+        ]
+      }
+    },
+    {
+      "name": "list-directory",
+      "request": {
+        "path": "agent/notes"
+      },
+      "expect": {
+        "ok": true,
+        "kind": "directory",
+        "entries": [
+          "agent/notes/routine.md"
+        ]
+      }
+    },
+    {
+      "name": "missing-document",
+      "request": {
+        "path": "agent/notes/missing.md"
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-not-found"
+      }
+    },
+    {
+      "name": "missing-version",
+      "request": {
+        "path": "user/profile.md",
+        "version": 9
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-version-not-found"
+      }
+    },
+    {
+      "name": "invalid-path",
+      "request": {
+        "path": "shared/profile.md"
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-path-invalid"
+      }
+    }
+  ]
+}

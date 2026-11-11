@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryReadResult v2",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["ok", "kind", "path", "scope", "version", "content", "updated_at_ms", "author", "evidence"],
+      "properties": {
+        "ok": {"const": true},
+        "kind": {"const": "document"},
+        "path": {"type": "string", "minLength": 3, "maxLength": 200},
+        "scope": {"enum": ["agent", "user"]},
+        "version": {"type": "integer", "minimum": 1},
+        "content": {"type": "string"},
+        "updated_at_ms": {"type": "integer", "minimum": 0},
+        "author": {"type": "object"},
+        "evidence": {"type": "array", "maxItems": 8, "items": {"type": "string"}},
+        "trust": {"type": "string"},
+        "deleted": {"const": true},
+        "deletion_reason": {"enum": ["forget", "erase"]}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["ok", "kind", "path", "scope", "entries"],
+      "properties": {
+        "ok": {"const": true},
+        "kind": {"const": "directory"},
+        "path": {"type": "string", "minLength": 3, "maxLength": 200},
+        "scope": {"enum": ["agent", "user"]},
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "name", "kind"],
+            "properties": {
+              "path": {"type": "string", "minLength": 3, "maxLength": 200},
+              "name": {"type": "string", "minLength": 1},
+              "kind": {"enum": ["document", "directory"]},
+              "version": {"type": "integer", "minimum": 1},
+              "updated_at_ms": {"type": "integer", "minimum": 0}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["ok", "code", "error"],
+      "properties": {
+        "ok": {"const": false},
+        "code": {"enum": ["memory-path-invalid", "memory-not-found", "memory-version-not-found"]},
+        "error": {"type": "string", "minLength": 1},
+        "path": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  ]
+}

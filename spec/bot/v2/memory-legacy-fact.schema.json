@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BotMemoryFact v2",
+  "title": "BotMemoryLegacyFact v1",
+  "description": "Pre-v2 fact payload read only by the one-time migration. The live model is a document tree; tier/scope here describes legacy input, not a writable memory shape.",
   "type": "object",
   "required": [
     "fact_id",

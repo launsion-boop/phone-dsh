@@ -125,7 +125,7 @@ MCP_EGRESS_INVALID_BOUNDARIES = {
 # runtime conformance evidence.
 CALLER_CATALOG_TOOLS = frozenset({
     "ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress",
-    "show_checklist", "show_link", "UpdateMemory", "RecallMemory", "Task", "AwaitTask",
+    "show_checklist", "show_link", "UpdateMemory", "ReadMemory", "RecallMemory", "Task", "AwaitTask",
     "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser",
     "BotVolatileContext", "FishAction", "SendToAgent", "CreateTeammate",
 })

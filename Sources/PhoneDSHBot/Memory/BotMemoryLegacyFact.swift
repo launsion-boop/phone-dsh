@@ -8,6 +8,8 @@ public enum BotMemoryScope: String, Codable, Sendable, CaseIterable {
     case user
 }
 
+/// Legacy fact shape. Only the one-time migration reads this; the live model
+/// is `BotMemoryDocument`.
 public enum BotMemoryTier: String, Codable, Sendable, CaseIterable {
     case profile
     case log
@@ -63,19 +65,6 @@ public struct BotMemorySource: Codable, Sendable, Equatable {
     }
 }
 
-public struct BotMemoryWriteContext: Sendable {
-    public let source: BotMemorySource
-    /// Trust the host derived from `evidence`. Absent means the caller is an
-    /// internal/migration write that predates the record-evidence rule; the
-    /// MCP tool path always supplies it.
-    public let trust: BotRecordTrust?
-
-    init(source: BotMemorySource, trust: BotRecordTrust? = nil) {
-        self.source = source
-        self.trust = trust
-    }
-}
-
 public struct BotMemorySourceState: Sendable, Equatable {
     public private(set) var kind: BotMemorySourceKind
 
@@ -103,7 +92,6 @@ public struct BotMemoryFact: Codable, Sendable, Equatable, Identifiable {
     public var lastUsedMS: Int64
     public var extractor: String?
     public var source: BotMemorySource?
-    /// Canonical `record://` references this fact was learned from.
     public var evidence: [String]?
     public var supersededBy: String?
     public var expiresAt: Int64?
@@ -222,128 +210,16 @@ public enum BotMemoryPromptLanguage: String, Codable, Sendable {
     case en
 }
 
-public struct BotMemoryFactNormalization: Codable, Sendable, Equatable {
-    public let ok: Bool
-    public let code: String?
-    public let text: String
-    public let chars: Int?
-    public let error: String?
-
-    public init(ok: Bool, code: String?, text: String, chars: Int?, error: String?) {
-        self.ok = ok
-        self.code = code
-        self.text = text
-        self.chars = chars
-        self.error = error
-    }
-}
-
-public enum BotMemoryNormalizer {
-    public static let maximumFactCodePoints = 2_000
-    public static let maximumConditionCodePoints = 80
-
-    public static func normalizeFactText(
-        _ value: String,
-        language: BotMemoryPromptLanguage = .zh
-    ) -> BotMemoryFactNormalization {
-        let text = BotMemoryText.foldFactLines(value)
-        if text.isEmpty {
-            return BotMemoryFactNormalization(
-                ok: false,
-                code: "empty",
-                text: "",
-                chars: nil,
-                error: bilingual(
-                    language,
-                    zh: "事實不能為空，未寫入。",
-                    en: "A memory fact cannot be empty; nothing was written."
-                )
-            )
-        }
-        let chars = BotMemoryText.codePointCount(text)
-        if chars > maximumFactCodePoints {
-            return BotMemoryFactNormalization(
-                ok: false,
-                code: "too-long",
-                text: text,
-                chars: chars,
-                error: bilingual(
-                    language,
-                    zh: "事實有 \(chars) 字，超過 \(maximumFactCodePoints) 字上限，未寫入。",
-                    en: "The fact has \(chars) characters, exceeding the \(maximumFactCodePoints)-character limit; nothing was written."
-                )
-            )
-        }
-        return BotMemoryFactNormalization(ok: true, code: nil, text: text, chars: chars, error: nil)
-    }
-
-    public static func normalizeForgetText(_ value: String) -> String {
-        BotMemoryText.normalizedForgetText(value)
-    }
-
-    public static func normalizeConditionText(_ value: String?) -> String {
-        BotMemoryText.normalizedCondition(value)
-    }
-
-    static func bilingual(
-        _ language: BotMemoryPromptLanguage,
-        zh: String,
-        en: String
-    ) -> String {
-        language == .en ? "\(en) / \(zh)" : "\(zh) / \(en)"
-    }
-}
-
 enum BotMemoryText {
     static let lineBreaks = CharacterSet(charactersIn: "\r\n\u{2028}\u{2029}\u{0085}\u{000B}\u{000C}")
     static let whitespace = CharacterSet.whitespacesAndNewlines
 
-    static func foldFactLines(_ value: String) -> String {
-        var parts: [String] = []
-        var current = ""
-        func flush() {
-            let part = current.trimmingCharacters(in: whitespace)
-            if !part.isEmpty {
-                parts.append(part)
-            }
-            current = ""
-        }
-        for scalar in value.unicodeScalars {
-            if lineBreaks.contains(scalar) {
-                flush()
-            } else {
-                current.append(contentsOf: String(scalar))
-            }
-        }
-        flush()
-        return parts.joined(separator: "；").trimmingCharacters(in: whitespace)
-    }
-
-    static func normalizedForgetText(_ value: String) -> String {
-        var result = foldFactLines(value)
-        for pattern in [#"^[-*•]\s+"#, #"^\d+[.)]\s+"#, #"^\*\*[^*]+\*\*:\s*"#] {
-            result = replacing(pattern, in: result, with: "")
-        }
-        return result.trimmingCharacters(in: whitespace)
-    }
-
-    static func normalizedCondition(_ value: String?) -> String {
-        guard let value else { return "" }
-        let normalized = value.precomposedStringWithCompatibilityMapping
-            .components(separatedBy: whitespace)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-        return prefixCodePoints(normalized, BotMemoryNormalizer.maximumConditionCodePoints)
-    }
-
-    static func replacing(_ pattern: String, in text: String, with template: String) -> String {
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return text }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return expression.stringByReplacingMatches(in: text, range: range, withTemplate: template)
-    }
-
     static func codePointCount(_ text: String) -> Int {
         text.unicodeScalars.count
+    }
+
+    static func utf16Count(_ text: String) -> Int {
+        text.utf16.count
     }
 
     static func prefixCodePoints(_ text: String, _ count: Int) -> String {
@@ -354,38 +230,11 @@ enum BotMemoryText {
         return result
     }
 
-    static func utf16Count(_ text: String) -> Int {
-        text.utf16.count
-    }
-
-    static func utf16Prefix(_ text: String, _ maximumUnits: Int) -> String {
-        guard maximumUnits > 0 else { return "" }
-        var used = 0
-        var result = ""
-        for scalar in text.unicodeScalars {
-            let width = String(scalar).utf16.count
-            if used + width > maximumUnits {
-                break
-            }
-            result.append(contentsOf: String(scalar))
-            used += width
-        }
-        return result
-    }
-
     static func trimEnd(_ text: String) -> String {
         var result = text
         while let scalar = result.unicodeScalars.last, whitespace.contains(scalar) {
             result.removeLast()
         }
         return result
-    }
-
-    static func clip(_ text: String, _ maximumUnits: Int) -> String {
-        if maximumUnits == 0 || utf16Count(text) <= maximumUnits {
-            return text
-        }
-        let prefix = utf16Prefix(text, max(0, maximumUnits - 1))
-        return trimEnd(prefix) + "…"
     }
 }

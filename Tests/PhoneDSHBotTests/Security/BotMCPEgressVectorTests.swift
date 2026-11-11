@@ -196,8 +196,9 @@ final class BotMCPEgressVectorTests: XCTestCase {
         case "UpdateMemory":
             return .object([
                 "action": .string("write"),
-                "fact": .string("vector fact"),
-                "scope": .string("agent"),
+                "path": .string("agent/notes/vector.md"),
+                "content": .string("vector fact"),
+                "expected_version": .number(0),
             ])
         case BotToolCatalog.fishActionName:
             return .object(["action": .string(BotToolCatalog.fishActions[0])])

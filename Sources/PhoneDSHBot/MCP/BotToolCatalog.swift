@@ -5,7 +5,7 @@ import Foundation
 public enum BotToolCatalog {
     public static let p0Names = [
         "ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress",
-        "show_checklist", "show_link", "UpdateMemory", "RecallMemory", "Task", "AwaitTask",
+        "show_checklist", "show_link", "UpdateMemory", "ReadMemory", "RecallMemory", "Task", "AwaitTask",
         "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser",
     ]
     public static let p1TargetNames = ["show_table", "show_callout", "show_info", "show_payload", "show_library"]
@@ -73,14 +73,18 @@ public enum BotToolCatalog {
                 "kind": enumString(["doc", "repo", "article", "video", "tool", "other"]),
             ], required: ["url"]), minItems: 1, maxItems: 4),
         ], required: ["links"], additionalProperties: false)),
-        tool("UpdateMemory", "Write or forget one durable memory fact. Evidence is a list of record:// references to the records you relied on; a user/profile write needs at least one that points to a user message.", schema([
-            "action": .object(["type": .string("string"), "enum": .array([.string("write"), .string("forget")])]),
-            "fact": string(), "fact_id": string(),
-            "tier": .object(["type": .string("string"), "enum": .array([.string("profile"), .string("log"), .string("note")]), "default": .string("log")]),
-            "scope": enumString(["agent", "user"]), "key": string(),
+        tool("UpdateMemory", "Write, locally modify, move, delete or restore one Markdown memory document. Memory has exactly two roots: user/ (about the user, shared and visible to every Bot) and agent/ (this Bot's own working knowledge, invisible to other Bots). You choose subdirectories and length; there is no tier. Every call must carry the expected_version you just read (0 means the document must not exist); a stale version is rejected. A write to user/ needs a real user turn and at least one evidence reference to a user message. Each root's INDEX.md is injected every turn and is capped at 1,500 characters; an over-limit write is rejected. Keep verified rules, decisions and commitments, preferences, strategies and reasons; do not copy what raw records already hold — leave a record:// reference when you need the exact source. Task and routine sessions may only write agent/inbox/<their own session>/.", schema([
+            "action": enumString(["write", "append", "replace", "move", "delete", "restore"]),
+            "path": string(), "content": string(), "find": string(), "replace": string(), "to": string(),
+            "expected_version": .object(["type": .string("integer"), "minimum": .number(0)]),
+            "restore_version": .object(["type": .string("integer"), "minimum": .number(1)]),
             "evidence": array(string(), maxItems: 8),
-        ], additionalProperties: false)),
-        tool("RecallMemory", "Search durable memory in agent and user scopes.", schema([
+        ], required: ["action", "path", "expected_version"], additionalProperties: false)),
+        tool("ReadMemory", "Read one memory document (optionally a historical version) or list a directory under user/ or agent/. Paths and versions come from the same durable authority as the injected INDEX.md.", schema([
+            "path": string(),
+            "version": .object(["type": .string("integer"), "minimum": .number(1)]),
+        ], required: ["path"], additionalProperties: false)),
+        tool("RecallMemory", "Search memory document bodies with BM25 and CJK tokenization. Returns the path, a snippet and the document's evidence references; agent hits are this Bot's only, user hits are shared.", schema([
             "query": string(), "limit": .object(["type": .string("number"), "minimum": .number(1), "maximum": .number(50)]),
             "scope": enumString(["agent", "user", "all"]),
         ], additionalProperties: false)),
