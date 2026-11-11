@@ -259,10 +259,17 @@ Named so that a Kotlin engineer does not invent them locally.
 ## 10. Durable send outbox (P06, W1)
 
 The UI→host send path is host behaviour above the worker contract (§9 row J2 is the *ingress* queue
-for device commands; this is the user's outgoing message queue and has its own boundary). For all
-backends it is one durable queue with the same observable rules.
+for device commands; this is the user's outgoing message queue and has its own boundary). For the
+local App-container backend it is one durable queue with the same observable rules.
 
-**Scope (W1 rev 4, 2026-11-12; owner-authorized).** Text prompts and attachment sends use **one**
+**Scope (W1 rev 5, 2026-11-12; owner-authorized).** The durable outbox, its state machine, `rpcId`
+and delete condition apply to the **local App-container backend**. The `pc` backend stays on its
+pre-W1 direct path this round and is **not** crash-durable; it has no contract-defined
+authoritative-history equivalent for the delete condition (GAP-40). The schema still accepts
+`backend: "pc"` for forward compatibility, but this round no producer writes a pc entry and no pc
+entry carries the durable guarantee.
+
+Text prompts and attachment sends use **one**
 outbox, the same `queued → submitting → accepted → durable` + `outcomeUnknown` machine, the same
 enqueue-time lowercase UUIDv4 `rpcId`, and the same delete condition: an entry is deleted only
 after authoritative history contains a `user_message` whose `source.rpcId` equals it and the
@@ -332,9 +339,10 @@ references plus minimal metadata, never inline bytes.
   `rpcId`. An entry whose attachment files were partially written is not resumable until the files
   are complete and digest-verified; its partial files are treated as the missing case above, never
   as inline bytes.
-- **Backends.** `backend: local` and `backend: pc` use the same entry shape and machine; the PC
-  path keeps its existing workspace/session scope. A backend switch never moves an entry to a
-  different session.
+- **Backends.** Only `backend: local` is on the durable outbox this round. The `pc` backend keeps
+  its existing pre-W1 direct path, workspace/session scope and transport; it is not crash-durable
+  and is out of scope until GAP-40 defines an authoritative-history equivalent. A backend switch
+  never moves an entry to a different session.
 - **No UI restriction.** The queue never refuses a send for a closed admission, an engine that is
   starting, or a running turn; it accepts and shows `queued`. The only new visible state is the
   existing "排队中" (queued) projection.

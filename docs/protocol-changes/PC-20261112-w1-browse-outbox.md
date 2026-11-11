@@ -8,9 +8,9 @@ change: PC-20261112-w1-browse-outbox
 contracts: [P02, P06, P18]
 status: frozen
 breaking: false
-version_decision: 無 proto 版本變更。W1 rev 3 在 host 私有 `send-outbox` entry 新增可選 `attachments[]`（引用＋metadata，非 inline bytes）；W1 rev 4 允許 `text:""` 當且僅當 attachments 非空，並把 `attachments` 上限改為 20（鏡像 host `imageLimits.maxImagesPerMessage` 的 fallback）。舊 text-only entry 仍合法可讀；舊 consumer 的 closed schema 會拒絕帶 attachments 的新 entry，這是同容器 App-only 邊界；回滾不得刪除或文字化降級排隊中的 attachment entry。materialized 寫入禁令、outbox 狀態機與 `rpcId` 不變，不改 P01 frame、P06 event 或 P18 既有設定鍵。
+version_decision: 無 proto 版本變更。W1 rev 3 在 host 私有 `send-outbox` entry 新增可選 `attachments[]`（引用＋metadata，非 inline bytes）；W1 rev 4 允許 `text:""` 當且僅當 attachments 非空，並把 `attachments` 上限改為 20；W1 rev 5 只把 durable outbox 的 backend scope 限定為 local App-container，pc backend 留在 pre-W1 direct path 並登記 GAP-40。舊 text-only entry 仍合法可讀；舊 consumer 的 closed schema 會拒絕帶 attachments 的新 entry，這是同容器 App-only 邊界；回滾不得刪除或文字化降級排隊中的 attachment entry。materialized 寫入禁令、outbox 狀態機與 `rpcId` 不變，不改 P01 frame、P06 event 或 P18 既有設定鍵。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: spec/host/v1/README.md@2026-11-12-rev4 + spec/host/v1/schema/outbox-entry.schema.json@rev4 + spec/README.md@GAP-40 + spec/host/v1/{golden,tools}/outbox*@rev4（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2/3/4 freeze commit 見交接 head）
+contract_revision: spec/host/v1/README.md@2026-11-12-rev5 + spec/host/v1/schema/outbox-entry.schema.json@rev4（本 rev 5 不改 schema）+ spec/README.md@GAP-40（pc backend 已列入）+ spec/host/v1/{golden,tools}/outbox*@rev4（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2/3/4/5 freeze commit 見交接 head）
 ```
 
 ## 1. 識別與角色
@@ -204,7 +204,7 @@ Status: **frozen**（rev 3）。Trigger: **owner override（sequence 40830）**�
 - **共享 fixtures**：正向 `outbox-entry-attachment.json`（1 個）、`outbox-entry-attachments-multiple.json`（2 個）；負向 inline bytes、未知 kind、缺 storePath、legacy shape、duplicate id、missing store file、digest mismatch；transition cases 不變。
 - **驗收命令**：`python3 spec/host/v1/tools/host_check.py --root .`、`python3 -m unittest spec.host.v1.tools.test_outbox_contract`、`python3 spec/v1/tools/spec_golden.py --full`，以及 Linux 可跑的 spec gates。Swift/XCTest 與真機 crash/digest 測試在本環境 NOT_RUN。
 
-## 7. Rev 4 — attachment-only sends and attachment-count bound, 2026-11-12
+## 7. Rev 4 — attachment-only sends and attachment-count bound, 2026-11-12（schema/store/crash 仍有效；pc backend scope 由 Rev 5 限定）
 
 Status: **frozen**（rev 4）。Trigger: `w1-browse-attachments` 的 CONTRACT CHANGE REQUEST（lead 已接受）。
 Scope: 只放寬兩個 composer 邊界（empty text 條件、attachment 上限），不改 Rev 3 的 store／lifecycle／crash 規則。這是 additive contract amendment，不是 schema 放寬到無界。
@@ -277,7 +277,61 @@ I am proceeding with the store/GC/digest/deletion work that is unambiguous; thes
 
 **版本決定**：無 proto bump。`text` 的 relaxation 只對 new→new 有效；old consumer 本來就拒絕 attachment entry。`maxItems` 由 8→20 是 host-declared image limit 的鏡像；沒有無界放寬。`breaking: false`（舊資料可讀、member additive），但矩陣明示 old consumer 的拒絕與回滾限制。
 
-## 8. 修訂紀錄
+## 8. Rev 5 — local-backend scope amendment, 2026-11-12
+
+Status: **frozen**（rev 5）。Trigger: lead 的 CONTRACT CHANGE REQUEST（sequence 41514），基於 `w1-outbox-conformance` 對 `79a91cc3` 的 106/106 Linux 檢查。Scope: 只改 §10 的 backend scope 與 GAP-40；**不改任何 schema、欄位、enum、count、store path、crash/digest 規則或預算**。Rev 4 仍是 local backend 的實作目標。
+
+### 8.1 Trigger → 現況 → 期望
+
+- **Trigger.** `host/v1/README.md` §10 原文說 durable queue「For all backends」，且 `backend: local` 與 `backend: pc` 用同一 entry shape/machine；但交付的 App 只在 `pcRuntime == nil` 的 local 分支 enqueue，`pcRuntime != nil` 仍走 `sendDirect`。pc transport 沒有 local `materialized/home/sessions` 的 authoritative history，契約的 delete condition（權威 `source.rpcId` 且 durable）在 pc 沒有定義的 referent。
+- **現況.** 文字與附件在 local backend 已走 durable outbox（`79a91cc3`，106/106 Linux conformance）；pc backend 是 pre-W1 direct path，不是 crash-durable。契約文字與交付行為不一致，不能留給呼叫方自行解讀。
+- **期望.** §10 明示 durable outbox／state machine／`rpcId`／delete condition 只適用 **local App-container backend**；`pc` backend 本輪留在 pre-W1 direct path、不是 crash-durable，並在 GAP-40 登記「pc backend 不在 durable outbox；沒有 contract-defined authoritative-history 等價物」。不改 Rev 4 schema／fixtures／store／crash 規則。
+
+### 8.2 CCR 原文（lead → contract owner，sequence 41514）
+
+```text
+CONTRACT CHANGE REQUEST (lead → contract owner) — W1 §10 backend scope, minimal Rev 5.
+
+Trigger: the read-only conformance unit checked the delivered `79a91cc3` encoder against your Rev 4 freeze (`81cc9c06`) — 106/106 Linux checks passed, including the 5 positive shapes and the required negatives. But it found a text-vs-code contradiction that I will not hand to the caller unresolved:
+
+- `spec/host/v1/README.md` §10 (and the backends paragraph) says the durable queue applies "for all backends" and that `local` and `pc` use the same entry shape/state machine.
+- The delivered App code (`examples/probe-app/PhoneDSHProbe/ChatModel.swift`, PC branch at the `pcRuntime != nil` send path) still calls the direct `sendDirect` path and only the `local` backend ever enqueues (`backend: .local`). The unit's brief from me said "PC 工作區（pcRuntime != nil）的行為不變", and that is what was implemented and accepted.
+- The pc transport has no local `materialized/home/sessions` authoritative history, so the contract's delete condition (authoritative `source.rpcId` present **and** durable) has no defined referent there.
+
+Requested minimal Rev 5 amendment (no implementation, `spec/` + `docs/protocol-changes/` only):
+1. Scope §10 explicitly to the local App-container backend: the durable outbox, its state machine, `rpcId` and delete condition apply to the local backend; the `pc` backend stays on its pre-W1 direct path this round and is NOT crash-durable.
+2. Register that in GAP-40 (or a new GAP) as a named open gap: "pc backend not on the durable outbox; no contract-defined authoritative-history equivalent" — so a later round can add it without re-opening this revision.
+3. Do not change any other normative text: no field, no enum, no count, no store path, no crash/digest rule, no budget. Keep `additionalProperties:false` and the rev-4 oneOf exactly as frozen.
+4. Compatibility matrix: add one row for the pc backend stating it is unchanged and out of scope, and that no existing data changes semantics.
+5. Note in the record (not as new normative text) that duplicate attachment `id` is enforced by the attachment law + decoder, not by schema `uniqueItems`, and that a host-declared `maxImagesPerMessage > 20` must be treated as > store bound (composer should cap at min(host, 20)) — those two are the conformance report's F1/F4; keep them as recorded limitations unless you can express them without widening the schema.
+
+Constraints: base still `d988108c1`; your new freeze commit must be a child of `81cc9c06` so assembly can pair it with `79a91cc3` unchanged. Rerun the same spec checks you ran for Rev 4 and report real output. This supersedes nothing else; Rev 4 remains the implementation target for the local backend.
+```
+
+### 8.3 決定
+
+1. **Backend scope.** Durable outbox、`queued → submitting → accepted → durable` + `outcomeUnknown`、`rpcId`、delete condition 只適用 **local App-container backend**。`pc` backend 本輪保留 pre-W1 direct path、workspace/session scope 與 transport，**不是 crash-durable**。
+2. **GAP-40 擴充.** 新增 named open gap：「pc backend not on the durable outbox; no contract-defined authoritative-history equivalent」。由 P06 owner 另外註冊 pc 的權威歷史等價物與 durable 語義；不得把本 amendment 當成 pc 已完成。
+3. **Schema 不變.** Rev 4 的 `oneOf`、`attachments` maxItems 20、`additionalProperties:false`、store path、crash/digest 規則、預算全部保持；`backend: "pc"` 仍在 enum 中接受，但本輪沒有 producer 寫 pc entry，也不帶 durable 保證。
+4. **兼容矩陣加 pc 一列.** pc 不變、out of scope；沒有既有資料改變語義。
+5. **F1／F4 只記錄，不改 schema。** duplicate attachment `id` 由 attachment law + decoder 強制，**不是** schema `uniqueItems`；host-declared `maxImagesPerMessage > 20` 視為超過 store bound，composer 應取 `min(host, 20)`。兩者不需要 schema widening，保留為 recorded limitations。
+
+### 8.4 兼容性（pc backend 一列）
+
+| Producer → Consumer | 支援／拒絕方式及理由 |
+| --- | --- |
+| pc backend → local contract | **Out of scope, unchanged.** pc 仍走 pre-W1 direct path，沒有 outbox entry、沒有 `rpcId` 持久化、沒有 crash-durability；pc 的 workspace/session 行為與 Rev 4 之前完全相同。沒有既有 pc 資料被改寫、刪除或搬移。 |
+
+其餘四格與 Rev 4 相同（old text-only entry 可讀；old consumer 拒絕 attachment entry；new→new 同一 queue；persisted old data 無 migration）。Rev 5 不改變任何 entry 的 bytes 或 schema，所以 local 的兼容性不變。
+
+**版本決定**：無 proto bump。只改 backend scope 與 GAP 文字；schema／fixtures／store／crash 都不動。pc entry 的 `backend: "pc"` enum 保留是 forward compatibility，不是本輪的 durable 承諾。
+
+### 8.5 已記錄的 conformance limitations（F1／F4）
+
+- **F1 duplicate attachment id.** Schema 沒有 `uniqueItems`（它只能比較完整物件，不能比較 `id`）；由 `test_outbox_contract.py` 的 attachment law 與 App decoder 拒絕。這不是 schema 缺口，但 schema-only 消費端必須自己實作同一檢查。
+- **F4 host image limit > 20.** 若 host 宣告 `maxImagesPerMessage > 20`，entry 仍受 schema `maxItems: 20` 限制；composer 必須取 `min(host, 20)`，不得送出 21+。這是 store bound 優先，不是 host 宣告被忽略。
+
+## 9. 修訂紀錄
 
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
@@ -285,3 +339,4 @@ I am proceeding with the store/GC/digest/deletion work that is unambiguous; thes
 | 2（本檔） | contracts | 接受 w1-browse 的 CONTRACT CHANGE REQUEST：text-only scope；新增 GAP-40 | all（amendment 公告） |
 | 3（本檔） | contracts | **owner override（sequence 40830）**：撤銷 text-only，attachment send 接入同一 durable outbox（optional `attachments`、outbox-owned store、crash/digest 規則、四格兼容矩陣）；GAP-40 改為跨端／抹除未覆蓋項 | all（amendment 公告） |
 | 4（本檔） | contracts | 接受 w1-browse-attachments 的 CCR：`text:""` iff attachments 非空（oneOf），`attachments` 上限 8→20（鏡像 host `maxImagesPerMessage` fallback），不加 UI refusal／synthetic caption | all（amendment 公告） |
+| 5（本檔） | contracts | 接受 lead 的 CCR：durable outbox scope 限 local；pc backend 留 pre-W1 direct path 並列入 GAP-40；不改 schema；記錄 F1 duplicate-id law 與 F4 host>20 cap | all（amendment 公告） |
