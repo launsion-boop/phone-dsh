@@ -8,8 +8,8 @@
 2. **不放寬門禁。** 不要調高行數上限、擴大白名單、刪 fixture，也不要跳過檢查。放不下的內容拆成新檔案，
    例如 `spec/ui/v1/interaction.md`。檢查器本身有誤判時，修的是判斷的精度（例如 schema_diff 改成逐個比較
    `oneOf` 分支），而不是放過這個情況。
-3. **main 上已有的紅燈。** 截至 2026-11-12：`page-structure` 有 7 個差異；`android-structure` 的 readme-map
-   沒有登記 Bot/PCLink/Venus。跑門禁時要確認紅燈只來自這些，並如實回報，不要順手改。
+3. **已有的紅燈。** 截至 2026-11-12（`feat/android-parity`）：`phone-p0-conformance` 的 `page-structure` 只剩 6 個差異，
+   全是 PCLink 頁面（GAP-35，C5 關閉）；`phone-hygiene` 有既存 findings。跑門禁時要確認紅燈只來自這些，並如實回報，不要順手改。
 4. **用共享 golden 測真實程式碼。** Android 測試從磁碟讀 `spec/**/golden`，不要把案例手抄進 Kotlin。
 5. **動畫要播完才卸載。** 宿主用條件掛載（`if (open)`）會讓收起動畫被跳過。元件必須等動畫結束、
    回報 `onClose` 之後才離場。
