@@ -146,16 +146,19 @@ android/
 | PhoneDSHWire | `com.phonedsh.wire` | `:core` | mapped | 合并进 `:core`；纯字节/金标 |
 | PhoneDSHLog | `com.phonedsh.log` | `:core` | mapped | 合并进 `:core` |
 | PhoneDSHLoopback | `com.phonedsh.loopback` | `:net` | mapped | 合并进 `:net` |
+| PhoneDSHPCLink | — | — | absent | Android 无 Kotlin 实现（GAP-35）；路线图第 2 波计划建立 PCLink Kotlin 模块（线上协议 → 配对 → workspace） |
 | PhoneDSHGateway | `com.phonedsh.gateway` | `:net` | mapped | 合并进 `:net` |
 | PhoneDSHController | `com.phonedsh.controller` | `:controller` | mapped | 包与模块结构对应，不表示 API 或行为完全一致 |
 | PhoneDSHEngine | `com.phonedsh.engine` | `:engine` | mapped | 包与模块结构对应；包含 WebView / EngineHost |
 | PhoneDSHShell | `com.phonedsh.shell` | `:shell` | mapped | 包与模块结构对应；包含 JNI 绑定 |
+| PhoneDSHVenus | — | — | absent | Android 无 Kotlin 实现；路线图第 4 波计划移植 UI-Venus（TonoLink 语音在第 3 波） |
 | PhoneDSH | `com.phonedsh.dsh` | `:dsh` | mapped | DSH 实现在子包；根包仅为 marker，不能据此声称门面完成 |
 | PhoneDSHScenario | `com.phonedsh.testkit.scenario` | `:testkit` | mapped | 合并进 `:testkit` |
 | PhoneDSHHarness | `com.phonedsh.testkit.harness` | `:testkit` | mapped | 合并进 `:testkit` |
 | PhoneDSHADB | `com.phonedsh.adb` | `:net` | mapped | 合并进 `:net`；`/mcp/native` 的 26 个 android_* 工具、RSA 身份（SecureStore）、回执与设置页；无 Worker `adb push/pull/stat` 加速器（见 PC-20261108-android-adb-host） |
 | PhoneDSHSSH | `com.phonedsh.ssh` | `:app` | mapped | 原生 `ssh`/`scp` 加速器（JSch + Bouncy Castle，仅在 `:app`，不进 AAR）；设置页「SSH 主机」，凭据走 Android Keystore；见 `docs/native-ssh.md` |
 | PhoneDSHBLE | `com.phonedsh.domain.connector.ble` | `:domain` | target | 仅未接线的 Link 编解码与状态机；没有 GATT、授权或设备任务 |
+| PhoneDSHBot | — | — | absent | Android 无 Kotlin 实现；路线图第 4 波计划移植 Bot runtime（memory → routines/wake → proactive → MCP → team）及 Bot tab、大肥鱼 |
 | PhoneDSHLAN | `com.phonedsh.domain.connector.lan` | `:domain` | target | 状态列由 `spec/platform/android-module-map.json` 拥有，待契约 owner 更新为 partial。有界 DNS 报文解析＋DNS-SD 折叠＋候选解码（`:domain`），`:app` 的 `AndroidLanDiscovery` 在 Wi-Fi 上做用户发起的 mDNS 扫描并列出未验证候选；不连接、不授权、不持久化（见 PC-20261108-android-lan-mdns） |
 | PhoneDSHDeviceTasks | — | — | absent | Android 无对应实现 |
 

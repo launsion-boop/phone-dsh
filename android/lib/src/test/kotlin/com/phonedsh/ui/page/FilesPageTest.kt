@@ -200,8 +200,10 @@ class FilesPageTest {
         assertEquals(0, backs)
     }
 
-    // The viewer and importer are host actions: absent callbacks remain visible
-    // but disabled, never routed to a fake sheet or a no-op.
+    // The demo entry is always live: with no host viewer the page opens its own
+    // sheet (`FilesPage.swift:60`–`:75`), whose 完成 dismisses it — the baseline's
+    // `showingDemo = false`. The importer stays a host seam and is disabled without
+    // a picker.
     @Test
     fun `the demo entry is drawn even when the host offers no demo`() {
         show(FilesScreenState.from(FilesSource(files = files)))
@@ -209,9 +211,12 @@ class FilesPageTest {
     }
 
     @Test
-    fun `the demo entry is disabled when the host offers no native viewer`() {
+    fun `the page's own demo sheet opens and its 完成 closes it`() {
         show(FilesScreenState.from(FilesSource(files = files)))
-        compose.onNodeWithTag(UiPageTags.FILES_DEMO).assertIsNotEnabled()
+        compose.onNodeWithTag(UiPageTags.FILES_DEMO).performClick()
+        compose.onNodeWithText(UiStrings.PREVIEW_REASON_MODEL).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.FILES_DEMO_DONE).assertIsDisplayed().performClick()
+        compose.onNodeWithText(UiStrings.PREVIEW_REASON_MODEL).assertDoesNotExist()
     }
 
     @Test
