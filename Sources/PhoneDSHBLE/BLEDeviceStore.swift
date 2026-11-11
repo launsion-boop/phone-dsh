@@ -406,10 +406,12 @@ import PhoneDSHAgentCore
             publishStatus(revision, "蓝牙不可用，状态：\(state.rawValue)", eligible: { self.managerMatches(state) })
         }
     }
-    private func recordDiscovery(_ id: UUID, physical: AnyObject, name: String, rssi: Int) {
+    /// `present` is false for a remembered board that is only *known* (retrievePeripherals), not
+    /// seen: connecting to an absent board would time out and leave it quarantined (ble-link.md).
+    private func recordDiscovery(_ id: UUID, physical: AnyObject, name: String, rssi: Int, present: Bool = true) {
         guard peripherals[id] != nil || devices.contains(where: { $0.id == id }) || devices.count < 100 || priorityIDs.contains(id) else { return }
         defer {
-            if autoConnectIDs.contains(id), owner(id).phase == .idle {
+            if present, autoConnectIDs.contains(id), owner(id).phase == .idle {
                 autoConnectIDs.remove(id)
                 Task { @MainActor [weak self] in self?.connect(id) }
             }
@@ -444,10 +446,14 @@ import PhoneDSHAgentCore
         guard let central else { return }
         let connected = central.retrieveConnectedPeripherals(withServices: [CBUUID(string: PDSHLink.service)])
         let remembered = trustConnectedDevices ? central.retrievePeripherals(withIdentifiers: trustMemory.rememberedBoards()) : []
+        let present = Set(connected.map(\.identifier))
         var seen = Set<UUID>()
         for peripheral in connected + remembered where seen.insert(peripheral.identifier).inserted {
             priorityIDs.insert(peripheral.identifier)
-            recordDiscovery(peripheral.identifier, physical: peripheral, name: peripheral.name ?? "PDSH 设备", rssi: 0)
+            // Listed either way; connected only when present (system-connected now, or its advertisement later).
+            recordDiscovery(peripheral.identifier, physical: peripheral, name: peripheral.name ?? "PDSH 设备", rssi: 0,
+                            present: Self.rememberedBoardIsPresent(systemConnected: present.contains(peripheral.identifier),
+                                                                   advertised: false))
         }
     }
 
@@ -845,19 +851,42 @@ import PhoneDSHAgentCore
     /// A remembered board that dropped (rebooted, out of range) is reconnected after the
     /// disconnect callback has completely returned (never inside it, ble-link.md), through the
     /// ordinary connect path. A board the user disconnected is no longer remembered.
+    /// A remembered board is connected only when it is really there: connected at the system
+    /// level (it rejoins as the iPhone's HID accessory), or seen advertising. A connect to an
+    /// absent board times out, and a timed-out pending connect is quarantined until the app
+    /// restarts (ble-link.md "Closing … quarantined"), so it is never submitted blind.
+    public nonisolated static func rememberedBoardIsPresent(systemConnected: Bool, advertised: Bool) -> Bool {
+        systemConnected || advertised
+    }
+
+    /// Watches for a remembered board after a drop: every 3 s for a minute, then every 15 s for
+    /// five more (a reboot or a walk out of range), connecting the moment it is present.
     private func scheduleRememberedReconnect(_ id: UUID) {
         guard trustConnectedDevices, trustMemory.rememberedBoards().contains(id) else { return }
         Task { @MainActor [weak self] in
-            for _ in 0..<20 {
-                try? await Task.sleep(for: .seconds(3))
+            for attempt in 0..<40 {
+                try? await Task.sleep(for: .seconds(attempt < 20 ? 3 : 15))
                 guard let self, self.poweredOn, self.trustMemory.rememberedBoards().contains(id) else { return }
                 if self.owner(id).phase == .idle {
-                    if let peripheral = self.peripherals[id], peripheral.state == .disconnected { self.connect(id) }
-                    else { self.autoConnectIDs.insert(id); self.scan() }
+                    if Self.rememberedBoardIsPresent(systemConnected: self.isSystemConnected(id), advertised: false) {
+                        self.connect(id)
+                    } else {
+                        // The scan's advertisement discovery connects it once it is back.
+                        self.autoConnectIDs.insert(id); self.scan()
+                    }
                 }
                 if self.owner(id).phase != .idle { return }
             }
         }
+    }
+
+    private func isSystemConnected(_ id: UUID) -> Bool {
+        #if DEBUG
+        if testAdapter != nil { return false }
+        #endif
+        guard let central else { return false }
+        return central.retrieveConnectedPeripherals(withServices: [CBUUID(string: PDSHLink.service)])
+            .contains { $0.identifier == id }
     }
 
     private func connected(_ id: UUID, peripheral: CBPeripheral?) {

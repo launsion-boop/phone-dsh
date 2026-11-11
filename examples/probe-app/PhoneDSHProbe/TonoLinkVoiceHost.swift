@@ -82,6 +82,8 @@ import ProbeKit
         log("connected \(link.peripheralName ?? "?") app=\(UIApplication.shared.applicationState.rawValue)")
         setKeepAlive(true)
         armSpeakerIfForeground()
+        // The board is back (this link only comes up when it is present): bring its Link tools back too.
+        BLEDeviceStore.shared.reconnectRemembered()
         Task { await prefetchHere() }
     }
 
