@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -79,7 +80,8 @@ TURN_ORIGIN_ALLOWED_KEYS = frozenset({
 
 MCP_EGRESS_HEADER = "x-pdsh-mcp-egress"
 MCP_EGRESS_ERROR = "mcp_egress_forbidden"
-MCP_EGRESS_SUITES = frozenset({"egress", "identity", "tools-call"})
+MCP_EGRESS_SUITES = frozenset({"egress", "identity", "tools-call",
+                               "egress-approval", "grant-directory"})
 MCP_EGRESS_TOP_KEYS = frozenset({
     "schemaVersion",
     "license",
@@ -96,11 +98,19 @@ MCP_EGRESS_CASE_KEYS = {
     "egress": frozenset({"suite", "name", "target", "headers", "expect", "boundary", "reason"}),
     "identity": frozenset({"suite", "name", "registry", "request", "expect", "boundary", "reason"}),
     "tools-call": frozenset({"suite", "name", "callerBotId", "mainBotId", "tool", "expect", "boundary", "reason"}),
+    "egress-approval": frozenset({"suite", "name", "request", "expect", "boundary", "reason"}),
+    "grant-directory": frozenset({"suite", "name", "request", "expect", "boundary", "reason"}),
 }
 MCP_EGRESS_VALID_BOUNDARIES = {
     "egress": frozenset({"correct", "query", "header-name-case", "non-mcp", "route-scope"}),
     "identity": frozenset({"correct", "rotated"}),
     "tools-call": frozenset({"correct"}),
+    "egress-approval": frozenset({
+        "ask-once", "ask-always", "grant-hit", "session-grant", "get-head",
+        "model-endpoint", "not-bot", "tiebreak", "job-lifecycle", "same-bot",
+        "single-bot-fallback", "single-bot-grant", "workbench-turn",
+    }),
+    "grant-directory": frozenset({"inside", "same-directory", "session-grant"}),
 }
 MCP_EGRESS_INVALID_BOUNDARIES = {
     "egress": frozenset({"missing", "wrong", "placeholder", "case", "empty", "query", "whitespace"}),
@@ -109,6 +119,14 @@ MCP_EGRESS_INVALID_BOUNDARIES = {
         "placeholder", "case", "rotated",
     }),
     "tools-call": frozenset({"hidden-team-tool", "prefix-strip", "unknown", "case", "empty"}),
+    "egress-approval": frozenset({
+        "deny", "timeout", "ambiguous", "unattributed", "wrong-method",
+        "wrong-host", "put", "patch", "delete", "multi-bot", "no-bot",
+    }),
+    "grant-directory": frozenset({
+        "outside-ask", "different-directory", "args-digest", "traversal",
+        "different-tool", "deny", "missing-path",
+    }),
 }
 # The real caller catalog is `BotToolCatalog.allDefinitions` (P0 + FishAction +
 # BotVolatileContext + the two team tools); only CreateTeammate is scoped to the
@@ -383,6 +401,219 @@ def _tools_call_ok(case):
     return True, None
 
 
+def validate_approval_downgrade_fixture(fixture, upstream):
+    """Validate the phone-only downgrade of upstream network approval patterns.
+
+    Upstream keeps its curl/wget/python command patterns byte-identical. PhoneDSH
+    deliberately stops treating them as an approval boundary; the host
+    `/v1/http` exit owns network writes. The overlay must name every upstream
+    network case and every additional WP3 spelling, and every entry must expect
+    an empty match list. Destructive upstream cases may never be downgraded.
+    """
+    if fixture.get("vector") != "approval-patterns.phone":
+        raise AssertionError("approval-patterns.phone: vector must be approval-patterns.phone")
+    if fixture.get("upstream") != ["approval-patterns.json"]:
+        raise AssertionError("approval-patterns.phone: upstream must name approval-patterns.json")
+    if fixture.get("source", {}).get("checkout") != upstream.get("source", {}).get("checkout"):
+        raise AssertionError("approval-patterns.phone: source.checkout differs from upstream")
+    delta = fixture.get("delta")
+    if not isinstance(delta, list) or not delta or not all(isinstance(item, str) and item for item in delta):
+        raise AssertionError("approval-patterns.phone: delta must be a non-empty string array")
+    downgraded = fixture.get("downgraded")
+    if not isinstance(downgraded, list) or not downgraded:
+        raise AssertionError("approval-patterns.phone: downgraded must be a non-empty array")
+    upstream_cases = upstream["valid"] + upstream["invalid"]
+    network_kinds = ("curl-post", "network-egress")
+    upstream_by_command = {
+        case["args"].get("command"): case for case in upstream_cases
+        if isinstance(case.get("args"), dict)
+    }
+    seen = set()
+    for index, case in enumerate(downgraded):
+        where = f"approval-patterns.phone.downgraded[{index}]"
+        if set(case) != {"tool", "args", "matches"}:
+            raise AssertionError(f"{where}: needs exactly tool/args/matches")
+        if case["tool"] != "bash" or not isinstance(case.get("args"), dict):
+            raise AssertionError(f"{where}: only bash args are downgraded")
+        command = case["args"].get("command")
+        if not isinstance(command, str) or not command:
+            raise AssertionError(f"{where}: command must be a non-empty string")
+        if case.get("matches") != []:
+            raise AssertionError(f"{where}: downgraded network patterns must expect []")
+        if command in seen:
+            raise AssertionError(f"{where}: duplicate downgraded command")
+        seen.add(command)
+        upstream_case = upstream_by_command.get(command)
+        if upstream_case is not None:
+            kinds = {match.get("kind") for match in upstream_case.get("matches", [])}
+            if not kinds.intersection(network_kinds):
+                raise AssertionError(
+                    f"{where}: may not downgrade a non-network upstream case")
+    for case in upstream_cases:
+        kinds = {match.get("kind") for match in case.get("matches", [])}
+        if kinds.intersection(network_kinds) and case["args"].get("command") not in seen:
+            raise AssertionError(
+                "approval-patterns.phone: an upstream network case is not downgraded: "
+                + str(case["args"].get("command")))
+    for case in upstream_cases:
+        kinds = {match.get("kind") for match in case.get("matches", [])}
+        if kinds.intersection({"rm-destructive", "git-destructive", "find-delete"}) \
+                and case["args"].get("command") in seen:
+            raise AssertionError("approval-patterns.phone: a destructive case may not be downgraded")
+
+
+EGRESS_WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _normalize_virtual_path(path: str) -> str:
+    """The POSIX normalization both ends use on a virtual VFS path."""
+    absolute = path.startswith("/")
+    stack: list[str] = []
+    for part in path.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if stack:
+                stack.pop()
+            continue
+        stack.append(part)
+    joined = "/".join(stack)
+    if absolute:
+        return "/" + joined
+    return joined or "."
+
+
+def _resolve_virtual_path(path: str, workspace: str) -> str:
+    joined = path if path.startswith("/") else workspace.rstrip("/") + "/" + path
+    return _normalize_virtual_path(joined)
+
+
+def _inside_workspace(path: str, workspace: str) -> bool:
+    root = _normalize_virtual_path(workspace)
+    if root == "/":
+        return True
+    target = _normalize_virtual_path(path)
+    return target == root or target.startswith(root + "/")
+
+
+def _url_host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
+
+
+def _egress_approval_decision(request: dict) -> dict:
+    """Reference oracle for the host `/v1/http` Bot write approval.
+
+    It mirrors `BotMCPRuntime.approveEgress` + `BotApprovalCoordinator`: the
+    gateway only asks for POST/PUT/PATCH/DELETE. Live `bash` registrations
+    attribute the write; several registrations of one Bot are one owner, while
+    different Bots need the outer command's host text as a unique tie-breaker.
+    With no live registration, a running workbench turn keeps the ordinary
+    allow-list; otherwise one active Bot is the fallback owner and several (or
+    none) fail closed. A
+    `tool=egress&operation=egress.<method>&resource=host=<host>` standing Grant
+    (until/session) is reusable. The vector check below is not runtime
+    evidence; the Swift tests drive the real coordinator and registration.
+    """
+    method = str(request.get("method", "")).upper()
+    url = str(request.get("url", ""))
+    host = _url_host(url)
+    if request.get("modelEndpoint") is True:
+        return {"decision": "allow", "approvalRequests": 0, "grantScope": "none", "error": None}
+    if method not in EGRESS_WRITE_METHODS:
+        return {"decision": "allow", "approvalRequests": 0, "grantScope": "none", "error": None}
+    active = int(request.get("activeBashCalls", 0))
+    listed_bots = request.get("activeBots")
+    if listed_bots is None:
+        bots = ["bot-a"] * active if active > 0 else []
+    elif not isinstance(listed_bots, list) or any(not isinstance(b, str) for b in listed_bots):
+        raise AssertionError(f"egress-approval: activeBots must be a string list, got {listed_bots!r}")
+    else:
+        bots = list(listed_bots)
+    if active > 0:
+        if not bots:
+            bots = ["bot-a"] * active
+        if len(bots) != active:
+            if len(set(bots)) == 1:
+                bots = [bots[0]] * active
+            else:
+                raise AssertionError(
+                    f"egress-approval: {active} live calls but activeBots={bots!r}")
+        if request.get("sessionValid") is False:
+            return {"decision": "deny", "approvalRequests": 0, "grantScope": "none",
+                    "error": "bot_egress_unattributed"}
+        if len(set(bots)) > 1:
+            matches = int(request.get("matchingBashCalls", 0))
+            if request.get("attributedHost") != host or matches != 1:
+                return {"decision": "deny", "approvalRequests": 0, "grantScope": "none",
+                        "error": "bot_egress_ambiguous"}
+            # The unique host text is the tie-breaker; one Bot owns the card.
+    else:
+        if request.get("workbenchTurnActive", True) is True:
+            return {"decision": "allow", "approvalRequests": 0, "grantScope": "none", "error": None}
+        if request.get("sessionValid") is False:
+            return {"decision": "deny", "approvalRequests": 0, "grantScope": "none",
+                    "error": "bot_egress_unattributed"}
+        unique = set(bots)
+        if not unique:
+            return {"decision": "deny", "approvalRequests": 0, "grantScope": "none",
+                    "error": "bot_egress_unattributed"}
+        if len(unique) > 1:
+            return {"decision": "deny", "approvalRequests": 0, "grantScope": "none",
+                    "error": "bot_egress_ambiguous"}
+    operation = "egress." + method.lower()
+    resource = "host=" + host
+    for grant in request.get("grants", []):
+        if (grant.get("tool") == "egress" and grant.get("operation") == operation
+                and grant.get("resource") == resource
+                and grant.get("scope") in ("until", "session")):
+            return {"decision": "allow", "approvalRequests": 0, "grantScope": "none", "error": None}
+    decision = request.get("decision")
+    if decision == "allow_once":
+        return {"decision": "allow", "approvalRequests": 1, "grantScope": "once", "error": None}
+    if decision == "always":
+        return {"decision": "allow", "approvalRequests": 1, "grantScope": "until", "error": None}
+    if decision in ("deny", "timeout"):
+        return {"decision": "deny", "approvalRequests": 1, "grantScope": "none",
+                "error": "egress_approval_denied"}
+    raise AssertionError(f"egress-approval: unknown decision {decision!r}")
+
+
+def _grant_directory_decision(request: dict) -> dict:
+    """Reference oracle for `write`/`edit` workspace-root and directory Grants."""
+    tool = request.get("tool")
+    if tool not in ("write", "edit"):
+        raise AssertionError(f"grant-directory: unknown tool {tool!r}")
+    workspace = str(request.get("workspace", ""))
+    raw = str(request.get("path", "")).strip()
+    if raw == "":
+        policy, resource, allowed = "ask", "unclassified", False
+    else:
+        target = _resolve_virtual_path(raw, workspace)
+        if _inside_workspace(target, workspace):
+            return {"policy": "auto", "resource": None, "decision": "allow",
+                    "approvalRequests": 0, "grantScope": "none", "error": None}
+        parent = posixpath.dirname(target) or "/"
+        policy, resource, allowed = "ask", f"dir={parent}", False
+        operation = "file.write" if tool == "write" else "file.edit"
+        for grant in request.get("grants", []):
+            if (grant.get("tool") == tool and grant.get("operation") == operation
+                    and grant.get("resource") == resource
+                    and grant.get("scope") in ("until", "session")):
+                return {"policy": policy, "resource": resource, "decision": "allow",
+                        "approvalRequests": 0, "grantScope": "none", "error": None}
+    decision = request.get("decision")
+    if decision == "allow_once":
+        return {"policy": policy, "resource": resource, "decision": "allow",
+                "approvalRequests": 1, "grantScope": "once", "error": None}
+    if decision == "always":
+        return {"policy": policy, "resource": resource, "decision": "allow",
+                "approvalRequests": 1, "grantScope": "until", "error": None}
+    if decision in ("deny", "timeout"):
+        return {"policy": policy, "resource": resource, "decision": "deny",
+                "approvalRequests": 1, "grantScope": "none", "error": "approval_denied"}
+    raise AssertionError(f"grant-directory: unknown decision {decision!r}")
+
+
 def validate_mcp_egress_fixture(fixture):
     """Validate the phone-only egress/identity/caller-catalog vectors."""
     if set(fixture) != MCP_EGRESS_TOP_KEYS:
@@ -480,7 +711,7 @@ def validate_mcp_egress_fixture(fixture):
                 if expect != wanted:
                     raise AssertionError(f"{where}: identity expect must be {wanted}")
                 actual = _identity_registration_ok(case)
-            else:
+            elif suite == "tools-call":
                 if accepted:
                     if expect != {"ok": True}:
                         raise AssertionError(f"{where}: accepted tools-call expect must be {{'ok': True}}")
@@ -493,6 +724,19 @@ def validate_mcp_egress_fixture(fixture):
                 if not accepted and actual_error != expect.get("error"):
                     raise AssertionError(
                         f"{where}: tools-call rejects with {actual_error}, expected {expect.get('error')}")
+            elif suite == "egress-approval":
+                actual = _egress_approval_decision(case["request"])
+                if actual != expect:
+                    raise AssertionError(f"{where}: egress-approval expected {expect}, got {actual}")
+                actual = actual["decision"] == "allow"
+            else:  # grant-directory
+                actual = _grant_directory_decision(case["request"])
+                if actual != expect:
+                    raise AssertionError(f"{where}: grant-directory expected {expect}, got {actual}")
+                # `valid` means the directory Grant hit (or the root made the
+                # write auto); a miss is an approval card, not a security
+                # failure, so the vector's `invalid` section is a miss check.
+                actual = actual["approvalRequests"] == 0
             if actual != accepted:
                 raise AssertionError(f"{where}: expected accepted={accepted}, got {actual}")
 
@@ -560,6 +804,36 @@ def validate_mcp_egress_fixture(fixture):
                        "invalid",
                        [case for case in value["invalid"]
                         if not (case["suite"] == "identity" and case["boundary"] == "revoked")]))
+    expect_failure("egress-approval-grant-hit-flipped",
+                   lambda value: find(value, "valid", "post-standing-grant-hit")[
+                       "expect"].__setitem__("approvalRequests", 1))
+    expect_failure("egress-approval-model-endpoint-flipped",
+                   lambda value: find(value, "valid", "model-endpoint-exempt")[
+                       "expect"].__setitem__("decision", "deny"))
+    expect_failure("grant-directory-args-digest-accepted",
+                   lambda value: find(value, "invalid", "args-digest-resource")[
+                       "expect"].__setitem__("resource", "dir=/dsh/workspace/shared&args=deadbeef"))
+    expect_failure("grant-directory-inside-flipped",
+                   lambda value: find(value, "valid", "inside-workspace-auto")[
+                       "request"].__setitem__("path", "/dsh/workspace/outside.txt"))
+    expect_failure("egress-approval-boundary-coverage",
+                   lambda value: value.__setitem__(
+                       "invalid",
+                       [case for case in value["invalid"]
+                        if not (case["suite"] == "egress-approval"
+                                and case["boundary"] == "ambiguous")]))
+    expect_failure("egress-approval-job-lifecycle-cancelled",
+                   lambda value: find(value, "valid", "background-job-registration-live")[
+                       "request"].__setitem__("activeBashCalls", 0))
+    expect_failure("egress-approval-single-bot-flipped",
+                   lambda value: find(value, "valid", "unattributed-single-bot-asks")[
+                       "expect"].__setitem__("decision", "deny"))
+    expect_failure("egress-approval-multi-bot-accepted",
+                   lambda value: find(value, "invalid", "unattributed-several-bots")[
+                       "request"].__setitem__("activeBots", ["bot-a"]))
+    expect_failure("egress-approval-workbench-flipped",
+                   lambda value: find(value, "valid", "unattributed-with-workbench-turn-is-workbench")[
+                       "request"].__setitem__("workbenchTurnActive", False))
     return len(valid), len(invalid), mutation_count
 
 
@@ -707,8 +981,10 @@ def main() -> int:
     # live in tool-effects.phone.json and are validated with the same schema.
     check_many(effects.get("nativeMcp", []),
                "tool-effects.schema.json", "tool-effects.nativeMcp")
-    check_many(load("approval-patterns.json")["valid"], "approval-patterns.schema.json", "approval-patterns")
-    check_many(load("approval-patterns.json")["invalid"], "approval-patterns.schema.json", "approval-patterns.invalid")
+    approval_upstream = load("approval-patterns.json")
+    check_many(approval_upstream["valid"], "approval-patterns.schema.json", "approval-patterns")
+    check_many(approval_upstream["invalid"], "approval-patterns.schema.json", "approval-patterns.invalid")
+    validate_approval_downgrade_fixture(load("approval-patterns.phone.json"), approval_upstream)
     check(load("memory-policy.json")["valid"], "memory-policy.schema.json", "memory-policy")
     check_many(load("memory-policy.json")["invalid"], "memory-policy.schema.json", "memory-policy.invalid")
     check_many(load("memory-fact.json")["valid"], "memory-fact.schema.json", "memory-fact")

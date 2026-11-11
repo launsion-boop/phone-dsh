@@ -791,3 +791,82 @@ test('the shared approval transport omits the egress header when the value is em
     else process.env.PDSH_MCP_EGRESS_TOKEN = previous
   }
 })
+
+function botSessionAgent(cwd: string): Agent {
+  return { id: 'gb-main', session: { id: 'gb-main', header: { cwd } } } as unknown as Agent
+}
+
+test('write/edit are auto inside the Bot workspace root and directory-granular outside', async () => {
+  const root = '/dsh/workspace/.dshbot/agents/main'
+  assert.deepEqual(
+    phoneEffectsForApproval('write', { file_path: 'notes/a.txt', content: 'x' },
+      { workspaceRoot: root }),
+    [], 'a write inside the Bot root needs no structural approval effect')
+  assert.deepEqual(
+    phoneEffectsForApproval('edit', { file_path: 'notes/a.txt', old_string: 'a', new_string: 'b' },
+      { workspaceRoot: root }),
+    [], 'an edit inside the Bot root needs no structural approval effect')
+
+  const outside = phoneEffectsForApproval('write', {
+    file_path: '/dsh/workspace/shared/a.txt', content: 'x',
+  }, { workspaceRoot: root })
+  assert.equal(outside.length, 1)
+  assert.equal(outside[0]!.operation, 'file.write')
+  assert.equal(outside[0]!.resource, 'dir=/dsh/workspace/shared')
+  assert.equal(outside[0]!.policy, 'ask')
+  assert.equal(outside[0]!.known, true)
+  const sibling = phoneEffectsForApproval('edit', {
+    file_path: '/dsh/workspace/shared/b.txt', old_string: 'a', new_string: 'b',
+  }, { workspaceRoot: root })
+  assert.equal(sibling[0]!.operation, 'file.edit')
+  assert.equal(sibling[0]!.resource, 'dir=/dsh/workspace/shared',
+    'the same directory must reuse one Grant')
+  const traversal = phoneEffectsForApproval('write', {
+    file_path: 'notes/../../outside.txt', content: 'x',
+  }, { workspaceRoot: root })
+  assert.equal(traversal[0]!.resource, 'dir=/dsh/workspace/.dshbot/agents',
+    '.. is normalized before the containment decision')
+  const malformed = phoneEffectsForApproval('write', { content: 'x' }, { workspaceRoot: root })
+  assert.equal(malformed.length, 1)
+  assert.equal(malformed[0]!.known, false,
+    'a missing file_path must fail closed, not auto-allow')
+
+  const ctx = await mount()
+  const payloads: Record<string, unknown>[] = []
+  let writes = 0
+  try {
+    ctx.tools.register(defineTool({
+      name: 'write', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { writes += 1; return 'ok' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-write' }),
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async payload => {
+        payloads.push(payload)
+        return { ok: true, allowed: true }
+      },
+    })
+    const cases = [
+      { path: 'notes/a.txt', effects: [] as string[] },
+      { path: '/dsh/workspace/shared/a.txt', effects: ['dir=/dsh/workspace/shared'] },
+    ]
+    for (const [index, entry] of cases.entries()) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`write-boundary-${index}`), name: 'write',
+        arguments: { file_path: entry.path, content: 'x' },
+        signal: new AbortController().signal, agent: botSessionAgent(root),
+      })
+      assert.equal(result.isError, false)
+      const payload = payloads.at(-1)!
+      const effects = payload.effects as ApprovalEffect[]
+      assert.deepEqual(effects.map(effect => effect.resource), entry.effects)
+    }
+    assert.equal(writes, 2)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})

@@ -6,6 +6,7 @@
   "generator": "spec/tools/bot/export-vectors.mjs",
   "files": [
     "approval-patterns.json",
+    "approval-patterns.phone.json",
     "bot-attachments.json",
     "bot-profile.json",
     "card-payload.json",
@@ -61,6 +62,7 @@
     "watchdog.json"
   ],
   "phoneOverlays": [
+    "approval-patterns.phone.json",
     "card-payload.phone.json",
     "event-envelope.phone.json",
     "held-inbox.phone.json",
@@ -83,7 +85,7 @@
     "held-inbox.json": "0970f8f2fdfb28fe76a6cf39268cefaec0df6c287080c9513f24f11533ec311b",
     "held-inbox.phone.json": "e16b874df320dc5db0214d3f2bc3f6c57a12418fbb50a28503228b4ff9f93b63",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
-    "mcp-egress.phone.json": "1a1e66c2e82f991fccea3a7674c3071f62092c0935c8347c4174cd7ffa64b090",
+    "mcp-egress.phone.json": "692c51ca34decc993fb15495d73366cf502f5db5a3bfe41f3bf6f07bfba4eb14",
     "memory-fact.json": "f7e004974ce5d4a7dddf7b9497e5e253b347cbebd983f8184b406d6846cefb20",
     "memory-injection.json": "66659f0b731aeafd944175876b3e38aa61e29a7d7aaf7b24bc0cce989cbca058",
     "memory-policy.json": "6cb55041a4066087245e4107ad3b4506e44f2ba24f42b1c2ad5c6623b657ba52",
@@ -100,6 +102,7 @@
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
     "wake-routine.json": "121397f4e36a2467c5b65c924a7cfa1ddc7957bdc8cdd66868b32c47502b4f5e",
     "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
-    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853"
+    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853",
+    "approval-patterns.phone.json": "bc4eb2a38df7ef68878b06a0f608984b33fd4191a8de0b3d4d578603d65a2563"
   }
 }

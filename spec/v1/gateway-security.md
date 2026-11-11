@@ -128,6 +128,17 @@ classes: `credential-injection`, `header-strip`, `redirect-scope`, `egress-class
   `gw-egress-003` (unlisted loopback/private address), `gw-egress-004` (`https://*` hit),
   `gw-egress-005` (port mismatch).
 
+### 5.1 Bot network-write approval (host composition)
+
+This App seam is not a second wire contract; full rules/vectors are [bot/v1/README.md §2.4](../bot/v1/README.md). After the allow-list
+and exact-MCP gate, the host asks `POST`/`PUT`/`PATCH`/`DELETE` (never `GET`/`HEAD`, a configured model-inference `POST`, or an exact
+MCP route) through `BotEgressWriteApproving`. A live Bot `bash` registration resolves the principal; a DSH background job keeps
+that registration alive and refreshed until it settles, and several live registrations of one Bot are one owner. With none, the
+workbench-turn probe keeps `notBot` for a running workbench turn; otherwise one active Bot gets the card, several fail
+`bot_egress_ambiguous`, and none fails `bot_egress_unattributed`. A missing Grant uses `tool=egress`,
+`operation=egress.<method>`, `resource=host=<host>`; deny/timeout/cancel returns 403 `egress_approval_denied` with no
+credential, socket or response log; an approved write's 3xx is never followed. Kotlin has no Bot runtime, so the `gw-*` goldens stay unchanged.
+
 ## 6. Response side — `response-redaction`
 
 - **MCP calls are always sensitive.** Sensitivity is a property of the call, not of the credential
@@ -162,8 +173,8 @@ classes: `credential-injection`, `header-strip`, `redirect-scope`, `egress-class
 
 - **Fail loud and structured.** A denial carries a stable lower-snake cause in body and
   `X-PDSH-Proxy-Error`, mapped `host_not_allowed` → 403/`forbidden`, `invalid_request` →
-  400/`bad_request`, `credential_unavailable` → 502/`credential_unavailable`
-  (`ModelGateway.swift:256`, `:276`, `:289`).
+  400/`bad_request`, `credential_unavailable` → 502/`credential_unavailable`,
+  `egress_approval_denied` → 403/`egress_approval_denied` (`ModelGateway.swift`).
 - **Nothing secret in the diagnostic.** Messages carry a host or short reason; credential, request
   headers and body never appear, and the provider error text is not forwarded
   (`ModelGateway.swift:229`, `:651`, `Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:1242`).
@@ -205,36 +216,25 @@ classes: `credential-injection`, `header-strip`, `redirect-scope`, `egress-class
 
 ## 9. Known weak spots and fixed items (do not silently "fix" in Kotlin)
 
-- **Fixed 2026-10-31.** Scalar MCP credentials now take the sensitive path, and redacted JSON is re-encoded with sorted keys so its bytes are reproducible (§6, `gw-resp-004`, `gw-resp-005`).
-- **No IP-class classification.** Private and loopback literals are ordinary hosts and `*` admits them all; only default-deny is pinned, so an IP block is an open decision.
-- **Stripping is a denylist.** Caller headers outside it pass through; a custom auth header can ride an anonymous cross-origin redirect.
-- **Same-scope redirect is stricter than origin.** A different path or port is refused even when allow-listed; that is intended.
-- **`Idempotency-Key` is only forwarded.** The gateway does not derive or dedup it; exec.md D10 owns that.
+- **Fixed 2026-10-31.** Scalar MCP credentials take the sensitive path; redacted JSON uses sorted keys (§6, `gw-resp-004`, `:005`).
+- **No IP-class classification.** Private/loopback literals are ordinary hosts; `*` admits them all; only default-deny is pinned.
+- **Stripping is a denylist.** A custom auth header can ride an anonymous cross-origin redirect.
+- **Same-scope redirect is stricter than origin.** A different allow-listed path or port is refused; intended.
+- **`Idempotency-Key` is only forwarded.** exec.md D10 owns derivation/dedup.
 
 ## 10. Oracle rules pinned after the Kotlin port (2026-10-31)
 
-- **Redirects keep method and body.** Every hop re-issues the original method and body; a
-  301/302/303 is never rewritten to `GET` and a body is never dropped (`gw-redir-002`,
-  `gw-redir-006`).
-- **A refused redirect keeps its original surface.** The caller receives the original 3xx with no
-  `failure` envelope; `deny_reason` (`redirect_target_not_allowed`, `redirect_scope_mismatch`) is
-  internal/run-log only, and the surface is pinned by `expect.status` (the refused hop's own 3xx),
-  not by a missing envelope (`gw-redir-001`, `gw-redir-003`, `gw-redir-004`, `gw-redir-005`,
-  `gw-redir-007`, `gw-redir-008`).
-- **Canonical JSON numbers.** `body_sha256` canonicalises sorted keys with no insignificant
-  whitespace and assumes integer-only bodies, as `channel.md` §5 requires; there is no float path
-  to implement (`gw-resp-005`).
-- **Duplicate member names in an upstream body.** The canonical form never contains them, but an
-  upstream may send them. The rule is last-wins on parse — the same answer Python's `json.loads`
-  and Foundation's `JSONSerialization` give — and the re-encoded body then has one member. This is
-  stated because it is not vector-covered: `expect.body_json` cannot express a duplicate, so the
-  oracle cannot distinguish last-wins from a rejection. An implementation that rejects them is not
-  wrong, but it must not be *assumed* to.
-- **`stripped` is ASCII-sorted.** Caller header names removed by name are emitted in ascending byte
-  order, not set or hash order (`gw-hop-001`, `gw-hop-002`).
-- **The positive response log is pinned.** `gw-log-001` requires `log.recorded: true` with
-  `reason: recorded_ok`; a gateway that never records a response fails the oracle instead of
-  passing every `recorded: false` vector by omission.
-- **Empty bodies are not failures.** A `HEAD` response and any 1xx/204/205/304 response carry no
-  body (`body_bytes: 0`, `body_withheld: false`) and still record; `gw-resp-006` pins the class.
+- **Redirects keep method and body.** Every hop re-issues the original method/body; 301/302/303 is
+  never rewritten to `GET` (`gw-redir-002`, `gw-redir-006`).
+- **A refused redirect keeps its original surface.** The caller gets the original 3xx (no
+  `failure` envelope); `deny_reason` is run-log only and `expect.status` is the refused hop's 3xx
+  (`gw-redir-001`, `:003`-`:008`).
+- **Canonical JSON numbers.** `body_sha256` canonicalises sorted integer-only bodies, as
+  `channel.md` §5 requires; there is no float path (`gw-resp-005`).
+- **Duplicate member names in an upstream body.** Last-wins on parse (Python `json.loads` /
+  Foundation `JSONSerialization`), re-encoded with one member; rejection is not wrong but must not
+  be *assumed*.
+- **`stripped` is ASCII-sorted.** Removed caller header names are byte-ascending (`gw-hop-001`, `:002`).
+- **The positive response log is pinned.** `gw-log-001` requires `recorded: true` / `recorded_ok`; a never-recording gateway must not pass by omission.
+- **Empty bodies are not failures.** `HEAD` and 1xx/204/205/304 carry no body (`body_bytes: 0`, `body_withheld: false`) and still record (`gw-resp-006`).
 

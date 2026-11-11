@@ -15,6 +15,7 @@ import PhoneDSH
 import PhoneDSHBot
 import PhoneDSHEngine
 import PhoneDSHHarness
+import PhoneDSHGateway
 import PhoneDSHScenario
 import PhoneDSHAgentCore
 import PhoneDSHLog
@@ -224,6 +225,7 @@ final class BotEvalRunnerTests: XCTestCase {
             bundle: bundle,
             allowedModelHosts: [modelRule],
             egressAllowHosts: Set(scenario.network.allow),
+            replaySafeModelEndpoints: ModelGatewayConfiguration.standardModelEndpoints(baseURL: modelBaseURL),
             credentialProvider: PhoneMCPCredentialProvider(
                 policy: mcpPolicy, base: credentialProvider),
             egressAuthorizer: mcpPolicy,

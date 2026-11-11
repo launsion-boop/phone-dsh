@@ -89,14 +89,30 @@ private func urlError(_ code: Int) -> NSError {
 // MARK: - Tests
 
 final class LoopbackEgressClassificationTests: XCTestCase {
-    /// The Worker-facing taxonomy is closed and stable: exactly the seven
+    /// The Worker-facing taxonomy is closed and stable: exactly the eight
     /// codes the contract names. A future refactor must update this test
     /// intentionally, never silently.
-    func testTaxonomyIsTheClosedSevenClassSet() {
+    func testTaxonomyIsTheClosedEightClassSet() {
         XCTAssertEqual(
             Set(HTTPEgressFailureClass.allCases.map(\.rawValue)),
-            ["host_not_allowed", "dns_failed", "tls_failed", "connect_timeout",
-             "upstream_status", "body_too_large", "transport_failed"])
+            ["host_not_allowed", "egress_approval_denied", "dns_failed", "tls_failed",
+             "connect_timeout", "upstream_status", "body_too_large", "transport_failed"])
+    }
+
+    /// The specific Bot egress causes share one 403 class while their own
+    /// `error.code` stays visible.
+    func testSpecificBotEgressCausesShareTheApprovalClass() throws {
+        for code in ["egress_approval_denied", "bot_egress_ambiguous", "bot_egress_unattributed"] {
+            XCTAssertEqual(HTTPEgressFailure.status(forCode: code), 403, code)
+            XCTAssertEqual(HTTPEgressFailureClass.classify(code: code, source: nil, underlying: nil),
+                           .egressApprovalDenied, code)
+            let failure = HTTPEgressFailure(status: 403, code: code, message: "bot egress denied")
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(
+                with: failure.encodedBody()) as? [String: Any])
+            XCTAssertEqual((body["error"] as? [String: Any])?["code"] as? String, code)
+            XCTAssertEqual((body["xl_error"] as? [String: Any])?["code"] as? String,
+                           "egress_approval_denied")
+        }
     }
 
     /// One classification assertion per failure class: code, attributed host,
@@ -110,6 +126,12 @@ final class LoopbackEgressClassificationTests: XCTestCase {
                 message: "upstream host is not allowed: cdn.example.test",
                 underlying: nil),
              .hostNotAllowed, 403),
+            ("bot egress approval denied",
+             ClassifiedFixtureError.structured(
+                reason: "egress_approval_denied",
+                message: "the Bot did not approve this network write: approval denied",
+                underlying: nil),
+             .egressApprovalDenied, 403),
             ("dns",
              ClassifiedFixtureError.structured(
                 reason: "transport_failure",

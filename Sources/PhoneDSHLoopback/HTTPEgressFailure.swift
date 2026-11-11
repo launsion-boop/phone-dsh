@@ -18,7 +18,7 @@
 //
 // `error` is the spec/exec-bridge-v1 §1 envelope retained from G2-FIX-32 (its
 // `code` stays the most specific stable cause, e.g. `credential_unavailable`).
-// `xl_error.code` is always one of the seven classes in
+// `xl_error.code` is always one of the eight classes in
 // ``HTTPEgressFailureClass``, `xl_error.host` names the denied/failed upstream
 // host and `xl_error.detail` is the sanitized human reason. Neither member
 // ever carries a request header, a URL path/query or a credential.
@@ -64,6 +64,9 @@ public enum HTTPEgressFailureClass: String, CaseIterable, Equatable, Sendable {
     /// that enforces one reports this class; the plain streaming proxy has no
     /// implicit cap).
     case bodyTooLarge = "body_too_large"
+    /// A Bot session's network write was denied, cancelled or timed out at
+    /// the Bot egress approval layer before any credential or socket.
+    case egressApprovalDenied = "egress_approval_denied"
     /// Any other transport failure (connection reset, offline, truncated body,
     /// stream ended before the response head, …).
     case transportFailed = "transport_failed"
@@ -71,7 +74,7 @@ public enum HTTPEgressFailureClass: String, CaseIterable, Equatable, Sendable {
     /// HTTP status the writer answers with for this class.
     public var httpStatus: Int {
         switch self {
-        case .hostNotAllowed:
+        case .hostNotAllowed, .egressApprovalDenied:
             return 403
         case .connectTimeout:
             return 504
@@ -84,7 +87,12 @@ public enum HTTPEgressFailureClass: String, CaseIterable, Equatable, Sendable {
     /// taxonomy member. `nil` means the code is not part of the taxonomy and
     /// the cause must be inferred from the bridged `NSError` identity.
     init?(explicitCode: String) {
-        self.init(rawValue: explicitCode)
+        switch explicitCode {
+        case "bot_egress_ambiguous", "bot_egress_unattributed":
+            self = .egressApprovalDenied
+        default:
+            self.init(rawValue: explicitCode)
+        }
     }
 
     /// Classifies the stable reason code plus the bridged `NSError` identities
@@ -109,7 +117,7 @@ public enum HTTPEgressFailureClass: String, CaseIterable, Equatable, Sendable {
         return .transportFailed
     }
 
-    /// Refines the seven taxonomy members that have a URL Loading System
+    /// Refines the taxonomy members that have a URL Loading System
     /// identity. Unknown URL error codes stay generic transport failures.
     static func classify(urlErrorCode code: Int) -> HTTPEgressFailureClass? {
         switch code {
@@ -157,7 +165,7 @@ public struct HTTPEgressFailure: Error, Equatable, Sendable {
     /// HTTP status the writer answers with.
     public var status: Int
     /// Stable lower-snake cause code (`host_not_allowed`, …). This is the
-    /// G2-FIX-32 value carried in `X-PDSH-Proxy-Error`; the seven-class taxonomy
+    /// G2-FIX-32 value carried in `X-PDSH-Proxy-Error`; the eight-class taxonomy
     /// is exposed separately as ``classification``.
     public var code: String
     /// Human-readable cause; never contains a credential.
@@ -254,7 +262,8 @@ public struct HTTPEgressFailure: Error, Equatable, Sendable {
     /// for a connect timeout and 502 for every other proxy-side failure.
     public static func status(forCode code: String) -> Int {
         switch code {
-        case "host_not_allowed", "forbidden", "mcp_egress_forbidden":
+        case "host_not_allowed", "forbidden", "mcp_egress_forbidden",
+             "egress_approval_denied", "bot_egress_ambiguous", "bot_egress_unattributed":
             return 403
         case "invalid_request", "bad_request":
             return 400

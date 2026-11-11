@@ -366,22 +366,84 @@ const SCRIPT = 'printf \'%s\\n\' \'curl -sS -X POST --data-raw "{}" http://127.0
 const VARIABLE = 'c=cur; l="${c}l"; "$l" -sS -X POST --data-raw \'{}\' '
   + 'http://127.0.0.1:1/identity/register'
 
-test('approval: a literal curl POST is classified as curl-post (regression)', () => {
+test('approval: a literal curl POST is no longer an approval-pattern boundary', () => {
   const effects = phoneEffectsForApproval('bash', { command: DIRECT })
-  assert.equal(effects.some(effect => effect.operation === 'curl-post'), true,
-    JSON.stringify(effects))
+  assert.equal(effects.some(effect => effect.operation === 'curl-post' || effect.operation === 'network-egress'),
+    false, JSON.stringify(effects))
 })
 
-test('approval known failure: a script-file curl POST is still classified', { todo: 'WP3: the bash approval classifier only sees the outer command' }, () => {
+test('approval: a script-file curl POST is not a Worker regex boundary (downgraded)', () => {
   const effects = phoneEffectsForApproval('bash', { command: SCRIPT })
   assert.equal(effects.some(effect => effect.operation === 'curl-post' || effect.operation === 'network-egress'),
-    true, JSON.stringify(effects))
+    false, JSON.stringify(effects))
 })
 
-test('approval known failure: a concatenated-command curl POST is still classified', { todo: 'WP3: variable concatenation avoids the literal curl regex' }, () => {
+test('approval: a concatenated-command curl POST is not a Worker regex boundary (downgraded)', () => {
   const effects = phoneEffectsForApproval('bash', { command: VARIABLE })
   assert.equal(effects.some(effect => effect.operation === 'curl-post' || effect.operation === 'network-egress'),
-    true, JSON.stringify(effects))
+    false, JSON.stringify(effects))
+})
+
+test('egress: script-file and concatenated curl POSTs reach the host exit', async () => {
+  const seen: { target: string; method: string }[] = []
+  const exit = createServer((request, response) => {
+    void (async () => {
+      const target = String(request.headers['x-pdsh-target-url'] ?? '')
+      const method = String(request.headers['x-pdsh-target-method'] ?? request.method ?? '').toUpperCase()
+      seen.push({ target, method })
+      if (request.url !== '/v1/http' || request.headers.authorization !== `Bearer ${CHANNEL_TOKEN}`) {
+        reply(response, 401, '{"error":"unauthorized"}')
+        return
+      }
+      // Stands in for the host Bot egress gate: the Worker's command spelling
+      // is irrelevant; the POST is visible at the exit and is refused without
+      // an approval decision.
+      response.writeHead(403, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({
+        error: { code: 'egress_approval_denied', message: 'approval denied' },
+        xl_error: { code: 'egress_approval_denied', detail: 'approval denied' },
+      }))
+    })()
+  })
+  const exitOrigin = await listen(exit)
+  const scratch = scratchRoot()
+  const previous = {
+    origin: process.env.PDSH_CHANNEL_ORIGIN,
+    token: process.env.PDSH_CHANNEL_TOKEN,
+  }
+  process.env.PDSH_CHANNEL_ORIGIN = exitOrigin
+  process.env.PDSH_CHANNEL_TOKEN = CHANNEL_TOKEN
+  try {
+    const shell = new WorkerShell({
+      fs: new VfsFileSystem({ root: scratch.root }),
+      commands: createWorkerCommands({ git: false }),
+    })
+    const script = '/dsh/workspace/wp3-egress.sh'
+    const commands = [
+      `printf '%s\n' 'curl -sS -X POST --data-raw "{}" http://127.0.0.1:8787/identity/register' > ${script}; bash ${script}`,
+      VARIABLE,
+    ]
+    for (const command of commands) {
+      const result = await shell.run(['bash', '-c', command], {
+        cwd: '/dsh/workspace',
+        env: { ...process.env, PDSH_CHANNEL_ORIGIN: exitOrigin, PDSH_CHANNEL_TOKEN: CHANNEL_TOKEN },
+      })
+      assert.equal(result.exitCode, 22, `${command}: ${result.stderr}`)
+      assert.match(result.stderr, /host allow-list rejected/u)
+    }
+    assert.equal(seen.length, 2, JSON.stringify(seen))
+    for (const request of seen) {
+      assert.equal(request.method, 'POST')
+      assert.match(request.target, /\/identity\/register$/u)
+    }
+  } finally {
+    if (previous.origin === undefined) delete process.env.PDSH_CHANNEL_ORIGIN
+    else process.env.PDSH_CHANNEL_ORIGIN = previous.origin
+    if (previous.token === undefined) delete process.env.PDSH_CHANNEL_TOKEN
+    else process.env.PDSH_CHANNEL_TOKEN = previous.token
+    scratch.cleanup()
+    await close(exit)
+  }
 })
 
 // ---------------------------------------------------------------------------

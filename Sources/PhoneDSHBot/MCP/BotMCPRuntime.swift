@@ -38,6 +38,11 @@ public actor BotMCPRuntime {
     private var suppressingTextSessions: Set<String> = []
     private var hiddenTextSessions: Set<String> = []
     private var heldMessageSessions: Set<String> = []
+    /// Installed by the App composition while the Bot runtime is bound. The
+    /// fail-closed egress fallback asks it whether a workbench turn is running;
+    /// `nil` (no App host, unit test) means "no workbench turn" and therefore
+    /// fails closed for an unattributed write.
+    private var workbenchTurnProbe: (@Sendable () async -> Bool)?
     private var turnOrigins: [String: BotTurnOrigin] = [:]
     private var turnIDs: [String: String] = [:]
 
@@ -290,8 +295,16 @@ public actor BotMCPRuntime {
             if existing.sessionId == sessionId, existing.name == bareName,
                existing.argsDigest == digest, let principal,
                principal.incarnation == existing.incarnation {
-                registrationArguments[key] = arguments
-                return existing
+                // A background job's heartbeat re-posts the same call. Extend
+                // the existing attribution instead of publishing a duplicate;
+                // if the host already pruned it, fall through and register a
+                // fresh entry (the job's next write is then fail-closed until
+                // this response arrives).
+                if let refreshed = await gateway.refreshToolCall(id: existing.id) {
+                    registrations[key] = refreshed
+                    registrationArguments[key] = arguments
+                    return refreshed
+                }
             }
         }
         let attribution = try await gateway.registerToolCall(
@@ -330,8 +343,11 @@ public actor BotMCPRuntime {
         if let existing = registrations[key] {
             if existing.sessionId == sessionId, existing.name == bareName,
                existing.argsDigest == digest, principal.incarnation == existing.incarnation {
-                registrationArguments[key] = arguments
-                return existing
+                if let refreshed = await gateway.refreshToolCall(id: existing.id) {
+                    registrations[key] = refreshed
+                    registrationArguments[key] = arguments
+                    return refreshed
+                }
             }
         }
         do {
@@ -399,6 +415,18 @@ public actor BotMCPRuntime {
             }
         }
         return cancelled
+    }
+
+    /// Installs or clears the App's workbench-turn probe. This is only the
+    /// fallback guard: an attributed background job never consults it.
+    public func installWorkbenchTurnProbe(_ probe: (@Sendable () async -> Bool)?) {
+        workbenchTurnProbe = probe
+    }
+
+    /// Session ids of every active Bot principal. The App uses this to exclude
+    /// Bot sessions from the workbench-turn probe.
+    public func activeSessionIDs() async -> Set<String> {
+        await gateway.tokens.activeSessionIDs()
     }
 
     /// Removes registrations past their expiry and revokes their pending
@@ -472,6 +500,183 @@ public actor BotMCPRuntime {
         return await approvals.request(
             call: call, effects: effects, action: action, detail: detail,
             command: command, alwaysScope: alwaysScope)
+    }
+
+    /// Host-side approval for one Bot network write at the `/v1/http` exit.
+    ///
+    /// Attribution follows the live `bash` identity registration. A normal
+    /// shell call registers before the command body; a call the DSH job
+    /// registry kept running after its tool result returned keeps that same
+    /// registration alive (with a heartbeat) until the job settles. Several
+    /// live registrations may belong to the same Bot (for example two
+    /// background jobs or a chat and a task session); they are one owner. Only
+    /// registrations from different Bots are ambiguous, and the outer command
+    /// host text remains a tie-breaker.
+    ///
+    /// Inside a turn, registration is the authority. With no live
+    /// registration at all the fail-closed fallback asks the App whether a
+    /// workbench turn is running: if it is, this is workbench traffic
+    /// (`notBot`); if not, the write can only be a Bot background task, so one
+    /// active Bot owns the card and several Bots fail with
+    /// `bot_egress_ambiguous`. No active Bot credential is
+    /// `bot_egress_unattributed`.
+    public func approveEgress(method: String, host: String, scheme: String,
+                              port: Int?) async -> BotEgressApproval {
+        let upper = method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard ["POST", "PUT", "PATCH", "DELETE"].contains(upper) else { return .notBot }
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty, !scheme.isEmpty else {
+            return .denied(
+                code: "egress_approval_denied",
+                message: "the network write has no usable host")
+        }
+        let target = "\(scheme)://\(normalizedHost)\(port.map { ":\($0)" } ?? "")"
+        let timestamp = now()
+        var active: [(key: String, attribution: BotAttribution,
+                      principal: BotGatewayPrincipal)] = []
+        var hadLiveRegistration = false
+        for (key, attribution) in registrations {
+            guard attribution.name == "bash", attribution.expiresAt > timestamp else { continue }
+            hadLiveRegistration = true
+            guard let principal = await gateway.tokens.lookupSession(attribution.sessionId),
+                  principal.incarnation == attribution.incarnation else { continue }
+            active.append((key, attribution, principal))
+        }
+        if hadLiveRegistration && active.isEmpty {
+            return .denied(
+                code: "bot_egress_unattributed",
+                message: "the active Bot session credential is no longer valid")
+        }
+        if !active.isEmpty {
+            let chosen: (key: String, attribution: BotAttribution,
+                         principal: BotGatewayPrincipal)
+            let groups = Dictionary(grouping: active, by: { $0.principal.botId })
+            if groups.count > 1 {
+                // A python/git script may not name the host in the outer
+                // command, so the host text is only a tie-breaker. Anything
+                // still ambiguous fails closed instead of attributing one
+                // Bot's write to another.
+                let matches = active.filter { entry in
+                    commandText(for: entry.key).range(
+                        of: normalizedHost, options: [.caseInsensitive]) != nil
+                }
+                let matchingBots = Set(matches.map { $0.principal.botId })
+                guard matchingBots.count == 1, let bot = matchingBots.first,
+                      let match = matches.first(where: { $0.principal.botId == bot }) else {
+                    return .denied(
+                        code: "bot_egress_ambiguous",
+                        message: "more than one Bot session is active; the network write is not attributable")
+                }
+                chosen = match
+            } else {
+                let candidates = groups.values.first ?? []
+                chosen = candidates.first(where: {
+                    commandText(for: $0.key).range(
+                        of: normalizedHost, options: [.caseInsensitive]) != nil
+                }) ?? candidates[0]
+            }
+            guard let call = BotResolvedToolCall(
+                sessionId: chosen.attribution.sessionId, callId: chosen.attribution.callId,
+                agentId: chosen.principal.botId, principal: chosen.principal,
+                attribution: chosen.attribution) else {
+                return .denied(
+                    code: "bot_egress_unattributed",
+                    message: "the active Bot registration does not resolve to one live principal")
+            }
+            let effect = BotEgressEffects.egressEffect(
+                method: upper, host: normalizedHost, target: target)
+            return await requestEgressApproval(
+                call: call, effect: effect, command: commandText(for: chosen.key))
+        }
+
+        // Fail-closed fallback. It is deliberately consulted only when no live
+        // registration attributes the write: an attributed job must never be
+        // diverted to another Bot merely because the workbench is busy.
+        if await (workbenchTurnProbe?() ?? false) { return .notBot }
+        return await unattributedEgressApproval(
+            host: normalizedHost, target: target, method: upper)
+    }
+
+    /// One active Bot and no live registration: ask that Bot's user. Several
+    /// active Bots (or none) cannot be attributed safely.
+    private func unattributedEgressApproval(
+        host: String, target: String, method: String
+    ) async -> BotEgressApproval {
+        let principals = await gateway.tokens.activePrincipals()
+        let bots = Set(principals.map(\.botId))
+        guard !bots.isEmpty else {
+            return .denied(
+                code: "bot_egress_unattributed",
+                message: "no live Bot session can own the network write")
+        }
+        guard bots.count == 1 else {
+            return .denied(
+                code: "bot_egress_ambiguous",
+                message: "more than one Bot session is active; the network write is not attributable")
+        }
+        // A chat principal is the visible owner of the Bot; without one a task
+        // or routine session still receives the card.
+        let principal = principals.first(where: { $0.kind == .chat }) ?? principals[0]
+        guard let call = syntheticEgressCall(principal: principal) else {
+            return .denied(
+                code: "bot_egress_unattributed",
+                message: "the active Bot session has no valid principal")
+        }
+        let effect = BotEgressEffects.egressEffect(method: method, host: host, target: target)
+        return await requestEgressApproval(
+            call: call, effect: effect,
+            command: "background network write with no live shell registration")
+    }
+
+    /// A card-bearing call for the fallback. It is never persisted as an
+    /// attribution and never authorizes any tool other than this one egress
+    /// effect; it only carries the Bot principal and a stable digest into the
+    /// existing approval coordinator.
+    private func syntheticEgressCall(principal: BotGatewayPrincipal) -> BotResolvedToolCall? {
+        let timestamp = now()
+        let callId = "egress-\(UUID().uuidString.lowercased())"
+        let digest = (try? BotArgumentsDigest.string(
+            for: .object(["command": .string("")])))
+            ?? String(repeating: "0", count: 64)
+        let attribution = BotAttribution(
+            id: "egress-\(UUID().uuidString.lowercased())",
+            sessionId: principal.sessionId, incarnation: principal.incarnation,
+            callId: callId, name: "bash", argsDigest: digest, runtimeId: nil,
+            createdAt: timestamp,
+            expiresAt: timestamp + BotApprovalCoordinator.defaultTimeoutMilliseconds + 30_000)
+        return BotResolvedToolCall(
+            sessionId: principal.sessionId, callId: callId,
+            agentId: principal.botId, principal: principal, attribution: attribution)
+    }
+
+    private func commandText(for key: String) -> String {
+        if case .string(let text)? = registrationArguments[key]?["command"] { return text }
+        return ""
+    }
+
+    /// Shared card wait/cancellation for an attributed call and the fallback.
+    private func requestEgressApproval(
+        call: BotResolvedToolCall, effect: BotToolEffect,
+        command: String
+    ) async -> BotEgressApproval {
+        let cancellation = BotEgressApprovalCancellation(approvals: approvals)
+        let outcome = await withTaskCancellationHandler {
+            let result = await approvals.request(
+                call: call, effects: [effect],
+                action: effect.label, detail: effect.detail,
+                command: command, alwaysScope: "until",
+                onPending: { id in cancellation.set(approvalID: id) })
+            cancellation.clear()
+            return result
+        } onCancel: {
+            cancellation.cancel()
+        }
+        guard outcome.allowed else {
+            return .denied(
+                code: "egress_approval_denied",
+                message: outcome.message ?? "approval denied")
+        }
+        return .allowed
     }
 
     public func execute(name: String, arguments: BotJSONValue,
@@ -740,7 +945,8 @@ public actor BotMCPRuntime {
         let command = string(args["command"]) ?? ""
         let resource = BotResourceNormalizer.normalize("action=\(action)")
         var effects = command.isEmpty ? [] : BotApprovalPatternAnalyzer.effects(
-            tool: "bash", arguments: .object(["command": .string(command)]), workspace: "/dsh/workspace")
+            tool: "bash", arguments: .object(["command": .string(command)]),
+            workspace: BotWorkspaceLayout.botRoot(botId: call.principal.botId))
         effects.append(BotToolEffect(
             tool: "RequestApproval", operation: "approval.weak-action", resource: resource,
             target: command.isEmpty ? resource : command, mutability: .destructive, policy: .ask,
@@ -777,11 +983,17 @@ public actor BotMCPRuntime {
     private func effectsForApproval(name: String, botID: String,
                                     arguments: BotJSONValue) async -> [BotToolEffect] {
         if name == BotToolCatalog.volatileContextName { return [] }
-        if ["bash", "write", "edit"].contains(name) {
-            if name == "bash" {
-                return BotApprovalPatternAnalyzer.effects(tool: name, arguments: arguments, workspace: "/dsh/workspace")
-            }
-            return [BotToolEffectClassifier.effect(for: name, arguments: arguments)]
+        let workspace = BotWorkspaceLayout.botRoot(botId: botID)
+        if name == "bash" {
+            return BotApprovalPatternAnalyzer.effects(
+                tool: name, arguments: arguments, workspace: workspace)
+        }
+        if name == "write" || name == "edit" {
+            // Inside the Bot workspace root the DSH file sandbox is the
+            // boundary and no Bot approval card is needed. Outside it the
+            // effect is the directory-granular `file.write`/`file.edit`.
+            return BotEgressEffects.fileEffects(
+                tool: name, arguments: arguments, workspaceRoot: workspace)
         }
         let effect = BotToolEffectClassifier.effect(for: name, arguments: arguments)
         return effect.mutability == .read || effect.ui || effect.policy == .auto ? [] : [effect]

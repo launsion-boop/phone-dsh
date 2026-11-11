@@ -135,6 +135,40 @@ public actor BotAttributionRegistry {
         return match
     }
 
+    public func get(id: String) -> BotAttribution? {
+        prune()
+        return entries[id]
+    }
+
+    /// Extends one live registration without re-publishing it.
+    ///
+    /// A background job outlives the `bash` tool call that started it, but the
+    /// original registration still has to authorize the job's `/v1/http`
+    /// writes. Refreshing the same id keeps the attribution stable: no second
+    /// entry appears, and an old cancelled generation can never be revived.
+    /// `maximumExpiry` caps the extension at the session credential's expiry.
+    /// A request that would shorten the current lifetime is ignored.
+    @discardableResult
+    public func refresh(id: String, ttlMilliseconds: Int64? = nil,
+                        maximumExpiry: Int64? = nil) -> BotAttribution? {
+        prune()
+        guard let entry = entries[id] else { return nil }
+        let timestamp = now()
+        let ttl = ttlMilliseconds ?? self.ttlMilliseconds
+        guard ttl > 0 else { return entry }
+        let sum = timestamp.addingReportingOverflow(ttl)
+        guard !sum.overflow else { return entry }
+        var expiry = sum.partialValue
+        if let maximumExpiry { expiry = min(expiry, maximumExpiry) }
+        guard expiry > entry.expiresAt else { return entry }
+        let refreshed = BotAttribution(
+            id: entry.id, sessionId: entry.sessionId, incarnation: entry.incarnation,
+            callId: entry.callId, name: entry.name, argsDigest: entry.argsDigest,
+            runtimeId: entry.runtimeId, createdAt: entry.createdAt, expiresAt: expiry)
+        entries[id] = refreshed
+        return refreshed
+    }
+
     @discardableResult
     public func cancel(id: String) -> Bool {
         entries.removeValue(forKey: id) != nil

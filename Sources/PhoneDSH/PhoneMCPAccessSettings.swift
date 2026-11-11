@@ -140,7 +140,13 @@ public enum MCPHostConfiguration {
 /// router. It starts empty and is updated in place when the user adds, edits
 /// or removes an MCP server, so no host restart is needed merely to admit a
 /// newly added endpoint.
-public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating, @unchecked Sendable {
+public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating,
+                                    BotEgressWriteApproving, @unchecked Sendable {
+    /// Bot network-write approval callback. The App installs it from the Bot
+    /// runtime composition; without one (workbench, tests, native MCP) every
+    /// write is `notBot` and keeps the matrix's ordinary allow-list behaviour.
+    public typealias BotEgressApprover =
+        @Sendable (BotEgressWriteRequest) async -> BotEgressWriteDecision
     struct Route: Equatable, Sendable {
         var serverName: String
         var scheme: String
@@ -155,6 +161,7 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating, @unc
     /// Host-run MCP egress credential. It is written by the host at start and
     /// read by the gateway gate; it is never persisted or logged.
     private var mcpEgressToken: String?
+    private var botEgressApprover: BotEgressApprover?
 
     public init() {}
 
@@ -164,6 +171,25 @@ public final class MCPEgressPolicy: EgressHostAuthorizing, MCPEgressGating, @unc
         lock.lock()
         mcpEgressToken = token
         lock.unlock()
+    }
+
+    /// Installs or clears the Bot network-write approval callback. The Bot
+    /// composition owns the lifetime: it installs on bind and clears on
+    /// detach, so a stopped Bot runtime can never answer for a later write.
+    public func installBotEgressApprover(_ approver: BotEgressApprover?) {
+        lock.lock()
+        botEgressApprover = approver
+        lock.unlock()
+    }
+
+    /// `BotEgressWriteApproving`: consult the installed Bot runtime, or keep
+    /// the workbench behaviour when none is attached.
+    public func approveBotEgressWrite(_ request: BotEgressWriteRequest) async -> BotEgressWriteDecision {
+        lock.lock()
+        let approver = botEgressApprover
+        lock.unlock()
+        guard let approver else { return .notBot }
+        return await approver(request)
     }
 
     /// Gateway gate for every exact MCP route. A route with no installed

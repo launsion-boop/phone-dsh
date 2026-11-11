@@ -2,11 +2,13 @@
 //
 // WP3 Bot egress spike: the Swift approval-pattern analyzer (Q2 helper).
 //
-// `BotApprovalPatternAnalyzer` is the App-side classification used when a
-// structural approval payload is built/validated. It sees only the `bash`
-// command string. These tests pin which spellings are classified as network
-// egress and which are not; the `XCTExpectFailure` cases are the spike finding,
-// not a regression baseline.
+// The command-text patterns are advisory only. After the S4a exit boundary,
+// network writes are approved at the host `/v1/http` exit by host + method
+// (`BotMCPRuntime.approveEgress`), not by matching `curl`, a script file, a
+// variable concatenation or an interpreter name. These tests pin that
+// downgrade: none of WP3's bypass spellings produces a network approval effect,
+// and `BotEgressApprovalTests` proves the same spellings are caught at the
+// exit. Destructive patterns stay classified as card hints.
 
 import XCTest
 @testable import PhoneDSHBot
@@ -20,39 +22,35 @@ final class BotEgressSpikeApprovalPatternTests: XCTestCase {
             workspace: workspace).map(\.operation)
     }
 
-    func testLiteralCurlPostIsClassified() {
+    func testLiteralCurlPostIsNoLongerAnApprovalPattern() {
         let command = "curl -sS -X POST --data-raw '{\"jsonrpc\":\"2.0\"}' "
             + "http://127.0.0.1:8787/identity/register"
-        XCTAssertTrue(operations(command).contains("curl-post"),
-            "operations=\(operations(command))")
+        XCTAssertEqual(operations(command), [],
+            "the command text is not the network-write boundary")
     }
 
-    func testScriptFileCurlPostIsClassified() {
+    func testDestructivePatternsRemainAdvisoryHints() {
+        XCTAssertEqual(operations("rm -rf /tmp/wp3-artifact"), ["rm-destructive"])
+        XCTAssertEqual(operations("git reset --hard HEAD"), ["git-destructive"])
+        XCTAssertEqual(operations("find . -name '*.tmp' -delete"), ["find-delete"])
+    }
+
+    func testScriptFileCurlPostIsNotAClassificationBoundary() {
         let command = "printf '%s\\n' 'curl -sS -X POST --data-raw \"{}\" "
             + "http://127.0.0.1:8787/identity/register' > /tmp/wp3.sh; bash /tmp/wp3.sh"
-        XCTExpectFailure("WP3: BotApprovalPatternAnalyzer sees only the outer bash command; "
-            + "a curl POST written into a script file is not classified as network egress") {
-            XCTAssertTrue(operations(command).contains("curl-post"),
-                "operations=\(operations(command))")
-        }
+        XCTAssertEqual(operations(command), [],
+            "a script file must be caught by the host exit, not by command text")
     }
 
-    func testVariableConcatenatedCurlPostIsClassified() {
+    func testVariableConcatenatedCurlPostIsNotAClassificationBoundary() {
         let command = "c=cur; l=\"${c}l\"; \"$l\" -sS -X POST --data-raw '{}' "
             + "http://127.0.0.1:8787/identity/register"
-        XCTExpectFailure("WP3: variable concatenation hides the literal `curl` token from "
-            + "BotApprovalPatternAnalyzer") {
-            XCTAssertTrue(operations(command).contains("curl-post"),
-                "operations=\(operations(command))")
-        }
+        XCTAssertEqual(operations(command), [],
+            "variable concatenation must be caught by the host exit, not by a literal `curl` regex")
     }
 
-    func testScriptFilePythonNetworkProgramIsClassified() {
-        let command = "python3 /tmp/wp3.py"
-        XCTExpectFailure("WP3: the analyzer only sees `python3 /tmp/wp3.py`, not the urllib "
-            + "network program inside the script") {
-            XCTAssertTrue(operations(command).contains("network-egress"),
-                "operations=\(operations(command))")
-        }
+    func testScriptFilePythonNetworkProgramIsNotAClassificationBoundary() {
+        XCTAssertEqual(operations("python3 /tmp/wp3.py"), [],
+            "an interpreter script must be caught by the host exit, not by its outer argv")
     }
 }

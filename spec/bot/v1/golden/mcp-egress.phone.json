@@ -10,7 +10,8 @@
   "delta": [
     "P05/P16/P26: exact MCP routes require X-PDSH-MCP-Egress equal to the host-generated PDSH_MCP_EGRESS_TOKEN; missing, empty, wrong, placeholder and case-shifted values are rejected before credential injection or upstream contact (PC-20261110-bot-mcp-egress-capability).",
     "P26: /identity/register uses the host-issued session credential, not the caller-supplied sessionId; tokens are resolved through the BotTokenRegistry model (revoked and expired tokens are absent) and the principal sessionId must match.",
-    "P26: after tools/call attribution, the bare tool must be in the same per-caller catalog tools/list returns; only CreateTeammate is hidden from non-main callers, and unknown names stay unknown_tool."
+    "P26: after tools/call attribution, the bare tool must be in the same per-caller catalog tools/list returns; only CreateTeammate is hidden from non-main callers, and unknown names stay unknown_tool.",
+    "P05/P26: Bot network writes are approved at the host /v1/http exit by host + method (POST/PUT/PATCH/DELETE), never by command text; GET/HEAD and exact configured model endpoints keep the matrix behaviour. write/edit are auto inside the Bot workspace root and directory-granular outside it (PC-20261111-bot-egress-approval)."
   ],
   "egressToken": "wpf0-fixture-egress-token",
   "egressRoutes": [
@@ -271,6 +272,493 @@
       },
       "boundary": "correct",
       "reason": "FishAction is a catalog tool with auto policy"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "post-ask-approved-once",
+      "boundary": "ask-once",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "a live Bot shell POST without a standing grant asks once and is allowed after the user decision"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "post-ask-approved-always",
+      "boundary": "ask-always",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "always",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "until",
+        "error": null
+      },
+      "reason": "an always decision creates the standing host+method Grant for later writes"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "post-standing-grant-hit",
+      "boundary": "grant-hit",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "egress",
+            "operation": "egress.post",
+            "resource": "host=api.example.test",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a matching until Grant is reused without another card"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "post-session-grant-hit",
+      "boundary": "session-grant",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "egress",
+            "operation": "egress.post",
+            "resource": "host=api.example.test",
+            "scope": "session",
+            "sessionId": "gb-main"
+          }
+        ]
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a session Grant for the same principal session is reusable"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "get-keeps-allowlist",
+      "boundary": "get-head",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/feed",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "GET is not a network write and keeps the existing allow-list behaviour"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "head-keeps-allowlist",
+      "boundary": "get-head",
+      "request": {
+        "method": "HEAD",
+        "url": "https://api.example.test/feed",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "HEAD is not a network write and keeps the existing allow-list behaviour"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "model-endpoint-exempt",
+      "boundary": "model-endpoint",
+      "request": {
+        "method": "POST",
+        "url": "https://model.example.test/v1/messages",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": true,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a configured model-inference POST is not proxied tool egress and keeps the model path"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "no-live-bot-call-is-workbench",
+      "boundary": "not-bot",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "without a live Bot shell registration the workbench keeps its current behaviour"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "host-tiebreak-resolves-two-calls",
+      "boundary": "tiebreak",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 2,
+        "attributedHost": "api.example.test",
+        "matchingBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": [],
+        "activeBots": [
+          "bot-a",
+          "bot-b"
+        ]
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "the host text may break a tie only when exactly one live command matches"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "background-job-registration-live",
+      "boundary": "job-lifecycle",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "activeBots": [
+          "bot-a"
+        ],
+        "backgroundJob": true,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "always",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "until",
+        "error": null
+      },
+      "reason": "a bash call kept alive by a DSH background job still attributes the job's later POST"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "same-bot-two-live-calls",
+      "boundary": "same-bot",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 2,
+        "activeBots": [
+          "bot-a",
+          "bot-a"
+        ],
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "two live shell calls owned by one Bot are one owner, not ambiguity"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-single-bot-asks",
+      "boundary": "single-bot-fallback",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "workbenchTurnActive": false,
+        "activeBots": [
+          "bot-a"
+        ],
+        "modelEndpoint": false,
+        "decision": "always",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "until",
+        "error": null
+      },
+      "reason": "no live registration, no workbench turn and one active Bot sends the card to that Bot"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-single-bot-grant-hit",
+      "boundary": "single-bot-grant",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "workbenchTurnActive": false,
+        "activeBots": [
+          "bot-a"
+        ],
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "egress",
+            "operation": "egress.post",
+            "resource": "host=api.example.test",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "the fallback Bot reuses an existing host+method Grant"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-with-workbench-turn-is-workbench",
+      "boundary": "workbench-turn",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "workbenchTurnActive": true,
+        "activeBots": [
+          "bot-a"
+        ],
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a running workbench turn keeps the ordinary allow-list behaviour"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "inside-workspace-auto",
+      "boundary": "inside",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/.dshbot/agents/main/notes/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "policy": "auto",
+        "resource": null,
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a write inside the Bot workspace root needs no structural approval"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "inside-edit-auto",
+      "boundary": "inside",
+      "request": {
+        "tool": "edit",
+        "path": "notes/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "policy": "auto",
+        "resource": null,
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a relative edit inside the root is resolved against the session workspace"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "inside-dotdot-clamped",
+      "boundary": "inside",
+      "request": {
+        "tool": "write",
+        "path": "notes/../notes/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "policy": "auto",
+        "resource": null,
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": ".. is normalized before the root containment check, not after"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "outside-directory-grant-hit",
+      "boundary": "same-directory",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "write",
+            "operation": "file.write",
+            "resource": "dir=/dsh/workspace/shared",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "a standing directory Grant is reused for the next write in that directory"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "outside-edit-directory-grant-hit",
+      "boundary": "same-directory",
+      "request": {
+        "tool": "edit",
+        "path": "/dsh/workspace/shared/b.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "edit",
+            "operation": "file.edit",
+            "resource": "dir=/dsh/workspace/shared",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "edit shares the same directory granularity as write"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "outside-session-directory-grant-hit",
+      "boundary": "session-grant",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/c.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "write",
+            "operation": "file.write",
+            "resource": "dir=/dsh/workspace/shared",
+            "scope": "session",
+            "sessionId": "gb-main"
+          }
+        ]
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": null
+      },
+      "reason": "the same session's directory Grant is reusable"
     }
   ],
   "invalid": [
@@ -690,6 +1178,428 @@
       },
       "boundary": "empty",
       "reason": "an empty tool name is unknown"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "post-denied",
+      "boundary": "deny",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "a denied Bot write fails closed with the stable exit error"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "post-timeout",
+      "boundary": "timeout",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "timeout",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "the 300 s approval deadline fails closed with the same stable error"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "ambiguous-live-calls",
+      "boundary": "ambiguous",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 2,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": [],
+        "activeBots": [
+          "bot-a",
+          "bot-b"
+        ]
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "bot_egress_ambiguous"
+      },
+      "reason": "two live Bot shells with no unique host tie-break are not attributed to one principal"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-session",
+      "boundary": "unattributed",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": false,
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "bot_egress_unattributed"
+      },
+      "reason": "a revoked or expired session credential cannot approve a live registration"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "different-method-grant",
+      "boundary": "wrong-method",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "egress",
+            "operation": "egress.get",
+            "resource": "host=api.example.test",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "a GET Grant does not authorize a POST"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "different-host-grant",
+      "boundary": "wrong-host",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": [
+          {
+            "tool": "egress",
+            "operation": "egress.post",
+            "resource": "host=other.example.test",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "one host's Grant never authorizes another host"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "put-denied",
+      "boundary": "put",
+      "request": {
+        "method": "PUT",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "PUT is a network write and needs its own approval"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "patch-denied",
+      "boundary": "patch",
+      "request": {
+        "method": "PATCH",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "PATCH is a network write and needs its own approval"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "delete-denied",
+      "boundary": "delete",
+      "request": {
+        "method": "DELETE",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 1,
+        "sessionValid": true,
+        "modelEndpoint": false,
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "egress_approval_denied"
+      },
+      "reason": "DELETE is a network write and needs its own approval"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-several-bots",
+      "boundary": "multi-bot",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "workbenchTurnActive": false,
+        "activeBots": [
+          "bot-a",
+          "bot-b"
+        ],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "bot_egress_ambiguous"
+      },
+      "reason": "no registration and two active Bots cannot be attributed; fail closed"
+    },
+    {
+      "suite": "egress-approval",
+      "name": "unattributed-no-bot-session",
+      "boundary": "no-bot",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.test/upload",
+        "activeBashCalls": 0,
+        "workbenchTurnActive": false,
+        "activeBots": [],
+        "modelEndpoint": false,
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "decision": "deny",
+        "approvalRequests": 0,
+        "grantScope": "none",
+        "error": "bot_egress_unattributed"
+      },
+      "reason": "no live registration, no workbench turn and no active Bot credential fails closed"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "outside-without-grant",
+      "boundary": "outside-ask",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "the first outside write asks and records a one-shot Grant"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "different-directory-grant",
+      "boundary": "different-directory",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "allow_once",
+        "grants": [
+          {
+            "tool": "write",
+            "operation": "file.write",
+            "resource": "dir=/dsh/workspace/other",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "a Grant for another directory does not match"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "args-digest-resource",
+      "boundary": "args-digest",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "allow_once",
+        "grants": [
+          {
+            "tool": "write",
+            "operation": "file.write",
+            "resource": "dir=/dsh/workspace/shared&args=deadbeef",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "the old argument-digest resource is not the directory key and never matches"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "traversal-outside",
+      "boundary": "traversal",
+      "request": {
+        "tool": "write",
+        "path": "notes/../../outside.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "allow_once",
+        "grants": []
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/.dshbot/agents",
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": ".. is resolved before the boundary decision, so a traversal is an outside write"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "different-tool-grant",
+      "boundary": "different-tool",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "allow_once",
+        "grants": [
+          {
+            "tool": "edit",
+            "operation": "file.edit",
+            "resource": "dir=/dsh/workspace/shared",
+            "scope": "until"
+          }
+        ]
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "allow",
+        "approvalRequests": 1,
+        "grantScope": "once",
+        "error": null
+      },
+      "reason": "a write Grant is not an edit Grant"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "denied-outside-write",
+      "boundary": "deny",
+      "request": {
+        "tool": "write",
+        "path": "/dsh/workspace/shared/a.txt",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "dir=/dsh/workspace/shared",
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "approval_denied"
+      },
+      "reason": "a denied outside write never executes"
+    },
+    {
+      "suite": "grant-directory",
+      "name": "missing-file-path",
+      "boundary": "missing-path",
+      "request": {
+        "tool": "write",
+        "path": "",
+        "workspace": "/dsh/workspace/.dshbot/agents/main",
+        "decision": "deny",
+        "grants": []
+      },
+      "expect": {
+        "policy": "ask",
+        "resource": "unclassified",
+        "decision": "deny",
+        "approvalRequests": 1,
+        "grantScope": "none",
+        "error": "approval_denied"
+      },
+      "reason": "a malformed file tool call fails closed instead of auto-allowing"
     }
   ]
 }

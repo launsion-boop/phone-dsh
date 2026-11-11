@@ -114,6 +114,10 @@ final class BotRuntimeComposition {
     private var host: PhoneDSHHost?
     private var hostTask: Task<Void, Never>?
     private var observedHost: PhoneDSHHost?
+    /// The live MCP egress policy this composition installed the Bot write
+    /// approver on. Cleared on detach so a stopped Bot runtime cannot answer
+    /// for a later `/v1/http` write.
+    private var botEgressPolicy: MCPEgressPolicy?
     private var tickTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var rosterTask: Task<Void, Never>?
@@ -382,6 +386,38 @@ final class BotRuntimeComposition {
             // Invalidate the replaced Worker incarnation once; every attached
             // Bot remote receives `workerRestarted` through the shared runtime.
             _ = await runtime.workerRestarted()
+            // The host gateway calls this seam only for Bot-attributed
+            // POST/PUT/PATCH/DELETE `/v1/http` writes. The policy is the same
+            // live object the App uses for exact-MCP admission/credentials.
+            botEgressPolicy?.installBotEgressApprover(nil)
+            await runtime.installWorkbenchTurnProbe(nil)
+            if let policy = newHost.configuration.egressAuthorizer as? MCPEgressPolicy {
+                let runtime = self.runtime
+                policy.installBotEgressApprover { request in
+                    let outcome = await runtime.approveEgress(
+                        method: request.method,
+                        host: request.url.host ?? "",
+                        scheme: request.url.scheme ?? "",
+                        port: request.url.port)
+                    switch outcome {
+                    case .notBot: return .notBot
+                    case .allowed: return .allow
+                    case .denied(let code, let message):
+                        return .deny(code: code, message: message)
+                    }
+                }
+                // The fail-closed fallback needs to know whether a workbench
+                // turn is running. Bot units share this host's transport, so
+                // the live Bot session ids are excluded from the journal
+                // scan. The probe is installed only while this composition is
+                // bound; a detached runtime answers no egress.
+                await runtime.installWorkbenchTurnProbe { [weak newHost, weak runtime] in
+                    guard let newHost, let runtime else { return false }
+                    let botSessions = await runtime.activeSessionIDs()
+                    return await newHost.hasActiveWorkbenchTurn(excluding: botSessions)
+                }
+                botEgressPolicy = policy
+            }
             try await newHost.start()
 
             // Always have the selected Bot and every routine owner attached
@@ -457,6 +493,9 @@ final class BotRuntimeComposition {
     }
 
     private func detachBinding() async {
+        botEgressPolicy?.installBotEgressApprover(nil)
+        await runtime.installWorkbenchTurnProbe(nil)
+        botEgressPolicy = nil
         removeDeviceTaskResultDelivery()
         for unit in units.values { await unit.detach() }
         await outbox.stop()
