@@ -300,6 +300,13 @@ actor MockWorker {
     private var descendantDrainDescendants: [String] = []
     /// Scoped descendant-drain requests received (success or scripted failure).
     private var descendantDrainRequests = 0
+    /// Session ids the phone-only DSH resume/repair route was asked to repair.
+    private var recoveryResumeRequestsValue: [String] = []
+    /// Scripted repaired journals, keyed by session id: the route writes the
+    /// file through the ordered channel (as DSH's write-open would) and only
+    /// then answers 200. A session without an entry is answered 200 with no
+    /// journal change.
+    private var recoveryResumeJournals: [String: (path: String, data: Data)] = [:]
     /// Exec events the host emitted, in arrival order.
     private var receivedExecEvents: [(execID: String, type: String, replayed: Bool)] = []
     /// Raw payloads of the same events, for tests that inspect stdout/stderr.
@@ -454,6 +461,14 @@ actor MockWorker {
 
     /// Number of scoped descendant-drain requests this Worker has answered.
     func descendantDrainRequestCount() -> Int { descendantDrainRequests }
+
+    /// Scripts what the DSH resume/repair route writes for `sessionID`.
+    func setRecoveryResumeJournal(sessionID: String, path: String, data: Data) {
+        recoveryResumeJournals[sessionID] = (path, data)
+    }
+
+    /// Session ids the resume/repair route was called for, in order.
+    func recoveryResumeRequests() -> [String] { recoveryResumeRequestsValue }
 
     private func hasHangingRequest() -> Bool { hangingRequests.isEmpty == false }
 
@@ -712,6 +727,22 @@ actor MockWorker {
         receivedUnaryMethods.append(method)
         if request.head.path == PhoneDSHDescendantDrainProtocol.path {
             try respondDescendantDrain(request)
+            return
+        }
+        if request.head.path == PhoneDSHRecoveryProtocol.resumePath {
+            let sessionID = (try? JSONValue.parse(request.body))?["sessionId"]?
+                .testString ?? ""
+            recoveryResumeRequestsValue.append(sessionID)
+            if let repaired = recoveryResumeJournals[sessionID] {
+                _ = try writeFile(path: repaired.path, data: repaired.data)
+            }
+            try sendAPIResponse(reqID: request.reqID,
+                                head: ApiResponseHead(status: 200, headers: [
+                                    PhoneDSHMuxProtocol.contentTypeHeader:
+                                        PhoneDSHRecoveryProtocol.contentType,
+                                ]),
+                                body: Data("{\"ok\":true}".utf8))
+            try sendAPIEnd(reqID: request.reqID)
             return
         }
         if method == "session/hang" {
@@ -1017,6 +1048,10 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
     /// planned-restart regression simulate the old Worker writing a child
     /// journal in the shutdown window.
     private var restartHookValue: (@Sendable () throws -> Void)?
+    /// Models a WebContent that iOS froze in the background: the terminate
+    /// lever returns, but the page never sends its peer FIN, so the old
+    /// connection cannot reach a clean end inside the drain window.
+    private var terminateLeavesPeerOpenValue = false
     private let eventStream: AsyncStream<WebEngineEvent>
     private let eventContinuation: AsyncStream<WebEngineEvent>.Continuation
 
@@ -1118,6 +1153,13 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
     func setShutdownError(_ error: Error?) {
         lock.lock()
         shutdownError = error
+        lock.unlock()
+    }
+
+    /// Makes `terminateWorker()` return without closing the Worker's socket.
+    func setTerminateLeavesPeerOpen(_ value: Bool) {
+        lock.lock()
+        terminateLeavesPeerOpenValue = value
         lock.unlock()
     }
 
@@ -1251,8 +1293,10 @@ final class MockEngine: WebEngineControlling, WebEngineRestartRequesting,
         lock.lock()
         terminateCountValue += 1
         let error = stopError
+        let leavesPeerOpen = terminateLeavesPeerOpenValue
         lock.unlock()
         if let error { throw error }
+        if leavesPeerOpen { return }
         // The real terminate phase destroys the page and closes its peer
         // socket before the Host may accept clean EOF and pack the overlay.
         await worker.disconnect()

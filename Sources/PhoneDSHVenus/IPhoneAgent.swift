@@ -30,7 +30,9 @@ public struct IPhoneAction: Equatable, Sendable {
 
     /// Parses `<action>Click(point=(x, y))</action>` (the last `<action>` wins; without tags, the whole text).
     public static func parse(_ reply: String) -> IPhoneAction {
+        // With `stop: ["</action>"]` the server leaves the closing tag out: take what follows the last <action>.
         let tagged = reply.ranges(of: #/(?s)<action>(.*?)</action>/#).last.map { String(reply[$0]) }
+            ?? reply.range(of: "<action>", options: .backwards).map { String(reply[$0.lowerBound...]) }
         var raw = (tagged ?? reply)
         raw = raw.replacingOccurrences(of: "<action>", with: "").replacingOccurrences(of: "</action>", with: "")
         raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -45,6 +47,8 @@ public struct IPhoneAction: Equatable, Sendable {
         }
         let direction = raw.firstMatch(of: #/(?i)direction\s*=\s*['"]?(up|down|left|right)/#).map { String($0.1).lowercased() }
         let text = raw.firstMatch(of: #/(?s)(?:content|app|text)\s*=\s*(['"])(.*?)\1/#).map { String($0.2) }
+            // JSON fallback: {"action_type": "LaunchApp", "app_name": "小红书"} / "text" / "content"
+            ?? raw.firstMatch(of: #/(?s)"(?:app_name|app|text|content)"\s*:\s*"((?:[^"\\]|\\.)*)"/#).map { String($0.1) }
             ?? raw.firstMatch(of: #/(?s)\(\s*(['"])(.*?)\1/#).map { String($0.2) } ?? ""
         return IPhoneAction(name: name, points: points, text: text, direction: direction, raw: raw)
     }
@@ -120,9 +124,18 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
         var feedback = ""
         var steps: [IPhoneAgentStep] = []
         var lastFrame: Int?
+        var previous: (jpeg: Data, action: IPhoneAction)?
+        var loopGuard = IPhoneLoopGuard()
         for index in 1...maxSteps {
             try Task.checkCancellation()
             let shot = try await Self.deadline(.seconds(20), "截图") { try await self.device.screenshot(after: lastFrame) }
+            // Tell the model when its last action left the screen as it was (a missed tap, a Home
+            // that did not take effect): otherwise it believes the action worked and repeats it.
+            if let previous, Self.visibleActions.contains(previous.action.name),
+               let difference = IPhoneScreenDiff.mean(previous.jpeg, shot.jpeg), difference < IPhoneScreenDiff.unchanged {
+                let note = "The screen looks unchanged after your previous action (\(previous.action.raw)): it may not have taken effect."
+                feedback = feedback.isEmpty ? note : note + " " + feedback
+            }
             let t0 = ContinuousClock.now
             let messages = Self.messages(task: task, turns: turns, feedback: feedback, jpeg: shot.jpeg)
             let reply = try await Self.deadline(stepTimeout, "UI-Venus 请求") {
@@ -144,6 +157,21 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
                 return done("需要你来处理：" + (action.text.isEmpty ? String((thought ?? action.raw).prefix(200)) : action.text), finished: false)
             default: break
             }
+            switch loopGuard.record(action) {
+            case .stop(let answer):
+                return done(answer, finished: false)
+            case .nudge(let note):
+                // Do not repeat the action again: ask once more about this same screen.
+                let step = IPhoneAgentStep(index: index, action: action.raw, executed: "skipped: repeated without progress",
+                                           modelSeconds: modelSeconds, screenshot: shot.jpeg)
+                steps.append(step)
+                onStep?(step)
+                turns.append((feedback, reply))
+                feedback = note
+                continue
+            case .proceed:
+                break
+            }
             let executed: String
             var nextFeedback = ""
             do {
@@ -161,10 +189,15 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
             turns.append((feedback, reply))
             feedback = nextFeedback
             lastFrame = shot.frame
+            previous = (shot.jpeg, action)
             try await Task.sleep(for: settle)
         }
         return IPhoneAgentResult(answer: "没有在 \(maxSteps) 步内完成", finished: false, steps: steps, seconds: Self.seconds(ContinuousClock.now - started))
     }
+
+    /// Actions that should visibly change the screen (Wait and the answers do not).
+    static let visibleActions: Set<String> = ["click", "tap", "doubleclick", "longpress", "drag", "swipe", "scroll",
+                                              "presshome", "launchapp", "launch", "pressenter", "type"]
 
     /// Upper bound for one model request or one action (a stalled request must not freeze the agent).
     public var stepTimeout: Duration = .seconds(100)
@@ -241,6 +274,8 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
     - The device is an iPhone (iOS). There is no system Back key: to go back, tap the visible back button (usually "<" at the top-left).
     - The round grey AssistiveTouch button floating on the right edge is part of the automation tool: never tap it.
     - To open an app, use `LaunchApp` with its name: it searches the phone and opens the best match. Do not look for app icons on the home screen. If a different app opened, use `LaunchApp` again with the app's English name.
+    - When the task asks you to read, check or report something, use `Answer` as soon as the screen shows it. Do not leave that screen first (for example back to a list or the home screen), even if the task also says to go back afterwards: answering is the end of the task.
+    - If a system permission or privacy prompt is in front (for example 允许 / 不允许, 共享联系人, 位置, 通知), do not choose for the user: use `CallUser` and say what the prompt asks.
     - Answer in Chinese.
 
     ### Output Format

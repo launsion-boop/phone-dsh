@@ -103,7 +103,10 @@ public final class VenusClient: @unchecked Sendable {
         var config = settings.load()
         config.model = model
         var chatRequest = try request("chat/completions", configuration: config,
-                                      body: ["model": model, "messages": messages, "max_tokens": maxTokens, "temperature": 0, "stream": false])
+                                      body: ["model": model, "messages": messages, "max_tokens": maxTokens, "temperature": 0, "stream": false,
+                                             // One action per reply: stop as soon as it is written (a reply that
+                                             // keeps going only repeats itself and costs seconds per step).
+                                             "stop": ["</action>"]])
         chatRequest.timeoutInterval = timeout
         let requestKey = String((chatRequest.value(forHTTPHeaderField: "Authorization") ?? "").dropFirst(7))
         let response = try await json(chatRequest)

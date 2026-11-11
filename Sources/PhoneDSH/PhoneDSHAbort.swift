@@ -676,3 +676,17 @@ func phoneDSHResultWithinDeadline<T: Sendable>(
         operationTask.cancel()
     }
 }
+
+/// Internal exit of the background-park abort drain (not an App error).
+///
+/// The bounded escalation stopped the old Worker, but its connection did not
+/// reach a clean end before the overlay repack point, so nothing was packed and
+/// no replacement Worker was booted. A teardown keeps failing loud on that
+/// outcome; a background park instead parks with these turns recorded as
+/// interrupted and lets the next foreground boot repair them.
+struct PhoneDSHParkInterruption: Error, Sendable {
+    /// The exact turns each session still has to close.
+    let sessions: [String: [PhoneDSHExpectedTerminalTurn]]
+    /// Human-readable diagnostic for the host event stream.
+    let detail: String
+}
