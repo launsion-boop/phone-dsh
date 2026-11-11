@@ -385,15 +385,23 @@ struct BotProductionInfoSnapshot: Sendable {
     var approvals: [BotProductionApproval]
     var grants: [BotProductionGrant]
     var reconciliations: [BotProductionReconciliation]
+    var presence: RoutinePresence
+    var proactiveSettings: ProactiveSettings
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
 /// composition root injected; nothing here opens a second fact store.
 actor BotProductionInfoService {
     private let environment: BotProductionEnvironment
+    private let scheduler: RoutineScheduler?
+    private let settingsStore: ProactiveSettingsStore
 
-    init(environment: BotProductionEnvironment) {
+    init(environment: BotProductionEnvironment,
+         scheduler: RoutineScheduler? = nil,
+         settingsStore: ProactiveSettingsStore = .shared) {
         self.environment = environment
+        self.scheduler = scheduler
+        self.settingsStore = settingsStore
     }
 
     func load() async throws -> BotProductionInfoSnapshot {
@@ -403,11 +411,23 @@ actor BotProductionInfoService {
         async let facts = memory.facts(scope: nil)
         async let routines = machine.list(botId: environment.botID)
         async let approvals = approvalRecords()
+        let context = await BotPresenceCenter.shared.context()
+        let presence: RoutinePresence
+        if let scheduler {
+            presence = await scheduler.presenceSnapshot(
+                appActive: context.appActive, keepingAlive: context.keepingAlive)
+        } else {
+            presence = RoutinePresence(
+                level: RoutinePresencePolicy.level(
+                    appActive: context.appActive, keepingAlive: context.keepingAlive,
+                    scheduledNotificationCount: 0))
+        }
         let grants = await standingGrants()
         let reconciliations = try await reconciliationRecords(provided: routines)
         return try await BotProductionInfoSnapshot(
             botName: botName, memories: facts, routines: routines, approvals: approvals,
-            grants: grants, reconciliations: reconciliations)
+            grants: grants, reconciliations: reconciliations,
+            presence: presence, proactiveSettings: settingsStore.settings())
     }
 
     /// Standing grants only. A `once` grant is one execution permission, not a
@@ -495,6 +515,15 @@ actor BotProductionInfoService {
         }
     }
 
+    /// Persists the host-level "can disturb" authorization and wakes the
+    /// scheduler so a quiet-hours or DND change is applied immediately.
+    func saveProactiveSettings(_ settings: ProactiveSettings) async -> ProactiveSettings {
+        settingsStore.save(settings)
+        let normalized = settingsStore.settings()
+        await scheduler?.applySettingsChange()
+        return normalized
+    }
+
     func rename(_ name: String) async throws {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw BotProductionError.invalidService("Bot 名不能为空。") }
@@ -532,6 +561,7 @@ actor BotProductionInfoService {
         _ = try await environment.routineMachine.update(
             botId: environment.botID, routineId: routineID,
             patch: RoutinePatch(enabled: enabled), now: botProductionNowMilliseconds())
+        await scheduler?.applySettingsChange()
     }
 
     private func approvalRecords() async throws -> [BotProductionApproval] {
@@ -562,8 +592,11 @@ struct BotProductionInfoDriver {
         BotProductionInfoDriver(load: { try await service.load() })
     }
 
-    static func production(environment: BotProductionEnvironment) -> BotProductionInfoDriver {
-        production(service: BotProductionInfoService(environment: environment))
+    static func production(environment: BotProductionEnvironment,
+                           scheduler: RoutineScheduler? = nil,
+                           settingsStore: ProactiveSettingsStore = .shared) -> BotProductionInfoDriver {
+        production(service: BotProductionInfoService(
+            environment: environment, scheduler: scheduler, settingsStore: settingsStore))
     }
 }
 

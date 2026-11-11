@@ -246,6 +246,12 @@ def main() -> int:
     check(load("wake-routine")["valid"], "wake-routine.schema.json", "wake-routine")
     check(load("wake-routine")["valid"]["quietDefer"], "routine.schema.json", "routine")
 
+    notifications = load("routine-notification")
+    for name, case in notifications["valid"].items():
+        check(case, "routine-notification.schema.json", f"routine-notification.{name}")
+    for index, case in enumerate(notifications["invalid"]):
+        rejects(case, "routine-notification.schema.json", f"routine-notification.invalid[{index}]")
+
     held_fixture = load_merged("held-inbox")
     held = held_fixture["valid"]
     check(held["enqueued"]["item"], "held-inbox-item.schema.json", "held-item")
@@ -255,8 +261,8 @@ def main() -> int:
     for index, case in enumerate(held_fixture["invalid"]):
         rejects(case, "held-inbox-item.schema.json", f"held.invalid[{index}]")
 
-    print("bot v2 vectors: PASS (memory, wake, routine delivery, held inbox; "
-          "schema-positive and negative vectors; "
+    print("bot v2 vectors: PASS (memory, wake, routine delivery, routine notification, "
+          "held inbox; schema-positive and negative vectors; "
           f"memory-evidence {evidence_valid} valid / {evidence_invalid} invalid / "
           f"{evidence_boundary} boundary, {evidence_mutations} mutation checks)")
     return 0

@@ -66,6 +66,8 @@ struct BotInfoSnapshot {
     var approvals: [BotApprovalRecord]
     var grants: [BotGrantInfo] = []
     var reconciliations: [BotReconciliationInfo] = []
+    var presence: RoutinePresence = RoutinePresence(level: .foreground)
+    var proactiveSettings: ProactiveSettings = ProactiveSettingsStore.productionDefault
 }
 
 struct BotInfoDriver {
@@ -80,6 +82,8 @@ struct BotInfoDriver {
     var revokeGrant: (String) async throws -> Void = { _ in }
     var cancelRoutine: (String) async throws -> Void = { _ in }
     var resolveReconciliation: (String, String) async throws -> Void = { _, _ in }
+    /// Returns the normalized value the host actually persisted.
+    var saveProactiveSettings: (ProactiveSettings) async throws -> ProactiveSettings = { $0 }
 }
 
 enum BotInfoLoadState: Equatable {
@@ -97,6 +101,9 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var approvals: [BotApprovalRecord]
     @Published private(set) var grants: [BotGrantInfo]
     @Published private(set) var reconciliations: [BotReconciliationInfo]
+    @Published private(set) var presence: RoutinePresence
+    @Published private(set) var proactiveSettings: ProactiveSettings
+    @Published var highlightedRoutineID: String?
     @Published private(set) var memoryState: BotInfoLoadState
     @Published private(set) var routinesState: BotInfoLoadState
     @Published private(set) var approvalsState: BotInfoLoadState
@@ -122,6 +129,8 @@ final class BotInfoModel: ObservableObject {
         approvals = snapshot?.approvals ?? []
         grants = snapshot?.grants ?? []
         reconciliations = snapshot?.reconciliations ?? []
+        presence = snapshot?.presence ?? RoutinePresence(level: .foreground)
+        proactiveSettings = snapshot?.proactiveSettings ?? ProactiveSettingsStore.productionDefault
         let initial: BotInfoLoadState
         if let fixtureError { initial = .failed(fixtureError) }
         else { initial = snapshot == nil && driver != nil ? .loading : .loaded }
@@ -218,6 +227,8 @@ final class BotInfoModel: ObservableObject {
             approvals = snapshot.approvals
             grants = snapshot.grants
             reconciliations = snapshot.reconciliations
+            presence = snapshot.presence
+            proactiveSettings = snapshot.proactiveSettings
             memoryState = .loaded
             routinesState = .loaded
             approvalsState = .loaded
@@ -283,6 +294,54 @@ final class BotInfoModel: ObservableObject {
         }
     }
 
+    var quietStartDate: Date { Self.timeDate(proactiveSettings.quietStart) }
+    var quietEndDate: Date { Self.timeDate(proactiveSettings.quietEnd) }
+
+    func setDND(_ value: Bool) async {
+        var next = proactiveSettings
+        next.dnd = value
+        await persist(next)
+    }
+
+    func setQuietStart(_ date: Date) async {
+        var next = proactiveSettings
+        next.quietStart = Self.timeText(date)
+        await persist(next)
+    }
+
+    func setQuietEnd(_ date: Date) async {
+        var next = proactiveSettings
+        next.quietEnd = Self.timeText(date)
+        await persist(next)
+    }
+
+    private func persist(_ settings: ProactiveSettings) async {
+        do {
+            proactiveSettings = try await driver?.saveProactiveSettings(settings) ?? settings
+            if let driver {
+                presence = try await driver.load().presence
+            }
+        } catch {
+            actionError = "打扰设置保存失败：\(error.localizedDescription)"
+        }
+    }
+
+    private static func timeDate(_ value: String) -> Date {
+        let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
+        let hour = pieces.count == 2 ? Int(pieces[0]) ?? 23 : 23
+        let minute = pieces.count == 2 ? Int(pieces[1]) ?? 0 : 0
+        var components = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        components.hour = hour
+        components.minute = minute
+        components.second = 0
+        return Calendar.current.date(from: components) ?? Date()
+    }
+
+    private static func timeText(_ date: Date) -> String {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", components.hour ?? 23, components.minute ?? 0)
+    }
+
     func setRoutine(_ routine: BotRoutineInfo, enabled: Bool) async {
         do {
             try await driver?.setRoutineEnabled(routine.id, enabled)
@@ -334,11 +393,20 @@ enum BotInfoSection: Hashable {
     case grants
 }
 
+/// A request to present the information page at one section. Routine-due
+/// notifications also carry the routine row to highlight after the push.
+struct BotInfoPresentationRequest: Identifiable, Equatable {
+    let id = UUID()
+    var section: BotInfoSection?
+    var routineID: String?
+}
+
 /// Bot 信息: the avatar and name on top, the name editor, then the Bot's own
 /// data (memory, routines, approvals). Same grouped-list chrome as 我的.
 struct BotInfoPage: View {
     @ObservedObject var model: BotInfoModel
     let isMainBot: Bool
+    let highlightRoutineID: String?
     let onDelete: (() async throws -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var path: [BotInfoSection]
@@ -348,9 +416,11 @@ struct BotInfoPage: View {
 
     init(model: BotInfoModel, isMainBot: Bool = false,
          initialSection: BotInfoSection? = nil,
+         highlightRoutineID: String? = nil,
          onDelete: (() async throws -> Void)? = nil) {
         self.model = model
         self.isMainBot = isMainBot
+        self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
         _path = State(initialValue: initialSection.map { [$0] } ?? [])
     }
@@ -404,6 +474,22 @@ struct BotInfoPage: View {
                     Text("外观")
                 } footer: {
                     Text("只改发型和颜色，与桌面 DSH Bot 一致；点选即保存，自动外观保留给以后的多 Bot 接入。")
+                }
+
+                Section {
+                    BotPresenceSection(model: model)
+                } header: {
+                    Text("在场")
+                } footer: {
+                    Text("前台全功能；后台保活靠静音音频继续运行；App 被挂起或杀掉后只能靠预定的本地通知提醒 routine 到期。")
+                }
+
+                Section {
+                    BotDisruptionSection(model: model)
+                } header: {
+                    Text("打扰")
+                } footer: {
+                    Text("设置对所有 Bot 生效，改动立即持久化。勿扰关闭所有主动提醒和 routine 到期通知；安静时段延后非紧急提醒，紧急 routine 仍按理由放行。什么值得说、什么算紧急属于记忆偏好，不在这里编辑。")
                 }
 
                 Section("数据") {
@@ -488,6 +574,12 @@ struct BotInfoPage: View {
                 }
             }
             .task {
+                // Mutating an @ObservedObject during view construction
+                // invalidates the graph that is building this view. Apply the
+                // deep-link highlight only after the view is installed.
+                if model.highlightedRoutineID != highlightRoutineID {
+                    model.highlightedRoutineID = highlightRoutineID
+                }
                 model.setMainBot(isMainBot)
                 if model.memoryState == .loading { await model.refresh() }
             }
@@ -513,6 +605,14 @@ struct BotInfoPage: View {
                 Text("删除后不能从页面内撤销。最后一个 Bot 不能删除。")
             }
         }
+    }
+
+    private static func timeText(_ milliseconds: Int64) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = .current
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000))
     }
 
     private func deleteFailureText(_ error: Error) -> String {
@@ -697,6 +797,7 @@ private struct BotRoutinesPage: View {
     @State private var confirmingCancel: BotRoutineInfo?
 
     var body: some View {
+        ScrollViewReader { proxy in
         List {
             switch model.routinesState {
             case .loading:
@@ -713,12 +814,25 @@ private struct BotRoutinesPage: View {
                 } else {
                     ForEach(model.routines) { routine in
                         routineRow(routine)
+                            .id("bot.routine.row.\(routine.id)")
+                            .accessibilityIdentifier("bot.routine.row.\(routine.id)")
+                            .listRowBackground(model.highlightedRoutineID == routine.id
+                                               ? HomeSpec.userBubble : nil)
                     }
                 }
             }
         }
         .homeGroupedList()
         .navigationTitle("例行任务")
+        .task {
+            guard let id = model.highlightedRoutineID else { return }
+            try? await Task.sleep(for: .milliseconds(150))
+            withAnimation { proxy.scrollTo("bot.routine.row.\(id)", anchor: .center) }
+        }
+        .onChange(of: model.highlightedRoutineID) { _, newValue in
+            guard let id = newValue else { return }
+            withAnimation { proxy.scrollTo("bot.routine.row.\(id)", anchor: .center) }
+        }
         .confirmationDialog("取消这次运行？", isPresented: Binding(
             get: { confirmingCancel != nil }, set: { if !$0 { confirmingCancel = nil } }
         )) {
@@ -731,6 +845,7 @@ private struct BotRoutinesPage: View {
             Button("返回", role: .cancel) { confirmingCancel = nil }
         } message: {
             Text("正在执行的回合会被中止；已经产生的效果会保留。")
+        }
         }
     }
 
@@ -894,6 +1009,80 @@ private struct BotGrantsPage: View {
                     Text("撤销后，同一操作需要重新审批；常设授权只属于这个 Bot。")
                 }
             }
+    }
+}
+
+struct BotPresenceSection: View {
+    @ObservedObject var model: BotInfoModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LabeledContent("当前级别", value: model.presence.level.displayName)
+                .accessibilityIdentifier("bot.info.presence.level")
+            if model.presence.level == .scheduledNotification {
+                LabeledContent("预定通知", value: "\(model.presence.scheduledNotificationCount) 条")
+                    .accessibilityIdentifier("bot.info.presence.notifications")
+            }
+            if model.presence.deferred.isEmpty {
+                Text("没有因安静时段延后的例行任务。")
+                    .botCaptionFont()
+                    .foregroundStyle(HomeSpec.textSecondary)
+            } else {
+                ForEach(model.presence.deferred) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .botSecondaryFont(weight: .medium)
+                            .foregroundStyle(HomeSpec.textPrimary)
+                        Text("原定 \(Self.timeText(item.scheduledFor))，延后到 \(Self.timeText(item.deferredUntil))")
+                            .botCaptionFont()
+                            .foregroundStyle(HomeSpec.textSecondary)
+                    }
+                    .accessibilityIdentifier("bot.info.presence.deferred.\(item.routineId)")
+                }
+            }
+        }
+        .accessibilityIdentifier("bot.info.presence")
+    }
+
+    private static func timeText(_ milliseconds: Int64) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = .current
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000))
+    }
+}
+
+struct BotDisruptionSection: View {
+    @ObservedObject var model: BotInfoModel
+
+    var body: some View {
+        Toggle("勿扰", isOn: Binding(
+            get: { model.proactiveSettings.dnd },
+            set: { value in Task { await model.setDND(value) } }))
+            .accessibilityIdentifier("bot.info.dnd")
+        DatePicker("安静时段开始",
+                   selection: Binding(
+                       get: { model.quietStartDate },
+                       set: { value in Task { await model.setQuietStart(value) } }),
+                   displayedComponents: .hourAndMinute)
+            .accessibilityIdentifier("bot.info.quiet.start")
+        DatePicker("安静时段结束",
+                   selection: Binding(
+                       get: { model.quietEndDate },
+                       set: { value in Task { await model.setQuietEnd(value) } }),
+                   displayedComponents: .hourAndMinute)
+            .accessibilityIdentifier("bot.info.quiet.end")
+    }
+}
+
+private extension RoutinePresenceLevel {
+    var displayName: String {
+        switch self {
+        case .foreground: return "前台"
+        case .backgroundKeepAlive: return "后台保活"
+        case .scheduledNotification: return "预定通知"
+        }
     }
 }
 

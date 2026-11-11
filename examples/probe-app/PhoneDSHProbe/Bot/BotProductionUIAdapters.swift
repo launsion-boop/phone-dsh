@@ -82,6 +82,9 @@ extension BotProductionInfoService {
             cancelRoutine: { [self] id in try await self.cancelRoutine(id) },
             resolveReconciliation: { [self] routineID, decision in
                 try await self.resolveReconciliation(routineID: routineID, decision: decision)
+            },
+            saveProactiveSettings: { [self] settings in
+                await self.saveProactiveSettings(settings)
             })
     }
 }
@@ -215,7 +218,9 @@ extension BotInfoSnapshot {
                     routineID: item.routineID, routineTitle: item.routineTitle,
                     attempt: item.attempt, runID: item.runID, error: item.error,
                     effectSummary: item.effectSummary)
-            })
+            },
+            presence: snapshot.presence,
+            proactiveSettings: snapshot.proactiveSettings)
     }
 
     private static func creatorText(_ creator: RoutineCreator?) -> String? {

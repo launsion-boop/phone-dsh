@@ -557,6 +557,91 @@
       ]
     },
     {
+      "id": "BOT-SELFTEST-PROACTIVE",
+      "title": "interrupt routine result reaches the proactive chain (expected PASS)",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 4,
+        "max_model_requests": 12
+      },
+      "workspace": {
+        "bot": "main"
+      },
+      "mock": {
+        "tools": [
+          {
+            "name": "mcp__phone__UpdateRoutine",
+            "arguments": {
+              "action": "create",
+              "title": "SELFTEST_PROACTIVE",
+              "prompt": "SELFTEST_PROACTIVE_PROMPT",
+              "schedule": "@every 1m",
+              "delivery": "interrupt",
+              "interrupt_reason": "self-check is waiting for the interrupt result"
+            }
+          }
+        ],
+        "prompt_rules": [
+          {
+            "contains": "SELFTEST_PROACTIVE_PROMPT",
+            "final_text": "SELFTEST_PROACTIVE_DONE"
+          }
+        ],
+        "final_text": "SELFTEST_PROACTIVE_READY"
+      },
+      "actions": [
+        {
+          "type": "approval_policy",
+          "default": "allow_once"
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "create an interrupt routine for the proactive self-check"
+        },
+        {
+          "type": "advance_clock",
+          "seconds": 120
+        },
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "confirm the routine notification chain settled"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "turn": 1,
+          "value": "SELFTEST_PROACTIVE_READY"
+        },
+        {
+          "type": "reply_contains",
+          "turn": 2,
+          "value": "SELFTEST_PROACTIVE_READY"
+        },
+        {
+          "type": "bot_event",
+          "event": "routine.run_finished",
+          "payload_contains": "SELFTEST_PROACTIVE_DONE"
+        },
+        {
+          "type": "bot_event",
+          "event": "proactive.considered",
+          "where": {
+            "kind": "routine-result"
+          }
+        },
+        {
+          "type": "bot_event",
+          "event": "routine.run_finished",
+          "where": {
+            "delivery": "interrupt"
+          }
+        }
+      ]
+    },
+    {
       "id": "BOT-SELFTEST-EXPECT-FAIL",
       "title": "Every assertion in the negative direction (expected controlled FAIL)",
       "expect": "fail",

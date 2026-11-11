@@ -524,6 +524,16 @@ public actor BotRecordService: BotRecordEvidenceResolving {
                   let name = calls[sessionID]?[callID] else { return .assistant }
             return Self.externalTool(name, arguments: nil) ? .observation : .assistant
         default:
+            // The host writes this durable record from a device task settlement
+            // before enqueueing the read-only held item. Its shape is the
+            // verifiable observation record the trust table names; the
+            // acknowledgement (`comm.reply`) is only transport confirmation
+            // and stays `assistant`.
+            if event.type == DeviceTaskResultOutbox.recordEventType,
+               case let .object(data) = event.data,
+               data["deviceTaskResult"] != nil {
+                return .observation
+            }
             return .assistant
         }
     }

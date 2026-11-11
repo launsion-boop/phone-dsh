@@ -32,7 +32,10 @@ final class BotRuntimeUnit {
     let routineOutbox: BotRoutineOutbox
     let rows: BotProductionRowService
     let info: BotProductionInfoService
+    let proactive: ProactiveEngine
+    let deviceResults: DeviceTaskResultOutbox
     private let routineActivity: BotRoutineActivityFlag
+    private let nowProvider: @Sendable () -> Int64
 
     private(set) var started = false
     private var liveSubscription: BotLiveFrameSubscription?
@@ -44,8 +47,10 @@ final class BotRuntimeUnit {
                  remote: BotDSHRemoteRuntime, scheduler: RoutineScheduler,
                  wakeInbox: WakeInbox, planner: BotRemoteActionPlanner,
                  routineOutbox: BotRoutineOutbox, rows: BotProductionRowService,
-                 info: BotProductionInfoService,
-                 routineActivity: BotRoutineActivityFlag) {
+                 info: BotProductionInfoService, proactive: ProactiveEngine,
+                 deviceResults: DeviceTaskResultOutbox,
+                 routineActivity: BotRoutineActivityFlag,
+                 nowProvider: @escaping @Sendable () -> Int64) {
         self.botID = botID
         self.environment = environment
         self.remote = remote
@@ -55,7 +60,10 @@ final class BotRuntimeUnit {
         self.routineOutbox = routineOutbox
         self.rows = rows
         self.info = info
+        self.proactive = proactive
+        self.deviceResults = deviceResults
         self.routineActivity = routineActivity
+        self.nowProvider = nowProvider
         self.liveFish = BotLiveFishProjection(botID: botID)
     }
 
@@ -84,10 +92,20 @@ final class BotRuntimeUnit {
             store: store, botID: botID, wakeInbox: inbox)
         let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
         let rows = BotProductionRowService(environment: environment, remote: remote)
-        let info = BotProductionInfoService(environment: environment)
         let routineActivity = BotRoutineActivityFlag()
+        let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
+        let settingsStore = ProactiveSettingsStore.shared
+        let proactive = ProactiveEngine(
+            settings: { settingsStore.settings() },
+            now: resolvedNow,
+            deliverer: BotRuntimeUnit.proactiveDelivery(),
+            eventLog: store,
+            deliveryKinds: [.routineResult])
+        let notificationScheduling = BotRuntimeUnit.notificationScheduling()
         let scheduler = RoutineScheduler(
             botId: botID, machine: machine, inbox: inbox, sink: routineOutbox,
+            proactive: proactive,
+            notifications: notificationScheduling,
             runner: { [remote] request in
                 await routineActivity.begin()
                 let result = await remote.runRoutine(request)
@@ -97,16 +115,20 @@ final class BotRuntimeUnit {
             cancelRunner: { [remote] cancellation in await remote.cancelRoutine(cancellation) },
             available: { [remote] _ in await remote.isAvailable() },
             busy: { [remote] _ in await remote.isMainTurnBusy() },
+            settings: { settingsStore.settings() },
             // Defaults intentionally mirror `RoutineScheduler.init`; the eval
             // runner injects a controllable clock/sleeper through the production
             // composition. Production callers pass neither and keep the wall
             // clock.
-            now: now ?? { Int64(Date().timeIntervalSince1970 * 1000) },
+            now: resolvedNow,
             sleep: sleep ?? { milliseconds in
                 guard milliseconds > 0 else { return }
                 try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
             },
             leaseOwner: "bot-runtime-composition")
+        let info = BotProductionInfoService(
+            environment: environment, scheduler: scheduler, settingsStore: settingsStore)
+        let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
         await environment.setRoutineCanceller { [scheduler] routineID in
             await scheduler.cancelRunning(routineId: routineID)
         }
@@ -114,7 +136,8 @@ final class BotRuntimeUnit {
             botID: botID, environment: environment, remote: remote,
             scheduler: scheduler, wakeInbox: inbox, planner: planner,
             routineOutbox: routineOutbox, rows: rows, info: info,
-            routineActivity: routineActivity)
+            proactive: proactive, deviceResults: deviceResults,
+            routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 
     /// Rebinds this Bot's private remote to a fresh Host transport. The shared
@@ -130,9 +153,18 @@ final class BotRuntimeUnit {
             turnStopping: BotRuntimeTurnStopper(remote: remote)))
         _ = try await scheduler.recover()
         _ = await remote.deliverInterruptedTaskWakes()
+        _ = try? await deviceResults.redeliver(botID: botID, in: wakeInbox)
         await scheduler.start()
         await startLiveObservation()
         started = true
+    }
+
+    /// The keep-alive condition includes routines due inside the window even
+    /// when no turn is running.
+    func hasRoutineDueSoon(within windowMs: Int64 = RoutinePresencePolicy.keepAliveWindowMs) async -> Bool {
+        let machine = await environment.routineMachine
+        let routines = (try? await machine.list(botId: botID)) ?? []
+        return RoutinePresencePolicy.hasRoutineDueSoon(routines, now: nowProvider(), windowMs: windowMs)
     }
 
     /// Drops the Host-bound half but keeps the unit and its durable data. A
@@ -191,6 +223,28 @@ final class BotRuntimeUnit {
             pendingApprovalCount: pendingApprovalCount,
             reaction: live.reaction,
             runtimeState: runtimeState)
+    }
+
+    private static func proactiveDelivery() -> (any ProactiveDelivering)? {
+        // The macOS eval harness is a bare XCTest process: UserNotifications
+        // throws at `currentNotificationCenter`, and a headless runner has no
+        // application bundle to display to. The eval plan sets this variable;
+        // the App never does. The proactive decision/event chain still runs.
+        if ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
+        #if canImport(UserNotifications)
+        return UNUserNotificationProactiveDelivery()
+        #else
+        return nil
+        #endif
+    }
+
+    private static func notificationScheduling() -> (any RoutineNotificationScheduling)? {
+        if ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
+        #if canImport(UserNotifications)
+        return UNUserNotificationRoutineScheduling()
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Live observation

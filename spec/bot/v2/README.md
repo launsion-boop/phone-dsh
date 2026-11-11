@@ -34,7 +34,7 @@ facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；
 | 引用指向 | 推导出的信任 | 说明 |
 | --- | --- | --- |
 | 真实用户消息 | `user` | `user/message`，`source.kind == "user"`，且 `source.rpcId` 按 v1 §4.1 属于用户回合（`bot-`、`user-action:`、`card-answer:`；缺失按用户处理）。`held:`、`agent:`、`routine:`、`task-*` 与 `compact-checkpoint` 都不算用户消息。 |
-| 观察信封或外部来源调用 | `observation` | 引用指向的 session `tool/call`／`tool/result` 的名称属于 v1 §4.3 的外部来源，或事件是可核验的观察记录；模型文本里出现信封标记不算证据。 |
+| 观察信封或外部来源调用 | `observation` | 引用指向的 session `tool/call`／`tool/result` 的名称属于 v1 §4.3 的外部来源，或事件是可核验的观察记录（例如 `comm.inbound` 的 `deviceTaskResult` 终态）；模型文本里出现信封标记不算证据。 |
 | 其他记录或没有引用 | `assistant` | agent 自己的推断；包括 routine、Task、held、其他 Bot 消息、压缩摘要和普通宿主工具结果。 |
 
 - `evidence` 只允许出现在 `write`。每条引用必须在解析后存在，且 session 属于该 Bot 的已认领会话、
@@ -60,7 +60,9 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 `HeldMessages.block` 的 `[agent]` 分支对 `fromAgentName`、`fromAgentId`、`title`、`text` 与 `msg id` 全部经 `escapedHeldField` 转义；agent-held 的回复仍是 held 数据与队友内容，不是用户授权，不能触发未经用户要求的动作。
 
-设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.phone.json` 的 `deviceTaskResult` 是 phoneDSH 增量：上游 `held-inbox.json` 保持原样导出，例子放在覆盖文件，由合并加载器交付给真实 inbox codec。
+设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队。
+
+投递语义是 **write-before-enqueue + replay with dedupe**：宿主先把该终态写成一条 durable `comm.inbound` 事件（event id 与 held item id 都由设备 ID＋idempotency key 的 SHA-256 决定），成功入队后再写一条 `comm.reply` 确认事件。Bot 进程启动时重放没有确认事件的终态记录，重新调用 `WakeInbox.enqueue`；inbox 以 `requestId` 去重，所以“事件已写、入队前崩溃”会在下次启动补投，“已入队、确认事件前崩溃”只会生成同一 item 的 duplicate，不产生第二条。确认事件写完后，即使 held item 已被 commit 消费，也不再补投；这保持“同一终态至多交付一次给主对话”的效果，同时消除落盘与入队之间的永久丢失窗口。journal 自身仍不用于回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.phone.json` 的 `deviceTaskResult` 是 phoneDSH 增量：上游 `held-inbox.json` 保持原样导出，例子放在覆盖文件，由合并加载器交付给真实 inbox codec。
 
 ### 2.1 宿主拼入文本的转义
 
@@ -115,7 +117,49 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
    WakeSignalSource 接口。
 
 模式：`off` 只记 `mode-off`，不投递；`would` 记录 `would` 决策但不投递；`on` 对
-`deliveryKinds` 内的类别投递，投递失败记 `delivery-failed` 且不消耗保险丝。
+`deliveryKinds` 内的类别投递，投递失败记 `delivery-failed` 且不消耗保险丝。生产 Bot 装配使用
+`on`，并把 `routine-result` 接到 `RoutineScheduler` 的 interrupt 结果；`delivery == held` 的结果
+仍只进 held inbox，不进入这条链。
+
+### 3.1 预定本地通知（routine 到期）
+
+iOS 的后台执行不是常驻能力。为了让 App 被挂起或杀掉时仍能告诉用户 routine 到期，宿主在 routine
+建立或改期后把**下一次到期**登记为一条 `UNUserNotificationCenter` 本地通知；这条路径不依赖进程存活。
+
+- **内容。** 标题固定 `例行任务到期`，正文 `「<routine title>」到点，点开运行。`，深链
+  `phonedsh://bot/<botID>/routine/<routineID>` 定位 Bot 信息页的该 routine 行。它不是主动提醒，
+  不消耗保险丝，也不改变 routine 的运行或 held/interrupt 交付档位。
+- **标识。** 每条通知的 identifier 为 `routine-due:<botID>:<routineID>:<fireAt>`；同一 routine 改期时
+  旧 identifier 取消、新 identifier 登记。`routine-notification.schema.json` 与
+  `golden/routine-notification.json` 固定字段、标题、深链和边界。
+- **重排。** routine 运行、暂停、删除、改期、启用/恢复或安静时段延后时，宿主取消旧登记并按新的
+  `nextRunAt` 重排。App 被杀后系统保留最后一次登记；再次启动时按当前 routine 状态做一次全量对账，
+  取消孤儿 identifier。
+- **勿扰与安静时段。** `dnd == true` 时不登记任何 routine 到期通知。落在安静时段的非紧急 routine
+  把通知 `fireAt` 延到安静时段结束；`urgent == true` 且 `urgent_reason` 非空的 routine 保持原
+  `nextRunAt`。安静时段仍由调度层执行“延后而不是丢弃”。
+- **上限。** iOS 每个 App 最多保留 64 条 pending 通知。宿主每个 Bot 最多登记 **60** 条 routine
+  到期通知，按 `fireAt` 取最早的 60 条；超出部分只影响通知，不影响 routine 本身。多个 Bot 的总数
+  超过系统上限时，由系统决定保留哪些；宿主下一次对账会重试被丢弃的登记。系统在低电量或用户关闭
+  通知时可能不显示通知，这是平台行为，不能从静态检查或模拟器推断真机结果。
+- **失败。** 登记失败不回滚 routine、不阻塞运行；宿主保留当前内存签名，下一次 tick 重试。被系统
+  丢弃的 pending 通知在下次启动对账时重新登记。
+
+### 3.2 在场降级梯
+
+宿主按能力逐级降级，并把实际级别暴露给 Bot 信息页；不支持的能力不伪装成在运行：
+
+1. **前台。** App 处于 active，全功能。
+2. **后台保活。** App 不在前台，用户开启保活，且任一 Bot 有进行中的回合，或该 Bot 在一个
+   **900,000 ms（15 分钟）** 保活窗口内有 enabled、未进入 needs-reconciliation 的 routine
+   `nextRunAt`。命中时持有现有静音音频会话；routine 完成后窗口内仍到期时继续持有。
+3. **预定通知。** App 被挂起或杀掉后不依赖进程存活，由 §3.1 的本地通知提醒 routine 到期。
+   系统通知权限未授予、用户关闭通知或低电量限制时不显示，宿主只能显示实际登记成功数。
+4. **系统后台任务／推送中继。** 前者由既有 BGTask 路径补跑到期 routine；后者只保留
+   `WakeSignalSource` 接口，本轮不实现。
+
+Bot 信息页的在场区显示当前级别、实际登记的通知数，以及 `quiet_defer` 中因安静时段延后的
+routine（标题、原定时间、延后到时间）。没有条目时显示空状态，不伪造运行、通知或延后。
 
 **已删除、不得重新接线的规则**（PC-20261111-bot-v2-unwired）：每日预算、分类配额、冷却、
 TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema，也不再有 Swift 类型或
@@ -125,6 +169,8 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 
 `golden/` 中的文件与 v1 移交时逐字节相同（`memory-policy` 已按 WPV-C 删除），覆盖
 `memory-fact`、`memory-injection`、`memory-recall`、`wake-routine`、`held-inbox` 及其合并覆盖文件。
+`routine-notification` 是本目录新增的 phoneDSH-owned 向量，覆盖正常、安静时段延后、紧急绕过和
+四类非法输入。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。

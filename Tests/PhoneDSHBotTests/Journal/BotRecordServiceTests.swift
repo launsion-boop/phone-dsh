@@ -176,6 +176,36 @@ final class BotRecordServiceTests: XCTestCase {
         }
     }
 
+    func testDeviceTaskResultEventDerivesObservationTrust() async throws {
+        let resultSeq = try await appendEvent(
+            type: DeviceTaskResultOutbox.recordEventType, botID: "bot-a", sessionID: "gb-main",
+            originSeq: 8, data: .object([
+                "deviceTaskResult": .object([
+                    "deviceID": .string("device-1"),
+                    "deviceDisplayName": .string("测试设备"),
+                    "taskID": .string("task-1"),
+                    "idempotencyKey": .string("idem-1"),
+                    "goal": .string("打开页面"),
+                    "status": .string("completed"),
+                    "result": .string("页面已打开"),
+                    "createdAt": .number(1_760_000_000_000),
+                ]),
+            ]))
+        let evidence = try await service.resolveEvidence(
+            ["record://event/\(resultSeq)"], callerBotID: "bot-a", callerSessionID: "gb-main")
+        XCTAssertEqual(evidence.trust, .observation)
+
+        // The acknowledgement is host bookkeeping, not an observation.
+        let ackSeq = try await appendEvent(
+            type: "comm.reply", botID: "bot-a", sessionID: "gb-main",
+            originSeq: 9, data: .object([
+                "deviceTaskResultAck": .string("device-task-result:\(resultSeq)"),
+            ]))
+        let ack = try await service.resolveEvidence(
+            ["record://event/\(ackSeq)"], callerBotID: "bot-a", callerSessionID: "gb-main")
+        XCTAssertEqual(ack.trust, .assistant)
+    }
+
     func testUsageErrorsAndInvalidReferencesAreBounded() async throws {
         let missing = await service.execute(arguments: ["read"], callerSessionID: "gb-main")
         XCTAssertEqual(missing.exitCode, 2)

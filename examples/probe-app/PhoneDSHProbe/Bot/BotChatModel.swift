@@ -707,13 +707,19 @@ final class BotChatModel: ObservableObject {
 
     @discardableResult
     func openDeepLink(_ url: URL) -> Bool {
-        guard let link = BotDeepLink(url: url), link.botID == context.botID,
-              visibleRows.contains(where: { $0.id == link.rowID }) else {
+        guard let link = BotDeepLink(url: url), link.botID == context.botID else {
+            deepLinkError = "这条消息不可用或已过期。"
+            return false
+        }
+        // Routine links target the routine list in the information page, not
+        // a chat row. Let the production hub own that destination.
+        guard let rowID = link.rowID else { return false }
+        guard visibleRows.contains(where: { $0.id == rowID }) else {
             deepLinkError = "这条消息不可用或已过期。"
             return false
         }
         deepLinkError = nil
-        scrollRequestID = link.rowID
+        scrollRequestID = rowID
         return true
     }
 
