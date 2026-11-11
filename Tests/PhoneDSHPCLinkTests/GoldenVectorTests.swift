@@ -575,11 +575,15 @@ final class GoldenVectorTests: XCTestCase {
                 XCTAssertEqual(expected, "version_unsupported")
 
             case "slot":
-                let expired = (row["now_ms"]?.intValue ?? 0) - (row["opened_ms"]?.intValue ?? 0)
-                    > (row["ttl_ms"]?.intValue ?? 0)
-                let exhausted = (row["joins"]?.intValue ?? 0) >= (row["limit"]?.intValue ?? 0)
-                    || row["matched"]?.boolValue == true
-                let decision = exhausted ? "exhausted" : (expired ? "expired" : "accept")
+                let nowMs: Int64 = row["now_ms"]?.intValue ?? 0
+                let openedMs: Int64 = row["opened_ms"]?.intValue ?? 0
+                let ttlMs: Int64 = row["ttl_ms"]?.intValue ?? 0
+                let joins: Int64 = row["joins"]?.intValue ?? 0
+                let limit: Int64 = row["limit"]?.intValue ?? 0
+                let matched: Bool = row["matched"]?.boolValue == true
+                let expired: Bool = nowMs - openedMs > ttlMs
+                let exhausted: Bool = joins >= limit || matched
+                let decision: String = exhausted ? "exhausted" : (expired ? "expired" : "accept")
                 XCTAssertEqual(decision, expected, name)
 
             case "forbidden_endpoint":
