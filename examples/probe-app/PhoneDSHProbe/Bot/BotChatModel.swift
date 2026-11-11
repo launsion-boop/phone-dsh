@@ -425,8 +425,24 @@ final class BotChatModel: ObservableObject {
 
     private func applyDurablePresentation(_ presentation: BotRuntimePresentation) {
         runtimePresentation = presentation
-        if live == nil { reaction = presentation.reaction }
-        guard live == nil else { return }
+        if let liveTurn = live {
+            // The durable projection is authoritative for whether a turn is
+            // still open. A `turn/end` live frame can be lost when the scene
+            // pauses or the Worker is replaced; without this check the live
+            // turn (and its failed tool rows) stayed mounted forever, keeping
+            // the lazy transcript in a placement loop after the incident.
+            if presentation.runningTurnID == nil {
+                let committed = liveTurn.turn.map { number in
+                    rows.contains { Self.isAnswer($0) && Self.turn(of: $0) == number }
+                } ?? false
+                if liveTurn.ended || committed {
+                    settleDurableLive(presentation)
+                    return
+                }
+            }
+            return
+        }
+        reaction = presentation.reaction
         if let turn = presentation.runningTurnID {
             if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
         } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
@@ -438,6 +454,25 @@ final class BotChatModel: ObservableObject {
             stream.cancel()
         }
         scheduleIdleSleep()
+    }
+
+    /// Drop a live turn the durable projection has already closed. The next
+    /// watch poll renders the durable answer row and its folded process row
+    /// instead of the live tool group that was being re-measured forever.
+    private func settleDurableLive(_ presentation: BotRuntimePresentation) {
+        live = nil
+        livePresentation = nil
+        reaction = presentation.reaction
+        liveFish = BotLiveFishProjection(botID: context.botID)
+        fishExpiryTask?.cancel()
+        fishExpiryTask = nil
+        stream.cancel()
+        deltaFlush?.cancel()
+        deltaFlush = nil
+        pendingDelta = ""
+        streamingText = nil
+        runningTurnID = nil
+        scheduleIdleSleep(reset: true)
     }
 
     private func scheduleIdleSleep(reset: Bool = false) {
