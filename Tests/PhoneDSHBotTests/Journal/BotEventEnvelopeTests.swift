@@ -123,6 +123,40 @@ final class BotEventEnvelopeTests: XCTestCase {
         XCTAssertEqual(grants[1].expiresAt, 1_760_003_600_000)
     }
 
+    func testAuthzGrantSnapshotIsDurableAndTheWriterMatchesTheFrozenVector() throws {
+        XCTAssertTrue(BotEventEnvelopeCodec.isDurable("authz.grant_snapshot"))
+        XCTAssertTrue(BotEventEnvelopeCodec.isDurable(BotGrantSnapshot.eventType))
+
+        let fixture = try loadPhoneFixture()
+        let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
+        let vector = try XCTUnwrap(valid.first { $0["name"] as? String == "authz-grant-snapshot" })
+        let eventObject = vector["event"] as! [String: Any]
+        let codec = BotEventEnvelopeCodec()
+        let goldenEvent = try codec.decode(JSONSerialization.data(withJSONObject: eventObject))
+        let grants = try BotGrantSnapshot.decode(goldenEvent, now: 0)
+
+        let written = try BotGrantSnapshot.event(grants: grants, at: goldenEvent.time)
+        XCTAssertEqual(written.type, "authz.grant_snapshot")
+        XCTAssertEqual(written.ignorable, true)
+        XCTAssertNil(written.commitSeq)
+        XCTAssertEqual(try written.data.encoded(), try goldenEvent.data.encoded())
+        try BotEventEnvelopeCodec.validate(written, mode: .append)
+
+        // The writer's snapshot data in the frozen event shape is byte-identical
+        // to the vector the bot record published.
+        let frozenShape = BotEvent(
+            type: written.type, eventId: goldenEvent.eventId, commitSeq: goldenEvent.commitSeq,
+            time: written.time, origin: written.origin, traceId: goldenEvent.traceId,
+            principal: written.principal, causationId: nil, correlationId: nil,
+            ignorable: true, data: written.data)
+        XCTAssertEqual(try codec.encode(frozenShape), try canonicalEventData(eventObject))
+
+        let stored = written.assigningCommitSeq(goldenEvent.commitSeq)
+        let roundTripped = try codec.decode(try codec.encode(stored))
+        XCTAssertEqual(roundTripped.data, goldenEvent.data)
+        XCTAssertEqual(try BotGrantSnapshot.decode(roundTripped, now: 0), grants)
+    }
+
     func testPhoneGoldenEphemeralEnvelopeIsSeparateAndHasNoCommitSeq() throws {
         let fixture = try loadPhoneFixture()
         let codec = BotEventEnvelopeCodec()
