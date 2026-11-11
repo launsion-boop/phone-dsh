@@ -122,9 +122,10 @@
               "name": "mcp__phone__UpdateMemory",
               "arguments": {
                 "action": "write",
-                "path": "agent/profile.md",
-                "content": "# Profile\n\n- 我喜欢美式咖啡 AMERICANO_A",
-                "expected_version": 0
+                "path": "user/preferences/drinks.md",
+                "content": "# Drinks\n\n- 美式咖啡 AMERICANO_A",
+                "expected_version": 0,
+                "evidence": ["current-user-turn"]
               }
             },
             "final_text": "已记住：美式咖啡。"
@@ -146,10 +147,11 @@
                 "name": "mcp__phone__UpdateMemory",
                 "arguments": {
                   "action": "replace",
-                  "path": "agent/profile.md",
-                  "find": "我喜欢美式咖啡 AMERICANO_A",
-                  "replace": "我喜欢燕麦拿铁 OAT_LATTE_B",
-                  "expected_version": 1
+                  "path": "user/preferences/drinks.md",
+                  "find": "美式咖啡 AMERICANO_A",
+                  "replace": "燕麦拿铁 OAT_LATTE_B",
+                  "expected_version": 1,
+                  "evidence": ["current-user-turn"]
                 }
               }
             ],

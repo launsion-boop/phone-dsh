@@ -204,6 +204,11 @@ final class BotEvalRunnerTests: XCTestCase {
         let bundle = try Self.bundle()
         let launch = try await BotRuntimeComposition.prepare(
             store: store, profileStore: profileStore, selectedBotID: "main",
+            // The record service reads the same materialized session logs as
+            // the host. Without this, `phone record`, evidence resolution and
+            // the reserved current-turn lookup would all read the App's
+            // default root instead of this run's host root.
+            workspaceRoot: workspaceRoot,
             now: { schedulerClock.now },
             sleep: { await schedulerClock.sleep(milliseconds: $0) })
         let mcpPolicy = MCPEgressPolicy()

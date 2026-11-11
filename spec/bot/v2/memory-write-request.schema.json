@@ -51,9 +51,17 @@
       "type": "array",
       "maxItems": 8,
       "items": {
-        "type": "string",
-        "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
-        "maxLength": 128
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+            "maxLength": 128
+          },
+          {
+            "const": "current-user-turn",
+            "description": "Reserved value: the host resolves it to the user message that opened the current turn. Valid only in a real user turn; hidden, held, agent, routine, Task and maintainer turns cannot use it."
+          }
+        ]
       }
     },
     "marked_contradiction": {

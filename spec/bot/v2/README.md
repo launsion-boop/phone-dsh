@@ -121,6 +121,18 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
 | 观察信封或外部来源调用 | `observation` | 引用指向的 session `tool/call`／`tool/result` 的名称属于 v1 §4.3 的外部来源，或事件是可核验的观察记录；模型文本里出现信封标记不算证据。 |
 | 其他记录或没有引用 | `assistant` | agent 自己的推断；包括 routine、Task、held、其他 Bot 消息、压缩摘要和普通宿主工具结果。 |
 
+**保留值 `current-user-turn`（当前回合用户消息）。** `evidence` 的每一项可以是上面的规范
+`record://` 引用，或单个保留值 `current-user-turn`。保留值只在当前回合是真实用户回合时有效：
+宿主在执行点使用本回合在权威 `session/follow` 流上观察到的 `user/message` 事件（事件自身的
+`source.kind == "user"`，且 `source.rpcId` 等于本回合请求 id），解析为
+`record://session/<id>#<seq>`；该引用来自宿主观察，按 `user` trust 写入。显式 `record://` 引用仍走
+本节的存在性、归属和 trust 推导。宿主不读取模型提供的 session/seq，也不依赖回合结束后的物化日志。隐藏回合、held 回合、`agent:` 消息、routine、Task 和
+maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
+保留值必须逐字写成 `current-user-turn`，不做 trim、大小写折叠或别名；模型自报的 session/seq
+从不被当作「本回合」的证据。解析结果绑定当前回合的 `rpcId`，下一回合的 `rpcId` 不同，旧保留值
+不会指向上一回合的消息，因此跨回合不可复用。**更正用户偏好时应改写原文档，旧值不要保留在正文或
+索引里**（用户明确要求保留历史时除外）。
+
 - 每条引用必须在解析后存在，且 session 属于该 Bot 的已认领会话、event 的 principal 是该 Bot；
   任一失效都整条写入失败（`memory-evidence-invalid`），不降级、不忽略。
 - 推导结果写入文档版本的 `trust`，并取代旧的「会话类型决定 trust」规则；`source` 仍记录实际回合

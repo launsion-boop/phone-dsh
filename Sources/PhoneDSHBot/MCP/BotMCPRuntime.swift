@@ -274,6 +274,11 @@ public actor BotMCPRuntime {
     private var workbenchTurnProbe: (@Sendable () async -> Bool)?
     private var turnOrigins: [String: BotTurnOrigin] = [:]
     private var turnIDs: [String: String] = [:]
+    /// The user message the host observed on the live session/follow stream
+    /// for the current turn, keyed by session. `current-user-turn` resolves to
+    /// this host-observed reference; it is cleared with the turn so it can
+    /// never be reused by a later turn.
+    private var currentUserMessageRefs: [String: String] = [:]
     /// sessionId → maintenance batch id for the duration of one maintainer turn.
     private var maintenanceBatches: [String: String] = [:]
     /// Roster pointer: only the main Bot's maintainer may write shared user/.
@@ -502,6 +507,7 @@ public actor BotMCPRuntime {
                           origin: BotTurnOrigin? = nil) {
         suppressingTextSessions.remove(sessionId)
         turnIDs.removeValue(forKey: sessionId)
+        currentUserMessageRefs.removeValue(forKey: sessionId)
         if hidden { hiddenTextSessions.insert(sessionId) } else { hiddenTextSessions.remove(sessionId) }
         if held { heldMessageSessions.insert(sessionId) } else { heldMessageSessions.remove(sessionId) }
         if let origin { turnOrigins[sessionId] = origin } else { turnOrigins.removeValue(forKey: sessionId) }
@@ -511,11 +517,27 @@ public actor BotMCPRuntime {
         turnIDs[sessionId] = turnId
     }
 
+    /// Records the user message the host observed for the current turn. Only a
+    /// real user turn contributes: the turn origin must be `user`, the session
+    /// must not be hidden or held, and the observed event's own source must
+    /// parse as a user message. The reference is host-generated from the
+    /// session/seq pair; the model never supplies either value.
+    public func observeUserMessage(sessionId: String, seq: Int,
+                                   source: [String: BotJSONValue]?) {
+        guard seq >= 0,
+              !hiddenTextSessions.contains(sessionId),
+              !heldMessageSessions.contains(sessionId),
+              turnOrigins[sessionId]?.kind == .user,
+              BotTurnOrigin.from(source: source).kind == .user else { return }
+        currentUserMessageRefs[sessionId] = "record://session/\(sessionId)#\(seq)"
+    }
+
     public func endTurn(sessionId: String) {
         hiddenTextSessions.remove(sessionId)
         heldMessageSessions.remove(sessionId)
         turnOrigins.removeValue(forKey: sessionId)
         turnIDs.removeValue(forKey: sessionId)
+        currentUserMessageRefs.removeValue(forKey: sessionId)
     }
 
     public func suppressText(sessionId: String) {
@@ -1147,7 +1169,7 @@ public actor BotMCPRuntime {
             return .failure("record_erased", "该记录已被抹除")
         } catch {
             return .failure("memory-evidence-invalid",
-                            "Every evidence entry must be an existing record:// reference owned by this Bot.")
+                            "Every evidence entry must be an existing record:// reference owned by this Bot, or current-user-turn in a real user turn.")
         }
         let sourceKind = memorySourceKind(for: call)
         guard let authorKind = call.principal.kind.memoryAuthorKind else {
@@ -1242,6 +1264,12 @@ public actor BotMCPRuntime {
     /// Validates the optional evidence array. `nil` means the call supplied
     /// none; malformed, foreign or missing references throw so the caller can
     /// fail the write without downgrading it.
+    ///
+    /// The reserved `current-user-turn` item is resolved from the reference the
+    /// host observed on the live session/follow stream, then stored in its
+    /// canonical place among the caller's other evidence. Explicit references
+    /// still go through `BotRecordEvidenceResolving` exactly as before; the
+    /// host-observed reference is never accepted from model input.
     private func validatedEvidence(_ arguments: [String: BotJSONValue],
                                    call: BotResolvedToolCall) async throws -> BotRecordEvidence? {
         guard let raw = arguments["evidence"] else { return nil }
@@ -1250,19 +1278,53 @@ public actor BotMCPRuntime {
             throw BotRecordServiceError.invalidArguments
         }
         var refs: [String] = []
+        var explicitRefs: [String] = []
+        var hostCurrentRef: String?
         for value in values {
-            guard let text = value.stringValue,
-                  let reference = BotRecordReference.parse(text) else {
+            guard let text = value.stringValue else {
                 throw BotRecordServiceError.invalidReference
             }
-            refs.append(reference.canonical)
+            if text == BotMemoryAuthorizer.currentUserTurnEvidence {
+                let reference = try await resolveCurrentUserTurnEvidence(call: call)
+                if hostCurrentRef == nil {
+                    hostCurrentRef = reference
+                    refs.append(reference)
+                }
+                continue
+            }
+            guard let reference = BotRecordReference.parse(text) else {
+                throw BotRecordServiceError.invalidReference
+            }
+            let canonical = reference.canonical
+            refs.append(canonical)
+            explicitRefs.append(canonical)
         }
         guard !refs.isEmpty else { return nil }
-        guard let resolver = recordEvidence else {
-            throw BotRecordServiceError.unavailable("record evidence resolver is not attached")
+        var trust = BotRecordTrust.assistant
+        if !explicitRefs.isEmpty {
+            guard let resolver = recordEvidence else {
+                throw BotRecordServiceError.unavailable("record evidence resolver is not attached")
+            }
+            trust = try await resolver.resolveEvidence(
+                explicitRefs, callerBotID: call.principal.botId,
+                callerSessionID: call.principal.sessionId).trust
         }
-        return try await resolver.resolveEvidence(
-            refs, callerBotID: call.principal.botId, callerSessionID: call.principal.sessionId)
+        if hostCurrentRef != nil { trust = .user }
+        return BotRecordEvidence(trust: trust, refs: refs)
+    }
+
+    /// Resolve the reserved `current-user-turn` evidence item from the host's
+    /// live observation of this turn's user message. The turn authority and
+    /// the session/seq pair come from the host; a hidden, held, agent, routine,
+    /// Task or maintainer turn has no user-turn authority and fails closed.
+    /// `beginTurn`/`endTurn` clear the observation, so it cannot cross turns.
+    private func resolveCurrentUserTurnEvidence(call: BotResolvedToolCall) async throws -> String {
+        let authority = turnAuthority(for: call)
+        guard authority.isUserTurn,
+              let reference = currentUserMessageRefs[call.sessionId] else {
+            throw BotRecordServiceError.sessionOutOfScope
+        }
+        return reference
     }
 
     private func readMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {

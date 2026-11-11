@@ -1941,6 +1941,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 stepStartedAt = eventTime
                 firstDeltaAt = nil
             case "user/message":
+                await runtime.observeUserMessage(
+                    sessionId: sessionId, seq: seq, source: data["source"]?.objectValue)
                 if !hidden {
                     _ = try await appendConversation(
                         type: "conversation.user_message", sessionId: sessionId, seq: seq,

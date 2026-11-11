@@ -241,6 +241,10 @@ public enum BotMemoryAction: String, Codable, Sendable, CaseIterable {
 }
 
 public enum BotMemoryAuthorizer {
+    /// Reserved `UpdateMemory.evidence` item: the host resolves it to the user
+    /// message that opened the current turn. It is not a `record://` reference
+    /// and is never accepted as a stored value; the resolved reference is.
+    public static let currentUserTurnEvidence = "current-user-turn"
     public static let indexLimit = 1_500
     public static let injectionTotalLimit = 4_000
     public static let maximumPathScalars = 200
