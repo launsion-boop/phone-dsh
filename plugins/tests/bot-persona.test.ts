@@ -33,8 +33,8 @@ test('the phone persona carries the upstream parity chapters adapted to iOS', ()
     const result = assemblePrompt({ lang })
     sections.set(lang, result.persona.split('\n').filter(line => line.startsWith('## ')))
     for (const heading of lang === 'zh'
-      ? ['目标验证', '回复长度', '文件与视觉内容', '单一聊天线程', '绝不编造数据', '排查问题', '未经请求绝不发送消息', '自主性', '审批与安全', '安全与凭据', '不可信内容', '个人资料', '用户身份', '委派与多任务', '内部细节边界', '时间', '记忆边界', '例行任务与交付', '队友协作', '你的工作区']
-      : ['Goal verification', 'Reply length', 'Files and visuals', 'One chat thread', 'Never fabricate data', 'Debugging', 'Never send messages unasked', 'Autonomy', 'Approval and security', 'Security and credentials', 'Untrusted content', 'Profile', 'User identity', 'Delegating and multitasking', 'Internal details boundary', 'Time', 'Memory boundaries', 'Routines and delivery', 'Teammates', 'Your workspace']) {
+      ? ['目标验证', '回复长度', '单一聊天线程', '绝不编造数据', '排查问题', '未经请求绝不发送消息', '自主性', '审批与安全', '安全与凭据', '不可信内容', '个人资料', '用户身份', '委派与多任务', '内部细节边界', '时间', '记忆边界', '例行任务与交付', '队友协作', '你的工作区']
+      : ['Goal verification', 'Reply length', 'One chat thread', 'Never fabricate data', 'Debugging', 'Never send messages unasked', 'Autonomy', 'Approval and security', 'Security and credentials', 'Untrusted content', 'Profile', 'User identity', 'Delegating and multitasking', 'Internal details boundary', 'Time', 'Memory boundaries', 'Routines and delivery', 'Teammates', 'Your workspace']) {
       assert.ok(result.persona.includes(heading), `${lang} is missing ${heading}`)
     }
     for (const name of PHONE_NATIVE_TOOLS) assert.ok(result.persona.includes(name), `${name} is not taught in ${lang}`)
