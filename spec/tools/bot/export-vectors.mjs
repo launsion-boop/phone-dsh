@@ -28,16 +28,9 @@ if (actualSHA !== expectedSHA) throw new Error(`dsh-bot SHA mismatch: expected $
 const source = { checkout: actualSHA };
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'phonedsh-bot-vectors-'));
 const requireCJS = (relative) => require(path.join(checkout, relative));
-const memory = requireCJS('src/main/memory.cjs');
-const memoryPolicy = requireCJS('src/main/memory/policy.cjs');
 const toolEffects = requireCJS('src/main/authz/toolEffects.cjs');
 const approvalPatterns = requireCJS('src/main/approvalPatterns.cjs');
 const envelope = requireCJS('src/main/events/envelope.cjs');
-const wake = requireCJS('src/main/wake.cjs');
-const routines = requireCJS('src/main/routines.cjs');
-const wakeInbox = requireCJS('src/main/wakeInbox.cjs');
-const quiet = requireCJS('src/main/proactive/settings.cjs');
-const { MemoryIndex } = requireCJS('src/main/memory/index/search-index.cjs');
 
 function loadExports(relative, names) {
   const filename = path.join(checkout, relative);
@@ -50,7 +43,6 @@ function loadExports(relative, names) {
   return context.__vectorExports;
 }
 const { RAW_TOOLS } = loadExports('src/main/mcp/dshbotServer.cjs', ['RAW_TOOLS']);
-const { heldMessagesBlock } = loadExports('src/main/dshAgent.cjs', ['heldMessagesBlock']);
 const { parseAttachmentBlock } = loadExports('src/main/dshTranscript.cjs', ['parseAttachmentBlock']);
 const attachments = requireCJS('src/main/attachments.cjs');
 const { CONTEXT_PROFILES, contextConfigYaml } = loadExports('src/main/prompt/assemble.cjs', ['CONTEXT_PROFILES', 'contextConfigYaml']);
@@ -303,86 +295,6 @@ vector('approval-patterns', approvalCalls, [
     matches: approvalPatterns.analyzeToolCalls({ tool: 'bash', args: { command: 'python3 -c "import urllib.request; urllib.request.urlopen(\'https://example.test\')"' }, workspace: '/tmp/phonedsh-bot-work', lang: 'en' }) },
 ]);
 
-const safeCandidate = {
-  text: '我喜欢简短回答', op: 'ADD', scope: 'agent', sensitivity: 'low', key: 'style',
-  source: { turnId: 'turn-1', role: 'user' }, trust: 'user',
-};
-vector('memory-policy', memoryPolicy.decideWriteDetailed(safeCandidate, []), [
-  memoryPolicy.decideWriteDetailed({ ...safeCandidate, scope: 'user' }, []),
-  memoryPolicy.decideWriteDetailed({ ...safeCandidate, text: '' }, []),
-  memoryPolicy.decideWriteDetailed({ ...safeCandidate, text: '我可能要改风格' }, []),
-  memoryPolicy.decideWriteDetailed(safeCandidate, [{ fact_id: 'fact-1', text: '我喜欢简短回答', key: 'style' }]),
-]);
-
-const scopes = new memory.MemoryScopes({ dataRoot: temporaryRoot, agentId: 'main', lang: 'zh' });
-scopes.user.importFacts({ facts: [
-  { fact_id: 'profile-user', text: '我叫小林', tier: 'profile', learned_at_ms: 1760000000000 },
-  { fact_id: 'log-coffee', text: '我喜欢咖啡', tier: 'log', learned_at_ms: 1760000001000 },
-] });
-scopes.agent.importFacts({ facts: [
-  { fact_id: 'profile-concise', text: '我喜欢简洁的回复', tier: 'profile', learned_at_ms: 1760000002000 },
-  { fact_id: 'log-multiline', text: '第一行\r\n第二行\u2028第三行', tier: 'log', learned_at_ms: 1760000003000 },
-  { fact_id: 'log-ios', text: '我负责 iOS 工作', tier: 'log', learned_at_ms: 1760000004000 },
-  { fact_id: 'note-routine', text: '工作日要早起', tier: 'note', key: 'routine', learned_at_ms: 1760000005000 },
-] });
-const promptBlock = scopes.promptBlock({ lang: 'zh' }).replaceAll(temporaryRoot, '<FIXTURE_ROOT>');
-vector('memory-fact', scopes.agent.facts(), [
-  memory.normalizeFactText('', 'zh'),
-  memory.normalizeFactText('x'.repeat(2001), 'zh'),
-]);
-vector('memory-injection', { text: promptBlock, limits: memory.MEMORY_LIMITS }, [
-  memory.normalizeFactText('', 'zh'),
-  memory.normalizeFactText('x'.repeat(2001), 'zh'),
-]);
-const index = new MemoryIndex({ now: 1760000000000 });
-for (const fact of scopes.agent.facts()) index.add(fact);
-vector('memory-recall', index.search('简洁 回复', { limit: 5, now: 1760000000000 }),
-  index.search('不存在的内容', { limit: 5, now: 1760000000000 }));
-
-const routine = {
-  id: 'daily', title: '晨间简报', prompt: '汇总重要变化；没有变化就保持安静。',
-  schedule: routines.normalizeSchedule({ kind: 'daily', time: '08:30', timezone: 'Asia/Taipei' }, { now: 1760000000000 }),
-};
-const wakeResult = wake.buildRoutineWake({ mode: 'due', lang: 'zh', routine, firedAt: 1760000000000, now: 1760000000000 });
-const heldBlock = heldMessagesBlock([
-  { id: 'held-1', kind: 'routine-result', title: '晨间简报', ranAt: 1760000000000, createdAt: 1760000000000, text: '有三项变化' },
-  { id: 'task-1', kind: 'subagent-result', taskId: 'task-1', status: 'ok', text: '检查完成' },
-], 'zh');
-const enqueued = wakeInbox.enqueue(temporaryRoot, 'main', {
-  id: 'held-1', kind: 'routine-result', title: '晨间简报', text: '有三项变化', requestId: 'daily:1', createdAt: 1760000000000,
-});
-const duplicate = wakeInbox.enqueue(temporaryRoot, 'main', {
-  id: 'held-duplicate', kind: 'routine-result', title: '晨间简报', text: '重复内容', requestId: 'daily:1', createdAt: 1760000001000,
-});
-const staged = wakeInbox.stage(temporaryRoot, 'main', { key: 'stage-1', now: 1760000002000 });
-const committed = wakeInbox.commit(temporaryRoot, 'main', staged.key);
-vector('held-inbox', { enqueued, duplicate, staged, committed },
-  [{ id: '', kind: 'routine-result', reason: 'missing_id' },
-    { id: 'held-2', kind: 'routine-result', state: 'staged', stagedKey: '', reason: 'missing_staged_key' }]);
-const created = routines.createRoutine({ dataRoot: temporaryRoot, agentId: 'main', title: routine.title,
-  prompt: routine.prompt, schedule: routine.schedule, now: 1760000000000 });
-const deferred = routines.deferRoutineForQuietHours({
-  dataRoot: temporaryRoot, agentId: 'main', routineId: created.id,
-  target: 1760003600000, now: 1760000000000,
-});
-if (deferred) deferred.id = routine.id;
-const automation = routines.automationStatusBlock({ dataRoot: temporaryRoot, agentId: 'main', now: 1760000000000, lang: 'zh' })
-  .replaceAll(created.id, routine.id);
-vector('wake-routine', {
-  wake: wakeResult,
-  scheduleExpr: wake.scheduleExpr(routine.schedule),
-  quietReply: wake.normalizeRoutineReply('[quiet]'),
-  resultReply: wake.normalizeRoutineReply('有新结果'),
-  heldBlock,
-  quietDefer: deferred,
-  automationStatus: automation,
-  deliveryFlags: routines.validateDeliveryFlags({ urgent: true, urgentReason: '生产故障', delivery: 'interrupt', interruptReason: '用户正在等待' }),
-}, [
-  { kind: 'interrupt_without_reason', error: (() => { try { routines.validateDeliveryFlags({ delivery: 'interrupt' }); return null; } catch (error) { return String(error.message || error); } })() },
-  { kind: 'quiet_at_23_30', value: quiet.isRoutineQuietTime(new Date(2026, 10, 5, 23, 30).getTime(), { quietStart: '23:00', quietEnd: '08:00' }) },
-  { kind: 'quiet_at_noon', value: quiet.isRoutineQuietTime(new Date(2026, 10, 5, 12, 0).getTime(), { quietStart: '23:00', quietEnd: '08:00' }) },
-]);
-
 const director = await import(pathToFileURL(path.join(checkout, 'src/renderer/lib/fish/director.js')).href);
 let fishState = director.createDirectorState({ lifecycle: 'idle', now: 0 });
 const fishSteps = [];
@@ -604,14 +516,14 @@ vector('row-protocol', {
     result: { status: 'stale', reason: 'digest_mismatch' } },
 ]);
 
+// Memory, wake markers and proactive delivery moved to the phoneDSH-owned
+// `spec/bot/v2` tree; this pin now only covers the vectors still exported
+// here. `requiredMergeCommits` is intentionally absent: the memory/routine
+// merge requirements belonged to the moved batch.
 writeJSON('dshbot-pin.json', {
   schemaVersion: 1,
   repository: 'https://github.com/launsion-boop/dsh-bot.git',
   source: actualSHA,
-  requiredMergeCommits: {
-    memoryCore: execFileSync('git', ['-C', checkout, 'rev-parse', '1730bf0'], { encoding: 'utf8' }).trim(),
-    routineDelivery: '28437f5d975230766f3f40463fa090d643f63e7c',
-  },
 });
 const goldenDirectory = path.join(output, 'golden');
 const files = fs.readdirSync(goldenDirectory).filter((name) => name.endsWith('.json')).sort();

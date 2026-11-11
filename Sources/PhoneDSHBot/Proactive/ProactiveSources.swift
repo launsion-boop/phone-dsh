@@ -7,18 +7,15 @@ public struct ProactiveReminder: Sendable, Equatable {
     public var botId: String
     public var text: String
     public var dueAt: Int64
-    public var ttlMs: Int64
     public var allowDuringDnd: Bool
     public var dedupeKey: String
 
     public init(reminderId: String, botId: String, text: String, dueAt: Int64,
-                ttlMs: Int64 = 86_400_000, allowDuringDnd: Bool = false,
-                dedupeKey: String? = nil) {
+                allowDuringDnd: Bool = false, dedupeKey: String? = nil) {
         self.reminderId = reminderId
         self.botId = botId
         self.text = text
         self.dueAt = dueAt
-        self.ttlMs = ttlMs
         self.allowDuringDnd = allowDuringDnd
         self.dedupeKey = dedupeKey ?? "reminder:\(reminderId)"
     }
@@ -26,24 +23,14 @@ public struct ProactiveReminder: Sendable, Equatable {
 
 public actor ProactiveSources {
     private let nowProvider: @Sendable () -> Int64
-    private let idleAfterMs: Int64
-    private var lastActivity: [String: Int64] = [:]
-    private var idleEmitted: [String: Int64] = [:]
     private var reminders: [String: ProactiveReminder] = [:]
 
-    public init(now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) },
-                idleAfterMs: Int64 = 2_700_000) {
+    public init(now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }) {
         self.nowProvider = now
-        self.idleAfterMs = max(0, idleAfterMs)
     }
 
     public func candidates(for event: BotEvent) -> [ProactiveCandidate] {
         switch event.type {
-        case "conversation.turn_ended":
-            guard let botId = botId(event) else { return [] }
-            lastActivity[botId] = event.time
-            idleEmitted.removeValue(forKey: botId)
-            return []
         case "task.settled":
             return taskCandidate(event).map { [$0] } ?? []
         case "routine.run_finished":
@@ -77,18 +64,8 @@ public actor ProactiveSources {
             result.append(ProactiveCandidate(
                 id: "reminder:\(entry.reminderId)", kind: .reminder, botId: entry.botId,
                 dedupeKey: entry.dedupeKey, trigger: "reminder.due", createdAt: entry.dueAt,
-                ttlMs: entry.ttlMs, body: entry.text, reminderId: entry.reminderId,
+                body: entry.text, reminderId: entry.reminderId,
                 allowDuringDnd: entry.allowDuringDnd
-            ))
-        }
-        for (botId, last) in lastActivity.sorted(by: { $0.key < $1.key }) {
-            guard at - last >= idleAfterMs, idleEmitted[botId] != last else { continue }
-            idleEmitted[botId] = last
-            let key = "idle-checkin:\(botId):\(last)"
-            result.append(ProactiveCandidate(
-                id: key, kind: .idleCheckin, botId: botId, dedupeKey: key,
-                trigger: "idle.tick", createdAt: at, ttlMs: 1_800_000,
-                silentForMs: at - last
             ))
         }
         return result
@@ -127,7 +104,7 @@ public actor ProactiveSources {
         return ProactiveCandidate(
             id: key, kind: .routineResult, botId: botId, dedupeKey: key,
             trigger: "routine.run_finished", sourceEventId: event.eventId,
-            createdAt: nowProvider(), ttlMs: 21_600_000, title: title,
+            createdAt: nowProvider(), title: title,
             body: RoutineScheduleMath.summarize(excerpt), status: "succeeded",
             routineId: routineId, runId: runId, attempt: attempt, delivery: .interrupt,
             resultExcerpt: String(excerpt.prefix(300)), deliveryKey: Self.string(event.data, "deliveryKey"),

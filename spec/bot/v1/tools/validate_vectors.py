@@ -709,22 +709,10 @@ def main() -> int:
                "tool-effects.schema.json", "tool-effects.nativeMcp")
     check_many(load("approval-patterns.json")["valid"], "approval-patterns.schema.json", "approval-patterns")
     check_many(load("approval-patterns.json")["invalid"], "approval-patterns.schema.json", "approval-patterns.invalid")
-    check(load("memory-policy.json")["valid"], "memory-policy.schema.json", "memory-policy")
-    check_many(load("memory-policy.json")["invalid"], "memory-policy.schema.json", "memory-policy.invalid")
-    check_many(load("memory-fact.json")["valid"], "memory-fact.schema.json", "memory-fact")
-    check(load("memory-injection.json")["valid"], "memory-injection.schema.json", "memory-injection")
-    check_many(load("memory-recall.json")["valid"], "memory-recall.schema.json", "memory-recall")
-    check_many(load("memory-recall.json")["invalid"], "memory-recall.schema.json", "memory-recall.invalid")
-    check(load("wake-routine.json")["valid"], "wake-routine.schema.json", "wake-routine")
-    check(load("wake-routine.json")["valid"]["quietDefer"], "routine.schema.json", "routine")
-    held_fixture = load_merged("held-inbox.json")
-    held = held_fixture["valid"]
-    check(held["enqueued"]["item"], "held-inbox-item.schema.json", "held-item")
-    check(held["deviceTaskResult"], "held-inbox-item.schema.json", "held-device-task-result")
-    check(held["agentHeld"], "held-inbox-item.schema.json", "held-agent-held")
-    check_many(held["staged"]["items"], "held-inbox-item.schema.json", "held-staged")
-    for index, case in enumerate(held_fixture["invalid"]):
-        rejects(case, "held-inbox-item.schema.json", f"held.invalid[{index}]")
+    # Memory, wake-marker and proactive vectors moved to spec/bot/v2 at the
+    # ownership handover. Run that validator from here so the existing
+    # `phone-spec` stage keeps covering both trees.
+    check_v2_tree()
     check_many(load("row-projection.json")["valid"], "row-projection.schema.json", "row-projection")
     row_fixture = load_merged("row-protocol.json")
     protocol = row_fixture["valid"]
@@ -746,6 +734,20 @@ def main() -> int:
           f"mcp-egress {valid_egress} valid / {invalid_egress} invalid, "
           f"{egress_mutations} mutation checks)")
     return 0
+
+
+def check_v2_tree() -> None:
+    """Invoke the phoneDSH-owned v2 validator without a second CI stage."""
+    import importlib.util
+
+    path = ROOT / "spec" / "bot" / "v2" / "tools" / "validate_vectors.py"
+    spec = importlib.util.spec_from_file_location("bot_v2_validate_vectors", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"cannot load {path.relative_to(ROOT)}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if module.main() != 0:
+        raise AssertionError("spec/bot/v2 validation failed")
 
 
 if __name__ == "__main__":

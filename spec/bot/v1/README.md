@@ -4,7 +4,7 @@
 
 状态：`target`。本目录冻结 P25 BotEventLog、P26 BotToolSurface、P27 BotRows 的共享语义；静态 schema/golden 通过不等于 Swift、Worker、模型或真机已经实现。
 
-唯一上游规格是 dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6`，由 `dshbot-pin.json` 固定。除 Mac 专属和手机平台限制外，各子系统复用其语义。不得恢复 PR29 的 NativeToolLoop 主循环、Mandate、Ticket 或 MandateTokenStore。
+唯一上游规格是 dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6`，由 `dshbot-pin.json` 固定。除 Mac 专属和手机平台限制外，本文件仍拥有的子系统复用其语义。记忆、唤醒标记和主动提醒三部分自 2026-11-10 起迁到 [v2](../v2/README.md)，由 phoneDSH 作准，不再跟随这个钉版。不得恢复 PR29 的 NativeToolLoop 主循环、Mandate、Ticket 或 MandateTokenStore。
 
 ## 1. 架构与存储
 
@@ -68,21 +68,17 @@ P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-2026
 - 每个 Gateway principal 都有宿主生成的随机 `incarnation`。工具归属在注册时绑定该代次，解析时必须仍与当前 session 代次一致；重签、rotate、revoke 或重启后的旧调用不得借用新 principal。token 仍只存摘要，不把 Bearer token 写入事件或审计。
 - `BotExecutionPrincipal` 的已验证构造只在 `PhoneDSHBot` 宿主模块内使用；MCP 不得从工具参数反序列化 `userUI`、`certain` 或 trust。UI 写操作仍只能经 `BotUserActionDispatcher` 盖 `owner_direct`，effects 在执行点由宿主重新推导。
 
-## 3. 记忆
+## 3. 记忆（已迁至 v2）
 
-facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；召回使用 CJK 分词、BM25、时近度和重要度；非 `user-turn` 不得写 `scope:user` 或 `profile`，来源只降級；forget/erase 与上游一致。
+记忆契约（`memory-fact`、`memory-injection`、`memory-recall`）自 2026-11-10 起迁到
+[v2/README.md](../v2/README.md) §1，由 phoneDSH 作准；`memory-policy` 随后按
+PC-20261111-bot-v2-unwired 删除。本文件不再定义 facts、注入、召回、来源边界或 MemoryPolicy。
 
-第一版不实现自动抽取、MemoryPolicy 决策、L2 反思和衰減。facts 中对应字段保留供以后启用；`memory-policy` 向量仅作上游兼容证据，不表示该功能已开放。
+## 4. 唤醒与主动提醒（已迁至 v2）
 
-## 4. 唤醒与主动提醒
-
-routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox、隐藏唤醒和 `<automation_status>` 与上游一致。安静时段延后而不是丢弃；urgent 必须有理由；WebContent 不可用时常驻宿主排队，恢复后依次运行且错过的只补一次。
-
-`HeldMessages.block` 的 `[agent]` 分支对 `fromAgentName`、`fromAgentId`、`title`、`text` 与 `msg id` 全部经 `escapedHeldField` 转义；agent-held 的回复仍是 held 数据与队友内容，不是用户授权，不能触发未经用户要求的动作。
-
-设备任务终态另有一条只读 held 通知：`device-task-result` 只告诉 Bot 哪台设备、任务目标摘要和最终结果，不授予工具，也不提供把回复发回设备的路径。它来自 [device task-delegation](../../device/v1/task-delegation.md) 的终态记录，在 journal 落盘后、向设备回报前入队；投递至多一次（at-most-once）：Bot 未运行或落盘与入队之间崩溃时该通知丢失，journal 不受影响，不按 journal 补投或回放。`held-inbox-item.schema.json` 的该分支与 `golden/held-inbox.phone.json` 的 `deviceTaskResult` 是 phoneDSH 增量：上游 `held-inbox.json` 保持原样导出，例子放在覆盖文件，由合并加载器交付给真实 inbox codec。
-
-主动提醒规则链只用于 interrupt。iOS 通知深链为 `phonedsh://bot/<botID>/row/<rowID>`。推送中继不在本轮，只保留 WakeSignalSource 接口。
+routine 投递、安静时段延后、held inbox、隐藏唤醒、`<automation_status>`、宿主拼入文本的
+转义和主动提醒规则链自 2026-11-10 起迁到 [v2/README.md](../v2/README.md) §§2–3，由 phoneDSH
+作准。本文件只保留与之一同使用的回合来源判定；下文的前缀表仍是本文件拥有的契约。
 
 ### 4.1 回合来源（turn origin）
 
@@ -106,17 +102,7 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 - `bot-` 仍是宿主默认的可见 chat requestId（`bot-<uuid>`）。`sendHiddenInteraction` 目前没有生产调用方；任何隐藏回合必须使用表中的隐藏前缀，不能依赖调用参数或消息文本。
 - 旧 session log：宿主发起的 routine、Task 和子代理唤醒回合本来带上述前缀，重放时仍隐藏；旧的 Bot 间即时消息 requestId 是发送方工具调用的裸 `callId`，按「未知」处理（可见、`agent-message`），这正是 WP4 要修的兼容差异。
 
-宿主拼进 prompt 的任何非宿主文本一律按既有的 `HeldMessages.escapedHeldField` 规则转义后再放入：`\` → `\\`，换行／回车／制表 → `\n`／`\r`／`\t`，`<`／`>`／`&` → `\u003c`／`\u003e`／`\u0026`，U+2028／U+2029 和其他控制／格式字符 → `\uXXXX`。外部文本不得闭合 `</held_agent_messages>`、伪造 `- [agent]` 行或让 held 块变成多行。适用位置（WP4 起）：
-
-- `HeldMessages.block` 的 `[routine]` 分支：routine 名称（`title`）与正文；
-- `[subagent]` 分支：task id、status 与结果正文；
-- `[card-dismissed]` 分支：标题与正文；
-- `[device-task]` 分支：设备／标题、task id、status 与正文；
-- `[agent]` 分支：发送方名字、id、title、正文与 msg id（当前已转义，保持）；
-- 子代理唤醒 prompt：`task-settled` 的标题、状态、task id 与最多 1,200 字结果摘录；`task-interrupted` 的标题与 task id；
-- 以后新增的宿主结构化块／前缀默认同样转义。
-
-普通用户消息正文和其他 Bot 的即时消息正文是消息内容，不是宿主拼进结构化框架的字段，不按本规则改写。该规则只约束宿主插入的 held 块、隐藏唤醒 prompt 和同类结构字段。
+宿主拼进 prompt 的非宿主文本如何转义（held 块、隐藏唤醒 prompt 和同类结构字段）由 [v2 §2.1](../v2/README.md#21-宿主拼入文本的转义) 定义；本文件不复制那份规则。回合来源前缀仍是本文件 §4.1 的唯一权威，v2 只引用它。
 
 ## 5. 行与交互
 
@@ -151,6 +137,9 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 
 ## 8. 一致性向量
 
+本节只描述仍由 dsh-bot 钉版导出的 v1 批次。记忆、唤醒标记和主动提醒的向量已移到
+[v2](../v2/README.md) §4，`export-vectors.mjs` 不写、`export-manifest.json` 也不列它们。
+
 从仓库根运行：
 
 ```bash
@@ -180,7 +169,6 @@ python3 spec/bot/v1/tools/validate_vectors.py
 `spec/bot/v1/golden/` 中不带 `.phone.json` 后缀的文件都是 `export-vectors.mjs` 的原样导出，不得手改；重跑导出器必须 byte-identical。手机端增量只写在同名 `.phone.json`：
 
 - `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、负向 fixture。
-- `held-inbox.phone.json`：`deviceTaskResult`（P07/P26）与 `agentHeld`（多 Bot held 回复）正例、非法 `device-task-result` 反例。
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
 - `tool-catalog.phone.json`：团队工具与 `FishAction` 的目录增量。
 - `tool-effects.phone.json`：团队工具、`FishAction` 与原生 MCP BLE 工具的效果分类。

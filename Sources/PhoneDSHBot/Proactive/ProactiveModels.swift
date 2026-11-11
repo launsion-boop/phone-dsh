@@ -5,7 +5,6 @@ import Foundation
 public enum ProactiveKind: String, Codable, Sendable, CaseIterable {
     case taskDone = "task-done"
     case routineResult = "routine-result"
-    case idleCheckin = "idle-checkin"
     case reminder
 }
 
@@ -17,8 +16,6 @@ public struct ProactiveCandidate: Sendable, Equatable {
     public var trigger: String?
     public var sourceEventId: String?
     public var createdAt: Int64
-    public var ttlMs: Int64?
-    public var cost: Int
     public var channel: String
     public var title: String?
     public var body: String?
@@ -36,17 +33,16 @@ public struct ProactiveCandidate: Sendable, Equatable {
     public var rowId: String?
     public var reminderId: String?
     public var allowDuringDnd: Bool
-    public var silentForMs: Int64?
 
     public init(id: String? = nil, kind: ProactiveKind, botId: String, dedupeKey: String? = nil,
                 trigger: String? = nil, sourceEventId: String? = nil, createdAt: Int64,
-                ttlMs: Int64? = nil, cost: Int = 1, channel: String = "system-notification",
+                channel: String = "system-notification",
                 title: String? = nil, body: String? = nil, taskId: String? = nil,
                 taskTitle: String? = nil, summary: String? = nil, status: String? = nil,
                 routineId: String? = nil, runId: String? = nil, attempt: Int? = nil,
                 delivery: RoutineDeliveryMode? = nil, quiet: Bool = false,
                 resultExcerpt: String? = nil, deliveryKey: String? = nil, rowId: String? = nil,
-                reminderId: String? = nil, allowDuringDnd: Bool = false, silentForMs: Int64? = nil) {
+                reminderId: String? = nil, allowDuringDnd: Bool = false) {
         self.id = id
         self.kind = kind
         self.botId = botId
@@ -54,8 +50,6 @@ public struct ProactiveCandidate: Sendable, Equatable {
         self.trigger = trigger
         self.sourceEventId = sourceEventId
         self.createdAt = createdAt
-        self.ttlMs = ttlMs
-        self.cost = cost
         self.channel = channel
         self.title = title
         self.body = body
@@ -73,7 +67,6 @@ public struct ProactiveCandidate: Sendable, Equatable {
         self.rowId = rowId
         self.reminderId = reminderId
         self.allowDuringDnd = allowDuringDnd
-        self.silentForMs = silentForMs
     }
 }
 
@@ -143,32 +136,6 @@ public protocol ProactiveDelivering: Sendable {
     func deliver(_ notification: ProactiveNotification) async throws -> ProactiveDeliveryResult
 }
 
-public struct ProactiveTriageResult: Sendable, Equatable {
-    public var allow: Bool
-    public var reason: String
-    public var source: String
-
-    public init(allow: Bool, reason: String, source: String) {
-        self.allow = allow
-        self.reason = reason
-        self.source = source
-    }
-}
-
-public protocol ProactiveTriaging: Sendable {
-    func evaluate(_ candidate: ProactiveCandidate) async -> ProactiveTriageResult
-}
-
-public struct DisabledProactiveTriage: ProactiveTriaging {
-    public init() {}
-    public func evaluate(_ candidate: ProactiveCandidate) async -> ProactiveTriageResult {
-        if candidate.kind == .reminder {
-            return ProactiveTriageResult(allow: true, reason: "reminder-skips-triage", source: "policy")
-        }
-        return ProactiveTriageResult(allow: true, reason: "triage-disabled", source: "config")
-    }
-}
-
 public enum ProactiveDecisionKind: String, Codable, Sendable {
     case did
     case would
@@ -185,14 +152,13 @@ public struct ProactiveDecision: Sendable, Equatable {
     public var dedupeKey: String?
     public var mode: ProactiveMode
     public var channel: String
-    public var cost: Int
     public var notification: ProactiveNotification?
     public var delivery: ProactiveDeliveryResult?
     public var commitSeq: Int?
 
     public init(id: String, at: Int64, decision: ProactiveDecisionKind, reason: String,
                 kind: ProactiveKind?, botId: String?, dedupeKey: String?, mode: ProactiveMode,
-                channel: String = "system-notification", cost: Int = 1,
+                channel: String = "system-notification",
                 notification: ProactiveNotification? = nil,
                 delivery: ProactiveDeliveryResult? = nil, commitSeq: Int? = nil) {
         self.id = id
@@ -204,7 +170,6 @@ public struct ProactiveDecision: Sendable, Equatable {
         self.dedupeKey = dedupeKey
         self.mode = mode
         self.channel = channel
-        self.cost = cost
         self.notification = notification
         self.delivery = delivery
         self.commitSeq = commitSeq

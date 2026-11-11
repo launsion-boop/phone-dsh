@@ -7,12 +7,12 @@ import XCTest
 func wp6RepoRoot() throws -> URL {
     var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     for _ in 0..<10 {
-        if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("spec/bot/v1/golden").path) {
+        if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("spec/bot/v2/golden").path) {
             return candidate
         }
         candidate.deleteLastPathComponent()
     }
-    throw XCTSkip("cannot locate spec/bot/v1/golden from #filePath")
+    throw XCTSkip("cannot locate spec/bot/v2/golden from #filePath")
 }
 
 func wp6Golden(_ name: String) throws -> [String: Any] {
@@ -161,20 +161,17 @@ actor WP6EventLog: BotEventLog {
     }
 }
 
-func wp6Consideration(at: Int64, commitSeq: Int, dedupeKey: String,
-                      botId: String = "bot-1", kind: String = "task-done",
-                      decision: String = "would", mode: String = "would",
-                      cost: Int = 1, spendBudget: Bool = true,
-                      fuseRecorded: Bool = true) -> BotEvent {
+func wp6Consideration(at: Int64, commitSeq: Int, botId: String = "bot-1",
+                      kind: String = "task-done", decision: String = "would",
+                      mode: String = "would", fuseRecorded: Bool = true) -> BotEvent {
     BotEvent(type: "proactive.considered", eventId: "proactive:\(commitSeq)", commitSeq: commitSeq,
              time: at, origin: .local(source: "runtime"), traceId: "trace-\(commitSeq)",
              principal: BotPrincipal(botId: botId, sessionId: nil, kind: "proactive"),
-             causationId: nil, correlationId: dedupeKey,
+             causationId: nil, correlationId: nil,
              data: .object([
                 "decision": .string(decision), "reason": .string("test"),
-                "kind": .string(kind), "botId": .string(botId), "dedupeKey": .string(dedupeKey),
+                "kind": .string(kind), "botId": .string(botId),
                 "mode": .string(mode), "channel": .string("system-notification"),
-                "cost": .number(Double(cost)), "spendBudget": .bool(spendBudget),
                 "fuseRecorded": .bool(fuseRecorded),
              ]))
 }

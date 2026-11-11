@@ -10,8 +10,17 @@ function isObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+// Memory, wake markers and proactive vectors moved to the phoneDSH-owned v2
+// tree at the 2026-11-10 handover; the rest remain the dsh-bot v1 export.
+const V2_GOLDEN_NAMES = new Set([
+  'memory-fact', 'memory-injection', 'memory-recall',
+  'wake-routine', 'held-inbox',
+])
+
 function goldenURL(name: string): URL {
-  return new URL(`../../spec/bot/v1/golden/${name}.json`, import.meta.url)
+  const base = name.endsWith('.phone') ? name.slice(0, -'.phone'.length) : name
+  const tree = V2_GOLDEN_NAMES.has(base) ? 'v2' : 'v1'
+  return new URL(`../../spec/bot/${tree}/golden/${name}.json`, import.meta.url)
 }
 
 export function readBotGolden(name: string): JsonObject {
