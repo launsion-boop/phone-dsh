@@ -43,6 +43,8 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             "tool": params?["name"] as? String ?? "",
             "has_key": request.headers.contains { $0.key.lowercased() == "x-pdsh-idempotency-key" && !$0.value.isEmpty },
             "headers": request.headers.keys.map { $0.lowercased() }.sorted(),
+            // Not secret; shows whether the Worker's client accepts the long-call SSE answer.
+            "accept": request.headers.first { $0.key.lowercased() == "accept" }?.value ?? "",
             "arguments": args.map { String(decoding: $0.prefix(300), as: UTF8.self) } ?? "",
         ]
         let response = await inner.handle(request)

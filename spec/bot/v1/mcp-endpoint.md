@@ -112,6 +112,21 @@ the existing Bot JSON-RPC messages and the existing BotEvent log.
   keep native authorization; `CreateTeammate`'s main-Bot check remains a second,
   non-removable check. `tools/list` and `tools/call` use one caller resolution;
   the per-caller catalog is no longer only a display filter.
+- **Long tool calls.** A single (non-batch) `tools/call` whose `Accept` lists
+  `text/event-stream` and whose reply is not ready after 5 s is answered `200`
+  `Content-Type: text/event-stream` (with `Mcp-Session-Id`, no `Content-Length`)
+  at that moment, then the SSE comment `: keepalive` (one line, blank line) every
+  15 s, then exactly one event `event: message` whose single `data:` line is the
+  JSON-RPC response, then the connection closes. A reply ready within 5 s, any
+  other method, a batch, a notification, or a client that does not accept
+  `text/event-stream` keeps the unchanged `application/json` answer. This is MCP
+  Streamable HTTP's SSE response form, which the Worker's client already reads;
+  it keeps the host egress and the Worker delivery (each a 60 s idle limit) from
+  failing a call that is still running. The call's overall bound stays the
+  Worker's `toolCallTimeoutMs` (130 s). A keepalive carries no data and is never
+  progress or a result; a connection that drops mid-stream leaves the call's
+  receipt as the authority (native tools: [native-mcp.md](../../v1/native-mcp.md)).
+  Shared cases: [golden/mcp-long-call/cases.json](../../v1/golden/mcp-long-call/cases.json).
 - `initialize` advertises the Bot server as `phone`; when a native forwarder is
   attached, native `instructions` are merged. `tools/list` returns the Bot
   catalog plus the native tools (Bot names win on collision). `tools/call`
@@ -248,6 +263,13 @@ allowed only when the caller has no durable identity. `mode` remains
   `phone/botClaimSession` request and `/identity/register` body; the new Worker
   environment variable is P16's `PDSH_MCP_EGRESS_TOKEN`; the new hop header is
   `X-PDSH-MCP-Egress`; the new egress error code is `mcp_egress_forbidden`.
+- **Long tool calls (§2).** The SSE answer to a long `tools/call` is the
+  response form MCP Streamable HTTP already defines and the Worker's MCP client
+  already reads (it sends `Accept: application/json, text/event-stream`); it adds
+  no field, header, error code or wire frame. A client that does not accept
+  `text/event-stream`, and every call answered within 5 s, keep the unchanged
+  `application/json` answer; an older listener answers JSON as before, so a
+  long call there still meets the 60 s idle limits.
 - Native-only configurations keep the pre-existing `/mcp/native` environment.
   An older App that still writes `/mcp/native` into the Worker environment is not
   affected by this contract; a newer App paired with this Worker forwards native
