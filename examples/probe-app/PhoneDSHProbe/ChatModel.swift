@@ -4398,7 +4398,8 @@ final class ChatModel {
     static func userFacingFailure(_ raw: String) -> String {
         let lower = raw.lowercased()
         Self.appendDiagnostic(NativeLogRedaction.failedTurn(raw))
-        let detail = condensed(raw)
+        // Condensed is not enough on screen: mask URLs and credentials, keep the words.
+        let detail = ScreenSafeText.condensed(raw)
         // 引擎自己的生命周期失败(后台暂停收尾失败、宿主进入 Failed)不是模型服务的问题。
         if lower.contains("host state does not allow") || lower.contains("dsh host failed")
             || lower.contains("did not quiesce") || lower.contains("drain window")
