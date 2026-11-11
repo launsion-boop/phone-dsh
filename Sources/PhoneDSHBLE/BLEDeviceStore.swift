@@ -868,7 +868,14 @@ import PhoneDSHAgentCore
                 try? await Task.sleep(for: .seconds(attempt < 20 ? 3 : 15))
                 guard let self, self.poweredOn, self.trustMemory.rememberedBoards().contains(id) else { return }
                 if self.owner(id).phase == .idle {
-                    if Self.rememberedBoardIsPresent(systemConnected: self.isSystemConnected(id), advertised: false) {
+                    // Only a board our own central can submit for is connected here. A system
+                    // connection (iOS keeping it as the HID accessory) is not adoptable this
+                    // version: `connect` refuses a peripheral that is not `.disconnected`, and
+                    // taking ownership would let a later disconnect drop the system's HID link
+                    // (GAP-37). Such a board does not advertise, so the watch simply keeps
+                    // waiting for one that does, or for the user to reconnect it.
+                    if Self.rememberedBoardIsPresent(systemConnected: self.isSystemConnected(id), advertised: false),
+                       self.peripherals[id]?.state == .disconnected {
                         self.connect(id)
                     } else {
                         // The scan's advertisement discovery connects it once it is back.
