@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261112-ui-interaction-batch
 contracts: [P09]
-status: draft
+status: frozen
 breaking: false
 version_decision: tokens.json 仍是 version 1。六個新 `interaction.*` 組與三個新 motion token 都是可選新增；既有 token 不改名、不改值，`interaction.required` 仍只有 `drawer`。
 base: 56e7b6ce
-contract_revision: <待 contract owner 凍結後填寫>
+contract_revision: ad5cd444
 ```
 
 Protocol impact: P09
