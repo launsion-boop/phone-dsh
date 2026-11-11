@@ -523,7 +523,7 @@ class UiCheckTests(unittest.TestCase):
             ".opacity(0.30 * drawerProgress)"
         )
         self.write_tokens(document)
-        self.assert_fails(run_checker(self.root), "stale source 'NativeShell.swift:143'")
+        self.assert_fails(run_checker(self.root), "stale source 'NativeShell.swift:144'")
 
     def test_drawer_golden_flipped_release_result_fails(self) -> None:
         path, document = self.drawer_golden()

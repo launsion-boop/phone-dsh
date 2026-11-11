@@ -26,7 +26,15 @@ class SchemaDiffTests(unittest.TestCase):
                          'required': ['value'], 'additionalProperties': False,
                          'oneOf': [{'type': 'object',
                                     'properties': {'kind': {'type': 'string', 'enum': ['a', 'b']}},
-                                    'required': ['kind']}]}
+                                    'required': ['kind']}],
+                         'anyOf': [{'type': 'object', 'properties': {'a': {'type': 'string'}},
+                                    'additionalProperties': False},
+                                   {'type': 'object', 'properties': {'b': {'type': 'string'}},
+                                    'required': ['b']}],
+                         'allOf': [{'type': 'object', 'properties': {'a': {'type': 'string'}},
+                                    'additionalProperties': False},
+                                   {'type': 'object', 'properties': {'b': {'type': 'string'}},
+                                    'required': ['b']}]}
         self.write('spec/registry.json', (ROOT / 'spec/registry.json').read_text())
         self.write_schema(self.original)
         self.git('init', '-q')
@@ -44,6 +52,12 @@ class SchemaDiffTests(unittest.TestCase):
 
     def write_schema(self, value):
         self.write(self.path, json.dumps(value))
+
+    def combinator_schema(self, keyword):
+        # self.original already carries one variant per combinator; return a copy
+        # so the committed base and the changed schema agree outside the variants.
+        self.assertIn(keyword, self.original)
+        return copy.deepcopy(self.original)
 
     def run_check(self, base=None):
         return subprocess.run([sys.executable, str(SCRIPT), '--root', str(self.root), '--base', base or self.base],
@@ -122,6 +136,58 @@ class SchemaDiffTests(unittest.TestCase):
         changed = copy.deepcopy(self.original)
         changed['oneOf'][0]['properties']['kind']['enum'] = ['a']
         self.assert_breaks(changed, '$.oneOf[0].properties.kind.enum')
+
+    def test_optional_addition_inside_anyof_variant_is_not_breaking(self):
+        changed = self.combinator_schema('anyOf')
+        changed['anyOf'][0]['properties']['optional'] = {'type': 'string'}
+        self.write_schema(changed)
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_required_addition_inside_anyof_variant_fails_at_variant_pointer(self):
+        changed = self.combinator_schema('anyOf')
+        changed['anyOf'][0]['required'] = ['a']
+        self.assert_breaks(changed, '$.anyOf[0].required')
+
+    def test_anyof_variant_addition_fails(self):
+        changed = self.combinator_schema('anyOf')
+        changed['anyOf'].append({'type': 'object', 'properties': {'c': {'type': 'string'}}})
+        self.assert_breaks(changed, '$.anyOf: validation/default/reference keyword changed')
+
+    def test_optional_addition_inside_allof_variant_is_not_breaking(self):
+        changed = self.combinator_schema('allOf')
+        changed['allOf'][0]['properties']['optional'] = {'type': 'string'}
+        self.write_schema(changed)
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_required_addition_inside_allof_variant_fails_at_variant_pointer(self):
+        changed = self.combinator_schema('allOf')
+        changed['allOf'][0]['required'] = ['a']
+        self.assert_breaks(changed, '$.allOf[0].required')
+
+    def test_allof_variant_addition_fails(self):
+        changed = self.combinator_schema('allOf')
+        changed['allOf'].append({'type': 'object', 'properties': {'c': {'type': 'string'}}})
+        self.assert_breaks(changed, '$.allOf: validation/default/reference keyword changed')
+
+    def test_oneof_variant_ambiguity_is_known_limitation(self):
+        """Known false negative: adding an optional property to one oneOf variant.
+
+        Old: A rejects ``z`` (additionalProperties false) and B requires ``z``, so
+        ``{"z": "a"}`` matches only B. New: A now accepts ``z`` too, so the same
+        instance matches A and B and becomes invalid under ``oneOf``. The current
+        rule recurses into the variants, sees only an optional property addition
+        and returns no issue. Plugging this needs a mutual-exclusivity check
+        between variants, which this change deliberately does not attempt; this
+        test records the limitation for whoever edits the combinator rule next.
+        """
+        old = {'oneOf': [
+            {'type': 'object', 'properties': {'x': {'type': 'string'}},
+             'additionalProperties': False},
+            {'type': 'object', 'properties': {'z': {'type': 'string'}},
+             'required': ['z']}]}
+        new = copy.deepcopy(old)
+        new['oneOf'][0]['properties']['z'] = {'type': 'string'}
+        self.assertEqual(schema_diff.compare_schema(old, new), [])
 
     def test_reordered_sets_and_implicit_additional_true_are_equal(self):
         before = {'type': ['string', 'null'], 'enum': ['a', None]}
