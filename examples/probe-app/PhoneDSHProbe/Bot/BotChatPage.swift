@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 
+#if canImport(ProbeKit)
+import ProbeKit
+#endif
 import PhoneDSHBot
 import PhotosUI
 import SwiftUI
@@ -917,6 +920,19 @@ private struct BotAnswerBubbleContent: View {
     }
 }
 
+/// Human title for one Bot chat tool row. UI-card tools keep the host's zh
+/// effect label; execution tools reuse the activity phrase. The raw wire name
+/// never becomes the visible title.
+private func botToolRowTitle(_ item: ChatItem) -> String {
+    if let name = item.toolName, !name.isEmpty {
+        return BotActivityPhrases.toolRowLabel(forToolNamed: name)
+    }
+    if case .toolResult(let isError) = item.kind {
+        return isError ? "处理失败" : "处理结果"
+    }
+    return BotActivityPhrases.toolRowLabel(forToolNamed: "")
+}
+
 /// A finished turn's process row ("已完成，用时 …"); open, it lists the
 /// turn's tool calls as DSH tool rows.
 private struct BotTurnProcessBlock: View {
@@ -928,7 +944,7 @@ private struct BotTurnProcessBlock: View {
         VStack(alignment: .leading, spacing: 8) {
             NativeTurnProcessRow(state: process.state, isOpen: isOpen, isFoldable: true, onToggle: onToggle)
             if isOpen {
-                ToolRunRow(items: process.items)
+                ToolRunRow(items: process.items, titleForItem: botToolRowTitle)
             }
         }
         .padding(.horizontal, HomeSpec.contentInset)
@@ -950,7 +966,7 @@ private struct BotLiveTurnView: View {
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 case .tools(let ids):
-                    ToolRunRow(items: live.tools(for: ids))
+                    ToolRunRow(items: live.tools(for: ids), titleForItem: botToolRowTitle)
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 }

@@ -4476,6 +4476,10 @@ private struct ResourceStatusBanner: View {
 struct ToolRunRow: View {
     let items: [ChatItem]
     var onOpenFile: (String) -> Void = { _ in }
+    /// Optional human title override; the Bot page passes its action-name
+    /// mapping so wire tool names never reach the transcript. The main DSH
+    /// chat keeps the default official title table.
+    var titleForItem: ((ChatItem) -> String)? = nil
     @State private var expanded = true
     @State private var scrollMetrics = ProcessScrollMetrics()
     @State private var displayedTitle = ""
@@ -4570,7 +4574,8 @@ struct ToolRunRow: View {
                 if item.kind == .reasoning {
                     NativeThinkingRow(item: item)
                 } else {
-                    NativeToolCallRow(item: item, onOpenFile: onOpenFile)
+                    NativeToolCallRow(item: item, onOpenFile: onOpenFile,
+                                      title: titleForItem?(item))
                 }
             }
         }

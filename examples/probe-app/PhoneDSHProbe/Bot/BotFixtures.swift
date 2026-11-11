@@ -941,9 +941,11 @@ struct BotDrawerFixtureRootView: View {
                 roster.setRuntimeState(
                     BotRosterRuntimeState(
                         fishState: .working,
-                        activity: BotActivity(status: .toolRunning, detail: "跑个命令",
+                        activity: BotActivity(status: .toolRunning, detail: "在电脑上操作",
                                               category: .running,
-                                              startedAt: BotLiveFishProjection.now),
+                                              // Older than a minute so drawer.png
+                                              // also exercises the suffix.
+                                              startedAt: BotLiveFishProjection.now - 65_000),
                         isRunning: true),
                     for: main.id)
             }
