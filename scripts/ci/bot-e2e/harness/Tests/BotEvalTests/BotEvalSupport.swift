@@ -207,6 +207,67 @@ enum EvalWorkspaceSeed {
     }
 }
 
+/// Session kinds a `tool_surface` assertion can select. `main` is the default.
+/// The eval host does not link the Rust `pdsh-shell`, so the production
+/// `phone record` accelerator would be absent and a verifier could never read
+/// the raw records its contract requires. This provider serves exactly the
+/// `phone record search|read` argv through the same BotRecordService the App
+/// uses; every other argv fails closed. It is a test-host seam, not a product
+/// wire surface.
+struct EvalPhoneRecordExecProvider: ExecProvider {
+    let service: BotRecordService
+    static let sessionKey = "PDSH_TOOL_CALL_SESSION"
+
+    var capabilities: ExecCapabilities {
+        ExecCapabilities(environment: "bot-eval record bridge", network: false,
+                         persistentWorkspace: true, tiers: [.interactive, .session, .batch])
+    }
+
+    func run(_ request: ExecRequest) -> AsyncThrowingStream<ExecEvent, Error> {
+        AsyncThrowingStream { continuation in
+            guard request.argv.first == "phone", request.argv.count >= 3,
+                  request.argv[1] == "record" else {
+                continuation.yield(.stderr(
+                    seq: 0, data: Data("phone: this eval host only serves `phone record search|read`\n".utf8)))
+                continuation.yield(.exit(code: 64, signal: nil, truncated: false))
+                continuation.finish()
+                return
+            }
+            guard let session = request.env[Self.sessionKey], !session.isEmpty else {
+                continuation.yield(.stderr(
+                    seq: 0, data: Data("phone: record requires a claimed tool-call session\n".utf8)))
+                continuation.yield(.exit(code: 1, signal: nil, truncated: false))
+                continuation.finish()
+                return
+            }
+            let arguments = Array(request.argv.dropFirst(2))
+            let service = self.service
+            Task {
+                let output = await BotRecordService.bridge(
+                    arguments: arguments, callerSessionID: session, service: service)
+                if !output.stdout.isEmpty {
+                    continuation.yield(.stdout(seq: 0, data: Data(output.stdout.utf8)))
+                }
+                if !output.stderr.isEmpty {
+                    continuation.yield(.stderr(seq: 1, data: Data(output.stderr.utf8)))
+                }
+                continuation.yield(.exit(code: output.exitCode, signal: nil, truncated: false))
+                continuation.finish()
+            }
+        }
+    }
+
+    func cancel(execID: String) async {}
+}
+
+enum EvalSessionKinds {
+    static let main = "main"
+    static let task = "task"
+    static let verifier = "verifier"
+    static let maintainer = "maintainer"
+    static let all = [main, task, verifier, maintainer]
+}
+
 enum EvalMockScripts {
     static func script(for mock: EvalMock?, fallback: String = "BOT_EVAL_OK") -> MockModelScript {
         guard let mock else {
@@ -227,6 +288,30 @@ enum EvalMockScripts {
 
     static func promptRules(_ mock: EvalMock?) -> [EvalPromptRule] {
         mock?.promptRules ?? []
+    }
+
+    /// Classify one recorded model request by the host-minted session kind
+    /// that produced it. The title request runs before the turn and carries
+    /// the same first user message, so both fall into the same bucket.
+    ///
+    /// The markers are the host-built prompt envelopes and preset personas:
+    /// the verifier gets `<verification_request>` and the read-only persona;
+    /// the maintainer gets its batch prompt and memory-maintainer persona; a
+    /// Task session gets `<task_authorization>`/`<task_contract>`. Everything
+    /// else is the ordinary main chat.
+    static func sessionKind(from body: Data) -> String {
+        let text = String(decoding: body, as: UTF8.self)
+        if text.contains("<verification_request>")
+            || text.contains("You are a read-only verifier") {
+            return EvalSessionKinds.verifier
+        }
+        if text.contains("这次后台整理是一个批次") || text.contains("记忆维护者") {
+            return EvalSessionKinds.maintainer
+        }
+        if text.contains("<task_authorization>") || text.contains("<task_contract>") {
+            return EvalSessionKinds.task
+        }
+        return EvalSessionKinds.main
     }
 
     /// Tool names the model request advertised (`tools[].name`). The Bot eval

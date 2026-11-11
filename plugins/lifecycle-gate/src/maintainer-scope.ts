@@ -4,9 +4,9 @@
  * (`phone-bot-maintainer`).
  *
  * The shared mechanism lives in {@link ./restricted-session.ts}; this module
- * only binds the maintainer policy to the preset scope. `bash` is registered
- * by the preset before this row, and the memory tools arrive from the global
- * phone MCP client, so the allow-list restriction is installed on the first
+ * only binds the maintainer policy to the preset row. `bash` is registered by
+ * the preset, and the memory tools arrive from the global phone MCP client, so
+ * the Agent-scope allow-list is installed on the first `agent/created` or
  * `tools/change` that sees the complete frozen set.
  */
 import type { Context } from '@deepseek-ai/cordis'

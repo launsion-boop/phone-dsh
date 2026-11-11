@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { Context } from '@deepseek-ai/cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -32,6 +33,14 @@ function tool(name: string) {
     },
     execute: async () => 'ok',
   })
+}
+
+
+/** Mint an Agent-like scope from a context that injects `tools`, as the agent loop does. */
+async function mintAgentScope(ctx: Context, agent: object) {
+  let host!: Context
+  await ctx.plugin({ name: 'maintainer-test-agent-host', inject: ['tools'], apply(scoped) { host = scoped } })
+  return createScope(host, agent)
 }
 
 test('maintainer allow-list is the frozen memory + record surface', () => {
@@ -74,19 +83,30 @@ test('maintainer bash is only the raw-record lookup', () => {
   }
 })
 
-test('a claimed maintainer session counts as runtime-available without the volatile marker', async () => {
+test('a claimed restricted session counts as runtime-available without the volatile marker', async () => {
   const ctx = await mountRuntime()
   const maintainer = { id: 'gb-maintainer-runtime', session: { id: 'gb-maintainer-runtime' } }
+  const verifier = { id: 'gb-verifier-runtime', session: { id: 'gb-verifier-runtime' } }
   const normal = { id: 'gb-main', session: { id: 'gb-main' } }
   botOwnedSessions(ctx).add('gb-maintainer-runtime', 'session-token')
+  botOwnedSessions(ctx).add('gb-verifier-runtime', 'verifier-session-token')
   botOwnedSessions(ctx).add('gb-main')
   try {
     assert.equal(botRuntimeAvailable(ctx, { agent: maintainer as never }), true)
+    // The verifier's allow-list hides BotVolatileContext, so the session token
+    // is its liveness evidence; otherwise its allowed bash could never run.
+    assert.equal(botRuntimeAvailable(ctx, { agent: verifier as never }), true)
     assert.equal(botRuntimeAvailable(ctx, { agent: normal as never }), false)
     botOwnedSessions(ctx).add('gb-maintainer-unclaimed')
     assert.equal(
       botRuntimeAvailable(ctx, {
         agent: { id: 'gb-maintainer-unclaimed', session: { id: 'gb-maintainer-unclaimed' } } as never,
+      }),
+      false)
+    botOwnedSessions(ctx).add('gb-verifier-unclaimed')
+    assert.equal(
+      botRuntimeAvailable(ctx, {
+        agent: { id: 'gb-verifier-unclaimed', session: { id: 'gb-verifier-unclaimed' } } as never,
       }),
       false)
   } finally {
@@ -97,13 +117,17 @@ test('a claimed maintainer session counts as runtime-available without the volat
 test('maintainer scope does not install a partial filter while the MCP registry warms up', async () => {
   const ctx = await mountRuntime()
   const agent = { id: 'gb-maintainer-warmup', session: { id: 'gb-maintainer-warmup' } }
-  const scope = createScope(ctx, agent)
+  const scope = await mintAgentScope(ctx, agent)
+  ;(agent as { ctx?: unknown }).ctx = scope.ctx
   try {
     ctx.tools.register(tool('bash'))
     ctx.tools.register(tool('web_fetch'))
     await scope.ctx.plugin({
       name: 'maintainer-scope-warmup', inject: ['tools'], apply: applyMaintainerScope,
     })
+    // The preset row installs visibility on the Agent's own scope before the
+    // first turn; the MCP client has not published the memory tools yet.
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
     // No memory tools were known at compose time; the append-only restriction
     // is not installed yet. The guard still denies everything outside the
     // allow-list.
@@ -193,7 +217,8 @@ test('global guard confines a maintainer session even when its preset was not co
 test('maintainer scope hides every unlisted registered tool', async () => {
   const ctx = await mountRuntime()
   const agent = { session: { id: 'gb-maintainer-scope-test' } }
-  const scope = createScope(ctx, agent)
+  const scope = await mintAgentScope(ctx, agent)
+  ;(agent as { ctx?: unknown }).ctx = scope.ctx
   try {
     for (const name of [
       'bash',
@@ -207,6 +232,7 @@ test('maintainer scope hides every unlisted registered tool', async () => {
       ctx.tools.register(tool(name))
     }
     await scope.ctx.plugin({ name: 'maintainer-scope-test', inject: ['tools'], apply: applyMaintainerScope })
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
     const visible = ctx.tools.schemas(agent as never).map(schema => schema.name).sort()
     assert.deepEqual(visible, [
       'bash',
@@ -250,14 +276,65 @@ test('maintainer scope hides every unlisted registered tool', async () => {
   }
 })
 
+test('maintainer visibility keeps the preset bash and hides inherited globals', async () => {
+  const ctx = await mountRuntime()
+  let host!: Context
+  await ctx.plugin({ name: 'maintainer-production-host', inject: ['tools'], apply(scoped) { host = scoped } })
+  for (const name of [
+    'read', 'write', 'edit', 'bash', 'web_fetch', 'mcp__phone__Task',
+    'mcp__phone__SendToUser', 'mcp__phone__UpdateMemory',
+    'mcp__phone__ReadMemory', 'mcp__phone__RecallMemory',
+  ]) {
+    ctx.tools.register(tool(name))
+  }
+  // Production shape: the preset scope registers the maintainer's own bash,
+  // the Agent is parented to that preset scope, and the phone MCP tools are
+  // global.
+  const presetKey = {}
+  const presetScope = createScope(host, presetKey)
+  try {
+    await presetScope.ctx.plugin({
+      name: 'maintainer-preset-bash', inject: ['tools'],
+      apply(scoped) { scoped.tools.register(tool('bash')) },
+    })
+    await presetScope.ctx.plugin({
+      name: 'maintainer-scope-production', inject: ['tools'], apply: applyMaintainerScope,
+    })
+    const agent = {
+      id: 'gb-maintainer-production',
+      session: { id: 'gb-maintainer-production', header: { agentPreset: 'phone-bot-maintainer' } },
+    }
+    const agentScope = createScope(host, agent, { parent: presetKey })
+    ;(agent as { ctx?: unknown }).ctx = agentScope.ctx
+    try {
+      await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
+      assert.deepEqual(
+        ctx.tools.schemas(agent as never).map(schema => schema.name).sort(),
+        [
+          'bash',
+          'mcp__phone__ReadMemory',
+          'mcp__phone__RecallMemory',
+          'mcp__phone__UpdateMemory',
+        ])
+    } finally {
+      await agentScope.dispose()
+    }
+  } finally {
+    await presetScope.dispose()
+    await ctx.fiber.dispose()
+  }
+})
+
 test('maintainer scope survives an image without phone MCP tools', async () => {
   const ctx = await mountRuntime()
   const agent = { session: { id: 'gb-maintainer-nomcp' } }
-  const scope = createScope(ctx, agent)
+  const scope = await mintAgentScope(ctx, agent)
+  ;(agent as { ctx?: unknown }).ctx = scope.ctx
   try {
     ctx.tools.register(tool('bash'))
     ctx.tools.register(tool('web_fetch'))
     await scope.ctx.plugin({ name: 'maintainer-scope-nomcp', inject: ['tools'], apply: applyMaintainerScope })
+    await ctx.serial('agent/created', { agent: agent as never, source: 'startup' })
     // The memory tools are absent, so the append-only restriction is not
     // installed (a partial allow-list would hide them on a later registration).
     // Visibility falls back to the guard, which still refuses web_fetch.

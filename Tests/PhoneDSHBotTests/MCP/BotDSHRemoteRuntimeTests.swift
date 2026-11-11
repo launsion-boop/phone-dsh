@@ -363,6 +363,45 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertEqual(reported.data["verification"]?["output"]?.stringValue, "valid")
     }
 
+    func testVerifierParsesItsFinalStepNotTheConcatenatedProse() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let parent = try await makeParent(fixture.runtime)
+        let verifierOutput = #"{"verdict":"failed","summary":"REPORT.md is missing from the workspace.","refs":["record://session/gb-created-1#2"],"unverified":[]}"#
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [
+                [.turn(), .assistant("parent"), .end()],
+                [.turn(2), .assistant("hidden wake consumed"), .end(turn: 2)],
+            ],
+            "gb-created-2": [[
+                .turn(),
+                .assistant("I will check the workspace first."),
+                .toolCall("bash", id: "call-v1"),
+                .toolResult(id: "call-v1", text: "No such file or directory"),
+                .assistant(verifierOutput),
+                .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("parent")
+        transport.pause("gb-created-1")
+        transport.queue(sessionId: "gb-created-1", events: [
+            .turn(), .assistant("DONE: I wrote REPORT.md"), .end(),
+        ])
+        let started = try await remote.start(request: BotTaskRequest(
+            parent: parent, title: "Write REPORT.md", prompt: "write it",
+            asynchronous: true, timeoutMs: 10_000,
+            completion: "REPORT.md exists in the workspace"))
+        transport.resume(started.sessionId)
+        let settled = try await remote.await(
+            taskId: started.taskId, timeoutMs: 5_000, parent: parent)
+        let verification = try XCTUnwrap(settled.verification)
+        XCTAssertEqual(verification.verdict, .failed,
+                       "the verifier's last assistant message is the JSON answer; prose from earlier steps must not be concatenated into it")
+        XCTAssertEqual(verification.output, "valid")
+        XCTAssertEqual(verification.refs, ["record://session/gb-created-1#2"])
+    }
+
     func testCompletedTaskVerificationSurvivesWorkerRestart() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

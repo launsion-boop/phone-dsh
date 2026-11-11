@@ -304,17 +304,24 @@ def _check_assertion(errors, path, assertion):
         if not isinstance(method, str) or not method.isalpha():
             _error(errors, path, "echo_requests method must be an alphabetic HTTP method")
     if kind == "tool_surface":
+        session = assertion.get("session")
+        if session is not None and session not in ("main", "task", "verifier", "maintainer"):
+            _error(errors, path,
+                   "tool_surface session must be main, task, verifier or maintainer")
         present = assertion.get("present")
         absent = assertion.get("absent")
-        for label, names in (("present", present), ("absent", absent)):
+        exactly = assertion.get("exactly")
+        for label, names in (("present", present), ("absent", absent), ("exactly", exactly)):
             if names is None:
                 continue
             if not isinstance(names, list) or not names \
                     or not all(isinstance(name, str) and name for name in names):
                 _error(errors, path,
                        f"tool_surface {label} must be a non-empty array of tool names")
-        if not present and not absent:
-            _error(errors, path, "tool_surface requires present or absent")
+        if exactly is not None and (present or absent):
+            _error(errors, path, "tool_surface exactly cannot be combined with present or absent")
+        if not present and not absent and not exactly:
+            _error(errors, path, "tool_surface requires present, absent or exactly")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:

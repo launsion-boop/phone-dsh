@@ -87,23 +87,39 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         self.store = store
         self.gateway = gateway
         self.now = now
-        self.sessionLogLocator = sessionLogLocator ?? { sessionID in
-            let directory = workspaceRoot
+        let defaultSessionLogLocator: @Sendable (String) -> URL? = { @Sendable sessionID -> URL? in
+            let manager: FileManager = .default
+            let sessionsPath = workspaceRoot
                 .appendingPathComponent("materialized/home/sessions", isDirectory: true)
-                .appendingPathComponent(sessionID, isDirectory: true)
-            let manager = FileManager.default
-            guard let files = try? manager.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles]) else { return nil }
-            return files
-                .filter { $0.lastPathComponent.hasPrefix("session.v") && $0.pathExtension == "jsonl" }
-                .sorted { lhs, rhs in
-                    let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                    let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                    return left > right
+                .path
+            // DSH writes `<sessions>/<project>/<sessionID>/session.v*.jsonl`;
+            // older fixtures and direct callers also use
+            // `<sessions>/<sessionID>/session.v*.jsonl`. Try the direct layout
+            // first, then one project directory, newest file wins.
+            var candidatePaths = [sessionsPath + "/" + sessionID]
+            if let projects = try? manager.contentsOfDirectory(atPath: sessionsPath) {
+                for project in projects {
+                    candidatePaths.append(sessionsPath + "/" + project + "/" + sessionID)
                 }
-                .first
+            }
+            for directory in candidatePaths {
+                guard let names = try? manager.contentsOfDirectory(atPath: directory) else { continue }
+                let candidates = names
+                    .filter { $0.hasPrefix("session.v") && $0.hasSuffix(".jsonl") }
+                    .sorted { lhs, rhs in
+                        let left = (try? manager.attributesOfItem(
+                            atPath: directory + "/" + lhs)[.modificationDate] as? Date) ?? .distantPast
+                        let right = (try? manager.attributesOfItem(
+                            atPath: directory + "/" + rhs)[.modificationDate] as? Date) ?? .distantPast
+                        return left > right
+                    }
+                if let newest = candidates.first {
+                    return URL(fileURLWithPath: directory).appendingPathComponent(newest)
+                }
+            }
+            return nil
         }
+        self.sessionLogLocator = sessionLogLocator ?? defaultSessionLogLocator
     }
 
     // MARK: - Command bridge

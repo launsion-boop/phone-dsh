@@ -61,7 +61,12 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             workspaces: ["main": workspace, "bot-side": workspace],
             scratchRoot: root.appendingPathComponent("scratch", isDirectory: true),
             echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")],
-            advertisedTools: ["bash", "read", "todo_write"])
+            advertisedTools: ["bash", "read", "todo_write"],
+            advertisedToolsBySession: [
+                "main": ["bash", "read", "todo_write"],
+                "task": ["bash", "read", "write"],
+                "verifier": ["bash", "glob", "grep", "read"],
+            ])
         try FileManager.default.createDirectory(
             at: snapshot.scratchRoot, withIntermediateDirectories: true)
 
@@ -103,6 +108,15 @@ final class BotEvalAssertionMutationTests: XCTestCase {
              EvalAssertion(type: "tool_surface", present: ["subagent"])),
             (EvalAssertion(type: "tool_surface", absent: ["subagent", "skill"]),
              EvalAssertion(type: "tool_surface", absent: ["bash"])),
+            (EvalAssertion(type: "tool_surface", session: "verifier",
+                           exactly: ["bash", "glob", "grep", "read"]),
+             EvalAssertion(type: "tool_surface", session: "verifier",
+                           exactly: ["bash", "glob", "grep", "read", "write"])),
+            (EvalAssertion(type: "tool_surface", session: "main",
+                           present: ["bash"], absent: ["grep"]),
+             EvalAssertion(type: "tool_surface", session: "main", present: ["grep"])),
+            (EvalAssertion(type: "tool_surface", session: "verifier", present: ["grep"]),
+             EvalAssertion(type: "tool_surface", session: "maintainer", present: ["bash"])),
             (EvalAssertion(type: "file_exists", path: "a.txt"),
              EvalAssertion(type: "file_exists", path: "missing.txt")),
             (EvalAssertion(type: "no_file", path: "missing.txt"),

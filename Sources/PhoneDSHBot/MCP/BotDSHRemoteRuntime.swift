@@ -13,15 +13,21 @@ public struct BotRemoteTurnResult: Sendable, Equatable {
     /// assistant, tool-call and tool-result rows this turn observed. A
     /// verifier receives these instead of the doer session's self-report.
     public let recordRefs: [String]
+    /// The last non-empty assistant text of the turn. A multi-step verifier
+    /// turn emits prose before its tool calls; the contract's final answer is
+    /// that last message, not the concatenation of every step.
+    public let finalText: String?
 
     public init(sessionId: String, turnId: String?, status: String, text: String,
-                error: String? = nil, recordRefs: [String] = []) {
+                error: String? = nil, recordRefs: [String] = [],
+                finalText: String? = nil) {
         self.sessionId = sessionId
         self.turnId = turnId
         self.status = status
         self.text = text
         self.error = error
         self.recordRefs = recordRefs
+        self.finalText = finalText
     }
 }
 
@@ -973,7 +979,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         let output: BotVerifierOutput
         do {
-            output = try BotVerifierOutputParser.parse(turn.text)
+            output = try BotVerifierOutputParser.parse(turn.finalText ?? turn.text)
         } catch {
             return await finish(BotVerification(
                 verdict: .uncertain,
@@ -2033,7 +2039,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     sessionId: sessionId, turnId: currentTurn ?? eventTurn, status: status,
                     text: kind == .chat && hidden ? "" : resultTexts.joined(),
                     error: status == "completed" ? nil : data["reason"]?["error"]?["message"]?.stringValue ?? reason,
-                    recordRefs: recordRefs)
+                    recordRefs: recordRefs, finalText: resultTexts.last)
             default:
                 continue
             }

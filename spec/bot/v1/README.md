@@ -145,9 +145,13 @@ Task 的交付物是终态，不是过程自述。`Task` 在既有 `title`/`prom
 
 **只读 verifier 会话。** verifier 是独立 DSH session，principal kind 为 `verifier`（区别 chat/
 task/routine），由宿主签发并认领自己的会话凭证；Agent preset 固定为 `pdsh-verifier`，只挂载
-`read`、`grep`、`glob` 和只读 `bash`（`phone record search|read` 走同一 bash 桥）。`tools.restrict`
-隐藏所有继承的全局工具，guard 再拒绝白名单外的调用和非只读 bash。它没有 `write`/`edit`、
-没有出站写、不能 `SendToUser`/`SendToAgent`、不能派 `Task`、不能读写记忆。
+`read`、`grep`、`glob` 和只读 `bash`（`phone record search|read` 走同一 bash 桥）。可见面由
+`tools.restrict({allow:[read,grep,glob,bash]})` 在**该 verifier Agent 自己的作用域**上、于
+`agent/created`（第一回合之前）安装：它隐藏其余所有继承工具，同时保留 preset 自己挂载的四个
+工具，模型看到的 `tools[]` 必须恰好是这四个名字。不能把 allow-list 装在共享的 preset 作用域：
+DSH 会把祖先作用域的过滤器也应用到祖先自己注册的工具上，子 Agent 因此会得到空工具面。guard
+再拒绝白名单外的调用和非只读 bash。它没有 `write`/`edit`、没有出站写、不能
+`SendToUser`/`SendToAgent`、不能派 `Task`、不能读写记忆。
 
 验证输入只有完成条件、目的、约束和做事会话的 `record://session/<sessionId>#<seq>` 引用；
 全局 volatile 上下文（variant/persona/memory/automation）对 verifier 会话不注入；
@@ -158,8 +162,13 @@ task/routine），由宿主签发并认领自己的会话凭证；Agent preset �
 都走同一份 `restricted-session` 实现：宿主在 `session/create` 带不可变创建头
 `agentPreset`（verifier 为 `pdsh-verifier`，maintainer 为 `phone-bot-maintainer`）并核对返回值；
 会话 id 使用同一约定 `gb-<kind>-`；执行点只有一个全局 `restricted-session-guard`，先按创建头、
-再按保留前缀解析出所属策略，然后应用该策略的 allow-list 与 bash 规则；preset 作用域挂载同一个
-guard 函数，只负责可见面。volatile 注入也在同一处按“创建头或保留前缀”排除两种会话。两类会话
+再按保留前缀解析出所属策略，然后应用该策略的 allow-list 与 bash 规则；preset 行在
+`agent/created` 时把同一个 guard 与该策略的 allow-list 装到**该 Agent 自己的作用域**上，只负责
+可见面（不是共享 preset 作用域，见上一段）。可见面必须在第一回合前非空且恰好是契约白名单。
+受限会话的 `bash` 仍走与普通 Bot 相同的身份登记；可用性 liveness 的证据是宿主签发并已认领的
+session token，按同一份 `restricted-session` 保留前缀解析，不能依赖已被 allow-list 隐藏的
+`BotVolatileContext` 工具（否则 verifier 的只读 bash 会在登记前被拒，读不到 `phone record`）。
+volatile 注入也在同一处按“创建头或保留前缀”排除两种会话。两类会话
 的差别只有工具白名单与 bash 规则，不存在第二套 guard。即使 preset 作用域没有生效，全局
 guard 也只允许同一白名单。普通 Session 的创建头也会记录控制器默认 preset（例如 `standard`），
 因此 `agent/created` 的“保留创建头”条件只认受限 preset，不能把所有带 header 的会话都跳过。
