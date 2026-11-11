@@ -401,17 +401,30 @@ public struct WorkspaceLogMetrics: Equatable, Sendable {
 /// before any later live element (the replay happens under the same lock that
 /// registers the continuation, so ordering is preserved).
 final class AckBroadcaster<Element: Sendable>: @unchecked Sendable {
+    /// Default bound of one subscriber's stream. The previous default was
+    /// `.unbounded`, so a stalled consumer could grow the process without
+    /// limit. Cumulative acks coalesce naturally: dropping an older element
+    /// loses no state because the next ack carries the higher watermark.
+    static let defaultBufferingLimit = 4_096
+
     private let lock = NSLock()
     private var continuations: [UUID: AsyncStream<Element>.Continuation] = [:]
     private var replayBuffer: [Element] = []
     private let replayLimit: Int
     private var finished = false
+    /// Number of elements a subscriber's bounded buffer rejected. Exposed so a
+    /// caller can distinguish "quiet" from "the subscriber fell behind"; the
+    /// first drop is also logged, so a persistent event is never dropped
+    /// silently.
+    private var droppedElements = 0
+    private var loggedOverflow = false
 
     init(replayLimit: Int = 0) {
         self.replayLimit = max(0, replayLimit)
     }
 
-    func stream(bufferingPolicy: AsyncStream<Element>.Continuation.BufferingPolicy = .unbounded)
+    func stream(bufferingPolicy: AsyncStream<Element>.Continuation.BufferingPolicy =
+                    .bufferingNewest(AckBroadcaster.defaultBufferingLimit))
         -> AsyncStream<Element> {
         AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
             let identifier = UUID()
@@ -446,8 +459,31 @@ final class AckBroadcaster<Element: Sendable>: @unchecked Sendable {
         let targets = Array(continuations.values)
         lock.unlock()
         for target in targets {
-            target.yield(element)
+            if case .dropped = target.yield(element) {
+                noteDroppedElement()
+            }
         }
+    }
+
+    private func noteDroppedElement() {
+        lock.lock()
+        droppedElements += 1
+        let shouldLog = !loggedOverflow
+        loggedOverflow = true
+        lock.unlock()
+        if shouldLog {
+            // No workspace path, prompt or token is part of this diagnostic.
+            NSLog("phone-dsh: an ack stream subscriber fell behind; a bounded "
+                + "buffer rejected an element (cumulative acks replay the newer state)")
+        }
+    }
+
+    /// Elements rejected by a bounded subscriber buffer since the process
+    /// started. A zero value means no consumer fell behind.
+    func droppedElementCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return droppedElements
     }
 
     func finish() {

@@ -190,6 +190,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private var periodicEpochCloseToken = UUID()
     private var periodicEpochCloseIntervalOverride: TimeInterval?
     private var periodicEpochCloseObserver: (@Sendable (PeriodicEpochCloseOutcome) -> Void)?
+    /// Feeds the journal's level-2 acks into the step machine so terminal step
+    /// records are pruned only once their journal entry is durable.
+    private var journalDurabilityObserver: Task<Void, Never>?
+    /// Platform memory-warning adapter (no user-visible prompt).
+    private var memoryPressureObserver: PhoneDSHMemoryPressureObserver?
+    /// Coalesces system memory warnings so one pressure episode does not
+    /// restart the Worker repeatedly.
+    private var lastMemoryReliefAt: Date?
     private var lastError: String?
     /// The resume line being accumulated, and the phase currently in flight.
     /// The exclusive resume gate guarantees one at a time.
@@ -1559,6 +1567,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseRuntimeAfterReclaim(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
         await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         await runtime.machine.shutdown()
@@ -1576,6 +1586,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseFailedRuntime(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
         await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
@@ -3107,6 +3119,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         machineObserver = nil
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
         if let runtime {
             await runtime.loopback.stop()
             let controller = await runtime.machine.currentState()
@@ -3616,7 +3630,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             // a Backoff refusal needs no teardown and leaves the persisted
             // deadline untouched.
             try await prepareMachineForBoot(machine)
-            let stepMachine = try StepMachine(root: configuration.workspaceRoot)
+            let journalDurability = JournalDurabilityTracker()
+            let stepMachine = try StepMachine(
+                root: configuration.workspaceRoot,
+                journalDurableJseq: { sessionID in
+                    await journalDurability.durableJseq(sessionID: sessionID)
+                })
             let ledger = try SideEffectLedger(root: configuration.workspaceRoot)
             let recoveredJournal = await log.recoveredJournalSnapshot()
             // Rebuild identities first, then correlate only explicitly
@@ -3702,6 +3721,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 loopback: loopback, budgetMonitor: budgetMonitor,
                 overlayURL: overlayURL, engine: nil,
                 engineConfiguration: engineConfiguration)
+            installJournalDurabilityObserver(log: log, stepMachine: stepMachine,
+                                             tracker: journalDurability)
+            installMemoryPressureObserver()
             // A boot starts from Recovering, before any Worker HELLO; open the
             // replay window here so a request that arrives during the boot can
             // be answered from the response log instead of the upstream.
@@ -5140,6 +5162,77 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     @discardableResult
     internal func performPeriodicEpochCloseForTesting() async -> PeriodicEpochCloseOutcome {
         await attemptPeriodicEpochClose()
+    }
+
+    // MARK: - Journal durability and memory warnings (W2)
+
+    /// Subscribes to the level-2 journal acks of one runtime. Each ack that
+    /// completes an epoch advances the step machine's durable watermark and
+    /// lets it prune terminal step records; the journal prunes its own entries
+    /// inside ``JournalLog/closeEpoch()`` with the same rule.
+    private func installJournalDurabilityObserver(log: WorkspaceLog,
+                                                  stepMachine: StepMachine,
+                                                  tracker: JournalDurabilityTracker) {
+        stopJournalDurabilityObserver()
+        journalDurabilityObserver = Task.detached(priority: .utility) {
+            for await ack in log.journalAcks() {
+                await tracker.record(ack)
+                guard ack.level == .epochFsync else { continue }
+                // Silence is part of the contract: pruning is background work
+                // and never surfaces a prompt or a disabled state.
+                _ = try? await stepMachine.pruneTerminalSteps()
+            }
+        }
+    }
+
+    private func stopJournalDurabilityObserver() {
+        journalDurabilityObserver?.cancel()
+        journalDurabilityObserver = nil
+    }
+
+    /// Installs the platform memory-warning adapter. The handler lands on the
+    /// host actor so it observes the same lifecycle and budget state as every
+    /// other signal.
+    private func installMemoryPressureObserver() {
+        let observer = PhoneDSHMemoryPressureObserver()
+        observer.start { [weak self] in
+            guard let self else { return }
+            Task { await self.handleSystemMemoryPressureWarning() }
+        }
+        memoryPressureObserver?.stop()
+        memoryPressureObserver = observer
+    }
+
+    private func stopMemoryPressureObserver() {
+        memoryPressureObserver?.stop()
+        memoryPressureObserver = nil
+    }
+
+    /// Applies the existing pressure order for a system memory warning.
+    ///
+    /// `clearTmp` is a no-op at this layer: `/dsh/tmp` lives in the Worker's
+    /// volatile VFS and is never materialized, so the host owns no tmp bytes to
+    /// unlink. The planned restart is the release valve and only runs at a tool
+    /// boundary, so a turn is never interrupted. No prompt, banner or disabled
+    /// state is produced (plan §1.2).
+    internal func handleSystemMemoryPressureWarning() async {
+        guard state == .running, let runtime else { return }
+        let now = Date()
+        if let last = lastMemoryReliefAt,
+           now.timeIntervalSince(last) < 60 {
+            return
+        }
+        guard await runtime.machine.currentState() == .running,
+              await runtime.stepMachine.atToolCallBoundary() else { return }
+        lastMemoryReliefAt = now
+        try? await plannedRestart(reason: "system memory warning")
+    }
+
+    /// Test seam: forces one memory-warning handling without a platform
+    /// notification (Linux CI and simulator tests cannot post the UIKit one).
+    internal func handleSystemMemoryPressureWarningForTesting() async {
+        lastMemoryReliefAt = nil
+        await handleSystemMemoryPressureWarning()
     }
 
     // MARK: - Budgets
