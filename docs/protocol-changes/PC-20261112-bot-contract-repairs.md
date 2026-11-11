@@ -101,3 +101,4 @@ nullable 成员的缺省语义只有一个；`authz.grant_snapshot` 使用既有
 | revision | 由谁 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
 | --- | --- | --- | --- |
 | c48f5f13831bc17d53afc5a6552ae813520394bb | `BOT-C` | CCR-1（presence/ephemeral）、CCR-2（grant snapshot）、CCR-3（agent-comm rows）、CCR-4（four-column bar）、CCR-5（attachment phone overlay）、CCR-7（routine presence/document）；CCR-6 remains deferred. | Swift/iOS（implemented/tested）；Android B1/B3/B5/B7a/B7b 按此 schema/golden 实现；P09 owner 保留 status rows |
+| c48f5f13831bc17d53afc5a6552ae813520394bb (runtime follow-up) | DSH worker | CCR-2 runtime follow-up done: `authz.grant_snapshot` is now in `BotEventEnvelopeCodec.durableEventTypes`; `BotGrantSnapshot` keeps `ignorable: true` for old iOS readers and writes the same bytes, covered against the frozen grant vector. | Swift/iOS |
