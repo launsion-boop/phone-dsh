@@ -73,6 +73,15 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 | memory proxy | VFS bytes by prefix, session bytes, sampled engine heap, WebContent termination count | Budget actions in §4 order; VFS or heap pressure shares the same order; a hard cap after the actions → `Failed` (fail loud). |
 | lease verification | controller and remote authority record | Required for `Recovering` → `Running`; failure keeps admission closed. |
 
+**Engine-memory input sources (W2 rev 2, 2026-11-12).** In this revision the only **production**
+input to the engine-memory side of the memory proxy is the platform **system memory warning**
+(`DispatchSource`/`didReceiveMemoryWarning`). The sampled engine heap named above and in §4 is
+`target`: there is no production producer (`PhoneDSHEngine` exposes no public heap probe,
+`WebEngineScripts` carries only console/boot, every `reportEngineHeapBytes` caller is a test).
+`reportEngineHeapBytes` stays the test/future-P04 injection point; a missing sample MUST NOT be
+read as zero, headroom, or a reason to raise a budget. The warning path keeps
+`clearTmp → plannedRestart` and adds no UI prompt; the numeric §4 rows are unchanged.
+
 **Boot mapping for the rows above.** §2 lists the four persisted states it decided; these four were
 left implicit and the port had to infer them, so they are written down here: persisted `Parked` →
 `Parked` (the resume waits for an active scene), persisted `Backoff` → `Backoff`, persisted `Remote` →
@@ -242,6 +251,15 @@ the write at 64 MiB.
   reconcile. Entries of a step whose terminal record is missing are never deleted. Deletion is
   whole-entry: a record is never half-removed, never rewritten with edited fields, and `jseq`
   values are never reused.
+- **High-water retention (implementation constraint).** Pruning is a permission, not a requirement
+  to delete to zero. The journal file header has no `jseq_base`; dropping a session's last record
+  would lower `lastJseq` after a restart and make ChannelServer treat the next consecutive record
+  as a gap. The host **MUST** keep, per session, the newest retained high-water/terminal record
+  (and MAY keep the second-newest) when dropping it would decrease `lastJseq`; at most two records
+  are kept for this reason. Retained records are kept whole, unmodified and with their original
+  `jseq`. This floor does not widen any other deletion condition and never protects an
+  un-journaled, non-durable or replay-referenced entry; keeping more than two records is not
+  required and is not part of this rule.
 - **Step record.** A line in `steps/<session_id>.ndjson` may be dropped only when the step's last
   recorded state is terminal (`journaled` or `abandoned`), the corresponding journal record is
   durable (for `journaled`) or the abandonment is durable (for `abandoned`), the step is not

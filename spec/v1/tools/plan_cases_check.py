@@ -42,6 +42,7 @@ VECTORS = (
     "response-log-key",
     "streaming",
     "single-copy",
+    "memory-input",
 )
 BASELINE_PENDING = "待基线"
 MIB = 1_048_576
@@ -94,6 +95,8 @@ def check_perf_targets(doc, errors) -> None:
 def retention_prunable(case) -> bool:
     if case.get("referenced") is True:
         return False
+    if case.get("highWater") is True:
+        return False
     if case.get("kind") == "journal":
         return case.get("journaled") is True and case.get("durable") is True
     if case.get("kind") == "step":
@@ -107,6 +110,14 @@ def retention_prunable(case) -> bool:
     return False
 
 
+def retention_last_jseq_problem(case) -> str:
+    before = case.get("lastJseqBefore")
+    after = case.get("lastJseqAfter")
+    if isinstance(before, int) and isinstance(after, int) and after < before:
+        return "last_jseq_decreased"
+    return ""
+
+
 def check_retention(doc, errors) -> None:
     for index, case in enumerate(doc["valid"]):
         where = "valid[{}]".format(index)
@@ -116,10 +127,18 @@ def check_retention(doc, errors) -> None:
                 case.get("expected"), expected))
         if case.get("kind") not in ("journal", "step"):
             fail(errors, where, "kind must be journal or step")
+        problem = retention_last_jseq_problem(case)
+        if problem:
+            fail(errors, where, problem)
     for index, case in enumerate(doc["invalid"]):
         payload = case["case"]
         where = "invalid[{}]".format(index)
         computed = "prune" if retention_prunable(payload) else "keep"
+        problem = retention_last_jseq_problem(payload)
+        if case["reason"] == "last_jseq_decreased":
+            if problem != "last_jseq_decreased":
+                fail(errors, where, "negative case does not decrease lastJseq")
+            continue
         if payload.get("expected") == computed:
             fail(errors, where, "negative case does not violate the frozen condition")
 
@@ -499,6 +518,42 @@ def check_single_copy(doc, errors) -> None:
         _, violations = single_copy_expectation(case["case"])
         if not violations:
             fail(errors, where, "negative case does not violate any single-copy law")
+def memory_input_problem(case) -> str:
+    """Return the first W2 rev 2 memory-input law the case violates, or ''."""
+    if case.get("productionInputs") != ["system-memory-warning"]:
+        if not case.get("productionInputs"):
+            return "no_production_input"
+        return "sampled_heap_not_available"
+    sampled = case.get("sampledHeap", {})
+    if sampled.get("status") != "target":
+        return "sampled_heap_falsely_implemented"
+    if sampled.get("producer") != "none":
+        return "sampled_heap_not_available"
+    if sampled.get("injectionPoint") != "reportEngineHeapBytes":
+        return "wrong_injection_point"
+    if case.get("actionOrder") != ["clearTmp", "plannedRestart"]:
+        return "action_order_changed"
+    if case.get("userVisible") is not False:
+        return "new_user_prompt"
+    if case.get("budgetNumbersChanged") is not False:
+        return "budget_number_changed"
+    return ""
+
+
+def check_memory_input(doc, errors) -> None:
+    for index, case in enumerate(doc["valid"]):
+        where = "valid[{}]".format(index)
+        problem = memory_input_problem(case)
+        if problem:
+            fail(errors, where, problem)
+    for index, case in enumerate(doc["invalid"]):
+        payload = case["case"]
+        where = "invalid[{}]".format(index)
+        problem = memory_input_problem(payload)
+        if not problem or problem != case["reason"]:
+            fail(errors, where, "expected {} but the law gives {!r}".format(
+                case["reason"], problem))
+
 
 
 CHECKS = {
@@ -509,6 +564,8 @@ CHECKS = {
     "response-log-key": check_response_log_key,
     "streaming": check_streaming,
     "single-copy": check_single_copy,
+    "memory-input": check_memory_input,
+
 }
 
 
