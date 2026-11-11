@@ -27,6 +27,27 @@ public actor DeviceMCPServer: NativeMCPServing {
         tool("ble_read", "Read fresh standard GATT data from an explicitly authorized connected device. No cached measurements. Profiles: battery, temperature, humidity, manufacturer, model.", ["device_id": property("string"), "profile": .object(["type": .string("string"), "enum": .array(["battery", "temperature", "humidity", "manufacturer", "model"].map(JSONValue.string))])], ["device_id", "profile"]),
         tool("ble_alert", "Submit SIG Immediate Alert level 0=off, 1=mild, 2=high to an explicitly authorized device. No execution acknowledgement. Never retry an unknown outcome automatically. Requires journal idempotency key.", ["device_id": property("string"), "level": .object(["type": .string("integer"), "minimum": .number(0), "maximum": .number(2)])], ["device_id", "level"]),
     ]
+    /// W5 runtime tiering: the device list itself stays visible so the model
+    /// can read configured boards, while read/alert/Link tools appear only
+    /// once a board is connected or has a saved per-connection grant. The
+    /// predicate is pure so the change can be tested without CoreBluetooth.
+    static func bleToolsVisible(devices: [BLEDeviceStore.Device]) -> Bool {
+        devices.contains { device in
+            device.state == "已连接"
+                || device.allowRead || device.allowAlert
+                || !device.grantedTools.isEmpty
+                || !device.linkIdentity.isEmpty
+        }
+    }
+
+    static let coreDescriptors: [JSONValue] = descriptors.filter {
+        $0.fields["name"]?.text == "ble_devices"
+    }
+
+    static func descriptors(visible: Bool) -> [JSONValue] {
+        visible ? Self.descriptors : coreDescriptors
+    }
+
     private static func property(_ type: String) -> JSONValue { .object(["type": .string(type)]) }
     private static func tool(_ name: String, _ description: String, _ properties: [String: JSONValue], _ required: [String]) -> JSONValue {
         .object(["name": .string(name), "description": .string(description), "inputSchema": .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(JSONValue.string)), "additionalProperties": .bool(false)])])
@@ -70,7 +91,11 @@ public actor DeviceMCPServer: NativeMCPServing {
             var response = await adb.handle(request)
             if let json = try? JSONValue.parse(response.body), case .object(var root) = json,
                case .object(var result) = root["result"], case .array(let tools) = result["tools"] {
-                result["tools"] = .array(tools + Self.descriptors); root["result"] = .object(result)
+                let visible = await MainActor.run {
+                    Self.bleToolsVisible(devices: BLEDeviceStore.shared.devices)
+                }
+                result["tools"] = .array(tools + Self.descriptors(visible: visible))
+                root["result"] = .object(result)
                 response.body = (try? JSONValue.object(root).encoded()) ?? Data()
             }
             return response

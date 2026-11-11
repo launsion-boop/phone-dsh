@@ -133,3 +133,81 @@ public struct BotModelPurposeError: Error, Sendable, Equatable, CustomStringConv
 
     public var description: String { message }
 }
+
+/// One host model request at the enforcement point (P26 §2.9). The gateway
+/// constructs this before resolving credentials or opening a socket.
+public struct BotModelRequest: Sendable, Equatable {
+    public let purpose: BotModelPurpose?
+    /// Raw purpose from a request that might not map to a known case. Kept so
+    /// an unknown value is rejected instead of silently becoming a large
+    /// `worker-turn`.
+    public let purposeName: String?
+    public let model: String
+    /// Provider id as seen by the gateway; carried so a denial can be logged
+    /// without resolving credentials first.
+    public let provider: String?
+
+    public init(purpose: BotModelPurpose?, model: String, provider: String? = nil) {
+        self.purpose = purpose
+        self.purposeName = purpose?.rawValue
+        self.model = model
+        self.provider = provider
+    }
+
+    public init(purposeName: String?, model: String, provider: String? = nil) {
+        self.purpose = purposeName.flatMap(BotModelPurpose.init(rawValue:))
+        self.purposeName = purposeName
+        self.model = model
+        self.provider = provider
+    }
+}
+
+/// Frozen enforcement point. `BotModelPurposePolicy.assertModelAllowed` was
+/// previously unused; this gate is the single call a model-request edge makes.
+/// A missing purpose fails closed, and a configured policy can never promote a
+/// non-front/worker purpose to the large model.
+public struct BotModelPurposeGate: Sendable, Equatable {
+    public let policy: BotModelPurposePolicy
+
+    public init(policy: BotModelPurposePolicy = .frozen) {
+        self.policy = policy
+    }
+
+    @discardableResult
+    public func authorize(_ request: BotModelRequest) throws -> String {
+        guard let purpose = request.purpose else {
+            throw BotModelPurposeError(
+                code: "EPURPOSE_MODEL_DENIED",
+                purpose: .workerTurn, model: request.purposeName ?? "",
+                message: "a model request must declare a known purpose; unknown purpose \(request.purposeName ?? "(missing)") is denied")
+        }
+        if !purpose.largeModelAllowed,
+           policy.largeModelPurposes.contains(purpose) {
+            // A malformed profile cannot widen the frozen purpose table.
+            throw BotModelPurposeError(
+                code: "EPURPOSE_MODEL_DENIED", purpose: purpose, model: request.model,
+                message: "purpose \"\(purpose.rawValue)\" cannot be promoted to the large model")
+        }
+        return try BotModelPurposePolicy.assertModelAllowed(
+            purpose: purpose, model: request.model)
+    }
+
+    @discardableResult
+    public func authorize(purpose: BotModelPurpose?, model: String,
+                          provider: String? = nil) throws -> String {
+        try authorize(BotModelRequest(purpose: purpose, model: model, provider: provider))
+    }
+
+    @discardableResult
+    public func authorize(purposeName: String?, model: String,
+                          provider: String? = nil) throws -> String {
+        try authorize(BotModelRequest(purposeName: purposeName, model: model, provider: provider))
+    }
+
+    /// The ledger records the *actual* request purpose. Callers pass the same
+    /// value they authorized here; the verifier uses `.completionCheck`, never
+    /// `.workerTurn` (P26 §2.9).
+    public static func ledgerPurpose(_ authorized: BotModelRequest) -> BotModelPurpose? {
+        authorized.purpose
+    }
+}

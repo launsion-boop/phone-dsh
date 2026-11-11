@@ -25,13 +25,21 @@ public actor IPhoneAgentMCPServer: NativeMCPServing {
     private let executor: any IPhoneAgentTaskExecuting
     private let directory: URL
     private let executionTimeout: Duration
+    /// W5 tiering: `iphone_agent_run` is a device tool, listed only while the
+    /// user has configured the UI-Venus endpoint. The predicate is injectable
+    /// so the hidden/visible transition is testable without UserDefaults.
+    private let isConfigured: @Sendable () -> Bool
     private struct ExecutionTimeout: Error {}
     private var active: Active?
 
     public init(fallback: any NativeMCPServing, executor: any IPhoneAgentTaskExecuting, receiptDirectory: URL? = nil,
-                executionTimeout: Duration = .seconds(600)) {
+                executionTimeout: Duration = .seconds(600),
+                isConfigured: @escaping @Sendable () -> Bool = {
+                    !VenusSettings.shared.load().baseURL.isEmpty
+                }) {
         self.fallback = fallback; self.executor = executor
         self.executionTimeout = executionTimeout
+        self.isConfigured = isConfigured
         directory = receiptDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("iphone-agent-tool-receipts", isDirectory: true)
     }
@@ -62,8 +70,8 @@ public actor IPhoneAgentMCPServer: NativeMCPServing {
             if var root = (try? JSONValue.parse(response.body))?.objectValue,
                var result = root["result"]?.objectValue {
                 if method == "tools/list", let tools = result["tools"]?.arrayValue {
-                    result["tools"] = .array(tools + [Self.descriptor])
-                } else if method == "initialize" {
+                    if isConfigured() { result["tools"] = .array(tools + [Self.descriptor]) }
+                } else if method == "initialize", isConfigured() {
                     result["instructions"] = .string((result["instructions"]?.stringValue ?? "") + " " + Self.instructions)
                 }
                 root["result"] = .object(result)

@@ -13,7 +13,7 @@ default: |
       retainRatio: 0.16
       maxTokens: 65536
       summarizationProvider: ""
-      summarizationModel: ""
+      summarizationModel: "deepseek-flash"
       compactionRetries: 1
       maxOverflowRetries: 1
       modelPolicies: []
@@ -39,7 +39,7 @@ conservative: |
       retainRatio: 0.12
       maxTokens: 32768
       summarizationProvider: ""
-      summarizationModel: ""
+      summarizationModel: "deepseek-flash"
       compactionRetries: 1
       maxOverflowRetries: 1
       modelPolicies: []

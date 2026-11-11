@@ -850,6 +850,12 @@ test('identity, cancel and approval requests carry the host egress credential', 
       signal: new AbortController().signal, agent: agent(),
     })
     assert.equal(result.isError, false)
+    // W5: cancellation is a non-blocking tail request. Give the queued fetch
+    // one bounded moment to reach the loopback server; the tool result above
+    // never waited for it.
+    for (let attempt = 0; attempt < 200 && !seen.some(item => item.path === '/identity/cancel'); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 5))
+    }
     for (const path of ['/identity/register', '/approval', '/identity/cancel']) {
       const entry = seen.find(candidate => candidate.path === path)
       assert.ok(entry, `${path} must be called: ${JSON.stringify(seen.map(item => item.path))}`)

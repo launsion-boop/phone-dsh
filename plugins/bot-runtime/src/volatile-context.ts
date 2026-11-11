@@ -80,6 +80,16 @@ export interface VolatileContextConfig {
    * (`pdsh-verifier`) and is not configurable.
    */
   readonly maintainerAgentPreset?: string
+  /**
+   * Minimum time between two BotVolatileContext reads for one session. The
+   * host snapshot can change at any moment, but re-reading it before every
+   * step blocks the model request on a loopback tool call. Within this window
+   * the last accepted snapshot is reused; a content digest still decides
+   * whether the rendered prompt changes. `0` (the default) preserves the
+   * historical read-before-every-assembly behaviour for tests and callers
+   * that need it.
+   */
+  readonly refreshMinIntervalMs?: number
 }
 
 /**
@@ -244,7 +254,6 @@ interface BotAssembleContext extends AssembleContext {
   readonly agent?: Agent
 }
 
-const MINUTE_MS = 60_000
 const EMPTY_SNAPSHOT: VolatileSnapshot = Object.freeze({})
 
 const TIME_TEXT = Object.freeze({
@@ -260,9 +269,22 @@ const TIME_TEXT = Object.freeze({
   },
 })
 
-export function minutePrecision(now: Date | number | string = new Date()): Date {
+/**
+ * Local wall-clock hour bucket. Flooring the UTC epoch would put a +05:30 zone
+ * on :30, so the bucket is taken from the local calendar fields instead.
+ */
+export function hourPrecision(now: Date | number | string = new Date()): Date {
   const ms = now instanceof Date ? now.getTime() : new Date(now).getTime()
-  return new Date(Number.isFinite(ms) ? Math.floor(ms / MINUTE_MS) * MINUTE_MS : Date.now())
+  const bucket = new Date(Number.isFinite(ms) ? ms : Date.now())
+  bucket.setMinutes(0, 0, 0)
+  return bucket
+}
+
+/** `YYYY-MM-DD HH:00` in the device's local zone (contract: no minutes/seconds). */
+export function localHourBucket(now = new Date()): string {
+  const value = hourPrecision(now)
+  const pad = (part: number): string => String(part).padStart(2, '0')
+  return `${String(value.getFullYear()).padStart(4, '0')}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:00`
 }
 
 export function resolvePromptLang(value?: string): PromptLang {
@@ -278,7 +300,7 @@ export function timeZoneBlock(now = new Date(), lang?: PromptLang): string {
   const sign = offsetMin >= 0 ? '+' : '-'
   const hh = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, '0')
   const mm = String(Math.abs(offsetMin) % 60).padStart(2, '0')
-  const local = now.toLocaleString('sv-SE', { hour12: false })
+  const local = localHourBucket(now)
   return [
     text.heading,
     '',
@@ -296,13 +318,20 @@ export function sessionIdFor(context: BotAssembleContext | undefined): string {
   return String(agent?.id || agent?.session?.id || '')
 }
 
+/** Stable digest of the four optional blocks; the time block is not part of it. */
+export function volatileSnapshotDigest(snapshot: VolatileSnapshot): string {
+  const parts = (['variant', 'persona', 'memory', 'automation'] as const)
+    .map(name => `${name}\u0000${blockText(snapshot[name])}`)
+  return parts.join('\u0001')
+}
+
 export function collectVolatileBlocks(
   snapshot: VolatileSnapshot = EMPTY_SNAPSHOT,
   options: { now?: Date; lang?: PromptLang } = {},
 ): VolatileBlock[] {
   const blocks: Record<VolatileBlockName, string> = {
     variant: blockText(snapshot.variant),
-    time: timeZoneBlock(minutePrecision(options.now ?? new Date()), options.lang),
+    time: timeZoneBlock(hourPrecision(options.now ?? new Date()), options.lang),
     persona: blockText(snapshot.persona),
     memory: blockText(snapshot.memory),
     automation: blockText(snapshot.automation),
@@ -323,6 +352,9 @@ export function renderVolatileContext(
 export default function dshbotVolatileContext(ctx: Context, config: VolatileContextConfig = {}): void {
   const snapshots = new Map<string, VolatileSnapshot>()
   const revisions = new Map<string, number>()
+  const digests = new Map<string, string>()
+  const fetchedAt = new Map<string, number>()
+  const refreshMinIntervalMs = Math.max(0, config.refreshMinIntervalMs ?? 0)
   const source = config.source ?? createPhoneVolatileContextSource(ctx)
   const now = config.now ?? (() => new Date())
   const lang = config.lang ?? (() => resolvePromptLang())
@@ -384,6 +416,15 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
   const refresh = async (context: BotAssembleContext): Promise<void> => {
     const sessionId = sessionIdFor(context)
     if (sessionId === '') return
+    const startedAt = Date.now()
+    if (refreshMinIntervalMs > 0 && snapshots.has(sessionId)) {
+      const last = fetchedAt.get(sessionId)
+      if (last !== undefined && startedAt - last < refreshMinIntervalMs) return
+    }
+    const previous = snapshots.get(sessionId)
+    // A read in flight must not keep exposing the old memory: until a fresh
+    // snapshot is accepted the session renders empty (P26 §2.1). Failure,
+    // timeout and abort leave it empty instead of borrowing stale content.
     snapshots.set(sessionId, EMPTY_SNAPSHOT)
     const revision = (revisions.get(sessionId) ?? 0) + 1
     revisions.set(sessionId, revision)
@@ -399,6 +440,17 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
       }
     } catch {}
     if (revisions.get(sessionId) === revision && !context.signal?.aborted) {
+      fetchedAt.set(sessionId, Date.now())
+      const digest = volatileSnapshotDigest(snapshot)
+      // The producer revision is not part of the frozen volatile-context
+      // schema, so the consumer compares the accepted content itself. An
+      // unchanged digest keeps the previous object (and its prompt cache key)
+      // instead of replacing it with an equal copy.
+      if (digests.get(sessionId) === digest && previous !== undefined) {
+        snapshots.set(sessionId, previous)
+        return
+      }
+      digests.set(sessionId, digest)
       snapshots.set(sessionId, snapshot)
     }
   }
@@ -407,6 +459,8 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
     const sessionId = String(agent.id || agent.session?.id || '')
     snapshots.delete(sessionId)
     revisions.delete(sessionId)
+    digests.delete(sessionId)
+    fetchedAt.delete(sessionId)
   })
 
   ctx.systemPrompt.context({

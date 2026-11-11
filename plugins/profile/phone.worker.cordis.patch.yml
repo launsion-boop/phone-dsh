@@ -919,8 +919,13 @@
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
+          # W5: the Bot volatile block already injects the local time at hour
+          # precision (spec/bot/v1 §2.1). Mounting the upstream block as well
+          # would append a second, minute-precision copy. Bot sessions only;
+          # the workbench preset keeps its upstream time row.
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
+            disabled: true
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
             disabled: !!js process.platform === 'win32'
@@ -1060,6 +1065,11 @@
         # Host-issued maintenance sessions (`gb-maintainer-*`) get the
         # memory-only preset instead of the user-facing Bot surface.
         maintainerAgentPreset: phone-bot-maintainer
+        # Reuse the accepted volatile snapshot for a short window instead of
+        # blocking every step on a loopback BotVolatileContext call. Changes
+        # are still picked up within this window; content equality is decided
+        # by digest so an unchanged snapshot cannot churn the prompt.
+        refreshMinIntervalMs: 15000
 
 # Stable phone persona. The current Bot name and all volatile blocks arrive from
 # BotVolatileContext instead of being hard-coded in this prefix.
@@ -1261,7 +1271,7 @@
     retainRatio: 0.16
     maxTokens: 65536
     summarizationProvider: ""
-    summarizationModel: ""
+    summarizationModel: "deepseek-flash"
     compactionRetries: 1
     maxOverflowRetries: 1
     modelPolicies: []
