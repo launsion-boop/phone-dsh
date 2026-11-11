@@ -119,9 +119,32 @@ extension LogError: VFSResourceRefusalProviding {
 /// caller-supplied root; none is persisted inside the workspace or the repo.
 public struct WorkspacePaths: Equatable, Sendable {
     public let root: URL
+    /// Optional `Library/Caches/pdsh/<workspace_id>` root for derived,
+    /// rebuildable data (wal.md §12, budgets.md §9). `nil` keeps the pre-W3
+    /// layout inside the workspace root, which the existing unit tests use.
+    public let cacheRoot: URL?
 
-    public init(root: URL) {
+    public init(root: URL, cacheRoot: URL? = nil) {
         self.root = root
+        self.cacheRoot = cacheRoot
+    }
+
+    /// Root for rebuildable caches. Falls back to the workspace root so a
+    /// caller that did not opt into tiering keeps byte-for-byte the old paths.
+    public var cacheDirectory: URL {
+        cacheRoot ?? root
+    }
+
+    public var responseLogCacheDirectory: URL {
+        cacheDirectory.appendingPathComponent("response-log", isDirectory: true)
+    }
+
+    public var transcriptSnapshotCacheDirectory: URL {
+        cacheDirectory.appendingPathComponent("transcript-snapshots", isDirectory: true)
+    }
+
+    public var overlayCacheDirectory: URL {
+        cacheDirectory
     }
 
     public var walDirectory: URL { root.appendingPathComponent("wal", isDirectory: true) }
@@ -151,7 +174,7 @@ public struct WorkspacePaths: Equatable, Sendable {
     /// `<root>/overlay-<boot_id>.tar`, rebuilt for every boot (wal.md §8).
     /// The name is the pre-D21 route contract; the bytes are gzip (D21).
     public func overlayURL(bootID: String) -> URL {
-        root.appendingPathComponent("overlay-\(bootID).tar")
+        cacheDirectory.appendingPathComponent("overlay-\(bootID).tar")
     }
 
     /// Creates the directories the log owns. `steps/` and `exec/` belong to

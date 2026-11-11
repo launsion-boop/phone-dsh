@@ -96,6 +96,13 @@ public struct ResponseLogReceipt: Equatable, Sendable {
     }
 }
 
+/// Where one committed response body lives. Missing on pre-W3 entries, which
+/// are documents (gateway-security.md §11).
+public enum ResponseLogBodyLocation: String, Codable, Equatable, Sendable {
+    case documents
+    case caches
+}
+
 /// Health of the response log's LRU index file.
 ///
 /// `index.json` is a cache over the committed `<key>/entry.json` directories,
@@ -149,6 +156,17 @@ public protocol ResponseLogging: Sendable {
     func receipt(key: String) async -> ResponseLogReceipt?
     /// Current body bytes held by the log.
     func totalBytes() async -> Int
+
+    /// Marks a resume delivery as in flight. A reclaim pass must not delete
+    /// the body underneath a reader (gateway-security.md §11).
+    func beginResume(key: String) async
+    func endResume(key: String) async
+}
+
+extension ResponseLogging {
+    /// Fakes and logs without resume tracking keep the pre-W3 behaviour.
+    public func beginResume(key: String) async {}
+    public func endResume(key: String) async {}
 }
 
 /// Errors raised by the response log itself. They never carry request bodies,
@@ -183,6 +201,9 @@ public actor ResponseLog: ResponseLogging {
     public nonisolated let quotaBytes: Int
 
     private nonisolated let logDirectory: URL
+    /// `Library/Caches/pdsh/<workspace_id>/response-log`; `nil` keeps every
+    /// body in the durable workspace root.
+    private nonisolated let cacheLogDirectory: URL?
     private nonisolated let pendingDirectory: URL
     private nonisolated let stagingDirectory: URL
     private nonisolated let replacingDirectory: URL
@@ -223,6 +244,8 @@ public actor ResponseLog: ResponseLogging {
         /// Number of replay deliveries. Optional so pre-receipt entry files
         /// decode as zero instead of failing.
         var deliveryCount: Int?
+        /// Optional so pre-W3 entry files decode as documents.
+        var bodyLocation: ResponseLogBodyLocation?
     }
 
     private struct IndexFile: Codable {
@@ -236,16 +259,25 @@ public actor ResponseLog: ResponseLogging {
     private var accessCounter: UInt64 = 0
     private var bytes: Int = 0
     private var indexWriteFailures = 0
+    /// Keys with a resume delivery in flight; never reclaimed underneath one.
+    private var inFlightResumes: [String: Int] = [:]
 
     public init(root: URL,
-                quotaBytes: Int = ModelGatewayConfiguration.defaultResponseLogQuotaBytes) throws {
+                quotaBytes: Int = ModelGatewayConfiguration.defaultResponseLogQuotaBytes,
+                cacheRoot: URL? = nil) throws {
         self.root = root
         self.quotaBytes = max(0, quotaBytes)
         self.logDirectory = root.appendingPathComponent("response-log", isDirectory: true)
+        self.cacheLogDirectory = cacheRoot?.appendingPathComponent("response-log", isDirectory: true)
         self.pendingDirectory = logDirectory.appendingPathComponent(".pending", isDirectory: true)
         self.stagingDirectory = logDirectory.appendingPathComponent(".staging", isDirectory: true)
         self.replacingDirectory = logDirectory.appendingPathComponent(".replacing", isDirectory: true)
         try fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+        if let cacheLogDirectory {
+            try fileManager.createDirectory(at: cacheLogDirectory,
+                                            withIntermediateDirectories: true)
+            Self.excludeFromBackup(cacheLogDirectory)
+        }
         // The response log is replay cache: it is safe to rebuild after a
         // restore from a backup, so it must not consume the user's backup
         // quota. The attribute is on the directory; every child inherits it.
@@ -271,6 +303,7 @@ public actor ResponseLog: ResponseLogging {
         }
         try fileManager.createDirectory(at: replacingDirectory, withIntermediateDirectories: true)
         let loaded = Self.loadIndex(from: logDirectory,
+                                    cacheDirectory: cacheLogDirectory,
                                     installedReplacements: recovery.installedKeys,
                                     fileManager: fileManager)
         self.entries = loaded.entries
@@ -288,6 +321,7 @@ public actor ResponseLog: ResponseLogging {
                 entries: loaded.entries,
                 accessCounter: loaded.accessCounter,
                 logDirectory: logDirectory,
+                cacheDirectory: cacheLogDirectory,
                 fileManager: fileManager)
             if persisted {
                 Self.removeReplacementMarkers(recovery.markers, fileManager: fileManager)
@@ -372,7 +406,8 @@ public actor ResponseLog: ResponseLogging {
                                       headers: recording.headers,
                                       bodyBytes: recording.bodyBytes,
                                       lastUsed: 0,
-                                      deliveryCount: 0)
+                                      deliveryCount: 0,
+                                      bodyLocation: .documents)
             try Self.makeEncoder().encode(metadata)
                 .write(to: staging.appendingPathComponent("entry.json"), options: .atomic)
             // A same-key replacement must keep the old committed directory
@@ -387,6 +422,16 @@ public actor ResponseLog: ResponseLogging {
             }
             try replacementInstallProbe?()
             try fileManager.moveItem(at: staging, to: destination)
+            // A cache copy of the same key is now shadowed by the documents
+            // install; removing it after the install cannot lose the only
+            // committed copy when the install itself fails.
+            if let cacheLogDirectory {
+                let staleCache = cacheLogDirectory.appendingPathComponent(recording.key,
+                                                                         isDirectory: true)
+                if fileManager.fileExists(atPath: staleCache.path) {
+                    try? fileManager.removeItem(at: staleCache)
+                }
+            }
             // Keep the old backup until the new commit has been accounted for
             // and its index write has succeeded below. If this process dies
             // after the install but before the index write, the surviving
@@ -441,7 +486,8 @@ public actor ResponseLog: ResponseLogging {
                                             headers: recording.headers,
                                             bodyBytes: recording.bodyBytes,
                                             lastUsed: accessCounter,
-                                            deliveryCount: 0)
+                                            deliveryCount: 0,
+                                            bodyLocation: .documents)
         bytes += recording.bodyBytes
         evictIfNeeded()
         let indexPersisted = persistIndex()
@@ -489,11 +535,8 @@ public actor ResponseLog: ResponseLogging {
 
     public func receipt(key: String) async -> ResponseLogReceipt? {
         guard Self.isValidKey(key) else { return nil }
-        let directory = logDirectory.appendingPathComponent(key, isDirectory: true)
-        // Validate the complete body by its file attributes, not by reading
-        // the whole body into memory: a quota-sized response would otherwise
-        // peak at 128 MiB for a metadata-only receipt.
-        guard let entry = Self.committedEntry(at: directory, key: key) else {
+        guard let directory = entryDirectory(for: key),
+              let entry = Self.committedEntry(at: directory, key: key) else {
             return nil
         }
         return ResponseLogReceipt(key: key,
@@ -505,6 +548,102 @@ public actor ResponseLog: ResponseLogging {
 
     public func totalBytes() async -> Int {
         bytes
+    }
+
+    /// Every committed key (documents and caches). The host uses this when it
+    /// has proven that the whole epoch's steps are journaled and durable.
+    public func allKeys() -> [String] {
+        entries.keys.sorted()
+    }
+
+    public func beginResume(key: String) async {
+        inFlightResumes[key, default: 0] += 1
+    }
+
+    public func endResume(key: String) async {
+        guard let count = inFlightResumes[key] else { return }
+        if count <= 1 {
+            inFlightResumes.removeValue(forKey: key)
+        } else {
+            inFlightResumes[key] = count - 1
+        }
+    }
+
+    /// Deletes whole entries whose deletion condition the caller has proven
+    /// (gateway-security.md §11): the corresponding step is journaled and
+    /// level-2 durable, the host is not Recovering, and no resume is in flight.
+    /// The caller only supplies keys that satisfy those facts; this method
+    /// enforces the in-flight check itself.
+    @discardableResult
+    public func reclaim(keys: Set<String>) -> Int {
+        var removed = 0
+        for key in keys.sorted() {
+            guard entries[key] != nil,
+                  inFlightResumes[key] == nil,
+                  removeReplacementMarkers(for: key),
+                  let directory = entryDirectory(for: key) else { continue }
+            do {
+                if fileManager.fileExists(atPath: directory.path) {
+                    try fileManager.removeItem(at: directory)
+                }
+            } catch {
+                continue
+            }
+            if let entry = entries.removeValue(forKey: key) {
+                bytes -= entry.bodyBytes
+            }
+            removed += 1
+        }
+        if removed > 0 { persistIndex() }
+        return removed
+    }
+
+    /// Moves committed bodies into `Library/Caches/.../response-log` without
+    /// deleting them. The entry marker is written in the old location before
+    /// the move, so a crash there is repaired by the reader's documents-first
+    /// fallback; a marker already moved with the directory wins on the cache
+    /// side. A missing cache directory keeps the entries where they are.
+    @discardableResult
+    public func relocateToCache(keys: Set<String>) -> Int {
+        guard let cacheLogDirectory else { return 0 }
+        do {
+            try fileManager.createDirectory(at: cacheLogDirectory,
+                                            withIntermediateDirectories: true)
+        } catch {
+            return 0
+        }
+        var moved = 0
+        for key in keys.sorted() {
+            guard var entry = entries[key], inFlightResumes[key] == nil,
+                  let source = entryDirectory(for: key) else { continue }
+            let destination = cacheLogDirectory.appendingPathComponent(key, isDirectory: true)
+            if source.standardizedFileURL == destination.standardizedFileURL {
+                if entry.bodyLocation != .caches {
+                    entry.bodyLocation = .caches
+                    try? writeEntryMetadata(entry, at: destination)
+                    entries[key] = entry
+                }
+                continue
+            }
+            entry.bodyLocation = .caches
+            do {
+                try writeEntryMetadata(entry, at: source)
+                if fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.removeItem(at: destination)
+                }
+                try fileManager.moveItem(at: source, to: destination)
+                entries[key] = entry
+                try? writeEntryMetadata(entry, at: destination)
+                moved += 1
+            } catch {
+                // The old directory may already have moved; startup recovery
+                // reads both roots, so the response is not lost. Keep the
+                // in-memory facts unchanged until a later pass succeeds.
+                continue
+            }
+        }
+        if moved > 0 { persistIndex() }
+        return moved
     }
 
     /// Whether the LRU index file is currently in sync with the entries.
@@ -529,6 +668,11 @@ public actor ResponseLog: ResponseLogging {
         accessCounter = 0
         indexWriteFailures = 0
         try? fileManager.removeItem(at: logDirectory)
+        if let cacheLogDirectory {
+            try? fileManager.removeItem(at: cacheLogDirectory)
+            try? fileManager.createDirectory(at: cacheLogDirectory,
+                                             withIntermediateDirectories: true)
+        }
         try? fileManager.createDirectory(at: logDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: pendingDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
@@ -604,12 +748,39 @@ public actor ResponseLog: ResponseLogging {
 
     // MARK: - Private
 
+    /// Committed directory of a key. The marker is authoritative when present;
+    /// a pre-W3 entry (no marker) stays in documents, and a marker whose body
+    /// is missing has a documents fallback. This is also what makes a cache
+    /// purge a silent `missing` instead of an I/O error.
+    private func entryDirectory(for key: String) -> URL? {
+        let documents = logDirectory.appendingPathComponent(key, isDirectory: true)
+        var locations: [ResponseLogBodyLocation] = []
+        if let marked = entries[key]?.bodyLocation {
+            locations.append(marked)
+        }
+        if !locations.contains(.documents) { locations.append(.documents) }
+        if cacheLogDirectory != nil, !locations.contains(.caches) {
+            locations.append(.caches)
+        }
+        for location in locations {
+            let directory: URL?
+            switch location {
+            case .documents: directory = documents
+            case .caches: directory = cacheLogDirectory?.appendingPathComponent(key, isDirectory: true)
+            }
+            guard let directory,
+                  Self.committedEntry(at: directory, key: key) != nil else { continue }
+            return directory
+        }
+        return nil
+    }
+
     /// Validates the resume offset against the on-disk body size before any
     /// delivery accounting. Only the `.replay` outcome advances `lastUsed` and
     /// `deliveryCount`.
     private func deliver(key: String, offset: Int?) async -> ResponseLogResumeOutcome {
-        guard Self.isValidKey(key), let entry = entries[key] else { return .missing }
-        let directory = logDirectory.appendingPathComponent(key, isDirectory: true)
+        guard Self.isValidKey(key), let entry = entries[key],
+              let directory = entryDirectory(for: key) else { return .missing }
         let bodyURL = directory.appendingPathComponent("body", isDirectory: false)
         guard let bodyBytes = Self.bodySize(at: bodyURL),
               bodyBytes == entry.bodyBytes else {
@@ -872,7 +1043,10 @@ public actor ResponseLog: ResponseLogging {
                 .min(by: { $0.lastUsed < $1.lastUsed }) else {
                 break
             }
-            let directory = logDirectory.appendingPathComponent(victim.key, isDirectory: true)
+            guard let directory = entryDirectory(for: victim.key) else {
+                blockedKeys.insert(victim.key)
+                continue
+            }
             // Remove the backups before the live directory: if their removal
             // fails, the live committed entry must remain the recovery source;
             // deleting it would let startup restore a stale backup. Skip this
@@ -948,8 +1122,9 @@ public actor ResponseLog: ResponseLogging {
 
     /// Atomically rewrites one committed entry's metadata, so the facts live
     /// beside the body instead of only in the shared LRU index.
-    private func writeEntryMetadata(_ entry: IndexEntry) throws {
-        let directory = logDirectory.appendingPathComponent(entry.key, isDirectory: true)
+    private func writeEntryMetadata(_ entry: IndexEntry, at directory: URL? = nil) throws {
+        let directory = directory ?? entryDirectory(for: entry.key)
+            ?? logDirectory.appendingPathComponent(entry.key, isDirectory: true)
         let target = directory.appendingPathComponent("entry.json", isDirectory: false)
         let data = try Self.makeEncoder().encode(entry)
         try data.write(to: target, options: .atomic)
@@ -965,11 +1140,13 @@ public actor ResponseLog: ResponseLogging {
         entries: [String: IndexEntry],
         accessCounter: UInt64,
         logDirectory: URL,
+        cacheDirectory: URL?,
         fileManager: FileManager) -> Bool {
         var metadataPersisted = true
         for key in freshKeys.union(installedKeys) {
             guard let entry = entries[key] else { continue }
-            let directory = logDirectory.appendingPathComponent(key, isDirectory: true)
+            let root = entry.bodyLocation == .caches ? (cacheDirectory ?? logDirectory) : logDirectory
+            let directory = root.appendingPathComponent(key, isDirectory: true)
             let target = directory.appendingPathComponent("entry.json", isDirectory: false)
             guard let data = try? makeEncoder().encode(entry) else {
                 metadataPersisted = false
@@ -1052,6 +1229,7 @@ public actor ResponseLog: ResponseLogging {
     /// `deliveryCount`; a fresh `lastUsed: 0` replacement receives a new
     /// ordinal above the counter so quota eviction cannot prefer the old one.
     private nonisolated static func loadIndex(from directory: URL,
+                                              cacheDirectory: URL?,
                                               installedReplacements: Set<String>,
                                               fileManager: FileManager) -> (entries: [String: IndexEntry],
                                                                             accessCounter: UInt64,
@@ -1071,13 +1249,30 @@ public actor ResponseLog: ResponseLogging {
         }
 
         var entries: [String: IndexEntry] = [:]
-        let children = (try? fileManager.contentsOfDirectory(at: directory,
-                                                             includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        for child in children {
-            let key = child.lastPathComponent
-            guard isValidKey(key),
-                  var entry = committedEntry(at: child, key: key) else { continue }
-            if let known = indexed[key], !installedReplacements.contains(key) {
+        var roots: [(URL, ResponseLogBodyLocation)] = [(directory, .documents)]
+        if let cacheDirectory,
+           cacheDirectory.standardizedFileURL != directory.standardizedFileURL {
+            roots.append((cacheDirectory, .caches))
+        }
+        for (root, location) in roots {
+            let children = (try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+            for child in children {
+                let key = child.lastPathComponent
+                guard isValidKey(key),
+                      var entry = committedEntry(at: child, key: key) else { continue }
+                // A marker wins over directory order. A pre-W3 entry without a
+                // marker is documents, so a duplicate cache copy cannot make
+                // it look displaced.
+                if let existing = entries[key] {
+                    let existingLocation = existing.bodyLocation ?? .documents
+                    guard entry.bodyLocation == location, existingLocation != location else {
+                        continue
+                    }
+                }
+                entry.bodyLocation = entry.bodyLocation ?? location
+                if let known = indexed[key], !installedReplacements.contains(key) {
                 // The index is only a cache: merge it with the facts stored
                 // beside the body, so neither a stale index nor a missing one
                 // loses the last-use ordinal or the delivery count.
@@ -1092,8 +1287,9 @@ public actor ResponseLog: ResponseLogging {
             // rewrite and the index write leaves `entry.json` ahead of the
             // cached `accessCounter`. Restarting with the stale counter would
             // let the next replay overwrite a newer ordinal with an older one.
-            counter = max(counter, entry.lastUsed)
-            entries[key] = entry
+                counter = max(counter, entry.lastUsed)
+                entries[key] = entry
+            }
         }
         // `finish` writes the write-once entry file with `lastUsed: 0`, then
         // commits the LRU ordinal to `index.json`. A crash (or a failed index

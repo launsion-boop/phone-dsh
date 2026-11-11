@@ -79,6 +79,9 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
 
     /// Workspace root, `Library/xl/<workspace_id>/`.
     public var root: URL
+    /// `Library/Caches/pdsh/<workspace_id>` for derived data (budgets.md §9).
+    /// `nil` keeps the pre-W3 in-workspace cache layout.
+    public var cacheRoot: URL?
     public var walQuotaBytes: Int
     public var journalQuotaBytes: Int
     public var responseLogQuotaBytes: Int
@@ -99,6 +102,7 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
     public var vfsQuota: VfsQuota?
 
     public init(root: URL,
+                cacheRoot: URL? = nil,
                 walQuotaBytes: Int = WorkspaceLogConfiguration.defaultWALQuotaBytes,
                 journalQuotaBytes: Int = WorkspaceLogConfiguration.defaultJournalQuotaBytes,
                 responseLogQuotaBytes: Int = WorkspaceLogConfiguration.defaultResponseLogQuotaBytes,
@@ -109,6 +113,7 @@ public struct WorkspaceLogConfiguration: Equatable, Sendable {
                 groupCommitBytes: Int = WorkspaceLogConfiguration.defaultGroupCommitBytes,
                 vfsQuota: VfsQuota? = nil) {
         self.root = root
+        self.cacheRoot = cacheRoot
         self.walQuotaBytes = walQuotaBytes
         self.journalQuotaBytes = journalQuotaBytes
         self.responseLogQuotaBytes = responseLogQuotaBytes

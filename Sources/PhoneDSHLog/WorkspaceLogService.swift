@@ -45,6 +45,7 @@ public actor WorkspaceLog: WorkspaceLogging {
     private var drainWaiters: [CheckedContinuation<Void, Never>] = []
     private var closing = false
     private var closeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var epochCloseObservers: [UUID: @Sendable (WALEpochCloseResult) async -> Void] = [:]
     private var emittedResyncPaths: Set<String> = []
     /// Resync paths left by cold recovery. The fresh Materializer starts at the
     /// recovered watermark and has not re-encountered the deferred records yet,
@@ -67,7 +68,7 @@ public actor WorkspaceLog: WorkspaceLogging {
         }
         self.configuration = configuration
         self.bootID = bootID
-        self.paths = WorkspacePaths(root: configuration.root)
+        self.paths = WorkspacePaths(root: configuration.root, cacheRoot: configuration.cacheRoot)
         self.quotas = LogQuota(configuration: configuration)
         // Recovery creates the directories *after* its startup sweep: creating
         // `materialized/` first would make an absent tree look present and
@@ -246,8 +247,35 @@ public actor WorkspaceLog: WorkspaceLogging {
         let result = try await writer.closeEpoch(emitLevel2Ack: false)
         _ = try await journal.closeEpoch()
         await writer.confirmEpochDurable(result)
+        // wal.md §12: the reclaim trigger is every successful D18 close, not
+        // only the quota path. The level-2 ack is already durable here; the
+        // manifest-first unlink below can only remove segments covered by it.
+        _ = try await writer.compactDroppableSegments()
         recoveryReport.materializedUptoMseq = materializer.materializedUptoMseq
+        await notifyEpochCloseObservers(result)
         return WorkspaceLogAck(level: .epochFsync, uptoMseq: result.durableUpto)
+    }
+
+    /// Registers a post-close observer. The response log uses it to reclaim
+    /// bodies at the same trigger (gateway-security.md §11); observers run
+    /// after the manifest and level-2 ack are durable. Returns an opaque id
+    /// for ``removeEpochCloseObserver``.
+    @discardableResult
+    public func addEpochCloseObserver(
+        _ observer: @escaping @Sendable (WALEpochCloseResult) async -> Void) -> UUID {
+        let id = UUID()
+        epochCloseObservers[id] = observer
+        return id
+    }
+
+    public func removeEpochCloseObserver(_ id: UUID) {
+        epochCloseObservers.removeValue(forKey: id)
+    }
+
+    private func notifyEpochCloseObservers(_ result: WALEpochCloseResult) async {
+        for observer in epochCloseObservers.values {
+            await observer(result)
+        }
     }
 
     /// Closes the current epoch now and, when a mutation was appended while
@@ -385,12 +413,20 @@ public actor WorkspaceLog: WorkspaceLogging {
         // at a given materialized watermark is deterministic, so the cache is
         // valid exactly while that watermark is unchanged.
         let watermark = materializer.materializedUptoMseq
-        let cacheURL = Self.overlayCacheURL(root: paths.root)
+        let cacheDirectory = paths.overlayCacheDirectory
+        try FileManager.default.createDirectory(at: cacheDirectory,
+                                                withIntermediateDirectories: true)
+        // One-time, re-entrant migration of the pre-W3 cache. The old files
+        // stay in place until the new copy is verified; a kill between the two
+        // moves repeats the copy on the next boot.
+        Self.migrateLegacyOverlayCacheIfNeeded(root: paths.root,
+                                               cacheDirectory: cacheDirectory)
+        let cacheURL = Self.overlayCacheURL(in: cacheDirectory)
         let bootURL = paths.overlayURL(bootID: bootID)
-        if !Self.overlayCacheIsValid(root: paths.root, watermark: watermark) {
+        if !Self.overlayCacheIsValid(root: cacheDirectory, watermark: watermark) {
             _ = try OverlayPacker(materializedDirectory: materializer.materializedDirectory)
                 .pack(to: cacheURL)
-            try Self.writeOverlayCacheSidecar(root: paths.root, watermark: watermark)
+            try Self.writeOverlayCacheSidecar(root: cacheDirectory, watermark: watermark)
         }
         // Keep the documented per-boot name without repacking: a hard link is
         // O(1) and the cache file is only ever replaced by an atomic rename,
@@ -401,6 +437,9 @@ public actor WorkspaceLog: WorkspaceLogging {
         Self.excludeFromBackup(cacheURL)
         Self.excludeFromBackup(bootURL)
         Self.pruneBootOverlays(root: paths.root, keeping: [cacheURL, bootURL])
+        if cacheDirectory.standardizedFileURL != paths.root.standardizedFileURL {
+            Self.pruneBootOverlays(root: cacheDirectory, keeping: [cacheURL, bootURL])
+        }
         return bootURL
     }
 
@@ -428,6 +467,41 @@ public actor WorkspaceLog: WorkspaceLogging {
 
     static func overlayCacheURL(root: URL) -> URL {
         root.appendingPathComponent(overlayCacheFileName)
+    }
+
+    static func overlayCacheURL(in directory: URL) -> URL {
+        directory.appendingPathComponent(overlayCacheFileName)
+    }
+
+    /// Moves a valid pre-W3 in-workspace cache into the cache directory. A
+    /// missing backup or sidecar is ignored: the cache is derived and will be
+    /// rebuilt from the materialized copy. The legacy files are removed only
+    /// after both moves succeeded, and a retry is harmless.
+    private static func migrateLegacyOverlayCacheIfNeeded(root: URL, cacheDirectory: URL) {
+        let legacyDirectory = root
+        guard legacyDirectory.standardizedFileURL != cacheDirectory.standardizedFileURL else {
+            return
+        }
+        let legacyTar = overlayCacheURL(root: legacyDirectory)
+        let legacySidecar = legacyDirectory.appendingPathComponent(overlayCacheSidecarFileName)
+        let newTar = overlayCacheURL(in: cacheDirectory)
+        let newSidecar = cacheDirectory.appendingPathComponent(overlayCacheSidecarFileName)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: legacyTar.path),
+              fileManager.fileExists(atPath: legacySidecar.path) else { return }
+        guard !fileManager.fileExists(atPath: newTar.path),
+              !fileManager.fileExists(atPath: newSidecar.path) else {
+            // The new layout already won. The old copy is rollback evidence;
+            // do not delete it here.
+            return
+        }
+        do {
+            try fileManager.moveItem(at: legacyTar, to: newTar)
+            try fileManager.moveItem(at: legacySidecar, to: newSidecar)
+        } catch {
+            // Re-entrant: a partial migration leaves at most one new file and
+            // the next call either sees both and validates, or rebuilds.
+        }
     }
 
     private static func overlayCacheIsValid(root: URL, watermark: UInt64) -> Bool {

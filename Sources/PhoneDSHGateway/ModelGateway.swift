@@ -726,8 +726,11 @@ public actor ModelGateway {
     /// Builds the workspace response log with the quota from `configuration`.
     /// The facade injects the result into `init(configuration:...)`.
     public nonisolated static func makeResponseLog(configuration: ModelGatewayConfiguration,
-                                                   workspaceRoot: URL) throws -> ResponseLog {
-        try ResponseLog(root: workspaceRoot, quotaBytes: configuration.responseLogQuotaBytes)
+                                                   workspaceRoot: URL,
+                                                   cacheRoot: URL? = nil) throws -> ResponseLog {
+        try ResponseLog(root: workspaceRoot,
+                        quotaBytes: configuration.responseLogQuotaBytes,
+                        cacheRoot: cacheRoot)
     }
 
     /// Snapshot of the gateway counters.
@@ -1311,6 +1314,8 @@ public actor ModelGateway {
                 "the host response log is not configured"))
             return
         }
+        await log.beginResume(key: key)
+        defer { Task { await log.endResume(key: key) } }
         let deadline = Date().addingTimeInterval(ModelGatewayConfiguration.defaultResumeWaitSeconds)
         while true {
             if downstream.isCancelled {

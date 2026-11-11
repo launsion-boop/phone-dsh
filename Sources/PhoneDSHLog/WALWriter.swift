@@ -195,7 +195,7 @@ public actor WALWriter {
         self.configuration = configuration
         self.bootID = bootID
         self.bootIDHex = bootID.map { String(format: "%02x", $0) }.joined()
-        let workspacePaths = WorkspacePaths(root: configuration.root)
+        let workspacePaths = WorkspacePaths(root: configuration.root, cacheRoot: configuration.cacheRoot)
         self.paths = workspacePaths
         self.groupCommitDelay = max(configuration.groupCommitDelay, 0)
         self.groupCommitBytes = max(configuration.groupCommitBytes, 1)
@@ -820,7 +820,7 @@ public final class WALSynchronousAppender {
         guard bootID.count == 16 else {
             throw LogError.corrupt("boot_id must be 16 raw bytes")
         }
-        let paths = WorkspacePaths(root: configuration.root)
+        let paths = WorkspacePaths(root: configuration.root, cacheRoot: configuration.cacheRoot)
         self.paths = paths
         self.bootID = bootID
         self.segmentRollBytes = configuration.segmentRollBytes
