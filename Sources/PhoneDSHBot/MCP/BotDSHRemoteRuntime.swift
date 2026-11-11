@@ -170,6 +170,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// The one compatibility observer installed by `setLiveObserver`.
     private var legacyLiveSubscription: BotLiveFrameSubscription?
     private var wakeInFlight = false
+    /// One-shot seam for the first user message of a new session epoch.
+    private var pendingContinuation: String?
 
     public private(set) var mainSessionId: String?
 
@@ -242,6 +244,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 : text + attachmentBlock
         }
         var prompt = body
+        if let seam = pendingContinuation, !seam.isEmpty {
+            pendingContinuation = nil
+            prompt = seam + "\n\n" + prompt
+        }
         var stagedKey: String?
         var promptRequestId = requestId ?? BotTurnOrigin.visibleRequestId()
         if !steer, let wakeInbox {
@@ -1255,6 +1261,48 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     public func mainSessionIdentifier() -> String? { mainSessionId }
+
+    /// Stages the continuity seam the next user message of a freshly switched
+    /// epoch receives once. It is cleared even if that turn fails.
+    public func setPendingContinuation(_ seam: String?) {
+        pendingContinuation = seam
+    }
+
+    /// Switches the main chat to a fresh DSH session for erasure. The old
+    /// session is archived and closed; the new id is the durable commit point
+    /// (`runtime.exited` for the old id, then `runtime.started` for the new).
+    public func switchMainSessionForErasure(erasureID: String,
+                                            erasedRecords: [String]) async throws
+        -> (old: String, new: String) {
+        let old = try await ensureMainSession()
+        try? await cancelTurn(sessionId: old, includeQueued: true)
+        let newID = rebuiltMainSessionID()
+        let created = try await createSession(kind: .chat, sessionID: newID)
+        _ = await archiveRemoteSession(old)
+        do {
+            let principal = try await ensureSession(sessionId: created, kind: .chat)
+            let oldPrincipal = sessions[old]?.principal ?? BotGatewayPrincipal(
+                botId: botId, sessionId: old, kind: .chat, expiresAt: Int64.max)
+            _ = try await runtime.eventWriter.append(
+                type: "runtime.exited",
+                principal: oldPrincipal,
+                data: .object([
+                    "sessionId": .string(old),
+                    "reason": .string("session-erased"),
+                    "replacedBy": .string(created),
+                    "erasureId": .string(erasureID),
+                    "erasedRecords": .array(erasedRecords.map(BotJSONValue.string)),
+                ]))
+            try await recordRuntimeStarted(created, principal: principal, cwd: botRoot())
+            mainSessionId = created
+            sessions.removeValue(forKey: old)
+            return (old, created)
+        } catch {
+            _ = await archiveRemoteSession(created)
+            _ = await unarchiveRemoteSession(old)
+            throw error
+        }
+    }
 
     /// Installed by the maintenance controller. Called before a visible/user
     /// main-chat turn starts so a running maintenance batch yields immediately;

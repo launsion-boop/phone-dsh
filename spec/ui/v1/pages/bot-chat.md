@@ -39,6 +39,8 @@
 
 所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
 
+会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
+
 ## 3. 卡片清单
 
 P0 第一版必须实现：question、steps（含 recommended）、task、attachment、document、progress（cardKey 就地更新）、checklist、link、approval、automation routine 运行卡、error/denial notice。

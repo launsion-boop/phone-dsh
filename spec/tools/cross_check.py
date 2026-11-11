@@ -107,6 +107,7 @@ GOLDEN_READERS = (
     ("spec/v1/golden/wal", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/lifecycle", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/wal/replay", "*.json", "spec/v1/tools/spec_golden.py", False),
+    ("spec/v1/golden/wal/replay-phone", "*.json", "spec/v1/tools/spec_golden.py", False),
     ("spec/v1/golden/bridge", "*.json", "spec/v1/tools/bridge_check.py", False),
     ("spec/v1/golden/gateway", "*.json", "spec/v1/tools/gateway_check.py", False),
     ("spec/v1/golden/gateway/official-deepseek-web", "cases.json", "harmony/tests/official-web.test.mjs", False),

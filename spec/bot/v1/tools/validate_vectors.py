@@ -1196,6 +1196,18 @@ def validate_erasure_event_fixture(fixture):
             versions = range_case["versions"]
             if versions != sorted(set(versions)):
                 raise AssertionError(f"{where}: versions must be sorted and unique")
+        session_records = data.get("erasedSessionRecords", [])
+        if len(session_records) != len({item["record"] for item in session_records}):
+            raise AssertionError(f"{where}: erased session records must be unique")
+        for item in session_records:
+            match = re.fullmatch(r"record://session/([A-Za-z0-9._-]{1,64})#(0|[1-9][0-9]*)",
+                                 item["record"], re.ASCII)
+            if match is None or match.group(1) != item["sessionId"] \
+                    or int(match.group(2)) != item["seq"]:
+                raise AssertionError(f"{where}: erased session record must match sessionId and seq")
+        for epoch in data.get("sessionEpochs", []):
+            if epoch["fromSessionId"] == epoch["toSessionId"]:
+                raise AssertionError(f"{where}: a session epoch must switch to a new session id")
     for index, case in enumerate(invalid):
         rejects(case.get("data"), "erasure-event.schema.json",
                 f"erasure-event.invalid[{index}]")
@@ -1220,6 +1232,12 @@ def validate_erasure_event_fixture(fixture):
                    .__setitem__("record", "record://event/0"))
     expect_failure("byte-sum",
                    lambda value: value["valid"][0]["data"].__setitem__("erasedBytes", 1))
+    expect_failure("session-seq",
+                   lambda value: value["valid"][0]["data"]["erasedSessionRecords"][0]
+                   .__setitem__("seq", 9))
+    expect_failure("session-epoch-identity",
+                   lambda value: value["valid"][0]["data"]["sessionEpochs"][0]
+                   .__setitem__("toSessionId", "gb-main"))
     return len(valid), len(invalid), count
 
 

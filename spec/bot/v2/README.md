@@ -194,9 +194,12 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
 - **范围**：单份文档只作用于该路径的全部版本；`agent/` 只作用于该 Bot（`erasure` 事件按写入者
   principal 限定，其他 Bot 的 agent 文档必须存活）；`user/` 是所有 Bot 共享的根，抹除会跨 Bot
   清除共享文档和事件副本。`user/` 与 `agent/` 的入口必须分开确认，文案写明范围。
-- **未覆盖**：DSH 会话日志（`record://session/...`）的区间改写在 S6 第二步；本修订只在
-  `erasure.uncovered_records` 登记这些引用，并在记忆页确认文案写明「DSH 会话日志暂未覆盖」。
-  因此 `record://event/...` 已抹除的引用返回 `record_erased`，而 session 引用仍按 v1 §4.4 读取。
+- **会话日志**：S6 第二步起，抹除还会命中版本内容、唯一标记和 `evidence` 指向的
+  `record://session/...` 行。主会话先切换到新纪元（旧会话归档、新会话从未抹除记录和记忆索引
+  接续），宿主再按 P02 `wal.md` §5.3 把命中行替换成墓碑；抹除成功后
+  `record://session/...` 的命中行与 `record://event/...` 一样返回 `record_erased`。仍处于活动
+  回合、无法关闭的会话行留在 `erasure.uncovered_records`，reason 为
+  `session-log-session-not-closed`，不得伪称已覆盖。确认文案不再声明会话日志未覆盖。
 - **幂等与失败**：重复抹除不再写第二条 `erasure` 事件；单文档不存在返回 `memory-not-found`，
   scope 无文档返回 `removed=0`；路径非法返回 `memory-path-invalid`；任何失败都不能伪称已清除。
 - **向量**：`golden/memory-erasure.json` 冻结单文档全版本、agent scope 隔离、共享 user 跨 Bot、

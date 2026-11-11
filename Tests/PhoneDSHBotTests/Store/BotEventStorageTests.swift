@@ -185,6 +185,19 @@ final class BotEventStorageTests: XCTestCase {
         XCTAssertNil(databaseBytes.range(of: Data(marker.utf8)))
     }
 
+    func testErasurePayloadWithoutSessionFieldsDecodes() throws {
+        let legacy = #"""
+        {"schemaVersion":1,"erasureId":"legacy","reason":"memory-document-erase",
+         "requestedBy":"user","at_ms":1,"targets":[{"kind":"memory","scope":"agent"}],
+         "memoryVersions":[],"erasedEvents":[],"erasedBytes":0,
+         "uncoveredRecords":[],"legacyFactIDs":[]}
+        """#
+        let decoded = try JSONDecoder().decode(
+            BotErasureEventData.self, from: Data(legacy.utf8))
+        XCTAssertTrue(decoded.erasedSessionRecords.isEmpty)
+        XCTAssertTrue(decoded.sessionEpochs.isEmpty)
+    }
+
     func testHeaderAndPayloadTablesRejectNonErasureMutation() async throws {
         let file = root.appendingPathComponent("domain.sqlite")
         let store = try SQLiteDomainStore(fileURL: file, now: { 1_000 })

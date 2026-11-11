@@ -352,6 +352,7 @@ final class BotEvalRunnerTests: XCTestCase {
                 toolCalls: calls,
                 memories: memories,
                 workspaces: botWorkspaces,
+                workspaceRoot: context.workspaceRoot,
                 scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true),
                 echoRequests: echo.requests,
                 advertisedTools: advertisedTools,

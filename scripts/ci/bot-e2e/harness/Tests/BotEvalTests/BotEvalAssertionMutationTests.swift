@@ -59,6 +59,7 @@ final class BotEvalAssertionMutationTests: XCTestCase {
                 botID: "main", name: "mcp__phone__bash", arguments: #"{"command":"printf hi"}"#)],
             memories: ["main": [memory], "bot-side": []],
             workspaces: ["main": workspace, "bot-side": workspace],
+            workspaceRoot: root,
             scratchRoot: root.appendingPathComponent("scratch", isDirectory: true),
             echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")],
             advertisedTools: ["bash", "read", "todo_write"],
@@ -145,6 +146,7 @@ final class BotEvalAssertionMutationTests: XCTestCase {
         let snapshot = EvalSnapshot(
             mainBotID: "main", botIDs: [:], events: [], replies: [],
             toolCalls: [], memories: [:], workspaces: ["main": workspace],
+            workspaceRoot: root,
             scratchRoot: root.appendingPathComponent("scratch-empty", isDirectory: true))
         try FileManager.default.createDirectory(
             at: snapshot.scratchRoot, withIntermediateDirectories: true)
@@ -168,6 +170,7 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             mainBotID: "main", botIDs: ["side": "bot-side"],
             events: [mainEvent], replies: [],
             toolCalls: [], memories: [:], workspaces: ["main": workspace, "bot-side": workspace],
+            workspaceRoot: root,
             scratchRoot: root.appendingPathComponent("scratch-scope", isDirectory: true))
         let mainOnly = EvalAssertions.evaluate(
             EvalAssertion(type: "bot_event", bot: "main", event: "demo.event"),

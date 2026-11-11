@@ -31,6 +31,7 @@ struct EvalSnapshot {
     var toolCalls: [EvalToolCallRecord]
     var memories: [String: [BotMemoryDocument]]
     var workspaces: [String: URL]
+    var workspaceRoot: URL
     var scratchRoot: URL
     var echoRequests: [EvalEchoRequest] = []
     /// Union of the tool names every model request advertised during this
@@ -132,6 +133,44 @@ enum EvalAssertions {
             return (!found, !found
                 ? "no memory fact matched \(quoted(assertion.value ?? "")) for \(botID)"
                 : "found \(facts.count) forbidden memory fact(s)")
+
+        case "session_log_absent":
+            let root = snapshot.workspaceRoot
+                .appendingPathComponent("materialized/home/sessions", isDirectory: true)
+            let needle = assertion.value ?? ""
+            guard !needle.isEmpty else {
+                return (false, "session_log_absent needs a non-empty value")
+            }
+            let manager = FileManager.default
+            guard let enumerator = manager.enumerator(
+                at: root, includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]) else {
+                return (false, "no materialized session log directory at \(root.path)")
+            }
+            var scanned = 0
+            var matches: [String] = []
+            var compressed: [String] = []
+            for case let url as URL in enumerator {
+                guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey]),
+                      values.isRegularFile == true else { continue }
+                guard url.lastPathComponent.hasPrefix("session.v") else { continue }
+                if url.lastPathComponent.hasSuffix(".zstd") {
+                    compressed.append(url.lastPathComponent)
+                    continue
+                }
+                scanned += 1
+                guard let data = try? Data(contentsOf: url) else { continue }
+                if data.range(of: Data(needle.utf8)) != nil {
+                    matches.append(url.lastPathComponent)
+                }
+            }
+            if !compressed.isEmpty {
+                return (false, "compressed session logs cannot be byte-scanned: \(compressed)")
+            }
+            if matches.isEmpty {
+                return (true, "scanned \(scanned) session log file(s); none contains the word")
+            }
+            return (false, "session log file(s) still contain the word: \(matches)")
 
         case "approval_count":
             let botID = try resolveBot(assertion.bot, snapshot: snapshot)

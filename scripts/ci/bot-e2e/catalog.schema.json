@@ -1079,6 +1079,32 @@
           "additionalProperties": false,
           "properties": {
             "type": {
+              "const": "session_log_absent"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
               "const": "tool_surface"
             },
             "bot": {

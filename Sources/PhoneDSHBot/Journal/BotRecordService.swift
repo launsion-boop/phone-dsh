@@ -61,15 +61,6 @@ public actor BotRecordService: BotRecordEvidenceResolving {
     public static let maximumRawBytes = 16 * 1024
     public static let maximumOutputBytes = 256 * 1024
 
-    private struct SessionLine {
-        var seq: Int
-        var raw: String
-        var type: String
-        var time: Int64
-        var surfaceOp: (start: Int, end: Int)?
-        var searchable: String
-    }
-
     private struct EventRecord {
         var event: BotEvent
         var raw: String
@@ -299,7 +290,8 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         for sessionID in sessions {
             guard let lines = try? sessionLines(sessionID: sessionID) else { continue }
             for line in lines {
-                guard since == nil || line.time >= since!,
+                guard !line.erased,
+                      since == nil || line.time >= since!,
                       line.searchable.lowercased().contains(needle) else { continue }
                 if hits.count == Self.maximumHits { overflow = true; break }
                 hits.append(.object([
@@ -368,11 +360,12 @@ public actor BotRecordService: BotRecordEvidenceResolving {
             guard let target = lines.firstIndex(where: { $0.seq == seq }) else {
                 throw BotRecordServiceError.unknownRecord
             }
+            guard !lines[target].erased else { throw BotRecordServiceError.erasedRecord }
             let start = max(0, target - around)
             let end = min(lines.count - 1, target + around)
             let shadow = lines.compactMap { line -> (BotRecordReference, (start: Int, end: Int))? in
-                guard let range = line.surfaceOp, range.start...range.end ~= seq else { return nil }
-                return (.session(sessionID: sessionID, seq: line.seq), range)
+                guard let range = line.surfaceOp?.range, range ~= seq else { return nil }
+                return (.session(sessionID: sessionID, seq: line.seq), (range.lowerBound, range.upperBound))
             }.last
             var encoded: [BotJSONValue] = []
             for index in start...end {
@@ -388,10 +381,11 @@ public actor BotRecordService: BotRecordEvidenceResolving {
                 let (rawText, truncated) = Self.boundedRaw(line.raw)
                 fields["raw"] = .string(rawText)
                 fields["truncated"] = .bool(truncated)
-                if let range = line.surfaceOp {
+                if line.erased { fields["erased"] = .bool(true) }
+                if let range = line.surfaceOp?.range {
                     fields["replaces"] = .object([
-                        "startRef": .string("record://session/\(sessionID)#\(range.start)"),
-                        "endRef": .string("record://session/\(sessionID)#\(range.end)"),
+                        "startRef": .string("record://session/\(sessionID)#\(range.lowerBound)"),
+                        "endRef": .string("record://session/\(sessionID)#\(range.upperBound)"),
                     ])
                 } else if let shadow, line.seq == seq, index == target {
                     fields["shadowedBy"] = .string(shadow.0.canonical)
@@ -453,6 +447,7 @@ public actor BotRecordService: BotRecordEvidenceResolving {
                       let line = lines.first(where: { $0.seq == seq }) else {
                     throw BotRecordServiceError.unknownRecord
                 }
+                guard !line.erased else { throw BotRecordServiceError.erasedRecord }
                 if let inferred = inferredTrust(for: line, sessionID: sessionID, calls: calls) {
                     trust = merge(trust, inferred)
                 }
@@ -483,9 +478,19 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         return principal
     }
 
+    /// Session ids this Bot owns for record/erasure purposes: the caller plus
+    /// every session mentioned by a durable event. The session-epoch eraser
+    /// uses the same set, so `phone record` and erasure cannot disagree about
+    /// which logs belong to the Bot.
+    public func ownedSessionIDs(botID: String, callerSessionID: String) async throws -> [String] {
+        let events = try await allEvents()
+        return ownedSessions(botID: botID, callerSessionID: callerSessionID, events: events)
+            .sorted()
+    }
+
     private func ownedSessions(botID: String, callerSessionID: String,
                                events: [EventRecord]) -> Set<String> {
-        var sessions: Set<String> = [callerSessionID]
+        var sessions: Set<String> = callerSessionID.isEmpty ? [] : [callerSessionID]
         for record in events where record.event.principal.botId == botID {
             if let sessionID = record.event.principal.sessionId { sessions.insert(sessionID) }
             if case let .dsh(sessionID, _) = record.event.origin { sessions.insert(sessionID) }
@@ -505,7 +510,7 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         return result
     }
 
-    private func inferredTrust(for line: SessionLine, sessionID: String,
+    private func inferredTrust(for line: BotSessionLogLine, sessionID: String,
                        calls: [String: [String: String]]) -> BotRecordTrust? {
         guard let object = try? JSONSerialization.jsonObject(with: Data(line.raw.utf8)) as? [String: Any],
               let data = object["data"] as? [String: Any] else { return nil }
@@ -615,38 +620,12 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         return records
     }
 
-    private func sessionLines(sessionID: String) throws -> [SessionLine] {
+    private func sessionLines(sessionID: String) throws -> [BotSessionLogLine] {
         guard let url = sessionLogLocator(sessionID),
               let data = try? Data(contentsOf: url) else {
             throw BotRecordServiceError.unknownRecord
         }
-        var lines: [SessionLine] = []
-        var first = true
-        for rawLine in data.split(separator: 0x0A, omittingEmptySubsequences: false) {
-            let line = String(decoding: rawLine, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty, let object = try? JSONSerialization.jsonObject(
-                with: Data(line.utf8)) as? [String: Any] else { continue }
-            if first {
-                first = false
-                if object["type"] as? String == "session" { continue }
-            }
-            guard let seq = object["seq"] as? Int,
-                  let type = object["type"] as? String else { continue }
-            let time = (object["time"] as? NSNumber)?.int64Value ?? 0
-            var surface: (start: Int, end: Int)?
-            if let op = object["surfaceOp"] as? [String: Any],
-               op["op"] as? String == "replace",
-               let start = op["startSeq"] as? Int,
-               let end = op["endSeq"] as? Int, start <= end {
-                surface = (start, end)
-            }
-            let data = object["data"] ?? [:]
-            lines.append(SessionLine(
-                seq: seq, raw: line, type: type, time: time, surfaceOp: surface,
-                searchable: Self.searchable(data)))
-        }
-        return lines
+        return BotSessionLogReader.lines(from: data)
     }
 
     private static func searchable(_ value: BotJSONValue) -> String {
