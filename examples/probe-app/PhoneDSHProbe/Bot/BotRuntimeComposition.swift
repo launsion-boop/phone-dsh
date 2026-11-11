@@ -144,12 +144,12 @@ final class BotRuntimeComposition {
     private let workspaceRoot: URL
     private var hostTask: Task<Void, Never>?
     private var observedHost: PhoneDSHHost?
-    /// Worker boot id the composition has already re-bound. A foreground
-    /// resume replaces the Worker without a host process restart; its fresh
-    /// `.workerHello` is the observable signal that every session credential
-    /// must be re-claimed before the next turn.
-    private var observedWorkerBootID: String?
-    private var workerRecoveryInFlight = false
+    /// Owns "one bind per new Worker boot" across terminations, planned
+    /// restarts and foreground resumes. The host can publish those events in
+    /// any relative order; the scheduler never binds before a replacement
+    /// boot exists, never drops a newer boot seen mid-bind, and bounds every
+    /// attempt so a stalled transport cannot leave the page at recovering.
+    private let workerRecovery = BotWorkerRecoveryScheduler()
     /// Set while a caller deliberately parks/resumes the host and then
     /// reattaches the Bot remote itself (the session-epoch eraser). The
     /// automatic `.workerHello` recovery would race that manual sequence with
@@ -160,7 +160,6 @@ final class BotRuntimeComposition {
     /// for a later `/v1/http` write.
     private var botEgressPolicy: MCPEgressPolicy?
     private var tickTask: Task<Void, Never>?
-    private var recoveryTask: Task<Void, Never>?
     private var rosterTask: Task<Void, Never>?
     private var started = false
     private var deliversDeviceTaskResults = false
@@ -359,6 +358,37 @@ final class BotRuntimeComposition {
         server.onEndpointChange = { [weak self] url in
             Task { @MainActor [weak self] in self?.applyWorkerEndpoint(url) }
         }
+        installWorkerRecovery()
+    }
+
+    /// The composition owns the rebind; the scheduler only owns event order,
+    /// redo-on-newer-boot and the per-attempt deadline.
+    private func installWorkerRecovery() {
+        workerRecovery.install { [weak self] _ in
+            guard let self else { throw CancellationError() }
+            guard let host = self.host else {
+                throw BotMCPError.unavailable("the Bot host is not connected")
+            }
+            try await self.bind(to: host, recovering: true)
+        }
+        workerRecovery.onPhaseChange = { [weak self] phase in
+            guard let self else { return }
+            switch phase {
+            case .idle:
+                break
+            case .recovering:
+                self.state = .recovering
+            case .ready:
+                self.state = .ready
+            case .failed(let message):
+                // The scheduler owns the bounded automatic-retry round: an
+                // event-driven failure (or the user's 重试) starts one, but a
+                // failure inside that round never re-arms it. Once the round is
+                // exhausted this phase stays `.failed` until the user retries or
+                // a new Worker boot/foreground event arrives.
+                self.state = .failed(message)
+            }
+        }
     }
 
     /// The endpoint currently published by the Bot MCP listener. The whole
@@ -461,17 +491,19 @@ final class BotRuntimeComposition {
         try await bind(to: newHost, recovering: false)
     }
 
+    /// The visible 重试 action. A rebind may still be in flight (the d
+    /// scenario's first bind never returned); the scheduler supersedes it and
+    /// starts a fresh bind for the newest Worker boot instead of treating the
+    /// in-flight flag as "already retrying".
     func retry() async {
-        guard let host else { return }
-        guard !started || state.isFailure else { return }
-        do { try await bind(to: host, recovering: true) }
-        catch {
-            state = .failed("Bot 连接恢复失败：\(error.localizedDescription)")
-            scheduleRecoveryRetry(host)
-        }
+        guard host != nil else { return }
+        guard !started || state.isFailure || state == .recovering else { return }
+        workerRecovery.forceRetry()
+        await workerRecovery.waitUntilIdle()
     }
 
     private func bind(to newHost: PhoneDSHHost, recovering: Bool) async throws {
+        try Task.checkCancellation()
         state = recovering ? .recovering : .connecting
         // Units must not attach themselves inside `ensureUnit` while this
         // method is iterating them; the loop below owns transport creation.
@@ -480,6 +512,7 @@ final class BotRuntimeComposition {
             // Invalidate the replaced Worker incarnation once; every attached
             // Bot remote receives `workerRestarted` through the shared runtime.
             _ = await runtime.workerRestarted()
+            try Task.checkCancellation()
             // The host gateway calls this seam only for Bot-attributed
             // POST/PUT/PATCH/DELETE `/v1/http` writes. The policy is the same
             // live object the App uses for exact-MCP admission/credentials.
@@ -513,20 +546,26 @@ final class BotRuntimeComposition {
                 botEgressPolicy = policy
             }
             try await newHost.start()
-            observedWorkerBootID = await newHost.currentWorkerBootID
+            try Task.checkCancellation()
 
             // Always have the selected Bot and every routine owner attached
             // before the outbox/schedulers start.
             let selected = rosterModel.selectedBotID ?? rosterModel.mainBotID
             if let selected { _ = try await ensureUnit(for: selected) }
+            try Task.checkCancellation()
             for botID in await routineOwnerBotIDs() where botID != selected {
                 _ = try? await ensureUnit(for: botID, reason: "routine-owner")
             }
 
             for (botID, unit) in units {
+                try Task.checkCancellation()
                 do {
                     let transport = try await newHost.makeTransport()
+                    try Task.checkCancellation()
                     try await unit.start(transport: transport)
+                    try Task.checkCancellation()
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     if botID == selected {
                         throw error
@@ -545,15 +584,32 @@ final class BotRuntimeComposition {
             #endif
             #endif
 
+            try Task.checkCancellation()
             await installOutboxHandlers()
             started = true
+            if !recovering {
+                // Seed before subscribing so a HELLO delivered immediately
+                // after `observeHost` is compared with the boot this bind
+                // actually attached, not a previous incarnation.
+                workerRecovery.seed(
+                    recoveredBootID: await newHost.currentWorkerBootID)
+            }
             await observeHost(newHost)
             await outbox.start()
             startTick()
             installDeviceTaskResultDelivery()
             state = .ready
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
-            state = .failed("Bot 连接失败：\(error.localizedDescription)")
+            if Task.isCancelled { throw CancellationError() }
+            // A recovery bind's failure belongs to the scheduler's bounded
+            // round: it schedules the next attempt or publishes the terminal
+            // `.failed` phase once the budget is exhausted. Setting `.failed`
+            // here would flash "重试" between attempts of the same round.
+            if !recovering {
+                state = .failed("Bot 连接失败：\(error.localizedDescription)")
+            }
             throw error
         }
     }
@@ -598,8 +654,8 @@ final class BotRuntimeComposition {
         for unit in units.values { await unit.detach() }
         await outbox.stop()
         tickTask?.cancel(); tickTask = nil
-        recoveryTask?.cancel(); recoveryTask = nil
         hostTask?.cancel(); hostTask = nil
+        workerRecovery.stop()
         observedHost = nil
         started = false
     }
@@ -777,7 +833,12 @@ final class BotRuntimeComposition {
 
     private func endManualWorkerRebind() async {
         if let host {
-            observedWorkerBootID = await host.currentWorkerBootID
+            // The manual eraser parks/starts the host itself and then
+            // re-attaches every unit, including `reclaimOwnedSessions()`.
+            // The host rotated its Worker boot id for that start, so record
+            // it as already bound before automatic recovery resumes.
+            let current = await host.currentWorkerBootID
+            workerRecovery.seed(recoveredBootID: current)
         }
         suppressesWorkerBootRebind = false
     }
@@ -786,7 +847,6 @@ final class BotRuntimeComposition {
         if observedHost === host, hostTask != nil { return }
         hostTask?.cancel()
         observedHost = host
-        observedWorkerBootID = await host.currentWorkerBootID
         hostTask = Task { [weak self, remote] in
             defer {
                 if let self, self.observedHost === host {
@@ -803,11 +863,23 @@ final class BotRuntimeComposition {
                         .webcontentTerminated, kind: .turn, id: "phone-host",
                         botId: self.environment.botID,
                         evidence: ["count": .number(Double(count))])
-                    await self.recoverAfterWorkerTermination(host)
-                case .restarted:
-                    await self.recoverIfWorkerBootChanged(host)
+                    // Do not bind here: the old Worker is dead and the
+                    // replacement has not HELLOed yet. The HELLO below is the
+                    // point where a transport can actually answer.
+                    if !self.suppressesWorkerBootRebind {
+                        self.workerRecovery.noteTermination(count: count)
+                    }
+                case .restarted(let report):
+                    // Page boot-ready precedes the ordered-channel HELLO.
+                    // Remember the boot id for a retry target, but wait for
+                    // `.workerHello` before opening a transport.
+                    self.workerRecovery.noteBootCandidate(report.bootID)
                 case .workerHello(let hello):
-                    await self.recoverIfWorkerBootChanged(host, bootID: hello.bootID)
+                    if self.suppressesWorkerBootRebind {
+                        self.workerRecovery.noteBootCandidate(hello.bootID)
+                    } else {
+                        self.workerRecovery.noteWorkerBoot(hello.bootID)
+                    }
                 default:
                     break
                 }
@@ -816,50 +888,6 @@ final class BotRuntimeComposition {
     }
 
     private func isAttached(_ host: PhoneDSHHost) -> Bool { self.host === host }
-
-    /// One signal for "a Worker boot was replaced": a planned restart, a
-    /// termination recovery, or a foreground resume. The boot id, not the
-    /// event kind, decides whether this is new; a channel reconnect in the same
-    /// Worker boot is ignored.
-    private func recoverIfWorkerBootChanged(_ host: PhoneDSHHost,
-                                            bootID: String? = nil) async {
-        guard self.host === host, !suppressesWorkerBootRebind else { return }
-        let current: String
-        if let bootID { current = bootID } else { current = await host.currentWorkerBootID }
-        guard current != observedWorkerBootID else { return }
-        observedWorkerBootID = current
-        await recoverAfterWorkerTermination(host)
-    }
-
-    private func recoverAfterWorkerTermination(_ host: PhoneDSHHost) async {
-        guard self.host === host else { return }
-        guard !workerRecoveryInFlight else { return }
-        workerRecoveryInFlight = true
-        defer { workerRecoveryInFlight = false }
-        state = .recovering
-        do { try await bind(to: host, recovering: true) }
-        catch {
-            state = .failed("Bot 连接恢复失败：\(error.localizedDescription)")
-            scheduleRecoveryRetry(host)
-        }
-    }
-
-    private func scheduleRecoveryRetry(_ host: PhoneDSHHost) {
-        recoveryTask?.cancel()
-        recoveryTask = Task { [weak self] in
-            guard let self else { return }
-            for _ in 0..<5 {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard !Task.isCancelled, self.host === host else { return }
-                do {
-                    try await self.bind(to: host, recovering: true)
-                    return
-                } catch {
-                    self.state = .failed("Bot 连接恢复失败：\(error.localizedDescription)")
-                }
-            }
-        }
-    }
 
     /// Roster-aware tool definitions for the current caller. This is the App
     /// entry point for `BotToolCatalog.allDefinitions(roster:callerBotID:)`.
