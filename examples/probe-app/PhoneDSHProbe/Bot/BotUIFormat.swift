@@ -325,4 +325,39 @@ enum BotUIFormat {
     private static func key(_ value: String) -> String {
         trimmed(value).lowercased()
     }
+
+    // MARK: - Memory
+
+    /// Human label for a memory document author. `kind` and `source` are the
+    /// `BotMemoryAuthorKind` / `BotMemorySourceKind` raw values; unknown values
+    /// map to ``unknownValue`` so a raw enum never reaches the main view.
+    ///
+    /// Added by the ui-memi unit: appended at the end of the file so the shared
+    /// formatter layer stays append-only.
+    static func memoryAuthor(kind: String, source: String? = nil) -> String {
+        let author = key(kind)
+        let origin = source.map(key)
+        switch author {
+        case "chat":
+            switch origin {
+            case "user-turn": return "对话中的你"
+            case "agent-message": return "这个 Bot"
+            case "hidden-wake": return "后台对话"
+            case "routine": return "例行任务"
+            case "task": return "子任务"
+            case "maintenance": return "维护整理"
+            default: return "对话"
+            }
+        case "task": return "子任务"
+        case "routine": return "例行任务"
+        case "team": return "其他 Bot"
+        case "proactive": return "主动提醒"
+        case "watchdog": return "后台检查"
+        case "maintainer": return "维护整理"
+        case "ui": return "页面操作"
+        case "migration": return "迁移"
+        case "system": return "系统"
+        default: return unknownValue
+        }
+    }
 }

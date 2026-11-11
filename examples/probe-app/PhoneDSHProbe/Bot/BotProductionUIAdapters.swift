@@ -199,8 +199,9 @@ extension BotInfoSnapshot {
                     content: document.content,
                     version: document.version,
                     updatedAt: Date(timeIntervalSince1970: Double(document.updatedAtMS) / 1_000),
-                    author: document.author.kind.rawValue
-                        + (document.source.map { " · \($0.kind.rawValue)" } ?? ""),
+                    author: BotUIFormat.memoryAuthor(
+                        kind: document.author.kind.rawValue,
+                        source: document.source?.kind.rawValue),
                     evidence: document.evidence,
                     versions: entry.versions.map { version in
                         BotMemoryVersionInfo(
@@ -210,7 +211,7 @@ extension BotInfoSnapshot {
                             deleted: version.deleted,
                             deletionReason: version.deletionReason,
                             updatedAt: Date(timeIntervalSince1970: Double(version.updatedAtMS) / 1_000),
-                            author: version.author.kind.rawValue,
+                            author: BotUIFormat.memoryAuthor(kind: version.author.kind.rawValue),
                             evidence: version.evidence)
                     })
             },

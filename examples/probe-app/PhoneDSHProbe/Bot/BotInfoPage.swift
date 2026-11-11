@@ -521,26 +521,44 @@ struct BotInfoPage: View {
     let isMainBot: Bool
     let highlightRoutineID: String?
     let onDelete: (() async throws -> Void)?
+    /// Fixture/preview override for the profile description. Production reads
+    /// `BotProfile.description` through the model and leaves this nil.
+    private let descriptionOverride: String?
     @Environment(\.dismiss) private var dismiss
     @State private var path: [BotInfoSection]
     @State private var confirmDelete = false
     @State private var deleting = false
     @State private var deleteError: String?
 
+    /// Shared with the capture-only `infoPresence` fixture so its screenshot
+    /// shows the production copy instead of a fixture explanation.
+    static let presenceFooter = "App 在前台时功能完整；退到后台后会尽量保持运行，被系统挂起后仍会按已登记的时间提醒。"
+    static let disruptionFooter = "设置对所有 Bot 生效。开启勿扰会暂停主动提醒；安静时段内非紧急提醒会延后，紧急提醒仍会送达。"
+
     init(model: BotInfoModel, isMainBot: Bool = false,
          initialSection: BotInfoSection? = nil,
          highlightRoutineID: String? = nil,
-         onDelete: (() async throws -> Void)? = nil) {
+         onDelete: (() async throws -> Void)? = nil,
+         description: String? = nil) {
         self.model = model
         self.isMainBot = isMainBot
         self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
+        self.descriptionOverride = description
         _path = State(initialValue: initialSection.map { [$0] } ?? [])
     }
 
     private var nameChanged: Bool {
         let draft = model.draftName.trimmingCharacters(in: .whitespacesAndNewlines)
         return !draft.isEmpty && draft != model.botName
+    }
+
+    private var displayDescription: String {
+        let override = descriptionOverride?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !override.isEmpty { return override }
+        let profile = model.botDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return profile.isEmpty ? "你的私人 Bot，替你跟进任务和提醒" : profile
     }
 
     var body: some View {
@@ -553,9 +571,11 @@ struct BotInfoPage: View {
                         Text(model.botName)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(HomeSpec.textPrimary)
-                        Text("你的私人 Bot，替你跟进任务和提醒")
+                            .multilineTextAlignment(.center)
+                        Text(displayDescription)
                             .font(.system(size: 14))
                             .foregroundStyle(HomeSpec.textPlaceholder)
+                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
@@ -563,11 +583,11 @@ struct BotInfoPage: View {
                 }
 
                 Section {
-                    HomeFieldRow(title: "名称") {
-                        TextField("", text: $model.draftName, prompt: Text("给 Bot 起个名字"))
-                            .textInputAutocapitalization(.never)
-                            .accessibilityIdentifier("bot.info.name")
-                    }
+                    TextField("", text: $model.draftName, prompt: Text("给 Bot 起个名字"),
+                              axis: .vertical)
+                        .lineLimit(1...4)
+                        .textInputAutocapitalization(.never)
+                        .accessibilityIdentifier("bot.info.name")
                     if nameChanged {
                         Button {
                             Task { await model.rename() }
@@ -577,7 +597,7 @@ struct BotInfoPage: View {
                         .accessibilityIdentifier("bot.info.rename")
                     }
                 } header: {
-                    Text("名称")
+                    Text("Bot 名称")
                 }
 
                 Section {
@@ -594,7 +614,7 @@ struct BotInfoPage: View {
                 } header: {
                     Text("在场")
                 } footer: {
-                    Text("前台全功能；后台保活靠静音音频继续运行；App 被挂起或杀掉后只能靠预定的本地通知提醒 routine 到期。")
+                    Text(Self.presenceFooter)
                 }
 
                 Section {
@@ -602,7 +622,7 @@ struct BotInfoPage: View {
                 } header: {
                     Text("打扰")
                 } footer: {
-                    Text("设置对所有 Bot 生效，改动立即持久化。勿扰关闭所有主动提醒和 routine 到期通知；安静时段延后非紧急提醒，紧急 routine 仍按理由放行。什么值得说、什么算紧急属于记忆偏好，不在这里编辑。")
+                    Text(Self.disruptionFooter)
                 }
 
                 Section("数据") {
@@ -658,7 +678,7 @@ struct BotInfoPage: View {
                     } header: {
                         Text("危险操作")
                     } footer: {
-                        Text("删除会中止运行中的回合、拒绝待审批、撤销授权、归档 DSH 会话并清除本 Bot 的 agent 记忆。至少保留一个 Bot。")
+                        Text("删除会停止正在进行的运行、拒绝待审批、撤销授权并清除这个 Bot 的记忆，无法撤销。至少保留一个 Bot。")
                     }
                 }
             }
@@ -742,6 +762,15 @@ struct BotInfoPage: View {
     }
 }
 
+extension BotInfoModel {
+    /// The profile's free-form description, empty when the profile is absent.
+    /// The model already owns the profile center; exposing the value here keeps
+    /// the info page from growing a second profile source.
+    var botDescription: String {
+        profileCenter?.profile?.description ?? ""
+    }
+}
+
 private struct BotInfoEntryLabel: View {
     let title: String
     let systemImage: String
@@ -812,13 +841,11 @@ private struct BotMemoryPage: View {
                     Text("后台整理")
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("默认关闭。开启后，只在对话安静、没有待审批且 App 在前台时，宿主才会发起一次独立的后台会话，对照原始记录整理记忆。每次运行是一个批次，检查不过会整批回滚。")
-                        if model.maintenanceDailyBudget > 0 {
-                            let exhausted = model.maintenanceDailyTokens >= model.maintenanceDailyBudget
-                            Text(exhausted
-                                 ? "今日整理预算已用完（\(model.maintenanceDailyTokens)/\(model.maintenanceDailyBudget) token）。"
-                                 : "今日整理已用 \(model.maintenanceDailyTokens)/\(model.maintenanceDailyBudget) token。")
-                                .foregroundStyle(exhausted ? BotUIPalette.danger : HomeSpec.textTertiary)
+                        Text("默认关闭。开启后，Bot 会在你不聊天时整理记忆；整理失败不会改动现有内容。")
+                        if let budget = maintenanceBudgetText {
+                            Text(budget)
+                                .foregroundStyle(maintenanceBudgetExhausted
+                                                 ? BotUIPalette.danger : HomeSpec.textTertiary)
                                 .accessibilityIdentifier("bot.memory.maintenance.budget")
                         }
                     }
@@ -828,31 +855,21 @@ private struct BotMemoryPage: View {
                 }
                 if botDocuments.isEmpty && sharedDocuments.isEmpty {
                     Section {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("还没有已保存的记忆。")
-                                .foregroundStyle(HomeSpec.textSecondary)
-                            Text("本 Bot 自己的文档和所有 Bot 共享的文档都会显示在这里；两个根下的 INDEX.md 是每回合注入的索引。")
-                                .botCaptionFont()
-                                .foregroundStyle(HomeSpec.textTertiary)
-                        }
+                        Text("还没有已保存的记忆。")
+                            .foregroundStyle(HomeSpec.textSecondary)
                     }
                 } else {
                     memorySection(
-                        title: "本 Bot 的工作知识（agent/）",
+                        title: "本 Bot 的记忆",
                         documents: botDocuments,
-                        footer: "只属于这个 Bot；其他 Bot 看不到。Task 和 routine 只能提交到 agent/inbox/<会话>/。",
-                        eraseTitle: "抹除这个 Bot 的 agent 文档（含全部版本）",
-                        eraseIdentifier: "bot.memory.erase") {
-                        confirmErase = true
-                    }
+                        root: "agent",
+                        footer: "这份记忆只属于这个 Bot，其他 Bot 看不到。")
                     memorySection(
-                        title: "共享的用户记忆（user/）",
+                        title: "所有 Bot 共享的记忆",
                         documents: sharedDocuments,
-                        footer: "user/ 是所有 Bot 共享、彼此可见的一份文档树；清除后每个 Bot 都会失去这些内容。",
-                        eraseTitle: "抹除所有 Bot 共享的 user/ 文档（含全部版本）",
-                        eraseIdentifier: "bot.memory.erase.shared") {
-                        confirmShared = true
-                    }
+                        root: "user",
+                        footer: "所有 Bot 共享、彼此可见。")
+                    erasureSection
                 }
             }
         }
@@ -882,15 +899,15 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) { forgetting = nil }
         } message: {
-            Text("忘记只移除当前版本：历史版本、原始记录和已经写入事件载荷里的内容仍保留。")
+            Text("忘记只移除当前版本，历史版本仍保留。")
         }
-        .confirmationDialog("抹除这个 Bot 的 agent 记忆？", isPresented: $confirmErase) {
-            Button("抹除本 Bot 的 agent/ 文档", role: .destructive) { Task { await model.erase() } }
+        .confirmationDialog("抹除这个 Bot 的记忆？", isPresented: $confirmErase) {
+            Button("抹除这个 Bot 的记忆", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("物理删除这个 Bot 的 agent/ 文档树和全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。共享 user/ 不受影响。已关闭会话里的对应聊天原文也会被墓碑替换；对话会接续到新会话。此操作不可撤销。")
+            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除。所有 Bot 共享的记忆不受影响。此操作不可撤销。")
         }
-        .confirmationDialog("抹除所有 Bot 共享的 user/ 文档？", isPresented: $confirmShared) {
+        .confirmationDialog("抹除所有 Bot 共享的记忆？", isPresented: $confirmShared) {
             Button("继续", role: .destructive) {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 150_000_000)
@@ -899,14 +916,60 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会影响每一个 Bot：共享 user/ 文档树和全部历史版本会被物理删除；已关闭会话里的对应聊天原文也会被墓碑替换。此操作不可撤销。")
+            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除。此操作不可撤销。")
         }
-        .confirmationDialog("最后确认：抹除全部共享 user/ 记忆？", isPresented: $confirmSharedAgain) {
-            Button("抹除共享 user/ 记忆", role: .destructive) { Task { await model.eraseShared() } }
+        .confirmationDialog("最后确认：抹除全部共享记忆？", isPresented: $confirmSharedAgain) {
+            Button("抹除共享记忆", role: .destructive) { Task { await model.eraseShared() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("物理删除所有 Bot 共享的 user/ 文档树、全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。所有 Bot 会立即失去这些记忆。已关闭会话里的对应聊天原文也会被墓碑替换。此操作不可撤销。")
+            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除。此操作不可撤销。")
         }
+    }
+
+    private var maintenanceBudgetExhausted: Bool {
+        model.maintenanceDailyBudget > 0
+            && model.maintenanceDailyTokens >= model.maintenanceDailyBudget
+    }
+
+    private var maintenanceBudgetText: String? {
+        guard model.maintenanceDailyBudget > 0 else { return nil }
+        if maintenanceBudgetExhausted { return "今日整理额度已用完。" }
+        let ratio = BotUIFormat.percent(used: model.maintenanceDailyTokens,
+                                        total: model.maintenanceDailyBudget)
+        return "今日整理额度已用 \(ratio)。"
+    }
+
+    private var erasureSection: some View {
+        Section {
+            if !botDocuments.isEmpty {
+                Button("抹除这个 Bot 的记忆（含全部版本）") {
+                    confirmErase = true
+                }
+                .buttonStyle(BotDestructiveButtonStyle())
+                .accessibilityIdentifier("bot.memory.erase")
+            }
+            if !sharedDocuments.isEmpty {
+                Button("抹除所有 Bot 共享的记忆（含全部版本）") {
+                    confirmShared = true
+                }
+                .buttonStyle(BotDestructiveButtonStyle())
+                .accessibilityIdentifier("bot.memory.erase.shared")
+            }
+        } header: {
+            Text("危险操作")
+        } footer: {
+            Text(erasureFooter)
+        }
+    }
+
+    private var erasureFooter: String {
+        if sharedDocuments.isEmpty {
+            return "抹除会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，无法撤销。"
+        }
+        if botDocuments.isEmpty {
+            return "抹除会永久删除所有 Bot 共享的记忆和全部历史版本，相关内容也会从旧对话里移除，无法撤销。"
+        }
+        return "抹除会永久删除文档和全部历史版本，相关内容也会从旧对话里移除，无法撤销。共享记忆被抹除后，所有 Bot 都会失去这些内容。"
     }
 
     @ViewBuilder
@@ -921,19 +984,32 @@ private struct BotMemoryPage: View {
                         .botCaptionFont()
                         .foregroundStyle(HomeSpec.textTertiary)
                 }
-                Text("\(batch.changedDocuments) 份文档 · \(batch.tokensUsed) token · 检查\(batch.checksPassed ? "通过" : "未通过")")
+                Text("\(batch.changedDocuments) 份文档 · 检查\(batch.checksPassed ? "通过" : "未通过")")
                     .botCaptionFont()
                     .foregroundStyle(HomeSpec.textTertiary)
                 ForEach(batch.changes) { change in
-                    Text("\(change.deleted ? "删除" : "v\(change.beforeVersion)→v\(change.afterVersion)") · \(change.path)")
+                    Text(maintenanceChangeLabel(change))
                         .botCaptionFont()
                         .foregroundStyle(HomeSpec.textSecondary)
                 }
-                if let failure = batch.failureCode, !failure.isEmpty {
-                    Text("失败原因：\(failure)")
-                        .botCaptionFont()
-                        .foregroundStyle(BotUIPalette.danger)
+                DisclosureGroup("查看详情") {
+                    ForEach(batch.changes) { change in
+                        Text(maintenanceChangeDetail(change))
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .textSelection(.enabled)
+                    }
+                    if let failure = batch.failureCode, !failure.isEmpty {
+                        Text("失败原因：\(failure)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(BotUIPalette.danger)
+                            .textSelection(.enabled)
+                    }
+                    Text("本次用量：\(batch.tokensUsed) token")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(HomeSpec.textSecondary)
                 }
+                .accessibilityIdentifier("bot.memory.maintenance.detail")
             }
             .accessibilityIdentifier("bot.memory.maintenance.batch")
             if batch.canRollback {
@@ -947,7 +1023,7 @@ private struct BotMemoryPage: View {
         } footer: {
             Text(batch.rolledBack
                  ? "这一批已整批回滚，历史仍保留在记录里。"
-                 : "只显示最近一次批次；本批的每一次写入都带版本前提和引用。")
+                 : "只显示最近一次整理。")
         }
     }
 
@@ -959,31 +1035,58 @@ private struct BotMemoryPage: View {
         case "failed": return "未完成"
         case "rolled_back": return "已整批回滚"
         case "rollback_failed": return "回滚有冲突"
-        default: return status
+        default: return "状态未知"
         }
+    }
+
+    private func maintenanceChangeLabel(_ change: BotMaintenanceChangeInfo) -> String {
+        let name = maintenanceDocumentName(change.path, scope: change.scope)
+        return change.deleted
+            ? "\(name)：已删除"
+            : "\(name)：第 \(change.beforeVersion) 版 → 第 \(change.afterVersion) 版"
+    }
+
+    private func maintenanceChangeDetail(_ change: BotMaintenanceChangeInfo) -> String {
+        change.deleted
+            ? "\(change.path)：已删除"
+            : "\(change.path)：第 \(change.beforeVersion) 版 → 第 \(change.afterVersion) 版"
+    }
+
+    /// Main-view label for one maintenance change. The `user/`/`agent/` root
+    /// and full path stay in the detail; INDEX.md and profile.md get a purpose
+    /// label instead of a bare file name.
+    private func maintenanceDocumentName(_ path: String, scope: String) -> String {
+        var relative = path
+        if relative.hasPrefix("user/") { relative.removeFirst(5) }
+        else if relative.hasPrefix("agent/") { relative.removeFirst(6) }
+        let fileName = relative.split(separator: "/").last.map(String.init) ?? relative
+        let shared = scope == "user" || path.hasPrefix("user/")
+        if fileName == "INDEX.md" {
+            return shared ? "共享索引 INDEX.md" : "本 Bot 索引 INDEX.md"
+        }
+        if fileName == "profile.md" {
+            return shared ? "共享资料 profile.md" : "本 Bot 资料 profile.md"
+        }
+        return shared ? "共享记忆 \(relative)" : "本 Bot 记忆 \(relative)"
     }
 
     @ViewBuilder
     private func memorySection(
         title: String,
         documents: [BotMemoryDocumentInfo],
-        footer: String,
-        eraseTitle: String,
-        eraseIdentifier: String,
-        onErase: @escaping () -> Void
+        root: String,
+        footer: String
     ) -> some View {
         Section {
             if documents.isEmpty {
-                Text("这个根下还没有文档。")
+                Text("还没有文档。")
                     .foregroundStyle(HomeSpec.textSecondary)
             } else {
-                ForEach(BotMemoryTreeItem.build(documents: documents)) { item in
+                ForEach(BotMemoryTreeItem.build(documents: documents, root: root)) { item in
                     BotMemoryTreeRowView(item: item) { document in
                         forgetting = document
                     }
                 }
-                Button(eraseTitle, role: .destructive, action: onErase)
-                    .accessibilityIdentifier(eraseIdentifier)
             }
         } header: {
             Text(title)
@@ -1017,7 +1120,7 @@ private struct BotMemoryTreeRowView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(document.fileName)
                             .foregroundStyle(HomeSpec.textPrimary)
-                        Text("v\(document.version) · \(BotUIFormat.dateTime(document.updatedAt)) · \(evidenceLabel(document))")
+                        Text("第 \(document.version) 版 · \(BotUIFormat.dateTime(document.updatedAt)) · \(evidenceLabel(document))")
                             .botCaptionFont()
                             .foregroundStyle(HomeSpec.textTertiary)
                     }
@@ -1031,7 +1134,7 @@ private struct BotMemoryTreeRowView: View {
     }
 
     private func evidenceLabel(_ document: BotMemoryDocumentInfo) -> String {
-        document.evidence.isEmpty ? "无引用" : "\(document.evidence.count) 条引用"
+        document.evidence.isEmpty ? "无来源" : "\(document.evidence.count) 条来源"
     }
 }
 
@@ -1041,6 +1144,24 @@ private struct BotMemoryDocumentView: View {
     let onErase: () -> Void
     @State private var confirmErase = false
     @Environment(\.dismiss) private var dismiss
+
+    private var evidenceSummary: String {
+        var counts: [String: Int] = [:]
+        for reference in document.evidence {
+            counts[evidenceKind(reference), default: 0] += 1
+        }
+        let order = ["对话来源", "记录来源", "其他来源"]
+        let parts = order.compactMap { name in
+            counts[name].map { "\(name) \($0) 条" }
+        }
+        return parts.isEmpty ? "无来源" : parts.joined(separator: " · ")
+    }
+
+    private func evidenceKind(_ reference: String) -> String {
+        if reference.hasPrefix("record://session/") { return "对话来源" }
+        if reference.hasPrefix("record://event/") { return "记录来源" }
+        return "其他来源"
+    }
 
     var body: some View {
         List {
@@ -1056,26 +1177,35 @@ private struct BotMemoryDocumentView: View {
                 Text("路径：\(document.path)")
             }
 
-            Section("来源") {
+            Section {
                 if document.evidence.isEmpty {
-                    Text("没有 record:// 引用：这是 agent 的推断或当前 Bot 直接写的。")
+                    Text("没有来源引用：这是这个 Bot 的推断或直接写入的内容。")
                         .foregroundStyle(HomeSpec.textSecondary)
                 } else {
-                    ForEach(document.evidence, id: \.self) { reference in
-                        Text(reference)
-                            .font(.system(size: 13, design: .monospaced))
-                            .textSelection(.enabled)
+                    DisclosureGroup {
+                        ForEach(document.evidence, id: \.self) { reference in
+                            Text(reference)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(HomeSpec.textSecondary)
+                                .textSelection(.enabled)
+                        }
+                    } label: {
+                        Text(evidenceSummary)
+                            .foregroundStyle(HomeSpec.textPrimary)
                     }
+                    .accessibilityIdentifier("bot.memory.document.evidence")
                 }
-                LabeledContent("作者", value: document.author)
+                LabeledContent("作者", value: document.author.isEmpty ? "未知" : document.author)
                 LabeledContent("更新时间", value: BotUIFormat.dateTime(document.updatedAt))
+            } header: {
+                Text("来源")
             }
 
             Section("版本") {
                 ForEach(document.versions.sorted { $0.version > $1.version }) { version in
                     DisclosureGroup {
                         Text(version.deleted
-                             ? "这一版已删除（\(version.deletionReason ?? "forget")）。"
+                             ? "这一版已被删除。"
                              : (version.content.isEmpty ? "（空文档）" : version.content))
                             .botBodyFont()
                             .foregroundStyle(version.deleted ? HomeSpec.textSecondary : HomeSpec.textPrimary)
@@ -1089,7 +1219,7 @@ private struct BotMemoryDocumentView: View {
                         }
                     } label: {
                         HStack {
-                            Text("v\(version.version)")
+                            Text("第 \(version.version) 版")
                                 .foregroundStyle(HomeSpec.textPrimary)
                             if version.version == document.version { Text("当前").botCaptionFont() }
                             Spacer()
@@ -1114,9 +1244,10 @@ private struct BotMemoryDocumentView: View {
                 Button("抹除这份文档和全部历史版本", role: .destructive) {
                     confirmErase = true
                 }
+                .buttonStyle(BotDestructiveButtonStyle())
                 .accessibilityIdentifier("bot.memory.document.erase")
             } footer: {
-                Text("忘记只移除当前版本；历史版本和原始记录仍保留。抹除会物理删除这份文档、全部历史版本，以及事件载荷和派生视图中与它相同的内容；已关闭会话里的对应聊天原文也会被墓碑替换，对话会接续到新会话。抹除不可撤销。")
+                Text("忘记只移除当前版本，历史版本仍保留。抹除会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，无法撤销。")
             }
         }
         .confirmationDialog("抹除这份文档？", isPresented: $confirmErase) {
@@ -1126,17 +1257,28 @@ private struct BotMemoryDocumentView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("物理删除 \(document.path) 的全部版本，并清除事件载荷和派生视图中与它相同的内容。共享记忆的其他文档不受影响；已关闭会话里的对应聊天原文也会被墓碑替换。此操作不可撤销。")
+            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除。共享记忆的其他文档不受影响。此操作不可撤销。")
         }
         .homeGroupedList()
-        .navigationTitle(document.path)
+        .navigationTitle(document.fileName)
         .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 extension BotMemoryTreeItem {
-    static func build(documents: [BotMemoryDocumentInfo]) -> [BotMemoryTreeItem] {
-        build(documents: documents, prefix: "")
+    /// Builds the tree below one memory root: the render starts at the root's
+    /// children instead of showing an `agent`/`user` folder row that repeats
+    /// the section title. Documents outside the requested root (defensive, for
+    /// an inconsistent host record) still render from their own root.
+    static func build(documents: [BotMemoryDocumentInfo], root: String? = nil) -> [BotMemoryTreeItem] {
+        guard let root, !root.isEmpty else {
+            return build(documents: documents, prefix: "")
+        }
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        let inside = documents.filter { $0.path.hasPrefix(prefix) }
+        let outside = documents.filter { !$0.path.hasPrefix(prefix) }
+        return build(documents: inside, prefix: prefix)
+            + build(documents: outside, prefix: "")
     }
 
     private static func build(documents: [BotMemoryDocumentInfo], prefix: String) -> [BotMemoryTreeItem] {
@@ -1393,7 +1535,7 @@ struct BotPresenceSection: View {
             LabeledContent("当前级别", value: model.presence.level.displayName)
                 .accessibilityIdentifier("bot.info.presence.level")
             if model.presence.level == .scheduledNotification {
-                LabeledContent("预定通知", value: "\(model.presence.scheduledNotificationCount) 条")
+                LabeledContent("已登记提醒", value: "\(model.presence.scheduledNotificationCount) 条")
                     .accessibilityIdentifier("bot.info.presence.notifications")
             }
             if model.presence.deferred.isEmpty {
@@ -1406,7 +1548,7 @@ struct BotPresenceSection: View {
                         Text(item.title)
                             .botSecondaryFont(weight: .medium)
                             .foregroundStyle(HomeSpec.textPrimary)
-                        Text("原定 \(Self.timeText(item.scheduledFor))，延后到 \(Self.timeText(item.deferredUntil))")
+                        Text("原定 \(BotUIFormat.dateTime(Date(timeIntervalSince1970: TimeInterval(item.scheduledFor) / 1_000)))，延后到 \(BotUIFormat.dateTime(Date(timeIntervalSince1970: TimeInterval(item.deferredUntil) / 1_000)))")
                             .botCaptionFont()
                             .foregroundStyle(HomeSpec.textSecondary)
                     }
@@ -1415,14 +1557,6 @@ struct BotPresenceSection: View {
             }
         }
         .accessibilityIdentifier("bot.info.presence")
-    }
-
-    private static func timeText(_ milliseconds: Int64) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = .current
-        formatter.dateFormat = "M月d日 HH:mm"
-        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000))
     }
 }
 
@@ -1439,12 +1573,14 @@ struct BotDisruptionSection: View {
                        get: { model.quietStartDate },
                        set: { value in Task { await model.setQuietStart(value) } }),
                    displayedComponents: .hourAndMinute)
+            .environment(\.locale, BotUIFormat.locale)
             .accessibilityIdentifier("bot.info.quiet.start")
         DatePicker("安静时段结束",
                    selection: Binding(
                        get: { model.quietEndDate },
                        set: { value in Task { await model.setQuietEnd(value) } }),
                    displayedComponents: .hourAndMinute)
+            .environment(\.locale, BotUIFormat.locale)
             .accessibilityIdentifier("bot.info.quiet.end")
     }
 }
