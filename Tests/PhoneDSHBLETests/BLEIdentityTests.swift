@@ -146,3 +146,13 @@ final class BLEIdentityTests: XCTestCase {
         }
     }
 }
+
+final class RememberedBoardPresenceTests: XCTestCase {
+    /// A known-but-absent remembered board is never connected blind: that connect would time out
+    /// and quarantine the board until the app restarts (ble-link.md rule 6, owner closing rules).
+    func testRememberedBoardConnectsOnlyWhenPresent() {
+        XCTAssertFalse(BLEDeviceStore.rememberedBoardIsPresent(systemConnected: false, advertised: false))
+        XCTAssertTrue(BLEDeviceStore.rememberedBoardIsPresent(systemConnected: true, advertised: false))
+        XCTAssertTrue(BLEDeviceStore.rememberedBoardIsPresent(systemConnected: false, advertised: true))
+    }
+}
