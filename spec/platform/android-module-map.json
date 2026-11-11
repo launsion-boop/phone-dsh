@@ -81,9 +81,9 @@
     },
     {
       "swift": "PhoneDSHPCLink",
-      "kotlin": null,
-      "gradle": null,
-      "status": "absent"
+      "kotlin": "com.phonedsh.pclink",
+      "gradle": ":pclink",
+      "status": "target"
     },
     {
       "swift": "PhoneDSHSSH",
