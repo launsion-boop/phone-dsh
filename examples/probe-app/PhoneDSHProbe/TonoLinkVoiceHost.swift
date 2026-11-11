@@ -30,6 +30,9 @@ import ProbeKit
     private let player = VoicePCMPlayer()
     private let tts = CloudTTSClient()
     private var hereAudio: Data?
+    /// Spoken the moment a command is recognised, before the (possibly long) chat turn.
+    static let acknowledgement = "好的，马上处理"
+    private var ackAudio: Data?
     private static let keepAliveOwner = "tonolink-voice"
 
     /// Keeps a ctrl link to the user's board and listens for its wake word.
@@ -257,6 +260,10 @@ import ProbeKit
         switch outcome {
         case .text(let text):
             note("heard", text)
+            // Say at once that the command was understood; the reply follows when the turn ends
+            // (same player, so it plays after this, never over it).
+            await acknowledge(credential: credential)
+            note("ack_ms", ms())
             await answer(text, credential: credential, start: start)
         case .silent:
             note("heard", "")
@@ -306,12 +313,24 @@ import ProbeKit
         }
     }
 
-    /// Fetches 我在 once so the first wake answers without waiting for TTS.
+    /// Fetches 我在 and the acknowledgement once, so neither waits for TTS during a turn.
     private func prefetchHere() async {
-        guard hereAudio == nil, let credential = await credential() else { return }
+        guard let credential = await credential() else { return }
+        if hereAudio == nil, let pcm = await synthesize("我在", credential: credential) { hereAudio = pcm }
+        if ackAudio == nil, let pcm = await synthesize(Self.acknowledgement, credential: credential) { ackAudio = pcm }
+    }
+
+    private func synthesize(_ text: String, credential: String) async -> Data? {
         var pcm = Data()
-        do { for try await chunk in tts.stream("我在", credential: credential) { pcm.append(chunk) } } catch { return }
-        if hereAudio == nil { hereAudio = pcm }
+        do { for try await chunk in tts.stream(text, credential: credential) { pcm.append(chunk) } } catch { return nil }
+        return pcm.isEmpty ? nil : pcm
+    }
+
+    /// Queues 「好的，马上处理」 and returns without waiting for it to finish.
+    private func acknowledge(credential: String) async {
+        if ackAudio == nil { ackAudio = await synthesize(Self.acknowledgement, credential: credential) }
+        guard let ackAudio else { return }
+        do { try player.play(ackAudio) } catch { note("ack_error", error.localizedDescription) }
     }
 
     private func speakHere(credential: String, timing: () -> Void) async throws {

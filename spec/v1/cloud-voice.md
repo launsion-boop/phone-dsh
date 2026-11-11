@@ -66,5 +66,7 @@ the newly resolved value differs. Every other status is reported as the turn's f
 ## 4. The turn
 
 The recognised text is sent as an ordinary user message to the current chat, through the same path
-as the composer. What is spoken back is the last assistant text of that chat turn. A turn that is
+as the composer. Right after recognition the phone says a short acknowledgement (「好的，马上处理」, synthesized
+once and kept in memory like 「我在」) so the user knows the command was understood; the reply is
+queued behind it. What is spoken back is the last assistant text of that chat turn. A turn that is
 still running in the chat when a new wake arrives keeps running; only its speech is stopped.

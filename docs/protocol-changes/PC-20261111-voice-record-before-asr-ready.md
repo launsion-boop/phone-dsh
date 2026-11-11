@@ -39,3 +39,4 @@ P05 — the board's Opus bodies may now wait on the phone longer than 2 s before
 | revision | 由谁 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 | iOS |
+| 2 | Claude | 用户要求：说完任务后立刻有语音回应。识别出文字后马上播「好的，马上处理」（与「我在」一样只合成一次、缓存在内存），聊天结束后的回复排在它后面播放。cloud-voice.md §4 补一句。 | iOS |
