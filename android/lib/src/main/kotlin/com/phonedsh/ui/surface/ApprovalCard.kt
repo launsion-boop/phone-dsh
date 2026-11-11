@@ -63,6 +63,7 @@ public object ApprovalCardTokens {
         UiTokenNames.GEOMETRY_CARD_PADDING,
         UiTokenNames.GEOMETRY_CARD_OUTER_MARGIN_H,
         UiTokenNames.GEOMETRY_CARD_OUTER_MARGIN_V,
+        UiTokenNames.GEOMETRY_APPROVAL_CARD_SPACING,
         UiTokenNames.GEOMETRY_PRIMARY_BUTTON_HEIGHT,
         UiTokenNames.GEOMETRY_SECONDARY_BUTTON_HEIGHT,
         UiTokenNames.GEOMETRY_CARD_AREA_MAX_HEIGHT_RATIO,
