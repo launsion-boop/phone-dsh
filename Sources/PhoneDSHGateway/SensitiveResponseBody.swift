@@ -48,6 +48,16 @@ enum SensitiveResponseMode {
     }
 }
 
+/// Which upstream a sensitive response belongs to. The HTTP status and the
+/// JSON-RPC `code` are the machine-readable contract; this kind only chooses
+/// the secret-free human reason in the controlled diagnostic.
+enum SensitiveResponseKind: Equatable, Sendable {
+    /// A host-managed MCP endpoint (exact-URL grant or the Worker placeholder).
+    case mcp
+    /// The official/independent DeepSeek-compatible Search/Fetch web tool.
+    case webTool
+}
+
 enum SensitiveResponseBody {
     /// JSON-RPC application error used for a withheld host-managed body.
     static let controlledErrorCode = -32000
@@ -65,27 +75,82 @@ enum SensitiveResponseBody {
 
     /// A short, secret-free JSON-RPC error. The HTTP status is preserved so
     /// the MCP client still reports the real class (401/403/5xx/...).
-    static func controlledDiagnostic(status: Int) -> Data {
-        makeDiagnostic(message: "MCP upstream returned HTTP \(status); response body withheld")
+    ///
+    /// The default `.mcp` kind keeps the existing golden bytes; the official
+    /// Search/Fetch route passes `.webTool` so a page that DeepSeek could not
+    /// retrieve is not reported as an MCP failure.
+    static func controlledDiagnostic(status: Int,
+                                     kind: SensitiveResponseKind = .mcp) -> Data {
+        makeDiagnostic(message: diagnosticMessage(status: status, kind: kind))
+    }
+
+    /// The human-readable, secret-free reason for one controlled diagnostic.
+    /// Only the status and call kind are read: no upstream byte, header or
+    /// request body can enter the message.
+    static func diagnosticMessage(status: Int, kind: SensitiveResponseKind) -> String {
+        switch kind {
+        case .mcp:
+            return "MCP upstream returned HTTP \(status); response body withheld"
+        case .webTool:
+            return "\(webToolReason(status: status)) (HTTP \(status)). "
+                + "The upstream response body was withheld by the host."
+        }
+    }
+
+    private static func webToolReason(status: Int) -> String {
+        switch status {
+        case 400:
+            return "the web tool rejected the request body or headers as invalid"
+        case 401:
+            return "the upstream web service rejected the saved API key"
+        case 402:
+            return "the upstream web service account has insufficient balance"
+        case 403:
+            return "the upstream web service's security policy rejected the target"
+        case 404:
+            return "the web tool could not retrieve usable target content: "
+                + "the URL may be missing, blocked by the site, an unsupported "
+                + "content type, or have no extractable Markdown"
+        case 408:
+            return "the web tool timed out while reading the request body"
+        case 413:
+            return "the request is too large for the web tool"
+        case 429:
+            return "the upstream web service rate limit was exceeded; wait before retrying"
+        case 500...599:
+            return "the upstream web service failed; retry later"
+        default:
+            return "the web tool returned an unexpected status"
+        }
     }
 
     /// The fail-closed diagnostic for a buffered 2xx body that exceeded
     /// ``maximumBufferedBodyBytes``. No upstream byte is included.
-    static func controlledOversizeDiagnostic() -> Data {
-        makeDiagnostic(message: "MCP upstream response exceeded the host-managed body limit; response body withheld")
+    static func controlledOversizeDiagnostic(kind: SensitiveResponseKind = .mcp) -> Data {
+        switch kind {
+        case .mcp:
+            return makeDiagnostic(message: "MCP upstream response exceeded the host-managed body limit; response body withheld")
+        case .webTool:
+            return makeDiagnostic(message: "the web tool response exceeded the host-managed body limit; the upstream response body was withheld by the host")
+        }
     }
 
     /// The fail-closed diagnostic for an SSE event that exceeded
     /// ``maximumEventStreamEventBytes`` before its blank-line terminator.
-    static func controlledEventStreamOversizeDiagnostic() -> Data {
-        makeDiagnostic(message: "MCP upstream event stream exceeded the host-managed event limit; response body withheld")
+    static func controlledEventStreamOversizeDiagnostic(kind: SensitiveResponseKind = .mcp) -> Data {
+        switch kind {
+        case .mcp:
+            return makeDiagnostic(message: "MCP upstream event stream exceeded the host-managed event limit; response body withheld")
+        case .webTool:
+            return makeDiagnostic(message: "the web tool event stream exceeded the host-managed event limit; the upstream response body was withheld by the host")
+        }
     }
 
     /// Wraps the oversize diagnostic in an SSE event, because the response head
     /// has already told the Worker that this is `text/event-stream`.
-    static func controlledEventStreamOversizeEvent() -> Data {
+    static func controlledEventStreamOversizeEvent(kind: SensitiveResponseKind = .mcp) -> Data {
         var event = Data("data: ".utf8)
-        event.append(controlledEventStreamOversizeDiagnostic())
+        event.append(controlledEventStreamOversizeDiagnostic(kind: kind))
         event.append(Data("\n\n".utf8))
         return event
     }

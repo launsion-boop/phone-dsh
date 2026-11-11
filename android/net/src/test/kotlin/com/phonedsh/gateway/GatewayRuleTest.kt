@@ -306,6 +306,45 @@ class GatewayRuleTest {
     }
 
     @Test
+    fun aWebToolNon2xxBodyNamesTheWebToolStatusAndWithheldBody() {
+        val body = String(
+            CanonicalSensitiveBodyRedactor().controlledDiagnostic(
+                404,
+                SensitiveResponseKind.WEB_TOOL,
+            ),
+            StandardCharsets.UTF_8,
+        )
+        assertTrue(body.contains("\"code\":-32000"))
+        assertTrue(body.contains("could not retrieve usable target content"))
+        assertTrue(body.contains("(HTTP 404)"))
+        assertTrue(body.contains("withheld by the host"))
+        assertFalse(body.contains("MCP"))
+    }
+
+    @Test
+    fun aWebToolSensitiveSessionUsesTheWebDiagnosticForNon2xx() {
+        val url = "https://api.deepseek.com/v1/tools/fetch"
+        val transport = ScriptedTransport(
+            finalResponse = GatewayTransportResponse(
+                status = 500,
+                headers = mapOf("content-type" to "text/plain"),
+                body = "upstream-secret-body".toByteArray(StandardCharsets.UTF_8),
+            ),
+        )
+        val session = mcpSession(url, transport, SensitiveResponseKind.WEB_TOOL)
+
+        val outcome = session.exchange(GatewayRequest("POST", url))
+
+        assertEquals(GatewayDispatch.ALLOW, outcome.dispatch)
+        assertEquals(500, outcome.responseStatus)
+        val body = String(outcome.responseBody, StandardCharsets.UTF_8)
+        assertTrue(body.contains("upstream web service failed"))
+        assertTrue(body.contains("withheld by the host"))
+        assertFalse(body.contains("MCP"))
+        assertFalse(body.contains("upstream-secret-body"))
+    }
+
+    @Test
     fun aNoContentResponseCarriesNoBodyOnTheSensitivePath() {
         val url = "https://mcp.example.invalid/mcp"
         val transport = ScriptedTransport(
@@ -421,7 +460,11 @@ class GatewayRuleTest {
         )
     }
 
-    private fun mcpSession(url: String, transport: GatewayTransport): GatewaySession {
+    private fun mcpSession(
+        url: String,
+        transport: GatewayTransport,
+        sensitiveKind: SensitiveResponseKind = SensitiveResponseKind.MCP,
+    ): GatewaySession {
         val parsed = GatewayUrls.parse(url)
             ?: throw IllegalStateException("test URL '$url' does not parse")
         return GatewaySession(
@@ -431,6 +474,7 @@ class GatewayRuleTest {
                 rules = emptyList(),
                 mcpGrant = CredentialOriginScope.of(parsed),
             ),
+            sensitiveKind = sensitiveKind,
         )
     }
 }

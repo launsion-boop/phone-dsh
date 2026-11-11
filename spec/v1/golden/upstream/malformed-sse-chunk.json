@@ -42,7 +42,7 @@
   "related_sources": [
     "Tests/PhoneDSHGatewayTests/ModelGatewayTests.swift:288-328",
     "Sources/PhoneDSHGateway/ModelGateway.swift:820-830",
-    "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:158-179"
+    "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:236-291"
   ],
   "notes": "Three malformed shapes in one body: an SSE event split across two transfer chunks, an event whose data is not valid JSON (a missing colon), and a final unterminated event. An ordinary model egress is byte-transparent: the gateway forwards the chunks in order and raises nothing. client_outcome is unmeasured because the Worker's model-client parser is not covered by any Swift test. The one path that rewrites malformed events is the host-managed credential row (the sensitive SSE sanitizer), out of scope here."
 }
