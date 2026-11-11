@@ -10,7 +10,8 @@
   "delta": [
     "phoneDSH P25 additive durable event type: agent.comm. The envelope shape is unchanged.",
     "agent.comm is written with local origin comm-service; team-tools is not a registered local source.",
-    "phoneDSH P25 additive durable event type: redaction.applied. It records rule names and counts for one redacted tool result and never the original text."
+    "phoneDSH P25 additive durable event type: redaction.applied. It records rule names and counts for one redacted tool result and never the original text.",
+    "phoneDSH P25 additive durable event type: erasure. The envelope is unchanged; its data is frozen by erasure-event.schema.json and names the payloads the host physically cleared."
   ],
   "validCases": [
     {
@@ -135,6 +136,67 @@
               "count": 2
             }
           ]
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "erasure-event-envelope",
+      "event": {
+        "schemaVersion": 1,
+        "type": "erasure",
+        "eventId": "erasure:20261112-a",
+        "commitSeq": 10,
+        "time": 1760000006000,
+        "origin": {
+          "kind": "local",
+          "source": "user"
+        },
+        "traceId": "trace-erasure:20261112-a",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": null,
+          "kind": "ipc",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": null,
+        "data": {
+          "schemaVersion": 1,
+          "erasureId": "erasure-20261112-a",
+          "reason": "memory-document-erase",
+          "requestedBy": "user",
+          "at_ms": 1760000006000,
+          "targets": [
+            {
+              "kind": "memory",
+              "scope": "agent",
+              "path": "agent/notes/secret.md"
+            }
+          ],
+          "memoryVersions": [
+            {
+              "path": "agent/notes/secret.md",
+              "scope": "agent",
+              "versions": [
+                1
+              ]
+            }
+          ],
+          "erasedEvents": [
+            {
+              "record": "record://event/7",
+              "type": "memory.document_written",
+              "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "payloadBytes": 120
+            }
+          ],
+          "erasedBytes": 120,
+          "uncoveredRecords": [],
+          "legacyFactIDs": []
         }
       },
       "validation": {

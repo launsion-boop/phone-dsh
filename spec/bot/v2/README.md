@@ -33,9 +33,11 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
 
 ### 1.1 权威与版本
 
-- 权威仍是 SQLite `bot_events`，不新增文件系统权威。每次写入是一条 durable 事件
-  （`memory.document_written`），每次删除是一条 `memory.document_deleted`；事件携带作者
-  （`principal`）、完整新版本和版本前提 `expected_version`。
+- 权威仍是 SQLite `bot_event_headers` + `bot_event_payloads`（P25 v3 拆分；只读视图
+  `bot_events` 供旧读取路径），不新增文件系统权威。每次写入是一条 durable 事件
+  （`memory.document_written`），每次逻辑删除是一条 `memory.document_deleted`；事件携带作者
+  （`principal`）、完整新版本和版本前提 `expected_version`。物理抹除另写一条 `erasure` 事件，
+  见 §1.8。
 - 回放按 `commitSeq` 顺序应用事件。每份文档的 `version` 从 1 单调递增，删除也占用一个版本；
   历史版本可从事件库回看，`UpdateMemory{"action":"restore"}` 把旧版本作为新版本写回。
 - `memory-document.schema.json` 冻结 live 文档/版本形状；`memory-write-request.schema.json`、
@@ -57,7 +59,7 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
 | `append` | `content` | 在现有内容末尾追加；文档必须存在。 |
 | `replace` | `find`, `replace` | 精确替换所有 `find` 出现；一个都没找到返回 `memory-replace-not-found`。 |
 | `move` | `to` | 源文档必须存在，目标必须不存在；同一批次写目标并删除源。 |
-| `delete` | — | 忘记一份文档；历史版本仍可回看，物理抹除是 S6。 |
+| `delete` | — | 忘记一份文档（逻辑删除）；历史版本仍可回看。模型工具永远不能触发物理抹除；物理抹除只走宿主 UI/服务路径，见 §1.8。 |
 | `restore` | `restore_version` | 取历史版本内容，作为当前版本写回。 |
 
 所有 action 都要求 `expected_version`：调用方刚读到的 live 版本；`0` 表示文档当前不存在。
@@ -131,6 +133,8 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
 `memory-write-request.schema.json` 的 `evidence`、`memory-document.schema.json` 的 `trust`／`source`
 与 `golden/memory-write.json` 的 `evidenceCases`／`boundaryCases` 是共享向量；`validate_vectors.py`
 用参考解析器逐条校验 `user`／`observation`／`assistant` 推导、引用无效时的拒绝和 source 规则的叠加。
+物理抹除的共享向量在 `golden/memory-erasure.json`（§1.8）；它同时校验目标范围、版本计数、跨 Bot
+隔离和不覆盖的 session 引用。
 
 ### 1.6 迁移
 
@@ -158,6 +162,27 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
 `spec/bot/v1/golden/tool-catalog.phone.json` 与 `tool-effects.phone.json`（`read + auto`）；
 上游 `tool-catalog.json`、`tool-effects.json` 及其 schema 的 P0 enum 保持不动。`UpdateMemory`、
 `RecallMemory` 的原语名不变，但参数/结果按本节替换旧 fact 形状。
+
+### 1.8 两个删除强度：忘记与抹除（S6）
+
+- **忘记（forget）**：`UpdateMemory{"action":"delete"}` 或记忆页的「忘记」写入
+  `memory.document_deleted`，live 文档消失，历史版本和原始事件保留。
+- **抹除（erase）**：只由宿主的记忆页/服务路径发起，模型工具面没有这个 action。它物理清除：
+  该文档（或 `agent/`、`user/` 整个根）的 live 文档、**全部历史版本**、对应
+  `memory.document_written`/`memory.document_deleted` 事件载荷、检索结果、UI 行，以及事件载荷里
+  与版本文本相同或由唯一标记匹配到的副本；`redaction.applied`/观察信封等指向被清除
+  `record://event/...` 的内容也一并清除。事件头、序号、id、类型和 SHA-256 摘要保留，并追加一条
+  durable `erasure` 事件（v1 §4.6、[erasure-event.schema.json](../v1/erasure-event.schema.json)）。
+- **范围**：单份文档只作用于该路径的全部版本；`agent/` 只作用于该 Bot（`erasure` 事件按写入者
+  principal 限定，其他 Bot 的 agent 文档必须存活）；`user/` 是所有 Bot 共享的根，抹除会跨 Bot
+  清除共享文档和事件副本。`user/` 与 `agent/` 的入口必须分开确认，文案写明范围。
+- **未覆盖**：DSH 会话日志（`record://session/...`）的区间改写在 S6 第二步；本修订只在
+  `erasure.uncovered_records` 登记这些引用，并在记忆页确认文案写明「DSH 会话日志暂未覆盖」。
+  因此 `record://event/...` 已抹除的引用返回 `record_erased`，而 session 引用仍按 v1 §4.4 读取。
+- **幂等与失败**：重复抹除不再写第二条 `erasure` 事件；单文档不存在返回 `memory-not-found`，
+  scope 无文档返回 `removed=0`；路径非法返回 `memory-path-invalid`；任何失败都不能伪称已清除。
+- **向量**：`golden/memory-erasure.json` 冻结单文档全版本、agent scope 隔离、共享 user 跨 Bot、
+  分类计数和非法目标；`spec/bot/v2/tools/validate_vectors.py` 用参考实现校验，并做 mutation 自检。
 
 ## 2. 唤醒标记
 

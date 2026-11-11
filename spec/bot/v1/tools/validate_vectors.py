@@ -30,11 +30,13 @@ AUTHORITY_VECTOR = "authority.phone.json"
 RECORD_REFERENCE_VECTOR = "record-reference.phone.json"
 OBSERVATION_ENVELOPE_VECTOR = "observation-envelope.phone.json"
 RECORD_QUERY_VECTOR = "record-query.phone.json"
+ERASURE_EVENT_VECTOR = "erasure-event.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
 PHONE_ONLY_VECTORS = frozenset({
     TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR,
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
+    ERASURE_EVENT_VECTOR,
 })
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
@@ -1131,6 +1133,13 @@ def validate_record_query_fixture(fixture):
         check(result, "record-query.schema.json", f"record-query.invalid[{index}]")
         if result.get("ok") is not False:
             raise AssertionError(f"record-query.invalid[{index}]: expected a failure result")
+    erased = [case for case in invalid
+              if (case.get("result", {}).get("error", {}).get("code") == "record_erased")]
+    if not erased:
+        raise AssertionError("record-query.phone: missing the record_erased failure vector")
+    erased_error = erased[0]["result"]["error"]
+    if erased_error.get("message") != "该记录已被抹除":
+        raise AssertionError("record-query.phone: record_erased message must be 该记录已被抹除")
     recall = fixture.get("compactionRecall")
     if not isinstance(recall, dict):
         raise AssertionError("record-query.phone: compactionRecall is required")
@@ -1155,6 +1164,61 @@ def validate_record_query_fixture(fixture):
     if original.get("surfaceOp") != "append":
         raise AssertionError("record-query.phone: the original line must still be an append record")
     return len(valid), len(invalid), 0
+
+
+def validate_erasure_event_fixture(fixture):
+    if fixture.get("vector") != "erasure-event.phone":
+        raise AssertionError("erasure-event.phone: vector must be erasure-event.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("erasure-event.phone: phone-only vector must declare upstream: []")
+    delta = fixture.get("delta")
+    if not isinstance(delta, list) or not delta:
+        raise AssertionError("erasure-event.phone: delta must be a non-empty array")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("erasure-event.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("erasure-event.phone: invalid must be a non-empty array")
+    for index, case in enumerate(valid):
+        where = f"erasure-event.valid[{index}]"
+        data = case.get("data")
+        check(data, "erasure-event.schema.json", where)
+        events = data["erasedEvents"]
+        records = [event["record"] for event in events]
+        if len(records) != len(set(records)):
+            raise AssertionError(f"{where}: erased event records must be unique")
+        if sum(event["payloadBytes"] for event in events) != data["erasedBytes"]:
+            raise AssertionError(f"{where}: erasedBytes must equal the payload byte sum")
+        for range_case in data["memoryVersions"]:
+            versions = range_case["versions"]
+            if versions != sorted(set(versions)):
+                raise AssertionError(f"{where}: versions must be sorted and unique")
+    for index, case in enumerate(invalid):
+        rejects(case.get("data"), "erasure-event.schema.json",
+                f"erasure-event.invalid[{index}]")
+
+    count = 0
+
+    def expect_failure(label, mutate):
+        nonlocal count
+        mutated = json.loads(json.dumps(fixture))
+        mutate(mutated)
+        try:
+            validate_erasure_event_fixture(mutated)
+        except Exception:  # noqa: BLE001 - SpecError is not an AssertionError
+            count += 1
+            return
+        raise AssertionError(f"erasure-event mutation {label!r} unexpectedly passed")
+
+    expect_failure("targets-empty",
+                   lambda value: value["valid"][0]["data"].__setitem__("targets", []))
+    expect_failure("record-zero",
+                   lambda value: value["valid"][0]["data"]["erasedEvents"][0]
+                   .__setitem__("record", "record://event/0"))
+    expect_failure("byte-sum",
+                   lambda value: value["valid"][0]["data"].__setitem__("erasedBytes", 1))
+    return len(valid), len(invalid), count
 
 
 def mutation_count_for_record_contracts(reference_fixture, envelope_fixture, query_fixture):
@@ -1516,6 +1580,8 @@ def main() -> int:
         check(case["event"], "event-envelope.schema.json", where)
         if case.get("validation", {}).get("valid") is not True:
             raise AssertionError(f"{where}: validation.valid must be true")
+        if case["event"].get("type") == "erasure":
+            check(case["event"].get("data"), "erasure-event.schema.json", f"{where}.data")
     invalid_phone_events = phone_envelope.get("invalidCases")
     if not isinstance(invalid_phone_events, list) or not invalid_phone_events:
         raise AssertionError("event-envelope.phone: invalidCases must be a non-empty array")
@@ -1584,6 +1650,8 @@ def main() -> int:
     envelope_valid, envelope_invalid, envelope_decode_errors, _ = validate_observation_envelope_fixture(
         load(OBSERVATION_ENVELOPE_VECTOR))
     query_valid, query_invalid, _ = validate_record_query_fixture(load(RECORD_QUERY_VECTOR))
+    erasure_valid, erasure_invalid, erasure_mutations = validate_erasure_event_fixture(
+        load(ERASURE_EVENT_VECTOR))
     record_mutations = mutation_count_for_record_contracts(
         load(RECORD_REFERENCE_VECTOR), load(OBSERVATION_ENVELOPE_VECTOR), load(RECORD_QUERY_VECTOR))
     check_v2_tree()
@@ -1615,6 +1683,8 @@ def main() -> int:
           f"observation-envelope {envelope_valid} valid / {envelope_invalid} invalid / "
           f"{envelope_decode_errors} decode errors, "
           f"record-query {query_valid} valid / {query_invalid} invalid, "
+          f"erasure-event {erasure_valid} valid / {erasure_invalid} invalid / "
+          f"{erasure_mutations} mutations, "
           f"{record_mutations} mutation checks)")
     return 0
 

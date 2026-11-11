@@ -686,6 +686,172 @@ def validate_migration_vectors() -> int:
     return len(fixture["bots"])
 
 
+# ── physical memory erasure (S6) ──────────────────────────────────────────
+
+
+def erasure_needles(content):
+    result = set()
+    stripped = content.strip()
+    if len(stripped) >= 8:
+        result.add(stripped)
+    for line in content.split("\n"):
+        value = line.strip()
+        if len(value) >= 8:
+            result.add(value)
+    separators = set(",;:!?()[]{}<>\"'")
+    for token in re.split(r"[\s" + re.escape("".join(separators)) + r"]+", content):
+        if len(token) >= 8 and ("_" in token or any(ch.isdigit() for ch in token)):
+            result.add(token)
+    return result
+
+
+def erasure_plan(case):
+    target = case.get("target") or {}
+    scope = target.get("scope")
+    path = target.get("path")
+    if scope not in ROOTS:
+        return None, "memory-path-invalid"
+    if path is not None:
+        if parse_path(path) is None or scope_of(path) != scope:
+            return None, "memory-path-invalid"
+    bot_id = case.get("botID", "main")
+    state = case.get("state", {})
+    documents = state.get("documents", [])
+    selected = []
+    for document in documents:
+        if document.get("scope") != scope:
+            continue
+        if scope == "agent" and document.get("botId") != bot_id:
+            continue
+        if path is not None and document.get("path") != path:
+            continue
+        selected.append(document)
+    paths = sorted({document["path"] for document in selected})
+    needles = set()
+    for document in selected:
+        for version in document.get("versions", []):
+            if not version.get("deleted"):
+                needles |= erasure_needles(version.get("content") or "")
+    events = state.get("events", [])
+    erased = set()
+    for event in events:
+        if event.get("botId") not in (None, bot_id) and scope != "user":
+            continue
+        if event.get("path") in paths and str(event.get("type", "")).startswith("memory."):
+            erased.add(event["seq"])
+        text = event.get("text")
+        if isinstance(text, str) and any(needle in text for needle in needles):
+            erased.add(event["seq"])
+    erased_refs = {f"record://event/{seq}" for seq in erased}
+    if erased_refs:
+        for event in events:
+            if event.get("seq") in erased:
+                continue
+            if str(event.get("type", "")).startswith("memory."):
+                continue
+            if event.get("botId") not in (None, bot_id) and scope != "user":
+                continue
+            if erased_refs.intersection(event.get("refs", [])):
+                erased.add(event["seq"])
+    path_bots = {}
+    for document in documents:
+        key = (document.get("path"), document.get("scope"))
+        path_bots.setdefault(key, set()).add(document.get("botId"))
+    surviving = []
+    for document in documents:
+        if document in selected:
+            continue
+        marker = document["path"]
+        if document.get("scope") == "agent" and len(path_bots[(document["path"], "agent")]) > 1:
+            marker += "#" + str(document.get("botId"))
+        surviving.append(marker)
+    uncovered = set()
+    for document in selected:
+        for raw in document.get("evidence", []):
+            if raw.startswith("record://session/"):
+                uncovered.add(raw)
+    live = sum(1 for document in selected if document.get("live"))
+    versions = sum(len(document.get("versions", [])) for document in selected)
+    return {
+        "ok": True,
+        "scope": scope,
+        "paths": paths,
+        "removedDocuments": live,
+        "removedVersions": versions,
+        "erasedEvents": sorted(erased),
+        "survivingPaths": sorted(surviving),
+        "uncoveredRecords": sorted(uncovered),
+        "legacyFactIDs": [],
+    }, None
+
+
+def validate_erasure_vectors() -> tuple[int, int, int]:
+    fixture = load("memory-erasure")
+    if fixture.get("vector") != "memory-erasure":
+        raise AssertionError("memory-erasure: vector must be memory-erasure")
+    if fixture.get("upstream") != []:
+        raise AssertionError("memory-erasure: phone-only vector must declare upstream: []")
+    cases = fixture.get("cases")
+    invalid = fixture.get("invalid")
+    if not isinstance(cases, list) or not cases:
+        raise AssertionError("memory-erasure: cases must be non-empty")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("memory-erasure: invalid must be non-empty")
+    for index, case in enumerate(cases):
+        plan, error = erasure_plan(case)
+        if error is not None:
+            raise AssertionError(f"memory-erasure.cases[{index}] {case.get('name')}: {error}")
+        expect = case["expect"]
+        for key, value in expect.items():
+            if plan.get(key) != value:
+                raise AssertionError(
+                    f"memory-erasure.cases[{index}] {case.get('name')}.{key} "
+                    f"{plan.get(key)!r} != {value!r}")
+    for index, case in enumerate(invalid):
+        plan, error = erasure_plan(case)
+        if plan is not None or error != case.get("error"):
+            raise AssertionError(
+                f"memory-erasure.invalid[{index}] {case.get('name')}: "
+                f"{error!r} != {case.get('error')!r}")
+
+    mutations = 0
+
+    def expect_failure(label, mutate):
+        nonlocal mutations
+        mutated = json.loads(json.dumps(fixture))
+        mutate(mutated)
+        try:
+            validate_erasure_vectors_from(mutated)
+        except AssertionError:
+            mutations += 1
+            return
+        raise AssertionError(f"memory-erasure mutation {label!r} unexpectedly passed")
+
+    expect_failure("version-count",
+                   lambda value: value["cases"][0]["expect"].__setitem__("removedVersions", 1))
+    expect_failure("agent-isolation",
+                   lambda value: value["cases"][1].__setitem__("botID", "bot-b"))
+    expect_failure("uncovered-session",
+                   lambda value: value["cases"][0]["expect"].__setitem__("uncoveredRecords", []))
+    return len(cases), len(invalid), mutations
+
+
+def validate_erasure_vectors_from(fixture) -> None:
+    """Same body as validate_erasure_vectors without the mutation recursion."""
+    cases = fixture["cases"]
+    for case in cases:
+        plan, error = erasure_plan(case)
+        if error is not None:
+            raise AssertionError(f"{case.get('name')}: {error}")
+        for key, value in case["expect"].items():
+            if plan.get(key) != value:
+                raise AssertionError(f"{case.get('name')}.{key} {plan.get(key)!r} != {value!r}")
+    for case in fixture["invalid"]:
+        plan, error = erasure_plan(case)
+        if plan is not None or error != case.get("error"):
+            raise AssertionError(f"{case.get('name')}: {error!r} != {case.get('error')!r}")
+
+
 # ── wake / held fixtures (ownership moved to v2) ──────────────────────────
 
 
@@ -720,6 +886,7 @@ def main() -> int:
     recall = validate_recall_vectors()
     injection = validate_injection_vectors()
     migration = validate_migration_vectors()
+    erasure_cases, erasure_invalid, erasure_mutations = validate_erasure_vectors()
     held_valid, held_invalid = validate_wake_and_held()
     notifications_valid, notifications_invalid = validate_routine_notification()
     mutations = mutation_count_for_evidence()
@@ -728,7 +895,9 @@ def main() -> int:
           f"and negative vectors; documents {documents}; evidence {evidence_valid} valid / "
           f"{evidence_invalid} invalid / {boundary} boundary / {mutations} mutations; "
           f"writes {writes}; reads {reads}; recall {recall}; injection {injection}; "
-          f"migration {migration} bots; held {held_valid} valid / {held_invalid} invalid; "
+          f"migration {migration} bots; erasure {erasure_cases} valid / "
+          f"{erasure_invalid} invalid / {erasure_mutations} mutations; "
+          f"held {held_valid} valid / {held_invalid} invalid; "
           f"notifications {notifications_valid} valid / {notifications_invalid} invalid)")
     return 0
 

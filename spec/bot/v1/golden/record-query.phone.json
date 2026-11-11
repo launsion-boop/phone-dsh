@@ -9,7 +9,8 @@
   "delta": [
     "Freeze the `phone record search` / `phone record read` answers as the P19 bounded phone-tool envelope with scope bot.",
     "Freeze the caller rule: the host resolves the caller from the claimed DSH session carried out-of-band by the shell, never from --session or any argv word.",
-    "Freeze that a compaction replace checkpoint keeps its shadowed session lines readable, and that reading either side exposes the range/reference relation."
+    "Freeze that a compaction replace checkpoint keeps its shadowed session lines readable, and that reading either side exposes the range/reference relation.",
+    "Freeze the P25 erased-payload answer: reading a record://event reference whose payload the host erased returns ok:false with code record_erased and never the original bytes; search skips it."
   ],
   "valid": [
     {
@@ -167,7 +168,10 @@
       "result": {
         "ok": false,
         "tool": "record.search",
-        "error": {"code": "unclaimed_session", "message": "the calling DSH session is not claimed by this Bot runtime"}
+        "error": {
+          "code": "unclaimed_session",
+          "message": "the calling DSH session is not claimed by this Bot runtime"
+        }
       }
     },
     {
@@ -175,7 +179,10 @@
       "result": {
         "ok": false,
         "tool": "record.read",
-        "error": {"code": "session_out_of_scope", "message": "the requested session does not belong to this Bot"}
+        "error": {
+          "code": "session_out_of_scope",
+          "message": "the requested session does not belong to this Bot"
+        }
       }
     },
     {
@@ -183,7 +190,10 @@
       "result": {
         "ok": false,
         "tool": "record.read",
-        "error": {"code": "unknown_record", "message": "no record exists at that reference"}
+        "error": {
+          "code": "unknown_record",
+          "message": "no record exists at that reference"
+        }
       }
     },
     {
@@ -191,7 +201,21 @@
       "result": {
         "ok": false,
         "tool": "record.read",
-        "error": {"code": "invalid_around", "message": "--around must be an integer in 0...20"}
+        "error": {
+          "code": "invalid_around",
+          "message": "--around must be an integer in 0...20"
+        }
+      }
+    },
+    {
+      "name": "record-erased",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "record_erased",
+          "message": "该记录已被抹除"
+        }
       }
     }
   ],
@@ -210,15 +234,28 @@
         "type": "turn/start",
         "seq": 2,
         "time": 1760000002000,
-        "data": {"turn": 1}
+        "data": {
+          "turn": 1
+        }
       },
       {
         "type": "user/message",
         "seq": 3,
         "time": 1760000003000,
         "data": {
-          "message": {"role": "user", "content": [{"type": "text", "text": "PINEAPPLE_ORIGINAL user statement"}]},
-          "source": {"kind": "user", "rpcId": "bot-1"}
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "PINEAPPLE_ORIGINAL user statement"
+              }
+            ]
+          },
+          "source": {
+            "kind": "user",
+            "rpcId": "bot-1"
+          }
         },
         "surfaceOp": "append"
       },
@@ -226,7 +263,13 @@
         "type": "tool/call",
         "seq": 4,
         "time": 1760000004000,
-        "data": {"turn": 1, "step": 1, "callId": "call-1", "name": "web_fetch", "arguments": "{\"url\":\"https://example.com\"}"}
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "call-1",
+          "name": "web_fetch",
+          "arguments": "{\"url\":\"https://example.com\"}"
+        }
       },
       {
         "type": "tool/result",
@@ -238,10 +281,18 @@
           "message": {
             "role": "tool",
             "toolCallId": "call-1",
-            "content": [{"type": "text", "text": "PINEAPPLE_FETCH_RESULT"}],
+            "content": [
+              {
+                "type": "text",
+                "text": "PINEAPPLE_FETCH_RESULT"
+              }
+            ],
             "isError": false
           },
-          "source": {"kind": "tool", "callId": "call-1"}
+          "source": {
+            "kind": "tool",
+            "callId": "call-1"
+          }
         },
         "surfaceOp": "append"
       },
@@ -252,8 +303,15 @@
         "data": {
           "compactionId": "cmp-1",
           "summary": "PINEAPPLE summary",
-          "shadowedRange": {"start": 3, "end": 9},
-          "shadowedSeqs": [3, 4, 5]
+          "shadowedRange": {
+            "start": 3,
+            "end": 9
+          },
+          "shadowedSeqs": [
+            3,
+            4,
+            5
+          ]
         }
       },
       {
@@ -261,15 +319,33 @@
         "seq": 20,
         "time": 1760000020000,
         "data": {
-          "message": {"role": "user", "content": [{"type": "text", "text": "PINEAPPLE summary"}]},
-          "source": {"kind": "compact-checkpoint", "compactionId": "cmp-1"}
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "PINEAPPLE summary"
+              }
+            ]
+          },
+          "source": {
+            "kind": "compact-checkpoint",
+            "compactionId": "cmp-1"
+          }
         },
-        "surfaceOp": {"op": "replace", "startSeq": 3, "endSeq": 9}
+        "surfaceOp": {
+          "op": "replace",
+          "startSeq": 3,
+          "endSeq": 9
+        }
       }
     ],
     "originalRef": "record://session/gb-main#3",
     "originalContains": "PINEAPPLE_ORIGINAL user statement",
     "checkpointRef": "record://session/gb-main#20",
-    "checkpointRange": {"start": 3, "end": 9}
+    "checkpointRange": {
+      "start": 3,
+      "end": 9
+    }
   }
 }

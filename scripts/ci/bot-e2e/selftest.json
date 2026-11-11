@@ -449,6 +449,20 @@
         {
           "type": "reply_contains",
           "value": "MEMORIES_WRITTEN"
+        },
+        {
+          "type": "bot_event",
+          "event": "erasure"
+        },
+        {
+          "type": "no_bot_event",
+          "event": "memory.document_written",
+          "payload_contains": "FORGET_AGENT"
+        },
+        {
+          "type": "no_bot_event",
+          "event": "memory.document_written",
+          "payload_contains": "FORGET_USER"
         }
       ]
     },

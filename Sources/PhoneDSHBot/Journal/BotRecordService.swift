@@ -24,6 +24,7 @@ public enum BotRecordServiceError: Error, Sendable, Equatable {
     case unclaimedSession
     case sessionOutOfScope
     case unknownRecord
+    case erasedRecord
     case invalidReference
     case invalidQuery
     case invalidSince
@@ -299,7 +300,8 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         }
         if !overflow {
             for record in events where record.event.principal.botId == caller.botId {
-                guard since == nil || record.event.time >= since!,
+                guard !record.event.isErasedPayload,
+                      since == nil || record.event.time >= since!,
                       record.searchable.lowercased().contains(needle),
                       let commitSeq = record.event.commitSeq else { continue }
                 if hits.count == Self.maximumHits { overflow = true; break }
@@ -391,6 +393,9 @@ public actor BotRecordService: BotRecordEvidenceResolving {
             guard record.event.principal.botId == caller.botId else {
                 throw BotRecordServiceError.sessionOutOfScope
             }
+            guard !record.event.isErasedPayload else {
+                throw BotRecordServiceError.erasedRecord
+            }
             let (rawText, truncated) = Self.boundedRaw(record.raw)
             return EncodedResult(value: .object([
                 "ref": .string(reference.canonical),
@@ -439,6 +444,9 @@ public actor BotRecordService: BotRecordEvidenceResolving {
                 guard let record = events.first(where: { $0.event.commitSeq == commitSeq }),
                       record.event.principal.botId == caller.botId else {
                     throw BotRecordServiceError.unknownRecord
+                }
+                guard !record.event.isErasedPayload else {
+                    throw BotRecordServiceError.erasedRecord
                 }
                 if let inferred = inferredTrust(for: record.event, calls: calls) {
                     trust = merge(trust, inferred)
@@ -730,6 +738,7 @@ public actor BotRecordService: BotRecordEvidenceResolving {
         case .unclaimedSession: return "unclaimed_session"
         case .sessionOutOfScope: return "session_out_of_scope"
         case .unknownRecord: return "unknown_record"
+        case .erasedRecord: return "record_erased"
         case .invalidReference: return "invalid_reference"
         case .invalidQuery: return "invalid_query"
         case .invalidSince: return "invalid_since"
@@ -747,6 +756,8 @@ public actor BotRecordService: BotRecordEvidenceResolving {
             return "the requested session does not belong to this Bot"
         case .unknownRecord:
             return "no record exists at that reference"
+        case .erasedRecord:
+            return "该记录已被抹除"
         case .invalidReference:
             return "the argument is not a canonical record:// reference"
         case .invalidQuery:
@@ -764,7 +775,7 @@ public actor BotRecordService: BotRecordEvidenceResolving {
 
     private static func exitCode(for error: BotRecordServiceError) -> Int32 {
         switch error {
-        case .unclaimedSession, .sessionOutOfScope, .unknownRecord, .unavailable:
+        case .unclaimedSession, .sessionOutOfScope, .unknownRecord, .erasedRecord, .unavailable:
             return 1
         case .invalidReference, .invalidQuery, .invalidSince, .invalidAround, .invalidArguments:
             return 2

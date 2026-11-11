@@ -75,6 +75,9 @@ extension BotProductionInfoService {
             forget: { [self] document in
                 try await self.forget(path: document.path, expectedVersion: document.version)
             },
+            eraseDocument: { [self] document in
+                try await self.eraseMemory(path: document.path)
+            },
             erase: { [self] in try await self.eraseMemories() },
             eraseShared: { [self] in try await self.eraseSharedMemories() },
             setRoutineEnabled: { [self] id, enabled in

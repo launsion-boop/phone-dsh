@@ -99,7 +99,9 @@ struct BotInfoDriver {
     var load: () async throws -> BotInfoSnapshot
     var rename: (String) async throws -> Void
     var forget: (BotMemoryDocumentInfo) async throws -> Void
-    /// Erases this Bot's agent scope only.
+    /// Physically erases one document and every historical version.
+    var eraseDocument: (BotMemoryDocumentInfo) async throws -> Void = { _ in }
+    /// Physically erases this Bot's agent root only.
     var erase: () async throws -> Void
     /// Erases the shared user scope for every Bot; a separate confirmed entry.
     var eraseShared: () async throws -> Void = {}
@@ -299,23 +301,44 @@ final class BotInfoModel: ObservableObject {
         isMainBot = isMain
     }
 
-    /// Only this Bot's agent facts disappear from the page; shared facts stay
-    /// visible and remain available to every Bot.
-    func erase() async {
+    /// Physically erases one document and every historical version, then
+    /// re-reads the host authority. The fixture path only edits local state.
+    func erase(_ document: BotMemoryDocumentInfo) async {
+        guard let driver else {
+            memories.removeAll { $0.id == document.id }
+            return
+        }
         do {
-            try await driver?.erase()
+            try await driver.eraseDocument(document)
+            await refresh()
+        } catch {
+            actionError = "抹除失败：\(error.localizedDescription)"
+        }
+    }
+
+    func erase() async {
+        guard let driver else {
             memories.removeAll { $0.scope != "user" }
+            return
+        }
+        do {
+            try await driver.erase()
+            await refresh()
         } catch {
             actionError = "抹除失败：\(error.localizedDescription)"
         }
     }
 
     func eraseShared() async {
-        do {
-            try await driver?.eraseShared()
+        guard let driver else {
             memories.removeAll { $0.scope == "user" }
+            return
+        }
+        do {
+            try await driver.eraseShared()
+            await refresh()
         } catch {
-            actionError = "清除共享记忆失败：\(error.localizedDescription)"
+            actionError = "抹除共享 user/ 记忆失败：\(error.localizedDescription)"
         }
     }
 
@@ -726,7 +749,7 @@ private struct BotMemoryPage: View {
                         title: "本 Bot 的工作知识（agent/）",
                         documents: botDocuments,
                         footer: "只属于这个 Bot；其他 Bot 看不到。Task 和 routine 只能提交到 agent/inbox/<会话>/。",
-                        eraseTitle: "抹除这个 Bot 的 agent 文档",
+                        eraseTitle: "抹除这个 Bot 的 agent 文档（含全部版本）",
                         eraseIdentifier: "bot.memory.erase") {
                         confirmErase = true
                     }
@@ -734,7 +757,7 @@ private struct BotMemoryPage: View {
                         title: "共享的用户记忆（user/）",
                         documents: sharedDocuments,
                         footer: "user/ 是所有 Bot 共享、彼此可见的一份文档树；清除后每个 Bot 都会失去这些内容。",
-                        eraseTitle: "清除所有 Bot 共享的记忆",
+                        eraseTitle: "抹除所有 Bot 共享的 user/ 文档（含全部版本）",
                         eraseIdentifier: "bot.memory.erase.shared") {
                         confirmShared = true
                     }
@@ -744,9 +767,11 @@ private struct BotMemoryPage: View {
         .homeGroupedList()
         .navigationTitle("记忆")
         .navigationDestination(for: BotMemoryDocumentInfo.self) { document in
-            BotMemoryDocumentView(document: document) {
-                forgetting = document
-            }
+            BotMemoryDocumentView(
+                document: document,
+                onForget: { forgetting = document },
+                onErase: { Task { await model.erase(document) } }
+            )
         }
         .confirmationDialog("忘记这份文档？", isPresented: Binding(
             get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }
@@ -757,15 +782,15 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) { forgetting = nil }
         } message: {
-            Text("文档会从当前版本中移除；历史版本仍保留，直到 S6 的物理抹除。")
+            Text("忘记只移除当前版本：历史版本、原始记录和已经写入事件载荷里的内容仍保留。")
         }
-        .confirmationDialog("抹除这个 Bot 的记忆？", isPresented: $confirmErase) {
-            Button("抹除本 Bot 的记忆", role: .destructive) { Task { await model.erase() } }
+        .confirmationDialog("抹除这个 Bot 的 agent 记忆？", isPresented: $confirmErase) {
+            Button("抹除本 Bot 的 agent/ 文档", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("只移除这个 Bot 的 agent 文档，不会动共享的 user/ 文档。")
+            Text("物理删除这个 Bot 的 agent/ 文档树和全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。共享 user/ 不受影响。DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
         }
-        .confirmationDialog("清除所有 Bot 共享的记忆？", isPresented: $confirmShared) {
+        .confirmationDialog("抹除所有 Bot 共享的 user/ 文档？", isPresented: $confirmShared) {
             Button("继续", role: .destructive) {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 150_000_000)
@@ -774,13 +799,13 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会影响每一个 Bot。")
+            Text("这会影响每一个 Bot：共享 user/ 文档树和全部历史版本会被物理删除；DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
         }
-        .confirmationDialog("最后确认：清除全部共享记忆？", isPresented: $confirmSharedAgain) {
-            Button("清除共享记忆", role: .destructive) { Task { await model.eraseShared() } }
+        .confirmationDialog("最后确认：抹除全部共享 user/ 记忆？", isPresented: $confirmSharedAgain) {
+            Button("抹除共享 user/ 记忆", role: .destructive) { Task { await model.eraseShared() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("此操作不能在页面内回滚。")
+            Text("物理删除所有 Bot 共享的 user/ 文档树、全部历史版本，并清除事件载荷及派生视图中与它们相同的内容。所有 Bot 会立即失去这些记忆。DSH 会话日志（聊天原始记录）暂未覆盖。此操作不可撤销。")
         }
     }
 
@@ -859,6 +884,8 @@ private struct BotMemoryTreeRowView: View {
 private struct BotMemoryDocumentView: View {
     let document: BotMemoryDocumentInfo
     let onForget: () -> Void
+    let onErase: () -> Void
+    @State private var confirmErase = false
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -930,9 +957,22 @@ private struct BotMemoryDocumentView: View {
                     dismiss()
                 }
                 .accessibilityIdentifier("bot.memory.document.forget")
+                Button("抹除这份文档和全部历史版本", role: .destructive) {
+                    confirmErase = true
+                }
+                .accessibilityIdentifier("bot.memory.document.erase")
             } footer: {
-                Text("忘记只移除当前版本；历史版本仍可在事件库中回看。物理抹除是 S6。")
+                Text("忘记只移除当前版本；历史版本和原始记录仍保留。抹除会物理删除这份文档、全部历史版本，以及事件载荷和派生视图中与它相同的内容；DSH 会话日志（聊天原始记录）暂未覆盖。抹除不可撤销。")
             }
+        }
+        .confirmationDialog("抹除这份文档？", isPresented: $confirmErase) {
+            Button("抹除文档和全部版本", role: .destructive) {
+                onErase()
+                dismiss()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("物理删除 \(document.path) 的全部版本，并清除事件载荷和派生视图中与它相同的内容。共享记忆的其他文档不受影响；DSH 会话日志暂未覆盖。此操作不可撤销。")
         }
         .homeGroupedList()
         .navigationTitle(document.path)

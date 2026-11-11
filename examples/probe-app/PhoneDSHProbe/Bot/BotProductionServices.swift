@@ -556,17 +556,32 @@ actor BotProductionInfoService {
         }
     }
 
-    /// Erases only this Bot's agent scope. The shared user scope is a separate
-    /// explicit action (`eraseSharedMemories`) so one Bot can never wipe the
-    /// facts every Bot shares.
-    func eraseMemories() async throws {
-        _ = try await environment.memory.eraseAll(scope: .agent)
+    /// Physical erase of one memory document and every historical version.
+    /// The shared user root is not touched.
+    func eraseMemory(path: String) async throws {
+        let outcome = try await environment.memory.erase(path: path)
+        guard outcome.ok else {
+            throw BotProductionError.invalidService(outcome.error ?? "抹除记忆失败")
+        }
     }
 
-    /// Erases the shared user scope for every Bot. Only called from the
-    /// information page's separate, doubly-confirmed shared-memory entry.
+    /// Physically erases only this Bot's agent root. The shared user root is a
+    /// separate explicit action (`eraseSharedMemories`) so one Bot can never
+    /// wipe the documents every Bot shares.
+    func eraseMemories() async throws {
+        let outcome = try await environment.memory.erase(scope: .agent)
+        guard outcome.ok else {
+            throw BotProductionError.invalidService(outcome.error ?? "抹除记忆失败")
+        }
+    }
+
+    /// Physically erases the shared user root for every Bot. Only called from
+    /// the information page's separate, doubly-confirmed shared-memory entry.
     func eraseSharedMemories() async throws {
-        _ = try await environment.memory.eraseAll(scope: .user)
+        let outcome = try await environment.memory.erase(scope: .user)
+        guard outcome.ok else {
+            throw BotProductionError.invalidService(outcome.error ?? "清除共享记忆失败")
+        }
     }
 
     func setRoutineEnabled(_ routineID: String, enabled: Bool) async throws {
