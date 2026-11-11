@@ -36,5 +36,18 @@ tasks.test {
 dependencies {
     api(project(":core"))
     implementation(libs.bouncycastle.bcprov)
+
+    // Relay transport (C3). Ktor 3.2.3 is the version `:net` already pins for
+    // its server and test client; there is no separate version catalog entry.
+    implementation("io.ktor:ktor-client-core:3.2.3")
+    implementation("io.ktor:ktor-client-cio:3.2.3")
+    implementation("io.ktor:ktor-client-websockets:3.2.3")
+
+    // Test-only loopback relay for `PclinkKtorWebSocketTest`: the real Ktor
+    // client against a local Ktor server WebSocket. Never a real relay.
+    testImplementation("io.ktor:ktor-server-core:3.2.3")
+    testImplementation("io.ktor:ktor-server-cio:3.2.3")
+    testImplementation("io.ktor:ktor-server-websockets:3.2.3")
+
     testImplementation(libs.junit)
 }
