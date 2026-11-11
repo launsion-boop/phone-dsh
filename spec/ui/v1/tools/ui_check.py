@@ -63,11 +63,7 @@ PROBE_REL = Path("examples") / "probe-app" / "PhoneDSHProbe"
 # `*Page` struct, and it now carries the PR22 typography/geometry tables as well.
 # 319 -> 345 is a recorded rule change for those normative tables, not a way to
 # omit pages; the page cross-check below still fails if one is missing.
-# 345 -> 390 is the same kind of recorded rule change for the normative drawer
-# interaction section (PC-20261111-ui-drawer-interaction): its ten rules and
-# key table need a home, and deleting existing normative text to make room is
-# not an option. It is still not a way to omit a page.
-README_MAX_LINES = 390
+README_MAX_LINES = 345
 MAX_DEFERRED_PAIRS = 7
 DRAWER_GOLDEN_REL = Path("golden") / "drawer-gesture.golden.json"
 DRAWER_DOC_SOURCE = "tokens.json#interaction.drawer"

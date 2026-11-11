@@ -26,7 +26,7 @@ P09 — 會話抽屜（任務 tab 的會話列表、Bot tab 的名單共用同�
   - 期望：抽屜的全部數值和規則都在 spec 裡、有 iOS 出處並由 `ui_check.py` 反查；Android 按 spec 實作並用共享 golden 測試。
 - 協調者兼 contract owner：Claude。Implementer：DSH worker A（spec 與檢查器，受 owner 指派）、DSH worker B（Android）。
   Reviewer／integrator：Claude。
-- Owning contract：`spec/ui/v1/tokens.json`、`spec/ui/v1/schema/tokens.schema.json`、`spec/ui/v1/README.md` §3.2（新增）、
+- Owning contract：`spec/ui/v1/tokens.json`、`spec/ui/v1/schema/tokens.schema.json`、`spec/ui/v1/interaction.md` §1（新增）、
   `spec/ui/v1/golden/drawer-gesture.golden.json`（新增）。
 - Producer／consumer：
   - iOS `examples/probe-app/PhoneDSHProbe/NativeShell.swift`：權威來源，本次**不改**。
@@ -66,7 +66,7 @@ P09 — 會話抽屜（任務 tab 的會話列表、Bot tab 的名單共用同�
 
 `unit` 取值：`pt`、`opacity`、`widthFraction`、`s`。
 
-### 2.3 規則（寫進 README §3.2，規範性）
+### 2.3 規則（寫進 spec/ui/v1/interaction.md §1，規範性）
 
 1. 打開只由導航鈕觸發（任務頁、Bot 頁、PC 佔位頁的抽屜鈕）；**沒有**邊緣右滑打開。已打開時再觸發不做任何事。打開前收起鍵盤。
 2. 拖動只跟隨向左：`offset = min(0, dx)`，向左不設下限（與 iOS `NativeShell.swift:400` 一致）。
@@ -107,7 +107,8 @@ P09 — 會話抽屜（任務 tab 的會話列表、Bot tab 的名單共用同�
 ## 4. 分工與證據
 
 - Worker A 獨占：`spec/ui/v1/tokens.json`、`spec/ui/v1/schema/tokens.schema.json`、`spec/ui/v1/README.md`、
-  `spec/ui/v1/golden/drawer-gesture.golden.json`、`spec/ui/v1/tools/ui_check.py`、`spec/ui/v1/tools/test_ui_check.py`。
+  `spec/ui/v1/interaction.md`、`spec/ui/v1/golden/drawer-gesture.golden.json`、`spec/ui/v1/tools/ui_check.py`、
+  `spec/ui/v1/tools/test_ui_check.py`、`spec/tools/schema_diff.py`、`spec/tools/test_schema_diff.py`、`spec/tools/cross_check.py`。
   驗收：`bash scripts/ci/check.sh --only phone-spec,phone-p0-conformance,phone-cross-tree`。
 - Worker B 獨占：`android/lib/build.gradle.kts`（生成器段）、`android/lib/src/main/kotlin/com/phonedsh/ui/theme/**`、
   `android/lib/src/main/kotlin/com/phonedsh/ui/nav/HomeDrawer.kt`、新增 `nav/DrawerGesture.kt`、`ui/SessionsMetrics.kt`（抽屜兩個常量）、
@@ -124,3 +125,4 @@ P09 — 會話抽屜（任務 tab 的會話列表、Bot tab 的名單共用同�
 | revision | 由誰 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版（draft） | — |
+| 2 | Claude | worker A: cross_check 註冊 golden；schema_diff 遞迴 oneOf（CCR，owner 採方案 a）；抽屜規則移入 interaction.md，README 上限維持 345 | — |
