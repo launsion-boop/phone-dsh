@@ -13,7 +13,7 @@ Current v0 receipt on this host:
 | `bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --tests '*parity*' --rerun-tasks --no-daemon` | **PASS** (4 tests, three exports written) |
 | iOS `xcodebuild ... PhoneDSHDeviceUI` (build-for-testing) | **PASS** — the three slow type-check expressions were split; see the resolved build-blocker section below |
 | `bash scripts/parity/run_ios_export.sh` | **PASS** (1 XCUITest, three exports written) |
-| `python3 scripts/parity/compare_geometry.py ...` | **FAIL** — first real two-platform run; per-fixture deltas are recorded below. A report is only `PASS` when both export files describe the same fixture, unit and origin. |
+| `python3 scripts/parity/compare_geometry.py ...` | **FAIL** — latest two-platform run: `chat-empty` 2/5, `session-drawer-open` 2/3 (the `drawer.scroll` exemption now applies), `settings-root` 0/6 elements pass. Per-fixture deltas are recorded below. A report is only `PASS` when both export files describe the same fixture, unit and origin. |
 
 What the bench compares:
 
@@ -290,15 +290,6 @@ and the P09 page contracts named no identifiers for these elements.
 
 Remaining outside this bench's owned files:
 
-* **Android export omits `gatedAxes` / `exemption`.** The iOS exporter copies
-  both fixture fields into its export; the Android exporter does not. On
-  `session-drawer-open` the comparator therefore reports
-  `drawer.scroll: gatedAxes differs between exports` and gates its `Δy`,
-  instead of applying the fixture's spec §5 `insets` exemption. This is an
-  exporter bug, not a geometry result. Fix in
-  `android/lib/src/test/kotlin/com/phonedsh/ui/parity/ParityGeometryExportTest.kt`
-  by copying `gatedAxes` and `exemption` the same way `tolerance` is copied,
-  then rerun the export. Do not widen the comparator to hide the missing data.
 * **Both sides, text layout.** XCUITest exposes no line count or wrap points. A
   debug-only accessibility value (or an XCUITest-visible test surface) carrying
   `TextLayoutResult`'s `lineCount` and line start offsets is needed before the
@@ -408,10 +399,10 @@ Origin `drawer.new-session`; absolute origin is Android `(16,8)` vs iOS
 | `drawer.scroll` | -16, -8, 320, 874 | -16, -70, 320, 874 | 0, **+62**, 0, 0 | FAIL |
 
 The drawer scroll `Δy=+62` is the status-band difference the fixture marks as
-spec §5 `insets`; it appears as a failure because the Android export omits
-`gatedAxes` (see **Needed outside my scope**). The `chat.header.drawer` Δy is
-measured against a drawer origin that itself differs by 62 pt, so it is an
-origin-space consequence of the same inset. Text `新会话` matches; iOS line
+spec §5 `insets`; it appears as a failure in this first run because the Android
+export omitted `gatedAxes` (fixed and re-run below). The `chat.header.drawer`
+Δy is measured against a drawer origin that itself differs by 62 pt, so it is
+an origin-space consequence of the same inset. Text `新会话` matches; iOS line
 layout is `null`.
 
 ### `settings-root`
@@ -437,6 +428,27 @@ runs in English (`Model providers`) while the iOS app renders Chinese
 one text line per row; iOS exposes no line layout.
 
 No PASS is claimed for any fixture above, and none of these deltas were tuned.
+
+### Re-run after the Android `gatedAxes` / `exemption` fix (2026-11-12)
+
+The Android exporter now copies `gatedAxes` and `exemption` from the shared
+fixture exactly as it copies `tolerance`; the comparator, fixtures and UI were
+not changed. `build/parity/` is not tracked, so the iOS export was re-run on
+this host before re-running the Android export and the comparator:
+
+| command | result |
+|---|---|
+| `bash scripts/parity/run_ios_export.sh` | **PASS** (1 test, 3 exports) |
+| `bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --tests '*parity*' --no-daemon` | **PASS** (4 tests, 3 exports) |
+| comparator `chat-empty` | **FAIL**, 2/5 elements pass (unchanged) |
+| comparator `session-drawer-open` | **FAIL**, 2/3 elements pass; `drawer.scroll` now **PASS** on its gated `x/w/h` axes with `Δy=+62` printed as the spec §5 `insets` exemption |
+| comparator `settings-root` | **FAIL**, 0/6 elements pass (unchanged) |
+
+`drawer.scroll` is the only result that changed. `chat.header.drawer` still
+fails with `Δy=+118` because its frame is relative to `drawer.new-session`,
+whose absolute origin differs by the same 62 pt status band. The fixture-level
+`session-drawer-open` result therefore remains **FAIL**; no threshold, fixture
+tolerance, fixture, skip or Android UI was changed to make an element pass.
 
 ## Report provenance
 

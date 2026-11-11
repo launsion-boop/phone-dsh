@@ -298,6 +298,8 @@ class ParityGeometryExportTest {
             }
             record.put("identity", "testTag")
             if (element.has("tolerance")) record.put("tolerance", element.get("tolerance"))
+            if (element.has("gatedAxes")) record.put("gatedAxes", element.get("gatedAxes"))
+            if (element.has("exemption")) record.put("exemption", element.get("exemption"))
             if (node == null) {
                 record.put("found", false)
                 record.put("reason", "no semantics node with testTag ${selector.getString("testTag")}")
