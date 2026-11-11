@@ -162,8 +162,37 @@ task/routine），由宿主签发并认领自己的会话凭证；Agent preset �
 guard 函数，只负责可见面。volatile 注入也在同一处按“创建头或保留前缀”排除两种会话。两类会话
 的差别只有工具白名单与 bash 规则，不存在第二套 guard。即使 preset 作用域没有生效，全局
 guard 也只允许同一白名单。普通 Session 的创建头也会记录控制器默认 preset（例如 `standard`），
-因此 `agent/created` 的“保留创建头”条件只认受限 preset，不能把所有带 header 的会话都跳过；
-普通 Bot 会话仍按 `gb-<kind>-` 约定由插件选择 `phone-bot`。verifier 重新检查工作区产物和原始记录，最终回复必须恰好是
+因此 `agent/created` 的“保留创建头”条件只认受限 preset，不能把所有带 header 的会话都跳过。
+
+**Bot 会话必须使用 `phone-bot`。** chat、task、routine 的宿主会话必须在
+`session/create` 带不可变创建头 `agentPreset: "phone-bot"`，并核对返回值里的
+`agentPreset`；team/proactive/watchdog 回合复用这些 Bot 会话，若将来为它们创建独立
+会话，也必须使用同一创建头。缺失或不一致时 fail-closed，
+不运行该回合、不认领会话凭证。原因不是命名偏好：`standard` 会暴露 `subagent`/
+`subagent_fork`（绕过 Task 授权子集与独立验证）、`schedule_*`（与 App RoutineMachine
+形成第二套调度）、`skill`、`plan`/`exit_plan_mode`、原生 `ask_user_question` 和
+`present` 等 phone persona 未讲授、也不授权给 Bot 的能力。`phone-bot` 是“以实际工具列表为准”
+的唯一 Bot 工具面契约。
+
+**已有会话与全局工具行的兼容（运行时收窄，不重建）。** 升级前创建的 Bot 会话（主对话、
+Task、routine）创建头可能是 `standard`；DSH 在会话开始过回合后拒绝重挂 preset
+（`agent-preset/locked`）。此外，phone Worker 镜像直接继承 `dsh-base` 的全局工具行
+（官方 Web-app bundle 的全局禁用层没有 materialize），所以即使是创建头正确的
+`phone-bot` 会话也会继承 `subagent`、`skill`、`working_directory`、`read_image`、
+MCP resource 等 workbench 工具。Worker 因此对每个普通 Bot agent 在创建和每次恢复时
+施加同一道运行时收窄：
+
+- 当前可见面中，只保留 `phone-bot` preset 的 native 工具（即 persona 声明的
+  `PHONE_NATIVE_TOOLS`，由测试与 preset 行保持一一对应）和 App MCP 的
+  `mcp__phone__` 命名空间；其余名字用 `tools.restrict` 从可见面移除；
+- 以同一谓词安装 per-agent `tools.guard`：在可见面快照之后才注册的工具即使一时可见
+  也不可执行；`tools/change` 会把新出现的、不在集合内的工具补进 deny，使可见面收敛；
+- App MCP 工具允许在 resume 之后重连/重新注册，不在启动快照里丢工具；
+- restriction 与 guard 都随 agent 作用域销毁而解除，每次恢复重新施加。主对话因此
+  保持连续，Task/routine 也无需重建。若 agent 没有作用域工具 registry 或当前面为空，
+  则 fail-closed：拒绝该回合，绝不在宽面上运行 Bot 回合。
+
+verifier 重新检查工作区产物和原始记录，最终回复必须恰好是
 一个 JSON 对象（无代码围栏、无额外散文）：
 
 ```json

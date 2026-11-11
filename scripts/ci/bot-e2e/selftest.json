@@ -151,6 +151,25 @@
           "type": "bot_event",
           "event": "memory.document_written",
           "payload_contains": "SELFTEST_MEMORY"
+        },
+        {
+          "type": "tool_surface",
+          "present": [
+            "bash",
+            "read",
+            "todo_write",
+            "mcp__phone__UpdateMemory"
+          ],
+          "absent": [
+            "subagent",
+            "subagent_fork",
+            "schedule_create",
+            "schedule_list",
+            "skill",
+            "exit_plan_mode",
+            "ask_user_question",
+            "present"
+          ]
         }
       ]
     },
@@ -776,6 +795,13 @@
           "type": "no_bot_event",
           "event": "memory.document_written",
           "payload_contains": "SELFTEST_MEMORY",
+          "expect_ok": false
+        },
+        {
+          "type": "tool_surface",
+          "present": [
+            "BOT_EVAL_NEVER_ADVERTISED"
+          ],
           "expect_ok": false
         }
       ]

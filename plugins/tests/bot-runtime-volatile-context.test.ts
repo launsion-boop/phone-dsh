@@ -14,8 +14,20 @@ import dshbotVolatileContext, {
 } from '../bot-runtime/src/volatile-context.ts'
 import type { VolatileSnapshot } from '../bot-runtime/src/volatile-context.ts'
 
+/** Minimal production-shaped agent scope: every Bot agent has a tool registry. */
 function agent(id: string): Agent {
-  return { id, session: { id } } as unknown as Agent
+  return {
+    id,
+    session: { id },
+    ctx: {
+      tools: {
+        definitions: () => [{ name: 'bash' }, { name: 'read' }],
+        restrict: () => () => {},
+        guard: () => () => {},
+      },
+      on: () => () => {},
+    },
+  } as unknown as Agent
 }
 
 test('volatile blocks preserve variant, time, persona, memory, automation order and trim optional blocks', () => {

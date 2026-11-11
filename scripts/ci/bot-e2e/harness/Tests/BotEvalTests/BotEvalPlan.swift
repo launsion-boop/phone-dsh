@@ -79,6 +79,7 @@ struct EvalPlan: Decodable {
         "workspace_command", "reply_contains", "reply_not_contains",
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
+        "tool_surface",
     ]
 }
 
@@ -320,9 +321,12 @@ struct EvalAssertion: Decodable {
     var method: String?
     var equals: Int?
     var max: Int?
+    var present: [String]?
+    var absent: [String]?
 
     enum CodingKeys: String, CodingKey {
         case type, bot, value, path, command, turn, event, name, scope, tier, source, method, equals, max
+        case present, absent
         case expectOK = "expect_ok"
         case timeoutS = "timeout_s"
         case whereFields = "where"
@@ -336,7 +340,8 @@ struct EvalAssertion: Decodable {
          whereFields: [String: JSONValue]? = nil, name: String? = nil,
          argumentsContains: String? = nil, payloadContains: String? = nil,
          scope: String? = nil, tier: String? = nil, source: String? = nil,
-         method: String? = nil, equals: Int? = nil, max: Int? = nil) {
+         method: String? = nil, equals: Int? = nil, max: Int? = nil,
+         present: [String]? = nil, absent: [String]? = nil) {
         self.type = type
         self.bot = bot
         self.expectOK = expectOK
@@ -356,6 +361,8 @@ struct EvalAssertion: Decodable {
         self.method = method
         self.equals = equals
         self.max = max
+        self.present = present
+        self.absent = absent
     }
 
     init(from decoder: Decoder) throws {
@@ -379,5 +386,7 @@ struct EvalAssertion: Decodable {
         method = try container.decodeIfPresent(String.self, forKey: .method)
         equals = try container.decodeIfPresent(Int.self, forKey: .equals)
         max = try container.decodeIfPresent(Int.self, forKey: .max)
+        present = try container.decodeIfPresent([String].self, forKey: .present)
+        absent = try container.decodeIfPresent([String].self, forKey: .absent)
     }
 }

@@ -323,6 +323,12 @@ final class BotEvalRunnerTests: XCTestCase {
             let approvalCounts = Dictionary(grouping: allEvents.filter { $0.type == "approval.requested" },
                                             by: { $0.principal.botId ?? "main" })
                 .mapValues(\.count)
+            var advertisedTools = Set<String>()
+            if let mock {
+                for request in mock.requests {
+                    advertisedTools.formUnion(EvalMockScripts.advertisedTools(from: request.body))
+                }
+            }
             let snapshot = EvalSnapshot(
                 mainBotID: context.mainBotID,
                 botIDs: context.aliases,
@@ -332,7 +338,8 @@ final class BotEvalRunnerTests: XCTestCase {
                 memories: memories,
                 workspaces: botWorkspaces,
                 scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true),
-                echoRequests: echo.requests)
+                echoRequests: echo.requests,
+                advertisedTools: advertisedTools)
             try FileManager.default.createDirectory(
                 at: snapshot.scratchRoot, withIntermediateDirectories: true)
             var assertionResults: [EvalAssertionResult] = []

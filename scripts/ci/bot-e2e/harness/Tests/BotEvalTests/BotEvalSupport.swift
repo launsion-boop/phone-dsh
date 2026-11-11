@@ -229,6 +229,15 @@ enum EvalMockScripts {
         mock?.promptRules ?? []
     }
 
+    /// Tool names the model request advertised (`tools[].name`). The Bot eval
+    /// uses this as the model-facing tool surface: the Worker's tools/list is
+    /// what a turn actually runs with, regardless of session storage format.
+    static func advertisedTools(from body: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let tools = object["tools"] as? [[String: Any]] else { return [] }
+        return Set(tools.compactMap { $0["name"] as? String })
+    }
+
     static func lastUserText(from body: Data) -> String {
         guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let messages = object["messages"] as? [[String: Any]] else { return "" }

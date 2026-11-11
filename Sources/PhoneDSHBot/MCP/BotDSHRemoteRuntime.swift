@@ -1494,21 +1494,31 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         return sessionId
     }
 
-    /// Restricted sessions (the read-only verifier and the background
-    /// maintainer) must have their preset composed at `session/create` time:
-    /// the session controller resolves and mounts it before announcing
-    /// `agent/created`, so a later `agentPresets.select` is already locked.
-    /// The immutable creation header is therefore the single authority for
-    /// both kinds, and `createSession` fails closed if the Worker reports a
-    /// different preset.
+    /// Every Bot session must have its preset composed at `session/create`
+    /// time: the session controller resolves and mounts it before announcing
+    /// `agent/created`, so a later `agentPresets.select` is already locked and
+    /// an immutable creation header is the single authority for the tool
+    /// surface.
+    ///
+    /// - `phone-bot` is the ordinary Bot surface (main chat, Task, routine and
+    ///   the other Bot turn kinds). It is the only surface the phone persona
+    ///   teaches: no raw subagent/fork, no second schedule authority, no
+    ///   workspace skill catalog, no native ask-user, plan mode, present or
+    ///   workflow.
+    /// - `pdsh-verifier` and `phone-bot-maintainer` are the restricted kinds.
+    ///
+    /// `createSession` always sends the header and fails closed when the Worker
+    /// reports a different composition, so a Bot turn never runs on a wider
+    /// surface than its contract.
+    public static let phoneBotAgentPreset = "phone-bot"
     public static let verifierAgentPreset = "pdsh-verifier"
     public static let maintainerAgentPreset = "phone-bot-maintainer"
 
-    private static func requestedPreset(for kind: BotSessionKind) -> String? {
+    private static func requestedPreset(for kind: BotSessionKind) -> String {
         switch kind {
         case .verifier: return verifierAgentPreset
         case .maintainer: return maintainerAgentPreset
-        default: return nil
+        case .chat, .task, .routine, .team, .proactive, .watchdog: return phoneBotAgentPreset
         }
     }
 
@@ -1517,25 +1527,24 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var fields: [String: BotJSONValue] = ["cwd": .string(botRoot())]
         fields["sessionId"] = .string(sessionID ?? mintedSessionID(kind: kind))
         let expectedPreset = Self.requestedPreset(for: kind)
-        if let expectedPreset { fields["agentPreset"] = .string(expectedPreset) }
+        fields["agentPreset"] = .string(expectedPreset)
         let request: BotJSONValue = .object(fields)
         let created = try await transport.call("session/create", args: .object(["request": request]))
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
             throw BotMCPError.unavailable("session/create returned no sessionId")
         }
-        // Fail closed if the Worker composed a different preset: a restricted
-        // session running the user-facing tool surface would violate §4.1 and
-        // the verifier contract. The returned composition is checked for both
-        // restricted kinds because the creation header is the only authority.
-        if let expectedPreset {
-            guard let composed = created["agentPreset"]?.stringValue else {
-                throw BotMCPError.unavailable(
-                    "session/create did not report the restricted preset \(expectedPreset); refusing to run the turn")
-            }
-            guard composed == expectedPreset else {
-                throw BotMCPError.unavailable(
-                    "restricted session composed preset \(composed) instead of \(expectedPreset)")
-            }
+        // The returned composition is part of the contract: a Worker that
+        // mounted a different preset (or did not report one) must not run the
+        // Bot turn on the wrong tool surface.
+        guard let composed = created["agentPreset"]?.stringValue else {
+            throw BotMCPError.unavailable(
+                "session/create did not report its composed agent preset " +
+                "(expected \(expectedPreset) for \(kind.rawValue)); refusing to run the Bot turn")
+        }
+        guard composed == expectedPreset else {
+            throw BotMCPError.unavailable(
+                "Bot \(kind.rawValue) session composed preset \(composed) instead of " +
+                "\(expectedPreset); refusing to run the Bot turn")
         }
         _ = try await issueAndClaimSession(sessionId, kind: kind, capabilities: capabilities)
         return sessionId

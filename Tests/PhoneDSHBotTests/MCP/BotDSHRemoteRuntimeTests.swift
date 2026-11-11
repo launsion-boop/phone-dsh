@@ -58,6 +58,51 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
                       "task session must use the Bot namespace: \(transport.requestedSessionIds[1])")
         XCTAssertTrue(transport.claimedSessions.contains(task.sessionId),
                       "the created task session must be claimed before its turn")
+        XCTAssertEqual(transport.createdAgentPresets["gb-main"], "phone-bot",
+                       "the main chat creation header must be the Bot surface")
+        XCTAssertEqual(transport.createdAgentPresets[task.sessionId], "phone-bot",
+                       "the Task creation header must be the Bot surface")
+    }
+
+    func testBotRoutineSessionUsesThePhoneBotCreationHeader() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(), .assistant("main"), .end()]],
+            "gb-created-1": [[.turn(), .assistant("routine"), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("hello")
+        let routine = Routine(
+            id: "routine-preset", agentId: "main", title: "Preset routine",
+            prompt: "run", schedule: .interval(everyMinutes: 60), createdAt: 1)
+        let result = await remote.runRoutine(RoutineRunRequest(
+            botId: "main", routine: routine, runId: "run-preset", attempt: 1,
+            startedAt: 1, timeoutMs: 60_000,
+            wake: RoutineWake(text: "run the routine", mode: .due)))
+        XCTAssertEqual(result.status, .succeeded)
+        XCTAssertEqual(transport.createdAgentPresets["gb-created-1"], "phone-bot",
+                       "the routine creation header must be the Bot surface")
+    }
+
+    func testBotSessionComposedPresetMismatchFailsClosed() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [:])
+        transport.createPresetOverride = "standard"
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        do {
+            _ = try await remote.sendUserMessage("hello")
+            XCTFail("a session composed as standard must not run a Bot turn")
+        } catch {
+            let message = String(describing: error)
+            XCTAssertTrue(message.contains("phone-bot"), message)
+            XCTAssertTrue(message.contains("standard"), message)
+            XCTAssertTrue(message.contains("refusing to run the Bot turn"), message)
+        }
+        XCTAssertEqual(transport.createCount, 1,
+                       "the mismatch aborts before any turn or claim")
+        XCTAssertEqual(transport.claimedSessions, [])
     }
 
     func testSecondMessageSteersTheOnlyCollectorAndNextTurnGetsANewAttempt() async throws {

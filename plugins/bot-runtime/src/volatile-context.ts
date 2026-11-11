@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import { createPhoneVolatileContextSource } from './volatile-mcp.ts'
+import { PHONE_NATIVE_TOOLS } from './prompt/assemble.ts'
 import { BOT_SESSION_PREFIX } from './bot-sessions.ts'
 import {
   MAINTAINER_AGENT_PRESET,
@@ -10,6 +11,8 @@ import {
   VERIFIER_AGENT_PRESET,
   VERIFIER_SESSION_PREFIX,
   isRestrictedAgent,
+  restrictedHeaderPreset,
+  restrictedPolicyFor,
   restrictedPolicyForHeader,
   restrictedPresetForSessionId,
 } from '../../lifecycle-gate/src/restricted-session.ts'
@@ -104,6 +107,103 @@ export function agentSessionIdOf(agent: Agent): string {
 /** Structural view of the DSH agent-preset registry, kept dependency-free. */
 export interface BotAgentPresetSelector {
   select(agent: Agent, agentPreset: string): Promise<string>
+}
+
+/** Structural view of the per-agent tool registry, kept dependency-free. */
+interface BotToolDefinition {
+  readonly name: string
+}
+
+interface BotToolExecution {
+  readonly name: string
+  readonly agent?: Agent
+}
+
+interface BotToolRegistry {
+  definitions(scope?: object): readonly BotToolDefinition[]
+  restrict(filter: { deny: readonly string[] }): () => void
+  guard(predicate: (execution: BotToolExecution) => string | undefined): () => void
+}
+
+interface BotAgentScope {
+  readonly tools: BotToolRegistry
+  on(event: 'tools/change', listener: () => void): () => void
+}
+
+function agentScopeOf(agent: Agent): BotAgentScope | undefined {
+  return (agent as unknown as { readonly ctx?: BotAgentScope }).ctx
+}
+
+/** The App's Bot MCP namespace; every name here belongs to the Bot catalog. */
+const BOT_MCP_TOOL_PREFIX = 'mcp__phone__'
+const BOT_TOOL_DENIAL =
+  'Bot sessions run the phone-bot tool surface; this tool is not part of it.'
+
+function isBotTool(name: string): boolean {
+  return name.startsWith(BOT_MCP_TOOL_PREFIX)
+    || (PHONE_NATIVE_TOOLS as readonly string[]).includes(name)
+}
+
+/**
+ * Pin one ordinary Bot agent to the `phone-bot` tool surface.
+ *
+ * The creation header is the composition authority, but the phone Worker image
+ * mounts the `dsh-base` rows globally (the official Web-app bundle that
+ * disables them is deliberately not materialized), and a session started
+ * before the explicit header can carry the wider `standard` composition. Those
+ * tools are inherited by every preset, so a `phone-bot` session would still see
+ * the workbench `subagent`, `skill`, `working_directory`, MCP-resource and
+ * `read_image` tools.
+ *
+ * DSH cannot recompose a started session (`agent-preset/locked`), so the
+ * supported migration is the per-agent tool restriction: hide every currently
+ * registered tool outside the contract surface. The set is an allow-list over
+ * the finite registry (the complement is denied), plus a guard with the same
+ * predicate that keeps a registration appearing after the snapshot
+ * non-executable until the `tools/change` listener also hides it. The App MCP
+ * namespace stays allowed because its catalog is per-Bot and may reconnect
+ * after the session resumes.
+ *
+ * @returns the tool names hidden by this narrowing.
+ * @throws when the agent has no scoped registry or the registry is empty; the
+ *   caller then refuses the Bot turn instead of running wide.
+ */
+export function narrowBotToolSurface(agent: Agent): string[] {
+  const scope = agentScopeOf(agent)
+  const sessionId = agentSessionIdOf(agent)
+  if (scope === undefined || scope.tools === undefined) {
+    throw new Error(`Bot session "${sessionId}" has no scoped tool registry to narrow`)
+  }
+  const tools = scope.tools
+  const hidden = new Set<string>()
+  const hideNew = (): string[] => {
+    const fresh = tools.definitions(agent)
+      .map(definition => definition.name)
+      .filter(name => !isBotTool(name) && !hidden.has(name))
+    if (fresh.length > 0) {
+      tools.restrict({ deny: fresh })
+      for (const name of fresh) hidden.add(name)
+    }
+    return fresh
+  }
+  hideNew()
+  if (tools.definitions(agent).length === 0) {
+    throw new Error(
+      `Bot session "${sessionId}" exposed no tools; refusing to run the turn`)
+  }
+  // The execution boundary for names that register after the visibility
+  // snapshot; the listener below hides them from the next prompt as well.
+  tools.guard(execution => execution.agent === agent && !isBotTool(execution.name)
+    ? BOT_TOOL_DENIAL
+    : undefined)
+  scope.on('tools/change', () => {
+    try {
+      hideNew()
+    } catch {
+      // The scope is unwinding; the next resume re-applies the whole surface.
+    }
+  })
+  return [...hidden]
 }
 
 /**
@@ -249,7 +349,30 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
         if (!agent.id.startsWith(BOT_SESSION_PREFIX)) return
         throw new Error(`agent preset "${preset}" is configured but the agentPresets service is not mounted`)
       }
-      await selectBotAgentPreset(presets, agent, preset)
+      const selected = await selectBotAgentPreset(presets, agent, preset)
+      const sessionId = agentSessionIdOf(agent)
+      if (!sessionId.startsWith(BOT_SESSION_PREFIX)) return
+      // Restricted sessions are enforced by their own immutable policy; never
+      // narrow them to the user-facing Bot surface.
+      if (restrictedPolicyFor(agent) !== undefined) return
+      // The header decides the composition, but the phone Worker image also
+      // inherits the `dsh-base` global tool rows. Pin every ordinary Bot agent
+      // to the contract surface, on creation and on every resume.
+      const header = restrictedHeaderPreset(agent)
+      try {
+        const denied = narrowBotToolSurface(agent)
+        if (denied.length > 0) {
+          ctx.logger('dshbot-volatile-context').warn(
+            'pinned Bot session %s (creation header %s, preset selection %s) to %s by hiding: %s',
+            sessionId, header || 'absent', selected ? 'committed' : 'locked', preset,
+            denied.join(', '))
+        }
+      } catch (error) {
+        throw new Error(
+          `Bot session "${sessionId}" (creation header "${header || 'absent'}") cannot be `
+          + `pinned to the "${preset}" tool surface: ${String(error)}. `
+          + 'Refusing to run the Bot turn on the wider tool surface.')
+      }
     })
   }
 

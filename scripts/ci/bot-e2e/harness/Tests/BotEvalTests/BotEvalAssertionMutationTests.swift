@@ -60,7 +60,8 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             memories: ["main": [memory], "bot-side": []],
             workspaces: ["main": workspace, "bot-side": workspace],
             scratchRoot: root.appendingPathComponent("scratch", isDirectory: true),
-            echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")])
+            echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")],
+            advertisedTools: ["bash", "read", "todo_write"])
         try FileManager.default.createDirectory(
             at: snapshot.scratchRoot, withIntermediateDirectories: true)
 
@@ -97,6 +98,11 @@ final class BotEvalAssertionMutationTests: XCTestCase {
              EvalAssertion(type: "echo_requests", path: "/probe", method: "GET", equals: 1)),
             (EvalAssertion(type: "echo_requests", path: "/absent", equals: 0),
              EvalAssertion(type: "echo_requests", path: "/probe", equals: 0)),
+            (EvalAssertion(type: "tool_surface", present: ["bash", "read"],
+                           absent: ["subagent", "schedule_create"]),
+             EvalAssertion(type: "tool_surface", present: ["subagent"])),
+            (EvalAssertion(type: "tool_surface", absent: ["subagent", "skill"]),
+             EvalAssertion(type: "tool_surface", absent: ["bash"])),
             (EvalAssertion(type: "file_exists", path: "a.txt"),
              EvalAssertion(type: "file_exists", path: "missing.txt")),
             (EvalAssertion(type: "no_file", path: "missing.txt"),

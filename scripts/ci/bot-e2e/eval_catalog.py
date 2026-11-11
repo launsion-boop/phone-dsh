@@ -45,6 +45,7 @@ SUPPORTED_ASSERTIONS = {
     "workspace_command", "reply_contains", "reply_not_contains",
     "bot_event", "no_bot_event", "tool_called", "no_tool_call",
     "memory_contains", "memory_absent", "approval_count", "echo_requests",
+    "tool_surface",
 }
 UI_KINDS = {
     "card_answer", "card_dismiss", "approval", "erase_memory",
@@ -302,6 +303,18 @@ def _check_assertion(errors, path, assertion):
         method = assertion.get("method")
         if not isinstance(method, str) or not method.isalpha():
             _error(errors, path, "echo_requests method must be an alphabetic HTTP method")
+    if kind == "tool_surface":
+        present = assertion.get("present")
+        absent = assertion.get("absent")
+        for label, names in (("present", present), ("absent", absent)):
+            if names is None:
+                continue
+            if not isinstance(names, list) or not names \
+                    or not all(isinstance(name, str) and name for name in names):
+                _error(errors, path,
+                       f"tool_surface {label} must be a non-empty array of tool names")
+        if not present and not absent:
+            _error(errors, path, "tool_surface requires present or absent")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:

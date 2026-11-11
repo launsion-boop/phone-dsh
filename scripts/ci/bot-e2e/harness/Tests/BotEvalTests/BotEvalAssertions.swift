@@ -33,6 +33,10 @@ struct EvalSnapshot {
     var workspaces: [String: URL]
     var scratchRoot: URL
     var echoRequests: [EvalEchoRequest] = []
+    /// Union of the tool names every model request advertised during this
+    /// repeat. The mock upstream records the request body; the Worker's
+    /// model-facing `tools/list` is the surface a Bot turn actually runs on.
+    var advertisedTools: Set<String> = []
 }
 
 struct EvalAssertionResult {
@@ -129,6 +133,31 @@ enum EvalAssertions {
                 return (count <= maximum, "approval requests: \(count), maximum \(maximum)")
             }
             throw EvalAssertionError.invalid("approval_count needs equals or max")
+
+        case "tool_surface":
+            if let bot = assertion.bot, bot != "main" {
+                throw EvalAssertionError.invalid(
+                    "tool_surface evaluates every model request in the repeat; "
+                    + "per-bot scoping is not available")
+            }
+            guard !snapshot.advertisedTools.isEmpty else {
+                return (false, "no model request advertised a tool list")
+            }
+            let present = assertion.present ?? []
+            let absent = assertion.absent ?? []
+            if present.isEmpty && absent.isEmpty {
+                throw EvalAssertionError.invalid("tool_surface needs present or absent")
+            }
+            let missing = present.filter { !snapshot.advertisedTools.contains($0) }
+            let leaked = absent.filter { snapshot.advertisedTools.contains($0) }
+            let names = snapshot.advertisedTools.sorted()
+            if !missing.isEmpty || !leaked.isEmpty {
+                var detail = "advertised tools are \(names)"
+                if !missing.isEmpty { detail += "; missing \(missing.sorted())" }
+                if !leaked.isEmpty { detail += "; forbidden \(leaked.sorted())" }
+                return (false, detail)
+            }
+            return (true, "advertised tools are \(names)")
 
         case "echo_requests":
             let method = assertion.method?.uppercased()
