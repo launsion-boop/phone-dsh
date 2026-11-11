@@ -97,7 +97,8 @@ final class SendOutboxTests: XCTestCase {
             XCTFail("outcomeUnknown must not submit")
         } catch {
             XCTAssertEqual(error as? SendOutboxError,
-                           .illegalTransition(from: .outcomeUnknown, to: .submitting))
+                           SendOutboxError.illegalTransition(from: .outcomeUnknown,
+                                                              to: .submitting))
         }
 
         // Read-back found it: accepted, then durable and deleted.
@@ -124,14 +125,15 @@ final class SendOutboxTests: XCTestCase {
             XCTFail("queued → durable is illegal")
         } catch {
             XCTAssertEqual(error as? SendOutboxError,
-                           .illegalTransition(from: .queued, to: .durable))
+                           SendOutboxError.illegalTransition(from: .queued,
+                                                              to: .durable))
         }
         do {
             _ = try await queue.deleteIfDurable(rpcId: entry.rpcId)
             XCTFail("accepted/queued must not delete")
         } catch {
             XCTAssertEqual(error as? SendOutboxError,
-                           .deleteRequiresDurable(.queued))
+                           SendOutboxError.deleteRequiresDurable(.queued))
         }
     }
 
