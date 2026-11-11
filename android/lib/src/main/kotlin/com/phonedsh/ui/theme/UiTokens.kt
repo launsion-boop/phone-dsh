@@ -153,22 +153,38 @@ public data class UiMotion(
     public val disclosureCurve: String,
     public val composerSendMs: Int,
     public val composerSendCurve: String,
+    public val drawerOpenMs: Int,
+    public val drawerOpenCurve: String,
+    public val drawerCloseMs: Int,
+    public val drawerCloseCurve: String,
+    public val drawerSettleMs: Int,
+    public val drawerSettleCurve: String,
 ) {
-    /** Maps a spec curve name to a Compose easing. */
+    /**
+     * Maps a spec curve name to a Compose easing.
+     *
+     * An unknown name is a spec/code mismatch, not a reason to animate with a
+     * different curve: the old fallback to linear hid exactly that divergence.
+     */
     public fun easing(curve: String): androidx.compose.animation.core.Easing =
         when (curve) {
             LINEAR -> androidx.compose.animation.core.LinearEasing
             EASE_OUT -> androidx.compose.animation.core.CubicBezierEasing(0f, 0f, 0.58f, 1f)
-            else -> androidx.compose.animation.core.LinearEasing
+            EASE_IN_OUT -> androidx.compose.animation.core.CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+            else -> error("unknown motion curve '$curve' in spec/ui/v1/tokens.json")
         }
 
     public val shimmerEasing: androidx.compose.animation.core.Easing get() = easing(shimmerCurve)
     public val disclosureEasing: androidx.compose.animation.core.Easing get() = easing(disclosureCurve)
     public val composerSendEasing: androidx.compose.animation.core.Easing get() = easing(composerSendCurve)
+    public val drawerOpenEasing: androidx.compose.animation.core.Easing get() = easing(drawerOpenCurve)
+    public val drawerCloseEasing: androidx.compose.animation.core.Easing get() = easing(drawerCloseCurve)
+    public val drawerSettleEasing: androidx.compose.animation.core.Easing get() = easing(drawerSettleCurve)
 
     public companion object {
         public const val LINEAR: String = "linear"
         public const val EASE_OUT: String = "easeOut"
+        public const val EASE_IN_OUT: String = "easeInOut"
         public const val FOREVER: String = "forever"
     }
 }
@@ -256,11 +272,37 @@ public fun UiGeometry.maxBubbleWidth(containerWidth: Dp, contentInset: Dp): Dp =
 public data class UiShadow(
     public val floatingOpacity: Float,
     public val floatingRadius: Dp,
+    public val floatingX: Dp,
     public val floatingY: Dp,
     public val composerOpacity: Float,
     public val composerRadius: Dp,
+    public val composerX: Dp,
     public val composerY: Dp,
+    public val drawerOpacity: Float,
+    public val drawerRadius: Dp,
+    public val drawerX: Dp,
+    public val drawerY: Dp,
 )
+
+/**
+ * The drawer's `interaction.drawer` values, already resolved for rendering.
+ *
+ * Width, corner radius, overhang and thresholds are the contract's own values;
+ * the open/close curves live in [UiMotion] and the panel shadow in [UiShadow].
+ */
+@Immutable
+public data class UiDrawer(
+    public val width: Dp,
+    public val panelTrailingRadius: Dp,
+    public val closedOverhang: Dp,
+    public val scrimMaxOpacity: Float,
+    public val dragMinimumDistance: Dp,
+    public val closeThresholdFraction: Float,
+    public val velocityProjectionSeconds: Float,
+) {
+    /** The panel x when closed: `-(width + closedOverhang)`. */
+    public val closedOffset: Dp get() = -(width + closedOverhang)
+}
 
 /** The complete resolved token set for one theme mode. */
 @Immutable
@@ -273,6 +315,7 @@ public data class UiTokens(
     public val motion: UiMotion,
     public val geometry: UiGeometry,
     public val shadow: UiShadow,
+    public val drawer: UiDrawer,
 ) {
     public companion object {
         /**
@@ -367,6 +410,12 @@ public data class UiTokens(
                 disclosureCurve = UiTokenData.motionDisclosure.curve,
                 composerSendMs = UiTokenData.motionComposerSend.durationMs,
                 composerSendCurve = UiTokenData.motionComposerSend.curve,
+                drawerOpenMs = UiTokenData.drawer.openMotion.durationMs,
+                drawerOpenCurve = UiTokenData.drawer.openMotion.curve,
+                drawerCloseMs = UiTokenData.drawer.closeMotion.durationMs,
+                drawerCloseCurve = UiTokenData.drawer.closeMotion.curve,
+                drawerSettleMs = UiTokenData.drawer.settleMotion.durationMs,
+                drawerSettleCurve = UiTokenData.drawer.settleMotion.curve,
             ),
             geometry = UiGeometry(
                 disclosureRowHeight = UiTokenData.geometryDisclosureRowHeight.dp(),
@@ -423,10 +472,25 @@ public data class UiTokens(
             shadow = UiShadow(
                 floatingOpacity = HomeSpecData.Shadow.FLOATING_OPACITY,
                 floatingRadius = HomeSpecData.Shadow.FLOATING_RADIUS.dp,
+                floatingX = HomeSpecData.Shadow.FLOATING_X.dp,
                 floatingY = HomeSpecData.Shadow.FLOATING_Y.dp,
                 composerOpacity = HomeSpecData.Shadow.COMPOSER_OPACITY,
                 composerRadius = HomeSpecData.Shadow.COMPOSER_RADIUS.dp,
+                composerX = HomeSpecData.Shadow.COMPOSER_X.dp,
                 composerY = HomeSpecData.Shadow.COMPOSER_Y.dp,
+                drawerOpacity = HomeSpecData.Shadow.DRAWER_OPACITY,
+                drawerRadius = HomeSpecData.Shadow.DRAWER_RADIUS.dp,
+                drawerX = HomeSpecData.Shadow.DRAWER_X.dp,
+                drawerY = HomeSpecData.Shadow.DRAWER_Y.dp,
+            ),
+            drawer = UiDrawer(
+                width = UiTokenData.drawer.width.dp(),
+                panelTrailingRadius = UiTokenData.drawer.panelTrailingRadius.dp(),
+                closedOverhang = UiTokenData.drawer.closedOverhangPt.dp,
+                scrimMaxOpacity = UiTokenData.drawer.scrimMaxOpacity,
+                dragMinimumDistance = UiTokenData.drawer.dragMinimumDistancePt.dp,
+                closeThresholdFraction = UiTokenData.drawer.closeThresholdFraction,
+                velocityProjectionSeconds = UiTokenData.drawer.velocityProjectionSeconds,
             ),
         )
     }

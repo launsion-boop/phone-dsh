@@ -15,6 +15,7 @@ package com.phonedsh.ui
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.phonedsh.ui.theme.generated.UiTokenData
 
 /**
  * Drawer + session-list geometry.
@@ -26,17 +27,17 @@ import androidx.compose.ui.unit.dp
 public object SessionsMetrics {
     // ------------------------------------------------------------------ drawer
 
-    /** HomeDrawer's owning SessionsDrawerPanel fixes 320pt (`NativeShell.swift:235,240`), including on a 430pt phone. */
-    public const val DRAWER_WIDTH_PT: Int = 320
+    /** HomeDrawer panel width; resolves `geometry.drawerWidth` (no local copy). */
+    public val DRAWER_WIDTH_PT: Int get() = UiTokenData.drawer.width.value.toInt()
 
     /** Folder reading width inside the actual 320pt panel: 20pt content insets. */
     public const val DRAWER_CONTENT_WIDTH_PT: Int = 280
 
-    /** NativeShell.swift:244-247 clips the modal panel's trailing corners to 22pt. */
-    public const val DRAWER_PANEL_RADIUS_PT: Int = 22
+    /** Panel trailing radius; resolves `radius.drawerTrailing`. */
+    public val DRAWER_PANEL_RADIUS_PT: Int get() = UiTokenData.drawer.panelTrailingRadius.value.toInt()
 
-    /** NativeShell.swift:131: one modal scrim at 28%, without additional platform dim. */
-    public const val DRAWER_SCRIM_ALPHA: Float = 0.28f
+    /** Scrim opacity; resolves `interaction.drawer.scrimMaxOpacity`. */
+    public val DRAWER_SCRIM_ALPHA: Float get() = UiTokenData.drawer.scrimMaxOpacity
 
     /** HomeDrawerRowStyle: HomeSpec.userBubble at 70% only while pressed. */
     public const val DRAWER_PRESS_ALPHA: Float = 0.7f
@@ -206,8 +207,8 @@ public object SessionsMetrics {
 
     // ------------------------------------------------------------ dp accessors
 
-    /** [DRAWER_WIDTH_PT] as a Compose length. */
-    public val drawerWidth: Dp get() = DRAWER_WIDTH_PT.dp
+    /** [DRAWER_WIDTH_PT] as a Compose length, read from the generated token. */
+    public val drawerWidth: Dp get() = UiTokenData.drawer.width.value.dp
 
     /** [DRAWER_CONTENT_WIDTH_PT] as a Compose length. */
     public val drawerContentWidth: Dp get() = DRAWER_CONTENT_WIDTH_PT.dp
