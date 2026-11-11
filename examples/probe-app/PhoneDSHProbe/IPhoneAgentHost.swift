@@ -176,7 +176,9 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         case "pressenter":
             try await hands.key("enter"); return "enter"
         case "launchapp", "launch":
-            let app = action.text.isEmpty ? "设置" : action.text
+            // Never guess: an empty name used to open 设置 and send the model hunting for the wrong app.
+            guard !action.text.isEmpty else { throw IPhoneAgentError("LaunchApp needs the app's name, e.g. LaunchApp(app='小红书')") }
+            let app = action.text
             let query = Self.searchQuery(for: app)
             // Like xiaozhi-link: Home, open Search (every home page has the 搜索 button above the dock),
             // type the name, Return opens Spotlight's top hit. The model checks the result on the next screenshot.
@@ -188,8 +190,16 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(1000))
             try await hands.type(query)
             try await Task.sleep(for: .milliseconds(900))
+            let typed = try? await screen.snapshot()
             try await hands.key("enter")
-            return "launched \(app): Spotlight \(query) → top hit"
+            // With the Pinyin keyboard active the letters sit in its candidate bar and Return only
+            // commits them; Spotlight is then still on screen. An app takes a moment to appear on the
+            // mirror, so wait for it (up to 2.5 s) before deciding: a second Return in an opened app is a keypress there.
+            if let typed, !(try await waitForChange(since: typed, atLeast: Self.stillSpotlight, within: .milliseconds(2500))) {
+                try await hands.key("enter")
+                return "searched \(query) in Spotlight and pressed Return twice (the first only committed the keyboard's input)"
+            }
+            return "searched \(query) in Spotlight and pressed Return (top hit)"
         case "wait":
             try await Task.sleep(for: .milliseconds(1500)); return "wait"
         case "pressback", "pressrecent", "getscreenshot":
@@ -200,6 +210,9 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     }
 
     // MARK: system gestures located on the current screen
+
+    /// Below this mean difference the screen after Return is still Spotlight, not a launched app.
+    static let stillSpotlight = 15.0
 
     static let assistiveButton = "the AssistiveTouch floating button: a round, semi-transparent grey button with a white ring, usually at the left or right edge of the screen"
     static let searchButton = "the 搜索 (Search) button: a small pill labelled 搜索 with a magnifier, just above the dock at the bottom of the home screen"
@@ -212,33 +225,65 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
         return point
     }
 
-    /// Home through AssistiveTouch → 主屏幕. The button sits wherever the user left it and fades when
-    /// idle (UI-Venus then misses it), so tap the remembered position first and only look for the button
-    /// again when the menu does not open. Each successful position is remembered for next time.
+    /// Home through AssistiveTouch → 主屏幕. The button sits wherever the user left it, and on some
+    /// screens a tap there reaches the app instead (钱包's own floating buttons sit right under it).
+    /// So the menu must be seen to open (the screen changes a lot) before 主屏幕 is tapped: a blind
+    /// second tap used to land on whatever was underneath, on the home screen the 钱包 icon.
     func home() async throws -> String {
         var button = hands.layout.assistiveButton
-        try await hands.tap(button)
-        try await Task.sleep(for: .milliseconds(800))
-        var item = try await locate(Self.assistiveHome, waitForChange: true)
+        var item = try await openAssistiveMenu(at: button)
         if item == nil {
-            // Wrong spot: close whatever opened, find the button on screen, try once more.
-            try await hands.key("esc")
-            try await Task.sleep(for: .milliseconds(500))
-            guard let found = try await locate(Self.assistiveButton, waitForChange: false) else {
-                throw IPhoneAgentError("屏幕上找不到辅助触控按钮（请确认辅助功能里已打开辅助触控）")
-            }
-            button = found
-            try await hands.tap(button)
-            try await Task.sleep(for: .milliseconds(800))
-            item = try await locate(Self.assistiveHome, waitForChange: true)
+            // The first click may only have woken the pointer: once more at the same place.
+            item = try await openAssistiveMenu(at: button)
         }
-        guard let item else { throw IPhoneAgentError("辅助触控菜单里找不到“主屏幕”") }
+        if item == nil, let found = try await locate(Self.assistiveButton, waitForChange: false),
+           abs(found.x - button.x) > 30 || abs(found.y - button.y) > 30 {
+            button = found
+            item = try await openAssistiveMenu(at: button)
+        }
+        guard let item else {
+            throw IPhoneAgentError("Home did not work: the AssistiveTouch menu did not open on this screen "
+                + "(a button of the app may sit under it, or a system prompt is in front). Close what is open with "
+                + "its own visible button (取消 / 完成 / 关闭 / <) first; for a permission prompt use CallUser.")
+        }
         try await hands.tap(item)
         hands.layout.assistiveButton = button
         hands.layout.assistiveHome = item
         hands.layout.save()
         return "home via AssistiveTouch (\(Int(button.x)),\(Int(button.y))) → (\(Int(item.x)),\(Int(item.y)))"
     }
+
+    /// Taps the AssistiveTouch button; returns the menu's 主屏幕 item only if the menu visibly opened.
+    private func openAssistiveMenu(at button: TonoLinkPoint) async throws -> TonoLinkPoint? {
+        let before = try await screen.snapshot()
+        try await hands.tap(button)
+        try await Task.sleep(for: .milliseconds(700))
+        let after = try await screen.snapshot(newerThan: before.frame, fresh: 2, timeout: .seconds(2))
+        guard let difference = IPhoneScreenDiff.mean(before.jpeg, after.jpeg), difference >= Self.menuOpened else {
+            return nil
+        }
+        let frame = IPhoneFrame(jpeg: after.jpeg, width: after.width, height: after.height, frame: after.frame)
+        guard let point = try await IPhoneGrounding.locate(Self.assistiveHome, in: frame) else {
+            try? await hands.key("esc")   // a menu opened but it is not AssistiveTouch's: close it
+            return nil
+        }
+        return TonoLinkPoint(point.x, point.y)
+    }
+
+    /// True once the screen differs from `shot` by at least `atLeast` (mean, 0–255) within `within`.
+    private func waitForChange(since shot: TonoLinkScreenShot, atLeast: Double, within: Duration) async throws -> Bool {
+        let deadline = ContinuousClock.now + within
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(300))
+            guard let now = try? await screen.snapshot(),
+                  let difference = IPhoneScreenDiff.mean(shot.jpeg, now.jpeg) else { continue }
+            if difference >= atLeast { return true }
+        }
+        return false
+    }
+
+    /// The AssistiveTouch menu darkens and covers about half the screen: far above this mean difference.
+    static let menuOpened = 6.0
 
     func locate(_ target: String, waitForChange: Bool) async throws -> TonoLinkPoint? {
         let shot = try await screen.snapshot(newerThan: waitForChange ? screen.frameCount : nil, fresh: 3, timeout: .seconds(2))
