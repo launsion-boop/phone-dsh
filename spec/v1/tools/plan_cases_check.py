@@ -38,6 +38,7 @@ VECTORS = (
     "append-records",
     "response-log-key",
     "streaming",
+    "memory-input",
 )
 BASELINE_PENDING = "待基线"
 MIB = 1_048_576
@@ -341,6 +342,43 @@ def check_streaming(doc, errors) -> None:
             fail(errors, where, "negative case does not violate a streaming bound")
 
 
+def memory_input_problem(case) -> str:
+    """Return the first W2 rev 2 memory-input law the case violates, or ''."""
+    if case.get("productionInputs") != ["system-memory-warning"]:
+        if not case.get("productionInputs"):
+            return "no_production_input"
+        return "sampled_heap_not_available"
+    sampled = case.get("sampledHeap", {})
+    if sampled.get("status") != "target":
+        return "sampled_heap_falsely_implemented"
+    if sampled.get("producer") != "none":
+        return "sampled_heap_not_available"
+    if sampled.get("injectionPoint") != "reportEngineHeapBytes":
+        return "wrong_injection_point"
+    if case.get("actionOrder") != ["clearTmp", "plannedRestart"]:
+        return "action_order_changed"
+    if case.get("userVisible") is not False:
+        return "new_user_prompt"
+    if case.get("budgetNumbersChanged") is not False:
+        return "budget_number_changed"
+    return ""
+
+
+def check_memory_input(doc, errors) -> None:
+    for index, case in enumerate(doc["valid"]):
+        where = "valid[{}]".format(index)
+        problem = memory_input_problem(case)
+        if problem:
+            fail(errors, where, problem)
+    for index, case in enumerate(doc["invalid"]):
+        payload = case["case"]
+        where = "invalid[{}]".format(index)
+        problem = memory_input_problem(payload)
+        if not problem or problem != case["reason"]:
+            fail(errors, where, "expected {} but the law gives {!r}".format(
+                case["reason"], problem))
+
+
 CHECKS = {
     "perf-targets": check_perf_targets,
     "retention": check_retention,
@@ -348,6 +386,7 @@ CHECKS = {
     "append-records": check_append_records,
     "response-log-key": check_response_log_key,
     "streaming": check_streaming,
+    "memory-input": check_memory_input,
 }
 
 

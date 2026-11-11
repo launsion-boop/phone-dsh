@@ -73,6 +73,17 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 | memory proxy | VFS bytes by prefix, session bytes, sampled engine heap, WebContent termination count | Budget actions in §4 order; VFS or heap pressure shares the same order; a hard cap after the actions → `Failed` (fail loud). |
 | lease verification | controller and remote authority record | Required for `Recovering` → `Running`; failure keeps admission closed. |
 
+**Engine-memory input sources (W2 rev 2, 2026-11-12).** In this revision the only **production**
+input to the engine-memory side of the memory proxy is the platform **system memory warning**
+(the `DispatchSource`/`didReceiveMemoryWarning` equivalent). The sampled engine heap named in the
+row above and in §4 is `target`, not available: the repository has no production producer
+(`PhoneDSHEngine` exposes no public heap probe, `WebEngineScripts` carries only console/boot, and
+every `reportEngineHeapBytes` caller is a test). `reportEngineHeapBytes` remains the injection
+point for tests and for the future P04 read-only probe. Until that probe exists, a missing sample
+MUST NOT be read as zero, as headroom, or as a reason to raise a budget; the warning path uses the
+existing action order `clearTmp → plannedRestart` and adds no UI prompt. The numeric §4 rows are
+unchanged.
+
 **Boot mapping for the rows above.** §2 lists the four persisted states it decided; these four were
 left implicit and the port had to infer them, so they are written down here: persisted `Parked` →
 `Parked` (the resume waits for an active scene), persisted `Backoff` → `Backoff`, persisted `Remote` →
