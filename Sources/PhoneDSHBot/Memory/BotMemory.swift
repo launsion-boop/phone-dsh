@@ -369,6 +369,34 @@ public actor BotMemory {
             ok: true, scope: scope, botID: botID, removed: removed, count: remaining)
     }
 
+    /// Physical erase of one document and every historical version. The
+    /// payload bytes of `memory.document_written` / `memory.document_deleted`
+    /// events for that path (and copies that match the version text) are
+    /// cleared; the event headers and an `erasure` event stay.
+    @discardableResult
+    public func erase(path: String) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await prepare()
+        let outcome = try await store.erase(
+            path: path,
+            author: BotMemoryAuthor(botID: botID, kind: .ui),
+            atMS: now())
+        if outcome.ok { recallIndex = BotMemoryDocumentRecallIndex() }
+        return outcome
+    }
+
+    /// Physical erase of one root (`agent/` is this Bot only, `user/` is the
+    /// shared root). Returns the count of cleared payloads and versions.
+    @discardableResult
+    public func erase(scope: BotMemoryScope) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await prepare()
+        let outcome = try await store.erase(
+            scope: scope,
+            author: BotMemoryAuthor(botID: botID, kind: .ui),
+            atMS: now())
+        if outcome.ok { recallIndex = BotMemoryDocumentRecallIndex() }
+        return outcome
+    }
+
     public func read(path: String, version: Int? = nil) async throws -> BotMemoryReadResult {
         try await prepare()
         guard BotMemoryAuthorizer.parse(path, allowRoot: true) != nil else {

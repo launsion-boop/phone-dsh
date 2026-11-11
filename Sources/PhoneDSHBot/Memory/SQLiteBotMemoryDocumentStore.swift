@@ -292,6 +292,315 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         }
     }
 
+    // MARK: - physical erasure (S6)
+
+    public func erase(path: String, author: BotMemoryAuthor,
+                      atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await mutationMutex.withLock {
+            let snapshot = try await replay()
+            guard let scope = BotMemoryAuthorizer.scope(of: path) else {
+                return BotMemoryPhysicalEraseOutcome(
+                    ok: false, error: "memory-path-invalid", scope: .agent)
+            }
+            let hasHistory = snapshot.versions[path] != nil
+            guard hasHistory || snapshot.live[path] != nil else {
+                return BotMemoryPhysicalEraseOutcome(
+                    ok: false, error: "memory-not-found", scope: scope)
+            }
+            return try await erasePhysical(
+                paths: [path],
+                scope: scope,
+                targets: [BotErasureEventData.Target(
+                    kind: "memory", scope: scope.rawValue, path: path)],
+                scopeErase: false,
+                author: author,
+                atMS: atMS,
+                snapshot: snapshot)
+        }
+    }
+
+    public func erase(scope: BotMemoryScope, author: BotMemoryAuthor,
+                      atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await mutationMutex.withLock {
+            let snapshot = try await replay()
+            let paths = Self.paths(in: scope, snapshot: snapshot)
+            return try await erasePhysical(
+                paths: paths,
+                scope: scope,
+                targets: [BotErasureEventData.Target(kind: "memory", scope: scope.rawValue)],
+                scopeErase: true,
+                author: author,
+                atMS: atMS,
+                snapshot: snapshot)
+        }
+    }
+
+    private static func paths(in scope: BotMemoryScope, snapshot: ReplayState) -> [String] {
+        var paths = Set<String>()
+        for (path, versions) in snapshot.versions
+        where versions.values.contains(where: { $0.scope == scope }) {
+            paths.insert(path)
+        }
+        for document in snapshot.live.values where document.scope == scope {
+            paths.insert(document.path)
+        }
+        return paths.sorted()
+    }
+
+    private func erasePhysical(
+        paths: [String],
+        scope: BotMemoryScope,
+        targets: [BotErasureEventData.Target],
+        scopeErase: Bool,
+        author: BotMemoryAuthor,
+        atMS: Int64,
+        snapshot: ReplayState
+    ) async throws -> BotMemoryPhysicalEraseOutcome {
+        let targetPaths = Set(paths)
+        var versionsByPath: [String: [BotMemoryDocumentVersion]] = [:]
+        for path in targetPaths {
+            let versions = (snapshot.versions[path] ?? [:]).values.sorted { $0.version < $1.version }
+            if versions.isEmpty, let live = snapshot.live[path] {
+                versionsByPath[path] = [BotMemoryDocumentVersion(
+                    path: live.path, scope: live.scope, version: live.version,
+                    content: live.content, updatedAtMS: live.updatedAtMS,
+                    author: live.author, evidence: live.evidence, trust: live.trust)]
+            } else {
+                versionsByPath[path] = versions
+            }
+        }
+
+        var needles = Set<String>()
+        for versions in versionsByPath.values {
+            for version in versions where !version.deleted {
+                needles.formUnion(Self.erasureNeedles(in: version.content))
+            }
+        }
+        let needleList = Array(needles)
+
+        let allEvents = try await allDurableEvents()
+        var targetSequences = Set<Int>()
+        var legacyFactIDs = Set<String>()
+        for event in allEvents {
+            guard let sequence = event.commitSeq, !event.isErasedPayload,
+                  event.type != "erasure" else { continue }
+            switch event.type {
+            case "memory.document_written":
+                if let data = try? Self.decode(WrittenData.self, from: event.data),
+                   targetPaths.contains(data.path),
+                   eventBelongs(event, scope: data.scope) {
+                    targetSequences.insert(sequence)
+                }
+            case "memory.document_deleted":
+                if let data = try? Self.decode(DeletedData.self, from: event.data),
+                   targetPaths.contains(data.path),
+                   eventBelongs(event, scope: data.scope) {
+                    targetSequences.insert(sequence)
+                }
+            case "memory.written":
+                if let fact = try? Self.decode(BotMemoryFact.self, from: event.data),
+                   legacyFactBelongs(fact, event: event, scope: scope, scopeErase: scopeErase,
+                                     needles: needleList) {
+                    targetSequences.insert(sequence)
+                    legacyFactIDs.insert(fact.factID)
+                }
+            case "memory.forgotten":
+                if let forgotten = try? Self.decode(LegacyForgotten.self, from: event.data),
+                   legacyFactBelongs(factID: forgotten.factId, scope: forgotten.scope,
+                                     event: event, targetScope: scope, scopeErase: scopeErase,
+                                     targeted: legacyFactIDs) {
+                    targetSequences.insert(sequence)
+                    legacyFactIDs.insert(forgotten.factId)
+                }
+            default:
+                break
+            }
+            if eventBelongs(event, scope: scope), !needleList.isEmpty,
+               Self.payloadContains(event.data, any: needleList) {
+                targetSequences.insert(sequence)
+            }
+        }
+
+        // Observation envelopes and redaction traces that point at an erased
+        // event are scrubbed too. Memory-version events are excluded here:
+        // surviving documents must not lose their own payload because an
+        // evidence reference went away.
+        let erasedRefs = targetSequences.map { "record://event/\($0)" }
+        if !erasedRefs.isEmpty {
+            for event in allEvents {
+                guard let sequence = event.commitSeq, !targetSequences.contains(sequence),
+                      !event.isErasedPayload, event.type != "erasure",
+                      !event.type.hasPrefix("memory."),
+                      eventBelongs(event, scope: scope),
+                      Self.payloadContains(event.data, any: erasedRefs) else { continue }
+                targetSequences.insert(sequence)
+            }
+        }
+
+        let metadata = try await eventLog.erasureTargets(for: targetSequences.sorted())
+        let payloadTargets = metadata.filter { $0.payloadBytes > 0 }
+        var erasureRecord: String?
+        var erasedBytes = 0
+        if !payloadTargets.isEmpty {
+            let erasureID = "erasure-\(UUID().uuidString.lowercased())"
+            let erasedEvents = payloadTargets.map {
+                BotErasureEventData.ErasedEvent(
+                    record: $0.record, type: $0.type, digest: $0.digest,
+                    payloadBytes: $0.payloadBytes)
+            }
+            var uncovered = Set<String>()
+            for versions in versionsByPath.values {
+                for version in versions {
+                    for raw in version.evidence {
+                        if case .session = BotRecordReference.parse(raw) {
+                            uncovered.insert(BotRecordReference.parse(raw)?.canonical ?? raw)
+                        }
+                    }
+                }
+            }
+            let memoryVersions = versionsByPath.keys.sorted().compactMap { path -> BotErasureEventData.MemoryVersionRange? in
+                guard let versions = versionsByPath[path] else { return nil }
+                return BotErasureEventData.MemoryVersionRange(
+                    path: path,
+                    scope: versions.first?.scope.rawValue ?? scope.rawValue,
+                    versions: versions.map(\.version))
+            }
+            let data = BotErasureEventData(
+                erasureId: erasureID,
+                reason: scopeErase ? "memory-scope-erase" : "memory-document-erase",
+                atMS: atMS,
+                targets: targets,
+                memoryVersions: memoryVersions,
+                erasedEvents: erasedEvents,
+                uncoveredRecords: uncovered.sorted().map {
+                    BotErasureEventData.UncoveredRecord(
+                        record: $0, reason: "session-log-erasure-not-implemented")
+                },
+                legacyFactIDs: legacyFactIDs.sorted())
+            let event = BotEvent(
+                type: "erasure",
+                eventId: "erasure-\(erasureID)",
+                time: max(0, atMS),
+                origin: .local(source: "user"),
+                traceId: "trace-\(erasureID)",
+                principal: BotPrincipal(botId: author.botID, sessionId: nil, kind: "ipc"),
+                causationId: nil,
+                correlationId: nil,
+                data: try Self.encode(data))
+            let commit = try await eventLog.erasePayloads(
+                payloadTargets.map(\.commitSeq), erasureEvent: event, atMS: atMS)
+            erasureRecord = "record://event/\(commit.erasureCommitSeq)"
+            erasedBytes = payloadTargets.reduce(0) { $0 + $1.payloadBytes }
+        }
+
+        removeFromState(paths: targetPaths, scope: scope,
+                        legacyFactIDs: legacyFactIDs, scopeErase: scopeErase)
+        return BotMemoryPhysicalEraseOutcome(
+            ok: true,
+            scope: scope,
+            paths: paths,
+            removedDocuments: paths.filter { snapshot.live[$0] != nil }.count,
+            removedVersions: versionsByPath.values.reduce(0) { $0 + $1.count },
+            erasedEvents: payloadTargets.count,
+            erasedBytes: erasedBytes,
+            erasureRecord: erasureRecord,
+            uncoveredRecords: versionsByPath.values.flatMap { versions in
+                versions.flatMap(\.evidence)
+            }.compactMap { raw -> String? in
+                guard case .session = BotRecordReference.parse(raw) else { return nil }
+                return BotRecordReference.parse(raw)?.canonical
+            }.sorted())
+    }
+
+    private func legacyFactBelongs(_ fact: BotMemoryFact, event: BotEvent,
+                                   scope: BotMemoryScope, scopeErase: Bool,
+                                   needles: [String]) -> Bool {
+        guard eventBelongs(event, scope: scope) else { return false }
+        if scopeErase { return fact.scope == scope }
+        return !needles.isEmpty && needles.contains(where: { fact.text.contains($0) })
+    }
+
+    private func legacyFactBelongs(factID: String, scope factScope: BotMemoryScope,
+                                   event: BotEvent, targetScope: BotMemoryScope,
+                                   scopeErase: Bool, targeted: Set<String>) -> Bool {
+        guard eventBelongs(event, scope: targetScope) else { return false }
+        if scopeErase { return factScope == targetScope }
+        return targeted.contains(factID)
+    }
+
+    private func eventBelongs(_ event: BotEvent, scope: BotMemoryScope) -> Bool {
+        if scope == .user { return true }
+        return belongsToThisBot(event, scope: scope)
+    }
+
+    private func allDurableEvents() async throws -> [BotEvent] {
+        var result: [BotEvent] = []
+        var cursor = 0
+        while true {
+            let page = try await eventLog.events(after: cursor, limit: 500)
+            if page.isEmpty { break }
+            result.append(contentsOf: page)
+            guard let last = page.last?.commitSeq else { break }
+            cursor = last
+            if page.count < 500 { break }
+        }
+        return result
+    }
+
+    private func removeFromState(paths: Set<String>, scope: BotMemoryScope,
+                                 legacyFactIDs: Set<String>, scopeErase: Bool) {
+        for path in paths {
+            state.live.removeValue(forKey: path)
+            state.versions.removeValue(forKey: path)
+            state.latestVersion.removeValue(forKey: path)
+        }
+        state.order.removeAll { paths.contains($0) }
+        state.legacyFacts = state.legacyFacts.filter { factID, fact in
+            if legacyFactIDs.contains(factID) { return false }
+            if scopeErase, fact.scope == scope { return false }
+            return true
+        }
+        state.legacyOrder.removeAll { factID in
+            state.legacyFacts[factID] == nil
+        }
+    }
+
+    /// Exact version text, each non-empty line, and distinctive tokens. The
+    /// token rule catches a unique marker copied into a conversation while a
+    /// plain English line still needs the line/full-text match; short common
+    /// words are never needles.
+    private static func erasureNeedles(in content: String) -> Set<String> {
+        var result = Set<String>()
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.unicodeScalars.count >= 8 { result.insert(trimmed) }
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.unicodeScalars.count >= 8 { result.insert(value) }
+        }
+        let separators = Set(",;:!?()[]{}<>\"'".map { $0 })
+        for token in content.split(whereSeparator: { $0.isWhitespace || separators.contains($0) }) {
+            let value = String(token)
+            guard value.unicodeScalars.count >= 8 else { continue }
+            if value.contains("_") || value.contains(where: { $0.isNumber }) {
+                result.insert(value)
+            }
+        }
+        return result
+    }
+
+    private static func payloadContains(_ value: BotJSONValue, any needles: [String]) -> Bool {
+        switch value {
+        case let .string(text):
+            return needles.contains { text.contains($0) }
+        case let .array(values):
+            return values.contains { payloadContains($0, any: needles) }
+        case let .object(object):
+            return object.values.contains { payloadContains($0, any: needles) }
+        case .number, .bool, .null:
+            return false
+        }
+    }
+
     private func replay() async throws -> ReplayState {
         let events = try await replayFeed.memoryEvents(
             from: processedEventIndex, eventLog: eventLog)
@@ -320,6 +629,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
 
     private func apply(_ event: BotEvent) throws {
         guard !state.appliedEventIDs.contains(event.eventId) else { return }
+        if event.isErasedPayload {
+            // The header/digest survive; there is nothing left to replay.
+            return
+        }
         switch event.type {
         case "memory.document_written":
             let data = try Self.decode(WrittenData.self, from: event.data)
@@ -341,6 +654,46 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             guard belongsToThisBot(event, scope: forgotten.scope) else { return }
             state.legacyFacts.removeValue(forKey: forgotten.factId)
             state.legacyOrder.removeAll { $0 == forgotten.factId }
+        case "erasure":
+            let data = try Self.decode(BotErasureEventData.self, from: event.data)
+            let erasingBot = Self.normalizedBotID(event.principal.botId)
+            func appliesToThisStore(_ target: BotErasureEventData.Target) -> Bool {
+                guard target.kind == "memory" else { return false }
+                guard target.scope != BotMemoryScope.user.rawValue else { return true }
+                return erasingBot == effectiveBotID
+            }
+            var removedPaths = Set<String>()
+            var scopeErases: [BotMemoryScope] = []
+            for target in data.targets where appliesToThisStore(target) {
+                if let path = target.path {
+                    removedPaths.insert(path)
+                } else if let rawScope = target.scope,
+                          let targetScope = BotMemoryScope(rawValue: rawScope) {
+                    scopeErases.append(targetScope)
+                }
+            }
+            for path in removedPaths {
+                state.live.removeValue(forKey: path)
+                state.versions.removeValue(forKey: path)
+                state.latestVersion.removeValue(forKey: path)
+            }
+            for targetScope in scopeErases {
+                let scoped = state.versions.compactMap { path, versions in
+                    versions.values.contains(where: { $0.scope == targetScope }) ? path : nil
+                }
+                for path in scoped {
+                    state.live.removeValue(forKey: path)
+                    state.versions.removeValue(forKey: path)
+                    state.latestVersion.removeValue(forKey: path)
+                }
+                state.legacyFacts = state.legacyFacts.filter { $0.value.scope != targetScope }
+            }
+            for factID in data.legacyFactIDs {
+                state.legacyFacts.removeValue(forKey: factID)
+            }
+            let visible = Set(state.live.keys)
+            state.order.removeAll { !visible.contains($0) }
+            state.legacyOrder.removeAll { state.legacyFacts[$0] == nil }
         default:
             return
         }

@@ -42,7 +42,7 @@ final class BotEventEnvelopeTests: XCTestCase {
     func testPhoneGoldenAgentCommUsesRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
         let valid = fixture["validCases"] as! [[String: Any]]
-        XCTAssertEqual(valid.count, 3)
+        XCTAssertEqual(valid.count, 4)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
@@ -53,6 +53,11 @@ final class BotEventEnvelopeTests: XCTestCase {
                 XCTAssertEqual(decoded.origin, .dsh(sessionId: "gb-main", seq: 5))
                 XCTAssertEqual(decoded.data["record"]?.stringValue, "record://event/7")
                 XCTAssertEqual(decoded.data["sessionRecord"]?.stringValue, "record://session/gb-main#5")
+            case "erasure-event-envelope":
+                XCTAssertEqual(decoded.type, "erasure")
+                XCTAssertEqual(decoded.origin, .local(source: "user"))
+                XCTAssertEqual(decoded.principal.kind, "ipc")
+                XCTAssertEqual(decoded.data["erasureId"]?.stringValue, "erasure-20261112-a")
             default:
                 XCTAssertEqual(decoded.type, "agent.comm")
                 XCTAssertEqual(decoded.origin, .local(source: "comm-service"))

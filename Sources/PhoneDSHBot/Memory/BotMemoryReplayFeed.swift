@@ -93,7 +93,7 @@ actor BotMemoryReplayFeed {
                 scannedEventCount += 1
                 switch event.type {
                 case "memory.written", "memory.forgotten",
-             "memory.document_written", "memory.document_deleted":
+             "memory.document_written", "memory.document_deleted", "erasure":
                     history.append(event)
                 default:
                     break

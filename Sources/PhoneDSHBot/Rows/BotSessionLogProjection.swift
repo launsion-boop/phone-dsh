@@ -502,6 +502,9 @@ public struct BotSessionLogProjector: Sendable {
         var seenEventIDs: Set<String> = []
         let (answeredCards, dismissedCards) = cardOutcomes(botID: botID, events: events)
         for (index, event) in events.sorted(by: stableUIEventOrder).enumerated() {
+            // A physically erased payload must not be projected back into a
+            // row: the header/digest stay, the content does not.
+            guard !event.isErasedPayload else { continue }
             guard event.principal.botId == nil || event.principal.botId == botID,
                   let data = objectValue(event.data), seenEventIDs.insert(event.eventId).inserted else { continue }
             let order = BotRowOrder(time: event.time, source: 1, sourceSeq: event.commitSeq ?? 0, index: index)

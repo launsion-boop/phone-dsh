@@ -12,7 +12,9 @@
 - Swift 宿主常驻负责事件、授权、记忆、routine 调度、通知、账本和 Watchdog。WebContent 终止不能丢失 durable 数据。
 - Bot 事件写 SQLite，不使用 JSONL 作为权威存储。`commitSeq` 由 SQLite 在同一事务中分配，单调且无缺口；`eventId` 去重。P03 journal 是另一序号域，不得混用。
 - effects outbox 至少一次投递，包含 lease、去重、dead-letter 和 needs-reconciliation。接受、持久化和外部副作用完成是不同事实。
-- SQLite schema v2 增加 `bot_user_action_nonces(bot_id, nonce, event_id, created_commit_seq)`，主键为 `(bot_id, nonce)`，`event_id` 唯一并引用同库动作事件。v1 打开时原地迁移，已有事件和 effects 不变；v2 拒绝更未来版本。回滚到只支持 v1 的 App 会明确拒绝该库，不删除或静默降级。
+- SQLite schema v3（P25 破坏性存储变更）把 `bot_events` 拆成 `bot_event_headers` 与 `bot_event_payloads`，并保留只读视图 `bot_events` 给未跟进拆分的历史读取路径。事件头保存 `commit_seq`、`event_id`、`event_type`、`payload_digest`、`payload_size` 与不含 `data` 的路由元数据；载荷只保存 `data` 的规范 JSON 字节。事件头只追加、序号无缺口、`eventId` 去重的校验不变；载荷只有宿主的 `erasure` 路径能清空，清空后保留摘要并写入一条 `erasure` durable 事件（§4.6）。`payload_digest` 是 SHA-256 over 规范 JSON（sorted keys、不转义 `/`）。
+- SQLite schema v2 增加 `bot_user_action_nonces(bot_id, nonce, event_id, created_commit_seq)`，主键为 `(bot_id, nonce)`，`event_id` 唯一并引用 `bot_event_headers(event_id)`。v1/v2 打开时原地迁移到 v3：旧 `bot_events.payload` 被解码后拆分，事件、effects 和 nonce 不变；新库直接建 v3。迁移在一个事务内完成，重复打开幂等；v3 拒绝更未来版本。回滚到只支持 v1/v2 的 App 会按现有 `schemaTooNew` 规则明确拒绝该库，不删除或静默降级。
+- `bot_event_payloads` 的唯一合法变更是宿主抹除路径把 `payload` 置 NULL 并记录 `erased_at`/`erasure_commit_seq`；触发器拒绝其他 UPDATE 和所有 DELETE。打开数据库时 `PRAGMA secure_delete=ON`；抹除提交后 checkpoint WAL、VACUUM 并再次 truncate WAL，确保 SQLite 文件不保留原文字节。
 - 第一版不做回退引擎、回滚、import、Team 共享/发布/克隆、团队记忆/审核队列、Bot 模板导入导出、`CreateAgent` 云端工具、Box、CloudAgent、GenerateImage 或 macOS 本机工具。多 Bot 名册、逐 Bot 会话/记忆/held inbox 与 `SendToAgent`/`CreateTeammate` 见 §1.1；sidebar section 接受但忽略。
 
 ### 1.1 多 Bot 与 Team 边界
@@ -184,6 +186,13 @@ ASCII 大小写、十进制前导零；session id 本身大小写敏感，不做
 引用规范化后再比较、存储和去重；事件信封、记忆证据和检索结果只输出规范化形态。原始记录被抹除时
 引用即失效，不得把不存在的引用静默解析到相邻记录。
 
+`record://event/<commitSeq>` 被宿主的 `erasure` 路径物理清除后，事件头、序号、类型和摘要仍存在，但
+引用进入「已抹除」状态：`phone record read` 返回 `ok:false` 且 `error.code == "record_erased"`
+（不返回原文、摘要或相邻记录），`search` 跳过该事件，`resolveEvidence` 拒绝把它当作证据。
+`record://session/...` 的区间抹除属 S6 第二步，本修订尚未实现；界面文案必须如实说明会话日志暂未
+覆盖。引用存在性与调用者范围校验顺序不变：先按既有规则判断引用/会话是否属于该 Bot，再判断是否
+已抹除；不得用「已抹除」泄露别的 Bot 的记录。
+
 ### 4.3 观察信封（observation envelope）
 
 `tools/post-execute` 在 `redact` 同一挂点给外部来源的结果加系统生成的信封。信封由 Worker 产生，
@@ -243,8 +252,9 @@ phone record read <record-ref> [--around <0..20>]
 结果使用 P19 手机工具 envelope：成功为
 `{ok:true,tool:"record.search"|"record.read",egress:false,scope:"bot",data:{…}}`，失败为
 `{ok:false,tool:…,error:{code,message}}`。错误码至少包含 `unclaimed_session`、
-`session_out_of_scope`、`unknown_record`、`invalid_reference`、`invalid_query`、`invalid_since`、
-`invalid_around`；用法错误退出 2，查询拒绝退出 1。`search` 返回规范化引用、记录种类、时间、
+`session_out_of_scope`、`unknown_record`、`record_erased`、`invalid_reference`、`invalid_query`、
+`invalid_since`、`invalid_around`；用法错误退出 2，查询拒绝退出 1。`record_erased` 的 `message` 为
+`该记录已被抹除`，且结果不得包含原文字节。`search` 返回规范化引用、记录种类、时间、
 类型与至多 20 条片段；`read` 返回中心行和前后至多 20 行原文（每条带引用与 `truncated`），
 原文按落盘字节返回，不重新编码。单次输出上限 256 KiB。
 
@@ -280,6 +290,42 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
 事件类型追加到 P25 `event-envelope.schema.json` 的封闭 enum 和 `golden/event-envelope.phone.json`；
 旧读者按 P25 的未知 durable 事件规则处理。标记本身保留在记录里，作为「这里被改写过」的证据；
 不得把原文、命中片段或替换后的秘密写进事件。没有命中的结果不写事件。
+
+### 4.6 抹除（erasure）与两个强度
+
+用户删除只有两个强度，名字和行为一一对应：
+
+- **忘记（forget）**：逻辑删除。记忆文档从 live 集合移除、不再注入/检索/显示，历史版本和原始记录
+  保留。模型工具 `UpdateMemory{"action":"delete"}` 和记忆页的「忘记」只走这个强度。
+- **抹除（erase）**：物理删除。由宿主专用路径执行，作用于原始记录和派生物：事件载荷、记忆文档及其
+  全部历史版本、检索结果、UI 行、`phone record` 结果，以及观察信封/脱敏留痕中指向被抹除事件的
+  内容。S6 第一步覆盖 `bot_events` 与记忆/派生视图；DSH 会话日志（session log）的区间改写在第二步，
+  在上述入口的确认文案中必须写明「暂未覆盖历史会话日志」。
+
+**事件存储。** 拆分为事件头与载荷（§1）。只有宿主的抹除路径能清空载荷；每次抹除追加一条 durable
+`erasure` 事件，列出目标（`memory` scope/path）、每个路径被抹除的版本号、被清除事件的
+`record://event/...`、类型、原摘要、字节数、`legacyFactIDs` 和未覆盖的 `record://session/...`
+引用（reason `session-log-erasure-not-implemented`）。`erasure` 事件自己的载荷不清除；它的
+`data` 由 [erasure-event.schema.json](erasure-event.schema.json) 冻结，正反向量在
+[golden/erasure-event.phone.json](golden/erasure-event.phone.json)。`event-envelope.schema.json`
+的 durable type enum 追加 `erasure`（P25 additive event type），旧读者按未知 durable 规则处理。
+
+**作用范围与顺序。** 宿主先解析目标文档/scope 及全部版本，再扫描 durable 事件：
+
+1. 该路径的 `memory.document_written`/`memory.document_deleted` 载荷（包括历史版本）；
+2. 共享 `user/` scope 跨 Bot；`agent/` scope 只限该 Bot（`erasure` 事件按写入者的 principal 限定）；
+3. 与版本文本相同的事件载荷，以及由版本文本中唯一标记（含 `_` 或数字、长度 ≥ 8）匹配到的副本；
+4. `redaction.applied`、观察信封等非 memory 事件中指向被清除 `record://event/...` 的内容；
+5. 未被覆盖的 session 引用只登记在 `uncoveredRecords`，不改写会话文件。
+
+清除范围之外的内容不得因为抹除被误删；其他 Bot 的 `agent/` 文档和保留的 `user/` 文档必须存活。
+抹除是幂等的：重复执行不再产生第二条 `erasure` 事件，目标已不存在时返回 `memory-not-found`（单文档）
+或 `removed=0`（scope）。失败路径：不存在的路径、越权 scope、事件不存在或已经抹除都不得伪造成功。
+
+**与只追加的关系。** 只追加约束进程和 agent，不约束有权的用户。宿主抹除路径是唯一的例外：它不
+删除事件头，不重编序号，不改变既有事件 id/类型/摘要；它只把载荷置 NULL 并追加 `erasure` 事件。
+`verifyIntegrity` 在打开与 `verifyIntegrity()` 时仍要求序号从 1 无缺口、每个载荷摘要匹配、每个
+被抹除行指向一条更晚的 `erasure` 事件。
 
 ## 5. 行与交互
 
@@ -352,7 +398,7 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory` 与原生 MCP BLE 工具的效果分类。
 - `approval-patterns.phone.json`：把 upstream 的 curl/wget/python 网络命令模式登记为手机端降级（`matches=[]`），并列出脚本文件/变量拼接/解释器与 `python3 /tmp/x.py`；`rm`/`git reset --hard`/`find -delete` 仍匹配 upstream，不得降级。出口写审批与文件 Grant 的向量在 `mcp-egress.phone.json` 的 `egress-approval`、`grant-directory` 套件。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
-- `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`：原始记录引用、观察信封和 `phone record` 结果的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这三个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。
+- `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`、`erasure-event.phone.json`：原始记录引用、观察信封、`phone record` 结果和 `erasure` 事件的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这四个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。
 - `authority.phone.json`：routine 设立者/放宽判定、Task 授权子集和 CreateTeammate 作者的手机专属向量；用 `"upstream": []` 登记，含 schema 负例、解析负例和 mutation 自检。
 - `mcp-egress.phone.json`：MCP 出口凭证、会话凭证与 `tools/call` 调用者目录的手机专属向量；同样用 `"upstream": []` 登记。`valid` / `invalid` 的每条用例带 `suite`（`egress` / `identity` / `tools-call` / `egress-approval` / `grant-directory`）；`egress` 由精确路由集合与常量时间 token 比较判定，`identity` 由 token 登记表（含撤销／过期／轮换）解析 principal 并比较 `sessionId`，`tools-call` 由与 `tools/list` 相同的 per-caller 目录判定；`egress-approval` 逐条覆盖登记/job 生命周期、同 Bot 分组、无登记时的单/多/无 Bot 与工作台回合，以及 Task 授权子集（无 `task.network-write` 拒绝且不出卡、有授权照常送审、主对话不受影响），`grant-directory` 覆盖目录 Grant 命中和不命中。`validate_vectors.py` 逐条校验并按 suite 强制边界覆盖，内部 mutation 变异预期值；`check_golden.py` 在 `PHONE_ONLY_VECTORS` 显式登记该文件。
 

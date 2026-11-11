@@ -84,7 +84,8 @@
         "ledger.usage_recorded",
         "watchdog.flagged",
         "verification.reported",
-        "redaction.applied"
+        "redaction.applied",
+        "erasure"
       ]
     },
     "eventId": {

@@ -4,6 +4,19 @@ import XCTest
 @testable import PhoneDSHBot
 
 final class RowProjectionBehaviorTests: XCTestCase {
+    func testErasedUIPayloadIsNotProjectedBack() throws {
+        let erased = RowTestSupport.uiEvent(
+            type: "ui.notice", id: "erased-ui", commitSeq: 1, time: 1,
+            data: ["$erased": .bool(true), "$erasureCommitSeq": .number(3)])
+        let live = RowTestSupport.uiEvent(
+            type: "ui.notice", id: "live-ui", commitSeq: 2, time: 2,
+            data: ["text": .string("still here")])
+        let rows = BotSessionLogProjector().project(
+            botID: "main", sessionID: "main", sessionEvents: [], uiEvents: [erased, live]).rows
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.body["text"], .string("still here"))
+    }
+
     func testStructuredApprovalDenialIsNeverRenderedAsAllowed() throws {
         let call = BotDSHSessionEvent(type: "tool/call", seq: 1, time: 1, data: [
             "name": .string("mcp__phone__RequestApproval"), "callId": .string("approval-call"),

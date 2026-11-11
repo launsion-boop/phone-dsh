@@ -17,7 +17,11 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 - 点选即保存（`BotProfileStore.upsert` 只带改动字段）并全页实时生效；预览、4 个发型缩略图与 Bot 页头部/空状态/状态行同步。
 - 本轮不提供「自动」选项；资料模型的 `nil` 保留给以后的多 Bot 导入。页面不显示自动外观标记，也不伪造未保存状态。
 
-- 记忆：按 `user/` 和 `agent/` 两个根展示文档树，目录可展开；文档详情显示完整 Markdown、当前版本、更新时间、作者/会话类型和 `evidence`（`record://` 引用）；可查看历史版本列表和每个版本的正文/删除标记。路径、版本和 evidence 均来自宿主 `ReadMemory` 同一权威，不伪造条目或来源。每份文档的「忘记」删除该文档（历史仍可查看），两个根各自保留原有的「抹除」二次确认；物理抹除是 S6。不提供第一版未实现的自动抽取、反思或衰减开关，也不在页面内编辑文档正文。accessibility id 前缀 `bot.memory.*`、`bot.info.memory`。
+- 记忆：按 `user/` 和 `agent/` 两个根展示文档树，目录可展开；文档详情显示完整 Markdown、当前版本、更新时间、作者/会话类型和 `evidence`（`record://` 引用）；可查看历史版本列表和每个版本的正文/删除标记。路径、版本和 evidence 均来自宿主 `ReadMemory` 同一权威，不伪造条目或来源。删除有两个强度且文案不能混用：
+  - 每份文档的「忘记」是逻辑删除：只移除 live 版本，历史版本和原始记录仍保留。
+  - 文档详情的「抹除这份文档和全部历史版本」、`agent/` 根的「抹除这个 Bot 的 agent 文档（含全部版本）」和共享 `user/` 根的双重确认「抹除所有 Bot 共享的 user/ 文档（含全部版本）」是物理删除：清除文档、全部历史版本、事件载荷、检索/注入/UI 行中的对应内容，并追加 `erasure` 事件；其他 Bot 的 `agent/` 文档不受影响，`user/` 抹除影响所有 Bot。
+  - 所有抹除入口都必须有明确范围说明和不可撤销提示，并写明「DSH 会话日志（聊天原始记录）暂未覆盖」。宿主确认后重读权威状态；失败显示失败，不把失败当成功或本地伪装已删除。
+  - 不提供第一版未实现的自动抽取、反思或衰减开关，也不在页面内编辑文档正文。accessibility id 前缀 `bot.memory.*`、`bot.info.memory`，单文档抹除为 `bot.memory.document.erase`。
 - Routines：展示 schedule、timezone、delivery、quiet/urgent 标记、下一次到期/安静时段延后、运行结果、设立者（`creator.rpcId`／`turnId`／`origin`／`authorization`）、`completion_criteria` 与 `constraints`；动作通过 UserAction/宿主服务，不直接修改数据库。运行中（`run_state.status == "started"`）显示「取消运行」；`run_state.status == "needs-reconciliation"` 显示已产生效果的文字摘要，并提供「确认完成」和「重试」两个独立动作，分别走 `RoutineMachine.resolveReconciliation` 与 `BotEffectOutbox.ackReconciled`／`retryNeedsReconciliation`。取消、对账后重读权威状态；读取失败显示失败，不显示为零。
 - 常设授权：单独入口，列出本 Bot 的 `scope != once` Grant（tool、operation、resource、scope、sessionId、createdAt、source），每行可撤销。撤销调用 `BotGrantStore.revoke(id:)` 并重读；不把 once 授权显示为常设，也不在撤销失败时本地移除。授权状态未知时显示读取失败，不伪造“无授权”。accessibility id 前缀 `bot.grant.*`。
 - 审批记录：只显示参数摘要和实际决定，不显示密钥或完整敏感参数。

@@ -59,12 +59,57 @@ public enum BotMemoryStoreWriteOutcome: Sendable, Equatable {
     case indexTooLong(path: String, limit: Int, actual: Int)
 }
 
+
+/// Result of one host-side physical erasure. `removedDocuments` counts live
+/// documents and `removedVersions` counts every historical version, including
+/// the live one. `erasedEvents` counts payloads cleared in `bot_event_payloads`.
+public struct BotMemoryPhysicalEraseOutcome: Sendable, Equatable {
+    public let ok: Bool
+    public let error: String?
+    public let scope: BotMemoryScope
+    public let paths: [String]
+    public let removedDocuments: Int
+    public let removedVersions: Int
+    public let erasedEvents: Int
+    public let erasedBytes: Int
+    public let erasureRecord: String?
+    public let uncoveredRecords: [String]
+
+    public init(
+        ok: Bool,
+        error: String? = nil,
+        scope: BotMemoryScope,
+        paths: [String] = [],
+        removedDocuments: Int = 0,
+        removedVersions: Int = 0,
+        erasedEvents: Int = 0,
+        erasedBytes: Int = 0,
+        erasureRecord: String? = nil,
+        uncoveredRecords: [String] = []
+    ) {
+        self.ok = ok
+        self.error = error
+        self.scope = scope
+        self.paths = paths
+        self.removedDocuments = removedDocuments
+        self.removedVersions = removedVersions
+        self.erasedEvents = erasedEvents
+        self.erasedBytes = erasedBytes
+        self.erasureRecord = erasureRecord
+        self.uncoveredRecords = uncoveredRecords
+    }
+}
+
 public protocol BotMemoryDocumentStore: Actor {
     func documents(scope: BotMemoryScope?) async throws -> [BotMemoryDocument]
     func document(path: String) async throws -> BotMemoryDocument?
     func versions(path: String) async throws -> [BotMemoryDocumentVersion]
     func write(_ request: BotMemoryStoreWriteRequest) async throws -> BotMemoryStoreWriteOutcome
     func eraseAll(scope: BotMemoryScope, author: BotMemoryAuthor, atMS: Int64) async throws -> Int
+    /// Physical erase of one document and every historical version.
+    func erase(path: String, author: BotMemoryAuthor, atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome
+    /// Physical erase of every document under one root.
+    func erase(scope: BotMemoryScope, author: BotMemoryAuthor, atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome
     /// Legacy facts visible to this store's Bot: its own agent facts plus the
     /// shared user facts. Used only by the one-time migration.
     func legacyFacts(scope: BotMemoryScope?) async throws -> [BotMemoryFact]

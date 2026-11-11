@@ -52,7 +52,7 @@ final class UserActionTransactionTests: XCTestCase {
             try await migrated.eventID(botID: action.botID, nonce: action.nonce), "evt-after-migration")
         try await migrated.close()
 
-        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "2")
+        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "3")
         let migratedTables = try SQLiteProbe.query(
             """
             SELECT name, sql FROM sqlite_master
@@ -66,7 +66,7 @@ final class UserActionTransactionTests: XCTestCase {
         XCTAssertEqual(indexes.filter { $0["unique"] == "1" }.count, 2)
         let foreignKeys = try SQLiteProbe.query("PRAGMA foreign_key_list('bot_user_action_nonces')", at: file)
         XCTAssertEqual(foreignKeys.count, 1)
-        XCTAssertEqual(foreignKeys[0]["table"], "bot_events")
+        XCTAssertEqual(foreignKeys[0]["table"], "bot_event_headers")
         XCTAssertEqual(foreignKeys[0]["from"], "event_id")
         XCTAssertEqual(foreignKeys[0]["to"], "event_id")
         XCTAssertEqual(try SQLiteProbe.scalar(
@@ -79,12 +79,12 @@ final class UserActionTransactionTests: XCTestCase {
         let store = try SQLiteDomainStore(fileURL: file, now: { 1_000 })
         _ = try await store.append(Self.event(id: "evt-future"))
         try await store.close()
-        try SQLiteProbe.execute("PRAGMA user_version=3", at: file)
+        try SQLiteProbe.execute("PRAGMA user_version=4", at: file)
 
         XCTAssertThrowsError(try SQLiteDomainStore(fileURL: file)) { error in
-            XCTAssertEqual(error as? SQLiteDomainStoreError, .schemaTooNew(3))
+            XCTAssertEqual(error as? SQLiteDomainStoreError, .schemaTooNew(4))
         }
-        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "3")
+        XCTAssertEqual(try SQLiteProbe.scalar("PRAGMA user_version", at: file), "4")
         XCTAssertEqual(try SQLiteProbe.scalar("SELECT COUNT(*) FROM bot_events", at: file), "1")
     }
 

@@ -506,7 +506,7 @@
     {
       "id": "BOT-E07",
       "title": "erase this bot and shared memory; the turn does not leak the word",
-      "description": "The user asks the Bot to remember a random word, the UI erases this Bot's memory and the shared user memory, then the user asks for the word and says to answer UNKNOWN if it is gone. Visible memory and the reply must not contain the word. A separate assertion checks that the append-only bot_events payload still contains it, recording the known logical-delete gap.",
+      "description": "The user asks the Bot to remember a random word, the UI physically erases this Bot's memory and the shared user memory, then the user asks for the word and says to answer UNKNOWN if it is gone. Visible memory and the reply must not contain the word; the durable memory.document_written header survives with its digest but its payload no longer contains the word, and an erasure event is recorded.",
       "user_story": "A phone user wipes the Bot's memory from the info page and then asks about the forgotten word.",
       "tags": [
         "memory",
@@ -563,6 +563,14 @@
         },
         {
           "type": "bot_event",
+          "event": "memory.document_written"
+        },
+        {
+          "type": "bot_event",
+          "event": "erasure"
+        },
+        {
+          "type": "no_bot_event",
           "event": "memory.document_written",
           "payload_contains": "QUOKKA_7F3A9"
         }
