@@ -37,6 +37,7 @@ MODULES = (
     "domain",
     "core",
     "net",
+    "pclink",
     "controller",
     "engine",
     "shell",
@@ -67,6 +68,7 @@ include(":platform-android")
 include(":domain")
 include(":core")
 include(":net")
+include(":pclink")
 include(":controller")
 include(":engine")
 include(":shell")

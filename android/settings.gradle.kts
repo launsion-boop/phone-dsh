@@ -54,6 +54,10 @@ include(":platform-android")
 include(":domain")
 include(":core")
 include(":net")
+// PCLink (P28) is its own JVM module: it is the phone end of the relay/E2E
+// protocol and must not double-own the P05 loopback/gateway surface in `:net`
+// or pull its Ktor/crypto dependencies into the published `:lib` AAR graph.
+include(":pclink")
 include(":controller")
 include(":engine")
 include(":shell")

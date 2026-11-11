@@ -2,10 +2,10 @@
 # PDSH Android 适配树
 
 > **状态：可构建、可测试、可在模拟器上跑通 boot→HELLO。**
-> 13 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE 仅有未接入的 target 解码器、LAN 发现为 partial（扫描与候选已接入 MCP 页，授权流程未接），SSH 映射到 `:app` 的 `com.phonedsh.ssh`，ADB 合并进 `:net`（原生 MCP 工具，无 Worker 文件传输加速器），DeviceTasks 在 Android 无对应实现。另 6 个模块不属于原有 7 个映射
+> 14 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE 仅有未接入的 target 解码器、LAN 发现为 partial（扫描与候选已接入 MCP 页，授权流程未接），SSH 映射到 `:app` 的 `com.phonedsh.ssh`，ADB 合并进 `:net`（原生 MCP 工具，无 Worker 文件传输加速器），DeviceTasks 在 Android 无对应实现，PCLink（P28）是独立 JVM 模块 `:pclink` 且**只完成协议 codec/crypto 层（partial，in progress；不是 implemented）**。另 7 个模块不属于原有 7 个映射
 > （`:platform` 承载 SPI、`:platform-android` 承载 SPI 的 Android 实现、`:domain` 承载设备能力契约
 > 与手机权限读数、`:lib` 是可发布 AAR、`:app` 是 probe-app、`:lib-consumer-test` 以发布坐标
-> `com.phonedsh:lib:0.1.0` 消费 AAR）。`:domain` 的 **DomainStore 已删除**（2026-11-01：
+> `com.phonedsh:lib:0.1.0` 消费 AAR、`:pclink` 是 PCLink 协议的 JVM 实现，不进 AAR）。`:domain` 的 **DomainStore 已删除**（2026-11-01：
 > 1,019 行零生产消费者，它要服务的 session/memory/task 持久化在 Android 上尚未实现；`:dsh` 已有
 > `HostStateStore` 与 `JournalStore` 两条写路径，留着它只会让下一个人以为 P6 已交付。
 > **104,603 行 Kotlin 主代码 + 49,261 行单测 + 9,660 行 instrumented**（`wc -l`，**快照 2026-11-01
@@ -120,7 +120,7 @@ fixture 用临时目录或拼接构造路径，只有嵌入的 shebang 行被跳
 
 ```text
 android/
-├── settings.gradle.kts        # 13 个 Gradle 模块 + version catalog
+├── settings.gradle.kts        # 14 个 Gradle 模块 + version catalog
 ├── build.gradle.kts           # 根 plugins（apply false）
 ├── gradle.properties          # AndroidX / R 类 / JVM 最小开关
 ├── gradle/libs.versions.toml  # AGP/Kotlin/Compose 占位 pin（全部 unverified）
@@ -132,13 +132,14 @@ android/
 ├── domain/                    # 设备能力契约 + 手机权限读数（DomainStore 已于 2026-11-01 删除）
 ├── core/                      # wire + log + agentcore
 ├── net/                       # loopback + gateway
+├── pclink/                    # PCLink v1 协议（JVM，P28；partial）
 ├── controller/ engine/ dsh/
 ├── shell/                     # JNI 薄包装 pdsh-ffi 的统一 C ABI：rg / jaq（见 shell/README.md）
 ├── lib-consumer-test/           # 以 com.phonedsh:lib:0.1.0 坐标消费发布 AAR 的消费者探针
 └── tools/                     # bootstrap + structure_check.py + test-count.sh + unittest
 ```
 
-## Swift 模块 → Kotlin 包 → Gradle 模块（16/16）
+## Swift 模块 → Kotlin 包 → Gradle 模块（17/17）
 
 | Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -146,7 +147,7 @@ android/
 | PhoneDSHWire | `com.phonedsh.wire` | `:core` | mapped | 合并进 `:core`；纯字节/金标 |
 | PhoneDSHLog | `com.phonedsh.log` | `:core` | mapped | 合并进 `:core` |
 | PhoneDSHLoopback | `com.phonedsh.loopback` | `:net` | mapped | 合并进 `:net` |
-| PhoneDSHPCLink | — | — | absent | Android 无 Kotlin 实现（GAP-35）；路线图第 2 波计划建立 PCLink Kotlin 模块（线上协议 → 配对 → workspace） |
+| PhoneDSHPCLink | `com.phonedsh.pclink` | `:pclink` | target | partial（in progress，**不是 implemented**）：独立 JVM 模块已登记；C0 只有模块与包 marker，C1 起 strict JSON/encoding/crypto/wire 校验对共享 golden 向量；配对、relay、workspace 与 App 接线尚未实现（GAP-35 未关闭） |
 | PhoneDSHGateway | `com.phonedsh.gateway` | `:net` | mapped | 合并进 `:net` |
 | PhoneDSHController | `com.phonedsh.controller` | `:controller` | mapped | 包与模块结构对应，不表示 API 或行为完全一致 |
 | PhoneDSHEngine | `com.phonedsh.engine` | `:engine` | mapped | 包与模块结构对应；包含 WebView / EngineHost |
@@ -227,7 +228,7 @@ android/
 
 | # | 命令 | 结果 |
 | --- | --- | --- |
-| 1 | `python3 android/tools/structure_check.py --root .` | 14/14 项通过：13 个 include=磁盘、13/13 build 文件、13 个模块清单、34 个 `*Page.kt`（含 `ChatPage.kt`）、11 个 Swift 模块各映射一次、371 个生产 `.kt` 无占位、0 处绝对路径、`local.properties` 已忽略、8 个 `# unverified pin` |
+| 1 | `python3 android/tools/structure_check.py --root .` | 14/14 项通过：14 个 include=磁盘、14/14 build 文件、14 个模块清单、44 个 `*Page.kt`（prepared floor 34，含 `ChatPage.kt`）、19 个 Swift 模块各映射一次（`:pclink` 为 target）、463 个生产 `.kt` 无占位、0 处绝对路径、`local.properties` 已忽略、10 个 `# unverified pin` |
 | 2 | `python3 spec/v1/tools/spec_golden.py --full` | **73 个文件**，0 error |
 | 3 | `python3 spec/v1/tools/gateway_check.py --root .` | **30 条向量**，0 error（credential-injection=3 header-strip=3 redirect-scope=8 egress-classification=5 response-redaction=7 failure-surface=4） |
 | 4 | `python3 spec/platform/tools/platform_check.py --root .` | 8 个文件、**24 条白名单**、0 failure（classes: hardware-absent=1 os-forced=22 policy-forbidden=1） |
@@ -235,7 +236,7 @@ android/
 | 6 | `python3 spec/host/v1/tools/host_check.py --root .` | **41 个文件**，0 error |
 | 7 | `bash android/tools/test-count.sh` | 11 个模块、**1,095 条测试**、0 failing（见上表） |
 | 8 | `python3 -m unittest discover -s android/tools -p 'test_*.py'` | **19 条**，OK（0.5 s） |
-| 9 | `grep -c 'include(":' android/settings.gradle.kts` | **13** |
+| 9 | `grep -c 'include(":' android/settings.gradle.kts` | **14** |
 | 10 | `ls android/lib/src/main/kotlin/com/phonedsh/ui/page/*Page.kt \| wc -l` | **34** 个页面（prepared PR22/PR14 baseline，结构门禁的下限） |
 | 11 | `find shell/crates -name "*.rs" \| xargs wc -l \| tail -1` | **27,742** 行 Rust（`:shell` 依赖的加速器实现，见 `shell/README.md`） |
 | 12 | `find android -path "*/src/main/*" -name "*.kt" \| xargs wc -l \| tail -1` | **104,603** 行 Kotlin 主代码（2026-11-01 20:45 工作树） |
