@@ -44,9 +44,11 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             principal: BotPrincipal(botId: "main", sessionId: "session", kind: "chat"),
             causationId: nil, correlationId: nil,
             data: .object(["approvalID": .string("approval-1")]))
-        let memory = BotMemoryFact(
-            factID: "fact-1", text: "likes tea", learnedAtMS: 1,
-            tier: .profile, scope: .user,
+        let memory = BotMemoryDocument(
+            path: "user/profile.md", scope: .user, content: "likes tea",
+            version: 1, updatedAtMS: 1,
+            author: BotMemoryAuthor(botID: "main", sessionID: "session", kind: .chat),
+            evidence: [], trust: "user",
             source: BotMemorySource(kind: .userTurn, sessionID: "session"))
         let snapshot = EvalSnapshot(
             mainBotID: "main",
@@ -58,7 +60,13 @@ final class BotEvalAssertionMutationTests: XCTestCase {
             memories: ["main": [memory], "bot-side": []],
             workspaces: ["main": workspace, "bot-side": workspace],
             scratchRoot: root.appendingPathComponent("scratch", isDirectory: true),
-            echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")])
+            echoRequests: [EvalEchoRequest(method: "POST", path: "/probe")],
+            advertisedTools: ["bash", "read", "todo_write"],
+            advertisedToolsBySession: [
+                "main": ["bash", "read", "todo_write"],
+                "task": ["bash", "read", "write"],
+                "verifier": ["bash", "glob", "grep", "read"],
+            ])
         try FileManager.default.createDirectory(
             at: snapshot.scratchRoot, withIntermediateDirectories: true)
 
@@ -95,6 +103,20 @@ final class BotEvalAssertionMutationTests: XCTestCase {
              EvalAssertion(type: "echo_requests", path: "/probe", method: "GET", equals: 1)),
             (EvalAssertion(type: "echo_requests", path: "/absent", equals: 0),
              EvalAssertion(type: "echo_requests", path: "/probe", equals: 0)),
+            (EvalAssertion(type: "tool_surface", present: ["bash", "read"],
+                           absent: ["subagent", "schedule_create"]),
+             EvalAssertion(type: "tool_surface", present: ["subagent"])),
+            (EvalAssertion(type: "tool_surface", absent: ["subagent", "skill"]),
+             EvalAssertion(type: "tool_surface", absent: ["bash"])),
+            (EvalAssertion(type: "tool_surface", session: "verifier",
+                           exactly: ["bash", "glob", "grep", "read"]),
+             EvalAssertion(type: "tool_surface", session: "verifier",
+                           exactly: ["bash", "glob", "grep", "read", "write"])),
+            (EvalAssertion(type: "tool_surface", session: "main",
+                           present: ["bash"], absent: ["grep"]),
+             EvalAssertion(type: "tool_surface", session: "main", present: ["grep"])),
+            (EvalAssertion(type: "tool_surface", session: "verifier", present: ["grep"]),
+             EvalAssertion(type: "tool_surface", session: "maintainer", present: ["bash"])),
             (EvalAssertion(type: "file_exists", path: "a.txt"),
              EvalAssertion(type: "file_exists", path: "missing.txt")),
             (EvalAssertion(type: "no_file", path: "missing.txt"),

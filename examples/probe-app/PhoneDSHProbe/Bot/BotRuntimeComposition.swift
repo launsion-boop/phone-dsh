@@ -5,6 +5,7 @@ import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHDeviceTasks
+import PhoneDSHShell
 #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
 import PhoneDSHADB
 import PhoneDSHLoopback
@@ -33,6 +34,28 @@ actor BotRuntimeTurnStopper: BotProductionTurnStopping {
     let remote: BotDSHRemoteRuntime
     init(remote: BotDSHRemoteRuntime) { self.remote = remote }
     func stopCurrentTurn(turnID: String?) async throws { try await remote.stopMainTurn(turnID: turnID) }
+}
+
+/// Thread-safe snapshot of the roster's main-Bot pointer. The maintainer write
+/// rule and candidate selection are synchronous host checks, so they cannot
+/// await the profile store; the roster observation keeps this pointer current.
+final class BotMainBotPointer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var mainBotID: String?
+
+    init(_ mainBotID: String?) { self.mainBotID = mainBotID }
+
+    func update(_ mainBotID: String?) {
+        lock.lock()
+        self.mainBotID = mainBotID
+        lock.unlock()
+    }
+
+    func isMain(_ botID: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return mainBotID == botID
+    }
 }
 
 /// Per-Bot delivery/cycle context. The team tool host owns it; it is not
@@ -91,12 +114,17 @@ final class BotRuntimeComposition {
     let domain: SQLiteDomainStore
     let profileStore: BotProfileStore
     let runtime: BotMCPRuntime
+    /// Shared read-only record service used by the shell `phone record`
+    /// command and the memory evidence resolver.
+    let recordService: BotRecordService
     let handler: BotMCPHandler
     let server: BotMCPHTTPServer
     let outbox: BotProductionEffectRunner
     let rosterModel: BotRosterModel
     let selectionStore: BotSelectionStore
     let agentCommTracker = BotAgentCommTracker()
+    /// Synchronous main-Bot pointer for the maintainer write rule.
+    let mainBotPointer: BotMainBotPointer
 
     /// The Worker environment carrying the Bot MCP endpoint/token. The whole
     /// roster shares one listener, so one URL (and one token) feeds the single
@@ -114,6 +142,10 @@ final class BotRuntimeComposition {
     private var host: PhoneDSHHost?
     private var hostTask: Task<Void, Never>?
     private var observedHost: PhoneDSHHost?
+    /// The live MCP egress policy this composition installed the Bot write
+    /// approver on. Cleared on detach so a stopped Bot runtime cannot answer
+    /// for a later `/v1/http` write.
+    private var botEgressPolicy: MCPEgressPolicy?
     private var tickTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
     private var rosterTask: Task<Void, Never>?
@@ -167,6 +199,7 @@ final class BotRuntimeComposition {
                             directory: BotProfileStorage.directory()),
                         selectedBotID: String? = nil,
                         sessionLogURL: URL? = nil,
+                        workspaceRoot: URL? = nil,
                         now: (@Sendable () -> Int64)? = nil,
                         sleep: RoutineScheduler.Sleeper? = nil) async throws -> Launch {
         let legacyName = await legacyRenamedName(domain: store)
@@ -188,7 +221,13 @@ final class BotRuntimeComposition {
             throw BotTeamHostError.botNotFound("empty roster")
         }
         let deferred = BotDeferredVolatileContextProvider()
-        let runtime = BotMCPRuntime(store: store, volatileProvider: deferred)
+        let gateway = BotGateway()
+        let recordService = BotRecordService(
+            store: store, gateway: gateway,
+            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
+        let runtime = BotMCPRuntime(store: store, gateway: gateway,
+                                    volatileProvider: deferred,
+                                    recordEvidence: recordService)
         let machine = await runtime.routineMachine
         let baseMemory = await runtime.memory(for: selectedCandidate)
         let language = Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh" : "en"
@@ -226,6 +265,7 @@ final class BotRuntimeComposition {
             selectionStore: selectionStore, defaults: defaults)
         let composition = try await BotRuntimeComposition(
             domain: store, profileStore: profileStore, runtime: runtime,
+            recordService: recordService,
             handler: handler, server: server, rosterModel: rosterModel,
             selectionStore: selectionStore, schedulerNow: now, schedulerSleep: sleep)
         composition.workerEnvironment = [
@@ -258,7 +298,8 @@ final class BotRuntimeComposition {
     }
 
     private init(domain: SQLiteDomainStore, profileStore: BotProfileStore,
-                 runtime: BotMCPRuntime, handler: BotMCPHandler,
+                 runtime: BotMCPRuntime, recordService: BotRecordService,
+                 handler: BotMCPHandler,
                  server: BotMCPHTTPServer, rosterModel: BotRosterModel,
                  selectionStore: BotSelectionStore,
                  schedulerNow: (@Sendable () -> Int64)?,
@@ -266,6 +307,7 @@ final class BotRuntimeComposition {
         self.domain = domain
         self.profileStore = profileStore
         self.runtime = runtime
+        self.recordService = recordService
         self.handler = handler
         self.server = server
         self.rosterModel = rosterModel
@@ -273,6 +315,17 @@ final class BotRuntimeComposition {
         self.schedulerNow = schedulerNow
         self.schedulerSleep = schedulerSleep
         self.outbox = BotProductionEffectRunner(store: domain)
+        let mainBotPointer = BotMainBotPointer(rosterModel.mainBotID)
+        self.mainBotPointer = mainBotPointer
+        // Shared `user/` memory has exactly one maintainer: the main Bot's.
+        // Keep the synchronous pointer current from the roster observation and
+        // from the write rule's own view of the same pointer.
+        rosterModel.onRosterChange = { [mainBotPointer] roster in
+            mainBotPointer.update(roster.mainBotID)
+        }
+        await runtime.setMainBotProvider { [mainBotPointer] botID in
+            mainBotPointer.isMain(botID)
+        }
         // A rebind that was not requested through ensureListening() (for
         // example a future automatic recovery) still updates the environment
         // the next Host build reads.
@@ -323,6 +376,8 @@ final class BotRuntimeComposition {
         let unit = try await BotRuntimeUnit.make(
             runtime: runtime, handler: handler, store: domain,
             botID: botID, displayName: profile.name,
+            recordService: recordService,
+            isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             now: schedulerNow, sleep: schedulerSleep)
         units[botID] = unit
         rosterModel.setRuntimeState(BotRosterRuntimeState(runtimeState: state), for: botID)
@@ -382,6 +437,38 @@ final class BotRuntimeComposition {
             // Invalidate the replaced Worker incarnation once; every attached
             // Bot remote receives `workerRestarted` through the shared runtime.
             _ = await runtime.workerRestarted()
+            // The host gateway calls this seam only for Bot-attributed
+            // POST/PUT/PATCH/DELETE `/v1/http` writes. The policy is the same
+            // live object the App uses for exact-MCP admission/credentials.
+            botEgressPolicy?.installBotEgressApprover(nil)
+            await runtime.installWorkbenchTurnProbe(nil)
+            if let policy = newHost.configuration.egressAuthorizer as? MCPEgressPolicy {
+                let runtime = self.runtime
+                policy.installBotEgressApprover { request in
+                    let outcome = await runtime.approveEgress(
+                        method: request.method,
+                        host: request.url.host ?? "",
+                        scheme: request.url.scheme ?? "",
+                        port: request.url.port)
+                    switch outcome {
+                    case .notBot: return .notBot
+                    case .allowed: return .allow
+                    case .denied(let code, let message):
+                        return .deny(code: code, message: message)
+                    }
+                }
+                // The fail-closed fallback needs to know whether a workbench
+                // turn is running. Bot units share this host's transport, so
+                // the live Bot session ids are excluded from the journal
+                // scan. The probe is installed only while this composition is
+                // bound; a detached runtime answers no egress.
+                await runtime.installWorkbenchTurnProbe { [weak newHost, weak runtime] in
+                    guard let newHost, let runtime else { return false }
+                    let botSessions = await runtime.activeSessionIDs()
+                    return await newHost.hasActiveWorkbenchTurn(excluding: botSessions)
+                }
+                botEgressPolicy = policy
+            }
             try await newHost.start()
 
             // Always have the selected Bot and every routine owner attached
@@ -457,6 +544,9 @@ final class BotRuntimeComposition {
     }
 
     private func detachBinding() async {
+        botEgressPolicy?.installBotEgressApprover(nil)
+        await runtime.installWorkbenchTurnProbe(nil)
+        botEgressPolicy = nil
         removeDeviceTaskResultDelivery()
         for unit in units.values { await unit.detach() }
         await outbox.stop()
@@ -509,8 +599,11 @@ final class BotRuntimeComposition {
                 let roster = try await self.profileStore.roster()
                 guard let botID = BotMainPointerRouting.deviceTaskRecipient(in: roster) else { return }
                 let unit = try await self.ensureUnit(for: botID, reason: "device-result")
-                let item = try notice.wakeInboxItem()
-                _ = try await unit.wakeInbox.enqueue(item)
+                let enqueued = try await unit.deviceResults.enqueue(
+                    notice, botID: botID, in: unit.wakeInbox)
+                // A startup replay may already have inserted this exact item;
+                // do not bump unread twice for one terminal result.
+                guard !enqueued.duplicate else { return }
                 let selected = self.rosterModel.selectedBotID
                 await self.rosterModel.noteMessage(
                     to: botID,
@@ -521,6 +614,16 @@ final class BotRuntimeComposition {
                 print("[BotRuntimeComposition] device task result delivery failed: \(error)")
             }
         }
+    }
+
+    /// The background keep-alive branch: any attached Bot with a routine due
+    /// inside the window keeps the silent-audio session alive even when no
+    /// turn is running.
+    func hasRoutineDueSoon(within windowMs: Int64 = RoutinePresencePolicy.keepAliveWindowMs) async -> Bool {
+        for unit in units.values {
+            if await unit.hasRoutineDueSoon(within: windowMs) { return true }
+        }
+        return false
     }
 
     // MARK: - Tick / observation
@@ -845,9 +948,53 @@ extension BotRuntimeComposition: BotTeamHost {
 
     func createBot(name: String, description: String, color: BotFishColor?,
                    hairstyle: BotFishHairstyle?) async throws -> BotProfile {
+        try await createBot(
+            name: name, description: description, color: color,
+            hairstyle: hairstyle, author: nil)
+    }
+
+    func createBot(name: String, description: String, color: BotFishColor?,
+                   hairstyle: BotFishHairstyle?,
+                   author: BotTeammateAuthor?) async throws -> BotProfile {
         let created = try await profileStore.createBot(
             name: name, fishColor: color, fishHairstyle: hairstyle,
             description: description.isEmpty ? nil : description)
+        if let author {
+            let eventID = "teammate-created-\(created.id)"
+            var authorFields: [String: PhoneDSHBot.BotJSONValue] = [
+                "origin": .string(author.origin.rawValue),
+                "authorization": .string(author.authorization.rawValue),
+            ]
+            func put(_ key: String, _ value: String?) {
+                authorFields[key] = value.map { .string($0) } ?? .null
+            }
+            put("rpcId", author.rpcId)
+            put("turnId", author.turnId)
+            put("sessionId", author.sessionId)
+            put("approvalID", author.approvalID)
+            let data: [String: PhoneDSHBot.BotJSONValue] = [
+                "event": .string("teammate.created"),
+                "agentId": .string(created.id),
+                "name": .string(created.name),
+                "description": .string(created.description),
+                "author": .object(authorFields),
+            ]
+            let event = BotEvent(
+                type: "ui.system_event", eventId: eventID,
+                time: botProductionNowMilliseconds(), origin: .local(source: "comm-service"),
+                traceId: eventID,
+                principal: BotPrincipal(
+                    botId: created.id, sessionId: author.sessionId, kind: "team"),
+                causationId: nil, correlationId: author.rpcId, data: .object(data))
+            do {
+                _ = try await domain.append(event)
+            } catch {
+                // The Bot exists; the audit is best-effort only if the journal
+                // rejects the event. Do not roll back a created Bot for an
+                // audit write, but never silently claim it was recorded.
+                print("[BotRuntimeComposition] teammate author audit failed: \(error)")
+            }
+        }
         await rosterModel.refresh()
         return created
     }
@@ -1119,4 +1266,19 @@ struct UnstartedBotTransport: DSHRemoteTransport {
         throw BotMCPError.unavailable("Host transport is not attached")
     }
     func authenticationFailed() async {}
+}
+
+
+/// Bridges the Bot module's record service into the shell's protocol without
+/// making `PhoneDSHShell` depend on `PhoneDSHBot`.
+struct BotRecordPhoneAdapter: PhoneRecordQuerying {
+    let service: BotRecordService
+
+    func runRecordCommand(arguments: [String], callerSessionID: String) async -> PhoneRecordCommandResult {
+        let output = await BotRecordService.bridge(
+            arguments: arguments, callerSessionID: callerSessionID, service: service)
+        return PhoneRecordCommandResult(stdout: output.stdout,
+                                        stderr: output.stderr,
+                                        exitCode: output.exitCode)
+    }
 }

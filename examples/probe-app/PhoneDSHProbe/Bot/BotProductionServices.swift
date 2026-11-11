@@ -95,12 +95,15 @@ actor BotProductionEnvironment {
     let domain: SQLiteDomainStore
     let routineMachine: RoutineMachine
     let memory: BotMemory
+    let grants: BotGrantStore
     let runtimeContext: BotProductionRuntimeContext
     private var planner: any BotUserActionPlanning
     private var turnStopping: (any BotProductionTurnStopping)?
+    private var routineCanceller: (@Sendable (String) async -> RoutineCancellationResult)?
 
     init(domain: SQLiteDomainStore, botID: String, sessionID: String,
          routineMachine: RoutineMachine, memory: BotMemory,
+         grants: BotGrantStore,
          planner: (any BotUserActionPlanning)? = nil,
          turnStopping: (any BotProductionTurnStopping)? = nil,
          sessionLogURL: URL? = nil,
@@ -111,6 +114,7 @@ actor BotProductionEnvironment {
         self.domain = domain
         self.routineMachine = routineMachine
         self.memory = memory
+        self.grants = grants
         self.runtimeContext = BotProductionRuntimeContext(botID: botID, fallbackName: fallbackName)
         self.planner = planner ?? BotProductionUnavailablePlanner()
         self.turnStopping = turnStopping
@@ -135,6 +139,19 @@ actor BotProductionEnvironment {
 
     func currentPlanner() -> any BotUserActionPlanning { planner }
     func currentTurnStopping() -> (any BotProductionTurnStopping)? { turnStopping }
+
+    func setRoutineCanceller(
+        _ canceller: (@Sendable (String) async -> RoutineCancellationResult)?
+    ) {
+        routineCanceller = canceller
+    }
+
+    func cancelRoutine(_ routineID: String) async -> RoutineCancellationResult {
+        guard let routineCanceller else {
+            return RoutineCancellationResult(cancelled: false, reason: "routine canceller is not configured")
+        }
+        return await routineCanceller(routineID)
+    }
 }
 
 enum BotProductionEventReader {
@@ -337,31 +354,227 @@ struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var decidedAtMS: Int64
 }
 
+struct BotProductionGrant: Sendable, Equatable, Identifiable {
+    var id: String
+    var tool: String
+    var operation: String
+    var resource: String
+    var scope: String
+    var sessionID: String?
+    var createdAtMS: Int64
+    var source: String
+}
+
+struct BotProductionReconciliation: Sendable, Equatable, Identifiable {
+    var id: String { routineID }
+    var routineID: String
+    var routineTitle: String
+    var attempt: Int
+    var runID: String
+    var error: String?
+    var effectKey: String?
+    var effectGeneration: Int?
+    var effectAttempt: Int?
+    var effectSummary: String?
+}
+
+struct BotProductionMemoryDocument: Sendable {
+    var document: PhoneDSHBot.BotMemoryDocument
+    var versions: [PhoneDSHBot.BotMemoryDocumentVersion]
+}
+
 struct BotProductionInfoSnapshot: Sendable {
     var botName: String
-    var memories: [PhoneDSHBot.BotMemoryFact]
+    var memories: [BotProductionMemoryDocument]
     var routines: [Routine]
     var approvals: [BotProductionApproval]
+    var grants: [BotProductionGrant]
+    var reconciliations: [BotProductionReconciliation]
+    var presence: RoutinePresence
+    var proactiveSettings: ProactiveSettings
+    var maintenance: BotMemoryMaintenanceBatchView?
+    var maintenanceEnabled: Bool
+    var maintenanceDailyTokens: Int
+    var maintenanceDailyBudget: Int
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
 /// composition root injected; nothing here opens a second fact store.
 actor BotProductionInfoService {
     private let environment: BotProductionEnvironment
+    private let scheduler: RoutineScheduler?
+    private let settingsStore: ProactiveSettingsStore
+    private let maintenance: BotMemoryMaintenanceController?
 
-    init(environment: BotProductionEnvironment) {
+    init(environment: BotProductionEnvironment,
+         scheduler: RoutineScheduler? = nil,
+         settingsStore: ProactiveSettingsStore = .shared,
+         maintenance: BotMemoryMaintenanceController? = nil) {
         self.environment = environment
+        self.scheduler = scheduler
+        self.settingsStore = settingsStore
+        self.maintenance = maintenance
     }
 
     func load() async throws -> BotProductionInfoSnapshot {
         let memory = environment.memory
         let machine = environment.routineMachine
         let botName = try await environment.context().botName
-        async let facts = memory.facts(scope: nil)
+        let documents = try await memory.documents(scope: nil)
+        var memories: [BotProductionMemoryDocument] = []
+        for document in documents {
+            memories.append(BotProductionMemoryDocument(
+                document: document,
+                versions: try await memory.versions(path: document.path)))
+        }
         async let routines = machine.list(botId: environment.botID)
         async let approvals = approvalRecords()
+        let context = await BotPresenceCenter.shared.context()
+        let presence: RoutinePresence
+        if let scheduler {
+            presence = await scheduler.presenceSnapshot(
+                appActive: context.appActive, keepingAlive: context.keepingAlive)
+        } else {
+            presence = RoutinePresence(
+                level: RoutinePresencePolicy.level(
+                    appActive: context.appActive, keepingAlive: context.keepingAlive,
+                    scheduledNotificationCount: 0))
+        }
+        let grants = await standingGrants()
+        let reconciliations = try await reconciliationRecords(provided: routines)
+        let maintenanceBatch = try? await maintenance?.lastBatch()
+        let maintenanceSettings = await maintenance?.settings()
+        let maintenanceEnabled = maintenanceSettings?.enabled ?? false
+        let maintenanceBudget = await maintenance?.budgetStatus()
         return try await BotProductionInfoSnapshot(
-            botName: botName, memories: facts, routines: routines, approvals: approvals)
+            botName: botName, memories: memories, routines: routines, approvals: approvals,
+            grants: grants, reconciliations: reconciliations,
+            presence: presence, proactiveSettings: settingsStore.settings(),
+            maintenance: maintenanceBatch,
+            maintenanceEnabled: maintenanceEnabled,
+            maintenanceDailyTokens: maintenanceBudget?.dailyTokensUsed ?? 0,
+            maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0)
+    }
+
+    /// S3: enable/disable the background maintainer (default off). The switch
+    /// is shared by every Bot and persisted under one P18 key.
+    func setMaintenanceEnabled(_ enabled: Bool) async {
+        if let maintenance {
+            await maintenance.setEnabled(enabled)
+        } else {
+            var settings = BotMemoryMaintenanceSettingsStore.shared.settings()
+            settings.enabled = enabled
+            BotMemoryMaintenanceSettingsStore.shared.save(settings)
+        }
+    }
+
+    /// S3: roll one batch back using the S2 restore primitive.
+    func rollbackMaintenance(batchID: String) async throws {
+        guard let maintenance else {
+            throw BotProductionError.invalidService("记忆整理服务未接线")
+        }
+        let result = try await maintenance.rollback(batchID: batchID)
+        guard let result else {
+            throw BotProductionError.invalidService("找不到这次整理批次")
+        }
+        if !result.conflicts.isEmpty {
+            throw BotProductionError.invalidService(
+                "有 \(result.conflicts.count) 份文档在整理后又被改过，未覆盖")
+        }
+    }
+
+    /// Standing grants only. A `once` grant is one execution permission, not a
+    /// standing authorization, so the information page never shows it.
+    func standingGrants() async -> [BotProductionGrant] {
+        await environment.grants.list(botId: environment.botID)
+            .filter { $0.scope != .once }
+            .sorted { ($0.createdAt, $0.id) > ($1.createdAt, $1.id) }
+            .map {
+                BotProductionGrant(
+                    id: $0.id, tool: $0.tool, operation: $0.operation,
+                    resource: $0.resource, scope: $0.scope.rawValue,
+                    sessionID: $0.sessionId, createdAtMS: $0.createdAt, source: $0.source)
+            }
+    }
+
+    func revokeGrant(_ id: String) async throws {
+        _ = try await environment.grants.revoke(id: id)
+    }
+
+    func cancelRoutine(_ routineID: String) async throws {
+        let result = await environment.cancelRoutine(routineID)
+        guard result.cancelled else {
+            throw BotProductionError.invalidService(
+                "取消例行任务失败：\(result.reason ?? "routine is not running")")
+        }
+    }
+
+    /// Every routine that stopped in `needs-reconciliation`, plus the effect
+    /// record that produced it when one still exists. The effect is the
+    /// "already produced" evidence shown before the user chooses.
+    func reconciliationRecords(provided: [Routine]? = nil) async throws -> [BotProductionReconciliation] {
+        let routines: [Routine]
+        if let provided {
+            routines = provided
+        } else {
+            routines = try await environment.routineMachine.list(botId: environment.botID)
+        }
+        var records: [BotProductionReconciliation] = []
+        for routine in routines {
+            guard let state = routine.runState, state.status == .needsReconciliation else { continue }
+            let deliveryKey = RoutineDelivery.key(routineId: routine.id, attempt: state.attempt)
+            let effectKey = "routine:\(deliveryKey)"
+            let effect = try? await environment.domain.effect(effectKey)
+            let matching = effect?.state == .needsReconciliation ? effect : nil
+            records.append(BotProductionReconciliation(
+                routineID: routine.id, routineTitle: routine.title,
+                attempt: state.attempt, runID: state.runId,
+                error: state.error ?? routine.lastResult?.error,
+                effectKey: matching?.effectKey,
+                effectGeneration: matching?.generation,
+                effectAttempt: matching?.attempt,
+                effectSummary: matching.map {
+                    "\($0.effect.operation) · \($0.effect.target) · "
+                        + "\( $0.reconciliationReason ?? "unknown" )"
+                }))
+        }
+        return records
+    }
+
+    /// Resolve a routine reconciliation from the user's explicit choice. The
+    /// routine state and its delivery effect are two different authorities;
+    /// both are advanced when each is still in the reconciliation state.
+    func resolveReconciliation(routineID: String, decision: String) async throws {
+        let now = botProductionNowMilliseconds()
+        let updated = try await environment.routineMachine.resolveReconciliation(
+            botId: environment.botID, routineId: routineID, decision: decision, now: now)
+        guard let updated else {
+            throw BotProductionError.invalidService("例行任务不存在")
+        }
+        guard let state = updated.runState else { return }
+        let deliveryKey = RoutineDelivery.key(routineId: routineID, attempt: state.attempt)
+        let effectKey = "routine:\(deliveryKey)"
+        guard let record = try? await environment.domain.effect(effectKey),
+              record.state == .needsReconciliation else { return }
+        switch decision {
+        case "acknowledge":
+            try await environment.domain.ackReconciled(
+                effectKey: effectKey, generation: record.generation,
+                attempt: record.attempt, resultRef: "user-acknowledged")
+        case "retry":
+            try await environment.domain.retryNeedsReconciliation(effectKey)
+        default:
+            throw RoutineError.unsupportedDecision(decision)
+        }
+    }
+
+    /// Persists the host-level "can disturb" authorization and wakes the
+    /// scheduler so a quiet-hours or DND change is applied immediately.
+    func saveProactiveSettings(_ settings: ProactiveSettings) async -> ProactiveSettings {
+        settingsStore.save(settings)
+        let normalized = settingsStore.settings()
+        await scheduler?.applySettingsChange()
+        return normalized
     }
 
     func rename(_ name: String) async throws {
@@ -377,30 +590,47 @@ actor BotProductionInfoService {
         _ = try await environment.domain.append(event)
     }
 
-    func forget(factID: String) async throws {
-        let result = try await environment.memory.forget(factID: factID)
+    func forget(path: String, expectedVersion: Int) async throws {
+        let result = try await environment.memory.forget(
+            path: path, expectedVersion: expectedVersion)
         guard result.ok else {
             throw BotProductionError.invalidService(result.error ?? "忘记记忆失败")
         }
     }
 
-    /// Erases only this Bot's agent scope. The shared user scope is a separate
-    /// explicit action (`eraseSharedMemories`) so one Bot can never wipe the
-    /// facts every Bot shares.
-    func eraseMemories() async throws {
-        _ = try await environment.memory.eraseAll(scope: .agent)
+    /// Physical erase of one memory document and every historical version.
+    /// The shared user root is not touched.
+    func eraseMemory(path: String) async throws {
+        let outcome = try await environment.memory.erase(path: path)
+        guard outcome.ok else {
+            throw BotProductionError.invalidService(outcome.error ?? "抹除记忆失败")
+        }
     }
 
-    /// Erases the shared user scope for every Bot. Only called from the
-    /// information page's separate, doubly-confirmed shared-memory entry.
+    /// Physically erases only this Bot's agent root. The shared user root is a
+    /// separate explicit action (`eraseSharedMemories`) so one Bot can never
+    /// wipe the documents every Bot shares.
+    func eraseMemories() async throws {
+        let outcome = try await environment.memory.erase(scope: .agent)
+        guard outcome.ok else {
+            throw BotProductionError.invalidService(outcome.error ?? "抹除记忆失败")
+        }
+    }
+
+    /// Physically erases the shared user root for every Bot. Only called from
+    /// the information page's separate, doubly-confirmed shared-memory entry.
     func eraseSharedMemories() async throws {
-        _ = try await environment.memory.eraseAll(scope: .user)
+        let outcome = try await environment.memory.erase(scope: .user)
+        guard outcome.ok else {
+            throw BotProductionError.invalidService(outcome.error ?? "清除共享记忆失败")
+        }
     }
 
     func setRoutineEnabled(_ routineID: String, enabled: Bool) async throws {
         _ = try await environment.routineMachine.update(
             botId: environment.botID, routineId: routineID,
             patch: RoutinePatch(enabled: enabled), now: botProductionNowMilliseconds())
+        await scheduler?.applySettingsChange()
     }
 
     private func approvalRecords() async throws -> [BotProductionApproval] {
@@ -431,8 +661,11 @@ struct BotProductionInfoDriver {
         BotProductionInfoDriver(load: { try await service.load() })
     }
 
-    static func production(environment: BotProductionEnvironment) -> BotProductionInfoDriver {
-        production(service: BotProductionInfoService(environment: environment))
+    static func production(environment: BotProductionEnvironment,
+                           scheduler: RoutineScheduler? = nil,
+                           settingsStore: ProactiveSettingsStore = .shared) -> BotProductionInfoDriver {
+        production(service: BotProductionInfoService(
+            environment: environment, scheduler: scheduler, settingsStore: settingsStore))
     }
 }
 

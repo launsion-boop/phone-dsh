@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRecordQueryResult v1",
+  "description": "One `phone record` answer. The success shape follows the P19 phone-tool envelope; the error shape is the same bounded failure. `scope` is always `bot`: the host resolved the caller from the claimed DSH session, not from argv.",
+  "type": "object",
+  "required": [
+    "ok",
+    "tool"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ok": {
+      "type": "boolean"
+    },
+    "tool": {
+      "enum": [
+        "record.search",
+        "record.read"
+      ]
+    },
+    "egress": {
+      "const": false
+    },
+    "scope": {
+      "const": "bot"
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "since": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "hits": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/hit"
+          }
+        },
+        "ref": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "maxItems": 41,
+          "items": {
+            "$ref": "#/$defs/line"
+          }
+        },
+        "replacedRange": {
+          "$ref": "#/$defs/range"
+        },
+        "shadowedBy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "egress",
+          "scope",
+          "data"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "ok": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "error"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "range": {
+      "type": "object",
+      "required": [
+        "startRef",
+        "endRef"
+      ],
+      "properties": {
+        "startRef": {
+          "type": "string"
+        },
+        "endRef": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "hit": {
+      "type": "object",
+      "required": [
+        "ref",
+        "record",
+        "time",
+        "snippet"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "record": {
+          "enum": [
+            "session",
+            "event"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commitSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "type": "string"
+        },
+        "time": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snippet": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "replaces": {
+          "$ref": "#/$defs/range"
+        }
+      },
+      "additionalProperties": false
+    },
+    "line": {
+      "type": "object",
+      "required": [
+        "ref",
+        "record",
+        "time",
+        "raw",
+        "truncated"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "record": {
+          "enum": [
+            "session",
+            "event"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commitSeq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "type": {
+          "type": "string"
+        },
+        "time": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "raw": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "replaces": {
+          "$ref": "#/$defs/range"
+        },
+        "shadowedBy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

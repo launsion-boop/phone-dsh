@@ -38,17 +38,18 @@ DEFAULT_ACTION_TIMEOUT = 180.0
 EVIDENCE_FILES = ("report.json", "transcript.jsonl", "bot-events.jsonl", "workspace.tar")
 SUPPORTED_ACTIONS = {
     "create_bot", "user_message", "ui_action", "approval_policy",
-    "advance_clock", "seed_held_item", "restart_worker",
+    "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
 }
 SUPPORTED_ASSERTIONS = {
     "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
     "workspace_command", "reply_contains", "reply_not_contains",
     "bot_event", "no_bot_event", "tool_called", "no_tool_call",
     "memory_contains", "memory_absent", "approval_count", "echo_requests",
+    "tool_surface",
 }
 UI_KINDS = {
     "card_answer", "card_dismiss", "approval", "erase_memory",
-    "erase_shared_memory", "forget_memory", "stop_task",
+    "erase_shared_memory", "forget_memory", "stop_task", "await_task",
 }
 BOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SCENARIO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -267,6 +268,10 @@ def _check_action(errors, path, action, aliases):
     elif kind == "restart_worker":
         if action.get("mode") not in (None, "planned_restart", "worker_kill"):
             _error(errors, path, "restart_worker mode must be planned_restart or worker_kill")
+    elif kind == "run_maintenance":
+        for name in ("enabled", "force"):
+            if name in action and not isinstance(action[name], bool):
+                _error(errors, path, f"run_maintenance {name} must be a boolean")
 
 
 def _check_assertion(errors, path, assertion):
@@ -298,6 +303,25 @@ def _check_assertion(errors, path, assertion):
         method = assertion.get("method")
         if not isinstance(method, str) or not method.isalpha():
             _error(errors, path, "echo_requests method must be an alphabetic HTTP method")
+    if kind == "tool_surface":
+        session = assertion.get("session")
+        if session is not None and session not in ("main", "task", "verifier", "maintainer"):
+            _error(errors, path,
+                   "tool_surface session must be main, task, verifier or maintainer")
+        present = assertion.get("present")
+        absent = assertion.get("absent")
+        exactly = assertion.get("exactly")
+        for label, names in (("present", present), ("absent", absent), ("exactly", exactly)):
+            if names is None:
+                continue
+            if not isinstance(names, list) or not names \
+                    or not all(isinstance(name, str) and name for name in names):
+                _error(errors, path,
+                       f"tool_surface {label} must be a non-empty array of tool names")
+        if exactly is not None and (present or absent):
+            _error(errors, path, "tool_surface exactly cannot be combined with present or absent")
+        if not present and not absent and not exactly:
+            _error(errors, path, "tool_surface requires present, absent or exactly")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:

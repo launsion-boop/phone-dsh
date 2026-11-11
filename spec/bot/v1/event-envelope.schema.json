@@ -2,39 +2,263 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BotEventEnvelope v1",
   "type": "object",
-  "required": ["schemaVersion", "type", "eventId", "commitSeq", "time", "origin", "traceId", "principal", "causationId", "correlationId", "data"],
+  "required": [
+    "schemaVersion",
+    "type",
+    "eventId",
+    "commitSeq",
+    "time",
+    "origin",
+    "traceId",
+    "principal",
+    "causationId",
+    "correlationId",
+    "data"
+  ],
   "properties": {
-    "schemaVersion": {"const": 1},
-    "type": {"enum": ["conversation.turn_started", "conversation.user_message", "conversation.assistant_message", "conversation.tool_call", "conversation.tool_result", "conversation.turn_ended", "conversation.automation_run", "approval.requested", "approval.decided", "grant.created", "grant.added", "grant.consumed", "grant.revoked", "grant.migrated", "card.presented", "card.answered", "card.dismissed", "ui.system_event", "ui.notice", "ui.send_to_user", "transcript.rollback", "transcript.row_deleted", "transcript.imported", "bot.greeting_seeded", "bot.created", "comm.outbound", "comm.inbound", "comm.reply", "comm.failed", "agent.comm", "task.created", "task.started", "task.updated", "task.stop_requested", "task.settled", "task.resumed", "background.started", "background.stop_requested", "background.settled", "routine.defined", "routine.updated", "routine.deleted", "routine.run_started", "routine.run_finished", "memory.written", "memory.forgotten", "memory.imported", "memory.review_requested", "memory.review_resolved", "effect.enqueued", "effect.attempted", "effect.acked", "effect.failed", "effect.dead_lettered", "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started", "runtime.exited", "proactive.considered", "ledger.usage_recorded", "watchdog.flagged", "verification.reported"]},
-    "eventId": {"type": "string", "minLength": 1},
-    "commitSeq": {"type": "integer", "minimum": 1},
-    "time": {"type": "number", "minimum": 0},
-    "origin": {
-      "oneOf": [
-        {"type": "object", "required": ["kind", "sessionId", "seq"], "properties": {"kind": {"const": "dsh"}, "sessionId": {"type": "string", "minLength": 1}, "seq": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-        {"type": "object", "required": ["kind", "source"], "properties": {"kind": {"const": "local"}, "source": {"enum": ["ipc", "card-bridge", "mcp", "scheduler", "task-manager", "memory-service", "comm-service", "projector", "effect-runner", "runtime", "user", "watchdog", "background-supervisor"]}}, "additionalProperties": false}
+    "schemaVersion": {
+      "const": 1
+    },
+    "type": {
+      "enum": [
+        "conversation.turn_started",
+        "conversation.user_message",
+        "conversation.assistant_message",
+        "conversation.tool_call",
+        "conversation.tool_result",
+        "conversation.turn_ended",
+        "conversation.automation_run",
+        "approval.requested",
+        "approval.decided",
+        "grant.created",
+        "grant.added",
+        "grant.consumed",
+        "grant.revoked",
+        "grant.migrated",
+        "card.presented",
+        "card.answered",
+        "card.dismissed",
+        "ui.system_event",
+        "ui.notice",
+        "ui.send_to_user",
+        "transcript.rollback",
+        "transcript.row_deleted",
+        "transcript.imported",
+        "bot.greeting_seeded",
+        "bot.created",
+        "comm.outbound",
+        "comm.inbound",
+        "comm.reply",
+        "comm.failed",
+        "agent.comm",
+        "task.created",
+        "task.started",
+        "task.updated",
+        "task.stop_requested",
+        "task.settled",
+        "task.resumed",
+        "background.started",
+        "background.stop_requested",
+        "background.settled",
+        "routine.defined",
+        "routine.updated",
+        "routine.deleted",
+        "routine.run_started",
+        "routine.run_finished",
+        "memory.written",
+        "memory.forgotten",
+        "memory.imported",
+        "memory.review_requested",
+        "memory.review_resolved",
+        "memory.maintenance_started",
+        "memory.maintenance_finished",
+        "memory.maintenance_rolled_back",
+        "effect.enqueued",
+        "effect.attempted",
+        "effect.acked",
+        "effect.failed",
+        "effect.dead_lettered",
+        "effect.reconciliation_required",
+        "effect.cancel_requested",
+        "effect.canceled",
+        "runtime.started",
+        "runtime.exited",
+        "proactive.considered",
+        "ledger.usage_recorded",
+        "watchdog.flagged",
+        "verification.reported",
+        "redaction.applied",
+        "erasure"
       ]
     },
-    "traceId": {"type": "string", "minLength": 1},
+    "eventId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commitSeq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "time": {
+      "type": "number",
+      "minimum": 0
+    },
+    "origin": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "sessionId",
+            "seq"
+          ],
+          "properties": {
+            "kind": {
+              "const": "dsh"
+            },
+            "sessionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "source"
+          ],
+          "properties": {
+            "kind": {
+              "const": "local"
+            },
+            "source": {
+              "enum": [
+                "ipc",
+                "card-bridge",
+                "mcp",
+                "scheduler",
+                "task-manager",
+                "memory-service",
+                "comm-service",
+                "projector",
+                "effect-runner",
+                "runtime",
+                "user",
+                "watchdog",
+                "background-supervisor"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "traceId": {
+      "type": "string",
+      "minLength": 1
+    },
     "principal": {
       "type": "object",
-      "required": ["botId", "sessionId", "kind", "capabilities"],
+      "required": [
+        "botId",
+        "sessionId",
+        "kind",
+        "capabilities"
+      ],
       "properties": {
-        "botId": {"type": ["string", "null"]},
-        "sessionId": {"type": ["string", "null"]},
-        "kind": {"enum": ["chat", "task", "routine", "team", "proactive", "watchdog", "ipc"]},
-        "capabilities": {"type": "array", "items": {"type": "string"}}
+        "botId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "chat",
+            "task",
+            "routine",
+            "verifier",
+            "team",
+            "proactive",
+            "watchdog",
+            "maintainer",
+            "ipc"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
       },
       "additionalProperties": false
     },
-    "causationId": {"type": ["string", "null"]},
-    "correlationId": {"type": ["string", "null"]},
-    "turnId": {"type": "string", "minLength": 1},
-    "runId": {"type": "string", "minLength": 1},
-    "attempt": {"type": "integer", "minimum": 1},
-    "batch": {"type": "object", "required": ["id", "index", "total"], "properties": {"id": {"type": "string", "minLength": 1}, "index": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
-    "ignorable": {"const": true},
-    "data": {"type": "object"}
+    "causationId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "correlationId": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "turnId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "batch": {
+      "type": "object",
+      "required": [
+        "id",
+        "index",
+        "total"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "ignorable": {
+      "const": true
+    },
+    "data": {
+      "type": "object"
+    }
   },
   "additionalProperties": true
 }

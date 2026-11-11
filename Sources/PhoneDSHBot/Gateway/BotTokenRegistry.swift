@@ -7,9 +7,15 @@ public enum BotSessionKind: String, Codable, Sendable {
     case chat
     case task
     case routine
+    /// A read-only verification session. It is a distinct principal kind so a
+    /// verifier credential can never be mistaken for the doer's task/routine
+    /// credential (P26 §2.8).
+    case verifier
     case team
     case proactive
     case watchdog
+    /// S3 maintenance: a host-issued, hidden, memory-only background session.
+    case maintainer
 }
 
 public struct BotGatewayPrincipal: Codable, Sendable, Equatable {
@@ -159,6 +165,27 @@ public actor BotTokenRegistry {
             return nil
         }
         return match.principal
+    }
+
+    /// Every current session incarnation, sorted by Bot and session. Used only by the
+    /// fail-closed egress fallback: it needs an actual Bot owner for a card
+    /// when no live shell registration identifies one.
+    public func activePrincipals() -> [BotGatewayPrincipal] {
+        prune()
+        let current = records.values.compactMap { record -> BotGatewayPrincipal? in
+            guard currentIncarnations[record.principal.sessionId] == record.principal.incarnation,
+                  record.principal.expiresAt > now() else { return nil }
+            return record.principal
+        }
+        return current.sorted {
+            if $0.botId != $1.botId { return $0.botId < $1.botId }
+            return $0.sessionId < $1.sessionId
+        }
+    }
+
+    /// Session ids of every active Bot principal.
+    public func activeSessionIDs() -> Set<String> {
+        Set(activePrincipals().map(\.sessionId))
     }
 
     @discardableResult

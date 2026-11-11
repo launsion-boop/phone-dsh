@@ -3197,6 +3197,22 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             ledger: inactivityLedger)
     }
 
+    /// True while at least one workbench session this host opened or prompted
+    /// still has an open turn in its durable journal. `excludedSessionIDs` is
+    /// the App's live Bot-session set: Bot units share this host's transport,
+    /// so they must not make a Bot-originated write look like workbench
+    /// traffic. A journal read failure is `false`, which lets the egress
+    /// fallback fail closed instead of silently allowing the write.
+    public func hasActiveWorkbenchTurn(excluding excludedSessionIDs: Set<String>) async -> Bool {
+        guard let runtime else { return false }
+        let snapshot = await sessionTracker.snapshot()
+        let candidates = snapshot.sessionIDs.subtracting(excludedSessionIDs)
+        guard !candidates.isEmpty else { return false }
+        let states = await Self.sessionTurnStates(
+            log: runtime.log, cache: sessionJournalCache, sessionIDs: candidates)
+        return states.values.contains { $0.isTurnOpen }
+    }
+
     /// The ordered-channel `DSHRemoteTransport` the harness (or any other
     /// Agent adapter) can use. Exposed so the App can drive the same transport
     /// with its own `DSHRemoteHarness` configuration.
@@ -3651,6 +3667,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 eventBus.send(.gatewayResponse(receipt))
             },
                                        egressAuthorizer: configuration.egressAuthorizer,
+                                       botEgressApprover: configuration.egressAuthorizer
+                                           as? any BotEgressWriteApproving,
                                        officialDeepSeekWebCredentialProvider: configuration.officialDeepSeekWebCredentialProvider,
                                        upstreamDiagnostics: gatewayDiagnostics)
             let coordinator = PhoneDSHChannelCoordinator(eventBus: eventBus)

@@ -603,7 +603,7 @@ struct HTTPResponseWriter {
     /// records the same cause in the run log (G2-FIX-32).
     ///
     /// This is the single `EgressFailure → HTTP` mapping point (ENG-04): the
-    /// attributed host, the seven-class taxonomy, the status and the
+    /// attributed host, the eight-class taxonomy, the status and the
     /// `xl_error` body all come from ``HTTPEgressFailure``.
     private func writeEgressFailure(_ failure: HTTPEgressFailure,
                                     target: String?,

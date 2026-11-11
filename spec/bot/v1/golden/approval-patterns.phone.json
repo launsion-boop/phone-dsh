@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "vector": "approval-patterns.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [
+    "approval-patterns.json"
+  ],
+  "delta": [
+    "PhoneDSH downgrades network command patterns to advisory hints: no curl/wget/python/script/concatenated spelling produces an approval effect. Network writes are approved at the host /v1/http exit by host + method (spec/bot/v1/README.md §2.4, spec/v1/gateway-security.md §5).",
+    "The destructive rm/git reset --hard/find -delete patterns remain valid upstream matches and are still classified as advisory approval-card hints."
+  ],
+  "downgraded": [
+    {
+      "tool": "bash",
+      "args": {
+        "command": "curl -X POST https://example.test/api"
+      },
+      "matches": []
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "python3 -c \"import urllib.request; urllib.request.urlopen('https://example.test')\""
+      },
+      "matches": []
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "printf '%s\\n' 'curl -sS -X POST --data-raw \"{}\" http://127.0.0.1:8787/identity/register' > /tmp/wp3.sh; bash /tmp/wp3.sh"
+      },
+      "matches": []
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "c=cur; l=\"${c}l\"; \"$l\" -sS -X POST --data-raw '{}' http://127.0.0.1:8787/identity/register"
+      },
+      "matches": []
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "python3 /tmp/wp3.py"
+      },
+      "matches": []
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "wget --post-data='{}' https://example.test/api"
+      },
+      "matches": []
+    }
+  ]
+}

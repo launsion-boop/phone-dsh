@@ -8,8 +8,10 @@ Offline mode (used by CI) checks that
   * the manifest partitions files into ``upstream`` and ``*.phone.json``,
   * every overlay names its upstream file and only adds/replaces cases, or
     declares ``upstream: []`` for one of the small, explicit phone-only
-    vectors (currently ``turn-origin.phone.json``) that have no dsh-bot
-    counterpart.
+    vectors (currently ``turn-origin.phone.json``, ``mcp-egress.phone.json``,
+    ``authority.phone.json``, ``record-reference.phone.json``,
+    ``observation-envelope.phone.json``, ``record-query.phone.json`` and
+    ``erasure-event.phone.json``) that have no dsh-bot counterpart.
 
 With ``--checkout`` it also runs the real exporter into a temporary directory
 and requires every upstream golden file to be byte-identical to the export.
@@ -50,7 +52,12 @@ except ImportError:  # `python3 -m spec.tools.bot.check_golden`
 PINNED_SHA = "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
 # A phone-only vector has no upstream dsh-bot export to extend. Keep this list
 # explicit: a new standalone golden needs review, not just a suffix.
-PHONE_ONLY_VECTORS = frozenset({"turn-origin.phone.json", "mcp-egress.phone.json"})
+PHONE_ONLY_VECTORS = frozenset({
+    "turn-origin.phone.json", "mcp-egress.phone.json", "authority.phone.json",
+    "record-reference.phone.json", "observation-envelope.phone.json", "record-query.phone.json",
+    "erasure-event.phone.json",
+    "verification.phone.json",
+})
 
 
 def fail(message: str) -> None:

@@ -344,7 +344,8 @@
                 "erase_memory",
                 "erase_shared_memory",
                 "forget_memory",
-                "stop_task"
+                "stop_task",
+                "await_task"
               ]
             },
             "card": {
@@ -438,6 +439,9 @@
             },
             "bot": {
               "$ref": "#/$defs/botRef"
+            },
+            "mock": {
+              "$ref": "#/$defs/mock"
             }
           },
           "required": [
@@ -515,6 +519,34 @@
                 "planned_restart",
                 "worker_kill"
               ]
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "run_maintenance"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "mock": {
+              "$ref": "#/$defs/mock"
+            },
+            "timeout_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "force": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -1036,6 +1068,61 @@
             "max": {
               "type": "integer",
               "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "tool_surface"
+            },
+            "bot": {
+              "$ref": "#/$defs/botRef"
+            },
+            "expect_ok": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            },
+            "present": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "absent": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "session": {
+              "enum": [
+                "main",
+                "task",
+                "verifier",
+                "maintainer"
+              ],
+              "description": "Host-minted session whose model-facing surface is checked. Defaults to main."
+            },
+            "exactly": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "The advertised tool set must equal exactly this list; cannot be combined with present/absent."
             }
           },
           "required": [

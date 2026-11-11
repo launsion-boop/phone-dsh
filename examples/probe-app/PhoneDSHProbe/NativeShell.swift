@@ -103,6 +103,7 @@ struct NativeShell: View {
     @State private var sidebarCollapsed = false
     @State private var dragOffset: CGFloat = 0
     @State private var preferences = NativeChatPreferences.shared
+    @State private var notificationRouter = BotNotificationRouter.shared
     @Environment(\.workspaceModels) private var models
     /// Shared app state. The Bot page's scene/tab pause is derived from it here;
     /// the app's only scene-phase observer updates it. The Bot avatar's
@@ -172,6 +173,12 @@ struct NativeShell: View {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
             }
+            // A local notification tap can launch the App on any tab. Route the
+            // one pending link after the Bot stack and composition exist.
+            .task { await routePendingNotification() }
+            .onChange(of: notificationRouter.pendingDeepLink) { _, _ in
+                Task { await routePendingNotification() }
+            }
         }
         #if DEBUG
         // `-uiPreview <screen>` lands straight on one screen, so review passes
@@ -205,6 +212,14 @@ struct NativeShell: View {
     }
 
     @Environment(\.colorScheme) private var colorScheme
+
+    @MainActor
+    private func routePendingNotification() async {
+        guard let url = notificationRouter.takePendingDeepLink() else { return }
+        selectedTab = .bot
+        await BotProductionHub.shared.connect(chat: ChatModel.shared)
+        _ = BotProductionHub.shared.handleDeepLink(url)
+    }
 
     /// The four bottom-menu pages above the bottom menu. All pages stay alive
     /// (only the selected one is visible and hit-testable) so switching never

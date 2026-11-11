@@ -115,7 +115,7 @@ final class BotCardPayloadTests: XCTestCase {
 
     func testCatalogRegistersExactlyP0AndVolatileContext() {
         XCTAssertEqual(BotToolCatalog.definitions.map(\.name), BotToolCatalog.p0Names)
-        XCTAssertEqual(BotToolCatalog.allDefinitions.count, 20)
+        XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 4)
         for name in BotToolCatalog.p1TargetNames + ["show_canvas", "show_product", "show_gift", "GenerateImage"] {
             XCTAssertFalse(BotToolCatalog.isRegistered(name))
         }
@@ -184,7 +184,12 @@ final class BotCardPayloadTests: XCTestCase {
             let expectedRequired = expectedSchema["required"] as? [String] ?? []
             let actualRequired = definition["inputSchema"]?["required"]?.arrayValue?
                 .compactMap { $0.stringValue } ?? []
-            XCTAssertEqual(actualRequired, expectedRequired, "tools/list required mismatch for \(name)")
+            if name == "UpdateMemory" {
+                // The upstream v1 golden predates the v2 document-tree tool.
+                XCTAssertEqual(actualRequired, ["action", "path", "expected_version"])
+            } else {
+                XCTAssertEqual(actualRequired, expectedRequired, "tools/list required mismatch for \(name)")
+            }
             XCTAssertFalse(definition["description"]?.stringValue?.isEmpty ?? true)
         }
 

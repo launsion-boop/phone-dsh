@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotErasureEventData v1",
+  "description": "The payload of one durable `erasure` event. The event header/digest of every named record stays; this payload names what the host physically cleared and what it could not cover.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "erasureId",
+    "reason",
+    "requestedBy",
+    "at_ms",
+    "targets",
+    "memoryVersions",
+    "erasedEvents",
+    "erasedBytes",
+    "uncoveredRecords",
+    "legacyFactIDs"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "erasureId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "requestedBy": {
+      "enum": [
+        "user"
+      ]
+    },
+    "at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "targets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "scope"
+        ],
+        "properties": {
+          "kind": {
+            "const": "memory"
+          },
+          "scope": {
+            "enum": [
+              "user",
+              "agent"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "memoryVersions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "scope",
+          "versions"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "scope": {
+            "enum": [
+              "user",
+              "agent"
+            ]
+          },
+          "versions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100000,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "erasedEvents": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "record",
+          "type",
+          "digest",
+          "payloadBytes"
+        ],
+        "properties": {
+          "record": {
+            "type": "string",
+            "pattern": "^record://event/[1-9][0-9]*$"
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "payloadBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "erasedBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "uncoveredRecords": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "record",
+          "reason"
+        ],
+        "properties": {
+          "record": {
+            "type": "string",
+            "pattern": "^record://session/[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)$"
+          },
+          "reason": {
+            "const": "session-log-erasure-not-implemented"
+          }
+        }
+      }
+    },
+    "legacyFactIDs": {
+      "type": "array",
+      "maxItems": 100000,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

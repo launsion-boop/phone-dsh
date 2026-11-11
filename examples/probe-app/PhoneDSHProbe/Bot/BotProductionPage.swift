@@ -5,11 +5,6 @@ import PhoneDSHBot
 import ProbeKit
 import SwiftUI
 
-private struct BotInfoRequest: Identifiable {
-    let id = UUID()
-    let section: BotInfoSection?
-}
-
 // Production entry for the Bot conversation. ChatModel owns the single
 // BotRuntimeComposition (shared MCP runtime, HTTP server and outbox); this hub
 // owns the selected-Bot page models and their per-Bot caches.
@@ -33,6 +28,10 @@ final class BotProductionHub {
     private var selectionWatch: Task<Void, Never>?
     private var currentChat: ChatModel?
     private var pendingDeepLink: URL?
+    /// A routine-due notification asks the page to present routine rows. The
+    /// page owns the sheet; the hub only publishes the request so a cold launch
+    /// can wait for the Bot page to mount.
+    var pendingInfo: BotInfoPresentationRequest?
     /// Mirrors the Bot page's tab/scene visibility. The 500ms selection watch
     /// is UI-only polling; it stops while the page is hidden and resyncs
     /// immediately when the page becomes visible.
@@ -111,10 +110,23 @@ final class BotProductionHub {
 
     /// A link names a Bot explicitly. A legacy `main` link resolves through
     /// the current main pointer; a link to a live Bot switches the page first.
+    /// Row links go to the chat row; routine links present the routine list.
     func handleDeepLink(_ url: URL) -> Bool {
         guard let roster, let link = BotDeepLink(url: url),
               let target = BotMainPointerRouting.deepLinkBotID(link.botID, in: roster.roster) else {
             return false
+        }
+        if let routineID = link.routineID {
+            Task {
+                do {
+                    if target != selectedID { try await select(target) }
+                    pendingInfo = BotInfoPresentationRequest(
+                        section: .routines, routineID: routineID)
+                } catch {
+                    self.error = "深链切换 Bot 失败：\(error.localizedDescription)"
+                }
+            }
+            return true
         }
         if target == selectedID, let model = chatModels[target] {
             return model.openDeepLink(url)
@@ -270,7 +282,7 @@ struct BotProductionPage: View {
     init(openDrawer: @escaping () -> Void = {}) {
         self.openDrawer = openDrawer
     }
-    @State private var infoRequest: BotInfoRequest?
+    @State private var infoRequest: BotInfoPresentationRequest?
     @State private var showDeviceConnections = false
     @State private var deviceCoordinator = DeviceSessionCoordinator.shared
 
@@ -338,16 +350,20 @@ struct BotProductionPage: View {
             if let info = hub.infoModel, let botID = hub.selectedBotID {
                 BotInfoPage(model: info, isMainBot: hub.selectedIsMainBot,
                             initialSection: request.section,
+                            highlightRoutineID: request.routineID,
                             onDelete: { try await hub.deleteBot(botID) })
                     .homeSheetChrome()
             }
         }
         .task {
             if hub.chatModel == nil { await hub.connect(chat: chat) }
+            consumePendingInfoRequest()
         }
+        .onChange(of: hub.pendingInfo) { _, _ in consumePendingInfoRequest() }
         .onAppear {
             hub.setPageActive(botPageActive)
             hub.chatModel?.setPageActive(botPageActive)
+            consumePendingInfoRequest()
         }
         .onDisappear {
             hub.setPageActive(false)
@@ -360,7 +376,13 @@ struct BotProductionPage: View {
     }
 
     private func presentInfo(_ section: BotInfoSection?) {
-        infoRequest = BotInfoRequest(section: section)
+        infoRequest = BotInfoPresentationRequest(section: section, routineID: nil)
+    }
+
+    private func consumePendingInfoRequest() {
+        guard let request = hub.pendingInfo else { return }
+        hub.pendingInfo = nil
+        infoRequest = request
     }
 
     private func report(_ error: Error) {

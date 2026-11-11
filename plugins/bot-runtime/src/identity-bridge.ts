@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { botOwnedSessions } from './bot-sessions.ts'
 import { canonicalStringify } from './canonical-json.ts'
+import { restrictedPresetForSessionId } from '../../lifecycle-gate/src/restricted-session.ts'
 import { BOT_VOLATILE_CONTEXT_TOOL } from './volatile-mcp.ts'
 import { callerCatalogUrl, installCallerCatalog } from './caller-catalog.ts'
 import type { CallerCatalogConfig } from './caller-catalog.ts'
@@ -17,6 +18,19 @@ export const NATIVE_BLE_TOOL_PREFIX = 'mcp__phone__ble_'
 export const DEFAULT_IDENTITY_TIMEOUT_MS = 5_000
 /** One registration must outlive the 300 s approval wait plus transport slack. */
 export const DEFAULT_IDENTITY_LIFETIME_MS = 330_000
+/**
+ * A background job can outlive the tool call that started it. The Worker keeps
+ * that call's identity registration alive and refreshes it on this cadence,
+ * which is comfortably inside the host's 330 s registration TTL.
+ */
+export const DEFAULT_BACKGROUND_JOB_HEARTBEAT_MS = 120_000
+/**
+ * Hard cap for a job registration that never produces a settlement event (for
+ * example a lost Worker event loop or a job from an older registry). The cap
+ * is deliberately finite: a leaked registration must not authorize writes for
+ * the lifetime of the Bot session.
+ */
+export const DEFAULT_BACKGROUND_JOB_MAX_LIFETIME_MS = 24 * 60 * 60 * 1_000
 export const BOT_RUNTIME_UNAVAILABLE_REASON =
   '[bot runtime] The App Bot MCP endpoint is unavailable; the tool call was NOT executed. Do not retry or work around it.'
 
@@ -40,6 +54,10 @@ export interface IdentityBridgeConfig {
   readonly bridgeToken?: string
   readonly timeoutMs?: number
   readonly lifetimeMs?: number
+  /** Refresh cadence for a registration that outlives its tool call. */
+  readonly jobHeartbeatMs?: number
+  /** Upper bound on such a registration when no job settlement arrives. */
+  readonly jobMaxLifetimeMs?: number
   readonly request?: (payload: Record<string, unknown>, options: { timeoutMs: number; signal?: AbortSignal }) => Promise<IdentityRegistration>
   readonly cancel?: (id: string, options: { timeoutMs: number; signal?: AbortSignal }) => Promise<void>
   /**
@@ -163,10 +181,73 @@ export interface BotIdentityCall {
 }
 
 interface PendingIdentity {
-  readonly registrationId: string
+  /** Updated when a heartbeat refresh replaces an expired registration. */
+  registrationId: string
   readonly release: () => void
   readonly sessionId: string
   readonly callId: string
+  /** The 330 s cleanup timer, cleared once a background job takes ownership. */
+  timer?: NodeJS.Timeout
+}
+
+/**
+ * One `bash` call that the DSH job registry kept running after the tool call
+ * returned (`run_in_background: true`, or a foreground call promoted on
+ * timeout). The identity registration is held and refreshed until the job
+ * settles; otherwise `/v1/http` writes from the still-running command would
+ * arrive with no live Bot call and fall into the workbench path.
+ */
+interface BackgroundJobBinding {
+  readonly key: string
+  readonly jobId: string
+  readonly sessionId: string
+  readonly callId: string
+  readonly name: string
+  readonly arguments: Record<string, unknown>
+  readonly argsDigest: string
+  registrationId: string
+  heartbeat?: NodeJS.Timeout
+  maxLifetime?: NodeJS.Timeout
+  unsubscribe?: () => void
+  finished: boolean
+}
+
+interface BackgroundJobView {
+  readonly id: string
+  readonly status: string
+  readonly owner?: string
+}
+
+interface BackgroundJobEvent {
+  readonly type: string
+  readonly job?: BackgroundJobView
+}
+
+interface BackgroundJobRegistry {
+  readonly events: {
+    subscribe(filter: { owner: string }, listener: (event: BackgroundJobEvent) => void): () => void
+  }
+  get(id: string, caller?: string): BackgroundJobView
+}
+
+/** The DSH job id carried by a `background`/`promoted` bash result, if any. */
+function backgroundJobId(result: unknown): string | undefined {
+  if (result === null || typeof result !== 'object') return undefined
+  const value = (result as { value?: unknown }).value
+  if (value === null || typeof value !== 'object') return undefined
+  const record = value as { kind?: unknown; jobId?: unknown }
+  if (record.kind !== 'background' && record.kind !== 'promoted') return undefined
+  return typeof record.jobId === 'string' && record.jobId !== '' ? record.jobId : undefined
+}
+
+function jobRegistry(ctx: Context): BackgroundJobRegistry | undefined {
+  const value = (ctx as unknown as { get(name: string): unknown }).get('jobs')
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as Partial<BackgroundJobRegistry>
+  if (typeof candidate.get !== 'function'
+    || candidate.events === null || typeof candidate.events !== 'object'
+    || typeof candidate.events.subscribe !== 'function') return undefined
+  return candidate as BackgroundJobRegistry
 }
 
 export function sessionIdFor(agent: Agent | undefined): string {
@@ -200,6 +281,9 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
   const bridgeToken = config.bridgeToken ?? String(process.env.PDSH_PHONE_MCP_TOKEN ?? '')
   const timeoutMs = config.timeoutMs ?? DEFAULT_IDENTITY_TIMEOUT_MS
   const lifetimeMs = config.lifetimeMs ?? DEFAULT_IDENTITY_LIFETIME_MS
+  const jobHeartbeatMs = Math.max(1, config.jobHeartbeatMs ?? DEFAULT_BACKGROUND_JOB_HEARTBEAT_MS)
+  const jobMaxLifetimeMs = Math.max(jobHeartbeatMs,
+    config.jobMaxLifetimeMs ?? DEFAULT_BACKGROUND_JOB_MAX_LIFETIME_MS)
   const send = config.request ?? ((payload: Record<string, unknown>, options: { timeoutMs: number; signal?: AbortSignal }) => postJson(bridgeUrl, bridgeToken, payload, options.timeoutMs, options.signal))
   const cancelUrl = bridgeUrl.replace(/\/identity\/register$/, '/identity/cancel')
   const cancel = config.cancel ?? (async (id: string, options: { timeoutMs: number; signal?: AbortSignal }) => {
@@ -209,6 +293,7 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
   const dispatchChain = new AsyncLocalStorage<string>()
   const calls = new Map<string, BotIdentityCall>()
   const pending = new Map<string, PendingIdentity>()
+  const backgroundJobs = new Map<string, BackgroundJobBinding>()
   const ownedSessions = botOwnedSessions(ctx)
 
   ctx.provide('dshbotIdentityCalls', {
@@ -220,16 +305,136 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
     },
   })
 
+  /** Drop the timers/listeners owned by one background-job registration. */
+  const clearBackgroundBinding = (key: string): BackgroundJobBinding | undefined => {
+    const binding = backgroundJobs.get(key)
+    if (binding === undefined) return undefined
+    backgroundJobs.delete(key)
+    if (binding.heartbeat !== undefined) clearInterval(binding.heartbeat)
+    if (binding.maxLifetime !== undefined) clearTimeout(binding.maxLifetime)
+    binding.unsubscribe?.()
+    binding.unsubscribe = undefined
+    return binding
+  }
+
   const cleanup = async (key: string, expectedRegistrationId?: string): Promise<void> => {
     const entry = pending.get(key)
-    if (entry === undefined) return
+    if (entry === undefined) {
+      clearBackgroundBinding(key)
+      return
+    }
     if (expectedRegistrationId !== undefined && entry.registrationId !== expectedRegistrationId) return
+    const binding = clearBackgroundBinding(key)
+    if (binding !== undefined) binding.finished = true
     pending.delete(key)
     calls.delete(key)
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
     try {
       await cancel(entry.registrationId, { timeoutMs })
     } catch {}
     entry.release()
+  }
+
+  /**
+   * Refresh a job-held registration so it stays ahead of the host's 330 s TTL.
+   * Re-posting the same call is idempotent on the host and extends the same
+   * attribution; if the host already pruned it, the response is a fresh id
+   * that replaces the old one.
+   */
+  const refreshBackgroundRegistration = async (binding: BackgroundJobBinding): Promise<void> => {
+    if (binding.finished || backgroundJobs.get(binding.key) !== binding) return
+    const entry = pending.get(binding.key)
+    if (entry === undefined) return
+    try {
+      const sessionToken = ownedSessions.tokenFor(binding.sessionId)
+      const registration = await send({
+        runtimeId, sessionId: binding.sessionId, callId: binding.callId,
+        name: binding.name, arguments: binding.arguments, argsDigest: binding.argsDigest,
+        ...(sessionToken === undefined ? {} : { sessionToken }),
+      }, { timeoutMs })
+      if (registration.ok === true
+        && typeof registration.id === 'string' && registration.id !== '') {
+        // A settlement can win the race while this request was in flight.
+        // Cancel the just-issued id instead of letting it outlive the job.
+        if (binding.finished || backgroundJobs.get(binding.key) !== binding) {
+          try { await cancel(registration.id, { timeoutMs }) } catch {}
+          return
+        }
+        binding.registrationId = registration.id
+        entry.registrationId = registration.id
+      }
+    } catch {
+      // The next heartbeat retries; if the host TTL expires first, the
+      // fail-closed egress fallback owns the write until re-registration.
+    }
+  }
+
+  /**
+   * Hand one completed bash tool call's registration to the DSH job that keeps
+   * running. The registration is removed only when the job settles, its owner
+   * goes away, the hard cap expires, or the plugin/Worker is disposed.
+   *
+   * @returns true when a job binding now owns cleanup.
+   */
+  const retainBackgroundJob = (key: string, jobId: string, sessionId: string): boolean => {
+    const entry = pending.get(key)
+    const call = calls.get(key)
+    if (entry === undefined || call === undefined) return false
+    // The pre-execute lifetime timer only covers a normal tool call. A job has
+    // no such bound; replace it with the heartbeat and the explicit cap.
+    if (entry.timer !== undefined) {
+      clearTimeout(entry.timer)
+      entry.timer = undefined
+    }
+    const binding: BackgroundJobBinding = {
+      key, jobId, sessionId, callId: entry.callId,
+      name: call.name, arguments: call.arguments, argsDigest: call.argsDigest,
+      registrationId: entry.registrationId, finished: false,
+    }
+    backgroundJobs.set(key, binding)
+    const finish = (): void => {
+      if (backgroundJobs.get(key) !== binding) return
+      binding.finished = true
+      clearBackgroundBinding(key)
+      void cleanup(key)
+    }
+    const registry = jobRegistry(ctx)
+    if (registry !== undefined) {
+      try {
+        const view = registry.get(jobId, sessionId)
+        if (view.status !== 'running' && view.status !== 'stopping') {
+          finish()
+          return true
+        }
+      } catch {
+        // The registry may not know an id from an older generation; the
+        // heartbeat keeps the registration honest until the cap.
+      }
+      try {
+        binding.unsubscribe = registry.events.subscribe({ owner: sessionId }, event => {
+          if (event.type !== 'settled' && event.type !== 'removed') return
+          if (event.job?.id !== jobId) return
+          finish()
+        })
+        // Close the race between the first status read and the subscription:
+        // a job that settled in that window has already emitted its event.
+        const settled = registry.get(jobId, sessionId)
+        if (settled.status !== 'running' && settled.status !== 'stopping') {
+          finish()
+          return true
+        }
+      } catch {
+        // A subscription refusal is not a reason to drop the registration
+        // while the command can still write; the cap remains the backstop.
+      }
+    }
+    const heartbeat = setInterval(() => { void refreshBackgroundRegistration(binding) }, jobHeartbeatMs)
+    heartbeat.unref?.()
+    binding.heartbeat = heartbeat
+    const cap = setTimeout(finish, jobMaxLifetimeMs)
+    cap.unref?.()
+    binding.maxLifetime = cap
+    return true
   }
 
   ctx.on('tools/pre-execute', async (exec: ToolExecution, next: () => Promise<any>) => {
@@ -280,6 +485,7 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
       pending.set(key, entry)
       const timer = setTimeout(() => { void cleanup(key, registrationId) }, lifetimeMs)
       timer.unref?.()
+      entry.timer = timer
       const onAbort = (): void => { void cleanup(key, registrationId) }
       if (exec.signal?.aborted) {
         await cleanup(key, registrationId)
@@ -301,12 +507,39 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
   })
 
   ctx.on('tools/execute', async (exec: ToolExecution, next: () => Promise<any>) => {
-    const key = callKey(sessionIdFor(exec.agent), String(exec.callId ?? ''))
+    const sessionId = sessionIdFor(exec.agent)
+    const key = callKey(sessionId, String(exec.callId ?? ''))
     if (!pending.has(key)) return next()
+    let retainedByJob = false
     try {
-      return await dispatchChain.run(sessionIdFor(exec.agent), () => next())
+      const result = await dispatchChain.run(sessionId, () => next())
+      const bareName = exec.name.startsWith(PHONE_TOOL_PREFIX)
+        ? exec.name.slice(PHONE_TOOL_PREFIX.length)
+        : exec.name
+      // A bash call that the DSH job registry kept alive after this tool
+      // result is no longer a normal call: its registration must outlive the
+      // call until the job settles.
+      const jobId = bareName === 'bash' ? backgroundJobId(result) : undefined
+      if (jobId !== undefined) retainedByJob = retainBackgroundJob(key, jobId, sessionId)
+      return result
     } finally {
-      await cleanup(key)
+      if (!retainedByJob) await cleanup(key)
+    }
+  })
+
+  // A Worker/plugin disposal must not leave a job registration authorizing
+  // writes for a Worker that no longer exists. The host's generation rotation
+  // is the other half of that barrier.
+  ctx.effect(() => () => {
+    for (const key of [...backgroundJobs.keys()]) {
+      const entry = pending.get(key)
+      clearBackgroundBinding(key)
+      if (entry === undefined) continue
+      pending.delete(key)
+      calls.delete(key)
+      if (entry.timer !== undefined) clearTimeout(entry.timer)
+      void cancel(entry.registrationId, { timeoutMs }).catch(() => {})
+      entry.release()
     }
   })
 
@@ -325,7 +558,19 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
  * Bot session from a workbench session in the same Worker.
  */
 export function botRuntimeAvailable(ctx: Context, exec: Pick<ToolExecution, 'agent'>): boolean {
-  return ctx.tools.get(BOT_VOLATILE_CONTEXT_TOOL, exec.agent) !== undefined
+  if (ctx.tools.get(BOT_VOLATILE_CONTEXT_TOOL, exec.agent) !== undefined) return true
+  // The maintainer preset deliberately hides the volatile-context marker from
+  // the model surface. Its host-issued session token is the liveness evidence
+  // instead: a claimed maintainer session can still register phone calls, and
+  // an unclaimed one stays fail-closed.
+  const sessionId = sessionIdFor(exec.agent)
+  // Every host-minted restricted session (verifier and maintainer) gets the
+  // same liveness evidence: a claimed session token. The verifier's allow-list
+  // deliberately hides BotVolatileContext, so requiring that tool would make
+  // its only bash capability unusable and leave it unable to read the records
+  // the verification contract requires.
+  if (restrictedPresetForSessionId(sessionId) === undefined) return false
+  return (botOwnedSessions(ctx).tokenFor(sessionId)?.length ?? 0) > 0
 }
 
 export function botSessionOwned(ctx: Context, exec: Pick<ToolExecution, 'agent'>): boolean {

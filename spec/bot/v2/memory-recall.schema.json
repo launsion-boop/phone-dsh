@@ -1,16 +1,58 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BotMemoryRecallHit v1",
+  "title": "BotMemoryRecallHit v2",
+  "description": "One document hit. RecallMemory returns the path, a snippet and the evidence references; there is no importance field and no tier.",
   "type": "object",
-  "required": ["fact_id", "text", "learned_at_ms", "tier", "scope", "score"],
+  "required": ["path", "scope", "snippet", "score", "relevance", "recency", "updated_at_ms", "version"],
   "properties": {
-    "fact_id": {"type": "string", "minLength": 1},
-    "text": {"type": "string", "minLength": 1, "maxLength": 2000},
-    "learned_at_ms": {"type": "integer", "minimum": 0},
-    "tier": {"enum": ["profile", "log", "note"]},
-    "scope": {"enum": ["agent", "user"]},
-    "key": {"type": ["string", "null"]},
-    "score": {"type": "number", "minimum": 0}
+    "path": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "scope": {
+      "enum": ["agent", "user"]
+    },
+    "snippet": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "relevance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "recency": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "matched": {
+      "type": "boolean"
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+        "maxLength": 128
+      }
+    }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

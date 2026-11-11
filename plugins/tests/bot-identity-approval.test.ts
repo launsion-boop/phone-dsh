@@ -13,6 +13,7 @@ import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../bot-runtime/src/identity-bridge.ts'
 import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval, postApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
+import { botOwnedSessions } from '../bot-runtime/src/bot-sessions.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
 import { readBotGoldenMerged } from './bot-golden.ts'
 
@@ -164,6 +165,46 @@ test('Bot session registers once, asks once and executes once', async () => {
     assert.equal(registrations.length, 1)
     assert.equal(approvals.length, 1)
     assert.deepEqual(cancellations, ['registration-bash'])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a claimed verifier session can register and run its allowed read-only bash', async () => {
+  // The verifier allow-list hides BotVolatileContext (the ordinary liveness
+  // marker), so the claimed session token must be enough evidence for the
+  // identity bridge. Without this, the verifier's only record-reading path is
+  // denied as "App Bot MCP endpoint unavailable" and it cannot cite a record.
+  const ctx = await mount(false)
+  const registrations: Record<string, unknown>[] = []
+  let executed = 0
+  const verifier = agent('gb-verifier-identity-test')
+  botOwnedSessions(ctx).add('gb-verifier-identity-test', 'dshg_fixture_verifier')
+  try {
+    ctx.tools.register(defineTool({
+      name: 'bash', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { executed += 1; return 'ok' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        registrations.push(payload)
+        return { ok: true, id: 'verifier-registration' }
+      },
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => ({ ok: true, allowed: true }),
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('verifier-read-bash'), name: 'bash',
+      arguments: { command: 'cat notes.md' },
+      signal: new AbortController().signal, agent: verifier,
+    })
+    assert.equal(result.isError, false)
+    assert.equal(executed, 1)
+    assert.equal(registrations.length, 1)
+    assert.equal(registrations[0]!.sessionToken, 'dshg_fixture_verifier')
   } finally {
     await ctx.fiber.dispose()
   }
@@ -496,6 +537,63 @@ test('BLE native-MCP effects match the shared golden and stay ask-gated', async 
   }
 })
 
+test('read-only memory tools are read + auto and never ask for structural approval', async () => {
+  const golden = readBotGoldenMerged('tool-effects') as {
+    valid: Array<{ name: string, args: Record<string, unknown>, policy: string, effect: ApprovalEffect }>
+  }
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ['ReadMemory', { path: 'user/profile.md' }],
+    ['RecallMemory', { query: 'tone', limit: 5 }],
+  ]
+  for (const [name, args] of cases) {
+    assert.deepEqual(phoneEffectsForApproval(`mcp__phone__${name}`, args), [],
+      `${name} is auto-policy and must not produce an approval effect`)
+    const entry = golden.valid.find(candidate => candidate.name === name)
+    assert.ok(entry, `${name} must be frozen in the shared tool-effects golden`)
+    assert.equal(entry.policy, 'auto')
+    assert.equal(entry.effect.mutability, 'read')
+    assert.equal(entry.effect.policy, 'auto')
+    // The structural gate still sees the phone tool; it just must not ask.
+    assert.equal(needsStructuralApproval(`mcp__phone__${name}`), true)
+  }
+
+  const ctx = await mount()
+  const payloads: Record<string, unknown>[] = []
+  let executed = 0
+  try {
+    for (const [name] of cases) {
+      ctx.tools.register(defineTool({
+        name: `mcp__phone__${name}`,
+        description: 'probe',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: async () => { executed += 1; return 'ok' },
+      }))
+    }
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-memory-read' }),
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async payload => {
+        payloads.push(payload)
+        return { ok: true, allowed: true }
+      },
+    })
+    for (const [name, args] of cases) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`read-memory-${name}`), name: `mcp__phone__${name}`,
+        arguments: args, signal: new AbortController().signal, agent: agent(),
+      })
+      assert.equal(result.isError, false, `${name} must execute without an approval card`)
+    }
+    assert.equal(executed, cases.length)
+    assert.deepEqual(payloads, [], 'read-only memory tools must never reach the approval endpoint')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('approval memory effect matches the Swift execution resource and sensitive reads never reach approval', async () => {
   const effects = phoneEffectsForApproval('mcp__phone__UpdateMemory', {
     action: 'forget', scope: 'user', fact: '  private   fact ',
@@ -789,5 +887,84 @@ test('the shared approval transport omits the egress header when the value is em
     globalThis.fetch = originalFetch
     if (previous === undefined) delete process.env.PDSH_MCP_EGRESS_TOKEN
     else process.env.PDSH_MCP_EGRESS_TOKEN = previous
+  }
+})
+
+function botSessionAgent(cwd: string): Agent {
+  return { id: 'gb-main', session: { id: 'gb-main', header: { cwd } } } as unknown as Agent
+}
+
+test('write/edit are auto inside the Bot workspace root and directory-granular outside', async () => {
+  const root = '/dsh/workspace/.dshbot/agents/main'
+  assert.deepEqual(
+    phoneEffectsForApproval('write', { file_path: 'notes/a.txt', content: 'x' },
+      { workspaceRoot: root }),
+    [], 'a write inside the Bot root needs no structural approval effect')
+  assert.deepEqual(
+    phoneEffectsForApproval('edit', { file_path: 'notes/a.txt', old_string: 'a', new_string: 'b' },
+      { workspaceRoot: root }),
+    [], 'an edit inside the Bot root needs no structural approval effect')
+
+  const outside = phoneEffectsForApproval('write', {
+    file_path: '/dsh/workspace/shared/a.txt', content: 'x',
+  }, { workspaceRoot: root })
+  assert.equal(outside.length, 1)
+  assert.equal(outside[0]!.operation, 'file.write')
+  assert.equal(outside[0]!.resource, 'dir=/dsh/workspace/shared')
+  assert.equal(outside[0]!.policy, 'ask')
+  assert.equal(outside[0]!.known, true)
+  const sibling = phoneEffectsForApproval('edit', {
+    file_path: '/dsh/workspace/shared/b.txt', old_string: 'a', new_string: 'b',
+  }, { workspaceRoot: root })
+  assert.equal(sibling[0]!.operation, 'file.edit')
+  assert.equal(sibling[0]!.resource, 'dir=/dsh/workspace/shared',
+    'the same directory must reuse one Grant')
+  const traversal = phoneEffectsForApproval('write', {
+    file_path: 'notes/../../outside.txt', content: 'x',
+  }, { workspaceRoot: root })
+  assert.equal(traversal[0]!.resource, 'dir=/dsh/workspace/.dshbot/agents',
+    '.. is normalized before the containment decision')
+  const malformed = phoneEffectsForApproval('write', { content: 'x' }, { workspaceRoot: root })
+  assert.equal(malformed.length, 1)
+  assert.equal(malformed[0]!.known, false,
+    'a missing file_path must fail closed, not auto-allow')
+
+  const ctx = await mount()
+  const payloads: Record<string, unknown>[] = []
+  let writes = 0
+  try {
+    ctx.tools.register(defineTool({
+      name: 'write', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { writes += 1; return 'ok' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-write' }),
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async payload => {
+        payloads.push(payload)
+        return { ok: true, allowed: true }
+      },
+    })
+    const cases = [
+      { path: 'notes/a.txt', effects: [] as string[] },
+      { path: '/dsh/workspace/shared/a.txt', effects: ['dir=/dsh/workspace/shared'] },
+    ]
+    for (const [index, entry] of cases.entries()) {
+      const result = await executeTool(ctx, {
+        callId: ToolCallId(`write-boundary-${index}`), name: 'write',
+        arguments: { file_path: entry.path, content: 'x' },
+        signal: new AbortController().signal, agent: botSessionAgent(root),
+      })
+      assert.equal(result.isError, false)
+      const payload = payloads.at(-1)!
+      const effects = payload.effects as ApprovalEffect[]
+      assert.deepEqual(effects.map(effect => effect.resource), entry.effects)
+    }
+    assert.equal(writes, 2)
+  } finally {
+    await ctx.fiber.dispose()
   }
 })

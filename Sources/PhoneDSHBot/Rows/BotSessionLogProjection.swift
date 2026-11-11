@@ -502,6 +502,9 @@ public struct BotSessionLogProjector: Sendable {
         var seenEventIDs: Set<String> = []
         let (answeredCards, dismissedCards) = cardOutcomes(botID: botID, events: events)
         for (index, event) in events.sorted(by: stableUIEventOrder).enumerated() {
+            // A physically erased payload must not be projected back into a
+            // row: the header/digest stay, the content does not.
+            guard !event.isErasedPayload else { continue }
             guard event.principal.botId == nil || event.principal.botId == botID,
                   let data = objectValue(event.data), seenEventIDs.insert(event.eventId).inserted else { continue }
             let order = BotRowOrder(time: event.time, source: 1, sourceSeq: event.commitSeq ?? 0, index: index)
@@ -521,7 +524,8 @@ public struct BotSessionLogProjector: Sendable {
                              "agent.comm",
                              "approval.requested", "approval.decided", "task.created", "task.started", "task.updated",
                              "task.stop_requested", "task.settled", "task.resumed", "conversation.automation_run",
-                             "routine.run_started", "routine.run_finished", "bot.greeting_seeded"]
+                             "routine.run_started", "routine.run_finished", "verification.reported",
+                             "bot.greeting_seeded"]
             guard supported.contains(event.type) else { continue }
             var payload = data
             for key in ["row", "entry", "message", "body", "card", "task", "automation", "routine", "run", "notice"] {
@@ -565,6 +569,20 @@ public struct BotSessionLogProjector: Sendable {
                 }
                 if let approvalID { fields["approvalID"] = .string(approvalID) }
                 body = BotRowBody(type: .approval, additionalProperties: fields)
+            } else if event.type == "verification.reported" {
+                // The verifier event carries the completed task's own fields
+                // plus the nested conclusion, so it updates the existing task
+                // row in place instead of creating a second card.
+                guard payload["subjectKind"]?.stringValue == "task" else { continue }
+                let taskID = nonEmpty(payload, "task_id")
+                    ?? nonEmpty(payload, "subjectId")
+                    ?? nonEmpty(payload, "subjectID")
+                if let taskID {
+                    id = "e-\(botID)-task-\(taskID)"
+                }
+                let cardKey = taskID.map { "task:\($0)" }
+                body = BotRowBody(type: .widget, cardType: .task, cardKey: cardKey,
+                                  additionalProperties: fieldsFrom(payload))
             } else if event.type.hasPrefix("task.") {
                 let nativeTaskID = nonEmpty(payload, "task_id")
                 let taskID = nativeTaskID ?? nonEmpty(payload, "taskID") ?? nonEmpty(payload, "taskId")
@@ -686,6 +704,14 @@ public struct BotSessionLogProjector: Sendable {
                 var row = BotRow(id: id, botID: botID, seq: old?.seq ?? input.seq, updatedSeq: old?.updatedSeq ?? 0,
                                  kind: input.kind, role: input.role, body: input.body, provenance: provenance,
                                  streaming: false, createdAt: old?.createdAt ?? input.createdAt)
+                // A verifier report updates the existing Task card in place:
+                // keep the step list and earlier fields, then overlay the new
+                // status/verification so the card does not lose its shape.
+                if let old, old.body.cardType == .task, row.body.cardType == .task {
+                    var merged = old.body.additionalProperties
+                    for (key, value) in row.body.additionalProperties { merged[key] = value }
+                    row.body.additionalProperties = merged
+                }
                 row.chatActionNonce = input.chatActionNonce
                 if let old, sameContent(old, row) {
                     if let progressKey { progressRows[progressKey] = id }

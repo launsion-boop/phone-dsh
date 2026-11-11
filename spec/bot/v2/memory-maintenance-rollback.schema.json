@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryMaintenanceRollback v2",
+  "description": "Durable data of memory.maintenance_rolled_back. Rolling a batch back restores each changed document to the version the batch started from, using the S2 restore primitive as a new version.",
+  "type": "object",
+  "required": ["batch_id", "bot_id", "rolled_back_at_ms", "restored", "conflicts"],
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "pattern": "^mm-[a-z0-9-]{8,64}$"
+    },
+    "bot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rolled_back_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "restored": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["path", "from_version", "to_version"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "from_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "to_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 200
+      }
+    }
+  },
+  "additionalProperties": false
+}

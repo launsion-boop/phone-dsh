@@ -11,7 +11,7 @@
 //
 //   `{"error":{...},"xl_error":{"code","host","detail"}}`
 //
-// with one of the seven taxonomy classes in `xl_error.code` and the failed
+// with one of the eight taxonomy classes in `xl_error.code` and the failed
 // upstream host in `xl_error.host`. G2-C09 showed the opposite: a generic
 // 84-byte body that told the model nothing, which it then presented as a
 // successful download.

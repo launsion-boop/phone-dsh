@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRoutineNotification v1",
+  "description": "A locally scheduled routine-due notification. This is a host-side delivery request, not a wire message and not a row.",
+  "type": "object",
+  "required": ["identifier", "botId", "routineId", "title", "body", "fireAt", "deepLink"],
+  "properties": {
+    "identifier": {"type": "string", "minLength": 1},
+    "botId": {"type": "string", "minLength": 1},
+    "routineId": {"type": "string", "minLength": 1},
+    "title": {"const": "例行任务到期"},
+    "body": {"type": "string", "minLength": 1, "maxLength": 200},
+    "fireAt": {"type": "integer", "minimum": 0},
+    "deepLink": {"type": "string", "pattern": "^phonedsh://bot/[^/]+/routine/[^/]+$"}
+  },
+  "additionalProperties": false
+}

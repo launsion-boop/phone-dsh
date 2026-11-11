@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "vector": "routine-notification",
+  "source": {
+    "checkout": "phoneDSH-v2-presence-20261111"
+  },
+  "valid": {
+    "normal": {
+      "identifier": "routine-due:bot-a:routine-1:1760056200000",
+      "botId": "bot-a",
+      "routineId": "routine-1",
+      "title": "例行任务到期",
+      "body": "「晨间简报」到点，点开运行。",
+      "fireAt": 1760056200000,
+      "deepLink": "phonedsh://bot/bot-a/routine/routine-1"
+    },
+    "quietDeferred": {
+      "identifier": "routine-due:bot-a:routine-2:1760059800000",
+      "botId": "bot-a",
+      "routineId": "routine-2",
+      "title": "例行任务到期",
+      "body": "「夜间摘要」到点，点开运行。",
+      "fireAt": 1760059800000,
+      "deepLink": "phonedsh://bot/bot-a/routine/routine-2"
+    },
+    "urgentBypass": {
+      "identifier": "routine-due:bot-a:routine-3:1760038800000",
+      "botId": "bot-a",
+      "routineId": "routine-3",
+      "title": "例行任务到期",
+      "body": "「发布窗口检查」到点，点开运行。",
+      "fireAt": 1760038800000,
+      "deepLink": "phonedsh://bot/bot-a/routine/routine-3"
+    }
+  },
+  "invalid": [
+    {
+      "identifier": "routine-due:bot-a:routine-4:1760056200000",
+      "botId": "bot-a",
+      "routineId": "routine-4",
+      "title": "例行任务到期",
+      "body": "「缺少深链」到点，点开运行。",
+      "fireAt": 1760056200000,
+      "reason": "missing_deep_link"
+    },
+    {
+      "identifier": "routine-due:bot-a:routine-5:1760056200000",
+      "botId": "bot-a",
+      "routineId": "routine-5",
+      "title": "例行任务到期",
+      "body": "「错误深链」到点，点开运行。",
+      "fireAt": 1760056200000,
+      "deepLink": "https://example.invalid/bot/bot-a/routine/routine-5",
+      "reason": "wrong_scheme"
+    },
+    {
+      "identifier": "routine-due:bot-a:routine-6:1760056200000",
+      "botId": "bot-a",
+      "routineId": "routine-6",
+      "title": "routine due",
+      "body": "「错误标题」到点，点开运行。",
+      "fireAt": 1760056200000,
+      "deepLink": "phonedsh://bot/bot-a/routine/routine-6",
+      "reason": "wrong_title"
+    },
+    {
+      "identifier": "routine-due:bot-a:routine-7:-1",
+      "botId": "bot-a",
+      "routineId": "routine-7",
+      "title": "例行任务到期",
+      "body": "「负数时间」到点，点开运行。",
+      "fireAt": -1,
+      "deepLink": "phonedsh://bot/bot-a/routine/routine-7",
+      "reason": "negative_fire_at"
+    }
+  ]
+}

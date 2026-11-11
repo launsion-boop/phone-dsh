@@ -13,6 +13,7 @@ public actor RoutineScheduler {
     public let inbox: WakeInbox
     public let sink: any RoutineResultSink
     public let proactive: (any ProactiveConsidering)?
+    public let notifications: (any RoutineNotificationScheduling)?
 
     private let runner: Runner
     private let cancelRunner: CancelRunner?
@@ -29,9 +30,16 @@ public actor RoutineScheduler {
     private var stopped = false
     private var ticking = false
     private var active: Set<String> = []
+    private var scheduledNotifications: [String: RoutineScheduledNotification] = [:]
+
+    /// iOS keeps at most 64 pending notifications per application. Leave four
+    /// slots for system/other-Bot notifications and keep the earliest 60
+    /// routine due times.
+    public static let maxScheduledNotifications = 60
 
     public init(botId: String, machine: RoutineMachine, inbox: WakeInbox,
                 sink: any RoutineResultSink, proactive: (any ProactiveConsidering)? = nil,
+                notifications: (any RoutineNotificationScheduling)? = nil,
                 runner: @escaping Runner, cancelRunner: CancelRunner? = nil,
                 available: @escaping Availability,
                 busy: @escaping Availability = { _ in false },
@@ -48,6 +56,7 @@ public actor RoutineScheduler {
         self.inbox = inbox
         self.sink = sink
         self.proactive = proactive
+        self.notifications = notifications
         self.runner = runner
         self.cancelRunner = cancelRunner
         self.available = available
@@ -108,6 +117,7 @@ public actor RoutineScheduler {
                 await deliver(latest, force: true)
             }
         }
+        await syncNotifications()
         return actions
     }
 
@@ -156,9 +166,31 @@ public actor RoutineScheduler {
             ) else { continue }
             if !claim.claimed { continue }
             active.insert(routine.id)
+            // The due reminder must not fire while the run is starting.
+            await cancelScheduledNotifications(routineId: routine.id)
             await execute(claim, startedAt: startedAt)
             active.remove(routine.id)
         }
+        await syncNotifications()
+    }
+
+    /// Cancel the currently running attempt of one routine. This is the user
+    /// exit from the Bot information page: it uses the same cancellation chain
+    /// as a timeout but passes `reason:"user"`, so the settled delivery keeps
+    /// `cancelOrigin:"user"` and is not treated as a failure notification.
+    public func cancelRunning(routineId: String) async -> RoutineCancellationResult {
+        guard active.contains(routineId),
+              let routine = try? await machine.get(botId: botId, routineId: routineId),
+              let state = routine.runState,
+              state.status == .started else {
+            return RoutineCancellationResult(cancelled: false, reason: "routine is not running")
+        }
+        guard let cancelRunner else {
+            return RoutineCancellationResult(cancelled: false, reason: "no-cancel-handler")
+        }
+        return await cancelRunner(RoutineCancellation(
+            botId: botId, routineId: routineId, runId: state.runId,
+            timeoutMs: cancelGraceMs, reason: "user"))
     }
 
     public func waitForIdle() async {
@@ -212,6 +244,105 @@ public actor RoutineScheduler {
         if let latest = try? await machine.delivery(delivery.deliveryKey, botId: botId) {
             await deliver(latest)
         }
+        await syncNotifications()
+    }
+
+    // MARK: - Local notifications and presence
+
+    /// Reconciles the system's pending routine-due notifications with the
+    /// current durable routines and the user's DND/quiet-hours authorization.
+    /// Safe to call from a tick, after startup recovery, or immediately after
+    /// the settings page writes a new value.
+    public func syncNotifications() async {
+        guard let notifications else { return }
+        let now = nowProvider()
+        let settings = settingsProvider().normalized()
+        let routines = (try? await machine.list(botId: botId)) ?? []
+        var desired: [RoutineScheduledNotification] = []
+        if !settings.dnd {
+            for routine in routines where routine.enabled {
+                guard let nextRunAt = routine.nextRunAt else { continue }
+                let mayBypassQuiet = routine.urgent
+                    && !RoutineDeliveryFlags.clean(routine.urgentReason).isEmpty
+                var fireAt = nextRunAt
+                if !mayBypassQuiet,
+                   RoutineQuietHours.contains(nextRunAt, settings: settings),
+                   let until = RoutineQuietHours.nextEnd(nextRunAt, settings: settings) {
+                    fireAt = max(nextRunAt, until)
+                }
+                guard fireAt > now else { continue }
+                desired.append(RoutineScheduledNotification(
+                    botId: botId, routineId: routine.id,
+                    routineTitle: routine.title, fireAt: fireAt))
+            }
+        }
+        desired.sort { ($0.fireAt, $0.identifier) < ($1.fireAt, $1.identifier) }
+        desired = Array(desired.prefix(Self.maxScheduledNotifications))
+        let desiredIDs = Set(desired.map(\.identifier))
+
+        let prefix = "routine-due:\(botId):"
+        let pending = Set(await notifications.pendingIdentifiers(prefix: prefix))
+        let existingSignatures = scheduledNotifications
+        let stale = pending.subtracting(desiredIDs).union(
+            scheduledNotifications.keys.filter { !desiredIDs.contains($0) })
+        if !stale.isEmpty {
+            await notifications.cancel(identifiers: Array(stale).sorted())
+            for identifier in stale { scheduledNotifications.removeValue(forKey: identifier) }
+        }
+
+        for notification in desired {
+            if scheduledNotifications[notification.identifier] == notification { continue }
+            do {
+                try await notifications.schedule(notification)
+                scheduledNotifications[notification.identifier] = notification
+            } catch {
+                scheduledNotifications.removeValue(forKey: notification.identifier)
+            }
+        }
+        // A system purge (reboot, user clearing notifications, foreground
+        // permission changes) leaves our signature but no pending request.
+        // Re-register on the next reconciliation.
+        for identifier in desiredIDs where !pending.contains(identifier)
+            && existingSignatures[identifier] != nil {
+            guard let notification = desired.first(where: { $0.identifier == identifier }) else { continue }
+            do { try await notifications.schedule(notification) }
+            catch { scheduledNotifications.removeValue(forKey: identifier) }
+        }
+        scheduledNotifications = scheduledNotifications.filter { desiredIDs.contains($0.key) }
+    }
+
+    public func scheduledNotificationsSnapshot() -> [RoutineScheduledNotification] {
+        scheduledNotifications.values.sorted { ($0.fireAt, $0.identifier) < ($1.fireAt, $1.identifier) }
+    }
+
+    public func presenceSnapshot(appActive: Bool, keepingAlive: Bool) async -> RoutinePresence {
+        let routines = (try? await machine.list(botId: botId)) ?? []
+        let level = RoutinePresencePolicy.level(
+            appActive: appActive, keepingAlive: keepingAlive,
+            scheduledNotificationCount: scheduledNotifications.count)
+        return RoutinePresence(level: level,
+                               deferred: RoutinePresencePolicy.deferred(routines),
+                               scheduledNotificationCount: scheduledNotifications.count)
+    }
+
+    /// Applies a settings edit immediately: quiet-hour deferrals and pending
+    /// notifications are recomputed, then a tick runs any routine that just
+    /// became eligible. The tick is detached so a long routine cannot block the
+    /// settings sheet; the notification/deferral change itself is synchronous
+    /// with the save.
+    public func applySettingsChange() async {
+        await syncNotifications()
+        Task { try? await self.tick() }
+    }
+
+    private func cancelScheduledNotifications(routineId: String) async {
+        guard let notifications else { return }
+        let prefix = "routine-due:\(botId):\(routineId):"
+        var identifiers = Set(await notifications.pendingIdentifiers(prefix: prefix))
+        identifiers.formUnion(scheduledNotifications.keys.filter { $0.hasPrefix(prefix) })
+        guard !identifiers.isEmpty else { return }
+        await notifications.cancel(identifiers: Array(identifiers).sorted())
+        for identifier in identifiers { scheduledNotifications.removeValue(forKey: identifier) }
     }
 
     private func runWithDeadline(_ request: RoutineRunRequest) async -> RoutineExecutionResult {

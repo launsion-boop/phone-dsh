@@ -29,10 +29,26 @@ struct EvalSnapshot {
     var events: [BotEvent]
     var replies: [EvalReply]
     var toolCalls: [EvalToolCallRecord]
-    var memories: [String: [BotMemoryFact]]
+    var memories: [String: [BotMemoryDocument]]
     var workspaces: [String: URL]
     var scratchRoot: URL
     var echoRequests: [EvalEchoRequest] = []
+    /// Union of the tool names every model request advertised during this
+    /// repeat. The mock upstream records the request body; the Worker's
+    /// model-facing `tools/list` is the surface a Bot turn actually runs on.
+    var advertisedTools: Set<String> = []
+    /// Model-facing tool names per host-minted Bot session kind (`main`,
+    /// `task`, `verifier`, `maintainer`). A restricted session must be
+    /// evaluated on its own surface, never against the union of every request.
+    var advertisedToolsBySession: [String: Set<String>] = [:]
+
+    /// The surface recorded for one session kind. `main` falls back to the
+    /// legacy union so a hand-built snapshot keeps its old meaning.
+    func advertisedTools(for session: String) -> Set<String>? {
+        if let scoped = advertisedToolsBySession[session] { return scoped }
+        if session == "main" && !advertisedTools.isEmpty { return advertisedTools }
+        return nil
+    }
 }
 
 struct EvalAssertionResult {
@@ -130,6 +146,56 @@ enum EvalAssertions {
             }
             throw EvalAssertionError.invalid("approval_count needs equals or max")
 
+        case "tool_surface":
+            if let bot = assertion.bot, bot != "main" {
+                throw EvalAssertionError.invalid(
+                    "tool_surface selects a session, not a Bot; use `session`")
+            }
+            let session = assertion.session ?? "main"
+            guard EvalSessionKinds.all.contains(session) else {
+                throw EvalAssertionError.invalid(
+                    "tool_surface session must be one of "
+                    + EvalSessionKinds.all.joined(separator: ", "))
+            }
+            guard let tools = snapshot.advertisedTools(for: session) else {
+                return (false, "no model request recorded for the \(session) session")
+            }
+            guard !tools.isEmpty else {
+                return (false, "the \(session) session advertised an empty tool list")
+            }
+            let present = assertion.present ?? []
+            let absent = assertion.absent ?? []
+            let exactly = assertion.exactly
+            if exactly != nil && (!present.isEmpty || !absent.isEmpty) {
+                throw EvalAssertionError.invalid(
+                    "tool_surface `exactly` cannot be combined with present/absent")
+            }
+            if let exactly {
+                guard !exactly.isEmpty else {
+                    throw EvalAssertionError.invalid("tool_surface exactly must not be empty")
+                }
+                let expected = Set(exactly)
+                let names = tools.sorted()
+                if tools != expected {
+                    return (false, "\(session) advertised tools are \(names); "
+                        + "expected exactly \(expected.sorted())")
+                }
+                return (true, "\(session) advertised exactly \(names)")
+            }
+            if present.isEmpty && absent.isEmpty {
+                throw EvalAssertionError.invalid("tool_surface needs present, absent or exactly")
+            }
+            let missing = present.filter { !tools.contains($0) }
+            let leaked = absent.filter { tools.contains($0) }
+            let names = tools.sorted()
+            if !missing.isEmpty || !leaked.isEmpty {
+                var detail = "\(session) advertised tools are \(names)"
+                if !missing.isEmpty { detail += "; missing \(missing.sorted())" }
+                if !leaked.isEmpty { detail += "; forbidden \(leaked.sorted())" }
+                return (false, detail)
+            }
+            return (true, "\(session) advertised tools are \(names)")
+
         case "echo_requests":
             let method = assertion.method?.uppercased()
             let matching = snapshot.echoRequests.filter { request in
@@ -218,13 +284,12 @@ enum EvalAssertions {
 
     private static func matchingMemories(_ assertion: EvalAssertion,
                                          botID: String,
-                                         snapshot: EvalSnapshot) -> [BotMemoryFact] {
+                                         snapshot: EvalSnapshot) -> [BotMemoryDocument] {
         let value = assertion.value ?? ""
-        return (snapshot.memories[botID] ?? []).filter { fact in
-            guard fact.text.contains(value) else { return false }
-            if let scope = assertion.scope, fact.scope.rawValue != scope { return false }
-            if let tier = assertion.tier, fact.tier.rawValue != tier { return false }
-            if let source = assertion.source, fact.source?.kind.rawValue != source { return false }
+        return (snapshot.memories[botID] ?? []).filter { document in
+            guard document.content.contains(value) else { return false }
+            if let scope = assertion.scope, document.scope.rawValue != scope { return false }
+            if let source = assertion.source, document.source?.kind.rawValue != source { return false }
             return true
         }
     }

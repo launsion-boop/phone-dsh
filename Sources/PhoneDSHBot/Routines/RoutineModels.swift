@@ -285,6 +285,9 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
     public var delivery: RoutineDeliveryMode
     public var interruptReason: String
     public var createdAt: Int64
+    public var creator: RoutineCreator?
+    public var completionCriteria: String
+    public var constraints: String
     public var attempt: Int
     public var runState: RoutineRunState?
     public var quietDefer: RoutineQuietDefer?
@@ -300,6 +303,9 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         case urgentReason = "urgent_reason"
         case interruptReason = "interrupt_reason"
         case createdAt = "created_at"
+        case creator
+        case completionCriteria = "completion_criteria"
+        case constraints
         case runState = "run_state"
         case quietDefer = "quiet_defer"
         case lastSkip = "last_skip"
@@ -313,7 +319,9 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
     public init(id: String, agentId: String, title: String, prompt: String, schedule: RoutineSchedule,
                 enabled: Bool = true, idempotent: Bool = false, urgent: Bool = false,
                 urgentReason: String = "", delivery: RoutineDeliveryMode = .held,
-                interruptReason: String = "", createdAt: Int64, attempt: Int = 0,
+                interruptReason: String = "", createdAt: Int64,
+                creator: RoutineCreator? = nil, completionCriteria: String = "",
+                constraints: String = "", attempt: Int = 0,
                 runState: RoutineRunState? = nil, quietDefer: RoutineQuietDefer? = nil,
                 lastSkip: RoutineSkip? = nil, skipCount: Int = 0, crashRetry: Bool = false,
                 lastRunAt: Int64? = nil, nextRunAt: Int64? = nil, lastResult: RoutineResult? = nil) {
@@ -329,6 +337,9 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         self.delivery = delivery
         self.interruptReason = interruptReason
         self.createdAt = createdAt
+        self.creator = creator
+        self.completionCriteria = completionCriteria
+        self.constraints = constraints
         self.attempt = attempt
         self.runState = runState
         self.quietDefer = quietDefer
@@ -354,6 +365,9 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         delivery = try container.decodeIfPresent(RoutineDeliveryMode.self, forKey: .delivery) ?? .held
         interruptReason = try container.decodeIfPresent(String.self, forKey: .interruptReason) ?? ""
         createdAt = try container.decodeIfPresent(Int64.self, forKey: .createdAt) ?? 0
+        creator = try container.decodeIfPresent(RoutineCreator.self, forKey: .creator)
+        completionCriteria = try container.decodeIfPresent(String.self, forKey: .completionCriteria) ?? ""
+        constraints = try container.decodeIfPresent(String.self, forKey: .constraints) ?? ""
         attempt = try container.decodeIfPresent(Int.self, forKey: .attempt) ?? 0
         runState = try container.decodeIfPresent(RoutineRunState.self, forKey: .runState)
         quietDefer = try container.decodeIfPresent(RoutineQuietDefer.self, forKey: .quietDefer)
@@ -372,6 +386,26 @@ public struct Routine: Codable, Sendable, Equatable, Identifiable {
         copy.title = title.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         copy.prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.completionCriteria = completionCriteria.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.constraints = constraints.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard copy.completionCriteria.count <= 2_000 else {
+            throw RoutineError.invalidRoutine("routine completion_criteria is too long (max 2000 characters)")
+        }
+        guard copy.constraints.count <= 2_000 else {
+            throw RoutineError.invalidRoutine("routine constraints is too long (max 2000 characters)")
+        }
+        if let creator = copy.creator {
+            if let rpcId = creator.rpcId,
+               rpcId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                throw RoutineError.invalidRoutine("routine creator.rpcId must be non-empty when present")
+            }
+            if creator.authorization == .userConfirmed, creator.approvalID == nil {
+                throw RoutineError.invalidRoutine("routine creator.approvalID is required after user confirmation")
+            }
+            if creator.authorization == .userTurn, creator.approvalID != nil {
+                throw RoutineError.invalidRoutine("routine creator.approvalID is only valid after user confirmation")
+            }
+        }
         guard !copy.id.isEmpty, !copy.agentId.isEmpty else { throw RoutineError.invalidRoutine("routine id and agentId are required") }
         guard !copy.title.isEmpty, copy.title.count <= 200 else {
             throw RoutineError.invalidRoutine(copy.title.isEmpty ? "routine title must be a non-empty string" : "routine title is too long (max 200 characters)")
@@ -557,11 +591,14 @@ public struct RoutinePatch: Sendable {
     public var urgentReason: String?
     public var delivery: RoutineDeliveryMode?
     public var interruptReason: String?
+    public var completionCriteria: String?
+    public var constraints: String?
 
     public init(title: String? = nil, prompt: String? = nil, schedule: RoutineSchedule? = nil,
                 enabled: Bool? = nil, idempotent: Bool? = nil, urgent: Bool? = nil,
                 urgentReason: String? = nil, delivery: RoutineDeliveryMode? = nil,
-                interruptReason: String? = nil) {
+                interruptReason: String? = nil, completionCriteria: String? = nil,
+                constraints: String? = nil) {
         self.title = title
         self.prompt = prompt
         self.schedule = schedule
@@ -571,5 +608,7 @@ public struct RoutinePatch: Sendable {
         self.urgentReason = urgentReason
         self.delivery = delivery
         self.interruptReason = interruptReason
+        self.completionCriteria = completionCriteria
+        self.constraints = constraints
     }
 }

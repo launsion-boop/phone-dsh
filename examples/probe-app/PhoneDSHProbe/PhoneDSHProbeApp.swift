@@ -26,6 +26,9 @@ struct PhoneDSHProbeApp: App {
     @State private var preferences = NativeChatPreferences.shared
 
     init() {
+        // Local notification taps are received by the App delegate before the
+        // SwiftUI scene is ready; install the one deep-link router here.
+        BotNotificationRouter.shared.install()
         // P18/D2: copy legacy bare-sessionID stores into the phone scope once.
         // The old keys stay readable so a rollback still finds the pre-D2 data.
         WorkspaceStorageMigration.runIfNeeded()

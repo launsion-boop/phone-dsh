@@ -28,6 +28,68 @@ public enum BotApprovalResolution: Sendable, Equatable {
     case stale(reason: String)
 }
 
+/// Result of the host-side Bot egress write approval.
+public enum BotEgressApproval: Sendable, Equatable {
+    /// No Bot `bash` call is live; the request is workbench traffic and keeps
+    /// the matrix's ordinary allow-list behaviour.
+    case notBot
+    /// The write is attributable to a Bot and the user (now or earlier)
+    /// authorized this host + method.
+    case allowed
+    /// Fail closed with a stable lower-snake cause. Besides the approval
+    /// outcomes (`egress_approval_denied`, `bot_egress_ambiguous`,
+    /// `bot_egress_unattributed`), a Task session without
+    /// `task.network-write` is `task_network_write_denied` before any card.
+    case denied(code: String, message: String)
+}
+
+/// Cancellation bridge between the `/v1/http` consumer and the pending Bot
+/// approval card. `BotApprovalCoordinator` creates the card id inside
+/// `request`, so the id is delivered through `onPending`; a cancellation that
+/// arrives before that id is remembered and applied as soon as it appears.
+public final class BotEgressApprovalCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let approvals: BotApprovalCoordinator
+    private var approvalID: String?
+    private var cancelled = false
+
+    public init(approvals: BotApprovalCoordinator) {
+        self.approvals = approvals
+    }
+
+    /// Records the id of the freshly created card, cancelling it immediately
+    /// when the consumer already went away.
+    public func set(approvalID id: String) {
+        lock.lock()
+        let shouldCancel = cancelled
+        if !shouldCancel { approvalID = id }
+        lock.unlock()
+        if shouldCancel {
+            Task { await approvals.cancel(approvalId: id) }
+        }
+    }
+
+    /// Drops the id after a terminal decision; cancellation is a no-op then.
+    public func clear() {
+        lock.lock()
+        approvalID = nil
+        lock.unlock()
+    }
+
+    /// Cancels the pending card if it exists, or arms cancellation for a card
+    /// that is about to be created.
+    public func cancel() {
+        lock.lock()
+        cancelled = true
+        let id = approvalID
+        approvalID = nil
+        lock.unlock()
+        if let id {
+            Task { await approvals.cancel(approvalId: id) }
+        }
+    }
+}
+
 public actor BotApprovalCoordinator {
     /// One card stays pending for five minutes. Identity registrations inherit
     /// at least this lifetime (`BotAttributionRegistry.defaultTTLMilliseconds`)
@@ -79,7 +141,8 @@ public actor BotApprovalCoordinator {
 
     public func request(call: BotResolvedToolCall, effects: [BotToolEffect],
                         action: String, detail: String, command: String,
-                        alwaysScope: String) async -> BotApprovalOutcome {
+                        alwaysScope: String,
+                        onPending: (@Sendable (String) -> Void)? = nil) async -> BotApprovalOutcome {
         let deferConsumption = effects.allSatisfy { $0.execution != nil }
         if let standing = await standingDecision(
             call: call, effects: effects, deferConsumption: deferConsumption) { return standing }
@@ -105,6 +168,7 @@ public actor BotApprovalCoordinator {
                 principal: principal, effects: effects, digest: digest, command: command,
                 alwaysScope: alwaysScope, deferConsumption: deferConsumption,
                 continuation: continuation, timeout: nil)
+            onPending?(approvalId)
             let timeoutMs = approvalTimeoutMs
             let timeout = Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(timeoutMs) * 1_000_000)
@@ -172,9 +236,19 @@ public actor BotApprovalCoordinator {
     }
 
     @discardableResult
-    public func cancel(approvalId: String) -> Bool {
+    public func cancel(approvalId: String) async -> Bool {
         guard let request = pending.removeValue(forKey: approvalId) else { return false }
         request.timeout?.cancel()
+        // A cancelled card is still a decided card: the row must not stay
+        // pending after the consumer (Worker `/v1/http` request, turn abort,
+        // or a replacement host) went away.
+        try? await eventWriter.append(
+            type: "approval.decided", principal: request.principal,
+            data: .object([
+                "approvalID": .string(approvalId), "decision": .string("deny"),
+                "status": .string("cancelled"), "reason": .string("consumer_cancelled"),
+            ]),
+            eventId: "cancelled:\(approvalId)")
         request.continuation.resume(returning: BotApprovalOutcome(
             ok: false, allowed: false, approvalId: approvalId, message: "approval cancelled"))
         return true

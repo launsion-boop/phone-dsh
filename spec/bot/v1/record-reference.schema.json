@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRecordReference v1",
+  "description": "Canonical record:// reference. The parser accepts surrounding ASCII whitespace, ASCII case-insensitive scheme and authority, and leading zeros in the decimal position; both are normalized. No other spelling is accepted. The decimal position is bounded by 2^53-1 (JSON safe integer). session is 0-based DSH session-log seq; event is a 1-based bot_events commitSeq.",
+  "type": "string",
+  "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+  "maxLength": 128
+}

@@ -10,8 +10,8 @@ import Foundation
 ///
 /// `PhoneDSHBot` deliberately does not depend on `PhoneDSHDeviceTasks`; the App
 /// maps a `DeviceTaskSettlement` into this value at the composition boundary.
-public struct DeviceTaskResultNotice: Sendable, Equatable {
-    public enum Status: String, Sendable, Equatable, CaseIterable {
+public struct DeviceTaskResultNotice: Codable, Sendable, Equatable {
+    public enum Status: String, Codable, Sendable, Equatable, CaseIterable {
         case completed
         case denied
         case unavailable

@@ -38,9 +38,9 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         let fact = "WP3-Q3 task session wrote this as a user turn"
         let arguments = BotJSONValue.object([
             "action": .string("write"),
-            "fact": .string(fact),
-            "scope": .string("user"),
-            "tier": .string("profile"),
+            "path": .string("user/profile.md"),
+            "content": .string(fact),
+            "expected_version": .number(0),
         ])
         for credential in [task.token, nil] as [String?] {
             let registration = try await spikeRegister(
@@ -60,8 +60,8 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         XCTAssertEqual(called.structured?["error"]?["code"], .string("unattributed"),
                        String(describing: called.json))
         let memory = await fixture.runtime.memory(for: "main")
-        let facts = try await memory.facts(scope: .user)
-        XCTAssertFalse(facts.contains { $0.text == fact })
+        let documents = try await memory.documents(scope: .user)
+        XCTAssertFalse(documents.contains { $0.content == fact })
 
         // The main session's own current token still registers normally.
         let own = try await spikeRegister(
@@ -85,9 +85,9 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         let fact = "WP3-Q3 own-task write must be rejected"
         let arguments = BotJSONValue.object([
             "action": .string("write"),
-            "fact": .string(fact),
-            "scope": .string("user"),
-            "tier": .string("profile"),
+            "path": .string("user/profile.md"),
+            "content": .string(fact),
+            "expected_version": .number(0),
         ])
         let registration = try await spikeRegister(
             started.base, token: token, sessionId: "gb-task-own", callId: "wp3-q3-own",
@@ -97,11 +97,11 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
             started.mcp, token: token, name: "UpdateMemory", arguments: arguments,
             callId: "wp3-q3-own")
         XCTAssertEqual(called.structured?["ok"], .bool(false))
-        XCTAssertEqual(called.structured?["error"]?.stringValue?.contains("cannot write"), true,
+        XCTAssertEqual(called.structured?["code"], .string("memory-scope-denied"),
             String(describing: called.json))
         let memory = await fixture.runtime.memory(for: "main")
-        let facts = try await memory.facts(scope: .user)
-        XCTAssertFalse(facts.contains { $0.text == fact })
+        let documents = try await memory.documents(scope: .user)
+        XCTAssertFalse(documents.contains { $0.content == fact })
     }
 
     /// A direct `/mcp` caller bypasses the Worker's approval-gate, but not the
@@ -116,9 +116,9 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         defer { started.server.stop() }
 
         let arguments = BotJSONValue.object([
-            "action": .string("forget"),
-            "fact": .string("WP3-Q3 never approved this forget"),
-            "scope": .string("user"),
+            "action": .string("delete"),
+            "path": .string("user/private.md"),
+            "expected_version": .number(0),
         ])
         _ = try await spikeRegister(
             started.base, token: token, sessionId: "gb-main", callId: "wp3-q3-forget",
@@ -171,9 +171,9 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         let fact = "WP3-Q4 bot-a wrote this into bot-b's agent memory"
         let writeArguments = BotJSONValue.object([
             "action": .string("write"),
-            "fact": .string(fact),
-            "scope": .string("agent"),
-            "tier": .string("log"),
+            "path": .string("agent/notes/spike.md"),
+            "content": .string(fact),
+            "expected_version": .number(0),
         ])
         let writeRegistration = try await spikeRegister(
             started.base, token: token, sessionId: "gb-bot-b", callId: "wp3-q4-write",
@@ -200,15 +200,15 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
 
         let botB = await fixture.runtime.memory(for: "bot-b")
         let botA = await fixture.runtime.memory(for: "bot-a")
-        let botBFacts = try await botB.facts(scope: .agent)
-        let botAFacts = try await botA.facts(scope: .agent)
+        let botBDocuments = try await botB.documents(scope: .agent)
+        let botADocuments = try await botA.documents(scope: .agent)
 
         XCTAssertEqual(write.isError, true, String(describing: write.json))
         XCTAssertEqual(write.structured?["ok"], .bool(false))
         XCTAssertEqual(recall.isError, true, String(describing: recall.json))
-        XCTAssertFalse(botBFacts.contains { $0.text == fact },
+        XCTAssertFalse(botBDocuments.contains { $0.content == fact },
                        "the fact was persisted in bot-b's agent memory")
-        XCTAssertFalse(botAFacts.contains { $0.text == fact },
+        XCTAssertFalse(botADocuments.contains { $0.content == fact },
                        "the fact must not fall back into bot-a's memory")
     }
 
@@ -295,6 +295,7 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         let started = try await spikeStartServer(fixture, token: token)
         defer { started.server.stop() }
 
+        await beginUserTurn(fixture.runtime, sessionId: "gb-bot-a", rpcId: "bot-trusted-team")
         let arguments = BotJSONValue.object(["name": .string("Trusted teammate")])
         let registration = try await spikeRegister(
             started.base, token: token, sessionId: "gb-bot-a", callId: "wp3-trusted-team",
@@ -306,5 +307,6 @@ final class BotEgressSpikeIdentityTests: XCTestCase {
         XCTAssertNotEqual(called.isError, true, String(describing: called.json))
         let created = await host.created
         XCTAssertEqual(created.map(\.name), ["Trusted teammate"])
+        await fixture.runtime.endTurn(sessionId: "gb-bot-a")
     }
 }

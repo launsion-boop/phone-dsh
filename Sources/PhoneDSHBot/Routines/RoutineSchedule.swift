@@ -211,6 +211,27 @@ public enum RoutineScheduleMath {
         }
     }
 
+    /// True when `candidate` fires more often than `current`. The comparison is
+    /// made on the next two occurrences in the schedule's own timezone, so a
+    /// daily/weekly/cron rule and an interval rule are comparable. Invalid
+    /// input is not "more frequent"; callers validate before storing it.
+    public static func isMoreFrequent(_ candidate: RoutineSchedule,
+                                      than current: RoutineSchedule,
+                                      now: Int64) -> Bool {
+        func gap(_ schedule: RoutineSchedule) -> Int64? {
+            guard let first = try? nextRunAt(schedule, now: now, createdAt: now),
+                  let second = try? nextRunAt(schedule, now: first + 1_000, createdAt: now) else {
+                return nil
+            }
+            let value = second - first
+            return value > 0 ? value : nil
+        }
+        guard let candidateGap = gap(candidate), let currentGap = gap(current) else {
+            return false
+        }
+        return candidateGap < currentGap
+    }
+
     public static func nextAfterAttempt(_ routine: Routine, startedAt: Int64,
                                         finishedAt: Int64, scheduledFor: Int64?) throws -> Int64? {
         guard routine.enabled else { return nil }

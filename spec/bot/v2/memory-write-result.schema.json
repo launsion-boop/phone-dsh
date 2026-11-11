@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryWriteResult v2",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["ok", "action", "path", "scope", "version"],
+      "properties": {
+        "ok": {"const": true},
+        "action": {"enum": ["write", "append", "replace", "move", "delete", "restore"]},
+        "path": {"type": "string", "minLength": 3, "maxLength": 200},
+        "scope": {"enum": ["agent", "user"]},
+        "version": {"type": "integer", "minimum": 1},
+        "previous_version": {"type": "integer", "minimum": 0},
+        "replaced": {"type": "integer", "minimum": 0},
+        "count": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["ok", "code", "error"],
+      "properties": {
+        "ok": {"const": false},
+        "code": {
+          "enum": [
+            "memory-path-invalid",
+            "memory-scope-denied",
+            "memory-source-boundary",
+            "memory-evidence-required",
+            "memory-evidence-invalid",
+            "memory-version-conflict",
+            "memory-index-too-long",
+            "memory-not-found",
+            "memory-path-exists",
+            "memory-replace-not-found",
+            "memory-version-not-found"
+          ]
+        },
+        "error": {"type": "string", "minLength": 1},
+        "path": {"type": "string"},
+        "current_version": {"type": "integer", "minimum": 0},
+        "limit": {"const": 1500},
+        "actual": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  ]
+}

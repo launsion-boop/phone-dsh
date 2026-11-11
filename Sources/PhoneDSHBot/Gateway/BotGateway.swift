@@ -123,6 +123,18 @@ public actor BotGateway {
                                               ttlMilliseconds: ttlMilliseconds)
     }
 
+    /// Extends one live registration for a background job. The current
+    /// session incarnation must still match, and the extension can never cross
+    /// the session credential's own expiry. Returns `nil` when the entry was
+    /// pruned or revoked; the Worker then re-registers with the same call.
+    public func refreshToolCall(id: String, ttlMilliseconds: Int64? = nil) async -> BotAttribution? {
+        guard let entry = await attribution.get(id: id),
+              let principal = await tokens.lookupSession(entry.sessionId),
+              principal.incarnation == entry.incarnation else { return nil }
+        return await attribution.refresh(id: id, ttlMilliseconds: ttlMilliseconds,
+                                         maximumExpiry: principal.expiresAt)
+    }
+
     /// Claims the one registration for `runtimeId` + tool name + argument
     /// digest. The tool name is part of the identity: a `bash` registration
     /// with the same argument digest must never be consumed by `write`.

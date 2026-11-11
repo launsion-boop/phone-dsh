@@ -4,23 +4,122 @@
   "source": {
     "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
   },
-  "valid": [
+  "documents": [
     {
-      "fact_id": "profile-concise",
-      "text": "我喜欢简洁的回复",
-      "learned_at_ms": 1760000002000,
-      "tier": "profile",
+      "path": "user/profile.md",
+      "scope": "user",
+      "content": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+      "version": 2,
+      "updated_at_ms": 1760000005000,
+      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
+      "evidence": ["record://session/gb-main#3"],
+      "trust": "user"
+    },
+    {
+      "path": "agent/notes/routine.md",
       "scope": "agent",
-      "trust": "import",
-      "sensitivity": "personal",
-      "importance": 0.5,
-      "last_used_ms": 0,
-      "extractor": "import",
-      "score": 0.5293577341129608,
-      "relevance": 0.4157746307124456,
-      "recency": 1,
-      "matched": true
+      "content": "# routine\n\n- 工作日要早起，早起后先看邮件",
+      "version": 1,
+      "updated_at_ms": 1760000006000,
+      "author": {"bot_id": "bot-a", "session_id": "gb-main", "kind": "chat"},
+      "evidence": [],
+      "trust": "assistant"
+    },
+    {
+      "path": "agent/log/2025-10.md",
+      "scope": "agent",
+      "content": "# 2025-10\n\n- 我负责 iOS 工作\n- 咖啡因摄入要控制",
+      "version": 1,
+      "updated_at_ms": 1760000007000,
+      "author": {"bot_id": "bot-a", "kind": "chat"},
+      "evidence": [],
+      "trust": "assistant"
     }
   ],
-  "invalid": []
+  "queries": [
+    {
+      "name": "cjk-bm25",
+      "query": "早起 邮件",
+      "limit": 5,
+      "scope": "all",
+      "expectedPaths": ["agent/notes/routine.md"],
+      "snippetContains": ["早起"]
+    },
+    {
+      "name": "scope-agent",
+      "query": "iOS",
+      "limit": 5,
+      "scope": "agent",
+      "expectedPaths": ["agent/log/2025-10.md"],
+      "snippetContains": ["iOS"]
+    },
+    {
+      "name": "scope-user",
+      "query": "简洁",
+      "limit": 5,
+      "scope": "user",
+      "expectedPaths": ["user/profile.md"],
+      "snippetContains": ["简洁"]
+    },
+    {
+      "name": "empty-query-lists-recent",
+      "query": "",
+      "limit": 2,
+      "scope": "all",
+      "expectedPaths": ["agent/log/2025-10.md", "agent/notes/routine.md"]
+    }
+  ],
+  "hits": [
+    {
+      "path": "agent/notes/routine.md",
+      "scope": "agent",
+      "snippet": "# routine\n\n- 工作日要早起，早起后先看邮件",
+      "score": 0.9,
+      "relevance": 1,
+      "recency": 1,
+      "matched": true,
+      "updated_at_ms": 1760000006000,
+      "version": 1,
+      "evidence": []
+    },
+    {
+      "path": "user/profile.md",
+      "scope": "user",
+      "snippet": "# Profile\n\n- 我叫小林\n- 我喜欢简洁的回复",
+      "score": 0.8,
+      "relevance": 0.8,
+      "recency": 0.8,
+      "matched": true,
+      "updated_at_ms": 1760000005000,
+      "version": 2,
+      "evidence": ["record://session/gb-main#3"]
+    }
+  ],
+  "invalid": [
+    {
+      "reason": "old-fact-shape-is-not-a-hit",
+      "hit": {
+        "fact_id": "profile-concise",
+        "text": "我喜欢简洁的回复",
+        "learned_at_ms": 1760000002000,
+        "tier": "profile",
+        "scope": "agent",
+        "score": 0.5
+      }
+    },
+    {
+      "reason": "importance-is-removed",
+      "hit": {
+        "path": "user/profile.md",
+        "scope": "user",
+        "snippet": "x",
+        "score": 0.5,
+        "relevance": 0.5,
+        "recency": 0.5,
+        "updated_at_ms": 1,
+        "version": 1,
+        "importance": 0.5
+      }
+    }
+  ]
 }

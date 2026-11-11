@@ -123,6 +123,10 @@ final class UpstreamAttempt: @unchecked Sendable {
     private var task: URLSessionDataTask?
     private var reusedConnection: Bool?
     private var didFinish = false
+    /// Bot egress writes are per-host approvals; a redirect would send the
+    /// same body to a host the user did not approve. The caller receives the
+    /// 3xx and must issue a new, separately approved request instead.
+    private var refusesRedirects = false
 
     init() {
         var captured: AsyncStream<UpstreamAttemptEvent>.Continuation!
@@ -171,6 +175,18 @@ final class UpstreamAttempt: @unchecked Sendable {
         lock.lock()
         reusedConnection = reused
         lock.unlock()
+    }
+
+    func setRefusesRedirects(_ value: Bool) {
+        lock.lock()
+        refusesRedirects = value
+        lock.unlock()
+    }
+
+    var refusesRedirectsNow: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return refusesRedirects
     }
 
     var connectionReused: Bool? {
@@ -382,8 +398,10 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
 
     func begin(_ request: URLRequest,
                carriesHostCredential: Bool = false,
-               credential: Credential? = nil) -> UpstreamAttempt {
+               credential: Credential? = nil,
+               refuseRedirects: Bool = false) -> UpstreamAttempt {
         let attempt = UpstreamAttempt()
+        if refuseRedirects { attempt.setRefusesRedirects(true) }
         // Hold the lock across session lookup and task creation so a resume
         // session swap cannot invalidate the session between the two.
         lock.lock()
@@ -496,6 +514,15 @@ final class GatewaySessionCoordinator: NSObject, URLSessionDataDelegate, URLSess
                     completionHandler: @escaping (URLRequest?) -> Void) {
         if refusesOfficialWebRedirects, let original = task.originalRequest?.url,
            OfficialDeepSeekWebRoute.admits(method: task.originalRequest?.httpMethod ?? "", url: original) {
+            completionHandler(nil)
+            return
+        }
+        // A Bot egress write was approved for one method and host. Following
+        // a redirect would send the same body to a destination the user did
+        // not approve, and the approval layer cannot be awaited from this
+        // synchronous delegate. Hand the 3xx back; the caller may re-issue the
+        // write and it will be approved on its own.
+        if attempt(for: task)?.refusesRedirectsNow == true {
             completionHandler(nil)
             return
         }
@@ -700,6 +727,7 @@ final class GatewayDownstream: @unchecked Sendable {
     private var cancelled = false
     private var terminated = false
     private var finished = false
+    private var cancellationHandlers: [@Sendable () -> Void] = []
 
     init(_ continuation: AsyncThrowingStream<GatewayResponseChunk, Error>.Continuation) {
         self.continuation = continuation
@@ -713,10 +741,32 @@ final class GatewayDownstream: @unchecked Sendable {
 
     func observe(_ termination: AsyncThrowingStream<GatewayResponseChunk, Error>.Continuation.Termination) {
         lock.lock()
+        var handlers: [@Sendable () -> Void] = []
         if case .cancelled = termination {
             cancelled = true
+            handlers = cancellationHandlers
+            cancellationHandlers.removeAll()
         }
         terminated = true
+        lock.unlock()
+        for handler in handlers { handler() }
+    }
+
+    /// Runs `handler` when the consumer cancels the stream. An already
+    /// cancelled downstream invokes it immediately; a normally finished one
+    /// never does.
+    func onCancellation(_ handler: @escaping @Sendable () -> Void) {
+        lock.lock()
+        if cancelled {
+            lock.unlock()
+            handler()
+            return
+        }
+        guard !terminated else {
+            lock.unlock()
+            return
+        }
+        cancellationHandlers.append(handler)
         lock.unlock()
     }
 

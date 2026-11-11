@@ -72,13 +72,14 @@ struct EvalPlan: Decodable {
 
     static let knownActions: Set<String> = [
         "create_bot", "user_message", "ui_action", "approval_policy",
-        "advance_clock", "seed_held_item", "restart_worker",
+        "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
     ]
     static let knownAssertions: Set<String> = [
         "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
         "workspace_command", "reply_contains", "reply_not_contains",
         "bot_event", "no_bot_event", "tool_called", "no_tool_call",
         "memory_contains", "memory_absent", "approval_count", "echo_requests",
+        "tool_surface",
     ]
 }
 
@@ -233,6 +234,8 @@ struct EvalAction: Decodable {
     var mode: String?
     var perturbation: String?
     var degraded: String?
+    var enabled: Bool?
+    var force: Bool?
     var mock: EvalMock?
     var timeoutS: Double?
     var policyDefault: String?
@@ -318,9 +321,16 @@ struct EvalAssertion: Decodable {
     var method: String?
     var equals: Int?
     var max: Int?
+    var present: [String]?
+    var absent: [String]?
+    /// Session whose model-facing surface a `tool_surface` assertion checks.
+    var session: String?
+    /// Exact advertised tool set for a `tool_surface` assertion.
+    var exactly: [String]?
 
     enum CodingKeys: String, CodingKey {
         case type, bot, value, path, command, turn, event, name, scope, tier, source, method, equals, max
+        case present, absent, session, exactly
         case expectOK = "expect_ok"
         case timeoutS = "timeout_s"
         case whereFields = "where"
@@ -334,7 +344,9 @@ struct EvalAssertion: Decodable {
          whereFields: [String: JSONValue]? = nil, name: String? = nil,
          argumentsContains: String? = nil, payloadContains: String? = nil,
          scope: String? = nil, tier: String? = nil, source: String? = nil,
-         method: String? = nil, equals: Int? = nil, max: Int? = nil) {
+         method: String? = nil, equals: Int? = nil, max: Int? = nil,
+         session: String? = nil, exactly: [String]? = nil,
+         present: [String]? = nil, absent: [String]? = nil) {
         self.type = type
         self.bot = bot
         self.expectOK = expectOK
@@ -354,6 +366,10 @@ struct EvalAssertion: Decodable {
         self.method = method
         self.equals = equals
         self.max = max
+        self.session = session
+        self.exactly = exactly
+        self.present = present
+        self.absent = absent
     }
 
     init(from decoder: Decoder) throws {
@@ -377,5 +393,9 @@ struct EvalAssertion: Decodable {
         method = try container.decodeIfPresent(String.self, forKey: .method)
         equals = try container.decodeIfPresent(Int.self, forKey: .equals)
         max = try container.decodeIfPresent(Int.self, forKey: .max)
+        present = try container.decodeIfPresent([String].self, forKey: .present)
+        absent = try container.decodeIfPresent([String].self, forKey: .absent)
+        session = try container.decodeIfPresent(String.self, forKey: .session)
+        exactly = try container.decodeIfPresent([String].self, forKey: .exactly)
     }
 }

@@ -7,7 +7,8 @@ import Foundation
 /// The implementation only depends on `BotTeamHost`; the App composition in
 /// `bm-app` supplies the roster, per-Bot turn delivery, held inbox and row
 /// persistence.
-public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
+public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
+    BotTurnAuthorizedTeamToolHandling {
     public static let sendToAgentName = "SendToAgent"
     public static let createTeammateName = "CreateTeammate"
     public static let maximumHops = 2
@@ -49,9 +50,24 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
         case Self.sendToAgentName:
             return await sendToAgent(arguments, principal: principal, context: context)
         case Self.createTeammateName:
-            return await createTeammate(arguments, principal: principal)
+            return await createTeammate(arguments, principal: principal, authority: nil)
         default:
             return .failure("unknown_tool", "Unknown tool: \(name)")
+        }
+    }
+
+    /// Runtime path: `CreateTeammate` sees the frozen turn authority so a
+    /// non-user creation can require and record the approval card.
+    public func execute(name: String, arguments: BotJSONValue,
+                        principal: BotGatewayPrincipal,
+                        context: BotMCPRequestContext,
+                        authority: BotTurnAuthority) async -> BotMCPCallResult {
+        switch name {
+        case Self.createTeammateName:
+            return await createTeammate(arguments, principal: principal, authority: authority)
+        default:
+            return await execute(name: name, arguments: arguments,
+                                 principal: principal, context: context)
         }
     }
 
@@ -260,7 +276,8 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
     // MARK: - CreateTeammate
 
     private func createTeammate(_ arguments: BotJSONValue,
-                                principal: BotGatewayPrincipal) async -> BotMCPCallResult {
+                                principal: BotGatewayPrincipal,
+                                authority: BotTurnAuthority?) async -> BotMCPCallResult {
         guard case .object(let args) = arguments else {
             return .failure("invalid_arguments", "CreateTeammate arguments must be an object")
         }
@@ -302,11 +319,21 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
                 "CreateTeammate 只能由主 Bot 调用；当前 Bot \(senderName)"
                     + "（id: \(principal.botId)）不是主 Bot。")
         }
+        var author: BotTeammateAuthor?
+        if let authority {
+            guard let resolved = BotTeammateAuthor(authority: authority) else {
+                return .failure(
+                    "permission_denied",
+                    "CreateTeammate requires user confirmation in this turn")
+            }
+            author = resolved
+        }
 
         let created: BotProfile
         do {
             created = try await host.createBot(
-                name: name, description: description, color: color, hairstyle: hairstyle)
+                name: name, description: description, color: color, hairstyle: hairstyle,
+                author: author)
         } catch {
             return .failure("execution_failed", "建立隊友失敗：\(String(describing: error))")
         }

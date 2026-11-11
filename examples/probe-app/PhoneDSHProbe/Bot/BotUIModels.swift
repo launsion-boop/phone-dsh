@@ -494,16 +494,34 @@ struct BotRuntimeContext: Equatable {
 }
 
 struct BotDeepLink: Equatable {
+    enum Destination: Equatable {
+        case row(String)
+        case routine(String)
+    }
+
     var botID: String
-    var rowID: String
+    var destination: Destination
+
+    var rowID: String? {
+        if case .row(let id) = destination { return id }
+        return nil
+    }
+
+    var routineID: String? {
+        if case .routine(let id) = destination { return id }
+        return nil
+    }
 
     init?(url: URL) {
         guard url.scheme == "phonedsh", url.host == "bot" else { return nil }
         let components = url.pathComponents.filter { $0 != "/" }
-        guard components.count == 3, components[1] == "row",
-              !components[0].isEmpty, !components[2].isEmpty else { return nil }
+        guard components.count == 3, !components[0].isEmpty, !components[2].isEmpty else { return nil }
         botID = components[0]
-        rowID = components[2]
+        switch components[1] {
+        case "row": destination = .row(components[2])
+        case "routine": destination = .routine(components[2])
+        default: return nil
+        }
     }
 }
 
