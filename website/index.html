@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Phone DSH，把 AI 工作区放进口袋。原生移动端体验，连接你选择的模型，使用工具、处理文件，与 Bot 一起完成工作。">
+  <meta name="theme-color" content="#ffffff">
+  <title>Phone DSH · 把想法，做成结果。</title>
+  <link rel="canonical" href="https://phonedsh.tonoai.cn/">
+  <link rel="icon" type="image/png" href="/assets/app-icon.png?v=2">
+<link rel="apple-touch-icon" href="/assets/app-icon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/theme.js"></script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-zh="跳到正文" data-en="Skip to content">跳到正文</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Phone DSH home"><img class="brand-icon" src="/assets/app-icon.png" alt="">Phone DSH</a>
+    <nav class="desktop-nav" aria-label="Navigation"><a href="#experience" data-zh="体验" data-en="Experience">体验</a><a href="#features" data-zh="能力" data-en="Features">能力</a><a href="#open-source" data-zh="开源" data-en="Open source">开源</a><a href="#download" data-zh="下载" data-en="Download">下载</a></nav>
+    <div class="header-actions">
+      <a class="github-link github-button" href="https://github.com/launsion-boop/phone-dsh" target="_blank" rel="noopener noreferrer"><img class="github-icon" src="/assets/github.svg" alt=""><span data-zh="关注 GitHub" data-en="Star on GitHub">关注 GitHub</span> <span class="external-arrow">↗</span></a>
+      <span class="header-divider"></span>
+      <button class="language-button" data-language aria-label="Switch to English">EN</button>
+      <div class="theme-control"><button class="theme-toggle" data-theme-toggle aria-label="选择主题" aria-expanded="false">◐</button><div class="theme-menu" data-theme-menu hidden><button data-theme-choice="system" data-zh="◐ 跟随系统" data-en="◐ System">◐ 跟随系统</button><button data-theme-choice="light" data-zh="☼ 浅色" data-en="☼ Light">☼ 浅色</button><button data-theme-choice="dark" data-zh="☾ 深色" data-en="☾ Dark">☾ 深色</button></div></div>
+      <a class="button header-download" href="https://apps.apple.com/app/phone-dsh/id6828310755" target="_blank" rel="noopener noreferrer" ><span class="logo-icon icon-appstore" aria-hidden="true"></span><span>App Store</span><span>↗</span></a>
+    </div>
+  </header>
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="live-dot"></span><span data-zh="你的口袋 AI 工作区" data-en="YOUR POCKET AI WORKSPACE">你的口袋 AI 工作区</span></div>
+        <h1><span data-zh="把想法，" data-en="Big ideas.">把想法，</span><br><span class="accent" data-zh="做成结果。" data-en="Pocket-sized.">做成结果。</span></h1>
+        <p class="hero-description" data-zh="从灵感到文件，从对话到行动。让 Agent 在手机上工作，把你选择的模型、工具和文件放在一起。" data-en="From a spark to a finished file. Bring your models, tools and files together in an AI workspace that runs on your phone.">从灵感到文件，从对话到行动。让 Agent 在手机上工作，把你选择的模型、工具和文件放在一起。</p>
+        <div class="hero-buttons"><a class="button download-button" href="https://apps.apple.com/app/phone-dsh/id6828310755" target="_blank" rel="noopener noreferrer"><span class="store-apple logo-icon icon-apple" aria-hidden="true"></span><span><small data-zh="下载于" data-en="Download on the">下载于</small>App Store</span><span class="button-arrow">↗</span></a><a class="text-button" href="#experience"><span class="play-circle">▷</span><span data-zh="先试试看" data-en="Take a look around">先试试看</span></a></div>
+        <div class="hero-platforms" aria-label="Supported platforms">
+          <a href="https://apps.apple.com/app/phone-dsh/id6828310755" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-apple" aria-hidden="true"></span>iOS</a>
+          <a href="https://github.com/launsion-boop/phone-dsh/tree/main/android" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-android" aria-hidden="true"></span>Android</a>
+          <a href="https://github.com/launsion-boop/phone-dsh/tree/main/harmony" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-harmonyos" aria-hidden="true"></span>HarmonyOS</a>
+          <a class="platform-details" href="#download" data-zh="平台支持 ↗" data-en="Availability ↗">平台支持 ↗</a>
+        </div>
+      </div>
+      <div class="hero-stage" aria-label="Phone DSH interactive product demo">
+        <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><span class="stage-cross">+</span>
+        <div class="stage-caption"><span class="tiny-dot"></span> PHONE DSH / IN YOUR HANDS</div>
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="phone-status"><span>9:41</span><div class="island"></div><span>▮▮▮ <span class="battery"></span></span></div>
+            <div id="phone-demo" class="product-demo phone-demo" data-demo-surface="phone"></div>
+            <div class="home-indicator"></div>
+          </div>
+        </div>
+        <button class="floating-file" data-preview="brief"><span class="file-icon coral">MD</span><span><strong data-zh="想法，有了着落。" data-en="An idea, made tangible.">想法，有了着落。</strong><small data-zh="产品调研.md · 点击预览" data-en="Research.md · Click to preview">产品调研.md · 点击预览</small></span><span class="file-ready">✓</span></button>
+        <div class="demo-label"><span class="cursor-icon">↖</span><span data-zh="可以点点看，交互演示" data-en="Go ahead, try the interactive demo">可以点点看，交互演示</span></div>
+      </div>
+    </section>
+    <div class="principles wrap"><span data-zh="手机里的执行力" data-en="BUILT FOR DOING">手机里的执行力</span><div><b>DSH</b><span data-zh="Agent 在手机运行" data-en="On-device agent runtime">Agent 在手机运行</span></div><div><b>BYOM</b><span data-zh="连接你选择的模型" data-en="Bring your own model">连接你选择的模型</span></div><div><b>MIT</b><span data-zh="开放代码，共同创造" data-en="Open code. Build together.">开放代码，共同创造</span></div></div>
+    <section class="experience-section wrap" id="experience">
+      <div class="section-heading"><div><div class="eyebrow" data-zh="从对话，走到下一步" data-en="A CONVERSATION THAT GOES PLACES">从对话，走到下一步</div><h2 data-zh="真正的工作，\n在这里发生。" data-en="A little screen.\nA real workspace.">真正的工作，<br>在这里发生。</h2></div><p data-zh="发起任务，看清过程，打开结果。\n每一步，都在熟悉的工作区里。" data-en="Start a task. Follow its progress. Open the result.\nEvery step, in one familiar workspace.">发起任务，看清过程，打开结果。<br>每一步，都在熟悉的工作区里。</p></div>
+      <div class="experience-board">
+        <div class="scenario-sidebar">
+          <div class="scenario-label" data-zh="选一个案例，亲手试试" data-en="PICK A CASE. TRY IT OUT.">选一个案例，亲手试试</div>
+          <div class="scenario-tabs" role="tablist" aria-label="Scenarios">
+            <button data-scenario="memory" role="tab" aria-selected="true"><span class="scenario-mode">Bot</span><span><strong data-zh="记住我的写作偏好" data-en="Remember how I write">记住我的写作偏好</strong><small data-zh="保存记忆 · 查看与删除" data-en="Save · review · forget">保存记忆 · 查看与删除</small></span></button>
+            <button data-scenario="approval" role="tab" aria-selected="false"><span class="scenario-mode">Bot</span><span><strong data-zh="先确认，再执行" data-en="Your approval comes first">先确认，再执行</strong><small data-zh="允许或拒绝 · 查看成果" data-en="Allow or deny · open the result">允许或拒绝 · 查看成果</small></span></button>
+            <button data-scenario="analysis" role="tab" aria-selected="false"><span class="scenario-mode">DSH</span><span><strong data-zh="让数据说清楚" data-en="Make sense of the data">让数据说清楚</strong><small data-zh="运行分析 · 展开工具过程" data-en="Run analysis · inspect tool calls">运行分析 · 展开工具过程</small></span></button>
+            <button data-scenario="document" role="tab" aria-selected="false"><span class="scenario-mode">DSH</span><span><strong data-zh="把笔记变成文档" data-en="Turn notes into a document">把笔记变成文档</strong><small data-zh="生成文档 · 打开工作区" data-en="Create a brief · open workspace">生成文档 · 打开工作区</small></span></button>
+          </div>
+          <div class="scenario-note"><span class="live-dot"></span><span data-zh="交互演示 · 示例数据" data-en="Interactive demo · sample data">交互演示 · 示例数据</span></div>
+        </div>
+        <div class="workspace-demo">
+          <div class="workspace-top"><span class="workspace-live-dot"></span><span data-zh="Phone DSH · 交互体验" data-en="Phone DSH · Interactive experience">Phone DSH · 交互体验</span><button class="demo-reset" data-reset-feature data-zh="重置案例 ↺" data-en="Reset demo ↺">重置案例 ↺</button></div>
+          <div id="feature-demo" class="product-demo feature-demo" data-demo-surface="feature"></div>
+        </div>
+      </div>
+    </section>
+    <section class="features-section wrap" id="features">
+      <div class="section-heading"><div><div class="eyebrow" data-zh="把手机的可能性打开" data-en="MORE ROOM FOR POSSIBILITY">把手机的可能性打开</div><h2 data-zh="小小口袋，\n装得下你的工作方式。" data-en="Your tools. Your models.\nYour way of working.">小小口袋，<br>装得下你的工作方式。</h2></div></div>
+      <div class="feature-grid">
+        <article class="feature-card model-card"><div class="model-art"><span>DeepSeek</span><span>OpenAI</span><span>Anthropic</span><img class="model-hub" src="/assets/app-icon.png" alt="Phone DSH"></div><div><span class="card-kicker">YOUR MODELS</span><h3 data-zh="模型，由你选择。" data-en="Your model, your choice.">模型，由你选择。</h3><p data-zh="配置自己的模型服务和 API Key。让熟悉的模型，在同一个手机工作区里处理任务。" data-en="Connect your model provider and API key. Work with the models you know, in one iPhone workspace.">配置自己的模型服务和 API Key。让熟悉的模型，在同一个手机工作区里处理任务。</p></div></article>
+        <article class="feature-card bot-card"><div class="bot-art"><img src="/assets/bot.png" alt="Phone DSH Big Fish"><span class="memory-note" data-zh="记住了，下次还用这个格式。" data-en="Got it. Same format next time.">记住了，下次还用这个格式。</span><span class="bot-orbit">✦</span></div><div><span class="card-kicker">A BOT THAT KNOWS YOU</span><h3 data-zh="一起工作，越来越懂你。" data-en="A little more you, every day.">一起工作，越来越懂你。</h3><p data-zh="创建不同的 Bot，管理偏好与记忆，安排例行任务。每个助手，都有自己的分工。" data-en="Create bots, manage their memories and set up routines. Give each assistant a role of its own.">创建不同的 Bot，管理偏好与记忆，安排例行任务。每个助手，都有自己的分工。</p></div></article>
+        <article class="feature-card permission-card"><div class="permission-art"><div class="approval-card"><span class="approval-lock">⌘</span><div><strong data-zh="允许执行这个操作？" data-en="Allow this action?">允许执行这个操作？</strong><small data-zh="工具请求 · 由你决定" data-en="Tool request · your decision">工具请求 · 由你决定</small></div><span class="approval-check">✓</span></div></div><div><span class="card-kicker">YOU'RE IN CONTROL</span><h3 data-zh="行动之前，你有决定权。" data-en="Keep the decisions yours.">行动之前，你有决定权。</h3><p data-zh="在对话里审核工具请求，回看审批记录。连接什么、允许什么，始终有清晰的入口。" data-en="Review tool requests in the conversation and revisit approvals. Clear controls for the connections you choose.">在对话里审核工具请求，回看审批记录。连接什么、允许什么，始终有清晰的入口。</p></div></article>
+      </div>
+      <div class="connection-strip"><div><span class="connection-symbol">⌁</span><strong data-zh="从你的手机，连接更大的工作现场。" data-en="A small device. A wider world.">从你的手机，连接更大的工作现场。</strong></div><div class="connection-tags"><span>SSH / SCP</span><span>MCP</span><span>BLE / LAN</span><span class="icon-link"><span class="logo-icon icon-android" aria-hidden="true"></span>Android ADB</span></div><a href="https://github.com/launsion-boop/phone-dsh#readme" target="_blank" rel="noopener noreferrer" data-zh="查看连接能力 ↗" data-en="Explore connections ↗">查看连接能力 ↗</a></div>
+    </section>
+    <section class="open-source-section" id="open-source"><div class="wrap open-source-inner"><div class="open-source-copy"><div class="eyebrow" data-zh="由 XIAOZHI & TONO AI TEAM 联合开源" data-en="OPEN SOURCE BY XIAOZHI & TONO AI TEAM">由 XIAOZHI & TONO AI TEAM 联合开源</div><h2 data-zh="好工具，\n值得一起造。" data-en="Good tools.\nBuilt in the open.">好工具，<br>值得一起造。</h2><p data-zh="从手机端 Agent 运行时，到原生工具与连接能力。查看实现，提出想法，或贡献你的下一次改进。" data-en="From the on-device agent runtime to native tools and connections. Read the code, share an idea, or contribute your next improvement.">从手机端 Agent 运行时，到原生工具与连接能力。查看实现，提出想法，或贡献你的下一次改进。</p><a class="button source-button" href="https://github.com/launsion-boop/phone-dsh" target="_blank" rel="noopener noreferrer" ><span class="logo-icon icon-github" aria-hidden="true"></span><span data-zh="在 GitHub 关注项目" data-en="Follow on GitHub">在 GitHub 关注项目</span><span>↗</span></a></div><div class="source-visual"><div class="source-top"><span>phone-dsh /</span><span class="license-tag">MIT</span></div><div class="source-line"><b>runtime</b><i>on your phone</i></div><div class="source-line"><b>models</b><i>your choice</i></div><div class="source-line"><b>tools</b><i>made to work</i></div><div class="source-line"><b>possibilities</b><i class="source-coral">open ended<span class="typing-cursor"></span></i></div><div class="source-footer"><span class="live-dot"></span>built with curiosity.</div></div></div></section>
+    <section class="download-section wrap" id="download">
+      <img src="/assets/app-icon.png" alt="Phone DSH app icon" class="download-app-icon">
+      <div class="eyebrow" data-zh="选择你的平台" data-en="CHOOSE YOUR PLATFORM">选择你的平台</div>
+      <h2 data-zh="你的工作区，
+随你的手机一起出发。" data-en="A workspace that
+goes where you go.">你的工作区，<br>随你的手机一起出发。</h2>
+      <div class="platform-downloads">
+        <article class="platform-card">
+          <div class="platform-card-heading"><span class="platform-brand logo-icon icon-apple" aria-hidden="true"></span><div><h3>iOS</h3><span>iPhone · iOS 17+</span></div><span class="platform-status available" data-zh="已上架" data-en="Available">已上架</span></div>
+          <p data-zh="原生 iPhone 体验。打开工作区，和 Bot 一起完成任务。" data-en="A native iPhone experience. Open your workspace and work alongside your Bot.">原生 iPhone 体验。打开工作区，和 Bot 一起完成任务。</p>
+          <a class="button platform-download" href="https://apps.apple.com/app/phone-dsh/id6828310755" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-appstore" aria-hidden="true"></span><span data-zh="在 App Store 下载" data-en="Download on the App Store">在 App Store 下载</span><span class="platform-arrow">↗</span></a>
+        </article>
+        <article class="platform-card">
+          <div class="platform-card-heading"><span class="platform-brand logo-icon icon-android" aria-hidden="true"></span><div><h3>Android</h3><span>Android 8.0+</span></div><span class="platform-status" data-zh="开发预览" data-en="Developer preview">开发预览</span></div>
+          <p data-zh="会话、文件和模型服务，持续完善 Android 上的 Agent 工作区。" data-en="Conversations, files and model services. The Android agent workspace is actively evolving.">会话、文件和模型服务，持续完善 Android 上的 Agent 工作区。</p>
+          <a class="button platform-download secondary" href="https://github.com/launsion-boop/phone-dsh/tree/main/android" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-github" aria-hidden="true"></span><span data-zh="前往 GitHub 获取" data-en="Get it on GitHub">前往 GitHub 获取</span><span class="platform-arrow">↗</span></a>
+        </article>
+        <article class="platform-card">
+          <div class="platform-card-heading"><span class="platform-brand logo-icon icon-harmonyos" aria-hidden="true"></span><div><h3>HarmonyOS</h3><span data-zh="鸿蒙 6 · API 20" data-en="HarmonyOS 6 · API 20">鸿蒙 6 · API 20</span></div><span class="platform-status" data-zh="开发预览" data-en="Developer preview">开发预览</span></div>
+          <p data-zh="鸿蒙原生界面与手机端运行时，在 GitHub 查看开发构建和适配进展。" data-en="A native HarmonyOS interface and on-device runtime. Explore development builds and progress on GitHub.">鸿蒙原生界面与手机端运行时，在 GitHub 查看开发构建和适配进展。</p>
+          <a class="button platform-download secondary" href="https://github.com/launsion-boop/phone-dsh/tree/main/harmony" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-github" aria-hidden="true"></span><span data-zh="前往 GitHub 获取" data-en="Get it on GitHub">前往 GitHub 获取</span><span class="platform-arrow">↗</span></a>
+        </article>
+      </div>
+      <div class="developer-platform"><span class="logo-icon icon-apple" aria-hidden="true"></span><span><strong>macOS 14+</strong><span data-zh="Swift SDK · 开发者支持" data-en="Swift SDK · developer support">Swift SDK · 开发者支持</span></span><a class="icon-link" href="https://github.com/launsion-boop/phone-dsh" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-github" aria-hidden="true"></span><span data-zh="在 GitHub 查看" data-en="Explore on GitHub">在 GitHub 查看</span> ↗</a></div>
+      <p class="platform-footnote" data-zh="Android 与鸿蒙入口暂跳转至 GitHub，安装与构建方式见项目说明。模型服务需自行配置，功能以各平台版本为准。" data-en="Android and HarmonyOS links currently open GitHub for installation and build instructions. Bring your own model service. Features vary by platform and release.">Android 与鸿蒙入口暂跳转至 GitHub，安装与构建方式见项目说明。模型服务需自行配置，功能以各平台版本为准。</p>
+    </section>
+  </main>
+  <footer class="site-footer wrap"><div><a class="brand" href="/"><img class="brand-icon" src="/assets/app-icon.png" alt="">Phone DSH</a><p>Made by Xiaozhi & Tono AI Team.</p></div><div class="footer-links"><a href="/privacy" data-zh="隐私政策" data-en="Privacy policy">隐私政策</a><a class="icon-link" href="https://github.com/launsion-boop/phone-dsh" target="_blank" rel="noopener noreferrer"><span class="logo-icon icon-github" aria-hidden="true"></span>GitHub ↗</a><button type="button" data-open-contact aria-haspopup="dialog" aria-controls="contact-dialog" data-zh="联系我们" data-en="Contact">联系我们</button></div><p class="footer-notice" data-zh="Phone DSH 是社区开源项目，与 DeepSeek 官方无隶属关系。吉祥物为同人创作，许可说明见仓库 NOTICE。" data-en="Phone DSH is an independent community project, unaffiliated with DeepSeek. Mascot artwork is fan-created; see the repository NOTICE for licensing.">Phone DSH 是社区开源项目，与 DeepSeek 官方无隶属关系。吉祥物为同人创作，许可说明见仓库 NOTICE。</p></footer>
+  <dialog id="preview-dialog"><div class="preview-toolbar"><span id="preview-filename"></span><button data-close-preview aria-label="Close preview">×</button></div><div id="preview-body"></div><button class="button preview-close" data-close-preview data-zh="返回工作区" data-en="Back to workspace">返回工作区</button></dialog>
+
+  <dialog id="contact-dialog" aria-labelledby="contact-title" aria-describedby="contact-note">
+    <div class="preview-toolbar contact-toolbar">
+      <h2 id="contact-title" data-zh="加入 Phone DSH 交流群" data-en="Join the Phone DSH community">加入 Phone DSH 交流群</h2>
+      <button data-close-contact aria-label="关闭 / Close" autofocus>×</button>
+    </div>
+    <div class="contact-body">
+      <p class="contact-instruction" data-zh="使用 QQ 扫码，或搜索群号加入" data-en="Scan with QQ, or search for the group number">使用 QQ 扫码，或搜索群号加入</p>
+      <img class="contact-qr" src="/assets/qq-group.png" alt="QQ群二维码 / QQ group QR code · 714985308" width="1188" height="1694">
+      <p class="contact-group"><span data-zh="QQ 群号" data-en="QQ group">QQ 群号</span><strong>714985308</strong></p>
+      <p id="contact-note"><span data-zh="入群请备注" data-en="When joining, add this note">入群请备注</span><strong>PhoneDSH官网</strong></p>
+    </div>
+  </dialog>
+</body>
+</html>
