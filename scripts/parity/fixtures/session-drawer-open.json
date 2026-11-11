@@ -36,7 +36,7 @@
         "testTag": "pdsh.chat.header.drawer"
       },
       "ios": {
-        "label": "打开会话列表",
+        "identifier": "chat.header.drawer",
         "type": "button"
       },
       "tolerance": 1.0
@@ -47,7 +47,7 @@
         "testTag": "home.drawer.new-session"
       },
       "ios": {
-        "label": "新会话",
+        "identifier": "drawer.new-session",
         "type": "button"
       },
       "text": true,
@@ -59,7 +59,8 @@
         "testTag": "home.drawer.scroll"
       },
       "ios": {
-        "first": "scrollView"
+        "identifier": "drawer.scroll",
+        "type": "scrollView"
       },
       "tolerance": 1.0,
       "gatedAxes": [

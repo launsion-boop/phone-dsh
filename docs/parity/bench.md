@@ -11,11 +11,9 @@ Current v0 receipt on this host:
 |---|---|
 | `python3 -m unittest discover -s scripts/parity -p 'test_*.py'` | **PASS** (23 tests) |
 | `bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --tests '*parity*' --rerun-tasks --no-daemon` | **PASS** (4 tests, three exports written) |
-| iOS `xcodebuild ... PhoneDSHDeviceUI` | **NOT_RUN** — the probe app's existing Swift sources do not type-check under Xcode 26.2; see the build-blocker section below |
-
-No cross-platform comparison report exists yet because the iOS side did not
-run. A report is only `PASS` when both export files describe the same fixture,
-unit and origin.
+| iOS `xcodebuild ... PhoneDSHDeviceUI` (build-for-testing) | **PASS** — the three slow type-check expressions were split; see the resolved build-blocker section below |
+| `bash scripts/parity/run_ios_export.sh` | **PASS** (1 XCUITest, three exports written) |
+| `python3 scripts/parity/compare_geometry.py ...` | **FAIL** — first real two-platform run; per-fixture deltas are recorded below. A report is only `PASS` when both export files describe the same fixture, unit and origin. |
 
 What the bench compares:
 
@@ -76,14 +74,14 @@ state. The schema is versioned by `"schema": "pdsh.parity.fixture.v0"`.
     {
       "id": "chat.header.drawer",
       "android": {"testTag": "pdsh.chat.header.drawer"},
-      "ios": {"label": "打开会话列表"},
+      "ios": {"identifier": "chat.header.drawer", "type": "button"},
       "text": false,
       "tolerance": 1.0
     },
     {
       "id": "drawer.scroll",
       "android": {"testTag": "home.drawer.scroll"},
-      "ios": {"first": "scrollView"},
+      "ios": {"identifier": "drawer.scroll", "type": "scrollView"},
       "tolerance": 1.0,
       "gatedAxes": ["x", "w", "h"],
       "exemption": "spec/ui/v1 README §5 insets"
@@ -102,9 +100,9 @@ state. The schema is versioned by `"schema": "pdsh.parity.fixture.v0"`.
 | `seed.ios.launchArguments` / `launchEnvironment` | the app's existing `-uiPreview` and `PDSH_*` seed mechanisms |
 | `actions` | ordered script: `tap`, `type`, `long_press`, `wait`; each names an element id |
 | `elements[].android.testTag` | the Compose semantics tag (`UiTags` / `UiPageTags` / `HomeDrawerTags`) |
-| `elements[].ios.identifier` | an accessibility identifier, when one exists |
-| `elements[].ios.label` | accessibility-label fallback when no stable identifier exists (recorded as missing outside this bench's scope) |
-| `elements[].ios.first` | positional fallback for a container with no identifier (`scrollView`, `textView`) |
+| `elements[].ios.identifier` | the stable accessibility identifier; all v0 fixtures now use this |
+| `elements[].ios.label` | legacy accessibility-label fallback; no v0 fixture uses it since the 2026-11-12 identifier pass |
+| `elements[].ios.first` | legacy positional fallback (`scrollView`, `textView`); no v0 fixture uses it since the 2026-11-12 identifier pass |
 | `elements[].text` | export the accessible text and, on Android, the Compose text layout |
 | `elements[].tolerance` | scalar or `{x,y,w,h}` override in pt; default is 1 pt |
 | `elements[].gatedAxes` | optional subset of `x,y,w,h` that is gated. This is only for a spec §5 whitelisted platform difference, and the element must carry an `exemption` naming it |
@@ -122,9 +120,20 @@ inset inside its content while the Robolectric capture has no system bars. The
 The canonical id is the fixture's `id`. Each exporter records how it resolved
 that id (`testTag`, `accessibilityIdentifier`, `label`, `application`, or
 `first:<type>`), and the comparator warns when the two sides used different
-identity kinds. The bench needs these stable identifiers that do not exist yet;
-they are listed under **Needed outside my scope** in the handoff, not edited
-into the app here.
+identity kinds. On 2026-11-12 the iOS elements gained the exact fixture ids as
+`accessibilityIdentifier`s, so every v0 element now resolves as
+`accessibilityIdentifier` on iOS and `testTag` on Android; the remaining
+identity warning is the expected platform-kind difference, not a missing hook.
+The identifiers are additive and do not change any accessibility label.
+
+The P09 page contracts under `spec/ui/v1/pages/**` do not name identifiers for
+these elements (only `vision.save` is named anywhere in that directory), so the
+fixture ids were used. The Android tags are addresses, not the fixture ids
+verbatim: `chat.header.drawer`, `chat.empty.start` and `settings.done` carry the
+`pdsh.` namespace; the composer uses `pdsh.composer.field` /
+`pdsh.composer.send`; the drawer uses `home.drawer.new-session` /
+`home.drawer.scroll`; and the settings rows use
+`pdsh.settings.index.row.<row>`. The Android side was not renamed.
 
 ## Android exporter (JVM / Robolectric)
 
@@ -270,68 +279,164 @@ Known gaps, tracked outside this bench:
 
 ## Needed outside my scope
 
-These are the stable hooks the v0 fixtures need but cannot add from the bench's
-owned files. The iOS exporter falls back to the accessibility label or the first
-`scrollView` so the bench still runs; the comparator records the fallback as the
-element's identity, and this list is the work item to remove it.
+The stable iOS identifiers that this section used to list are now implemented:
+`chat.header.drawer`, `chat.empty.start`, `chat.composer.field`,
+`chat.composer.send`, `drawer.new-session`, `drawer.scroll`, `settings.done`
+and the five `settings.row.*` ids carry the exact fixture ids. They were added
+as identifier modifiers only in `ChatPage.swift` (including the UIKit composer
+text view), `HomeDrawer.swift` and `SettingsPage.swift`; labels, layout and
+modifier order are unchanged. The fixtures no longer use `label` or `first`,
+and the P09 page contracts named no identifiers for these elements.
 
-iOS `accessibilityIdentifier` missing (currently addressed by label):
+Remaining outside this bench's owned files:
 
-* `chat.header.drawer` — label `打开会话列表`
-* `chat.empty.start` — label `启动本地引擎`
-* `chat.composer.field` — label `发消息或创建任务，/ 调用指令，@ 文件或对话`
-* `chat.composer.send` — label `发送消息`
-* `drawer.new-session` — label `新会话`
-* `settings.done` — label `完成`
-* `settings.row.modelProvider` — label `模型服务`
-* `settings.row.agentPresets` — label `Agent 预设`
-* `settings.row.pluginsTools` — label `插件与工具`
-* `settings.row.permissionDefaults` — label `新会话默认权限`
-* `settings.row.network` — label `网络访问`
-
-iOS container without an identifier:
-
-* `drawer.scroll` — currently resolved as `app.scrollViews.firstMatch`; needs an
-  accessibility identifier on the drawer's `ScrollView`.
-
-Both sides, text layout:
-
-* The iOS exporter cannot read a line count or wrap points from XCUITest. A
+* **Android export omits `gatedAxes` / `exemption`.** The iOS exporter copies
+  both fixture fields into its export; the Android exporter does not. On
+  `session-drawer-open` the comparator therefore reports
+  `drawer.scroll: gatedAxes differs between exports` and gates its `Δy`,
+  instead of applying the fixture's spec §5 `insets` exemption. This is an
+  exporter bug, not a geometry result. Fix in
+  `android/lib/src/test/kotlin/com/phonedsh/ui/parity/ParityGeometryExportTest.kt`
+  by copying `gatedAxes` and `exemption` the same way `tolerance` is copied,
+  then rerun the export. Do not widen the comparator to hide the missing data.
+* **Both sides, text layout.** XCUITest exposes no line count or wrap points. A
   debug-only accessibility value (or an XCUITest-visible test surface) carrying
   `TextLayoutResult`'s `lineCount` and line start offsets is needed before the
   comparator can gate iOS line counts. Until then the report records
   `null` / "not exposed", never a guessed height.
+* **Build input registration.** `:lib:testDebugUnitTest` does not declare
+  `scripts/parity/fixtures/**` as an input, so editing a fixture alone leaves
+  the Android test `UP-TO-DATE`. Run with `--rerun-tasks` (as the v0 receipt
+  does) or register the fixture directory as a Gradle test input; the latter is
+  in `android/lib/build.gradle.kts`, outside this bench's owned files.
 
 No `examples/probe-app/project.yml` change is needed: the
 `PhoneDSHDeviceUITests` target already uses the whole directory as its sources.
 
-Build input registration:
+## Build blocker resolved (2026-11-12)
 
-* `:lib:testDebugUnitTest` does not declare `scripts/parity/fixtures/**` as an
-  input, so editing a fixture alone leaves the Android test `UP-TO-DATE`. Run
-  with `--rerun-tasks` (as the v0 receipt does) or register the fixture
-  directory as a Gradle test input; the latter is in `android/lib/build.gradle.kts`,
-  outside this bench's owned files.
-
-## Known build blocker at this revision (2026-11-12)
-
-The iOS exporter could not be run on this host even though Xcode 26.2 and an
-iPhone simulator are available: the probe app target does not type-check its own
-existing Swift sources. `xcodebuild build-for-testing -scheme PhoneDSHDeviceUI`
-fails with
+At the previous revision `xcodebuild build-for-testing -scheme
+PhoneDSHDeviceUI` failed with three "unable to type-check this expression in
+reasonable time" errors:
 
 ```
-PhoneDSHProbe/ChatPage.swift:375:16: error: the compiler is unable to type-check this expression in reasonable time
-PhoneDSHProbe/DSHManagementModel.swift:1442:9: error: the compiler is unable to type-check this expression in reasonable time
-PhoneDSHVenus/IPhoneAgent.swift:49:13: error: the compiler is unable to type-check this expression in reasonable time
+PhoneDSHProbe/ChatPage.swift:375:16
+PhoneDSHProbe/DSHManagementModel.swift:1442:9
+PhoneDSHVenus/IPhoneAgent.swift:49:13
 ```
 
-Raising `-Xfrontend -solver-expression-time-threshold` (120, 600, then
-60000) did not change the result. These files are outside this bench's ownership; editing
-them would be an app-source change. The iOS export therefore stays **NOT_RUN**
-until the app builds, and no iOS numbers are reported as PASS. The Swift test
-itself parses; only the XCTest assertion macros are unavailable to a standalone
-`swiftc -typecheck`, which is expected.
+Raising `-Xfrontend -solver-expression-time-threshold` (120, 600, then 60000)
+did not change the result. The expressions were split without changing
+behaviour, layout, strings, modifier order or accessibility:
+
+* `ChatPage.swift` — the body's root `VStack` and its ~50-modifier chain became
+  small typed stages: the two conditional regions are `pcStatusStrips` and
+  `failureBanners` (`@ViewBuilder`), the stack is `pageStack`, and the modifier
+  chain is ordered across `pageChrome`, `pageSheets`, `pageMoreSheets` and
+  `pageLifecycle`. `body` now renders the same stack and applies the same
+  modifiers in the same order.
+* `DSHManagementModel.swift` — the preview-session `map` closure now has an
+  explicit `(Int) -> ManagedSession` type, and `title`, `updatedAt` and `cwd`
+  are typed `let`s before the initializer call.
+* `IPhoneAgent.swift` — the chained `??` text fallback is now three typed
+  `String?` locals (`assignmentText`, `jsonText`, `quotedText`) and one final
+  `String`; evaluation order is unchanged.
+
+The same `build-for-testing` command now succeeds, and the XCUITest export runs.
+
+## First two-platform run (2026-11-12)
+
+Environment:
+
+* **iOS:** iPhone 17 Pro simulator, iOS 26.2, Xcode 26.2 (17C52), logical
+  viewport 402 x 874 pt. Export source:
+  `examples/probe-app/PhoneDSHDeviceUITests/ParityGeometryExportUITests.swift`
+  (XCUITest frames).
+* **Android:** JVM/Robolectric export, `@Config(sdk = [35], qualifiers =
+  "w402dp-h874dp")`, Compose semantics; the capture frame reserves the measured
+  62 pt status band (`SettingsMetrics.PARITY_SAFE_AREA_TOP_PT`). Export source:
+  `android/lib/src/test/kotlin/com/phonedsh/ui/parity/ParityGeometryExportTest.kt`.
+* **Commit:** `9af4d7f3` (HEAD at export) plus the working-tree identifier and
+  type-check changes recorded in this section. Unit is pt on both sides; no
+  rescale.
+* **Result:** all three fixtures **FAIL** on observed deltas. No threshold,
+  fixture tolerance or Android UI was changed.
+
+Commands and results:
+
+| command | result |
+|---|---|
+| `xcodebuild build-for-testing -scheme PhoneDSHDeviceUI ...` | **PASS** |
+| `bash scripts/parity/run_ios_export.sh` | **PASS** (1 test, 3 exports) |
+| `bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --tests '*parity*' --rerun-tasks --no-daemon` | **PASS** (4 tests, 3 exports) |
+| `python3 -m unittest discover -s scripts/parity -p 'test_*.py'` | **PASS** (23 tests) |
+| comparator `chat-empty` | **FAIL**, 2/5 elements pass |
+| comparator `session-drawer-open` | **FAIL**, 1/3 elements pass |
+| comparator `settings-root` | **FAIL**, 0/6 elements pass |
+
+Frames below are in the fixture origin space; `absoluteFrame` is retained in
+the export JSON. `Δ = Android − iOS`, so a positive Δ means the Android frame
+starts lower/further right or is larger. All identity comparisons are
+`testTag` / `accessibilityIdentifier` (warning only).
+
+### `chat-empty`
+
+Origin `chat.header.title`; absolute origin is Android `(76,126)` vs iOS
+`(76,70)`.
+
+| element | Android frame (x,y,w,h) | iOS frame (x,y,w,h) | Δx, Δy, Δw, Δh | status |
+|---|---|---|---|---|
+| `chat.header.drawer` | -60, 0, 44, 44 | -60, 0, 44, 44 | 0, 0, 0, 0 | PASS |
+| `chat.header.title` | 0, 0, 202, 44 | 0, 0, 202, 44 | 0, 0, 0, 0 | PASS |
+| `chat.empty.start` | -56, 510, 362, 50 | -56, 463, 362, 50 | 0, **+47**, 0, 0 | FAIL |
+| `chat.composer.field` | -49, 632, 351, 56 | -49, 594, 351, 36 | 0, **+38**, 0, **+20** | FAIL |
+| `chat.composer.send` | 258, 692, 44, 44 | 266, 648, 36, 36 | **-8**, **+44**, **+8**, **+8** | FAIL |
+
+Text: `chat.header.title` matches (`新会话`). iOS `chat.composer.send` exposes
+`发送消息` while Android exposes no text/layout for the send node. iOS line
+layout is `null`, as expected.
+
+### `session-drawer-open`
+
+Origin `drawer.new-session`; absolute origin is Android `(16,8)` vs iOS
+`(16,70)`.
+
+| element | Android frame (x,y,w,h) | iOS frame (x,y,w,h) | Δx, Δy, Δw, Δh | status |
+|---|---|---|---|---|
+| `chat.header.drawer` | 0, 118, 44, 44 | 0, 0, 44, 44 | 0, **+118**, 0, 0 | FAIL |
+| `drawer.new-session` | 0, 0, 288, 52 | 0, 0, 288, 52 | 0, 0, 0, 0 | PASS |
+| `drawer.scroll` | -16, -8, 320, 874 | -16, -70, 320, 874 | 0, **+62**, 0, 0 | FAIL |
+
+The drawer scroll `Δy=+62` is the status-band difference the fixture marks as
+spec §5 `insets`; it appears as a failure because the Android export omits
+`gatedAxes` (see **Needed outside my scope**). The `chat.header.drawer` Δy is
+measured against a drawer origin that itself differs by 62 pt, so it is an
+origin-space consequence of the same inset. Text `新会话` matches; iOS line
+layout is `null`.
+
+### `settings-root`
+
+Origin `settings.row.modelProvider`; absolute origin is Android `(16,281)` vs
+iOS `(16,155.33)`.
+
+| element | Android frame (x,y,w,h) | iOS frame (x,y,w,h) | Δx, Δy, Δw, Δh | status |
+|---|---|---|---|---|
+| `settings.done` | 342, -163, 28, 59 | 308, -89.33, 58, 36 | **+34**, **-73.67**, **-30**, **+23** | FAIL |
+| `settings.row.modelProvider` | 0, 0, 370, 48 | 0, 0, 370, 62 | 0, 0, 0, **-14** | FAIL |
+| `settings.row.agentPresets` | 0, 98, 370, 48 | 0, 124, 370, 62 | 0, **-26**, 0, **-14** | FAIL |
+| `settings.row.pluginsTools` | 0, 147, 370, 48 | 0, 186, 370, 62 | 0, **-39**, 0, **-14** | FAIL |
+| `settings.row.permissionDefaults` | 0, 289, 370, 48 | 0, 305, 370, 62 | 0, **-16**, 0, **-14** | FAIL |
+| `settings.row.network` | 0, 387, 370, 48 | 0, 429, 370, 62 | 0, **-42**, 0, **-14** | FAIL |
+
+The rows are 14 pt taller on iOS (62 pt vs Android 48 pt), which accumulates
+into the row-to-row `Δy` sequence. `settings.done` is also a different
+semantics frame: Android's toolbar node is 28 x 59 at x=342, iOS's button is
+58 x 36 at x=308. Text differs on every settings row because the Android export
+runs in English (`Model providers`) while the iOS app renders Chinese
+(`模型服务`); copy is informational in this bench, not a gate. Android exposes
+one text line per row; iOS exposes no line layout.
+
+No PASS is claimed for any fixture above, and none of these deltas were tuned.
 
 ## Report provenance
 
