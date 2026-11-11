@@ -262,6 +262,13 @@ The UI→host send path is host behaviour above the worker contract (§9 row J2 
 for device commands; this is the user's outgoing message queue and has its own boundary). For all
 backends it is one durable queue with the same observable rules.
 
+**Scope (W1 rev 2, 2026-11-12).** This round the durable-outbox requirement in this section applies
+to **text prompts only**. An attachment send (a `HarnessAttachment[]` prompt) is not an outbox
+entry and keeps the pre-W1 direct path; it is **not** crash-durable this round. No attachment
+field, alias, fallback or platform branch is added to the entry schema. All other sentences in
+this section, the state machine and the `rpcId` semantics are unchanged. Attachment sends are out
+of scope until an attachment reference is registered in this boundary (GAP-40).
+
 - **Enqueue is the durable fact.** A send creates one entry and writes it with the §7 atomic order
   (temp file, fsync, rename, directory fsync) **before** any transport attempt. The entry is
   shown immediately as `queued`; a transport failure never removes it and never loses the user
@@ -296,3 +303,6 @@ backends it is one durable queue with the same observable rules.
 - **No UI restriction.** The queue never refuses a send for a closed admission, an engine that is
   starting, or a running turn; it accepts and shows `queued`. The only new visible state is the
   existing "排队中" (queued) projection.
+- **Attachment limitation.** Attachment sends are out of scope until an attachment reference is
+  registered in this boundary; they keep the pre-W1 direct path and are not crash-durable this
+  round. The entry schema is unchanged and rejects an `attachments` member.

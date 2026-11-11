@@ -85,6 +85,8 @@ def check_perf_targets(doc, errors) -> None:
 def retention_prunable(case) -> bool:
     if case.get("referenced") is True:
         return False
+    if case.get("highWater") is True:
+        return False
     if case.get("kind") == "journal":
         return case.get("journaled") is True and case.get("durable") is True
     if case.get("kind") == "step":
@@ -98,6 +100,14 @@ def retention_prunable(case) -> bool:
     return False
 
 
+def retention_last_jseq_problem(case) -> str:
+    before = case.get("lastJseqBefore")
+    after = case.get("lastJseqAfter")
+    if isinstance(before, int) and isinstance(after, int) and after < before:
+        return "last_jseq_decreased"
+    return ""
+
+
 def check_retention(doc, errors) -> None:
     for index, case in enumerate(doc["valid"]):
         where = "valid[{}]".format(index)
@@ -107,10 +117,18 @@ def check_retention(doc, errors) -> None:
                 case.get("expected"), expected))
         if case.get("kind") not in ("journal", "step"):
             fail(errors, where, "kind must be journal or step")
+        problem = retention_last_jseq_problem(case)
+        if problem:
+            fail(errors, where, problem)
     for index, case in enumerate(doc["invalid"]):
         payload = case["case"]
         where = "invalid[{}]".format(index)
         computed = "prune" if retention_prunable(payload) else "keep"
+        problem = retention_last_jseq_problem(payload)
+        if case["reason"] == "last_jseq_decreased":
+            if problem != "last_jseq_decreased":
+                fail(errors, where, "negative case does not decrease lastJseq")
+            continue
         if payload.get("expected") == computed:
             fail(errors, where, "negative case does not violate the frozen condition")
 

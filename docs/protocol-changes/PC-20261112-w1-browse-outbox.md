@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無 wire／proto 版本變更。新增的是「materialized/home/sessions 的只讀投影」邊界登記與 host 端持久 outbox 的磁盤格式；materialized 寫入禁令不變，outbox 是新的 host 私有持久資料，rpcId 為訊息本身的 `source.rpcId`，不改 P01 frame、P06 event 或 P18 既有設定鍵。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
+contract_revision: spec/host/v1/README.md@2026-11-12-rev2 + spec/README.md@GAP-40 + spec/host/v1/tools/outbox_invalid_cases.json@rev2（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2 freeze commit 見交接 head）
 ```
 
 ## 1. 識別與角色
@@ -65,17 +65,70 @@ contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden
 
 - **獨占路徑**：`spec/v1/wal.md` §11、`spec/host/v1/{README.md,schema/outbox-entry.schema.json,golden/outbox-entry-*.json,tools/outbox_invalid_cases.json,tools/test_outbox_contract.py}`、`docs/protocol-changes/PC-20261112-w1-browse-outbox.md`。
 - **w1-browse 路徑**：`examples/probe-app/PhoneDSHProbe/{ChatModel,ChatPage,ChatEngineStoppedNoticePolicy,HomeDrawer,HomeDrawerNewSessionPolicy,HomeDrawerSwitchPolicy,SessionsPage,DSHManagementModel}.swift`、`examples/probe-app/ProbeKit/{Transcript,Outbox,Lifecycle}`、`examples/probe-app/PhoneDSHSimTests`。不得改 `Sources/` 或 `spec/`。
-- **共享 fixtures**：outbox 正向 2 筆、負向 10 筆（5 schema、5 transition）；`test_outbox_contract.py` 同時驗 schema 與狀態機。
+- **共享 fixtures**：outbox 正向 2 筆、負向 11 筆（6 schema、5 transition，含 `attachments` 欄位在本輪 schema 下被拒）；`test_outbox_contract.py` 同時驗 schema 與狀態機。
 - **Exact commands → result**（Linux 容器）：
   - `python3 spec/host/v1/tools/host_check.py --root .` → PASS（45 files，0 error）。
   - `python3 -m unittest discover -s spec/host/v1/tools -p 'test_*.py'` → PASS（31 tests）。
-  - `python3 spec/v1/tools/spec_golden.py --full` → PASS（102 files，0 error）。
+  - `python3 spec/v1/tools/spec_golden.py --full` → PASS（103 files，0 error）。
   - `swift test --filter PhoneDSHSimTests` → NOT_RUN（Linux 沒有 Xcode/Swift Apple 工具鏈；由呼叫方在本機執行）。
 - **未執行**：iOS 真機的 0.5 秒切換、10 連切、5 崩潰點實測；XCTest、xcodebuild、XCUITest 一律 NOT_RUN。
 - **風險／GAP**：投影的新鮮度只到「最多一個 epoch 落後」，進行中回合的顯示仍可能落後；W1 驗收需真機證明。outbox 的 `outcomeUnknown` 回讀來源必須是與 `durable` 判定相同的權威歷史，不得用本地快取冒充。
 
-## 5. 修訂紀錄
+## 5. Rev 2 — attachment scope amendment, 2026-11-12
+
+Status: **frozen**（rev 2）。Trigger: `w1-browse` 的 CONTRACT CHANGE REQUEST（lead 已接受）。
+Scope: 只改契約文字與一個負向 fixture；不改實作、不改 schema、不改狀態機／`rpcId` 語義、不新增用戶可見字串。
+
+### 5.1 Trigger → 現況 → 期望
+
+- **Trigger.** `host/v1/README.md` §10 說「每次 send 建一筆 durable outbox entry」，但 `outbox-entry.schema.json` 沒有 attachment member（`additionalProperties: false`），只有 text 語義；App composer 可以送 `HarnessAttachment[]`。
+- **現況.** 文字 prompt 走 durable outbox；attachment send 沒有符合 schema 的持久表示，因此保留 pre-W1 的直接路徑，**不是 crash-durable**。`w1-browse` 沒有發明欄位、別名或平台分支。
+- **期望.** 本輪把 §10 的 durable 要求明確限定在 **text prompts**；attachment send 留在 pre-W1 直接路徑並在契約中如實標為 non-crash-durable；attachment 的持久表示另立邊界與 GAP-40，不在本輪擴 schema。
+
+### 5.2 CCR 原文（w1-browse → lead/all，已接受）
+
+```text
+CONTRACT CHANGE REQUEST (W1, P06 @ e654fe99 / host/v1 README §10)
+Problem: §10 says every send creates one durable outbox entry, but spec/host/v1/schema/outbox-entry.schema.json has no attachment member (additionalProperties:false) and text-only semantics. The App composer can send HarnessAttachment[]; there is no conforming way to persist them, so attachment sends cannot use the durable queue.
+Current implementation: text sends use the outbox; attachment sends keep the pre-W1 direct path and are not crash-durable. No schema/field was invented.
+Proposal: either register attachment references in the entry schema (e.g. attachment metadata/blob refs) with a compatibility rule, or state in §10 that the durable outbox covers text prompts only and attachment sends are out of scope for W1. Affects: App Swift + Kotlin/P06 consumers + schema/golden.
+w1-browse head 5ea9e987; this is the only known W1 contract gap.
+```
+
+### 5.3 決定
+
+1. **本輪 durable outbox 只覆蓋 text prompts。** 文字訊息仍走 `queued → submitting → accepted → durable` + `outcomeUnknown`，`rpcId` 與刪除條件完全不變。
+2. **Attachment sends 保留 pre-W1 直接路徑，且本輪不是 crash-durable。** 這是明示限制，不是靜默降級；不得把它描述成 durable outbox 的一部分。
+3. **不擴 schema。** 不新增 attachment field、alias、fallback、blob ref、平台分支或第二種 entry；`additionalProperties: false` 不動。
+4. **GAP-40 已登記**（`spec/README.md` §7）：缺少 attachment 在本邊界的持久表示；關閉需要新的 attachment/blob reference 邊界、schema/golden、P06 consumer、Kotlin 端與兼容矩陣。
+5. **用戶可見變化：無。** 不新增、不改寫任何提示、限制、文案或禁用態；attachment send 的行為與 pre-W1 相同。
+
+### 5.4 為何擴 schema 不在本輪（out of scope）
+
+把 attachment 放進 outbox entry 不是加一個陣列欄位就結束，而是建立一個新的持久化邊界：
+
+- **attachment/blob reference 語義**：引用什麼（路徑、內容哈希、大小、MIME）、檔案被使用者刪除或覆蓋時 entry 還是否有效、是否要複製 bytes、清理／erasure 責任；
+- **P06 consumer**：Kotlin/Android 目前沒有這個 outbox；一個新的 entry shape 需要 consumer 實作與兼容策略，不能只改 Swift producer；
+- **崩潰與冪等**：attachment 與 text 的投遞是否同一個 `rpcId`、部分 attachment 遺失時可否重送、authority 如何確認；
+- **兼容矩陣**：舊 App 沒有 attachment entry、新 App 寫入後舊 App 回滾要能忽略還是拒絕；base 從來沒有 attachment durability，不能假裝有 migration；
+- **schema/golden**：需要新的有效／無效 fixtures 與兩端真實 decoder，不能只放寬 `additionalProperties`。
+
+因此本輪採最小 delta：narrow §10，不擴 schema；attachment 的持久化由 GAP-40 單獨追蹤。
+
+### 5.5 兼容性
+
+| Producer → Consumer | 支援／拒絕方式及理由 |
+| --- | --- |
+| old → new | 舊版的 attachment send 本來就走直接路徑、不是 crash-durable；新契約把事實寫明，不改變舊版行為。文字 outbox 不變。 |
+| new → old | 沒有新增 wire member、schema、環境變數或持久化欄位；舊版看不到 attachment outbox entry（因為新版本輪不產生），文字 entry 照舊。 |
+| new → new | 兩端都只把 text prompt 當 durable outbox；attachment send 兩端都走 pre-W1 直接路徑，不得一端自行加 attachment entry 並要求另一端。 |
+| persisted old data → new／rollback | 不適用：沒有 attachment entry、沒有格式或 migration。回滾只需忽略本註記；文字 outbox 的既有 entry 不受影響。 |
+
+**版本決定**：無版本變更。`host/v1/README.md` §10 只新增 scope／limitation 段落；`outbox_invalid_cases.json` 只加一個 schema 負例；`spec/README.md` 只加 GAP-40。沒有新 field、沒有放寬 schema、沒有刪除或弱化既有條款。
+
+## 6. 修訂紀錄
 
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | 1（本檔） | contracts | 初次凍結只讀投影與持久 outbox | all（contract freeze 公告） |
+| 2（本檔） | contracts | 接受 w1-browse 的 CONTRACT CHANGE REQUEST：本輪 durable outbox 只覆蓋 text prompts，attachment sends 保留 pre-W1 直接路徑且非 crash-durable；新增 GAP-40 | all（amendment 公告） |

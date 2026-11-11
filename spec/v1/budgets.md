@@ -251,6 +251,15 @@ the write at 64 MiB.
   reconcile. Entries of a step whose terminal record is missing are never deleted. Deletion is
   whole-entry: a record is never half-removed, never rewritten with edited fields, and `jseq`
   values are never reused.
+- **High-water retention (implementation constraint).** Pruning is a permission, not a requirement
+  to delete to zero. The journal file header has no `jseq_base`; dropping a session's last record
+  would lower `lastJseq` after a restart and make ChannelServer treat the next consecutive record
+  as a gap. The host **MUST** keep, per session, the newest retained high-water/terminal record
+  (and MAY keep the second-newest) when dropping it would decrease `lastJseq`; at most two records
+  are kept for this reason. Retained records are kept whole, unmodified and with their original
+  `jseq`. This floor does not widen any other deletion condition and never protects an
+  un-journaled, non-durable or replay-referenced entry; keeping more than two records is not
+  required and is not part of this rule.
 - **Step record.** A line in `steps/<session_id>.ndjson` may be dropped only when the step's last
   recorded state is terminal (`journaled` or `abandoned`), the corresponding journal record is
   durable (for `journaled`) or the abandonment is durable (for `abandoned`), the step is not

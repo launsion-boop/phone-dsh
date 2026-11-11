@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無版本變更。把 budgets.md §5 既有的「修剪 journaled 且 durable 的 journal 條目」寫精確，並把 exec.md §4 的 step 記錄收斂條件寫下；不改 journal 線格式、不改 jseq 域、不改 JOURNAL_ACK 語義、不放寬 64 MiB 配額。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: spec/v1/budgets.md@2026-11-12-rev2 + spec/README.md@GAP-39 + spec/v1/golden/plan/memory-input.json@rev1（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2 freeze commit 見交接 head）
+contract_revision: spec/v1/budgets.md@2026-11-12-rev3 + spec/README.md@GAP-38/39 + spec/v1/golden/plan/{memory-input,retention}.json@rev3（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2/3 freeze commit 見交接 head）
 ```
 
 ## 1. 識別與角色
@@ -57,8 +57,8 @@ contract_revision: spec/v1/budgets.md@2026-11-12-rev2 + spec/README.md@GAP-39 + 
 - **w2-stability 路徑**：`Sources/PhoneDSHLog/{JournalLog,LogQuota,LogSupport}.swift`、`Sources/PhoneDSHController/StepMachine.swift`、`Sources/PhoneDSHBot/Store/**`、`Sources/PhoneDSH/PhoneDSHHost.swift`、`Sources/PhoneDSH/Background/**`、`Tests/PhoneDSHLogTests`、`Tests/PhoneDSHControllerTests`、`Tests/PhoneDSHBotTests`、`Tests/PhoneDSHTests`。不得改 `spec/`。
 - **共享 fixtures**：`golden/plan/retention.json`；checker 以 `journaled`/`durable`/`referenced`/`terminal`/`abandonedDurable` 五個輸入算出 keep/prune，negative 必須真的違反同一條件。
 - **Exact commands → result**（Linux 容器）：
-  - `python3 spec/v1/tools/plan_cases_check.py` → PASS（7 files，0 error；retention 9 valid/3 invalid；memory-input 2 valid/6 invalid）。
-  - `python3 -m unittest spec.v1.tools.test_plan_cases_check` → PASS（11 tests，含 prune-before-durable、sampled-heap、action-order mutations）。
+  - `python3 spec/v1/tools/plan_cases_check.py` → PASS（7 files，0 error；retention 10 valid/5 invalid；memory-input 2 valid/6 invalid）。
+  - `python3 -m unittest spec.v1.tools.test_plan_cases_check` → PASS（13 tests，含 prune-before-durable、sampled-heap、action-order、high-water、lastJseq mutations）。
   - `python3 spec/v1/tools/spec_golden.py --full` → PASS（103 files，0 error）。
   - `swift test --filter 'PhoneDSHLogTests|PhoneDSHControllerTests'` → NOT_RUN（Linux 無 Apple Swift 工具鏈）。
 - **未執行**：修剪後 kill 再恢復的 Swift runtime 測試、真機 8 小時穩定性、掉電；一律 NOT_RUN，由呼叫方在本機執行。
@@ -114,9 +114,43 @@ Proposal: add a read-only WebContent heap probe to the P04/P08 seam (e.g. a WebE
 
 **版本決定**：無版本變更。`budgets.md` 只新增 input-source 段落（306 行，仍在 D16 cap 320 內，無需改 cap）；`spec/README.md` 新增 GAP-39；新增 `golden/plan/memory-input.json`（2 valid／6 invalid）並把 `memory-input` 加入 `plan-cases.schema.json` 的 vector enum。沒有新 wire field、沒有放寬 schema、沒有刪除或弱化既有條款。
 
-## 6. 修訂紀錄
+## 6. Rev 3 — journal high-water retention amendment, 2026-11-12
+
+Status: **frozen**（rev 3）。Trigger: `w2-stability` 交付時回報的實作約束（lead 要求併入 W2 amendment）。
+Scope: 只改 `budgets.md` §8 文字與 `golden/plan/retention.json` 一個 valid／兩個 invalid case；不改 schema、不改 journal 行格式、不改 `jseq` 域、不改 `JOURNAL_ACK`、不改任何數字配額。
+
+### 6.1 Trigger → 現況 → 期望
+
+- **Trigger.** Journal 檔頭沒有 `jseq_base` 欄位。若把某 session 的最後一條記錄也修剪掉，重啟後 `lastJseq` 會變低，ChannelServer 會把下一條連續記錄判成 gap。
+- **現況.** `w2-stability` 的修剪在每個 session 保留 1–2 條「高水位／終態」記錄（整條保留，不半刪、不改寫、不改格式）。這是實作約束，不是越界偏差；原本的 §8 只寫「may be deleted」，沒有說「不必刪到零」。
+- **期望.** 契約明示 pruning 是**可刪條件**，不是必須刪到零；允許每個 session 保留最少量的高水位／終態記錄以維持 `lastJseq` 與 gap 判定。保留上限 1–2 條，理由與 `jseq_base` 缺失如實記錄；這個保留不得擴張任何其他刪除條件，也不得保護未 journaled、未 durable 或被 replay 引用的條目。
+
+### 6.2 契約 delta
+
+| 項目 | Before → After／依據條款 |
+| --- | --- |
+| 修剪的性質 | 「may be deleted」容易被讀成「應刪到零」→ 明示 **permission, not a requirement to delete to zero**。 |
+| 每 session 保留 | 未寫 → **MUST** 保留最新的一條高水位／終態記錄（可再保留第二新的一條），當刪除會使 `lastJseq` 下降時；**至多 2 條**。保留記錄整條、不改寫、保留原 `jseq`。 |
+| 理由 | 未寫 → journal 檔頭沒有 `jseq_base`；刪掉最後一條會讓重啟後 `lastJseq` 降低，ChannelServer 把下一條連續記錄判成 gap。 |
+| 不擴張 | 未變 → 這個保留 floor 不新增或放寬任何刪除條件；未 journaled、未 durable、被 replay 引用的條目仍永不刪；保留超過 2 條不是要求。 |
+| Schema／golden 形狀 | 不變 → 不需要 schema 變更；`golden/plan/retention.json` 新增 `journal-high-water-retained`（valid，`lastJseq` 不下降）與 `prune_high_water_record`／`last_jseq_decreased`（invalid）。 |
+| 用戶可見 | 無 → 不新增提示、banner、錯誤或禁用態。 |
+
+### 6.3 兼容性
+
+| Producer → Consumer | 支援／拒絕方式及理由 |
+| --- | --- |
+| old → new | 舊版沒有這條保留規則，仍可讀同一 journal 檔；新契約只允許留下 1–2 條本來就可刪的記錄，不改變任何 bytes 的解碼。 |
+| new → old | 新端沒有改 journal 行格式、`jseq` 域或 ACK；舊端讀到保留的記錄，與讀到未修剪的記錄相同，不會判成 corruption。 |
+| new → new | 兩端都保留 1–2 條高水位／終態記錄；`lastJseq` 不下降，gap 判定不變。未 journaled／未 durable／被引用者永不刪。 |
+| persisted old data → new／rollback | 無 migration。回滾不重建已刪的記錄；保留的記錄本來就是合法的舊資料。 |
+
+**版本決定**：無版本變更。只加 §8 文字與 retention fixture cases；沒有新 wire field、沒有 schema 變更、沒有數字變更。`budgets.md` 由 306 行增至 315 行，仍在 D16 cap 320 內。
+
+## 7. 修訂紀錄
 
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | 1（本檔） | contracts | 初次凍結 journal/steps 修剪條件並登記 GAP-38 | all（contract freeze 公告） |
 | 2（本檔） | contracts | 接受 w2-stability 的 CONTRACT CHANGE REQUEST：本輪 engine-memory 生產輸入只有系統記憶體警告，sampled heap 維持 `target`，新增 GAP-39 與 `memory-input` fixture | all（amendment 公告） |
+| 3（本檔） | contracts | 記錄 w2-stability 的 journal high-water 保留約束：修剪是可刪條件、每 session 保留 1–2 條以維持 `lastJseq`，新增 retention 正反 case | all（amendment 公告） |

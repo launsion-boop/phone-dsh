@@ -7,6 +7,7 @@
     {"id": "empty-text", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "", "createdAtMs": 1, "state": "queued", "attempts": 0}, "reason": "empty_text", "schema": true},
     {"id": "unknown-state", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "deleted", "attempts": 0}, "reason": "unknown_state", "schema": true},
     {"id": "extra-member", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "queued", "attempts": 0, "body": "x"}, "reason": "unknown_member", "schema": true},
+    {"id": "attachment-not-in-scope", "case": {"v": 1, "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b", "sessionId": "gb-main", "text": "x", "createdAtMs": 1, "state": "queued", "attempts": 0, "attachments": [{"kind": "file", "path": "/tmp/x.png", "mime": "image/png"}]}, "reason": "attachment_field_not_in_schema", "schema": true},
     {"id": "accepted-to-queued", "case": {"from": "accepted", "to": "queued"}, "reason": "illegal_transition", "schema": false},
     {"id": "durable-to-submitting", "case": {"from": "durable", "to": "submitting"}, "reason": "illegal_transition", "schema": false},
     {"id": "queued-to-durable", "case": {"from": "queued", "to": "durable"}, "reason": "illegal_transition", "schema": false},

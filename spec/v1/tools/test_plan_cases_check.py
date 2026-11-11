@@ -94,6 +94,20 @@ class PlanCasesTests(unittest.TestCase):
         completed = run_checker(self.copy)
         self.assert_fails(completed, "not in enum")
 
+    def test_high_water_record_pruned_is_rejected(self) -> None:
+        self.replace("golden/plan/retention.json",
+                     '"highWater": true, "expected": "keep", "lastJseqAfter": 7',
+                     '"highWater": true, "expected": "prune", "lastJseqAfter": 7')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "expected prune")
+
+    def test_last_jseq_decrease_is_rejected(self) -> None:
+        self.replace("golden/plan/retention.json",
+                     '"lastJseqAfter": 7, "lastJseqBefore": 7',
+                     '"lastJseqAfter": 6, "lastJseqBefore": 7')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "last_jseq_decreased")
+
     def test_sampled_heap_marked_implemented_is_rejected(self) -> None:
         self.replace("golden/plan/memory-input.json",
                      '"sampledHeap": {"status": "target", "producer": "none", "injectionPoint": "reportEngineHeapBytes"}',
