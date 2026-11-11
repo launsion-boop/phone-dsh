@@ -43,7 +43,9 @@ the phone (the phone takes `192.168.247.2`). Requests use `Connection: close`;
 
 A batch that times out or fails is reported to the model as "not executed: …" and
 is **not retried**: the outcome on the phone is unknown. The agent re-observes the
-screen before the next step.
+screen before the next step. The one exception is `503` with `busy_exec`: the board's HID executor
+was still finishing the previous batch and ran nothing of this one, so the consumer resends it
+every 300 ms for up to about 3 s.
 
 ## 3. Screen stream (APV1)
 
@@ -121,3 +123,19 @@ screen in, one action out, executed through §2, up to the step limit. The model
 endpoint, model name and key come from the app's UI-Venus settings (key in the
 Keychain service `dev.phone-dsh.ui-venus`, never in preferences). The task result is
 the model's assessment, not proof; `finished=false` must not be reported as success.
+
+The agent does not trust its own actions blindly. Before each step it compares the new
+screenshot with the previous one (36×52 grayscale, mean difference below 2/255 = unchanged);
+when a tap, swipe, Home, launch, Enter or typing left the screen unchanged, the model is told
+so. A run that repeats the same action three times, or goes back and forth between two actions
+twice, gets one nudge, and that repeat is not performed (finish if the screen already shows
+the answer, otherwise try something else). If it repeats itself again, the run stops with
+`finished=false` and an answer starting 「卡住了」, instead of using every step. LaunchApp presses
+Return a second time when Spotlight is still on screen, because the Pinyin keyboard's candidate
+bar took the first one. For a read or check task the agent answers as soon as the screen shows the
+information and never navigates away first; the tool's usage note tells the calling model to
+describe what to report rather than "then go back" steps, and not to restart a task that ended
+「卡住了」. Home taps 主屏幕 only after the AssistiveTouch menu is seen to open (the screen changes
+by at least 6/255); otherwise it retries once, then looks for the button, and finally fails with a hint.
+It never taps blind, which used to open whatever app sat under the menu item. A system permission
+or privacy prompt ends the run with `CallUser`: the agent never chooses for the user.

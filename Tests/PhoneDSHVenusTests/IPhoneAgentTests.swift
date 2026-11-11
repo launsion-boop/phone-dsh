@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 import XCTest
+import CoreGraphics
 import Foundation
+import ImageIO
 import PhoneDSH
 @testable import PhoneDSHVenus
 
@@ -147,5 +149,121 @@ private final class ScriptedModel: URLProtocol, @unchecked Sendable {
         let result = try await agent.run("x")
         XCTAssertLessThan(ContinuousClock.now - started, .seconds(5))
         XCTAssertTrue(result.steps[0].executed.contains("超时"))
+    }
+}
+
+// MARK: - Guards against flailing (tonolink-board.md §6)
+
+private func solidJPEG(_ gray: CGFloat) -> Data {
+    let width = 60, height = 130
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+    context.setFillColor(gray: gray, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let data = NSMutableData()
+    let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil)!
+    CGImageDestinationAddImage(destination, context.makeImage()!, nil)
+    CGImageDestinationFinalize(destination)
+    return data as Data
+}
+
+/// A phone whose screen is fixed per step (`screens`), to drive the effect check.
+@MainActor private final class StillPhone: IPhoneAgentDevice {
+    var screens: [Data]
+    var actions: [IPhoneAction] = []
+    private var frame = 0
+    init(screens: [Data]) { self.screens = screens }
+    func prepare() async throws {}
+    func screenshot(after frame: Int?) async throws -> IPhoneFrame {
+        self.frame += 10
+        let jpeg = screens.count > 1 ? screens.removeFirst() : screens[0]
+        return IPhoneFrame(jpeg: jpeg, width: 60, height: 130, frame: self.frame)
+    }
+    func perform(_ action: IPhoneAction) async throws -> String { actions.append(action); return "did \(action.name)" }
+}
+
+@MainActor final class IPhoneAgentGuardTests: XCTestCase {
+    private func client() throws -> VenusClient {
+        let settings = VenusSettings(defaults: UserDefaults(suiteName: UUID().uuidString)!, secrets: AgentSecrets())
+        try settings.save(VenusConfiguration(baseURL: "https://vision.example/v1"), key: "agent-fixture-key")
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [ScriptedModel.self]
+        return VenusClient(settings: settings, session: URLSession(configuration: config))
+    }
+
+    func testScreenDiffSeparatesSameFromDifferent() throws {
+        let white = solidJPEG(1), black = solidJPEG(0)
+        XCTAssertLessThan(try XCTUnwrap(IPhoneScreenDiff.mean(white, white)), IPhoneScreenDiff.unchanged)
+        XCTAssertGreaterThan(try XCTUnwrap(IPhoneScreenDiff.mean(white, black)), 200)
+        XCTAssertNil(IPhoneScreenDiff.mean(Data([0xff, 0xd8, 0xff]), white), "an undecodable frame gives no verdict")
+    }
+
+    func testLoopGuardNudgesOnceThenStops() {
+        var guardian = IPhoneLoopGuard()
+        let home = IPhoneAction.parse("<action>PressHome()</action>")
+        XCTAssertEqual(guardian.record(home), .proceed)
+        XCTAssertEqual(guardian.record(home), .proceed)
+        guard case .nudge = guardian.record(home) else { return XCTFail("third repeat nudges") }
+        XCTAssertEqual(guardian.record(home), .proceed, "a fresh window after the nudge")
+        XCTAssertEqual(guardian.record(home), .proceed)
+        guard case .stop(let answer) = guardian.record(home) else { return XCTFail("repeating after the nudge stops") }
+        XCTAssertTrue(answer.hasPrefix("卡住了"))
+    }
+
+    func testPingPongIsALoopButNearbyTapsAreTheSameAction() {
+        var guardian = IPhoneLoopGuard()
+        let back = IPhoneAction.parse("<action>Click(point=(206, 185))</action>")
+        let row = IPhoneAction.parse("<action>Click(point=(895, 427))</action>")
+        let rowAgain = IPhoneAction.parse("<action>Click(point=(890, 420))</action>")
+        XCTAssertEqual(guardian.record(back), .proceed)
+        XCTAssertEqual(guardian.record(row), .proceed)
+        XCTAssertEqual(guardian.record(back), .proceed)
+        guard case .nudge = guardian.record(rowAgain) else { return XCTFail("A, B, A, B nudges") }
+        var distinct = IPhoneLoopGuard()
+        for x in [100, 300, 500, 700, 900] {
+            XCTAssertEqual(distinct.record(IPhoneAction.parse("<action>Click(point=(\(x), 500))</action>")), .proceed)
+        }
+    }
+
+    func testPingPongRunStopsEarlyWithAnHonestAnswer() async throws {
+        let back = "<action>Click(point=(206, 185))</action>", row = "<action>Click(point=(895, 427))</action>"
+        ScriptedModel.reset([back, row, back, row, back, row, back, row, back, row])
+        let phone = StillPhone(screens: [solidJPEG(1), solidJPEG(0)])
+        phone.screens = (0..<20).map { solidJPEG($0 % 2 == 0 ? 1 : 0) }
+        let result = try await IPhoneAgent(device: phone, client: try client(), settle: .zero).run("查看电池电量")
+        XCTAssertFalse(result.finished)
+        XCTAssertTrue(result.answer.hasPrefix("卡住了"), result.answer)
+        XCTAssertLessThan(result.steps.count, 15, "it stops instead of using every step")
+        XCTAssertEqual(phone.actions.count, 6, "the nudged repeat is not performed")
+        let nudged = ScriptedModel.lock.withLock { ScriptedModel.bodies[4]["messages"] as? [[String: Any]] } ?? []
+        let text = (nudged.last?["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
+        XCTAssertTrue(text.contains("reply Answer or Finished now"), text)
+    }
+
+    func testModelIsToldWhenAnActionChangedNothing() async throws {
+        ScriptedModel.reset(["<action>PressHome()</action>", "<action>Finished(content='ok')</action>"])
+        let phone = StillPhone(screens: [solidJPEG(0.5)])
+        _ = try await IPhoneAgent(device: phone, client: try client(), settle: .zero).run("回到主屏幕")
+        let second = ScriptedModel.lock.withLock { ScriptedModel.bodies[1]["messages"] as? [[String: Any]] } ?? []
+        let text = (second.last?["content"] as? [[String: Any]])?.first?["text"] as? String ?? ""
+        XCTAssertTrue(text.contains("looks unchanged after your previous action (PressHome())"), text)
+    }
+}
+
+@MainActor final class IPhoneActionReplyShapeTests: XCTestCase {
+    /// The degenerate JSON reply seen on the device: the app name must come through.
+    func testJSONLaunchAppKeepsTheAppName() {
+        let reply = #"The user wants to open the Xiaohongshu app. {"action_type": "LaunchApp", "app_name": "小红书"}"#
+        let action = IPhoneAction.parse(reply)
+        XCTAssertEqual(action.name, "launchapp")
+        XCTAssertEqual(action.text, "小红书")
+        XCTAssertEqual(IPhoneAction.parse(#"{"action_type": "Type", "text": "电池"}"#).text, "电池")
+    }
+
+    /// `stop: ["</action>"]` drops the closing tag; the action is still found.
+    func testUnterminatedActionTagIsParsed() {
+        let action = IPhoneAction.parse("<think>open it</think>\n<action>Click(point=(120, 845))")
+        XCTAssertEqual(action.name, "click")
+        XCTAssertEqual(action.points, [.init(120, 845)])
+        XCTAssertEqual(IPhoneAction.parse("<think>t</think><action>LaunchApp(app='小红书')").text, "小红书")
     }
 }
