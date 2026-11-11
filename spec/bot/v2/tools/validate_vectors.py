@@ -38,6 +38,7 @@ INBOX_PREFIX = "agent/inbox/"
 WRITE_ACTIONS = ("write", "append", "replace", "move", "delete", "restore")
 INBOX_ONLY_KINDS = frozenset({"task", "routine", "team", "proactive", "watchdog"})
 RECORD_RE = re.compile(r"^record://(session/(?!\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$")
+CURRENT_USER_TURN_EVIDENCE = "current-user-turn"
 
 
 def load(name: str):
@@ -271,7 +272,10 @@ def validate_write_vectors(fixture=None) -> tuple[int, int, int, int]:
     evidence = fixture["evidenceCases"]
     for index, case in enumerate(evidence["valid"]):
         try:
-            trust = derive_trust(records, case.get("refs"), "bot-a")
+            trust = derive_trust(
+                records, case.get("refs"), "bot-a",
+                current_user_turn_ref=case.get("currentUserTurn"),
+                turn=case.get("turn", "user-turn"))
         except Exception as exc:  # noqa: BLE001 - one actionable line
             raise AssertionError(f"evidence.valid[{index}] unexpectedly rejected: {exc}") from exc
         if trust != case.get("trust"):
@@ -280,10 +284,22 @@ def validate_write_vectors(fixture=None) -> tuple[int, int, int, int]:
             raise AssertionError(f"evidence.valid[{index}] userBoundary mismatch")
     for index, case in enumerate(evidence["invalid"]):
         try:
-            derive_trust(records, case.get("refs"), "bot-a")
+            derive_trust(
+                records, case.get("refs"), "bot-a",
+                current_user_turn_ref=case.get("currentUserTurn"),
+                turn=case.get("turn", "user-turn"))
         except Exception:
             continue
         raise AssertionError(f"evidence.invalid[{index}] unexpectedly accepted")
+    for index, value in enumerate([
+        "current_user_turn", "current-user-turn ", "CURRENT-USER-TURN",
+        "current-user-turn\n", "record://session/gb-main#3 current-user-turn",
+    ]):
+        rejects(
+            {"action": "write", "path": "user/preferences/drinks.md",
+             "content": "x", "expected_version": 0, "evidence": [value]},
+            "memory-write-request.schema.json",
+            f"write.evidenceReservedInvalid[{index}]")
     for index, case in enumerate(fixture["boundaryCases"]):
         actual = boundary_error(case.get("sourceKind"), case.get("trust"), case.get("path"))
         permission = permission_error(
@@ -347,6 +363,18 @@ def mutation_count_for_evidence() -> int:
     mutated = copy.deepcopy(load("memory-write"))
     mutated["boundaryCases"][0]["sourceKind"] = "agent-message"
     expect_failure("boundary", lambda: validate_write_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-write"))
+    for case in mutated["evidenceCases"]["valid"]:
+        if case.get("name") == "current-user-turn":
+            case["turn"] = "hidden"
+    expect_failure("current-user-turn-hidden", lambda: validate_write_vectors(mutated))
+
+    mutated = copy.deepcopy(load("memory-write"))
+    for case in mutated["evidenceCases"]["valid"]:
+        if case.get("name") == "current-user-turn":
+            case["currentUserTurn"] = "record://event/99"
+    expect_failure("current-user-turn-unresolved", lambda: validate_write_vectors(mutated))
     return count
 
 
@@ -399,16 +427,39 @@ def external_source(record):
     return False
 
 
-def derive_trust(records, refs, caller_bot_id):
+def resolve_evidence_refs(refs, current_user_turn_ref=None, turn="user-turn"):
+    """Resolve the reserved current-turn value to a host-owned reference.
+
+    The reference implementation mirrors the host rule: the reserved literal is
+    valid only in a real user turn, and its target is chosen by the host, never
+    by the model. Every resolved reference still goes through the normal
+    existence/ownership/trust checks in :func:`derive_trust`.
+    """
     parse = record_parser()
     if not isinstance(refs, list) or len(refs) > 8:
         raise AssertionError("evidence must be a list of at most 8 references")
-    trust = "assistant"
+    resolved = []
     for raw in refs:
+        if raw == CURRENT_USER_TURN_EVIDENCE:
+            if turn != "user-turn" or not isinstance(current_user_turn_ref, str):
+                raise AssertionError("current-user-turn is unavailable in this turn")
+            parsed = parse(current_user_turn_ref)
+            if parsed is None:
+                raise AssertionError("host current-turn reference is malformed")
+            resolved.append(parsed["canonical"])
+            continue
         parsed = parse(raw)
         if parsed is None:
             raise AssertionError("malformed reference")
-        record = records.get(parsed["canonical"])
+        resolved.append(parsed["canonical"])
+    return resolved
+
+
+def derive_trust(records, refs, caller_bot_id, current_user_turn_ref=None,
+                 turn="user-turn"):
+    trust = "assistant"
+    for canonical in resolve_evidence_refs(refs, current_user_turn_ref, turn):
+        record = records.get(canonical)
         if record is None or record.get("botId") != caller_bot_id:
             raise AssertionError("reference does not exist for this Bot")
         user_record = (

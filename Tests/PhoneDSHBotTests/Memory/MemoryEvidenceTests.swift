@@ -49,6 +49,106 @@ final class MemoryEvidenceTests: XCTestCase {
         XCTAssertEqual(document.evidence, [userRef])
     }
 
+    /// The host resolves the reserved value from the current turn's rpcId, not
+    /// from a model-supplied seq. This is the E02 failure path: the model knows
+    /// what the user said but not the session-log seq.
+    func testCurrentUserTurnResolvesToTheOpeningUserMessageForUserWrite() async throws {
+        let written = try await call([
+            "action": "write", "path": "user/preferences/drinks.md",
+            "content": "# Drinks\n\n- OAT_LATTE_B",
+            "expected_version": 0,
+            "evidence": ["current-user-turn"],
+        ])
+        XCTAssertNotEqual(written.isError, true,
+                          "\(String(describing: written.structuredContent))")
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "user/preferences/drinks.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.trust, "user")
+        XCTAssertEqual(document.evidence, ["record://session/gb-main#3"],
+                       "the stored evidence must be the host-resolved user message, never the reserved literal")
+    }
+
+    /// The reserved value can be combined with explicit references. The host
+    /// places its own reference in the caller-supplied order and merges the
+    /// user trust without dropping the explicit observation.
+    func testCurrentUserTurnCombinesWithExplicitEvidence() async throws {
+        let written = try await call([
+            "action": "write", "path": "user/preferences/drinks.md",
+            "content": "# Drinks\n\n- OAT_LATTE_B",
+            "expected_version": 0,
+            "evidence": ["current-user-turn", "record://session/gb-main#4"],
+        ])
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "user/preferences/drinks.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.trust, "user")
+        XCTAssertEqual(document.evidence, ["record://session/gb-main#3", "record://session/gb-main#4"])
+    }
+
+    /// The host observation is per turn: starting the next user turn clears
+    /// it, so a delayed call cannot reuse the previous user message as
+    /// `current-user-turn`.
+    func testCurrentUserTurnIsNotReusableInTheNextTurn() async throws {
+        let written = try await call([
+            "action": "write", "path": "user/preferences/drinks.md",
+            "content": "# Drinks\n\n- AMERICANO_A",
+            "expected_version": 0,
+            "evidence": ["current-user-turn"],
+        ])
+        XCTAssertEqual(written.structuredContent?["ok"], .bool(true))
+
+        await runtime.beginTurn(sessionId: "gb-main", hidden: false,
+                                origin: BotTurnOrigin(rpcId: "bot-2"))
+        let arguments = try BotJSONValue.parse(
+            JSONSerialization.data(withJSONObject: [
+                "action": "replace", "path": "user/preferences/drinks.md",
+                "find": "AMERICANO_A", "replace": "OAT_LATTE_B",
+                "expected_version": 1, "evidence": ["current-user-turn"],
+            ], options: [.sortedKeys]))
+        let rejected = try await registerAndExecute(
+            runtime, name: "UpdateMemory", arguments: arguments,
+            sessionId: "gb-main", callId: UUID().uuidString)
+        XCTAssertEqual(rejected.isError, true)
+        XCTAssertEqual(rejected.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-evidence-invalid")
+        let memory = await runtime.memory(for: "bot-a")
+        guard case let .document(document) = try await memory.read(path: "user/preferences/drinks.md") else {
+            return XCTFail("expected document")
+        }
+        XCTAssertEqual(document.version, 1)
+        XCTAssertEqual(document.content, "# Drinks\n\n- AMERICANO_A")
+    }
+
+    /// Hidden, held and `agent:` turns have no user-turn authority, so the
+    /// reserved value must fail closed instead of falling back to the last
+    /// user message observed in the session.
+    func testCurrentUserTurnIsRejectedOutsideARealUserTurn() async throws {
+        let cases: [(hidden: Bool, held: Bool, rpcId: String, label: String)] = [
+            (true, false, "routine:run-1", "hidden"),
+            (false, true, "held:digest-1", "held"),
+            (false, false, "agent:call-1", "agent:"),
+        ]
+        for item in cases {
+            let rejected = try await call([
+                "action": "write", "path": "user/preferences/drinks.md",
+                "content": "# Drinks\n\n- OAT_LATTE_B",
+                "expected_version": 0,
+                "evidence": ["current-user-turn"],
+            ], hidden: item.hidden, held: item.held, rpcId: item.rpcId)
+            XCTAssertEqual(rejected.isError, true, item.label)
+            XCTAssertEqual(rejected.structuredContent?["error"]?["code"]?.stringValue,
+                           "memory-evidence-invalid", item.label)
+        }
+        let memory = await runtime.memory(for: "bot-a")
+        let userDocuments = try await memory.documents(scope: .user)
+        XCTAssertFalse(userDocuments.contains { $0.path == "user/preferences/drinks.md" })
+    }
+
     func testUserBoundaryRejectsMissingOrNonUserEvidence() async throws {
         let missing = try await call([
             "action": "write", "path": "user/profile.md",
@@ -102,6 +202,18 @@ final class MemoryEvidenceTests: XCTestCase {
         ])
         XCTAssertEqual(unknown.isError, true)
         XCTAssertEqual(unknown.structuredContent?["error"]?["code"]?.stringValue,
+                       "memory-evidence-invalid")
+
+        // A guessed seq is still a normal reference and must be rejected when
+        // the session log has no such line. The reserved literal is not a
+        // fallback for a forged reference.
+        let forgedSeq = try await call([
+            "action": "write", "path": "user/preferences/drinks.md",
+            "content": "伪造的当前消息序号", "expected_version": 0,
+            "evidence": ["record://session/gb-main#999"],
+        ])
+        XCTAssertEqual(forgedSeq.isError, true)
+        XCTAssertEqual(forgedSeq.structuredContent?["error"]?["code"]?.stringValue,
                        "memory-evidence-invalid")
     }
 
@@ -238,12 +350,21 @@ final class MemoryEvidenceTests: XCTestCase {
 
     private func call(
         _ fields: [String: Any],
-        name: String = "UpdateMemory"
+        name: String = "UpdateMemory",
+        hidden: Bool = false,
+        held: Bool = false,
+        rpcId: String = "bot-1"
     ) async throws -> BotMCPCallResult {
         let arguments = try BotJSONValue.parse(
             JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]))
-        await runtime.beginTurn(sessionId: "gb-main", hidden: false,
-                                origin: BotTurnOrigin(rpcId: "bot-1"))
+        await runtime.beginTurn(sessionId: "gb-main", hidden: hidden, held: held,
+                                origin: BotTurnOrigin(rpcId: rpcId))
+        // The production host records the live session/follow user message
+        // before the model can call UpdateMemory. The unit fixture feeds the
+        // same host-observed event with seq 3 from writeSessionLog().
+        await runtime.observeUserMessage(
+            sessionId: "gb-main", seq: 3,
+            source: ["kind": .string("user"), "rpcId": .string(rpcId)])
         return try await registerAndExecute(
             runtime, name: name, arguments: arguments,
             sessionId: "gb-main", callId: UUID().uuidString)

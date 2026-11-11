@@ -75,6 +75,27 @@
         "userBoundary": true
       },
       {
+        "name": "current-user-turn",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
+        "name": "current-user-turn-with-observation",
+        "refs": [
+          "current-user-turn",
+          "record://session/gb-main#4"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
         "name": "event-user-ref",
         "refs": [
           "record://event/7"
@@ -181,6 +202,51 @@
           "record://session/gb-main#3",
           "record://session/gb-main#3"
         ],
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-hidden-turn",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "hidden",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-held-turn",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "held",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-missing",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": null,
+        "turn": "user-turn",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-foreign",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-other#3",
+        "turn": "user-turn",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-malformed-spelling",
+        "refs": [
+          "current-user-turn "
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
         "error": "memory-evidence-invalid"
       }
     ]
@@ -719,6 +785,34 @@
       "expect": {
         "ok": false,
         "code": "memory-path-invalid"
+      }
+    },
+    {
+      "name": "current-user-turn-write",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "user/preferences/drinks.md",
+        "content": "# Drinks\n\n- OAT_LATTE_B",
+        "expected_version": 0,
+        "evidence": [
+          "current-user-turn"
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "path": "user/preferences/drinks.md",
+        "scope": "user",
+        "version": 1
       }
     }
   ],
