@@ -107,6 +107,39 @@ class CatalogValidationTests(unittest.TestCase):
         document["scenarios"][0]["assertions"][-1] = {"type": "approval_count", "equals": 1, "max": 2}
         self.assertTrue(catalog.validate_catalog(document, self.fixtures))
 
+    def test_tool_surface_needs_a_non_empty_direction(self):
+        document = minimal_catalog()
+        document["scenarios"][0]["assertions"] = [{"type": "tool_surface"}]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [
+            {"type": "tool_surface", "present": [], "absent": []}]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [
+            {"type": "tool_surface", "present": ["bash"], "absent": []}]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [
+            {"type": "tool_surface", "present": ["bash"], "absent": ["subagent"]}]
+        self.assertEqual(catalog.validate_catalog(document, self.fixtures), [])
+
+    def test_tool_surface_session_and_exactly(self):
+        document = minimal_catalog()
+        document["scenarios"][0]["assertions"] = [{
+            "type": "tool_surface", "session": "verifier",
+            "exactly": ["bash", "glob", "grep", "read"],
+        }]
+        self.assertEqual(catalog.validate_catalog(document, self.fixtures), [])
+        document["scenarios"][0]["assertions"] = [{
+            "type": "tool_surface", "session": "unknown", "present": ["bash"],
+        }]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [{
+            "type": "tool_surface", "session": "verifier",
+            "exactly": ["bash"], "present": ["bash"],
+        }]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [{"type": "tool_surface", "exactly": []}]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+
     def test_memory_assertion_accepts_empty_value_with_a_filter(self):
         # The live assertion matcher contains("") for an empty value and then
         # applies scope/tier/source, so the catalog validator must agree.
@@ -135,6 +168,43 @@ class CatalogValidationTests(unittest.TestCase):
                 "type": kind, "source": "user-turn",
             }]
             self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+
+    def test_agent_message_requires_a_declared_target_and_sender(self):
+        document = minimal_catalog()
+        document["scenarios"][0]["actions"].append(
+            {"type": "agent_message", "bot": "ghost", "text": "hi"})
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document = minimal_catalog()
+        document["scenarios"][0]["actions"].append(
+            {"type": "agent_message", "bot": "main", "from_bot": "ghost", "text": "hi"})
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document = minimal_catalog()
+        document["scenarios"][0]["actions"].append(
+            {"type": "create_bot", "alias": "side", "name": "Side"})
+        document["scenarios"][0]["actions"].append(
+            {"type": "agent_message", "bot": "side", "from_bot": "main", "text": "hi"})
+        self.assertEqual(catalog.validate_catalog(document, self.fixtures), [])
+
+    def test_new_assertion_bounds_are_required(self):
+        cases = [
+            {"type": "reply_length"},
+            {"type": "card_count"},
+            {"type": "card_placement"},
+            {"type": "card_count", "equals": 1, "max": 2},
+            {"type": "session_event", "event": "x", "surface_op": "rewrite"},
+        ]
+        for assertion in cases:
+            document = minimal_catalog()
+            document["scenarios"][0]["assertions"] = [assertion]
+            self.assertTrue(catalog.validate_catalog(document, self.fixtures),
+                            f"{assertion} must be rejected")
+
+    def test_context_profile_must_be_known(self):
+        document = minimal_catalog()
+        document["context_profile"] = "missing-profile"
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["context_profile"] = "eval-compaction"
+        self.assertEqual(catalog.validate_catalog(document, self.fixtures), [])
 
 
 class PlanTests(unittest.TestCase):
@@ -205,6 +275,18 @@ class PlanTests(unittest.TestCase):
         plan = catalog.build_plan(self.write(document), None, 1, "mock",
                                   self.root / "results", self.fixtures, True)
         self.assertTrue(plan["scenarios"][0]["assertions"][0]["expect_ok"])
+
+    def test_context_profile_reaches_the_plan_and_agent_message_defaults_sender(self):
+        document = minimal_catalog(context_profile="eval-compaction")
+        document["scenarios"][0]["actions"].append(
+            {"type": "create_bot", "alias": "side", "name": "Side"})
+        document["scenarios"][0]["actions"].append(
+            {"type": "agent_message", "bot": "side", "text": "hello"})
+        plan = catalog.build_plan(self.write(document), None, 1, "mock",
+                                  self.root / "results", self.fixtures, False)
+        self.assertEqual(plan["context_profile"], "eval-compaction")
+        action = plan["scenarios"][0]["actions"][-1]
+        self.assertEqual(action["from_bot"], "main")
 
 
 class GateTests(unittest.TestCase):

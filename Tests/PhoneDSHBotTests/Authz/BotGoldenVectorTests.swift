@@ -38,12 +38,20 @@ final class BotGoldenVectorTests: XCTestCase {
         let matches: [BotApprovalPatternMatch]
     }
 
+    private struct ApprovalDowngradeVector: Decodable {
+        let downgraded: [ApprovalCall]
+    }
+
     func testToolEffectsSharedGolden() throws {
-        let vector = try JSONDecoder().decode(ToolVector.self, from: golden("tool-effects"))
+        // The upstream export keeps its Traditional Chinese labels; the
+        // `.phone.json` overlay replaces only the localized display strings.
+        // The classifier is a phone consumer, so it must match the merged view.
+        let vector = try JSONDecoder().decode(
+            ToolVector.self, from: BotGoldenFixture.mergedData("tool-effects"))
         XCTAssertEqual(vector.schemaVersion, 1)
         XCTAssertEqual(vector.vector, "tool-effects")
         XCTAssertEqual(vector.source.checkout, "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6")
-        XCTAssertEqual(vector.valid.count + vector.invalid.count, 23)
+        XCTAssertEqual(vector.valid.count + vector.invalid.count, 27)
         for call in vector.valid + vector.invalid {
             let actual = BotToolEffectClassifier.effect(for: call.name, arguments: call.args, language: .zh)
             XCTAssertEqual(BotToolEffectClassifier.policy(for: call.name, arguments: call.args),
@@ -90,11 +98,30 @@ final class BotGoldenVectorTests: XCTestCase {
         XCTAssertEqual(vector.vector, "approval-patterns")
         XCTAssertEqual(vector.source.checkout, "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6")
         XCTAssertEqual(vector.valid.count + vector.invalid.count, 6)
+        let overlay = try JSONDecoder().decode(
+            ApprovalDowngradeVector.self, from: golden("approval-patterns.phone"))
+        let downgraded = Set(overlay.downgraded.map { call -> String in
+            call.args["command"]?.stringValue ?? ""
+        })
+        XCTAssertEqual(downgraded.count, overlay.downgraded.count)
+        for call in overlay.downgraded {
+            let actual = BotApprovalPatternAnalyzer.analyze(
+                tool: call.tool, arguments: call.args,
+                workspace: "/tmp/phonedsh-bot-work", language: .en)
+            XCTAssertEqual(actual, [], "network command pattern must be downgraded: \(call.args)")
+        }
+        // Upstream network cases are exactly the phone-downgraded cases; every
+        // other upstream case keeps its shared semantics.
         for call in vector.valid + vector.invalid {
+            let command = call.args["command"]?.stringValue ?? ""
             let actual = BotApprovalPatternAnalyzer.analyze(tool: call.tool, arguments: call.args,
                                                             workspace: "/tmp/phonedsh-bot-work",
                                                             language: .en)
-            XCTAssertEqual(actual, call.matches, "approval pattern mismatch for \(call.args)")
+            if downgraded.contains(command) {
+                XCTAssertEqual(actual, [], "approval pattern mismatch for \(call.args)")
+            } else {
+                XCTAssertEqual(actual, call.matches, "approval pattern mismatch for \(call.args)")
+            }
         }
     }
 

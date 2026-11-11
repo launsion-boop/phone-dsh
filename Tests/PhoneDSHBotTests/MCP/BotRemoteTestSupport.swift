@@ -38,17 +38,19 @@ struct BotScriptedEvent {
         ]), time: time, stream: true)
     }
 
-    static func toolCall(_ name: String, id: String = "call-1", time: Int64 = 1_002) -> Self {
+    static func toolCall(_ name: String, id: String = "call-1", arguments: String = "{}",
+                         time: Int64 = 1_002) -> Self {
         Self("tool/call", .object([
-            "callId": .string(id), "name": .string(name), "arguments": .string("{}"),
+            "callId": .string(id), "name": .string(name), "arguments": .string(arguments),
         ]), time: time)
     }
 
-    static func toolResult(id: String = "call-1", failed: Bool = false, time: Int64 = 1_003) -> Self {
+    static func toolResult(id: String = "call-1", failed: Bool = false,
+                           text: String = "已显示提问卡", time: Int64 = 1_003) -> Self {
         Self("tool/result", .object([
             "message": .object([
                 "toolCallId": .string(id), "isError": .bool(failed),
-                "content": .array([.object(["type": .string("text"), "text": .string("已显示提问卡")])]),
+                "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
             ]),
         ]), time: time)
     }
@@ -91,6 +93,8 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private var sessionCwds: [String: String] = [:]
     private var archived: [String] = []
     private var failCreates = 0
+    /// Test seam: report a different composed preset than the requested one.
+    var createPresetOverride: String?
 
     private(set) var prompts: [String: (sessionId: String, mode: String, text: String)] = [:]
     private(set) var promptHistory: [(sessionId: String, mode: String, text: String)] = []
@@ -98,6 +102,8 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private(set) var cancellations: [String] = []
     private(set) var createdIDs: [String] = []
     private(set) var requestedSessionIds: [String] = []
+    /// The immutable creation header preset requested for each created session.
+    private(set) var createdAgentPresets: [String: String] = [:]
     private(set) var claimedSessions: [String] = []
     private(set) var claimedSessionTokens: [(sessionId: String, sessionToken: String?)] = []
     private(set) var archivedSessions: [String] = []
@@ -169,6 +175,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
             }
             let requested = args["request"]?["sessionId"]?.stringValue ?? ""
             let cwd = args["request"]?["cwd"]?.stringValue
+            let agentPreset = args["request"]?["agentPreset"]?.stringValue
             let id = lock.withLock { () -> String in
                 defer { nextCreateIndex += 1 }
                 requestedSessionIds.append(requested)
@@ -177,9 +184,17 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
                     : (nextCreateIndex == 0 ? mainId : "gb-created-\(nextCreateIndex)")
                 createdIDs.append(id)
                 if let cwd { sessionCwds[id] = cwd }
+                if let agentPreset { createdAgentPresets[id] = agentPreset }
                 return id
             }
-            return .object(["sessionId": .string(id)])
+            // The real Worker resolves and mounts the creation-header preset
+            // before it answers; echo the composed identity so the host's
+            // fail-closed preset check sees the same value.
+            var created: [String: BotJSONValue] = ["sessionId": .string(id)]
+            if let agentPreset {
+                created["agentPreset"] = .string(createPresetOverride ?? agentPreset)
+            }
+            return .object(created)
         case "session/list":
             let failed = lock.withLock { () -> Bool in
                 guard remainingSessionListFailures != 0 else { return false }

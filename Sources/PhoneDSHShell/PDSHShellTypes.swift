@@ -187,6 +187,29 @@ public struct PDSHShellHelloCapabilities: Equatable, Sendable {
     }
 }
 
+/// One `phone record` answer from the host's Bot record service.
+public struct PhoneRecordCommandResult: Sendable, Equatable {
+    public var stdout: String
+    public var stderr: String
+    public var exitCode: Int32
+
+    public init(stdout: String, stderr: String = "", exitCode: Int32) {
+        self.stdout = stdout
+        self.stderr = stderr
+        self.exitCode = exitCode
+    }
+}
+
+/// Host owner of the read-only `phone record search|read` command.
+///
+/// The shell hands the raw argv plus the trusted tool-call session; the host
+/// resolves that session to a claimed Bot principal and refuses every other
+/// identity. The protocol exists in `PhoneDSHShell` so the app can bridge the
+/// Bot module without making the shell depend on it.
+public protocol PhoneRecordQuerying: Sendable {
+    func runRecordCommand(arguments: [String], callerSessionID: String) async -> PhoneRecordCommandResult
+}
+
 /// Host tool bridge for the `phone` and `ctx` accelerators (D12).
 ///
 /// The Rust side never talks to the network: it calls back into the host, and

@@ -11,6 +11,8 @@ public enum BotModelPurpose: String, Codable, CaseIterable, Sendable {
     case compact
     case watchdog
     case completionCheck = "completion-check"
+    /// S3 maintainer run; its spend is budgeted per run and per UTC day.
+    case memoryMaintenance = "memory-maintenance"
 
     public var largeModelAllowed: Bool {
         self == .frontTurn || self == .workerTurn
@@ -72,6 +74,8 @@ public struct BotModelPurposePolicy: Codable, Sendable, Equatable {
             return BotModelPurposeDefaults(model: smallModel, maxTokens: 8_192, temperature: 1)
         case .triage, .watchdog, .completionCheck:
             return BotModelPurposeDefaults(model: smallModel, maxTokens: 256, temperature: 0)
+        case .memoryMaintenance:
+            return BotModelPurposeDefaults(model: smallModel, maxTokens: 4_096, temperature: 0)
         case .memoryExtract:
             return BotModelPurposeDefaults(model: smallModel, maxTokens: 1_024, temperature: 0)
         case .reflect:

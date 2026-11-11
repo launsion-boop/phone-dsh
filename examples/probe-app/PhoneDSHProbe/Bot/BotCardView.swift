@@ -160,14 +160,49 @@ private struct BotTaskCardView: View {
     private var title: String { row.body.string("title", "text", "question") ?? "后台任务" }
     private var doneCount: Int { steps.filter { BotCardStepState($0.state) == .done }.count }
     private var failed: Bool { steps.contains { BotCardStepState($0.state) == .failed } }
+    private var taskStatus: String? {
+        row.body["status"]?.string ?? row.body["task"]?.object?["status"]?.string
+    }
     private var running: Bool {
-        let status = row.body["status"]?.string ?? row.body["task"]?.object?["status"]?.string
-        return status == "running" || steps.contains { BotCardStepState($0.state) == .active }
+        taskStatus == "running" || steps.contains { BotCardStepState($0.state) == .active }
     }
     private var stateTag: (text: String, tone: BotCardTone) {
+        switch taskStatus {
+        case "waiting_approval": return ("等待审批", .warning)
+        case "denied": return ("已拒绝", .danger)
+        case "stopped": return ("已停止", .neutral)
+        case "interrupted": return ("已中断", .danger)
+        default: break
+        }
         if failed { return ("失败", .danger) }
         if running { return ("进行中", .neutral) }
         return ("已完成", .success)
+    }
+
+    private var verification: [String: BotJSONValue]? { row.body["verification"]?.object }
+    private var verificationVerdict: String? {
+        guard let raw = verification?["verdict"]?.string else { return nil }
+        return ["passed", "failed", "uncertain"].contains(raw) ? raw : nil
+    }
+    private var verificationTone: BotCardTone {
+        switch verificationVerdict {
+        case "passed": return .success
+        case "failed": return .danger
+        default: return .warning
+        }
+    }
+    private var verificationLabel: String {
+        switch verificationVerdict {
+        case "passed": return "验证通过"
+        case "failed": return "验证未通过"
+        default: return "验证不确定"
+        }
+    }
+    private var verificationSummary: String? {
+        verification?["summary"]?.string
+    }
+    private var verificationRefCount: Int {
+        verification?["refs"]?.array?.count ?? 0
     }
 
     var body: some View {
@@ -175,6 +210,32 @@ private struct BotTaskCardView: View {
             VStack(alignment: .leading, spacing: 0) {
                 BotCardHeading(icon: "checklist", eyebrow: "后台任务", title: title) {
                     BotCardTag(text: stateTag.text, tone: stateTag.tone)
+                }
+                if let verificationVerdict {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Image(systemName: verificationVerdict == "passed"
+                                  ? "checkmark.seal" : verificationVerdict == "failed"
+                                  ? "xmark.octagon" : "questionmark.circle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(verificationTone.ink)
+                            Text(verificationLabel)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(verificationTone.ink)
+                            if verificationRefCount > 0 {
+                                Text("依据 \(verificationRefCount) 条记录")
+                                    .botCardMeta()
+                            }
+                        }
+                        if let verificationSummary, !verificationSummary.isEmpty {
+                            Text(verificationSummary)
+                                .botCardMeta()
+                                .lineLimit(3)
+                        }
+                    }
+                    .padding(.top, 8)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("bot.task.verification")
                 }
                 if !steps.isEmpty {
                     Button { withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() } } label: {

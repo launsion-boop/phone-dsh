@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // PR22 renders the session list with `HomeDrawer.swift` inside the 320 pt
-// `SessionsDrawerPanel` (`NativeShell.swift:111` still defines `drawerWidth`):
+// `SessionsDrawerPanel` (`NativeShell.swift:112` still defines `drawerWidth`):
 // a #F7F7F7 page, a 52 pt full-width 新会话 capsule, a 40 pt folder header,
 // 44 pt session rows, 12 pt row corners and the grouped folder/session list.
 // Authority is `HomeDrawer.swift` first; the system search field / empty-state
@@ -132,7 +132,7 @@ public object SessionsMetrics {
      * y=400 at x=50 px, which fits radius 66 px = 22 pt.
      *
      * Caveat: the shell that hosts the real drawer hides the navigation bar
-     * (`NativeShell.swift:247`), so this field only exists in the standalone
+     * (`NativeShell.swift:262`), so this field only exists in the standalone
      * presentation. There is no search field in the shipped drawer screenshot
      * (`darkfinal-drawer-light.png`).
      * Page-local: PNG-measured system control, no Swift literal to cite (see

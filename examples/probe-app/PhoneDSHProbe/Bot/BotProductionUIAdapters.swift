@@ -72,11 +72,30 @@ extension BotProductionInfoService {
         BotInfoDriver(
             load: { [self] in try await BotInfoSnapshot.production(self.load()) },
             rename: { [self] name in try await self.rename(name) },
-            forget: { [self] fact in try await self.forget(factID: fact.id) },
+            forget: { [self] document in
+                try await self.forget(path: document.path, expectedVersion: document.version)
+            },
+            eraseDocument: { [self] document in
+                try await self.eraseMemory(path: document.path)
+            },
             erase: { [self] in try await self.eraseMemories() },
             eraseShared: { [self] in try await self.eraseSharedMemories() },
             setRoutineEnabled: { [self] id, enabled in
                 try await self.setRoutineEnabled(id, enabled: enabled)
+            },
+            revokeGrant: { [self] id in try await self.revokeGrant(id) },
+            cancelRoutine: { [self] id in try await self.cancelRoutine(id) },
+            resolveReconciliation: { [self] routineID, decision in
+                try await self.resolveReconciliation(routineID: routineID, decision: decision)
+            },
+            saveProactiveSettings: { [self] settings in
+                await self.saveProactiveSettings(settings)
+            },
+            setMaintenanceEnabled: { [self] enabled in
+                await self.setMaintenanceEnabled(enabled)
+            },
+            rollbackMaintenance: { [self] batchID in
+                try await self.rollbackMaintenance(batchID: batchID)
             })
     }
 }
@@ -159,39 +178,143 @@ extension BotUIActionResult {
     }
 }
 
+extension BotMaintenanceBatchInfo {
+    fileprivate static func production(
+        _ view: PhoneDSHBot.BotMemoryMaintenanceBatchView
+    ) -> BotMaintenanceBatchInfo {
+        BotInfoSnapshot.maintenanceInfo(view)
+    }
+}
+
 extension BotInfoSnapshot {
     static func production(_ snapshot: BotProductionInfoSnapshot) -> BotInfoSnapshot {
         BotInfoSnapshot(
             botName: snapshot.botName,
-            memories: snapshot.memories.map { fact in
-                BotMemoryFact(
-                    id: fact.factID,
-                    text: fact.text,
-                    tier: fact.tier.rawValue,
-                    scope: fact.scope.rawValue,
-                    source: fact.source?.kind.rawValue ?? "unknown",
-                    learnedAt: Date(timeIntervalSince1970: Double(fact.learnedAtMS) / 1_000))
+            memories: snapshot.memories.map { entry in
+                let document = entry.document
+                return BotMemoryDocumentInfo(
+                    id: document.path,
+                    path: document.path,
+                    scope: document.scope.rawValue,
+                    content: document.content,
+                    version: document.version,
+                    updatedAt: Date(timeIntervalSince1970: Double(document.updatedAtMS) / 1_000),
+                    author: BotUIFormat.memoryAuthor(
+                        kind: document.author.kind.rawValue,
+                        source: document.source?.kind.rawValue),
+                    evidence: document.evidence,
+                    versions: entry.versions.map { version in
+                        BotMemoryVersionInfo(
+                            id: "\(version.path)#\(version.version)",
+                            version: version.version,
+                            content: version.content,
+                            deleted: version.deleted,
+                            deletionReason: version.deletionReason,
+                            updatedAt: Date(timeIntervalSince1970: Double(version.updatedAtMS) / 1_000),
+                            author: BotUIFormat.memoryAuthor(kind: version.author.kind.rawValue),
+                            evidence: version.evidence)
+                    })
             },
             routines: snapshot.routines.map { routine in
-                BotRoutineInfo(
+                let creatorLabel = routine.creator.map {
+                    BotUIFormat.routineCreator(origin: $0.origin.rawValue,
+                                               authorization: $0.authorization.rawValue)
+                }
+                let creatorDetail = routine.creator.map {
+                    BotUIFormat.routineCreatorDetail(
+                        origin: $0.origin.rawValue,
+                        authorization: $0.authorization.rawValue,
+                        references: [$0.rpcId, $0.turnId, $0.sessionId].compactMap { $0 })
+                }
+                let nextDue = routine.nextRunAt.map {
+                    Date(timeIntervalSince1970: Double($0) / 1_000)
+                }
+                let quietDeferredFrom = routine.quietDefer.map {
+                    Date(timeIntervalSince1970: Double($0.scheduledFor) / 1_000)
+                }
+                let quietDeferredUntil = routine.quietDefer.map {
+                    Date(timeIntervalSince1970: Double($0.until) / 1_000)
+                }
+                return BotRoutineInfo(
                     id: routine.id,
                     title: routine.title,
                     schedule: Self.scheduleText(routine.schedule),
                     timeZone: routine.schedule.timezone,
-                    delivery: routine.delivery == .interrupt ? "立即打断" : "存入待处理",
+                    delivery: routine.delivery.rawValue,
                     quiet: routine.delivery == .held,
                     urgent: routine.urgent,
                     urgentReason: routine.urgentReason.isEmpty ? nil : routine.urgentReason,
                     lastResult: Self.lastResultText(routine.lastResult),
-                    enabled: routine.enabled)
+                    enabled: routine.enabled,
+                    creator: creatorLabel,
+                    completionCriteria: routine.completionCriteria.isEmpty ? nil : routine.completionCriteria,
+                    routineConstraints: routine.constraints.isEmpty ? nil : routine.constraints,
+                    runStatus: routine.runState?.status.rawValue,
+                    runID: routine.runState?.runId,
+                    nextDue: nextDue,
+                    quietDeferredFrom: quietDeferredFrom,
+                    quietDeferredUntil: quietDeferredUntil,
+                    creatorDetail: creatorDetail,
+                    lastResultDetail: routine.lastResult?.error)
             },
             approvals: snapshot.approvals.map { approval in
                 BotApprovalRecord(
                     id: approval.id,
                     parameterSummary: approval.parameterSummary,
-                    decision: approval.decision == .allow ? "允许" : "拒绝",
+                    decision: BotUIFormat.approvalDecision(
+                        approval.decision == .allow ? "allow" : "deny",
+                        scope: approval.scope,
+                        status: approval.status),
                     decidedAt: Date(timeIntervalSince1970: Double(approval.decidedAtMS) / 1_000))
-            })
+            },
+            grants: snapshot.grants.map { grant in
+                BotGrantInfo(
+                    id: grant.id, tool: grant.tool, operation: grant.operation,
+                    resource: grant.resource, scope: grant.scope,
+                    sessionID: grant.sessionID,
+                    createdAt: Date(timeIntervalSince1970: Double(grant.createdAtMS) / 1_000),
+                    source: grant.source)
+            },
+            reconciliations: snapshot.reconciliations.map { item in
+                BotReconciliationInfo(
+                    routineID: item.routineID, routineTitle: item.routineTitle,
+                    attempt: item.attempt, runID: item.runID, error: item.error,
+                    effectSummary: item.effectSummary,
+                    effectDetail: item.effectDetail)
+            },
+            presence: snapshot.presence,
+            proactiveSettings: snapshot.proactiveSettings,
+            maintenance: snapshot.maintenance.map(BotMaintenanceBatchInfo.production),
+            maintenanceEnabled: snapshot.maintenanceEnabled,
+            maintenanceDailyTokens: snapshot.maintenanceDailyTokens,
+            maintenanceDailyBudget: snapshot.maintenanceDailyBudget)
+    }
+
+    fileprivate static func maintenanceInfo(
+        _ view: PhoneDSHBot.BotMemoryMaintenanceBatchView
+    ) -> BotMaintenanceBatchInfo {
+        let batch = view.batch
+        return BotMaintenanceBatchInfo(
+            batchID: batch.batchID,
+            status: batch.status.rawValue,
+            trigger: batch.trigger.rawValue,
+            startedAt: Date(timeIntervalSince1970: Double(batch.startedAtMS) / 1_000),
+            finishedAt: Date(timeIntervalSince1970: Double(batch.finishedAtMS) / 1_000),
+            changedDocuments: batch.changes.count,
+            changes: batch.changes.map { change in
+                BotMaintenanceChangeInfo(
+                    path: change.path,
+                    scope: change.scope.rawValue,
+                    beforeVersion: change.beforeVersion,
+                    afterVersion: change.afterVersion,
+                    deleted: change.deleted)
+            },
+            failureCode: batch.failureCode,
+            checksPassed: batch.checks.passedAll,
+            rolledBack: view.isRolledBack,
+            canRollback: view.canRollback,
+            tokensUsed: batch.budget.tokensUsed,
+            notification: batch.notification)
     }
 
     private static func scheduleText(_ schedule: RoutineSchedule) -> String {
@@ -223,8 +346,7 @@ extension BotInfoSnapshot {
 
     private static func lastResultText(_ result: RoutineResult?) -> String {
         guard let result else { return "还没有运行结果。" }
-        if !result.text.isEmpty { return result.text }
-        if let error = result.error, !error.isEmpty { return error }
-        return "运行状态：\(result.status.rawValue)"
+        return BotUIFormat.routineRunResult(
+            status: result.status.rawValue, text: result.text, error: result.error)
     }
 }

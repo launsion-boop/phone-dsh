@@ -26,6 +26,14 @@ export interface ApprovalOutcome {
   readonly allowed?: boolean
   readonly message?: string
   readonly error?: string
+  /** The host parked a durable (non-interactive) approval as a todo. */
+  readonly pending?: boolean
+  readonly approvalId?: string
+  readonly expiresAt?: number
+}
+
+type CancelableAgent = Agent & {
+  cancel?: (cause: { kind: 'hook'; reason: string }, options?: { keepInbox?: boolean }) => void
 }
 
 export interface ApprovalGateConfig {
@@ -39,7 +47,13 @@ const UI_TOOLS = new Set([
   'show_checklist', 'show_link', 'RequestApproval',
 ])
 const AUTO_TOOLS = new Set([
-  'RecallMemory', 'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
+  // Both memory readers are read-only and frozen as `read + auto` in
+  // spec/bot/v1/golden/tool-effects{,.phone}.json. ReadMemory was added after
+  // this table and was missing here, so the Worker proposed an `unknown`
+  // effect (alwaysScope=session) while the host classified it as a known read
+  // (alwaysScope=until) and rejected the call with `stale:always_scope`.
+  'ReadMemory', 'RecallMemory',
+  'Task', 'AwaitTask', 'StopSubagent', 'UpdateRoutine', 'ListRoutines', 'SendToUser',
   // Team tools are auto-policy but audited by the App: SendToAgent is an
   // external send and CreateTeammate creates a local Bot. Neither asks the
   // user for another approval card. FishAction is cosmetic only; playing a
@@ -163,23 +177,86 @@ function bashEffectsForApproval(args: Record<string, unknown>): ApprovalEffect[]
   if (/(?:^|[;&|]\s*)find\s+[^\n]*(?:\s|^)-delete(?:\s|$)/i.test(command)) {
     return [shellEffect('find-delete', command, 'Delete files with find -delete', `find -delete removes matching files: ${command}`)]
   }
-  if (/(?:^|[;&|]\s*)curl\s+/i.test(command)
-    && /(?:\s|^)-X\s+POST(?:\s|$)|(?:\s|^)--request\s+POST(?:\s|$)|(?:\s|^)(?:-d|--data(?:-raw|-binary)?|-F|--form)(?:\s|=|$)/i.test(command)) {
-    return [shellEffect('curl-post', command, 'Send a network POST request', `This command sends a network write request: ${command}`)]
-  }
-  if (/(?:^|[;&|]\s*)(?:wget|nc|socat|telnet|ssh|sftp|ftp)(?:\s|$)/i.test(command)
-    || (/(?:^|[;&|]\s*)(?:scp|rsync)\s+/i.test(command) && command.includes(':'))
-    || (/(?:python3?|node|ruby|perl)(?:\s|$)/i.test(command)
-      && /urllib|requests\.|http\.client|http\/server|require\(['"](?:http|https|net|dns)['"]\)|Net::HTTP|TCPSocket|socket\.|fetch\(|https?:\/\//i.test(command))
-    || /(?:dig|nslookup)[^\n]*(?:\$\{|\$\()/i.test(command)) {
-    return [shellEffect('network-egress', command, 'Sends data off this machine', `This command sends data outside this machine: ${command}`, 'external-send')]
-  }
+  // Network writes are intentionally absent: command text is
+  // model-controlled (script files, variable concatenation, interpreters), so
+  // it is not a security boundary. The host `/v1/http` exit owns the
+  // host+method approval (spec/bot/v1/README.md §2.4). The destructive
+  // patterns above remain as advisory card hints only.
   return []
 }
 
-export function phoneEffectsForApproval(name: string, args: Record<string, unknown>): ApprovalEffect[] {
+/** POSIX-normalize one virtual path without touching the host filesystem. */
+function normalizeVirtualPath(path: string): string {
+  const absolute = path.startsWith('/')
+  const stack: string[] = []
+  for (const part of path.split('/')) {
+    if (part === '' || part === '.') continue
+    if (part === '..') {
+      if (stack.length > 0) stack.pop()
+      continue
+    }
+    stack.push(part)
+  }
+  const joined = stack.join('/')
+  return absolute ? `/${joined}` : joined === '' ? '.' : joined
+}
+
+function resolveVirtualPath(raw: string, workspaceRoot: string): string {
+  const joined = raw.startsWith('/') ? raw : `${workspaceRoot.replace(/\/$/, '')}/${raw}`
+  return normalizeVirtualPath(joined)
+}
+
+function virtualDirectory(path: string): string {
+  const slash = path.lastIndexOf('/')
+  return slash <= 0 ? '/' : path.slice(0, slash)
+}
+
+function insideWorkspace(path: string, workspaceRoot: string): boolean {
+  const root = normalizeVirtualPath(workspaceRoot)
+  if (root === '/') return true
+  const target = normalizeVirtualPath(path)
+  return target === root || target.startsWith(`${root}/`)
+}
+
+/**
+ * `write`/`edit` effects at the Bot workspace boundary. A target inside the
+ * Bot root is the DSH file sandbox's business and gets no structural card; a
+ * target outside it is authorized per parent directory, never per argument
+ * digest, so one "always" decision covers the next write in that directory.
+ */
+function fileEffect(name: 'write' | 'edit', args: Record<string, unknown>,
+                    workspaceRoot: string): ApprovalEffect[] {
+  const raw = typeof args.file_path === 'string' ? args.file_path.trim() : ''
+  if (raw === '') return [unclassifiedEffect(name, args)]
+  const target = resolveVirtualPath(raw, workspaceRoot)
+  if (insideWorkspace(target, workspaceRoot)) return []
+  const directory = virtualDirectory(target)
+  return [{
+    tool: name,
+    operation: name === 'write' ? 'file.write' : 'file.edit',
+    resource: `dir=${directory}`,
+    target,
+    mutability: 'write',
+    policy: 'ask',
+    label: name === 'write' ? 'Write a file outside the Bot workspace' : 'Edit a file outside the Bot workspace',
+    detail: `The target ${target} is outside this Bot's workspace ${normalizeVirtualPath(workspaceRoot)}; the approval is remembered per directory ${directory}.`,
+    ui: false,
+    execution: null,
+    known: true,
+    isMcp: false,
+  }]
+}
+
+export function phoneEffectsForApproval(
+  name: string,
+  args: Record<string, unknown>,
+  context: { workspaceRoot?: string } = {},
+): ApprovalEffect[] {
   const bare = name.startsWith(PHONE_TOOL_PREFIX) ? name.slice(PHONE_TOOL_PREFIX.length) : name
   if (bare === 'bash') return bashEffectsForApproval(args)
+  if (bare === 'write' || bare === 'edit') {
+    return fileEffect(bare, args, context.workspaceRoot ?? '/dsh/workspace')
+  }
   if (bare === 'BotVolatileContext' || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
   if (BLE_TOOLS.has(bare)) return [bleEffect(bare, args)]
   if (bare === 'UpdateMemory') {
@@ -220,6 +297,10 @@ export async function postApproval(url: string, token: string, payload: Record<s
   const egressToken = String(process.env.PDSH_MCP_EGRESS_TOKEN ?? '')
   const egress: Record<string, string> = egressToken === '' ? {} : { 'X-PDSH-MCP-Egress': egressToken }
   const controller = new AbortController()
+  // This deadline only covers the interactive card (the host answers it
+  // within 300 s). Durable approvals answer immediately with
+  // `{ok:true,allowed:false,pending:true}`; they never keep the tool call
+  // blocked across this timer (spec/bot/v1 §2.7).
   const timer = setTimeout(() => controller.abort(new Error('approval timed out')), 330_000)
   try {
     const response = await fetch(url, {
@@ -234,6 +315,22 @@ export async function postApproval(url: string, token: string, payload: Record<s
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * A durable approval ends the turn instead of holding `tools/pre-execute`
+ * open. The host parks the task/routine and wakes it after the user decision;
+ * the Worker must not keep the tool call (or its identity registration)
+ * waiting for up to 24 hours. `hook` is the stable non-user cause.
+ */
+function stopTurnForDurableApproval(agent: Agent | undefined): void {
+  const cancelable = agent as CancelableAgent | undefined
+  try {
+    cancelable?.cancel?.({ kind: 'hook', reason: 'approval-pending' }, { keepInbox: true })
+  } catch {
+    // The host still parks on the turn result; a failed cancel is not a
+    // permission to execute the tool.
   }
 }
 
@@ -255,8 +352,18 @@ export default function dshbotApprovalGate(ctx: Context, config: ApprovalGateCon
       return { kind: 'deny', reason: BOT_RUNTIME_UNAVAILABLE_REASON }
     }
     const args = dispatchArguments(exec.arguments)
-    const effects = phoneEffectsForApproval(exec.name, args)
-    if (effects.length === 0 && exec.name !== 'bash' && exec.name !== 'write' && exec.name !== 'edit') return next()
+    const workspaceRoot = String(
+      (exec.agent as { session?: { header?: { cwd?: unknown } } } | undefined)
+        ?.session?.header?.cwd ?? '')
+    const effects = phoneEffectsForApproval(exec.name, args,
+      workspaceRoot === '' ? {} : { workspaceRoot })
+    // Empty effects are auto-policy: destructive/network patterns are hints,
+    // and a write inside the Bot workspace root is the sandbox's business.
+    // Non-shell tools skip the roundtrip entirely; bash/write/edit keep it so
+    // the host still sees (and auto-allows) the call it registered.
+    if (effects.length === 0 && exec.name !== 'bash' && exec.name !== 'write' && exec.name !== 'edit') {
+      return next()
+    }
     const first = effects[0]
     const sessionId = String(exec.agent?.id ?? exec.agent?.session?.id ?? '')
     const payload: Record<string, unknown> = {
@@ -276,6 +383,13 @@ export default function dshbotApprovalGate(ctx: Context, config: ApprovalGateCon
     }
     const decision = await send(payload, exec.signal)
     if (decision.ok && decision.allowed) return next()
+    if (decision.pending === true) {
+      stopTurnForDurableApproval(exec.agent)
+      return {
+        kind: 'deny',
+        reason: `[approval pending] ${decision.message ?? 'The user is away; this approval is a durable todo.'} The tool call was NOT executed. The task is parked; the host will resume it after the user decides. Do not retry or work around it in this turn.`,
+      }
+    }
     const reason = decision.message ?? decision.error ?? 'approval was denied'
     return {
       kind: 'deny',

@@ -93,10 +93,17 @@ final class BotVolatileContextTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
         let memory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, now: { 1_000 }),
-            dataRoot: directory.path, botID: "main", now: { 1_000 })
-        _ = try await memory.write(BotMemoryWriteRequest(
-            text: "我喜欢简短回答", source: BotMemorySource(kind: .userTurn, sessionID: "gb-main")))
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, now: { 1_000 }),
+            botID: "main", now: { 1_000 })
+        _ = try await memory.documents()
+        _ = try await memory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: "agent/INDEX.md",
+                content: "我喜欢简短回答", expectedVersion: 1),
+            context: BotMemoryWriteContext(
+                botID: "main", sessionID: "gb-main", authorKind: .chat,
+                source: BotMemorySource(kind: .userTurn, sessionID: "gb-main"),
+                trust: .assistant))
         let machine = RoutineMachine(store: SQLiteRoutineStore(domainStore: store))
         _ = try await machine.create(
             botId: "main", title: "Morning", prompt: "report", schedule: .interval(everyMinutes: 60), now: 1_000)
@@ -130,8 +137,8 @@ final class BotVolatileContextTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
         let memory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "main", now: { 1_000 }),
-            dataRoot: directory.path, botID: "main", now: { 1_000 })
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "main", now: { 1_000 }),
+            botID: "main", now: { 1_000 })
         let machine = RoutineMachine(store: SQLiteRoutineStore(domainStore: store))
         _ = try await machine.create(
             botId: "main", title: "Morning", prompt: "report", schedule: .interval(everyMinutes: 60), now: 1_000)
@@ -201,15 +208,27 @@ final class BotVolatileContextTests: XCTestCase {
             fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
         let machine = RoutineMachine(store: SQLiteRoutineStore(domainStore: store))
         let mainMemory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "main", now: { 1_000 }),
-            dataRoot: directory.path, botID: "main", now: { 1_000 })
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "main", now: { 1_000 }),
+            botID: "main", now: { 1_000 })
         let botMemory = BotMemory(
-            store: SQLiteBotMemoryFactStore(eventLog: store, botID: "bot-b", now: { 1_000 }),
-            dataRoot: directory.path, botID: "bot-b", now: { 1_000 })
-        _ = try await mainMemory.write(BotMemoryWriteRequest(
-            text: "main scoped memory", source: BotMemorySource(kind: .agentMessage)))
-        _ = try await botMemory.write(BotMemoryWriteRequest(
-            text: "bot-b scoped memory", source: BotMemorySource(kind: .agentMessage)))
+            store: SQLiteBotMemoryDocumentStore(eventLog: store, botID: "bot-b", now: { 1_000 }),
+            botID: "bot-b", now: { 1_000 })
+        _ = try await mainMemory.documents()
+        _ = try await botMemory.documents()
+        _ = try await mainMemory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: "agent/INDEX.md",
+                content: "main scoped memory", expectedVersion: 1),
+            context: BotMemoryWriteContext(
+                botID: "main", sessionID: "gb-main", authorKind: .chat,
+                source: BotMemorySource(kind: .agentMessage), trust: .assistant))
+        _ = try await botMemory.write(
+            BotMemoryWriteRequest(
+                action: .write, path: "agent/INDEX.md",
+                content: "bot-b scoped memory", expectedVersion: 1),
+            context: BotMemoryWriteContext(
+                botID: "bot-b", sessionID: "gb-b", authorKind: .chat,
+                source: BotMemorySource(kind: .agentMessage), trust: .assistant))
 
         let recorder = PersonaCallRecorder()
         let provider = BotDomainVolatileContextProvider(

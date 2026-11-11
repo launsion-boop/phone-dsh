@@ -147,6 +147,7 @@ final class BotMCPEgressVectorTests: XCTestCase {
                 let known = BotToolCatalog.isRegistered(bareTool)
                     || BotToolCatalog.teamToolNames.contains(bareTool)
                     || BotToolCatalog.fishActionNames.contains(bareTool)
+                await beginUserTurn(runtime, sessionId: "gb-\(caller)", rpcId: "bot-vector-\(name)")
                 if known {
                     let registration = try await runtime.registerIdentity(
                         runtimeId: BotMCPRuntime.defaultRuntimeID,
@@ -163,6 +164,7 @@ final class BotMCPEgressVectorTests: XCTestCase {
                         "params": .object(["name": .string(tool), "arguments": arguments]),
                     ]),
                     headers: [BotMCPHandler.callerSessionHeader: "gb-\(caller)"])
+                await runtime.endTurn(sessionId: "gb-\(caller)")
                 executed += 1
                 if accepted {
                     XCTAssertNotEqual(response.isError, true,
@@ -196,8 +198,9 @@ final class BotMCPEgressVectorTests: XCTestCase {
         case "UpdateMemory":
             return .object([
                 "action": .string("write"),
-                "fact": .string("vector fact"),
-                "scope": .string("agent"),
+                "path": .string("agent/notes/vector.md"),
+                "content": .string("vector fact"),
+                "expected_version": .number(0),
             ])
         case BotToolCatalog.fishActionName:
             return .object(["action": .string(BotToolCatalog.fishActions[0])])

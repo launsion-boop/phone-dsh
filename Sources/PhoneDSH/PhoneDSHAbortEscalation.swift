@@ -89,13 +89,22 @@ struct PhoneDSHAbortEscalationOutcome: Equatable, Sendable {
     /// lost a queued inbound write, so no later attempt may pack the overlay or
     /// boot a replacement: the whole drain must fail loud instead.
     var nonRetryable: Bool
+    /// Set (together with ``nonRetryable``) when the old Worker was stopped
+    /// but its connection did not reach a clean end before the overlay
+    /// repack point. Nothing was packed and no replacement was booted. A
+    /// background park can still finish safely from this state: it seals the
+    /// WAL once the loopback is gone and leaves the overlay rebuild to the
+    /// next foreground boot (see `PhoneDSHHost.parkWithoutGate`).
+    var oldConnectionNotQuiescent: Bool
 
     init(attempts: [PhoneDSHAbortEscalationAttempt] = [],
                 lastError: String? = nil,
-                nonRetryable: Bool = false) {
+                nonRetryable: Bool = false,
+                oldConnectionNotQuiescent: Bool = false) {
         self.attempts = attempts
         self.lastError = lastError
         self.nonRetryable = nonRetryable
+        self.oldConnectionNotQuiescent = oldConnectionNotQuiescent
     }
 
     /// Whether the caller may run another terminate + pack + boot attempt.
@@ -265,6 +274,7 @@ struct PhoneDSHAbortEscalator: Sendable {
                         + "quiesce before the overlay repack"
                     outcome.lastError = attempt.lastError
                     outcome.nonRetryable = true
+                    outcome.oldConnectionNotQuiescent = true
                     outcome.attempts.append(attempt)
                     break
                 }
@@ -388,6 +398,7 @@ struct PhoneDSHAbortEscalator: Sendable {
                         + "quiesce before the overlay repack"
                     outcome.lastError = attempt.lastError
                     outcome.nonRetryable = true
+                    outcome.oldConnectionNotQuiescent = true
                     outcome.attempts.append(attempt)
                     break
                 }

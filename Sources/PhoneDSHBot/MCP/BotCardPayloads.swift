@@ -10,6 +10,7 @@ public enum BotCardPayloadError: Error, Sendable, Equatable {
 public enum BotCardPayloads {
     public static func build(tool: String, arguments: BotJSONValue) throws -> BotJSONValue {
         guard case .object(let args) = arguments else { throw BotCardPayloadError.invalid("arguments must be an object") }
+        _ = try contentCardFinal(tool: tool, arguments: arguments)
         let card: BotJSONValue
         switch tool {
         case "ask_user": card = try question(args)
@@ -22,6 +23,22 @@ public enum BotCardPayloads {
         default: throw BotCardPayloadError.invalid("unknown or non-P0 card tool: \(tool)")
         }
         return .object(["ok": .bool(true), "card": card])
+    }
+
+    /// P26: `final` is input-only control metadata. It is validated as a JSON
+    /// boolean and intentionally stripped from the card payload, so every
+    /// existing `card.presented`/golden byte stays unchanged. Tools without the
+    /// flag (including ask_user/show_next_steps) always return false.
+    public static func contentCardFinal(tool: String, arguments: BotJSONValue) throws -> Bool {
+        guard BotToolCatalog.contentCardNames.contains(tool) else { return false }
+        guard case .object(let args) = arguments else {
+            throw BotCardPayloadError.invalid("arguments must be an object")
+        }
+        guard let raw = args["final"] else { return false }
+        guard case .bool(let flag) = raw else {
+            throw BotCardPayloadError.invalid("final 必须是 boolean。")
+        }
+        return flag
     }
 
     private static func question(_ args: [String: BotJSONValue]) throws -> BotJSONValue {

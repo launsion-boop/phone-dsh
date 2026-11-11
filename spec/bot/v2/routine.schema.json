@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BotRoutine v1",
-  "description": "One routine record. run_state, quiet_defer, next_run_at and last_result are nullable and may be absent: absent is equivalent to null, and Swift's synthesized encoder omits a nil member (see spec/bot/v2/README.md §2.2). Persistent routine snapshots are wrapped by routine-document.schema.json.",
+  "description": "One routine record. run_state, quiet_defer, next_run_at and last_result are nullable and may be absent: absent is equivalent to null, and Swift's synthesized encoder omits a nil member (see spec/bot/v2/README.md §2.3). Persistent routine snapshots are wrapped by routine-document.schema.json.",
   "type": "object",
   "required": ["id", "agentId", "title", "prompt", "schedule", "enabled", "idempotent", "urgent", "urgent_reason", "delivery", "interrupt_reason", "created_at", "attempt"],
   "properties": {
@@ -17,6 +17,9 @@
     "delivery": {"enum": ["held", "interrupt"]},
     "interrupt_reason": {"type": "string"},
     "created_at": {"type": "integer", "minimum": 0},
+    "creator": {"type": "object", "required": ["origin", "authorization"], "properties": {"rpcId": {"type": "string", "minLength": 1}, "turnId": {"type": "string", "minLength": 1}, "sessionId": {"type": "string", "minLength": 1}, "origin": {"enum": ["user", "held", "agent", "routine", "task", "task-wake", "unknown"]}, "authorization": {"enum": ["user-turn", "user-confirmed"]}, "approvalID": {"type": "string", "minLength": 1}}, "additionalProperties": true},
+    "completion_criteria": {"type": "string", "maxLength": 2000},
+    "constraints": {"type": "string", "maxLength": 2000},
     "attempt": {"type": "integer", "minimum": 0},
     "run_state": {"type": ["object", "null"]},
     "quiet_defer": {"type": ["object", "null"], "required": ["until", "scheduledFor", "at"], "properties": {"until": {"type": "integer", "minimum": 0}, "scheduledFor": {"type": "integer", "minimum": 0}, "at": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
@@ -27,5 +30,6 @@
     "next_run_at": {"type": ["integer", "null"], "minimum": 0},
     "last_result": {"type": ["object", "null"]}
   },
+  "allOf": [{"if": {"properties": {"creator": {"type": "object", "properties": {"authorization": {"const": "user-confirmed"}}, "required": ["authorization"]}}, "required": ["creator"]}, "then": {"properties": {"creator": {"required": ["approvalID"]}}}}],
   "additionalProperties": true
 }

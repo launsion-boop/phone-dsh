@@ -15,6 +15,7 @@ import PhoneDSH
 import PhoneDSHBot
 import PhoneDSHEngine
 import PhoneDSHHarness
+import PhoneDSHGateway
 import PhoneDSHScenario
 import PhoneDSHAgentCore
 import PhoneDSHLog
@@ -203,6 +204,11 @@ final class BotEvalRunnerTests: XCTestCase {
         let bundle = try Self.bundle()
         let launch = try await BotRuntimeComposition.prepare(
             store: store, profileStore: profileStore, selectedBotID: "main",
+            // The record service reads the same materialized session logs as
+            // the host. Without this, `phone record`, evidence resolution and
+            // the reserved current-turn lookup would all read the App's
+            // default root instead of this run's host root.
+            workspaceRoot: workspaceRoot,
             now: { schedulerClock.now },
             sleep: { await schedulerClock.sleep(milliseconds: $0) })
         let mcpPolicy = MCPEgressPolicy()
@@ -224,6 +230,7 @@ final class BotEvalRunnerTests: XCTestCase {
             bundle: bundle,
             allowedModelHosts: [modelRule],
             egressAllowHosts: Set(scenario.network.allow),
+            replaySafeModelEndpoints: ModelGatewayConfiguration.standardModelEndpoints(baseURL: modelBaseURL),
             credentialProvider: PhoneMCPCredentialProvider(
                 policy: mcpPolicy, base: credentialProvider),
             egressAuthorizer: mcpPolicy,
@@ -231,6 +238,12 @@ final class BotEvalRunnerTests: XCTestCase {
             nativeMCP: nil,
             drainDeadline: 5,
             helloTimeout: 180)
+        // The eval host lacks the Rust accelerator provider; serve the one
+        // host command the verifier contract promises (phone record) through
+        // the production BotRecordService so a real verifier can cite records.
+        configuration.execProvider = EvalPhoneRecordExecProvider(
+            service: launch.composition.recordService)
+        configuration.acceleratorNames = ["phone"]
         configuration.engine.bootTimeout = 180
         configuration.turnInactivityTimeout = 600
         _ = NSApplication.shared
@@ -316,11 +329,22 @@ final class BotEvalRunnerTests: XCTestCase {
             let allEvents = try await BotProductionEventReader.all(domain: store)
             let calls = try await collectToolCalls(
                 events: allEvents, context: context)
+            let sessionEvents = await collectSessionEvents(context: context)
             let memories = await collectMemories(context: context)
             let botWorkspaces = workspacePaths(context: context)
             let approvalCounts = Dictionary(grouping: allEvents.filter { $0.type == "approval.requested" },
                                             by: { $0.principal.botId ?? "main" })
                 .mapValues(\.count)
+            var advertisedTools = Set<String>()
+            var advertisedToolsBySession = [String: Set<String>]()
+            if let mock {
+                for request in mock.requests {
+                    let names = EvalMockScripts.advertisedTools(from: request.body)
+                    advertisedTools.formUnion(names)
+                    let session = EvalMockScripts.sessionKind(from: request.body)
+                    advertisedToolsBySession[session, default: []].formUnion(names)
+                }
+            }
             let snapshot = EvalSnapshot(
                 mainBotID: context.mainBotID,
                 botIDs: context.aliases,
@@ -329,8 +353,14 @@ final class BotEvalRunnerTests: XCTestCase {
                 toolCalls: calls,
                 memories: memories,
                 workspaces: botWorkspaces,
+                workspaceRoot: context.workspaceRoot,
                 scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true),
-                echoRequests: echo.requests)
+                workspaceVolume: EvalWorkspaceSeed.materializedWorkspaces(
+                    workspaceRoot: workspaceRoot),
+                sessionEvents: sessionEvents,
+                echoRequests: echo.requests,
+                advertisedTools: advertisedTools,
+                advertisedToolsBySession: advertisedToolsBySession)
             try FileManager.default.createDirectory(
                 at: snapshot.scratchRoot, withIntermediateDirectories: true)
             var assertionResults: [EvalAssertionResult] = []
@@ -350,7 +380,18 @@ final class BotEvalRunnerTests: XCTestCase {
             let status: String
             if fatal != nil {
                 status = "ERROR"
-            } else if assertionResults.allSatisfy(\.ok) {
+            } else if scenario.expect == "fail" {
+                // The self-check catalog's controlled-failure scenario states
+                // every assertion's expected truth value and expects the
+                // repeat itself to FAIL. If every predicate matches, keep the
+                // intentional failure; an unexpected pass makes the run PASS
+                // and the gate then rejects it.
+                status = assertionResults.contains(where: { !$0.ok }) ? "FAIL" : "PASS"
+            } else if assertionResults.allSatisfy({ $0.ok == $0.expectedOK }) {
+                // A self-check assertion may declare `expect_ok: false` and
+                // pass by failing; the product catalogs never carry
+                // expect_ok, so their expectedOK is always true and any
+                // failed predicate still fails the repeat.
                 status = "PASS"
             } else {
                 status = "FAIL"
@@ -451,6 +492,44 @@ final class BotEvalRunnerTests: XCTestCase {
             }
             return EvalActionOutcome(status: "ok", detail: nil, replies: replies)
 
+        case "agent_message":
+            // The host delivers this as another Bot's message: the same
+            // production `sendAgentMessage` seam the team host uses, with an
+            // `agent:` request id. The main Bot's willingness to call
+            // SendToAgent is deliberately not part of this scenario.
+            let botID = try context.botID(for: action.bot)
+            let fromBotID = try context.botID(for: action.fromBot ?? "main")
+            let unit = try await context.unit(for: botID)
+            let turn = context.nextTurn(botID)
+            let cursor = try await context.lastCommitSeq()
+            context.installMock(action.mock ?? context.scenario.mock)
+            let watcher = context.startApprovalWatcher()
+            let result: BotRemoteTurnResult
+            do {
+                let requestId = "agent:\(context.nonce("agent", action: action, repeat: index))"
+                let senderName = context.composition.rosterModel.bots
+                    .first { $0.id == fromBotID }?.name ?? fromBotID
+                let prompt = "[agent] \(senderName) (id: \(fromBotID)): \(action.text ?? "")"
+                result = try await pumped(timeout: context.actionTimeout(action)) {
+                    try await unit.remote.sendAgentMessage(
+                        prompt, requestId: requestId)
+                }
+            } catch {
+                watcher.cancel()
+                throw error
+            }
+            watcher.cancel()
+            let replies = try await context.replies(
+                after: cursor, botID: botID, turn: turn,
+                action: action, repeat: index)
+            guard result.status == "completed" else {
+                throw EvalRunnerError.action(
+                    "agent turn ended with \(result.status)"
+                    + (result.error.map { ": \($0)" } ?? ""))
+            }
+            return EvalActionOutcome(
+                status: "ok", detail: "agent message from \(fromBotID)", replies: replies)
+
         case "seed_held_item":
             let botID = try context.botID(for: action.bot)
             let unit = try await context.unit(for: botID)
@@ -518,12 +597,43 @@ final class BotEvalRunnerTests: XCTestCase {
                     : "plannedRestart completed",
                 replies: [])
 
+        case "run_maintenance":
+            let botID = try context.botID(for: action.bot)
+            let unit = try await context.unit(for: botID)
+            if let enabled = action.enabled {
+                await unit.info.setMaintenanceEnabled(enabled)
+            }
+            context.installMock(action.mock ?? context.scenario.mock)
+            let before = try await context.lastCommitSeq()
+            let batch = try await pumped(timeout: context.actionTimeout(action)) {
+                await unit.maintenance.runNow(trigger: .manual, force: action.force ?? true)
+            }
+            let after = try await BotProductionEventReader.all(domain: context.store)
+            let started = after.contains {
+                ($0.commitSeq ?? 0) > before && $0.type == "memory.maintenance_started"
+            }
+            if let batch {
+                return EvalActionOutcome(
+                    status: "ok",
+                    detail: "maintenance \(batch.batch.batchID): \(batch.batch.status.rawValue) "
+                        + "changes=\(batch.batch.changes.count) started=\(started)",
+                    replies: [])
+            }
+            return EvalActionOutcome(
+                status: "skipped",
+                detail: "maintenance did not run (disabled, busy, or no trigger; started=\(started))",
+                replies: [])
+
         case "advance_clock":
             guard let seconds = action.seconds, seconds > 0 else {
                 throw EvalRunnerError.invalid("advance_clock needs positive seconds")
             }
             let botID = try context.botID(for: action.bot)
             let unit = try await context.unit(for: botID)
+            // A due routine runs a hidden model turn. Install this action's
+            // script (or the scenario default) before advancing so the routine
+            // turn does not replay the previous user action's mock.
+            context.installMock(action.mock ?? context.scenario.mock)
             let before = try await BotProductionEventReader.all(domain: context.store)
             let priorEventIDs = Set(before.map(\.eventId))
             context.schedulerClock.advance(seconds: Int64(seconds))
@@ -638,19 +748,50 @@ final class BotEvalRunnerTests: XCTestCase {
             return EvalActionOutcome(status: "ok", detail: "erased user scope", replies: [])
 
         case "forget_memory":
-            let facts = try await unit.info.load().memories
-            let match: BotMemoryFact?
+            let documents = try await unit.info.load().memories
+            let match: BotProductionMemoryDocument?
             if let id = action.factID {
-                match = facts.first { $0.factID == id }
+                match = documents.first { $0.document.path == id }
             } else {
-                match = facts.first { $0.text.contains(action.factContains ?? "") }
+                match = documents.first {
+                    $0.document.content.contains(action.factContains ?? "")
+                }
             }
-            guard let fact = match else {
+            guard let document = match else {
                 throw EvalRunnerError.invalid(
-                    "no memory fact matched \(action.factID ?? action.factContains ?? "")")
+                    "no memory document matched \(action.factID ?? action.factContains ?? "")")
             }
-            try await unit.info.forget(factID: fact.factID)
-            return EvalActionOutcome(status: "ok", detail: "forgot \(fact.factID)", replies: [])
+            try await unit.info.forget(
+                path: document.document.path,
+                expectedVersion: document.document.version)
+            return EvalActionOutcome(
+                status: "ok", detail: "forgot \(document.document.path)", replies: [])
+
+        case "await_task":
+            // Asynchronous Task verification finishes after the parent's
+            // visible turn. Wait for the durable settled marker instead of
+            // letting the scenario tear the host down mid-verification.
+            let events = try await BotProductionEventReader.all(domain: context.store)
+            let taskID = action.taskID
+                ?? events.last(where: {
+                    $0.type == "task.created" && $0.principal.botId == botID
+                })?.data["task_id"]?.stringValue
+            guard let taskID, !taskID.isEmpty else {
+                throw EvalRunnerError.invalid("no task to await")
+            }
+            let deadline = Date().addingTimeInterval(context.actionTimeout(action))
+            while Date() < deadline {
+                let current = try await BotProductionEventReader.all(domain: context.store)
+                if current.contains(where: {
+                    $0.type == "task.settled" && $0.principal.botId == botID
+                        && $0.data["task_id"]?.stringValue == taskID
+                }) {
+                    return EvalActionOutcome(
+                        status: "ok", detail: "task \(taskID) settled", replies: [])
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            throw EvalRunnerError.timeout("task \(taskID) did not settle")
 
         case "stop_task":
             let events = try await BotProductionEventReader.all(domain: context.store)
@@ -700,12 +841,28 @@ final class BotEvalRunnerTests: XCTestCase {
         return calls
     }
 
-    private func collectMemories(context: EvalRunContext) async -> [String: [BotMemoryFact]] {
-        var result: [String: [BotMemoryFact]] = [:]
+    /// Parse the same production session log the tool-call evidence uses. The
+    /// `session_event` assertion reads compaction checkpoints and a turn's
+    /// `source.rpcId` origin here, not from the durable BotEvent journal.
+    private func collectSessionEvents(context: EvalRunContext) async -> [String: [BotDSHSessionEvent]] {
+        var result: [String: [BotDSHSessionEvent]] = [:]
+        for botID in context.knownBotIDs {
+            guard let unit = context.composition.unit(for: botID),
+                  let sessionID = await unit.remote.mainSessionIdentifier() else { continue }
+            guard let url = latestSessionLog(
+                workspaceRoot: context.workspaceRoot, sessionID: sessionID) else { continue }
+            guard let data = try? Data(contentsOf: url) else { continue }
+            result[botID] = BotDSHSessionEvent.parseJSONL(data).events
+        }
+        return result
+    }
+
+    private func collectMemories(context: EvalRunContext) async -> [String: [BotMemoryDocument]] {
+        var result: [String: [BotMemoryDocument]] = [:]
         for botID in context.knownBotIDs {
             guard let unit = context.composition.unit(for: botID) else { continue }
             if let snapshot = try? await unit.info.load() {
-                result[botID] = snapshot.memories
+                result[botID] = snapshot.memories.map(\.document)
             }
         }
         return result
@@ -1113,7 +1270,7 @@ struct EvalRepeatRecord {
     var events: [BotEvent]
     var replies: [EvalReply]
     var toolCalls: [EvalToolCallRecord]
-    var memories: [String: [BotMemoryFact]]
+    var memories: [String: [BotMemoryDocument]]
     var workspaces: [String: URL]
     var autoDecisions: [String]
     var approvalRequests: [String: Int]

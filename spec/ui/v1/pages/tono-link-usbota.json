@@ -13,7 +13,7 @@
   "source": {
     "file": "TonoLinkUSBOTAPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/TonoLinkUSBOTAPage.swift",
-    "lines": 425,
+    "lines": 428,
     "structLine": 219,
     "renderedFrom": [
       "body"

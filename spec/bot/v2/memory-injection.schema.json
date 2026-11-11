@@ -1,11 +1,23 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BotMemoryInjection v1",
+  "title": "BotMemoryInjection v2",
+  "description": "The only memory content injected every turn: the two root INDEX.md documents and the ownership/visibility explanation. Index writes above the hard limit are rejected; injection never truncates.",
   "type": "object",
   "required": ["text", "limits"],
   "properties": {
-    "text": {"type": "string", "maxLength": 12000},
-    "limits": {"type": "object", "required": ["profile", "notes", "log", "total"], "properties": {"profile": {"const": 2000}, "notes": {"const": 1000}, "log": {"const": 1500}, "total": {"const": 4000}}, "additionalProperties": false}
+    "text": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "limits": {
+      "type": "object",
+      "required": ["index", "total"],
+      "properties": {
+        "index": {"const": 1500},
+        "total": {"const": 4000}
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

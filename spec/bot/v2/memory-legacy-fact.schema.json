@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryLegacyFact v1",
+  "description": "Pre-v2 fact payload read only by the one-time migration. The live model is a document tree; tier/scope here describes legacy input, not a writable memory shape.",
+  "type": "object",
+  "required": [
+    "fact_id",
+    "text",
+    "learned_at_ms",
+    "tier",
+    "scope"
+  ],
+  "properties": {
+    "fact_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "learned_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tier": {
+      "enum": [
+        "profile",
+        "log",
+        "note"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "agent",
+        "user"
+      ]
+    },
+    "key": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200
+    },
+    "trust": {},
+    "sensitivity": {
+      "enum": [
+        "low",
+        "personal",
+        "sensitive"
+      ]
+    },
+    "importance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "last_used_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "extractor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "user-turn",
+            "hidden-wake",
+            "agent-message",
+            "routine",
+            "task"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {}
+      }
+    },
+    "superseded_by": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "expires_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "applicableWhen": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "notApplicableWhen": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "extractRunId": {
+      "type": "string"
+    },
+    "archived": {
+      "const": true
+    },
+    "archived_at_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "archive_reason": {
+      "type": "string"
+    },
+    "l2": {
+      "const": true
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+        "maxLength": 128
+      }
+    }
+  },
+  "additionalProperties": true
+}

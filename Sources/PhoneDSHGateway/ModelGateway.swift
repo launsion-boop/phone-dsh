@@ -224,6 +224,53 @@ public protocol MCPEgressGating: EgressHostAuthorizing {
     func admitsMCPEgress(to url: URL, headers: [String: String]) -> Bool
 }
 
+/// One network write the host is about to send through `/v1/http`.
+///
+/// `method` is the upper-cased upstream method; `url` is the parsed target.
+/// The approval layer uses only the method and the lower-cased host; the path,
+/// query and fragment never participate in the Grant key.
+public struct BotEgressWriteRequest: Equatable, Sendable {
+    public var method: String
+    public var url: URL
+
+    public init(method: String, url: URL) {
+        self.method = method
+        self.url = url
+    }
+
+    /// Operation name of the Grant this write needs, for example `egress.post`.
+    public var operation: String { "egress.\(method.lowercased())" }
+    /// Host-only Grant resource. Scheme, port, path and query are excluded so
+    /// one approval covers a host's writes on the approved method.
+    public var resource: String {
+        let host = url.host?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return "host=\(host)"
+    }
+}
+
+/// The outcome of the Bot egress approval layer.
+public enum BotEgressWriteDecision: Equatable, Sendable {
+    /// The write is a Bot write and the user authorized it (now or earlier).
+    case allow
+    /// The write is not attributable to a Bot session; keep the ordinary
+    /// allow-list behaviour (workbench unchanged).
+    case notBot
+    /// The write must not leave the host. `code` is the stable lower-snake
+    /// cause the `/v1/http` failure envelope carries.
+    case deny(code: String, message: String)
+}
+
+/// Host-composition seam that decides Bot network writes at the `/v1/http`
+/// exit (spec/v1/gateway-security.md §5, spec/bot/v1/README.md §2.4).
+///
+/// The gateway calls this only for POST/PUT/PATCH/DELETE, after the allow-list
+/// and the exact-MCP egress gate, and before credential resolution, response
+/// logging, redirect following or any socket. An implementation that has no
+/// Bot runtime returns ``BotEgressWriteDecision/notBot``.
+public protocol BotEgressWriteApproving: Sendable {
+    func approveBotEgressWrite(_ request: BotEgressWriteRequest) async -> BotEgressWriteDecision
+}
+
 /// One downstream response chunk. The first chunk carries `status` and the
 /// response headers; later chunks carry body bytes only; the last chunk has
 /// `isFinal` set. The loopback layer maps this 1:1 to its `HTTPEgressChunk`.
@@ -266,6 +313,14 @@ public enum ModelGatewayError: Error, Equatable, Sendable {
     /// resolved or injected, before a socket is opened and before a
     /// response-log entry is written (spec/bot/v1/mcp-endpoint.md §1.1).
     case mcpEgressForbidden
+    /// A Bot session's network write was denied, cancelled or timed out at the
+    /// Bot egress approval layer, or a Task session lacks
+    /// `task.network-write`. `code` is the specific stable cause
+    /// (`egress_approval_denied`, `bot_egress_ambiguous`,
+    /// `bot_egress_unattributed`, `task_network_write_denied`); the loopback
+    /// class stays one `egress_approval_denied` 403. Answered before
+    /// credential resolution, any socket and any response-log entry.
+    case egressApprovalDenied(code: String, message: String)
 }
 
 extension ModelGatewayError: LocalizedError {
@@ -287,6 +342,10 @@ extension ModelGatewayError: LocalizedError {
             return "upstream \(host) answered HTTP \(status)"
         case .mcpEgressForbidden:
             return "the MCP egress credential is missing or invalid"
+        case .egressApprovalDenied(_, let reason):
+            return reason.isEmpty
+                ? "the Bot did not approve this network write"
+                : "the Bot did not approve this network write: \(reason)"
         }
     }
 }
@@ -313,6 +372,8 @@ extension ModelGatewayError {
             return "upstream_status"
         case .mcpEgressForbidden:
             return "mcp_egress_forbidden"
+        case .egressApprovalDenied(let code, _):
+            return code.isEmpty ? "egress_approval_denied" : code
         }
     }
 
@@ -321,7 +382,7 @@ extension ModelGatewayError {
     /// disallowed origin, 502 for a proxy-side failure.
     public var proxyStatusCode: Int {
         switch self {
-        case .hostNotAllowed, .mcpEgressForbidden:
+        case .hostNotAllowed, .mcpEgressForbidden, .egressApprovalDenied:
             return 403
         case .invalidRequest:
             return 400
@@ -331,7 +392,9 @@ extension ModelGatewayError {
         }
     }
 
-    /// Value of the `X-PDSH-Proxy-Error` header for `proxyStatusCode`.
+    /// Value of the `X-PDSH-Proxy-Error` header for `proxyStatusCode`. An
+    /// egress-approval denial keeps its specific stable cause; only the
+    /// loopback `xl_error.code` class is the generic `egress_approval_denied`.
     public var proxyErrorCode: String {
         switch self {
         case .hostNotAllowed:
@@ -346,6 +409,8 @@ extension ModelGatewayError {
             return "shutting_down"
         case .mcpEgressForbidden:
             return "mcp_egress_forbidden"
+        case .egressApprovalDenied(let code, _):
+            return code.isEmpty ? "egress_approval_denied" : code
         }
     }
 }
@@ -374,6 +439,7 @@ extension ModelGatewayError: CustomNSError {
         case .transportFailure: return 6
         case .upstreamStatus: return 7
         case .mcpEgressForbidden: return 8
+        case .egressApprovalDenied: return 9
         }
     }
 
@@ -479,6 +545,10 @@ public actor ModelGateway {
     private nonisolated let credentialProvider: any CredentialProvider
     private nonisolated let officialDeepSeekWebCredentialProvider: (any CredentialProvider)?
     private nonisolated let egressAuthorizer: (any EgressHostAuthorizing)?
+    /// Bot network-write approval at the `/v1/http` exit. `nil` keeps the
+    /// matrix's ordinary allow-list behaviour for every deployment without a
+    /// Bot runtime (workbench, tests, native MCP).
+    private nonisolated let botEgressApprover: (any BotEgressWriteApproving)?
     /// spec/v1/tono-account.md §5: which origins get the 401/503 inspection.
     private nonisolated let cloudResponsePolicy: TonoCloudResponsePolicy
     private nonisolated let responseLog: (any ResponseLogging)?
@@ -505,6 +575,9 @@ public actor ModelGateway {
     ///   - egressAuthorizer: Exact-URL MCP grant. An implementation that also
     ///     conforms to ``MCPEgressGating`` supplies the host-run egress
     ///     credential and gates every exact route it admits.
+    ///   - botEgressApprover: Bot network-write approval seam. The App installs
+    ///     the same live policy object it uses as `egressAuthorizer`; a
+    ///     deployment without a Bot runtime leaves this `nil`.
     ///   - officialDeepSeekWebCredentialProvider: Optional official web route.
     ///   - cloudResponsePolicy: The origins whose 401 `credential_expired` /
     ///     503 `identity_unavailable` answers are re-sent
@@ -515,6 +588,7 @@ public actor ModelGateway {
                 responseOutcomeHandler: (@Sendable (GatewayResponseReceipt) -> Void)? = nil,
                 clock: any GatewayClock = SystemGatewayClock(),
                 egressAuthorizer: (any EgressHostAuthorizing)? = nil,
+                botEgressApprover: (any BotEgressWriteApproving)? = nil,
                 officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil,
                 upstreamDiagnostics: GatewayUpstreamDiagnostics = .standardError,
                 cloudResponsePolicy: TonoCloudResponsePolicy = .production) {
@@ -526,6 +600,7 @@ public actor ModelGateway {
         self.responseOutcomeHandler = responseOutcomeHandler
         self.clock = clock
         self.egressAuthorizer = egressAuthorizer
+        self.botEgressApprover = botEgressApprover
         let rules = configuration.allowedUpstreamHosts.compactMap(GatewayHostRule.init(rawValue:))
         self.hostRules = rules
         let coordinator = GatewaySessionCoordinator(allowedHosts: rules,
@@ -674,6 +749,12 @@ public actor ModelGateway {
         return gate.admitsMCPEgress(to: request.url, headers: request.headers)
     }
 
+    /// Methods the Bot egress approval layer classifies as network writes.
+    /// GET and HEAD keep the matrix's ordinary allow-list behaviour.
+    nonisolated static func isBotEgressWriteMethod(_ method: String) -> Bool {
+        ["POST", "PUT", "PATCH", "DELETE"].contains(method.uppercased())
+    }
+
     // MARK: - Pump
 
     private nonisolated func perform(_ request: GatewayRequest,
@@ -705,6 +786,43 @@ public actor ModelGateway {
         guard !coordinator.isShutDown else {
             downstream.finish(throwing: ModelGatewayError.shuttingDown)
             return
+        }
+
+        // The exact-MCP grant is a second authorizer, not ordinary tool
+        // egress: the Bot MCP control routes (/approval, /identity/*, /mcp)
+        // and user connectors have their own credential gate, and asking for
+        // a network-write card for the approval request itself would recurse.
+        // Capture the admission once per exchange.
+        let admittedByMCPGrant = egressAuthorizer?.allowsEgressHost(url) ?? false
+
+        // Bot egress write approval (spec/v1/gateway-security.md §5): only the
+        // four network-write methods, never an exact MCP route, never a
+        // configured model-inference endpoint, and only after the allow-list
+        // and exact-MCP credential gate. The approval runs before the response
+        // log, any credential resolution, any redirect and any socket. A
+        // deployment without the Bot seam leaves this branch off.
+        var refusesBotEgressRedirects = false
+        if !admittedByMCPGrant,
+           Self.isBotEgressWriteMethod(method),
+           !Self.isReplaySafeRequest(method: method, url: url,
+                                     replaySafeModelEndpoints: configuration.replaySafeModelEndpoints),
+           let approver = botEgressApprover {
+            let request = BotEgressWriteRequest(method: method, url: url)
+            let approval = Task { await approver.approveBotEgressWrite(request) }
+            // A Worker disconnect cancels the pending card; the coordinator's
+            // 300 s deadline and workerRestarted/cancelAll remain the other
+            // terminal paths.
+            downstream.onCancellation { approval.cancel() }
+            switch await approval.value {
+            case .allow:
+                refusesBotEgressRedirects = true
+            case .notBot:
+                break
+            case .deny(let code, let message):
+                downstream.finish(throwing: ModelGatewayError.egressApprovalDenied(
+                    code: code, message: message))
+                return
+            }
         }
 
         let webProvider = OfficialDeepSeekWebRoute.matchesScope(url)
@@ -768,11 +886,6 @@ public actor ModelGateway {
         let requestMayRetry = webProvider == nil && Self.isReplaySafeRequest(
             method: method, url: url, replaySafeModelEndpoints: configuration.replaySafeModelEndpoints)
         var logSequence: UInt64 = 0
-        // The per-request egress authorizer is the host's exact-URL MCP grant:
-        // it admits an MCP endpoint the user explicitly added without widening
-        // the static allow-list. Capture the admission once per exchange; a
-        // revoked grant must not turn an in-flight response ordinary.
-        let admittedByMCPGrant = egressAuthorizer?.allowsEgressHost(url) ?? false
         // spec/v1/tono-account.md §5: the cloud origin's own rejections are
         // re-sent outside the backoff budget, with their own small counters.
         let inspectsCloudAnswers = webProvider == nil && cloudResponsePolicy.applies(to: url)
@@ -826,7 +939,8 @@ public actor ModelGateway {
             let attempt = coordinator.begin(
                 upstreamRequest,
                 carriesHostCredential: carriesHostCredential,
-                credential: carriesHostCredential ? credential : nil)
+                credential: carriesHostCredential ? credential : nil,
+                refuseRedirects: refusesBotEgressRedirects)
 
             var headReceived = false
             var headForwarded = false

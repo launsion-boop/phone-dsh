@@ -37,11 +37,14 @@ public struct BotEventEnvelopeCodec: Sendable {
         "task.updated", "task.stop_requested", "task.settled", "task.resumed", "background.started",
         "background.stop_requested", "background.settled", "routine.defined", "routine.updated",
         "routine.deleted", "routine.run_started", "routine.run_finished", "memory.written",
-        "memory.forgotten", "memory.imported", "memory.review_requested", "memory.review_resolved",
+        "memory.forgotten", "memory.document_written", "memory.document_deleted",
+        "memory.imported", "memory.review_requested", "memory.review_resolved",
+        "memory.maintenance_started", "memory.maintenance_finished",
+        "memory.maintenance_rolled_back",
         "effect.enqueued", "effect.attempted", "effect.acked", "effect.failed", "effect.dead_lettered",
         "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started",
         "runtime.exited", "proactive.considered", "ledger.usage_recorded", "watchdog.flagged",
-        "verification.reported",
+        "verification.reported", "redaction.applied", "erasure",
     ]
 
     public static let ephemeralEventTypes: Set<String> = [
@@ -56,7 +59,7 @@ public struct BotEventEnvelopeCodec: Sendable {
     ]
 
     private static let principalKinds: Set<String> = [
-        "chat", "task", "routine", "team", "proactive", "watchdog", "ipc",
+        "chat", "task", "routine", "verifier", "team", "proactive", "watchdog", "maintainer", "ipc",
     ]
 
     public init() {}
@@ -167,6 +170,26 @@ public struct BotEventEnvelopeCodec: Sendable {
         let event = try JSONDecoder().decode(BotEvent.self, from: data)
         try Self.validate(event)
         return event
+    }
+
+    /// Canonical JSON bytes of one event payload (`data`). The payload digest
+    /// is computed over exactly these bytes; the header keeps the metadata and
+    /// the digest so a cleared payload can never be reconstructed.
+    public func encodeData(_ data: BotJSONValue) throws -> Data {
+        guard case .object = data else {
+            throw BotEventValidationError.invalid("data", "event data must be an object")
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(data)
+    }
+
+    public func decodeData(_ data: Data) throws -> BotJSONValue {
+        let value = try JSONDecoder().decode(BotJSONValue.self, from: data)
+        guard case .object = value else {
+            throw BotEventValidationError.invalid("data", "event data must be an object")
+        }
+        return value
     }
 }
 

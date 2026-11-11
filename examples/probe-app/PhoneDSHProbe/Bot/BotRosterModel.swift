@@ -65,6 +65,10 @@ final class BotRosterModel {
     /// polling once a second; no other view reads it.
     @ObservationIgnored
     var onAnyBotRunningChange: ((Bool) -> Void)?
+    /// Fired after every applied roster snapshot. The production composition
+    /// keeps its synchronous main-Bot pointer in sync through this.
+    @ObservationIgnored
+    var onRosterChange: ((BotRoster) -> Void)?
 
     private let store: BotProfileStore
     private let selectionStore: BotSelectionStore
@@ -282,5 +286,6 @@ final class BotRosterModel {
         runtimeStates = runtimeStates.filter { ids.contains($0.key) }
         let isRunning = anyBotRunning
         if wasRunning != isRunning { onAnyBotRunningChange?(isRunning) }
+        onRosterChange?(snapshot)
     }
 }

@@ -150,20 +150,69 @@ public protocol BotTaskRestarting: Actor {
     func workerRestarted() async
 }
 
+/// Optional task-executor hook: a durable approval reached a terminal state.
+/// The executor resumes or closes the task/routine that was parked on it. It
+/// is also called for decisions restored after a process restart.
+public protocol BotApprovalResuming: Actor {
+    func approvalResolved(_ notice: BotApprovalResolutionNotice) async
+}
+
+/// Optional task-executor hook: an egress write became a durable todo while a
+/// tool call was still running. The executor may stop the turn so the task can
+/// park in one deterministic place (the Worker structural gate stops itself).
+public protocol BotApprovalPendingObserving: Actor {
+    func approvalBecamePending(_ state: BotDurableApprovalState) async
+}
+
+/// The optional work budget declared with a Task. `maxDurationMs` defaults to
+/// the existing `timeout_ms`; the verifier budget is derived from it and is
+/// never separately negotiable (P26 §2.8).
+public struct BotTaskBudget: Codable, Sendable, Equatable {
+    public static let minimumDurationMs = 1_000
+    public static let maximumDurationMs = 300_000
+
+    public var maxDurationMs: Int?
+
+    public init(maxDurationMs: Int? = nil) {
+        self.maxDurationMs = maxDurationMs
+    }
+
+    public func durationMs(taskTimeoutMs: Int) -> Int {
+        maxDurationMs ?? taskTimeoutMs
+    }
+
+    public var jsonValue: BotJSONValue {
+        var fields: [String: BotJSONValue] = [:]
+        if let maxDurationMs { fields["max_duration_ms"] = .number(Double(maxDurationMs)) }
+        return .object(fields)
+    }
+}
+
 public struct BotTaskRequest: Sendable, Equatable {
     public let parent: BotResolvedToolCall
     public let title: String
     public let prompt: String
     public let asynchronous: Bool
     public let timeoutMs: Int
+    /// Empty means the caller did not declare a checkable finish line.
+    public let completion: String
+    public let purpose: String?
+    public let constraints: [String]
+    public let budget: BotTaskBudget?
 
     public init(parent: BotResolvedToolCall, title: String, prompt: String,
-                asynchronous: Bool, timeoutMs: Int) {
+                asynchronous: Bool, timeoutMs: Int, completion: String = "",
+                purpose: String? = nil, constraints: [String] = [],
+                budget: BotTaskBudget? = nil) {
         self.parent = parent
         self.title = title
         self.prompt = prompt
         self.asynchronous = asynchronous
         self.timeoutMs = timeoutMs
+        self.completion = completion
+        self.purpose = purpose
+        self.constraints = constraints
+        self.budget = budget
     }
 }
 
@@ -175,9 +224,17 @@ public struct BotTaskRecord: Codable, Sendable, Equatable {
     public let result: String?
     public let partial: String?
     public let error: String?
+    public let completion: String?
+    public let purpose: String?
+    public let constraints: [String]
+    public let budget: BotTaskBudget?
+    public let verification: BotVerification?
 
     public init(taskId: String, sessionId: String, status: String, title: String,
-                result: String? = nil, partial: String? = nil, error: String? = nil) {
+                result: String? = nil, partial: String? = nil, error: String? = nil,
+                completion: String? = nil, purpose: String? = nil,
+                constraints: [String] = [], budget: BotTaskBudget? = nil,
+                verification: BotVerification? = nil) {
         self.taskId = taskId
         self.sessionId = sessionId
         self.status = status
@@ -185,6 +242,11 @@ public struct BotTaskRecord: Codable, Sendable, Equatable {
         self.result = result
         self.partial = partial
         self.error = error
+        self.completion = completion
+        self.purpose = purpose
+        self.constraints = constraints
+        self.budget = budget
+        self.verification = verification
     }
 
     public var jsonValue: BotJSONValue {
@@ -197,6 +259,11 @@ public struct BotTaskRecord: Codable, Sendable, Equatable {
         if let result { fields["result"] = .string(result) }
         if let partial { fields["partial"] = .string(partial) }
         if let error { fields["error"] = .string(error) }
+        if let completion, !completion.isEmpty { fields["completion"] = .string(completion) }
+        if let purpose, !purpose.isEmpty { fields["purpose"] = .string(purpose) }
+        if !constraints.isEmpty { fields["constraints"] = .array(constraints.map(BotJSONValue.string)) }
+        if let budget { fields["budget"] = budget.jsonValue }
+        if let verification { fields["verification"] = verification.jsonValue }
         return .object(fields)
     }
 }

@@ -1311,7 +1311,7 @@ final class ChatModel {
         botRuntimeState = .preparing
         do {
             let store = try SQLiteDomainStore.applicationSupport()
-            let launch = try await BotRuntimeComposition.prepare(store: store)
+            let launch = try await BotRuntimeComposition.prepare(store: store, workspaceRoot: workspaceRoot)
             launch.composition.onStateChange = { [weak self] state in
                 self?.botRuntimeState = state
             }
@@ -1660,9 +1660,11 @@ final class ChatModel {
         let toolBridge = CompositePhoneToolBridge(
             office: OfficeToolBridge(presenter: OfficePresenter()),
             phone: capabilityBridge)
+        let recordQuery = botLaunch.map { BotRecordPhoneAdapter(service: $0.composition.recordService) }
         let shell = PDSHShellProvider(materializedWorkspace: materializedWorkspace,
                                       materializedHome: materializedHome,
-                                      toolBridge: toolBridge)
+                                      toolBridge: toolBridge,
+                                      recordQuery: recordQuery)
         if !shell.acceleratorNames.isEmpty {
             configuration.accelerators = shell
             let names = shell.channelAcceleratorNames
@@ -2432,6 +2434,7 @@ final class ChatModel {
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
         appIsActive = phase == .active
+        BotPresenceCenter.shared.update(appActive: appIsActive)
         // PC lifecycle is connection-only: nothing to park or keep alive. On
         // foreground return, nudge the relay client's reconnect loop. The
         // phone's resume/rebuild/keep-alive state machine below must never run
@@ -2470,11 +2473,14 @@ final class ChatModel {
             }
             guard !parked, !keepingAlive else { return }
             beginBackgroundTask()
-            // A running turn is kept alive (the user's task continues), and so is
-            // an idle host while the TonoLink board's wake word is armed (a voice
-            // turn may arrive while backgrounded, tonolink-board.md §4.1); any
-            // other idle host is parked as before, which costs no battery.
-            if backgroundKeepAlive && (turnRunning || botTurnsRunning || TonoLinkVoiceHost.shared.isArmed) {
+            // A running turn is kept alive (the user's task continues), and so are
+            // any Bot's running turn, a routine due inside the keep-alive window,
+            // and an armed TonoLink wake word. Any other idle host is parked as
+            // before, which costs no battery.
+            let routineDueSoon = await botRuntime?.hasRoutineDueSoon() ?? false
+            if backgroundKeepAlive
+                && (turnRunning || botTurnsRunning || routineDueSoon
+                    || TonoLinkVoiceHost.shared.isArmed) {
                 do {
                     try beginKeepAlive()
                     appendStatus("App in background: keeping the agent alive with a silent audio session; the turn continues")
@@ -2524,6 +2530,7 @@ final class ChatModel {
         keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
         try keepAlive.start()
         keepingAlive = true
+        BotPresenceCenter.shared.update(keepingAlive: true)
         startBackgroundHeartbeat()
     }
 
@@ -2534,6 +2541,36 @@ final class ChatModel {
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false
+        BotPresenceCenter.shared.update(keepingAlive: false)
+    }
+
+    /// A tool is about to open another app (Shortcuts) mid-turn. Arm the
+    /// keep-alive audio now, while this app is still in the foreground: started
+    /// from `didEnterBackground` it can be refused, and the fallback park then
+    /// fails with "did not quiesce" because iOS has already frozen the Worker.
+    func prepareForExternalAppHandoff() {
+        guard backgroundKeepAlive, turnRunning, host != nil, !parked, !keepingAlive else { return }
+        do {
+            try beginKeepAlive()
+            appendStatus("Opening another app mid-turn: keep-alive audio armed in the foreground")
+        } catch {
+            appendStatus("Keep-alive audio failed before the app switch (\(NativeLogRedaction.error(error)))")
+        }
+    }
+
+    /// The open attempt finished. If the other app did not take the
+    /// foreground, release the audio armed by `prepareForExternalAppHandoff`.
+    func externalAppHandoffFinished(opened: Bool) {
+        guard keepingAlive else { return }
+        Task { [weak self] in
+            // The scene usually reports `.background` shortly after `open`
+            // returns; give it a moment before deciding nothing left.
+            if opened { try? await Task.sleep(for: .seconds(3)) }
+            guard let self, self.keepingAlive,
+                  UIApplication.shared.applicationState == .active else { return }
+            self.endKeepAlive()
+            self.appendStatus("No app switch happened; keep-alive audio released")
+        }
     }
 
     private func parkHost(_ host: PhoneDSHHost) async {
@@ -2815,6 +2852,7 @@ final class ChatModel {
             stopBackgroundHeartbeat()
             keepAlive.stop()
             keepingAlive = false
+            BotPresenceCenter.shared.update(keepingAlive: false)
             endBackgroundTask()
         }
         syncIdleTimer()
@@ -2912,7 +2950,8 @@ final class ChatModel {
     /// the TonoLink board's wake word is armed the host stays up instead: the
     /// next voice turn may arrive before the app returns (tonolink-board.md §4.1).
     private func finishBackgroundKeepAlive() async {
-        guard keepingAlive, !turnRunning, !botTurnsRunning, let host else { return }
+        let routineDueSoon = await botRuntime?.hasRoutineDueSoon() ?? false
+        guard keepingAlive, !turnRunning, !botTurnsRunning, !routineDueSoon, let host else { return }
         if TonoLinkVoiceHost.shared.isArmed {
             Self.persistStatus("Turn finished in the background; the board's wake word is armed, keeping the host up")
             return
@@ -2920,6 +2959,7 @@ final class ChatModel {
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false
+        BotPresenceCenter.shared.update(keepingAlive: false)
         appendStatus("Turn finished in the background; keep-alive audio stopped, parking the idle host")
         await parkHost(host)
     }
@@ -2972,6 +3012,8 @@ final class ChatModel {
     }
 
     private func observeHost(_ host: PhoneDSHHost) {
+        PhoneExternalAppHandoff.willOpen = { [weak self] in self?.prepareForExternalAppHandoff() }
+        PhoneExternalAppHandoff.didOpen = { [weak self] opened in self?.externalAppHandoffFinished(opened: opened) }
         hostEventTask?.cancel()
         let stream = host.eventStream()
         hostEventTask = Task { [weak self] in
@@ -3045,6 +3087,19 @@ final class ChatModel {
         accessModeError = nil
         accessModeLoading = false
         startedAt = nil
+        // A failed host never sends the open turn's `turn/end`: settle the
+        // turn here, or "已排队" and running tool rows stay on screen and the
+        // prompt cannot be retried (field report after a failed park).
+        finishStreamingAssistant()
+        finishStreamingReasoning()
+        if turnRunning {
+            for index in items.indices where items[index].toolState == .running {
+                items[index].toolState = .stopped
+            }
+            failedPrompt = lastPrompt
+            failedItemID = items.last(where: { if case .user = $0.kind { return true }; return false })?.id
+        }
+        queueLines.removeAll()
         turnRunning = false
         parked = false
         foregroundResumeRequested = false
@@ -3054,6 +3109,7 @@ final class ChatModel {
             stopBackgroundHeartbeat()
             keepAlive.stop()
             keepingAlive = false
+            BotPresenceCenter.shared.update(keepingAlive: false)
             endBackgroundTask()
         }
         syncIdleTimer()
@@ -4347,12 +4403,26 @@ final class ChatModel {
         return trimmed.count > 120 ? String(trimmed.prefix(120)) + "…" : trimmed
     }
 
-    /// 宿主回来的失败原话常常是英文并带接口域名,一律翻成一句中文;
-    /// 原话只写进 chat-status.log 供诊断导出。
+    /// 宿主回来的失败原话常常是英文并带接口域名,认得出的翻成一句中文;
+    /// 认不出的在中文后面带上一行精简原话,否则用户截图里看不到真实原因
+    /// (线上反馈:引擎中断和 400 都被说成「模型服务出错了」)。
+    /// 完整原话照旧写进 chat-status.log 供诊断导出。
     static func userFacingFailure(_ raw: String) -> String {
         let lower = raw.lowercased()
         Self.appendDiagnostic(NativeLogRedaction.failedTurn(raw))
-        // 六种说法,认不出来只写「没发出去」:宿主原句永远不上屏。
+        // Condensed is not enough on screen: mask URLs and credentials, keep the words.
+        let detail = ScreenSafeText.condensed(raw)
+        // 引擎自己的生命周期失败(后台暂停收尾失败、宿主进入 Failed)不是模型服务的问题。
+        if lower.contains("host state does not allow") || lower.contains("dsh host failed")
+            || lower.contains("did not quiesce") || lower.contains("drain window")
+            || lower.contains("host is not started") {
+            return "引擎中断了，请恢复引擎后重试（\(detail)）"
+        }
+        // 400:请求本身被拒,常见于会话里留着没有结果的工具调用。
+        if lower.contains("invalid_request") || lower.contains("bad request")
+            || lower.contains(" 400") || lower.hasPrefix("400") {
+            return "模型服务拒绝了这次请求（400：\(detail)）"
+        }
         if lower.contains("403") || lower.contains("forbidden") || lower.contains("host_not_allowed")
             || lower.contains("not on the configured allow-list") {
             return "模型服务拒绝访问（403，检查服务地址与允许列表）"
@@ -4379,9 +4449,9 @@ final class ChatModel {
             return "引擎停了"
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("500") {
-            return "模型服务出错了"
+            return "模型服务出错了（\(detail)）"
         }
-        return "没发出去"
+        return "没发出去（\(detail)）"
     }
 
     static func appendDiagnostic(_ line: String) {

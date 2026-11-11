@@ -7,13 +7,31 @@ final class BotModelPurposePolicyTests: XCTestCase {
     func testFrozenGoldenMatchesEveryPurposeDefaultAndLargeModelGate() throws {
         let fixture = try botGolden("model-purpose-policy")
         let policy = try botDecode(BotModelPurposePolicy.self, fixture["valid"]!)
-        XCTAssertEqual(policy, .frozen)
         XCTAssertEqual(policy.largeModelPurposes, [.frontTurn, .workerTurn])
         XCTAssertEqual(policy.purposes.count, 8)
+        // The phone-only maintenance purpose is additive: the upstream golden
+        // still has eight rows, and .frozen has one extra row.
+        XCTAssertEqual(BotModelPurposePolicy.frozen.purposes.count,
+                       BotModelPurpose.allCases.count)
+        for row in policy.purposes {
+            XCTAssertEqual(BotModelPurposePolicy.frozen.purposes.first {
+                $0.purpose == row.purpose
+            }, row)
+        }
+        XCTAssertNotNil(BotModelPurposePolicy.frozen.purposes.first {
+            $0.purpose == .memoryMaintenance
+        })
 
         for purpose in BotModelPurpose.allCases {
             XCTAssertEqual(BotModelPurposePolicy.allowsLargeModel(purpose), purpose.largeModelAllowed)
-            XCTAssertEqual(BotModelPurposePolicy.defaults(for: purpose), policy.purposes.first { $0.purpose == purpose }?.defaults)
+            if let goldenRow = policy.purposes.first(where: { $0.purpose == purpose }) {
+                XCTAssertEqual(BotModelPurposePolicy.defaults(for: purpose), goldenRow.defaults)
+            } else {
+                // Additive phone-only purpose: not in the shared upstream rows.
+                XCTAssertEqual(
+                    BotModelPurposePolicy.defaults(for: purpose),
+                    BotModelPurposePolicy.frozen.purposes.first { $0.purpose == purpose }?.defaults)
+            }
             if purpose.largeModelAllowed {
                 XCTAssertEqual(try BotModelPurposePolicy.assertModelAllowed(purpose: purpose, model: " deepseek-v4-pro "), "deepseek-v4-pro")
             } else {

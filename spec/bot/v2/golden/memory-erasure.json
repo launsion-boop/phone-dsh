@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-erasure",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-owned physical memory erasure vectors; there is no dsh-bot upstream file."
+  },
+  "upstream": [],
+  "delta": [
+    "Freeze the two delete strengths: UpdateMemory delete and the page's forget are logical; physical erase is a host-only path.",
+    "Freeze physical erase scope: one path with every historical version, the Bot's agent root, or the shared user root across Bots; count live documents, versions and cleared event payloads separately.",
+    "Freeze that agent-scope erase is bounded by the erasure writer's principal, that user-scope erase crosses Bots, and that uncovered session-log references are recorded rather than rewritten."
+  ],
+  "cases": [
+    {
+      "name": "single-document-all-versions-and-derived-copies",
+      "target": { "kind": "memory", "scope": "agent", "path": "agent/notes/secret.md" },
+      "botID": "main",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/secret.md",
+            "scope": "agent",
+            "botId": "main",
+            "live": true,
+            "versions": [
+              { "version": 1, "content": "# Secret\n- SECRET_MARKER_42 v1" },
+              { "version": 2, "content": "# Secret\n- SECRET_MARKER_42 v2" }
+            ],
+            "evidence": ["record://session/gb-main#5"]
+          },
+          {
+            "path": "agent/notes/keep.md",
+            "scope": "agent",
+            "botId": "main",
+            "live": true,
+            "versions": [{ "version": 1, "content": "keep this" }],
+            "evidence": []
+          }
+        ],
+        "events": [
+          { "seq": 1, "type": "memory.document_written", "botId": "main", "path": "agent/notes/secret.md" },
+          { "seq": 2, "type": "memory.document_written", "botId": "main", "path": "agent/notes/secret.md" },
+          { "seq": 3, "type": "memory.document_written", "botId": "main", "path": "agent/notes/keep.md" },
+          { "seq": 4, "type": "conversation.user_message", "botId": "main", "text": "please remember SECRET_MARKER_42" },
+          { "seq": 5, "type": "redaction.applied", "botId": "main", "refs": ["record://event/1"] },
+          { "seq": 6, "type": "ui.notice", "botId": "main", "text": "unrelated" }
+        ],
+        "erasureEventSeq": 7
+      },
+      "expect": {
+        "ok": true,
+        "scope": "agent",
+        "paths": ["agent/notes/secret.md"],
+        "removedDocuments": 1,
+        "removedVersions": 2,
+        "erasedEvents": [1, 2, 4, 5],
+        "survivingPaths": ["agent/notes/keep.md"],
+        "uncoveredRecords": ["record://session/gb-main#5"],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "agent-scope-isolated-from-another-bot",
+      "target": { "kind": "memory", "scope": "agent" },
+      "botID": "main",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/private.md",
+            "scope": "agent",
+            "botId": "main",
+            "live": true,
+            "versions": [{ "version": 1, "content": "MAIN_AGENT_MARKER_11" }],
+            "evidence": []
+          },
+          {
+            "path": "agent/INDEX.md",
+            "scope": "agent",
+            "botId": "main",
+            "live": true,
+            "versions": [{ "version": 1, "content": "# Index" }],
+            "evidence": []
+          },
+          {
+            "path": "agent/private.md",
+            "scope": "agent",
+            "botId": "bot-b",
+            "live": true,
+            "versions": [{ "version": 1, "content": "OTHER_AGENT_MARKER_22" }],
+            "evidence": []
+          }
+        ],
+        "events": [
+          { "seq": 1, "type": "memory.document_written", "botId": "main", "path": "agent/private.md" },
+          { "seq": 2, "type": "memory.document_written", "botId": "main", "path": "agent/INDEX.md" },
+          { "seq": 3, "type": "memory.document_written", "botId": "bot-b", "path": "agent/private.md" }
+        ],
+        "erasureEventSeq": 4
+      },
+      "expect": {
+        "ok": true,
+        "scope": "agent",
+        "paths": ["agent/INDEX.md", "agent/private.md"],
+        "removedDocuments": 2,
+        "removedVersions": 2,
+        "erasedEvents": [1, 2],
+        "survivingPaths": ["agent/private.md#bot-b"],
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "shared-user-root-crosses-bots",
+      "target": { "kind": "memory", "scope": "user" },
+      "botID": "main",
+      "state": {
+        "documents": [
+          {
+            "path": "user/profile.md",
+            "scope": "user",
+            "botId": "main",
+            "live": true,
+            "versions": [
+              { "version": 1, "content": "USER_MARKER_33 old" },
+              { "version": 2, "content": "USER_MARKER_33 new" }
+            ],
+            "evidence": []
+          },
+          {
+            "path": "user/INDEX.md",
+            "scope": "user",
+            "botId": "main",
+            "live": true,
+            "versions": [{ "version": 1, "content": "# Index" }],
+            "evidence": []
+          }
+        ],
+        "events": [
+          { "seq": 1, "type": "memory.document_written", "botId": "main", "path": "user/profile.md" },
+          { "seq": 2, "type": "memory.document_written", "botId": "main", "path": "user/profile.md" },
+          { "seq": 3, "type": "memory.document_written", "botId": "bot-b", "path": "user/profile.md" },
+          { "seq": 4, "type": "memory.document_written", "botId": "main", "path": "user/INDEX.md" }
+        ],
+        "erasureEventSeq": 5
+      },
+      "expect": {
+        "ok": true,
+        "scope": "user",
+        "paths": ["user/INDEX.md", "user/profile.md"],
+        "removedDocuments": 2,
+        "removedVersions": 3,
+        "erasedEvents": [1, 2, 3, 4],
+        "survivingPaths": [],
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "deleted-history-still-counts",
+      "target": { "kind": "memory", "scope": "agent", "path": "agent/plan.md" },
+      "botID": "main",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/plan.md",
+            "scope": "agent",
+            "botId": "main",
+            "live": false,
+            "versions": [
+              { "version": 1, "content": "PLAN_MARKER_44", "deleted": false },
+              { "version": 2, "content": "", "deleted": true }
+            ],
+            "evidence": []
+          }
+        ],
+        "events": [
+          { "seq": 1, "type": "memory.document_written", "botId": "main", "path": "agent/plan.md" },
+          { "seq": 2, "type": "memory.document_deleted", "botId": "main", "path": "agent/plan.md" }
+        ],
+        "erasureEventSeq": 3
+      },
+      "expect": {
+        "ok": true,
+        "scope": "agent",
+        "paths": ["agent/plan.md"],
+        "removedDocuments": 0,
+        "removedVersions": 2,
+        "erasedEvents": [1, 2],
+        "survivingPaths": [],
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "path-scope-mismatch",
+      "target": { "kind": "memory", "scope": "agent", "path": "user/profile.md" },
+      "botID": "main",
+      "error": "memory-path-invalid"
+    },
+    {
+      "name": "unknown-scope",
+      "target": { "kind": "memory", "scope": "all" },
+      "botID": "main",
+      "error": "memory-path-invalid"
+    },
+    {
+      "name": "missing-scope",
+      "target": { "kind": "memory" },
+      "botID": "main",
+      "error": "memory-path-invalid"
+    },
+    {
+      "name": "empty-path",
+      "target": { "kind": "memory", "scope": "agent", "path": "" },
+      "botID": "main",
+      "error": "memory-path-invalid"
+    }
+  ]
+}

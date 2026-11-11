@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotMemoryDocument v2",
+  "description": "One live Markdown document version. Paths are rooted at user/ or agent/; INDEX.md is the only per-turn injected document of each root.",
+  "type": "object",
+  "required": ["path", "scope", "content", "version", "updated_at_ms", "author", "evidence"],
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "scope": {
+      "enum": ["agent", "user"]
+    },
+    "content": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "author": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "bot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": ["chat", "task", "routine", "team", "proactive", "watchdog", "maintainer", "ui", "migration", "system"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
+        "maxLength": 128
+      }
+    },
+    "trust": {
+      "enum": ["user", "observation", "assistant", "import", "system"]
+    },
+    "source": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": ["user-turn", "hidden-wake", "agent-message", "routine", "task", "maintenance"]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turnId": {}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

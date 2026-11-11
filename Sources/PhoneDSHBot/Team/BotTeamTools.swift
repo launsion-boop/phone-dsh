@@ -7,7 +7,8 @@ import Foundation
 /// The implementation only depends on `BotTeamHost`; the App composition in
 /// `bm-app` supplies the roster, per-Bot turn delivery, held inbox and row
 /// persistence.
-public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
+public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
+    BotTurnAuthorizedTeamToolHandling {
     public static let sendToAgentName = "SendToAgent"
     public static let createTeammateName = "CreateTeammate"
     public static let maximumHops = 2
@@ -49,9 +50,24 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
         case Self.sendToAgentName:
             return await sendToAgent(arguments, principal: principal, context: context)
         case Self.createTeammateName:
-            return await createTeammate(arguments, principal: principal)
+            return await createTeammate(arguments, principal: principal, authority: nil)
         default:
             return .failure("unknown_tool", "Unknown tool: \(name)")
+        }
+    }
+
+    /// Runtime path: `CreateTeammate` sees the frozen turn authority so a
+    /// non-user creation can require and record the approval card.
+    public func execute(name: String, arguments: BotJSONValue,
+                        principal: BotGatewayPrincipal,
+                        context: BotMCPRequestContext,
+                        authority: BotTurnAuthority) async -> BotMCPCallResult {
+        switch name {
+        case Self.createTeammateName:
+            return await createTeammate(arguments, principal: principal, authority: authority)
+        default:
+            return await execute(name: name, arguments: arguments,
+                                 principal: principal, context: context)
         }
     }
 
@@ -195,7 +211,7 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
             if isTimeout(error) {
                 return .failure("timeout", BotTeamHostError.deliveryTimeout.description)
             }
-            return .failure("execution_failed", "送出失敗：\(failure)")
+            return .failure("execution_failed", "发送失败：\(failure)")
         }
 
         let inbound = BotTeamAgentCommRecord(
@@ -252,15 +268,16 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
         if duplicated { structured["duplicated"] = .bool(true) }
         if delivery == "queued" { structured["status"] = .string("held") }
         let text = delivery == "queued"
-            ? "已扣住給 \(target.name)：訊息會在對方下一個回合開頭交付，不會喚醒對方。"
-            : "已送出給 \(target.name)，回覆稍後以 agent-comm 訊息送達。"
+            ? "已扣住给 \(target.name)：消息会在对方下一个回合开头交付，不会唤醒对方。"
+            : "已发送给 \(target.name)，回复稍后以 agent-comm 消息送达。"
         return .success(.object(structured), text: text)
     }
 
     // MARK: - CreateTeammate
 
     private func createTeammate(_ arguments: BotJSONValue,
-                                principal: BotGatewayPrincipal) async -> BotMCPCallResult {
+                                principal: BotGatewayPrincipal,
+                                authority: BotTurnAuthority?) async -> BotMCPCallResult {
         guard case .object(let args) = arguments else {
             return .failure("invalid_arguments", "CreateTeammate arguments must be an object")
         }
@@ -302,25 +319,35 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding {
                 "CreateTeammate 只能由主 Bot 调用；当前 Bot \(senderName)"
                     + "（id: \(principal.botId)）不是主 Bot。")
         }
+        var author: BotTeammateAuthor?
+        if let authority {
+            guard let resolved = BotTeammateAuthor(authority: authority) else {
+                return .failure(
+                    "permission_denied",
+                    "CreateTeammate requires user confirmation in this turn")
+            }
+            author = resolved
+        }
 
         let created: BotProfile
         do {
             created = try await host.createBot(
-                name: name, description: description, color: color, hairstyle: hairstyle)
+                name: name, description: description, color: color, hairstyle: hairstyle,
+                author: author)
         } catch {
-            return .failure("execution_failed", "建立隊友失敗：\(String(describing: error))")
+            return .failure("execution_failed", "创建队友失败：\(String(describing: error))")
         }
 
-        var text = "已建立隊友「\(created.name)」（agent_id: \(created.id)）"
+        var text = "已创建队友「\(created.name)」（agent_id: \(created.id)）"
         if !description.isEmpty { text += " — \(description)" }
         if let color, let hairstyle {
-            text += "；外觀：顏色=\(color.rawValue)、髮型=\(hairstyle.rawValue)"
+            text += "；外观：颜色=\(color.rawValue)、发型=\(hairstyle.rawValue)"
         } else if let color {
-            text += "；外觀：顏色=\(color.rawValue)"
+            text += "；外观：颜色=\(color.rawValue)"
         } else if let hairstyle {
-            text += "；外觀：髮型=\(hairstyle.rawValue)"
+            text += "；外观：发型=\(hairstyle.rawValue)"
         } else {
-            text += "；外觀：依 Bot ID 自動組合"
+            text += "；外观：按 Bot ID 自动组合"
         }
         text += "。"
         return .success(.object([

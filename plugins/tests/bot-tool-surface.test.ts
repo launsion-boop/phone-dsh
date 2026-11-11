@@ -126,6 +126,40 @@ test('Bot sessions use a phone-bot preset that exposes exactly the prompt native
   ])
 })
 
+test('restricted presets declare exactly the contract tool rows', () => {
+  const verifier = preset('pdsh-verifier')
+  const verifierRows = flatten(verifier.config?.plugins as PatchRow[])
+  assert.deepEqual(verifierRows.map(row => row.id), [
+    'verifier-isolation', 'persona', 'tool-fs', 'tool-fs-search', 'tool-bash',
+  ])
+  const verifierTools = new Set<string>()
+  for (const row of verifierRows) {
+    if (row.name === '@deepseek-ai/dsh-tool-fs') {
+      assert.equal(row.config?.read, true)
+      verifierTools.add('read')
+      assert.equal(row.config?.write, false)
+      assert.equal(row.config?.edit, false)
+    } else if (row.name === '@deepseek-ai/dsh-tool-fs-search') {
+      for (const name of TOOL_ROWS['@deepseek-ai/dsh-tool-fs-search']!) verifierTools.add(name)
+    } else if (row.name === '@deepseek-ai/dsh-tool-bash') {
+      for (const name of TOOL_ROWS['@deepseek-ai/dsh-tool-bash']!) verifierTools.add(name)
+    }
+  }
+  assert.deepEqual([...verifierTools].sort(), ['bash', 'glob', 'grep', 'read'],
+    'the verifier preset may only mount the read-only contract surface')
+
+  const maintainer = preset('phone-bot-maintainer')
+  const maintainerRows = flatten(maintainer.config?.plugins as PatchRow[])
+  assert.deepEqual(maintainerRows.map(row => row.id), [
+    'tool-bash', 'maintainer-scope', 'persona',
+  ])
+  assert.deepEqual(maintainerRows.map(row => row.name), [
+    '@deepseek-ai/dsh-tool-bash',
+    '@phone-dsh/dsh-lifecycle-gate/maintainer-scope',
+    '@deepseek-ai/dsh-persona',
+  ])
+})
+
 test('the prompt declares exactly the P0 MCP tools and the preset native tools', () => {
   for (const lang of ['zh', 'en'] as const) {
     const declared = assemblePrompt({ lang }).mount.tools
@@ -176,4 +210,15 @@ test('only blank gb- sessions select the Bot preset; locked sessions stay recove
     },
   }
   await assert.rejects(selectBotAgentPreset(broken, bot, 'phone-bot'), /agent-preset\/not-found/)
+
+  // The committed identity is the tool boundary: a Worker that mounted a
+  // different preset must fail closed instead of keeping a wider surface.
+  const miscomposed: BotAgentPresetSelector = {
+    async select() {
+      return 'standard'
+    },
+  }
+  await assert.rejects(
+    selectBotAgentPreset(miscomposed, bot, 'phone-bot'),
+    /committed "standard" instead of "phone-bot"/)
 })

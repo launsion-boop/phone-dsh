@@ -24,7 +24,20 @@ interface AssistantStreamEvent {
 
 interface ToolExecution {
   readonly name: string
+  readonly arguments?: unknown
   readonly agent?: Agent
+}
+
+/** P26 content cards that accept the optional `final` wrap-up flag. */
+const CONTENT_CARD_TOOLS = new Set([
+  'show_attachment', 'show_document', 'show_progress', 'show_checklist', 'show_link',
+])
+
+function isFinalContentCard(name: string, args: unknown): boolean {
+  const bare = name.replace(/^mcp__[^_]+__/, '')
+  if (!CONTENT_CARD_TOOLS.has(bare)) return false
+  return args !== null && typeof args === 'object' && !Array.isArray(args)
+    && (args as { final?: unknown }).final === true
 }
 
 export interface StreamForwardConfig {
@@ -53,14 +66,21 @@ export default function dshbotStreamForward(ctx: Context, config: StreamForwardC
     if (sessionId && isHiddenMessage(message)) hidden.add(sessionId)
   })
 
-  ctx.on('tools/post-execute', async (exec: ToolExecution, _result: unknown, next: () => Promise<any>) => {
+  ctx.on('tools/post-execute', async (exec: ToolExecution, result: unknown, next: () => Promise<any>) => {
     const downstream = await next()
     const bare = exec.name.replace(/^mcp__[^_]+__/, '')
     const sessionId = String(exec.agent?.id ?? exec.agent?.session?.id ?? '')
-    if (sessionId && (bare === 'ask_user' || bare === 'show_next_steps')) {
-      const failed = downstream !== null && typeof downstream === 'object'
+    const terminalCard = isFinalContentCard(exec.name, exec.arguments)
+    if (sessionId && (bare === 'ask_user' || bare === 'show_next_steps' || terminalCard)) {
+      const resultIsError = result !== null && typeof result === 'object'
+        && (result as { isError?: boolean }).isError === true
+      const decisionIsError = downstream !== null && typeof downstream === 'object'
         && ((downstream as { isError?: boolean }).isError === true || (downstream as { kind?: string }).kind === 'block')
-      if (!failed) suppressing.add(sessionId)
+      // A failed final card never suppresses: the model may still have to
+      // explain the failure or fall back to prose. Notice that a thrown tool
+      // body reaches post-execute as a failed *result*, not as a block
+      // decision, so both the result and the decision are checked.
+      if (!resultIsError && !decisionIsError) suppressing.add(sessionId)
     }
     return downstream
   })

@@ -14,14 +14,51 @@ struct BotMCPTestFixture {
     }
 }
 
+/// Test resolver for `UpdateMemory.evidence`. It validates reference syntax
+/// but deliberately does not read a session log, so unit tests can exercise the
+/// source/trust stacking without a materialized store.
+final class FixedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked Sendable {
+    let trust: BotRecordTrust
+
+    init(trust: BotRecordTrust = .user) {
+        self.trust = trust
+    }
+
+    func resolveEvidence(_ references: [String], callerBotID: String,
+                         callerSessionID: String) async throws -> BotRecordEvidence {
+        var canonical: [String] = []
+        for reference in references {
+            guard let parsed = BotRecordReference.parse(reference) else {
+                throw BotRecordServiceError.invalidReference
+            }
+            canonical.append(parsed.canonical)
+        }
+        return BotRecordEvidence(trust: trust, refs: canonical)
+    }
+}
+
+/// Simulates S6 physical erasure for any cited record: the verifier must map
+/// this to `uncertain` with an explicit `record_erased` reason, never `passed`.
+final class ErasedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked Sendable {
+    func resolveEvidence(_ references: [String], callerBotID: String,
+                         callerSessionID: String) async throws -> BotRecordEvidence {
+        throw BotRecordServiceError.erasedRecord
+    }
+}
+
 func makeBotMCPFixture(
     volatileProvider: (any BotVolatileContextProviding)? = nil,
-    taskExecutor: (any BotTaskExecuting)? = nil
+    taskExecutor: (any BotTaskExecuting)? = nil,
+    recordEvidence: (any BotRecordEvidenceResolving)? = FixedRecordEvidenceResolver(),
+    approvalTimeoutMs: Int64 = BotApprovalCoordinator.defaultTimeoutMilliseconds,
+    approvalExpiryMs: Int64 = BotApprovalCoordinator.defaultDurableExpiryMilliseconds
 ) throws -> BotMCPTestFixture {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
     let runtime = BotMCPRuntime(
-        store: store, volatileProvider: volatileProvider, taskExecutor: taskExecutor, now: { 1_000 })
+        store: store, volatileProvider: volatileProvider, taskExecutor: taskExecutor,
+        recordEvidence: recordEvidence, now: { 1_000 },
+        approvalTimeoutMs: approvalTimeoutMs, approvalExpiryMs: approvalExpiryMs)
     return BotMCPTestFixture(directory: directory, store: store, runtime: runtime)
 }
 
@@ -38,6 +75,15 @@ func registerAndExecute(
     return await runtime.execute(
         name: name, arguments: arguments,
         context: BotMCPRequestContext(callId: callId))
+}
+
+/// Start a synthetic user turn so goal-widening tools (UpdateRoutine,
+/// CreateTeammate) see the same authority a real user message would give.
+func beginUserTurn(_ runtime: BotMCPRuntime, sessionId: String = "gb-main",
+                   rpcId: String = "bot-test") async {
+    await runtime.beginTurn(
+        sessionId: sessionId, hidden: false,
+        origin: BotTurnOrigin(rpcId: rpcId))
 }
 
 func botEvents(_ store: SQLiteDomainStore) async throws -> [BotEvent] {

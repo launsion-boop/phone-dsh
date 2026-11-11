@@ -68,10 +68,12 @@ final class BotConversationE2ETests: XCTestCase {
         let approval = try await approvalTask.value
         XCTAssertEqual(approval.structuredContent?["allowed"], .bool(true))
 
+        await beginUserTurn(fixture.runtime)
         let created = try await registerAndExecute(fixture.runtime, name: "UpdateRoutine", arguments: .object([
             "action": .string("create"), "title": .string("Morning"),
             "prompt": .string("Report the morning result"), "schedule": .string("@every 1m"),
         ]))
+        await fixture.runtime.endTurn(sessionId: "gb-main")
         let routineId = try XCTUnwrap(created.structuredContent?["id"]?.stringValue)
         transport.pause("gb-created-1")
         let sink = BotE2ESink()

@@ -190,9 +190,51 @@ public enum BotTeamHostError: Error, Sendable, Equatable, CustomStringConvertibl
         switch self {
         case .botNotFound(let id): return "Unknown Bot: \(id)"
         case .invalidTarget(let reason): return "Invalid agent target: \(reason)"
-        case .deliveryTimeout: return "目標 bot 未在時限內完成回合。"
+        case .deliveryTimeout: return "目标 Bot 未在时限内完成回合。"
         case .deliveryFailed(let reason): return "Agent delivery failed: \(reason)"
         case .rejected(let reason): return reason
+        }
+    }
+}
+
+/// Who asked for a teammate Bot. The description enters the new Bot's
+/// persona, so the authoring turn is recorded durably when the Bot is created.
+public struct BotTeammateAuthor: Codable, Sendable, Equatable {
+    public enum Authorization: String, Codable, Sendable {
+        case userTurn = "user-turn"
+        case userConfirmed = "user-confirmed"
+    }
+
+    public var rpcId: String?
+    public var turnId: String?
+    public var sessionId: String?
+    public var origin: BotTurnOriginKind
+    public var authorization: Authorization
+    public var approvalID: String?
+
+    public init(rpcId: String? = nil, turnId: String? = nil, sessionId: String? = nil,
+                origin: BotTurnOriginKind, authorization: Authorization,
+                approvalID: String? = nil) {
+        self.rpcId = rpcId
+        self.turnId = turnId
+        self.sessionId = sessionId
+        self.origin = origin
+        self.authorization = authorization
+        self.approvalID = approvalID
+    }
+
+    /// A non-user author must already carry the approval card that allowed the
+    /// creation; the tool refuses to fabricate `user-confirmed` without it.
+    public init?(authority: BotTurnAuthority) {
+        if authority.isUserTurn {
+            self.init(rpcId: authority.rpcId, turnId: authority.turnId,
+                      sessionId: authority.sessionId, origin: authority.origin,
+                      authorization: .userTurn)
+        } else {
+            guard let approvalID = authority.approvalID, !approvalID.isEmpty else { return nil }
+            self.init(rpcId: authority.rpcId, turnId: authority.turnId,
+                      sessionId: authority.sessionId, origin: authority.origin,
+                      authorization: .userConfirmed, approvalID: approvalID)
         }
     }
 }
@@ -210,6 +252,13 @@ public protocol BotTeamHost: Sendable {
     /// choose the explicit blue/long default".
     func createBot(name: String, description: String,
                    color: BotFishColor?, hairstyle: BotFishHairstyle?) async throws -> BotProfile
+
+    /// Author-audited creation. The App records `author` in a durable
+    /// `ui.system_event{event:"teammate.created"}`; a test host may keep the
+    /// default implementation and inspect the tool result instead.
+    func createBot(name: String, description: String,
+                   color: BotFishColor?, hairstyle: BotFishHairstyle?,
+                   author: BotTeammateAuthor?) async throws -> BotProfile
 
     /// Current hand-off context for the Bot that is calling a team tool.
     func agentCommContext(for botID: String) async -> BotAgentCommContext
@@ -230,4 +279,15 @@ public protocol BotTeamHost: Sendable {
     /// counter of the sender or target when that Bot is not currently
     /// selected. The host owns selection state.
     func recordAgentComm(_ record: BotTeamAgentCommRecord) async throws
+}
+
+public extension BotTeamHost {
+    /// Compatibility default: the legacy create path has no author audit.
+    /// Production overrides this to persist `author`.
+    func createBot(name: String, description: String,
+                   color: BotFishColor?, hairstyle: BotFishHairstyle?,
+                   author: BotTeammateAuthor?) async throws -> BotProfile {
+        try await createBot(
+            name: name, description: description, color: color, hairstyle: hairstyle)
+    }
 }

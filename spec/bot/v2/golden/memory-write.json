@@ -1,0 +1,871 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-write",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "records": {
+    "record://session/gb-main#3": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "bot-1",
+      "botId": "bot-a"
+    },
+    "record://session/gb-main#4": {
+      "kind": "session",
+      "type": "tool/call",
+      "tool": "web_fetch",
+      "botId": "bot-a"
+    },
+    "record://session/gb-main#5": {
+      "kind": "session",
+      "type": "tool/call",
+      "tool": "bash",
+      "botId": "bot-a"
+    },
+    "record://session/gb-main#6": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "held:1",
+      "botId": "bot-a"
+    },
+    "record://session/gb-main#7": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "agent:call-1",
+      "botId": "bot-a"
+    },
+    "record://event/7": {
+      "kind": "event",
+      "type": "conversation.user_message",
+      "rpcId": "user-action:1",
+      "botId": "bot-a"
+    },
+    "record://event/8": {
+      "kind": "event",
+      "type": "conversation.tool_result",
+      "tool": "mcp__weather__current",
+      "botId": "bot-a"
+    },
+    "record://event/9": {
+      "kind": "event",
+      "type": "comm.inbound",
+      "deviceTaskResult": {
+        "deviceID": "device-1",
+        "taskID": "task-1",
+        "status": "completed"
+      },
+      "botId": "bot-a"
+    },
+    "record://session/gb-other#3": {
+      "kind": "session",
+      "type": "user/message",
+      "rpcId": "bot-1",
+      "botId": "bot-b"
+    }
+  },
+  "evidenceCases": {
+    "valid": [
+      {
+        "name": "user-session-ref",
+        "refs": [
+          "record://session/gb-main#3"
+        ],
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
+        "name": "current-user-turn",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
+        "name": "current-user-turn-with-observation",
+        "refs": [
+          "current-user-turn",
+          "record://session/gb-main#4"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
+        "name": "event-user-ref",
+        "refs": [
+          "record://event/7"
+        ],
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
+        "name": "external-tool",
+        "refs": [
+          "record://session/gb-main#4"
+        ],
+        "trust": "observation",
+        "userBoundary": false
+      },
+      {
+        "name": "connector-event",
+        "refs": [
+          "record://event/8"
+        ],
+        "trust": "observation",
+        "userBoundary": false
+      },
+      {
+        "name": "device-task-result-observation",
+        "refs": [
+          "record://event/9"
+        ],
+        "trust": "observation",
+        "userBoundary": false
+      },
+      {
+        "name": "bash-result-is-inference",
+        "refs": [
+          "record://session/gb-main#5"
+        ],
+        "trust": "assistant",
+        "userBoundary": false
+      },
+      {
+        "name": "held-is-inference",
+        "refs": [
+          "record://session/gb-main#6"
+        ],
+        "trust": "assistant",
+        "userBoundary": false
+      },
+      {
+        "name": "agent-message-is-inference",
+        "refs": [
+          "record://session/gb-main#7"
+        ],
+        "trust": "assistant",
+        "userBoundary": false
+      },
+      {
+        "name": "mixed-user-wins",
+        "refs": [
+          "record://session/gb-main#4",
+          "record://session/gb-main#3"
+        ],
+        "trust": "user",
+        "userBoundary": true
+      },
+      {
+        "name": "no-evidence",
+        "refs": [],
+        "trust": "assistant",
+        "userBoundary": false
+      }
+    ],
+    "invalid": [
+      {
+        "name": "foreign-session",
+        "refs": [
+          "record://session/gb-other#3"
+        ],
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "unknown-event",
+        "refs": [
+          "record://event/99"
+        ],
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "malformed-reference",
+        "refs": [
+          "record://session/gb-main"
+        ],
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "too-many-refs",
+        "refs": [
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3",
+          "record://session/gb-main#3"
+        ],
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-hidden-turn",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "hidden",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-held-turn",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "held",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-missing",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": null,
+        "turn": "user-turn",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-foreign",
+        "refs": [
+          "current-user-turn"
+        ],
+        "currentUserTurn": "record://session/gb-other#3",
+        "turn": "user-turn",
+        "error": "memory-evidence-invalid"
+      },
+      {
+        "name": "current-user-turn-malformed-spelling",
+        "refs": [
+          "current-user-turn "
+        ],
+        "currentUserTurn": "record://session/gb-main#3",
+        "turn": "user-turn",
+        "error": "memory-evidence-invalid"
+      }
+    ]
+  },
+  "boundaryCases": [
+    {
+      "name": "user-turn-user-path",
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "path": "user/profile.md",
+      "ok": true
+    },
+    {
+      "name": "user-turn-observation-path",
+      "sourceKind": "user-turn",
+      "trust": "observation",
+      "path": "user/profile.md",
+      "ok": false,
+      "error": "memory-evidence-required"
+    },
+    {
+      "name": "agent-message-user-path",
+      "sourceKind": "agent-message",
+      "trust": "user",
+      "path": "user/profile.md",
+      "ok": false,
+      "error": "memory-source-boundary"
+    },
+    {
+      "name": "agent-message-agent-path",
+      "sourceKind": "agent-message",
+      "trust": "assistant",
+      "path": "agent/notes/a.md",
+      "ok": true
+    },
+    {
+      "name": "task-inbox-path",
+      "sourceKind": "task",
+      "trust": "assistant",
+      "path": "agent/inbox/gb-task-1/report.md",
+      "ok": true,
+      "sessionId": "gb-task-1"
+    },
+    {
+      "name": "task-outside-inbox",
+      "sourceKind": "task",
+      "trust": "assistant",
+      "path": "agent/notes/a.md",
+      "ok": false,
+      "error": "memory-scope-denied",
+      "sessionId": "gb-task-1"
+    },
+    {
+      "name": "maintainer-user-path-user-evidence",
+      "sourceKind": "maintenance",
+      "trust": "user",
+      "path": "user/profile.md",
+      "ok": true
+    },
+    {
+      "name": "maintainer-user-path-no-user-evidence",
+      "sourceKind": "maintenance",
+      "trust": "assistant",
+      "path": "user/profile.md",
+      "ok": false,
+      "error": "memory-evidence-required"
+    },
+    {
+      "name": "maintainer-agent-path",
+      "sourceKind": "maintenance",
+      "trust": "assistant",
+      "path": "agent/notes/maintained.md",
+      "ok": true
+    }
+  ],
+  "cases": [
+    {
+      "name": "create-document",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "agent/notes/plan.md",
+        "content": "# Plan\n\n- ship it",
+        "expected_version": 0,
+        "evidence": [
+          "record://session/gb-main#3"
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "path": "agent/notes/plan.md",
+        "scope": "agent",
+        "version": 1
+      }
+    },
+    {
+      "name": "append-document",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/plan.md",
+            "content": "# Plan",
+            "version": 2
+          }
+        ]
+      },
+      "request": {
+        "action": "append",
+        "path": "agent/notes/plan.md",
+        "content": "\n- ship it",
+        "expected_version": 2
+      },
+      "expect": {
+        "ok": true,
+        "path": "agent/notes/plan.md",
+        "scope": "agent",
+        "version": 3
+      }
+    },
+    {
+      "name": "replace-document",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/plan.md",
+            "content": "# Plan\n\n- ship it",
+            "version": 1
+          }
+        ]
+      },
+      "request": {
+        "action": "replace",
+        "path": "agent/notes/plan.md",
+        "find": "ship it",
+        "replace": "review it",
+        "expected_version": 1
+      },
+      "expect": {
+        "ok": true,
+        "path": "agent/notes/plan.md",
+        "scope": "agent",
+        "version": 2,
+        "replaced": 1
+      }
+    },
+    {
+      "name": "version-conflict",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/plan.md",
+            "content": "# Plan",
+            "version": 2
+          }
+        ]
+      },
+      "request": {
+        "action": "write",
+        "path": "agent/notes/plan.md",
+        "content": "# Other",
+        "expected_version": 1
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-version-conflict",
+        "current_version": 2
+      }
+    },
+    {
+      "name": "user-path-with-user-evidence",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "user/profile.md",
+        "content": "# Profile\n\n- 我叫小林",
+        "expected_version": 0,
+        "evidence": [
+          "record://session/gb-main#3"
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "path": "user/profile.md",
+        "scope": "user",
+        "version": 1
+      }
+    },
+    {
+      "name": "user-path-without-evidence",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "assistant",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "user/profile.md",
+        "content": "# Profile\n\n- guess",
+        "expected_version": 0
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-evidence-required"
+      }
+    },
+    {
+      "name": "user-path-from-agent-message",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "agent-message",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "user/profile.md",
+        "content": "# Profile\n\n- 别人的话",
+        "expected_version": 0,
+        "evidence": [
+          "record://session/gb-main#3"
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-source-boundary"
+      }
+    },
+    {
+      "name": "task-outside-inbox",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-task-1",
+        "kind": "task"
+      },
+      "sourceKind": "task",
+      "trust": "assistant",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "agent/notes/plan.md",
+        "content": "x",
+        "expected_version": 0
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-scope-denied"
+      }
+    },
+    {
+      "name": "task-inbox-submit",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-task-1",
+        "kind": "task"
+      },
+      "sourceKind": "task",
+      "trust": "assistant",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "agent/inbox/gb-task-1/report.md",
+        "content": "# Report\n\n- done",
+        "expected_version": 0
+      },
+      "expect": {
+        "ok": true,
+        "path": "agent/inbox/gb-task-1/report.md",
+        "scope": "agent",
+        "version": 1
+      }
+    },
+    {
+      "name": "task-cannot-write-other-inbox",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-task-1",
+        "kind": "task"
+      },
+      "sourceKind": "task",
+      "trust": "assistant",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "agent/inbox/gb-task-2/report.md",
+        "content": "x",
+        "expected_version": 0
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-scope-denied"
+      }
+    },
+    {
+      "name": "index-over-limit",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "user/INDEX.md",
+        "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "expected_version": 0,
+        "evidence": [
+          "record://session/gb-main#3"
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-index-too-long",
+        "limit": 1500,
+        "actual": 1501
+      }
+    },
+    {
+      "name": "delete-wrong-version",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/plan.md",
+            "content": "x",
+            "version": 2
+          }
+        ]
+      },
+      "request": {
+        "action": "delete",
+        "path": "agent/notes/plan.md",
+        "expected_version": 1
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-version-conflict",
+        "current_version": 2
+      }
+    },
+    {
+      "name": "move-destination-exists",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/a.md",
+            "content": "a",
+            "version": 1
+          },
+          {
+            "path": "agent/notes/b.md",
+            "content": "b",
+            "version": 1
+          }
+        ]
+      },
+      "request": {
+        "action": "move",
+        "path": "agent/notes/a.md",
+        "to": "agent/notes/b.md",
+        "expected_version": 1
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-path-exists"
+      }
+    },
+    {
+      "name": "replace-not-found",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/a.md",
+            "content": "abc",
+            "version": 1
+          }
+        ]
+      },
+      "request": {
+        "action": "replace",
+        "path": "agent/notes/a.md",
+        "find": "zzz",
+        "replace": "y",
+        "expected_version": 1
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-replace-not-found"
+      }
+    },
+    {
+      "name": "restore-old-version",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/a.md",
+            "content": "new",
+            "version": 3
+          }
+        ],
+        "history": {
+          "agent/notes/a.md": [
+            {
+              "version": 1,
+              "content": "old",
+              "deleted": false
+            },
+            {
+              "version": 2,
+              "content": "middle",
+              "deleted": false
+            },
+            {
+              "version": 3,
+              "content": "new",
+              "deleted": false
+            }
+          ]
+        }
+      },
+      "request": {
+        "action": "restore",
+        "path": "agent/notes/a.md",
+        "restore_version": 1,
+        "expected_version": 3
+      },
+      "expect": {
+        "ok": true,
+        "path": "agent/notes/a.md",
+        "scope": "agent",
+        "version": 4
+      }
+    },
+    {
+      "name": "invalid-path-dotdot",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "agent/../user/profile.md",
+        "content": "x",
+        "expected_version": 0
+      },
+      "expect": {
+        "ok": false,
+        "code": "memory-path-invalid"
+      }
+    },
+    {
+      "name": "current-user-turn-write",
+      "author": {
+        "bot_id": "bot-a",
+        "session_id": "gb-main",
+        "kind": "chat"
+      },
+      "sourceKind": "user-turn",
+      "trust": "user",
+      "state": {
+        "documents": []
+      },
+      "request": {
+        "action": "write",
+        "path": "user/preferences/drinks.md",
+        "content": "# Drinks\n\n- OAT_LATTE_B",
+        "expected_version": 0,
+        "evidence": [
+          "current-user-turn"
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "path": "user/preferences/drinks.md",
+        "scope": "user",
+        "version": 1
+      }
+    }
+  ],
+  "visibilityCases": [
+    {
+      "name": "agent-private-of-another-bot",
+      "documents": [
+        {
+          "path": "agent/private.md",
+          "botId": "bot-a"
+        },
+        {
+          "path": "agent/notes/other.md",
+          "botId": "bot-a"
+        }
+      ],
+      "reader": "bot-b",
+      "visible": []
+    },
+    {
+      "name": "agent-own-documents",
+      "documents": [
+        {
+          "path": "agent/private.md",
+          "botId": "bot-a"
+        },
+        {
+          "path": "agent/notes/other.md",
+          "botId": "bot-a"
+        }
+      ],
+      "reader": "bot-a",
+      "visible": [
+        "agent/notes/other.md",
+        "agent/private.md"
+      ]
+    },
+    {
+      "name": "user-documents-are-shared",
+      "documents": [
+        {
+          "path": "user/profile.md",
+          "botId": "bot-a"
+        },
+        {
+          "path": "agent/private.md",
+          "botId": "bot-a"
+        }
+      ],
+      "reader": "bot-b",
+      "visible": [
+        "user/profile.md"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,512 @@
+{
+  "schemaVersion": 1,
+  "vector": "verification.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH S3 delta: read-only verifier policy, structured output, evidence refs and the 30% verification budget. No upstream dsh-bot export exists."
+  },
+  "upstream": [],
+  "delta": [
+    "P26 Task completion and independent verification (S3)"
+  ],
+  "policy": {
+    "presetId": "pdsh-verifier",
+    "principalKind": "verifier",
+    "budgetRatio": 0.3,
+    "tools": [
+      "read",
+      "grep",
+      "glob",
+      "bash"
+    ],
+    "hiddenGlobalTools": true,
+    "deniedTools": [
+      "write",
+      "edit",
+      "apply_patch",
+      "SendToUser",
+      "SendToAgent",
+      "CreateTeammate",
+      "Task",
+      "AwaitTask",
+      "StopSubagent",
+      "UpdateMemory",
+      "RecallMemory",
+      "UpdateRoutine",
+      "ListRoutines",
+      "RequestApproval",
+      "web_fetch",
+      "web_search",
+      "job_list",
+      "job_output",
+      "job_kill",
+      "todo_write",
+      "create_goal",
+      "get_goal",
+      "update_goal"
+    ],
+    "bash": {
+      "allowed": [
+        "cat notes.md",
+        "ls -la",
+        "grep -R RUN-MARKER .",
+        "git diff --stat",
+        "git status",
+        "phone record search RUN-MARKER --session gb-task-abc",
+        "phone record read record://session/gb-task-abc#2 --around 2"
+      ],
+      "denied": [
+        "printf x > out.txt",
+        "rm -rf build",
+        "cat a | tee b",
+        "curl https://example.com",
+        "phone record search x; rm -rf .",
+        "git checkout -- .",
+        "python3 -c 'print(1)'",
+        "sed -i s/a/b/ notes.md",
+        "find . -delete",
+        "env",
+        "cat a && cat b",
+        "echo $(whoami)"
+      ]
+    }
+  },
+  "valid": [
+    {
+      "name": "passed-with-evidence",
+      "output": {
+        "verdict": "passed",
+        "summary": "notes.md exists and contains RUN-MARKER; the recorded build command exited 0.",
+        "refs": [
+          "record://session/gb-task-abc#12",
+          "record://event/34"
+        ],
+        "unverified": []
+      }
+    },
+    {
+      "name": "failed-missing-artifact",
+      "output": {
+        "verdict": "failed",
+        "summary": "The workspace has no REPORT.md, so the claimed deliverable is missing.",
+        "refs": [
+          "record://session/gb-task-abc#10"
+        ],
+        "unverified": []
+      }
+    },
+    {
+      "name": "uncertain-unreadable-remote",
+      "output": {
+        "verdict": "uncertain",
+        "summary": "The release step needs a remote login the verifier does not have.",
+        "refs": [
+          "record://event/77"
+        ],
+        "unverified": [
+          "Remote login and release status"
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown-verdict",
+      "reason": "verdict",
+      "output": {
+        "verdict": "done",
+        "summary": "x",
+        "refs": [
+          "record://session/gb-task-abc#1"
+        ],
+        "unverified": []
+      }
+    },
+    {
+      "name": "missing-refs",
+      "reason": "required",
+      "output": {
+        "verdict": "passed",
+        "summary": "x",
+        "unverified": []
+      }
+    },
+    {
+      "name": "empty-refs",
+      "reason": "minItems",
+      "output": {
+        "verdict": "failed",
+        "summary": "x",
+        "refs": [],
+        "unverified": []
+      }
+    },
+    {
+      "name": "too-many-refs",
+      "reason": "maxItems",
+      "output": {
+        "verdict": "passed",
+        "summary": "x",
+        "refs": [
+          "record://session/gb-task-abc#1",
+          "record://session/gb-task-abc#2",
+          "record://session/gb-task-abc#3",
+          "record://session/gb-task-abc#4",
+          "record://session/gb-task-abc#5",
+          "record://session/gb-task-abc#6",
+          "record://session/gb-task-abc#7",
+          "record://session/gb-task-abc#8",
+          "record://session/gb-task-abc#9"
+        ],
+        "unverified": []
+      }
+    },
+    {
+      "name": "invalid-session-ref",
+      "reason": "session-id",
+      "output": {
+        "verdict": "failed",
+        "summary": "x",
+        "refs": [
+          "record://session/../etc#1"
+        ],
+        "unverified": []
+      }
+    },
+    {
+      "name": "passed-with-unverified",
+      "reason": "passed-requires-empty-unverified",
+      "output": {
+        "verdict": "passed",
+        "summary": "x",
+        "refs": [
+          "record://event/1"
+        ],
+        "unverified": [
+          "Not checked"
+        ]
+      }
+    },
+    {
+      "name": "empty-summary",
+      "reason": "minLength",
+      "output": {
+        "verdict": "uncertain",
+        "summary": "",
+        "refs": [
+          "record://event/1"
+        ],
+        "unverified": []
+      }
+    },
+    {
+      "name": "unexpected-member",
+      "reason": "additionalProperties",
+      "output": {
+        "verdict": "failed",
+        "summary": "x",
+        "refs": [
+          "record://event/1"
+        ],
+        "unverified": [],
+        "done": true
+      }
+    }
+  ],
+  "budgets": {
+    "valid": [
+      {
+        "name": "default-task-budget",
+        "budgetMs": 180000,
+        "limitMs": 54000
+      },
+      {
+        "name": "two-minutes",
+        "budgetMs": 120000,
+        "limitMs": 36000
+      },
+      {
+        "name": "small-task",
+        "budgetMs": 1000,
+        "limitMs": 300
+      },
+      {
+        "name": "exactly-at-limit",
+        "budgetMs": 180000,
+        "limitMs": 54000,
+        "usedMs": 54000,
+        "exceeded": false
+      },
+      {
+        "name": "over-limit",
+        "budgetMs": 180000,
+        "limitMs": 54000,
+        "usedMs": 54001,
+        "exceeded": true
+      }
+    ],
+    "invalid": [
+      {
+        "name": "wrong-ratio",
+        "budgetMs": 180000,
+        "limitMs": 60000
+      },
+      {
+        "name": "negative-limit",
+        "budgetMs": 1000,
+        "limitMs": -1
+      }
+    ]
+  },
+  "reports": {
+    "valid": [
+      {
+        "name": "task-failed-report",
+        "report": {
+          "verificationId": "verification-1",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "task_id": "task-1",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "verification": {
+            "verdict": "failed",
+            "summary": "REPORT.md is missing.",
+            "refs": [
+              "record://session/gb-task-abc#10"
+            ],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 54000,
+              "usedMs": 1200,
+              "exceeded": false
+            },
+            "output": "valid"
+          },
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "routine-passed-report",
+        "report": {
+          "verificationId": "verification-2",
+          "subjectKind": "routine",
+          "subjectId": "routine-1",
+          "subjectSessionId": "gb-routine-abc",
+          "routine_id": "routine-1",
+          "runId": "run-1",
+          "title": "Morning check",
+          "status": "succeeded",
+          "verification": {
+            "verdict": "passed",
+            "summary": "state.txt says READY.",
+            "refs": [
+              "record://event/34"
+            ],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 18000,
+              "usedMs": 900,
+              "exceeded": false
+            },
+            "output": "valid"
+          },
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "task-unavailable-report",
+        "report": {
+          "verificationId": "verification-3",
+          "subjectKind": "task",
+          "subjectId": "task-2",
+          "subjectSessionId": "gb-task-def",
+          "task_id": "task-2",
+          "title": "Check remote release",
+          "status": "completed",
+          "verification": {
+            "verdict": "uncertain",
+            "summary": "the verifier session could not be created",
+            "refs": [],
+            "unverified": [
+              "Verifier session unavailable"
+            ],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 3000,
+              "usedMs": 10,
+              "exceeded": false
+            },
+            "output": "unavailable"
+          },
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "task-erased-record-report",
+        "report": {
+          "verificationId": "verification-erased-1",
+          "subjectKind": "task",
+          "subjectId": "task-erased-1",
+          "subjectSessionId": "gb-task-erased",
+          "task_id": "task-erased-1",
+          "title": "Prove the artifact from raw records",
+          "status": "completed",
+          "verification": {
+            "verdict": "uncertain",
+            "summary": "the verifier cited a record that has been erased",
+            "refs": [],
+            "unverified": [
+              "record_erased: a cited record:// reference was physically erased"
+            ],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 54000,
+              "usedMs": 1200,
+              "exceeded": false
+            },
+            "output": "invalid"
+          },
+          "createdAt": 1762776001000
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing-verification",
+        "reason": "required",
+        "report": {
+          "verificationId": "verification-3",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "budget": {
+            "ratio": 0.3,
+            "limitMs": 54000,
+            "usedMs": 1000,
+            "exceeded": false
+          },
+          "output": "valid",
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "wrong-budget-ratio",
+        "reason": "ratio",
+        "report": {
+          "verificationId": "verification-4",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "verification": {
+            "verdict": "passed",
+            "summary": "x",
+            "refs": [
+              "record://event/1"
+            ],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.5,
+              "limitMs": 54000,
+              "usedMs": 1000,
+              "exceeded": false
+            },
+            "output": "valid"
+          },
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "unknown-output-state",
+        "reason": "output",
+        "report": {
+          "verificationId": "verification-5",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "verification": {
+            "verdict": "passed",
+            "summary": "x",
+            "refs": [
+              "record://event/1"
+            ],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 54000,
+              "usedMs": 1000,
+              "exceeded": false
+            },
+            "output": "done"
+          },
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "valid-output-without-refs",
+        "reason": "valid-requires-refs",
+        "report": {
+          "verificationId": "verification-6",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "task_id": "task-1",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "verification": {
+            "verdict": "passed",
+            "summary": "x",
+            "refs": [],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 54000,
+              "usedMs": 1000,
+              "exceeded": false
+            },
+            "output": "valid"
+          },
+          "createdAt": 1762776000000
+        }
+      },
+      {
+        "name": "unavailable-with-passed-verdict",
+        "reason": "non-valid-must-be-uncertain",
+        "report": {
+          "verificationId": "verification-7",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "task_id": "task-1",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "verification": {
+            "verdict": "passed",
+            "summary": "x",
+            "refs": [
+              "record://event/1"
+            ],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 54000,
+              "usedMs": 1000,
+              "exceeded": false
+            },
+            "output": "unavailable"
+          },
+          "createdAt": 1762776000000
+        }
+      }
+    ]
+  }
+}

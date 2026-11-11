@@ -4,6 +4,9 @@ import Foundation
 import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// One Bot's runtime half. The App shares exactly one `BotMCPRuntime`, one
 /// `BotMCPHTTPServer` and one effect outbox; every Bot gets its own DSH remote
@@ -32,7 +35,11 @@ final class BotRuntimeUnit {
     let routineOutbox: BotRoutineOutbox
     let rows: BotProductionRowService
     let info: BotProductionInfoService
+    let maintenance: BotMemoryMaintenanceController
+    let proactive: ProactiveEngine
+    let deviceResults: DeviceTaskResultOutbox
     private let routineActivity: BotRoutineActivityFlag
+    private let nowProvider: @Sendable () -> Int64
 
     private(set) var started = false
     private var liveSubscription: BotLiveFrameSubscription?
@@ -45,7 +52,11 @@ final class BotRuntimeUnit {
                  wakeInbox: WakeInbox, planner: BotRemoteActionPlanner,
                  routineOutbox: BotRoutineOutbox, rows: BotProductionRowService,
                  info: BotProductionInfoService,
-                 routineActivity: BotRoutineActivityFlag) {
+                 maintenance: BotMemoryMaintenanceController,
+                 proactive: ProactiveEngine,
+                 deviceResults: DeviceTaskResultOutbox,
+                 routineActivity: BotRoutineActivityFlag,
+                 nowProvider: @escaping @Sendable () -> Int64) {
         self.botID = botID
         self.environment = environment
         self.remote = remote
@@ -55,20 +66,27 @@ final class BotRuntimeUnit {
         self.routineOutbox = routineOutbox
         self.rows = rows
         self.info = info
+        self.maintenance = maintenance
+        self.proactive = proactive
+        self.deviceResults = deviceResults
         self.routineActivity = routineActivity
+        self.nowProvider = nowProvider
         self.liveFish = BotLiveFishProjection(botID: botID)
     }
 
     static func make(runtime: BotMCPRuntime, handler: BotMCPHandler,
                      store: SQLiteDomainStore, botID: String,
                      displayName: String,
+                     recordService: BotRecordService? = nil,
+                     isMainBot: @escaping @Sendable () -> Bool = { true },
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
+        let grants = await runtime.grants
         let environment = BotProductionEnvironment(
             domain: store, botID: botID, sessionID: botID,
-            routineMachine: machine, memory: memory,
+            routineMachine: machine, memory: memory, grants: grants,
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
         let remote = try await BotDSHRemoteRuntime(
@@ -83,10 +101,20 @@ final class BotRuntimeUnit {
             store: store, botID: botID, wakeInbox: inbox)
         let routineOutbox = BotRoutineOutbox(store: store, machine: machine, botID: botID)
         let rows = BotProductionRowService(environment: environment, remote: remote)
-        let info = BotProductionInfoService(environment: environment)
         let routineActivity = BotRoutineActivityFlag()
+        let resolvedNow = now ?? { Int64(Date().timeIntervalSince1970 * 1000) }
+        let settingsStore = ProactiveSettingsStore.shared
+        let proactive = ProactiveEngine(
+            settings: { settingsStore.settings() },
+            now: resolvedNow,
+            deliverer: BotRuntimeUnit.proactiveDelivery(),
+            eventLog: store,
+            deliveryKinds: [.routineResult])
+        let notificationScheduling = BotRuntimeUnit.notificationScheduling()
         let scheduler = RoutineScheduler(
             botId: botID, machine: machine, inbox: inbox, sink: routineOutbox,
+            proactive: proactive,
+            notifications: notificationScheduling,
             runner: { [remote] request in
                 await routineActivity.begin()
                 let result = await remote.runRoutine(request)
@@ -94,23 +122,82 @@ final class BotRuntimeUnit {
                 return result
             },
             cancelRunner: { [remote] cancellation in await remote.cancelRoutine(cancellation) },
+            approvalCanceller: { [runtime] approvalID in
+                await runtime.approvals.cancelPersistent(
+                    approvalId: approvalID, reason: "routine_stopped")
+            },
             available: { [remote] _ in await remote.isAvailable() },
             busy: { [remote] _ in await remote.isMainTurnBusy() },
+            settings: { settingsStore.settings() },
             // Defaults intentionally mirror `RoutineScheduler.init`; the eval
             // runner injects a controllable clock/sleeper through the production
             // composition. Production callers pass neither and keep the wall
             // clock.
-            now: now ?? { Int64(Date().timeIntervalSince1970 * 1000) },
+            now: resolvedNow,
             sleep: sleep ?? { milliseconds in
                 guard milliseconds > 0 else { return }
                 try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
             },
             leaseOwner: "bot-runtime-composition")
+        await remote.installRoutineApprovalHandler { [scheduler] notice in
+            await scheduler.approvalResolved(
+                approvalId: notice.approvalID, sessionId: notice.principal.sessionId,
+                allowed: notice.allowed, expired: notice.expired,
+                cancelled: notice.cancelled)
+        }
+        let maintenance = BotMemoryMaintenanceController(
+            store: store, botID: botID, memory: memory, runtime: runtime,
+            remote: remote, recordReading: recordService,
+            isMainBot: isMainBot,
+            isAppActive: {
+#if canImport(UIKit)
+                if Thread.isMainThread {
+                    return UIApplication.shared.applicationState == .active
+                }
+                return DispatchQueue.main.sync {
+                    UIApplication.shared.applicationState == .active
+                }
+#else
+                // The macOS eval harness drives the same production unit; it
+                // has no iOS application state, so the foreground opportunity
+                // is always eligible there.
+                return true
+#endif
+            },
+            notify: { text in
+                let item = try? WakeInboxItem(
+                    id: "memory-maintenance-\(UUID().uuidString.lowercased())",
+                    kind: "memory-maintenance",
+                    title: "记忆整理",
+                    text: text,
+                    requestId: "memory-maintenance:\(UUID().uuidString.lowercased())",
+                    createdAt: resolvedNow())
+                if let item { _ = try? await inbox.enqueue(item) }
+            },
+            now: resolvedNow)
+        // A user turn yields immediately: cancel quiet timer and any running
+        // maintenance batch (committed writes stay).
+        await remote.setUserTurnObservers(
+            started: { [weak maintenance] in
+                await maintenance?.noteUserTurnStarted()
+            },
+            finished: { [weak maintenance] in
+                await maintenance?.noteUserTurnFinished()
+            })
+        let info = BotProductionInfoService(
+            environment: environment, scheduler: scheduler, settingsStore: settingsStore,
+            maintenance: maintenance)
+        let deviceResults = DeviceTaskResultOutbox(domain: store, now: resolvedNow)
+        await environment.setRoutineCanceller { [scheduler] routineID in
+            await scheduler.cancelRunning(routineId: routineID)
+        }
         return BotRuntimeUnit(
             botID: botID, environment: environment, remote: remote,
             scheduler: scheduler, wakeInbox: inbox, planner: planner,
             routineOutbox: routineOutbox, rows: rows, info: info,
-            routineActivity: routineActivity)
+            maintenance: maintenance,
+            proactive: proactive, deviceResults: deviceResults,
+            routineActivity: routineActivity, nowProvider: resolvedNow)
     }
 
     /// Rebinds this Bot's private remote to a fresh Host transport. The shared
@@ -125,10 +212,34 @@ final class BotRuntimeUnit {
             sessionID: sessionID, planner: planner,
             turnStopping: BotRuntimeTurnStopper(remote: remote)))
         _ = try await scheduler.recover()
+        for entry in await scheduler.waitingApprovalEntries() {
+            let status = await remote.approvalStatus(approvalId: entry.approvalID)
+            switch status {
+            case .allowed, .denied, .expired, .cancelled:
+                await scheduler.approvalResolved(
+                    approvalId: entry.approvalID, sessionId: entry.sessionID,
+                    allowed: status == .allowed, expired: status == .expired,
+                    cancelled: status == .cancelled)
+            case .pending, .unknown:
+                break
+            }
+        }
         _ = await remote.deliverInterruptedTaskWakes()
+        _ = try? await deviceResults.redeliver(botID: botID, in: wakeInbox)
         await scheduler.start()
         await startLiveObservation()
+        // App-open, idle opportunity (spec/bot/v2 §4.5). It checks enabled,
+        // main-chat idle, pending approvals and triggers itself.
+        Task { await maintenance.maybeRun(reason: "foreground") }
         started = true
+    }
+
+    /// The keep-alive condition includes routines due inside the window even
+    /// when no turn is running.
+    func hasRoutineDueSoon(within windowMs: Int64 = RoutinePresencePolicy.keepAliveWindowMs) async -> Bool {
+        let machine = await environment.routineMachine
+        let routines = (try? await machine.list(botId: botID)) ?? []
+        return RoutinePresencePolicy.hasRoutineDueSoon(routines, now: nowProvider(), windowMs: windowMs)
     }
 
     /// Drops the Host-bound half but keeps the unit and its durable data. A
@@ -187,6 +298,37 @@ final class BotRuntimeUnit {
             pendingApprovalCount: pendingApprovalCount,
             reaction: live.reaction,
             runtimeState: runtimeState)
+    }
+
+    private static var isHeadlessXCTestProcess: Bool {
+        // The macOS eval harness is a bare XCTest process: UserNotifications
+        // throws at `currentNotificationCenter`, and a headless runner has no
+        // application bundle to display to. eval.sh sets PDSH_BOT_EVAL_PLAN;
+        // a plain `swift test` does not, so detect XCTest itself as well. The
+        // App has neither and keeps the real delivery. The proactive
+        // decision/event chain still runs in both cases.
+        NSClassFromString("XCTestCase") != nil
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    private static func proactiveDelivery() -> (any ProactiveDelivering)? {
+        if isHeadlessXCTestProcess
+            || ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
+        #if canImport(UserNotifications)
+        return UNUserNotificationProactiveDelivery()
+        #else
+        return nil
+        #endif
+    }
+
+    private static func notificationScheduling() -> (any RoutineNotificationScheduling)? {
+        if isHeadlessXCTestProcess
+            || ProcessInfo.processInfo.environment["PDSH_BOT_EVAL_PLAN"] != nil { return nil }
+        #if canImport(UserNotifications)
+        return UNUserNotificationRoutineScheduling()
+        #else
+        return nil
+        #endif
     }
 
     // MARK: - Live observation

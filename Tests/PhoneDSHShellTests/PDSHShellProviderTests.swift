@@ -490,3 +490,70 @@ final class PDSHShellStubProviderTests: XCTestCase {
 }
 
 #endif
+
+/// Test double for the host-owned record service. It records the argv and the
+/// out-of-band session; no Bot data is read.
+private final class RecordingPhoneRecordQuery: PhoneRecordQuerying, @unchecked Sendable {
+    struct Call {
+        var arguments: [String] = []
+        var sessionID = ""
+    }
+    private let lock = NSLock()
+    private var stored: [Call] = []
+
+    var calls: [Call] { lock.withLock { stored } }
+
+    func runRecordCommand(arguments: [String], callerSessionID: String) async -> PhoneRecordCommandResult {
+        lock.withLock { stored.append(Call(arguments: arguments, sessionID: callerSessionID)) }
+        return PhoneRecordCommandResult(stdout: #"{"ok":true,"tool":"record.search"}"# + "\n", exitCode: 0)
+    }
+}
+
+extension PDSHShellProviderTests {
+    func testPhoneRecordDispatchUsesTrustedSessionAndNeverRunsTheShell() async throws {
+        let tree = try PDSHShellTestTree()
+        let recorder = RecordingPhoneRecordQuery()
+        let provider = PDSHShellProvider(
+            materializedWorkspace: tree.workspace,
+            materializedHome: tree.home,
+            recordQuery: recorder)
+        let request = ExecRequest(
+            execID: "record-1", argv: ["phone", "record", "search", "PINEAPPLE"],
+            cwd: "/dsh/workspace", env: [PDSHShellProvider.toolCallSessionEnvironmentKey: "gb-main"])
+        let result = try await collect(provider.run(request))
+        XCTAssertEqual(result.exitCode, 0, result.stderrText)
+        XCTAssertEqual(result.stdoutText, #"{"ok":true,"tool":"record.search"}"# + "\n")
+        XCTAssertEqual(recorder.calls.count, 1)
+        XCTAssertEqual(recorder.calls.first?.arguments, ["search", "PINEAPPLE"])
+        XCTAssertEqual(recorder.calls.first?.sessionID, "gb-main")
+    }
+
+    func testPhoneRecordRefusesAnUnclaimedSessionWithoutCallingTheService() async throws {
+        let tree = try PDSHShellTestTree()
+        let recorder = RecordingPhoneRecordQuery()
+        let provider = PDSHShellProvider(
+            materializedWorkspace: tree.workspace,
+            materializedHome: tree.home,
+            recordQuery: recorder)
+        let request = ExecRequest(
+            execID: "record-2", argv: ["phone", "record", "read", "record://event/1"],
+            cwd: "/dsh/workspace", env: [:])
+        let result = try await collect(provider.run(request))
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.stderrText.contains("requires a claimed tool-call session"))
+        XCTAssertTrue(recorder.calls.isEmpty)
+    }
+
+    func testPhoneRecordWithoutAnInjectedServiceFailsClosed() async throws {
+        let tree = try PDSHShellTestTree()
+        let provider = PDSHShellProvider(
+            materializedWorkspace: tree.workspace,
+            materializedHome: tree.home)
+        let request = ExecRequest(
+            execID: "record-3", argv: ["phone", "record", "search", "x"],
+            cwd: "/dsh/workspace", env: [PDSHShellProvider.toolCallSessionEnvironmentKey: "gb-main"])
+        let result = try await collect(provider.run(request))
+        XCTAssertEqual(result.exitCode, 1)
+        XCTAssertTrue(result.stderrText.contains("not available in this host"))
+    }
+}

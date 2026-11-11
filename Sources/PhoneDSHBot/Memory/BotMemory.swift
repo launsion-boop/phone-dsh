@@ -1,48 +1,85 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import PhoneDSHAgentCore
 
-public struct BotMemoryWriteRequest: Sendable {
-    public var text: String
-    public var tier: BotMemoryTier
-    public var scope: BotMemoryScope
-    public var key: String?
-    public var source: BotMemorySource
-    public var sensitivity: BotMemorySensitivity
-    public var importance: Double
-    public var supersededBy: String?
-    public var expiresAt: Int64?
-    public var applicableWhen: String?
-    public var notApplicableWhen: String?
-    public var extractRunID: String?
+public struct BotMemoryWriteContext: Sendable {
+    public let botID: String
+    public let sessionID: String?
+    public let authorKind: BotMemoryAuthorKind
+    public let source: BotMemorySource
+    public let trust: BotRecordTrust?
+    /// True for the roster's main Bot (the only maintainer allowed to write user/).
+    public let isMainBot: Bool
+    /// Non-nil only inside a maintenance run; becomes the event correlation id.
+    public let batchID: String?
+    /// Host-only batch rollback. The version being restored was already
+    /// accepted by whichever writer created it, so the user-turn source
+    /// boundary does not apply to the restore itself. Never set from an MCP
+    /// tool call.
+    public let isHostRollback: Bool
 
     public init(
-        text: String,
-        tier: BotMemoryTier = .log,
-        scope: BotMemoryScope = .agent,
-        key: String? = nil,
+        botID: String,
+        sessionID: String?,
+        authorKind: BotMemoryAuthorKind,
         source: BotMemorySource,
-        sensitivity: BotMemorySensitivity = .personal,
-        importance: Double = 0.5,
-        supersededBy: String? = nil,
-        expiresAt: Int64? = nil,
-        applicableWhen: String? = nil,
-        notApplicableWhen: String? = nil,
-        extractRunID: String? = nil
+        trust: BotRecordTrust?,
+        isMainBot: Bool = true,
+        batchID: String? = nil,
+        isHostRollback: Bool = false
     ) {
-        self.text = text
-        self.tier = tier
-        self.scope = scope
-        self.key = key
+        self.botID = botID
+        self.sessionID = sessionID
+        self.authorKind = authorKind
         self.source = source
-        self.sensitivity = sensitivity
-        self.importance = importance
-        self.supersededBy = supersededBy
-        self.expiresAt = expiresAt
-        self.applicableWhen = applicableWhen
-        self.notApplicableWhen = notApplicableWhen
-        self.extractRunID = extractRunID
+        self.trust = trust
+        self.isMainBot = isMainBot
+        self.batchID = batchID
+        self.isHostRollback = isHostRollback
+    }
+
+    /// Convenience for tests and non-Bot internal callers.
+    public init(source: BotMemorySource, trust: BotRecordTrust? = nil) {
+        self.init(
+            botID: "main",
+            sessionID: source.sessionID,
+            authorKind: .chat,
+            source: source,
+            trust: trust)
+    }
+}
+
+public struct BotMemoryWriteRequest: Sendable {
+    public var action: BotMemoryAction
+    public var path: String
+    public var content: String?
+    public var find: String?
+    public var replace: String?
+    public var to: String?
+    public var expectedVersion: Int
+    public var restoreVersion: Int?
+    public var evidence: [String]
+
+    public init(
+        action: BotMemoryAction = .write,
+        path: String,
+        content: String? = nil,
+        find: String? = nil,
+        replace: String? = nil,
+        to: String? = nil,
+        expectedVersion: Int,
+        restoreVersion: Int? = nil,
+        evidence: [String] = []
+    ) {
+        self.action = action
+        self.path = path
+        self.content = content
+        self.find = find
+        self.replace = replace
+        self.to = to
+        self.expectedVersion = expectedVersion
+        self.restoreVersion = restoreVersion
+        self.evidence = evidence
     }
 }
 
@@ -50,30 +87,42 @@ public struct BotMemoryWriteResult: Sendable, Equatable {
     public let ok: Bool
     public let code: String?
     public let error: String?
-    public let factID: String?
-    public let duplicated: Bool
-    public let tier: BotMemoryTier
-    public let scope: BotMemoryScope
-    public let count: Int?
+    public let action: BotMemoryAction
+    public let path: String
+    public let scope: BotMemoryScope?
+    public let version: Int?
+    public let previousVersion: Int?
+    public let replaced: Int?
+    public let currentVersion: Int?
+    public let limit: Int?
+    public let actual: Int?
 
     public init(
         ok: Bool,
         code: String? = nil,
         error: String? = nil,
-        factID: String? = nil,
-        duplicated: Bool = false,
-        tier: BotMemoryTier,
-        scope: BotMemoryScope,
-        count: Int? = nil
+        action: BotMemoryAction,
+        path: String,
+        scope: BotMemoryScope? = nil,
+        version: Int? = nil,
+        previousVersion: Int? = nil,
+        replaced: Int? = nil,
+        currentVersion: Int? = nil,
+        limit: Int? = nil,
+        actual: Int? = nil
     ) {
         self.ok = ok
         self.code = code
         self.error = error
-        self.factID = factID
-        self.duplicated = duplicated
-        self.tier = tier
+        self.action = action
+        self.path = path
         self.scope = scope
-        self.count = count
+        self.version = version
+        self.previousVersion = previousVersion
+        self.replaced = replaced
+        self.currentVersion = currentVersion
+        self.limit = limit
+        self.actual = actual
     }
 }
 
@@ -82,7 +131,8 @@ public struct BotMemoryForgetResult: Sendable, Equatable {
     public let error: String?
     public let removed: Int
     public let removedFacts: Int
-    public let factIDs: [String]
+    public let path: String
+    public let version: Int?
     public let count: Int
     public let scope: BotMemoryScope
 
@@ -90,7 +140,8 @@ public struct BotMemoryForgetResult: Sendable, Equatable {
         ok: Bool,
         error: String? = nil,
         removed: Int,
-        factIDs: [String] = [],
+        path: String,
+        version: Int? = nil,
         count: Int,
         scope: BotMemoryScope
     ) {
@@ -98,54 +149,13 @@ public struct BotMemoryForgetResult: Sendable, Equatable {
         self.error = error
         self.removed = removed
         self.removedFacts = removed
-        self.factIDs = factIDs
+        self.path = path
+        self.version = version
         self.count = count
         self.scope = scope
     }
 }
 
-public struct BotMemoryEraseResult: Sendable, Equatable {
-    public let ok: Bool
-    public let error: String?
-    public let erased: Bool
-    public let alreadyErased: Bool
-    public let factID: String
-    public let erasedAtMS: Int64?
-    public let removed: Int
-    public let removedFacts: Int
-    public let count: Int
-    public let scope: BotMemoryScope?
-    public let tier: BotMemoryTier?
-
-    public init(
-        ok: Bool,
-        error: String? = nil,
-        erased: Bool = false,
-        alreadyErased: Bool = false,
-        factID: String,
-        erasedAtMS: Int64? = nil,
-        removed: Int = 0,
-        count: Int,
-        scope: BotMemoryScope? = nil,
-        tier: BotMemoryTier? = nil
-    ) {
-        self.ok = ok
-        self.error = error
-        self.erased = erased
-        self.alreadyErased = alreadyErased
-        self.factID = factID
-        self.erasedAtMS = erasedAtMS
-        self.removed = removed
-        self.removedFacts = removed
-        self.count = count
-        self.scope = scope
-        self.tier = tier
-    }
-}
-
-/// Result of erasing one whole scope. `botID` identifies the authority that
-/// performed the erase, not a per-Bot filter on user scope: `.user` always
-/// removes the shared user facts that every Bot reads.
 public struct BotMemoryEraseScopeResult: Sendable, Equatable {
     public let ok: Bool
     public let error: String?
@@ -153,7 +163,6 @@ public struct BotMemoryEraseScopeResult: Sendable, Equatable {
     public let botID: String
     public let removed: Int
     public let removedFacts: Int
-    public let factIDs: [String]
     public let count: Int
 
     public init(
@@ -162,7 +171,6 @@ public struct BotMemoryEraseScopeResult: Sendable, Equatable {
         scope: BotMemoryScope,
         botID: String,
         removed: Int,
-        factIDs: [String] = [],
         count: Int
     ) {
         self.ok = ok
@@ -171,440 +179,433 @@ public struct BotMemoryEraseScopeResult: Sendable, Equatable {
         self.botID = botID
         self.removed = removed
         self.removedFacts = removed
-        self.factIDs = factIDs
         self.count = count
     }
 }
 
 public actor BotMemory {
-    private let store: any BotMemoryFactStore
-    private let dataRoot: String
+    private let store: any BotMemoryDocumentStore
     private let botID: String
     private let language: BotMemoryPromptLanguage
     private let now: @Sendable () -> Int64
-    private let writeMutex = BotMemoryAsyncMutex()
+    private let prepareMutex = BotMemoryAsyncMutex()
+    private var prepared = false
+    private var recallIndex = BotMemoryDocumentRecallIndex()
 
     public init(
-        store: any BotMemoryFactStore,
-        dataRoot: String,
+        store: any BotMemoryDocumentStore,
         botID: String,
         language: BotMemoryPromptLanguage = .zh,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) {
         self.store = store
-        self.dataRoot = dataRoot
         self.botID = botID
         self.language = language
         self.now = now
     }
 
-    public func facts(scope: BotMemoryScope? = nil) async throws -> [BotMemoryFact] {
-        try await store.facts(scope: scope)
+    public func documents(scope: BotMemoryScope? = nil) async throws -> [BotMemoryDocument] {
+        try await prepare()
+        return try await store.documents(scope: scope)
     }
 
-    public func injection(
-        scopes: [BotMemoryScope] = BotMemoryScope.allCases,
-        budget: Int = BotMemoryLimits.standard.total,
-        language: BotMemoryPromptLanguage? = nil
-    ) async throws -> BotMemoryInjection {
-        var inputs: [BotMemoryScopeInput] = []
-        for scope in scopes {
-            inputs.append(BotMemoryScopeInput(
-                scope: scope,
-                root: root(for: scope),
-                facts: try await store.facts(scope: scope)
-            ))
-        }
-        return BotMemoryInjector.render(
-            scopes: inputs,
-            budget: budget,
-            language: language ?? self.language,
-            now: now()
-        )
+    public func versions(path: String) async throws -> [BotMemoryDocumentVersion] {
+        try await prepare()
+        return try await store.versions(path: path)
     }
 
-    public func promptBlock(
-        scopes: [BotMemoryScope] = BotMemoryScope.allCases,
-        budget: Int = BotMemoryLimits.standard.total,
-        language: BotMemoryPromptLanguage? = nil
-    ) async throws -> String {
-        try await injection(scopes: scopes, budget: budget, language: language).text
-    }
-
-    public func write(_ request: BotMemoryWriteRequest) async throws -> BotMemoryWriteResult {
-        var downgraded = request.source
-        downgraded.kind = .agentMessage
-        return try await write(request, context: BotMemoryWriteContext(source: downgraded))
+    public func replayDiagnostics() async -> BotMemoryReplayDiagnostics {
+        await store.replayDiagnostics()
     }
 
     public func write(
         _ request: BotMemoryWriteRequest,
         context: BotMemoryWriteContext
     ) async throws -> BotMemoryWriteResult {
-        try await writeMutex.withLock {
-            try await performWrite(request, source: context.source)
+        try await prepare()
+        guard BotMemoryAuthorizer.parse(request.path) != nil else {
+            return failure(request, code: "memory-path-invalid",
+                           error: "Memory paths must be under user/ or agent/ without empty, '.', '..' or backslash segments.")
         }
-    }
-
-    private func performWrite(
-        _ request: BotMemoryWriteRequest,
-        source verifiedSource: BotMemorySource
-    ) async throws -> BotMemoryWriteResult {
-        if verifiedSource.kind != .userTurn && (request.scope == .user || request.tier == .profile) {
-            let kind = verifiedSource.kind.rawValue
-            return BotMemoryWriteResult(
-                ok: false,
-                code: "memory-source-boundary",
-                error: BotMemoryNormalizer.bilingual(
-                    language,
-                    zh: "來源 \(kind) 不能寫入 scope:\"user\" 或 tier:\"profile\"；請改用 scope:\"agent\" 的 tier:\"log\" 或 tier:\"note\"。",
-                    en: "Source \(kind) cannot write scope:\"user\" or tier:\"profile\"; use scope:\"agent\" with tier:\"log\" or tier:\"note\"."
-                ),
-                tier: request.tier,
-                scope: request.scope
-            )
-        }
-        let normalized = BotMemoryNormalizer.normalizeFactText(request.text, language: language)
-        guard normalized.ok else {
-            return BotMemoryWriteResult(
-                ok: false,
-                code: normalized.code,
-                error: normalized.error,
-                tier: request.tier,
-                scope: request.scope
-            )
-        }
-        let allFacts = try await store.facts(scope: nil)
-        let scopedFacts = allFacts.filter { $0.scope == request.scope }
-        if request.tier == .profile,
-           let existing = scopedFacts.first(where: {
-               $0.tier == .profile && BotMemoryNormalizer.normalizeForgetText($0.text) == normalized.text
-           }) {
-            return BotMemoryWriteResult(
-                ok: true,
-                factID: existing.factID,
-                duplicated: true,
-                tier: request.tier,
-                scope: request.scope,
-                count: scopedFacts.count
-            )
-        }
-        let noteKey = normalizedNoteKey(request.key) ?? dayString(now())
-        if request.tier == .note,
-           let existing = scopedFacts.first(where: {
-               $0.tier == .note
-                   && BotMemoryNormalizer.normalizeForgetText($0.text) == normalized.text
-                   && (normalizedNoteKey($0.key) ?? "") == noteKey
-           }) {
-            return BotMemoryWriteResult(
-                ok: true,
-                factID: existing.factID,
-                duplicated: true,
-                tier: request.tier,
-                scope: request.scope,
-                count: scopedFacts.count
-            )
-        }
-        let factID = try await uniqueFactID(existing: allFacts)
-        var source = verifiedSource
-        source.sessionID = trimmed(source.sessionID)
-        source.turnID = trimmed(source.turnID)
-        source.role = trimmed(source.role)?.lowercased()
-        let fact = BotMemoryFact(
-            factID: factID,
-            text: normalized.text,
-            learnedAtMS: now(),
-            tier: request.tier,
-            scope: request.scope,
-            key: request.tier == .note ? noteKey : nil,
-            trust: .string(source.kind == .userTurn ? "user" : "assistant"),
-            sensitivity: request.sensitivity,
-            importance: BotMemoryRecallIndex.normalizeImportance(request.importance),
-            lastUsedMS: 0,
-            extractor: "manual",
-            source: source,
-            supersededBy: trimmed(request.supersededBy),
-            expiresAt: request.expiresAt.flatMap { $0 > 0 ? $0 : nil },
-            applicableWhen: emptyAsNil(BotMemoryNormalizer.normalizeConditionText(request.applicableWhen)),
-            notApplicableWhen: emptyAsNil(BotMemoryNormalizer.normalizeConditionText(request.notApplicableWhen)),
-            extractRunID: trimmed(request.extractRunID)
-        )
-        try await store.append(fact)
-        return BotMemoryWriteResult(
-            ok: true,
-            factID: factID,
-            tier: request.tier,
-            scope: request.scope,
-            count: scopedFacts.count + 1
-        )
-    }
-
-    public func forget(
-        text: String? = nil,
-        factID: String? = nil,
-        scope: BotMemoryScope = .agent
-    ) async throws -> BotMemoryForgetResult {
-        if let requestedID = trimmed(factID) {
-            for candidateScope in [scope, scope == .agent ? .user : .agent] {
-                let facts = try await store.facts(scope: candidateScope)
-                let targets = facts.filter { $0.factID == requestedID }
-                if !targets.isEmpty {
-                    let removal = try await store.remove(
-                        factIDs: targets.map(\.factID),
-                        scope: candidateScope,
-                        tombstone: nil
-                    )
-                    return BotMemoryForgetResult(
-                        ok: true,
-                        removed: removal.removed.count,
-                        factIDs: removal.removed.map(\.factID),
-                        count: removal.count,
-                        scope: candidateScope
-                    )
-                }
-            }
-            let count = try await store.facts(scope: scope).count
-            return BotMemoryForgetResult(
-                ok: false,
-                error: "fact not found: \(requestedID)",
-                removed: 0,
-                count: count,
-                scope: scope
-            )
-        }
-        let needle = BotMemoryNormalizer.normalizeForgetText(text ?? "")
-        if needle.isEmpty {
-            return BotMemoryForgetResult(
-                ok: false,
-                error: BotMemoryNormalizer.bilingual(
-                    language,
-                    zh: "事實不能為空。",
-                    en: "A memory fact cannot be empty."
-                ),
-                removed: 0,
-                count: try await store.facts(scope: scope).count,
-                scope: scope
-            )
-        }
-        let facts = try await store.facts(scope: scope)
-        let targets = facts.filter { BotMemoryNormalizer.normalizeForgetText($0.text) == needle }
-        if targets.isEmpty {
-            return BotMemoryForgetResult(ok: true, removed: 0, count: facts.count, scope: scope)
-        }
-        let removal = try await store.remove(factIDs: targets.map(\.factID), scope: scope, tombstone: nil)
-        return BotMemoryForgetResult(
-            ok: true,
-            removed: removal.removed.count,
-            factIDs: removal.removed.map(\.factID),
-            count: removal.count,
-            scope: scope
-        )
-    }
-
-    public func erase(factID: String) async throws -> BotMemoryEraseResult {
-        guard let id = trimmed(factID) else {
-            return BotMemoryEraseResult(
-                ok: false,
-                error: "fact_id is required",
-                factID: "",
-                count: try await store.facts(scope: nil).count
-            )
-        }
-        for scope in BotMemoryScope.allCases {
-            let facts = try await store.facts(scope: scope)
-            guard let target = facts.first(where: { $0.factID == id }) else { continue }
-            let tombstone = BotMemoryTombstone(factID: id, erasedAtMS: now())
-            let removal = try await store.remove(factIDs: [id], scope: scope, tombstone: tombstone)
-            return BotMemoryEraseResult(
-                ok: true,
-                erased: true,
-                factID: id,
-                erasedAtMS: tombstone.erasedAtMS,
-                removed: removal.removed.count,
-                count: removal.count,
-                scope: scope,
-                tier: target.tier
-            )
-        }
-        for scope in BotMemoryScope.allCases {
-            if let tombstone = try await store.tombstone(factID: id, scope: scope) {
-                return BotMemoryEraseResult(
-                    ok: true,
-                    alreadyErased: true,
-                    factID: id,
-                    erasedAtMS: tombstone.erasedAtMS,
-                    count: try await store.facts(scope: scope).count,
-                    scope: scope
-                )
+        if request.action == .move {
+            guard let to = request.to, BotMemoryAuthorizer.parse(to) != nil else {
+                return failure(request, code: "memory-path-invalid",
+                               error: "The move destination must be a valid memory path.")
             }
         }
-        return BotMemoryEraseResult(
-            ok: false,
-            error: "fact not found: \(id)",
-            factID: id,
-            count: try await store.facts(scope: .user).count,
-            scope: .user
-        )
+        let author = BotMemoryAuthor(
+            botID: botID, sessionID: context.sessionID, kind: context.authorKind)
+        if let denial = BotMemoryAuthorizer.scopeDenial(author: author, path: request.path) {
+            return failure(request, code: denial,
+                           error: "Task and routine sessions may only write their own agent/inbox/<session>/ directory.")
+        }
+        if request.action == .move, let to = request.to,
+           let denial = BotMemoryAuthorizer.scopeDenial(author: author, path: to) {
+            return failure(request, code: denial,
+                           error: "The move destination is outside this session's inbox.")
+        }
+        if let denial = BotMemoryAuthorizer.maintenanceScopeDenial(
+            author: author, path: request.path, isMainBot: context.isMainBot) {
+            return failure(request, code: denial,
+                           error: "Only the main Bot's maintainer may write shared user/ memory.")
+        }
+        if request.action == .move, let to = request.to,
+           let denial = BotMemoryAuthorizer.maintenanceScopeDenial(
+            author: author, path: to, isMainBot: context.isMainBot) {
+            return failure(request, code: denial,
+                           error: "Only the main Bot's maintainer may write shared user/ memory.")
+        }
+        if let boundary = BotMemoryAuthorizer.userBoundaryError(
+            sourceKind: context.source.kind, trust: context.trust, path: request.path,
+            authorKind: context.authorKind, hostRollback: context.isHostRollback) {
+            return boundaryFailure(request, code: boundary)
+        }
+        if request.action == .move, let to = request.to,
+           let boundary = BotMemoryAuthorizer.userBoundaryError(
+            sourceKind: context.source.kind, trust: context.trust, path: to,
+            authorKind: context.authorKind, hostRollback: context.isHostRollback) {
+            return boundaryFailure(request, code: boundary)
+        }
+        let evidence = request.evidence.isEmpty ? nil : Array(request.evidence.prefix(8))
+        let storeRequest = BotMemoryStoreWriteRequest(
+            action: request.action,
+            path: request.path,
+            content: request.content,
+            find: request.find,
+            replace: request.replace,
+            to: request.to,
+            expectedVersion: request.expectedVersion,
+            restoreVersion: request.restoreVersion,
+            author: author,
+            evidence: evidence ?? [],
+            trust: context.trust,
+            source: context.source,
+            atMS: now(),
+            correlationID: context.batchID.map { "memory-maintenance:\($0)" })
+        let outcome = try await store.write(storeRequest)
+        switch outcome {
+        case let .written(document, replaced):
+            return BotMemoryWriteResult(
+                ok: true,
+                action: request.action,
+                path: document.path,
+                scope: document.scope,
+                version: document.version,
+                previousVersion: request.expectedVersion == 0 ? 0 : request.expectedVersion,
+                replaced: replaced)
+        case let .deleted(version):
+            return BotMemoryWriteResult(
+                ok: true,
+                action: request.action,
+                path: version.path,
+                scope: version.scope,
+                version: version.version,
+                previousVersion: request.expectedVersion)
+        case let .conflict(currentVersion):
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-version-conflict",
+                error: "The document is at version \(currentVersion); re-read it and retry with that expected_version.",
+                action: request.action,
+                path: request.path,
+                scope: BotMemoryAuthorizer.scope(of: request.path),
+                currentVersion: currentVersion)
+        case let .notFound(path):
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-not-found",
+                error: "No document exists at \(path).",
+                action: request.action,
+                path: path,
+                scope: BotMemoryAuthorizer.scope(of: path))
+        case let .pathExists(path):
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-path-exists",
+                error: "The destination document already exists: \(path).",
+                action: request.action,
+                path: path,
+                scope: BotMemoryAuthorizer.scope(of: path))
+        case .replaceNotFound:
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-replace-not-found",
+                error: "The find text does not occur in the document.",
+                action: request.action,
+                path: request.path,
+                scope: BotMemoryAuthorizer.scope(of: request.path))
+        case let .versionNotFound(version):
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-version-not-found",
+                error: "No live historical version \(version) exists for this document.",
+                action: request.action,
+                path: request.path,
+                scope: BotMemoryAuthorizer.scope(of: request.path))
+        case let .indexTooLong(path, limit, actual):
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-index-too-long",
+                error: "\(path) has \(actual) characters; INDEX.md is limited to \(limit). Move detail into documents and keep paths in the index.",
+                action: request.action,
+                path: path,
+                scope: BotMemoryAuthorizer.scope(of: path),
+                limit: limit,
+                actual: actual)
+        }
     }
 
-    /// Erases every durable fact in one scope with text-free tombstones.
-    ///
-    /// - `scope: .agent` affects **only the current Bot**: its private facts
-    ///   disappear and future replay cannot resurrect them. Other Bots' agent
-    ///   facts and the shared user scope are untouched.
-    /// - `scope: .user` affects the **shared user memory** read by every Bot.
-    ///   The current Bot's own agent facts are untouched.
-    ///
-    /// This is the whole-scope version of ``erase(factID:)``. Individual fact
-    /// erasure remains id-addressed and scope-discovering. App-side callers
-    /// should confirm the scope before calling because `user` is visible to all
-    /// Bots.
+    /// Direct host path for the memory page: forget one document without model
+    /// evidence. History stays readable; physical erase is S6.
+    public func forget(path: String, expectedVersion: Int) async throws -> BotMemoryForgetResult {
+        try await prepare()
+        let author = BotMemoryAuthor(botID: botID, kind: .ui)
+        let request = BotMemoryStoreWriteRequest(
+            action: .delete, path: path, expectedVersion: expectedVersion,
+            author: author, evidence: [], trust: nil, source: nil, atMS: now())
+        let outcome = try await store.write(request)
+        switch outcome {
+        case let .deleted(version):
+            let remaining = try await store.documents(scope: version.scope).count
+            return BotMemoryForgetResult(
+                ok: true, removed: 1, path: path, version: version.version,
+                count: remaining, scope: version.scope)
+        case let .conflict(currentVersion):
+            return BotMemoryForgetResult(
+                ok: false, error: "The document is at version \(currentVersion); refresh and retry.",
+                removed: 0, path: path, count: 0,
+                scope: BotMemoryAuthorizer.scope(of: path) ?? .agent)
+        case .notFound:
+            return BotMemoryForgetResult(
+                ok: true, removed: 0, path: path, count: 0,
+                scope: BotMemoryAuthorizer.scope(of: path) ?? .agent)
+        default:
+            return BotMemoryForgetResult(
+                ok: false, error: "The document could not be forgotten.",
+                removed: 0, path: path, count: 0,
+                scope: BotMemoryAuthorizer.scope(of: path) ?? .agent)
+        }
+    }
+
     @discardableResult
     public func eraseAll(scope: BotMemoryScope) async throws -> BotMemoryEraseScopeResult {
-        let removal = try await store.eraseAll(scope: scope)
-        return BotMemoryEraseScopeResult(
-            ok: true,
+        try await prepare()
+        let removed = try await store.eraseAll(
             scope: scope,
-            botID: botID,
-            removed: removal.removed.count,
-            factIDs: removal.removed.map(\.factID),
-            count: removal.count
-        )
+            author: BotMemoryAuthor(botID: botID, kind: .ui),
+            atMS: now())
+        let remaining = try await store.documents(scope: scope).count
+        return BotMemoryEraseScopeResult(
+            ok: true, scope: scope, botID: botID, removed: removed, count: remaining)
     }
 
-    /// Searches memory. With `scope == nil` both stores are searched and the
-    /// merged result reserves a slot for the missing scope (upstream
-    /// `memory.cjs` merge behaviour). With an explicit scope only that store is
-    /// searched, using the full `limit`; filtering a merged top-N would return
-    /// fewer hits than the scope actually has.
+    /// Physical erase of one document and every historical version. The
+    /// payload bytes of `memory.document_written` / `memory.document_deleted`
+    /// events for that path (and copies that match the version text) are
+    /// cleared; the event headers and an `erasure` event stay.
+    @discardableResult
+    public func erase(path: String) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await erase(path: path, sessionEraser: nil)
+    }
+
+    /// Physical erase of one document with an optional session-epoch callback.
+    /// The callback runs before any event payload is cleared, so a failed
+    /// session rewrite leaves the memory store untouched.
+    @discardableResult
+    public func erase(path: String,
+                      sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await prepare()
+        let outcome = try await store.erase(
+            path: path,
+            author: BotMemoryAuthor(botID: botID, kind: .ui),
+            atMS: now(),
+            sessionEraser: sessionEraser)
+        if outcome.ok { recallIndex = BotMemoryDocumentRecallIndex() }
+        return outcome
+    }
+
+    /// Physical erase of one root (`agent/` is this Bot only, `user/` is the
+    /// shared root). Returns the count of cleared payloads and versions.
+    @discardableResult
+    public func erase(scope: BotMemoryScope) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await erase(scope: scope, sessionEraser: nil)
+    }
+
+    /// Root erase with an optional session-epoch callback (see the path form).
+    @discardableResult
+    public func erase(scope: BotMemoryScope,
+                      sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await prepare()
+        let outcome = try await store.erase(
+            scope: scope,
+            author: BotMemoryAuthor(botID: botID, kind: .ui),
+            atMS: now(),
+            sessionEraser: sessionEraser)
+        if outcome.ok { recallIndex = BotMemoryDocumentRecallIndex() }
+        return outcome
+    }
+
+    public func read(path: String, version: Int? = nil) async throws -> BotMemoryReadResult {
+        try await prepare()
+        guard BotMemoryAuthorizer.parse(path, allowRoot: true) != nil else {
+            return .failure(code: "memory-path-invalid", error: "Invalid memory path.", path: path)
+        }
+        guard let scope = BotMemoryAuthorizer.scope(of: path) else {
+            return .failure(code: "memory-path-invalid", error: "Invalid memory path.", path: path)
+        }
+        if let version {
+            let versions = try await store.versions(path: path)
+            guard let found = versions.first(where: { $0.version == version }) else {
+                return .failure(
+                    code: "memory-version-not-found",
+                    error: "No version \(version) exists for \(path).",
+                    path: path)
+            }
+            return .document(found)
+        }
+        if let document = try await store.document(path: path) {
+            return .document(BotMemoryDocumentVersion(
+                path: document.path, scope: document.scope, version: document.version,
+                content: document.content, updatedAtMS: document.updatedAtMS,
+                author: document.author, evidence: document.evidence, trust: document.trust))
+        }
+        let documents = try await store.documents(scope: scope)
+        let entries = Self.directoryEntries(documents: documents, path: path)
+        if !entries.isEmpty || path == scope.rawValue {
+            return .directory(path: path, scope: scope, entries: entries)
+        }
+        return .failure(code: "memory-not-found", error: "No document or directory at \(path).", path: path)
+    }
+
     public func recall(
         _ query: String = "",
         limit: Int = 40,
-        scope: BotMemoryScope? = nil,
-        includeArchived: Bool = false,
-        now explicitNow: Int64? = nil
+        scope: BotMemoryScope? = nil
     ) async throws -> [BotMemoryRecallHit] {
-        let nowMS = explicitNow ?? now()
-        let maximum = max(0, limit)
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matchedRecall = !trimmedQuery.isEmpty
+        try await prepare()
+        let documents = try await store.documents(scope: scope)
+            .filter { !BotMemoryAuthorizer.isIndex($0.path) }
+        recallIndex.sync(documents)
+        return recallIndex.search(
+            query,
+            limit: limit,
+            now: now(),
+            includeScope: scope)
+    }
 
-        func ranked(for scope: BotMemoryScope) async throws -> [BotMemoryRankedFact] {
-            BotMemoryRecallIndex(facts: try await store.facts(scope: scope)).search(
-                query,
-                limit: maximum,
-                now: nowMS,
-                includeArchived: includeArchived
-            )
+    public func recallPage(
+        _ query: String = "",
+        limit: Int = 40,
+        scope: BotMemoryScope? = nil
+    ) async throws -> (hits: [BotMemoryRecallHit], total: Int) {
+        try await prepare()
+        let documents = try await store.documents(scope: scope)
+            .filter { !BotMemoryAuthorizer.isIndex($0.path) }
+        recallIndex.sync(documents)
+        return recallIndex.searchPage(
+            query, limit: limit, now: now(), includeScope: scope)
+    }
+
+    public func injection() async throws -> BotMemoryInjection {
+        try await prepare()
+        try await ensureIndexes()
+        let userIndex = try await store.document(path: "user/INDEX.md")
+        let agentIndex = try await store.document(path: "agent/INDEX.md")
+        return BotMemoryInjector.render(
+            userIndex: userIndex,
+            agentIndex: agentIndex,
+            language: language)
+    }
+
+    public func promptBlock() async throws -> String {
+        try await injection().text
+    }
+
+    public func promptBlock(language: BotMemoryPromptLanguage) async throws -> String {
+        try await prepare()
+        try await ensureIndexes()
+        return try await BotMemoryInjector.render(
+            userIndex: store.document(path: "user/INDEX.md"),
+            agentIndex: store.document(path: "agent/INDEX.md"),
+            language: language
+        ).text
+    }
+
+    // MARK: - preparation
+
+    private func prepare() async throws {
+        if prepared { return }
+        try await prepareMutex.withLock {
+            if prepared { return }
+            let facts = try await store.legacyFacts(scope: nil)
+            if !facts.isEmpty {
+                try await BotMemoryMigrator.migrate(
+                    facts: facts, store: store, botID: botID, now: now())
+            }
+            prepared = true
         }
-
-        func touch(_ ranked: [BotMemoryRankedFact]) async throws {
-            guard matchedRecall else { return }
-            let ids = ranked.filter { $0.fact.archived != true }.map(\.fact.factID)
-            guard !ids.isEmpty else { return }
-            try? await store.touch(factIDs: ids, lastUsedMS: nowMS)
+        do {
+            try await ensureIndexes()
+        } catch {
+            prepared = false
+            throw error
         }
+    }
 
-        func hits(
-            _ ranked: [BotMemoryRankedFact],
-            sourcePrefix: String
-        ) -> [BotMemoryRecallHit] {
-            ranked.map {
-                BotMemoryRecallHit(
-                    ranked: $0,
-                    sourcePrefix: sourcePrefix,
-                    now: nowMS,
-                    lastUsedMS: matchedRecall && $0.fact.archived != true ? nowMS : nil
-                )
+    private func ensureIndexes() async throws {
+        for scope in BotMemoryScope.allCases {
+            let path = "\(scope.rawValue)/INDEX.md"
+            if try await store.document(path: path) != nil { continue }
+            let request = BotMemoryStoreWriteRequest(
+                action: .write,
+                path: path,
+                content: "# Index",
+                expectedVersion: 0,
+                author: BotMemoryAuthor(botID: botID, kind: .system),
+                evidence: [],
+                trust: nil,
+                source: nil,
+                atMS: now())
+            _ = try await store.write(request)
+        }
+    }
+
+    private func failure(_ request: BotMemoryWriteRequest, code: String, error: String) -> BotMemoryWriteResult {
+        BotMemoryWriteResult(
+            ok: false,
+            code: code,
+            error: error,
+            action: request.action,
+            path: request.path,
+            scope: BotMemoryAuthorizer.scope(of: request.path))
+    }
+
+    private func boundaryFailure(_ request: BotMemoryWriteRequest, code: String) -> BotMemoryWriteResult {
+        let message = code == "memory-source-boundary"
+            ? "Only a real user turn can write user/ memory."
+            : "Writing user/ memory needs at least one evidence reference to a user message."
+        return failure(request, code: code, error: message)
+    }
+
+    private static func directoryEntries(
+        documents: [BotMemoryDocument],
+        path: String
+    ) -> [BotMemoryDirectoryEntry] {
+        let prefix = path.hasSuffix("/") ? path : path + "/"
+        var entries: [String: BotMemoryDirectoryEntry] = [:]
+        for document in documents where document.path.hasPrefix(prefix) {
+            let remainder = document.path.dropFirst(prefix.count)
+            guard let head = remainder.split(separator: "/", maxSplits: 1).first else { continue }
+            let child = prefix + head
+            if remainder.contains("/") {
+                entries[child] = BotMemoryDirectoryEntry(
+                    path: child, name: String(head), kind: .directory)
+            } else {
+                entries[child] = BotMemoryDirectoryEntry(
+                    path: child, name: String(head), kind: .document,
+                    version: document.version, updatedAtMS: document.updatedAtMS)
             }
         }
-
-        if let scope {
-            let scoped = try await ranked(for: scope)
-            try await touch(scoped)
-            return hits(scoped, sourcePrefix: scope == .agent ? "bot" : "user")
-        }
-
-        let agentRanked = try await ranked(for: .agent)
-        let userRanked = try await ranked(for: .user)
-        try await touch(agentRanked)
-        try await touch(userRanked)
-        let agentHits = hits(agentRanked, sourcePrefix: "bot")
-        let userHits = hits(userRanked, sourcePrefix: "user")
-        func sortHits(_ hits: inout [BotMemoryRecallHit]) {
-            hits.sort { left, right in
-                if left.score != right.score { return left.score > right.score }
-                if left.learnedAtMS != right.learnedAtMS { return left.learnedAtMS > right.learnedAtMS }
-                return left.factID < right.factID
-            }
-        }
-        var merged = agentHits + userHits
-        sortHits(&merged)
-        var output = Array(merged.prefix(maximum))
-        if !output.isEmpty, !agentHits.isEmpty, !userHits.isEmpty, maximum > 1 {
-            let hasAgent = output.contains { $0.scope == .agent }
-            let hasUser = output.contains { $0.scope == .user }
-            if !hasAgent || !hasUser {
-                if let missing = !hasAgent ? agentHits.first : userHits.first {
-                    output[output.count - 1] = missing
-                    sortHits(&output)
-                }
-            }
-        }
-        return output
-    }
-
-    private func root(for scope: BotMemoryScope) -> String {
-        let root = URL(fileURLWithPath: dataRoot, isDirectory: true)
-        if scope == .user {
-            return root.appendingPathComponent("memory-user", isDirectory: true).path
-        }
-        return root
-            .appendingPathComponent("agents", isDirectory: true)
-            .appendingPathComponent(botID, isDirectory: true)
-            .appendingPathComponent("memory", isDirectory: true)
-            .path
-    }
-
-    private func uniqueFactID(existing: [BotMemoryFact]) async throws -> String {
-        let existingIDs = Set(existing.map(\.factID))
-        while true {
-            var generator = SystemRandomNumberGenerator()
-            let suffix = (0..<8).map { _ in
-                String(format: "%02x", UInt8.random(in: UInt8.min...UInt8.max, using: &generator))
-            }.joined()
-            let candidate = "fact-\(suffix)"
-            if existingIDs.contains(candidate) { continue }
-            var erased = false
-            for scope in BotMemoryScope.allCases {
-                if try await store.tombstone(factID: candidate, scope: scope) != nil {
-                    erased = true
-                    break
-                }
-            }
-            if !erased { return candidate }
-        }
-    }
-
-    private func normalizedNoteKey(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let folded = BotMemoryText.foldFactLines(value)
-        return emptyAsNil(BotMemoryText.prefixCodePoints(folded, 200))
-    }
-
-    private func trimmed(_ value: String?) -> String? {
-        guard let value else { return nil }
-        return emptyAsNil(value.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private func emptyAsNil(_ value: String) -> String? {
-        value.isEmpty ? nil : value
-    }
-
-    private func dayString(_ timestamp: Int64) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.formatOptions = [.withFullDate]
-        return formatter.string(from: Date(timeIntervalSince1970: Double(timestamp) / 1_000))
+        return entries.values.sorted { $0.path < $1.path }
     }
 }

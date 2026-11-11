@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "vector": "erasure-event.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-owned erasure payload vectors; there is no dsh-bot upstream file."
+  },
+  "upstream": [],
+  "delta": [
+    "Freeze the durable `erasure` event payload after the P25 header/payload split: targets, erased versions, erased event refs with retained digests, and uncovered session references.",
+    "An erased event keeps its header, sequence, id, type and SHA-256 payload digest; only the payload bytes are cleared, so the audit record can prove what was removed without reconstructing it.",
+    "S6 step 2 adds the host-only closed-session rewrite (§4.6, P02 wal.md §5.3): a durable erasure names the tombstoned `record://session/...` refs and the switched session epochs; only genuinely active sessions stay in `uncoveredRecords`."
+  ],
+  "valid": [
+    {
+      "name": "single-agent-document-all-versions",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-20261112-a",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1760000000000,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "agent",
+            "path": "agent/notes/secret.md"
+          }
+        ],
+        "memoryVersions": [
+          {
+            "path": "agent/notes/secret.md",
+            "scope": "agent",
+            "versions": [
+              1,
+              2
+            ]
+          }
+        ],
+        "erasedEvents": [
+          {
+            "record": "record://event/7",
+            "type": "memory.document_written",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "payloadBytes": 180
+          },
+          {
+            "record": "record://event/8",
+            "type": "memory.document_written",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "payloadBytes": 190
+          }
+        ],
+        "erasedBytes": 370,
+        "uncoveredRecords": [
+          {
+            "record": "record://session/gb-main#5",
+            "reason": "session-log-erasure-not-implemented"
+          }
+        ],
+        "legacyFactIDs": [],
+        "erasedSessionRecords": [
+          {
+            "record": "record://session/gb-main#5",
+            "sessionId": "gb-main",
+            "seq": 5,
+            "epoch": 1
+          },
+          {
+            "record": "record://session/gb-main#6",
+            "sessionId": "gb-main",
+            "seq": 6,
+            "epoch": 1
+          }
+        ],
+        "sessionEpochs": [
+          {
+            "fromSessionId": "gb-main",
+            "toSessionId": "gb-main-e2",
+            "at_ms": 1760000000500
+          }
+        ]
+      }
+    },
+    {
+      "name": "shared-user-root",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-20261112-b",
+        "reason": "memory-scope-erase",
+        "requestedBy": "user",
+        "at_ms": 1760000001000,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "user"
+          }
+        ],
+        "memoryVersions": [
+          {
+            "path": "user/profile.md",
+            "scope": "user",
+            "versions": [
+              1
+            ]
+          },
+          {
+            "path": "user/INDEX.md",
+            "scope": "user",
+            "versions": [
+              1
+            ]
+          }
+        ],
+        "erasedEvents": [
+          {
+            "record": "record://event/11",
+            "type": "memory.document_written",
+            "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "payloadBytes": 120
+          },
+          {
+            "record": "record://event/12",
+            "type": "memory.document_written",
+            "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "payloadBytes": 40
+          }
+        ],
+        "erasedBytes": 160,
+        "uncoveredRecords": [],
+        "legacyFactIDs": [
+          "fact-user-1"
+        ],
+        "erasedSessionRecords": [],
+        "sessionEpochs": []
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing-targets",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-invalid-1",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1,
+        "memoryVersions": [],
+        "erasedEvents": [],
+        "erasedBytes": 0,
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "bad-event-record",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-invalid-2",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "agent"
+          }
+        ],
+        "memoryVersions": [],
+        "erasedEvents": [
+          {
+            "record": "record://event/0",
+            "type": "memory.document_written",
+            "digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "payloadBytes": 1
+          }
+        ],
+        "erasedBytes": 1,
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "bad-digest",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-invalid-3",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "agent"
+          }
+        ],
+        "memoryVersions": [],
+        "erasedEvents": [
+          {
+            "record": "record://event/7",
+            "type": "memory.document_written",
+            "digest": "not-a-sha256",
+            "payloadBytes": 1
+          }
+        ],
+        "erasedBytes": 1,
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "negative-bytes",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-invalid-4",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "agent"
+          }
+        ],
+        "memoryVersions": [],
+        "erasedEvents": [],
+        "erasedBytes": -1,
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "wrong-uncovered-reason",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-invalid-5",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "agent"
+          }
+        ],
+        "memoryVersions": [],
+        "erasedEvents": [],
+        "erasedBytes": 0,
+        "uncoveredRecords": [
+          {
+            "record": "record://session/gb-main#5",
+            "reason": "delete-anything"
+          }
+        ],
+        "legacyFactIDs": []
+      }
+    },
+    {
+      "name": "bad-session-record",
+      "data": {
+        "schemaVersion": 1,
+        "erasureId": "erasure-invalid-6",
+        "reason": "memory-document-erase",
+        "requestedBy": "user",
+        "at_ms": 1760000000000,
+        "targets": [
+          {
+            "kind": "memory",
+            "scope": "agent",
+            "path": "agent/notes/secret.md"
+          }
+        ],
+        "memoryVersions": [
+          {
+            "path": "agent/notes/secret.md",
+            "scope": "agent",
+            "versions": [
+              1,
+              2
+            ]
+          }
+        ],
+        "erasedEvents": [
+          {
+            "record": "record://event/7",
+            "type": "memory.document_written",
+            "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "payloadBytes": 180
+          },
+          {
+            "record": "record://event/8",
+            "type": "memory.document_written",
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "payloadBytes": 190
+          }
+        ],
+        "erasedBytes": 370,
+        "uncoveredRecords": [
+          {
+            "record": "record://session/gb-main#5",
+            "reason": "session-log-erasure-not-implemented"
+          }
+        ],
+        "legacyFactIDs": [],
+        "erasedSessionRecords": [
+          {
+            "record": "record://session/gb-main#-1",
+            "sessionId": "gb-main",
+            "seq": 5,
+            "epoch": 1
+          },
+          {
+            "record": "record://session/gb-main#6",
+            "sessionId": "gb-main",
+            "seq": 6,
+            "epoch": 1
+          }
+        ],
+        "sessionEpochs": [
+          {
+            "fromSessionId": "gb-main",
+            "toSessionId": "gb-main-e2",
+            "at_ms": 1760000000500
+          }
+        ]
+      }
+    }
+  ]
+}

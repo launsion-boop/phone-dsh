@@ -49,11 +49,11 @@ public object ChatMetrics {
 
     // ------------------------------------------------------ About identity row
 
-    /** About page brand logo. Source: `NativeShell.swift:1041` (`.frame(width: 64, height: 64)`) Confidence: exact. */
+    /** About page brand logo. Source: `NativeShell.swift:1056` (`.frame(width: 64, height: 64)`) Confidence: exact. */
     public const val ABOUT_BRANDING_LOGO_SIZE_PT: Int = 64
-    /** About page branding stack gap. Source: `NativeShell.swift:1037` (`VStack(spacing: 8)`) Confidence: exact. */
+    /** About page branding stack gap. Source: `NativeShell.swift:1052` (`VStack(spacing: 8)`) Confidence: exact. */
     public const val ABOUT_BRANDING_STACK_GAP_PT: Int = 8
-    /** About page branding row vertical padding. Source: `NativeShell.swift:1050` (`.padding(.vertical, 12)`) Confidence: exact. */
+    /** About page branding row vertical padding. Source: `NativeShell.swift:1065` (`.padding(.vertical, 12)`) Confidence: exact. */
     public const val ABOUT_BRANDING_ROW_PADDING_V_PT: Int = 12
 
     // ------------------------------------------------------------------ header

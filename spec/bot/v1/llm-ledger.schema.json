@@ -6,7 +6,7 @@
   "properties": {
     "ts": {"type": "string", "minLength": 20},
     "botId": {"type": ["string", "null"]}, "sessionId": {"type": ["string", "null"]},
-    "purpose": {"enum": ["front-turn", "worker-turn", "triage", "memory-extract", "reflect", "compact", "watchdog", "completion-check"]},
+    "purpose": {"enum": ["front-turn", "worker-turn", "triage", "memory-extract", "reflect", "compact", "watchdog", "completion-check", "memory-maintenance"]},
     "model": {"type": ["string", "null"]}, "provider": {"type": ["string", "null"]},
     "inputTokens": {"type": "integer", "minimum": 0}, "outputTokens": {"type": "integer", "minimum": 0},
     "cacheReadTokens": {"type": "integer", "minimum": 0}, "cacheWriteTokens": {"type": "integer", "minimum": 0},

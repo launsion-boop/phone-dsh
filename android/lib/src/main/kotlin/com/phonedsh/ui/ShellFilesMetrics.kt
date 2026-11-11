@@ -39,10 +39,10 @@ public object ShellFilesMetrics {
     /** Header horizontal inset; resolves `geometry.chromeInset` (16). Source: `NativeShell.swift:43` (`horizontalInset = 16`), applied at `:563`. */
     public val HEADER_INSET_H_PT: Int get() = UiTokenData.geometryChromeInset.value.toInt()
 
-    /** Shell drawer furniture row height (定时任务 / 设置). Source: `NativeShell.swift:564` (`.frame(height: 48)`). Confidence: exact. */
+    /** Shell drawer furniture row height (定时任务 / 设置). Source: `NativeShell.swift:579` (`.frame(height: 48)`). Confidence: exact. */
     public const val SHELL_DRAWER_ROW_HEIGHT_PT: Int = 48
 
-    /** Shell drawer furniture icon slot. Source: `NativeShell.swift:553` (`.frame(width: 22)`). Confidence: exact. */
+    /** Shell drawer furniture icon slot. Source: `NativeShell.swift:568` (`.frame(width: 22)`). Confidence: exact. */
     public const val SHELL_DRAWER_ROW_ICON_SLOT_PT: Int = 22
 
     // ------------------------------------------------------------------- files

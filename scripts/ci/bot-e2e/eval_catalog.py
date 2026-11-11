@@ -37,18 +37,22 @@ DEFAULT_BUDGET = {"max_minutes": 10, "max_model_requests": 40}
 DEFAULT_ACTION_TIMEOUT = 180.0
 EVIDENCE_FILES = ("report.json", "transcript.jsonl", "bot-events.jsonl", "workspace.tar")
 SUPPORTED_ACTIONS = {
-    "create_bot", "user_message", "ui_action", "approval_policy",
-    "advance_clock", "seed_held_item", "restart_worker",
+    "create_bot", "user_message", "agent_message", "ui_action", "approval_policy",
+    "advance_clock", "seed_held_item", "restart_worker", "run_maintenance",
 }
 SUPPORTED_ASSERTIONS = {
     "file_exists", "no_file", "file_contains", "file_regex", "file_json_path",
     "workspace_command", "reply_contains", "reply_not_contains",
+    "reply_regex", "reply_not_regex", "reply_length",
     "bot_event", "no_bot_event", "tool_called", "no_tool_call",
     "memory_contains", "memory_absent", "approval_count", "echo_requests",
+    "tool_surface", "session_log_absent", "session_event", "no_session_event",
+    "card_count", "card_placement", "card_file_exists",
 }
+CONTEXT_PROFILES_PATH = HERE / "context-profiles.json"
 UI_KINDS = {
     "card_answer", "card_dismiss", "approval", "erase_memory",
-    "erase_shared_memory", "forget_memory", "stop_task",
+    "erase_shared_memory", "forget_memory", "stop_task", "await_task",
 }
 BOT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 SCENARIO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -245,6 +249,19 @@ def _check_action(errors, path, action, aliases):
     elif kind == "user_message":
         if not (action.get("text") or "").strip():
             _error(errors, path, "user_message requires non-empty text")
+    elif kind == "agent_message":
+        if not (action.get("text") or "").strip():
+            _error(errors, path, "agent_message requires non-empty text")
+        target = action.get("bot")
+        if target is None:
+            _error(errors, path, "agent_message requires a target bot")
+        elif target != "main" and target not in aliases:
+            _error(errors, path,
+                   f"agent_message target {target!r} is not 'main' or a create_bot alias declared earlier")
+        sender = action.get("from_bot")
+        if sender is not None and sender != "main" and sender not in aliases:
+            _error(errors, path,
+                   f"agent_message from_bot {sender!r} is not 'main' or a create_bot alias declared earlier")
     elif kind == "ui_action":
         ui_kind = action.get("kind")
         if ui_kind not in UI_KINDS:
@@ -267,6 +284,10 @@ def _check_action(errors, path, action, aliases):
     elif kind == "restart_worker":
         if action.get("mode") not in (None, "planned_restart", "worker_kill"):
             _error(errors, path, "restart_worker mode must be planned_restart or worker_kill")
+    elif kind == "run_maintenance":
+        for name in ("enabled", "force"):
+            if name in action and not isinstance(action[name], bool):
+                _error(errors, path, f"run_maintenance {name} must be a boolean")
 
 
 def _check_assertion(errors, path, assertion):
@@ -298,6 +319,88 @@ def _check_assertion(errors, path, assertion):
         method = assertion.get("method")
         if not isinstance(method, str) or not method.isalpha():
             _error(errors, path, "echo_requests method must be an alphabetic HTTP method")
+    if kind == "session_log_absent" and not assertion.get("value"):
+        _error(errors, path, f"{kind} requires a non-empty value")
+    if kind == "tool_surface":
+        session = assertion.get("session")
+        if session is not None and session not in ("main", "task", "verifier", "maintainer"):
+            _error(errors, path,
+                   "tool_surface session must be main, task, verifier or maintainer")
+        present = assertion.get("present")
+        absent = assertion.get("absent")
+        exactly = assertion.get("exactly")
+        for label, names in (("present", present), ("absent", absent), ("exactly", exactly)):
+            if names is None:
+                continue
+            if not isinstance(names, list) or not names \
+                    or not all(isinstance(name, str) and name for name in names):
+                _error(errors, path,
+                       f"tool_surface {label} must be a non-empty array of tool names")
+        if exactly is not None and (present or absent):
+            _error(errors, path, "tool_surface exactly cannot be combined with present or absent")
+        if not present and not absent and not exactly:
+            _error(errors, path, "tool_surface requires present, absent or exactly")
+    if kind in ("reply_regex", "reply_not_regex") and not assertion.get("value"):
+        _error(errors, path, f"{kind} requires a non-empty value")
+    if kind in ("reply_contains", "reply_not_contains", "reply_regex", "reply_not_regex"):
+        if "ignore_case" in assertion and not isinstance(assertion["ignore_case"], bool):
+            _error(errors, path, f"{kind} ignore_case must be a boolean")
+    if kind == "reply_length":
+        has_median = "median_max" in assertion
+        has_each = "each_max" in assertion
+        if not has_median and not has_each:
+            _error(errors, path, "reply_length requires median_max or each_max")
+        for name in ("median_max", "each_max"):
+            if name in assertion and (not isinstance(assertion[name], int)
+                                      or isinstance(assertion[name], bool)
+                                      or assertion[name] < 0):
+                _error(errors, path, f"reply_length {name} must be a non-negative integer")
+        if "allow_no_reply" in assertion and not isinstance(assertion["allow_no_reply"], bool):
+            _error(errors, path, "reply_length allow_no_reply must be a boolean")
+    if kind in ("card_count", "card_placement", "card_file_exists"):
+        for label in ("card_types", "exclude_card_types"):
+            values = assertion.get(label)
+            if values is None:
+                continue
+            if not isinstance(values, list) or not values \
+                    or not all(isinstance(value, str) and value for value in values):
+                _error(errors, path,
+                       f"{kind} {label} must be a non-empty array of card types")
+        if assertion.get("card_types") and assertion.get("exclude_card_types"):
+            _error(errors, path,
+                   f"{kind} card_types and exclude_card_types cannot be combined")
+    if kind == "card_count":
+        if "equals" in assertion and ("min" in assertion or "max" in assertion):
+            _error(errors, path, "card_count equals cannot be combined with min or max")
+        if not any(name in assertion for name in ("equals", "min", "max")):
+            _error(errors, path, "card_count requires equals, min or max")
+        for name in ("equals", "min", "max"):
+            if name in assertion and (not isinstance(assertion[name], int)
+                                      or isinstance(assertion[name], bool)
+                                      or assertion[name] < 0):
+                _error(errors, path, f"card_count {name} must be a non-negative integer")
+        if "min" in assertion and "max" in assertion \
+                and assertion["min"] > assertion["max"]:
+            _error(errors, path, "card_count min must not exceed max")
+    if kind == "card_placement":
+        if "after_reply" not in assertion and "terminal" not in assertion:
+            _error(errors, path, "card_placement requires after_reply or terminal")
+        for name in ("after_reply", "terminal"):
+            if name in assertion and not isinstance(assertion[name], bool):
+                _error(errors, path, f"card_placement {name} must be a boolean")
+        if not assertion.get("after_reply") and not assertion.get("terminal"):
+            _error(errors, path, "card_placement needs at least one true direction")
+    if kind == "card_file_exists":
+        card_types = assertion.get("card_types")
+        if card_types is not None and not set(card_types) <= {"attachment", "document"}:
+            _error(errors, path,
+                   "card_file_exists card_types must be attachment and/or document")
+    if kind in ("session_event", "no_session_event"):
+        if not assertion.get("event"):
+            _error(errors, path, f"{kind} requires event")
+        surface_op = assertion.get("surface_op")
+        if surface_op is not None and surface_op not in ("append", "replace"):
+            _error(errors, path, f"{kind} surface_op must be append or replace")
 
 
 def _fixture_root(name, fixtures_root: Path) -> Path | None:
@@ -401,6 +504,17 @@ def validate_catalog(catalog, fixtures_root: Path, selftest=False):
         for key in ("max_minutes", "max_model_requests"):
             if budget.get(key, 0) < 0:
                 _error(errors, f"$.budget.{key}", "must not be negative")
+    profile_name = catalog.get("context_profile")
+    if profile_name is not None:
+        try:
+            profiles = json.loads(CONTEXT_PROFILES_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CatalogError(f"cannot read eval context profiles {CONTEXT_PROFILES_PATH}: {exc}") from exc
+        known = profiles.get("profiles") if isinstance(profiles, dict) else None
+        if not isinstance(known, dict) or profile_name not in known:
+            _error(errors, "$.context_profile",
+                   f"unknown eval context profile {profile_name!r}; "
+                   f"add it to {CONTEXT_PROFILES_PATH.name}")
     return errors
 
 
@@ -443,6 +557,8 @@ def _normalize_action(action, default_bot="main"):
         out.setdefault("bot", default_bot)
     if out.get("type") == "user_message":
         out.setdefault("text", "")
+    if out.get("type") == "agent_message":
+        out.setdefault("from_bot", "main")
     if out.get("type") == "restart_worker":
         out.setdefault("mode", "planned_restart")
     if out.get("type") == "seed_held_item":
@@ -591,6 +707,7 @@ def build_plan(catalog_path: Path, only: str | None, repeat: int, upstream: str,
         "upstream": upstream,
         "repeat": repeat,
         "selftest": bool(catalog.get("selftest", False)) if selftest else False,
+        "context_profile": catalog.get("context_profile"),
         "keep_bodies": False,
         "fixtures_root": str(fixtures_root.resolve()),
         "results": str(results.resolve()),

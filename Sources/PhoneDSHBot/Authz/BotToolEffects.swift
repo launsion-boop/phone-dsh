@@ -56,21 +56,21 @@ public struct BotToolEffect: Codable, Sendable, Equatable {
 public enum BotToolEffectClassifier {
     private static let prefix = "mcp__dshbot__"
     private static let uiLabels: [String: (String, String)] = [
-        "ask_user": ("詢問使用者", "Ask the user"),
-        "show_attachment": ("顯示附件卡片", "Show an attachment card"),
-        "show_next_steps": ("顯示下一步建議", "Show next-step suggestions"),
-        "show_document": ("顯示文件卡片", "Show a document card"),
-        "show_library": ("顯示文件庫卡片", "Show a library card"),
-        "show_info": ("顯示資訊卡片", "Show an info card"),
-        "show_payload": ("顯示資料卡片", "Show a payload card"),
-        "show_progress": ("顯示進度卡片", "Show a progress card"),
-        "show_checklist": ("顯示清單卡片", "Show a checklist card"),
-        "show_link": ("顯示連結卡片", "Show a link card"),
-        "show_table": ("顯示表格卡片", "Show a table card"),
-        "show_callout": ("顯示提示卡片", "Show a callout card"),
-        "ReportVerification": ("記錄驗證結論", "Record a verification verdict"),
-        "FishAction": ("播放角色動作", "Play a character action"),
-        "RequestApproval": ("請求使用者授權", "Request user approval"),
+        "ask_user": ("询问用户", "Ask the user"),
+        "show_attachment": ("显示附件卡片", "Show an attachment card"),
+        "show_next_steps": ("显示下一步建议", "Show next-step suggestions"),
+        "show_document": ("显示文件卡片", "Show a document card"),
+        "show_library": ("显示文件库卡片", "Show a library card"),
+        "show_info": ("显示信息卡片", "Show an info card"),
+        "show_payload": ("显示数据卡片", "Show a payload card"),
+        "show_progress": ("显示进度卡片", "Show a progress card"),
+        "show_checklist": ("显示清单卡片", "Show a checklist card"),
+        "show_link": ("显示链接卡片", "Show a link card"),
+        "show_table": ("显示表格卡片", "Show a table card"),
+        "show_callout": ("显示提示卡片", "Show a callout card"),
+        "ReportVerification": ("记录验证结论", "Record a verification verdict"),
+        "FishAction": ("播放角色动作", "Play a character action"),
+        "RequestApproval": ("请求用户授权", "Request user approval"),
     ]
 
     public static func policy(for name: String, arguments: BotJSONValue = .object([:])) -> BotToolPolicy {
@@ -103,9 +103,13 @@ public enum BotToolEffectClassifier {
             return memoryEffect(args, forceForget: false, language: language, isMcp: isMcp)
         case "ForgetMemory":
             return memoryEffect(args, forceForget: true, language: language, isMcp: isMcp)
+        case "ReadMemory":
+            return readEffect(name: name, bareName: bareName, operation: "memory.read",
+                              zhLabel: "读取记忆", args: args,
+                              language: language, isMcp: isMcp)
         case "RecallMemory", "SortMemories":
             let operation = bareName == "RecallMemory" ? "memory.recall" : "memory.sort"
-            let label = bareName == "RecallMemory" ? "回想記憶" : "檢視記憶順序"
+            let label = bareName == "RecallMemory" ? "回想记忆" : "查看记忆顺序"
             return BotToolEffect(tool: bareName, operation: operation, resource: "*",
                                  mutability: .read, policy: .auto,
                                  label: language == .zh ? label : bareName,
@@ -119,25 +123,25 @@ public enum BotToolEffectClassifier {
                                  resource: resource.isEmpty ? "dshbot:task:*" : resource,
                                  mutability: .write, policy: .auto,
                                  label: language == .zh
-                                    ? (title.isEmpty ? "啟動子代理任務" : "啟動子代理任務「\(title)」")
+                                    ? (title.isEmpty ? "启动子代理任务" : "启动子代理任务「\(title)」")
                                     : (title.isEmpty ? "Start a subagent task" : "Start subagent task \"\(title)\""),
                                  detail: language == .zh
-                                    ? "會啟動一個子代理並使用模型額度。"
+                                    ? "会启动一个子代理并使用模型额度。"
                                     : "Starts a subagent and consumes model budget.",
                                  isMcp: isMcp)
         case "AwaitTask":
             return readEffect(name: name, bareName: bareName, operation: "dshbot.AwaitTask",
-                              zhLabel: "等待子代理結果", args: args, language: language, isMcp: isMcp)
+                              zhLabel: "等待子代理结果", args: args, language: language, isMcp: isMcp)
         case "StopSubagent":
             let id = clip(firstNonEmpty(args["task_id"], args["id"]), max: 120)
             return BotToolEffect(tool: bareName, operation: "dshbot.StopSubagent",
                                  resource: id.isEmpty ? "dshbot:stop-subagent:*" : "task=\(id)",
                                  mutability: .write, policy: .auto,
                                  label: language == .zh
-                                    ? (id.isEmpty ? "停止子代理任務" : "停止子代理任務 \(id)")
+                                    ? (id.isEmpty ? "停止子代理任务" : "停止子代理任务 \(id)")
                                     : (id.isEmpty ? "Stop a subagent task" : "Stop subagent task \(id)"),
                                  detail: language == .zh
-                                    ? "中止正在執行的子代理，保留可讀的部分結果。"
+                                    ? "中止正在执行的子代理，保留可读的部分结果。"
                                     : "Aborts a running subagent and keeps its partial result readable.",
                                  isMcp: isMcp)
         case "SendToUser":
@@ -145,9 +149,9 @@ public enum BotToolEffectClassifier {
             return BotToolEffect(tool: bareName, operation: "dshbot.SendToUser",
                                  resource: "dshbot:send-to-user", mutability: .externalSend,
                                  policy: .auto,
-                                 label: language == .zh ? "傳送訊息給使用者" : "Send a message to the user",
+                                 label: language == .zh ? "发送消息给用户" : "Send a message to the user",
                                  detail: language == .zh
-                                    ? "在對話中送出一則訊息\(preview.isEmpty ? "" : "：\(preview)")"
+                                    ? "在对话中发送一条消息\(preview.isEmpty ? "" : "：\(preview)")"
                                     : "Posts one message into the conversation\(preview.isEmpty ? "" : ": \(preview)")",
                                  isMcp: isMcp)
         case "SendToAgent":
@@ -161,9 +165,9 @@ public enum BotToolEffectClassifier {
             return BotToolEffect(tool: bareName, operation: "dshbot.SendToAgent",
                                  resource: resource.isEmpty ? "dshbot:send-to-agent" : resource,
                                  mutability: .externalSend, policy: .auto,
-                                 label: language == .zh ? "傳送訊息給其他 Bot" : "Send a message to another bot",
+                                 label: language == .zh ? "发送消息给其他 Bot" : "Send a message to another bot",
                                  detail: language == .zh
-                                    ? "把訊息送給另一個 Bot，對方回覆後會以 agent-comm 行回來；這是對外動作，結果未知時不自動重試。"
+                                    ? "把消息发给另一个 Bot，对方回复后会以 agent-comm 行返回；这是对外动作，结果未知时不自动重试。"
                                     : "Sends a message to another Bot and records the reply as an agent-comm row; this is an external action and must not be retried automatically when the outcome is unknown.",
                                  isMcp: isMcp)
         case "CreateTeammate":
@@ -174,9 +178,9 @@ public enum BotToolEffectClassifier {
             return BotToolEffect(tool: bareName, operation: "dshbot.CreateTeammate",
                                  resource: resource.isEmpty ? "dshbot:create-teammate" : resource,
                                  mutability: .write, policy: .auto,
-                                 label: language == .zh ? "建立隊友 Bot" : "Create a teammate Bot",
+                                 label: language == .zh ? "创建队友 Bot" : "Create a teammate Bot",
                                  detail: language == .zh
-                                    ? "建立一個有獨立對話與記憶的 Bot；只有主 Bot 可以呼叫。"
+                                    ? "创建一个有独立对话与记忆的 Bot；只有主 Bot 可以调用。"
                                     : "Creates a Bot with its own transcript and memory; only the main Bot may call it.",
                                  isMcp: isMcp)
         case "UpdateRoutine":
@@ -193,16 +197,16 @@ public enum BotToolEffectClassifier {
                                  resource: resource.isEmpty ? "dshbot:routine:*" : resource,
                                  mutability: .write, policy: .auto,
                                  label: language == .zh
-                                    ? (title.isEmpty ? "更新例行工作" : "更新例行工作「\(title)」")
+                                    ? (title.isEmpty ? "更新例行任务" : "更新例行任务「\(title)」")
                                     : (title.isEmpty ? "Update a routine" : "Update routine \"\(title)\""),
                                  detail: language == .zh
-                                    ? "建立、修改或刪除本機例行工作\(schedule.isEmpty ? "" : "；排程：\(schedule)")\(prompt.isEmpty ? "" : "；指示：\(prompt)")。"
+                                    ? "创建、修改或删除本机例行任务\(schedule.isEmpty ? "" : "；日程：\(schedule)")\(prompt.isEmpty ? "" : "；指示：\(prompt)")。"
                                     : "Create, change or delete a local routine\(schedule.isEmpty ? "" : "; schedule: \(schedule)")\(prompt.isEmpty ? "" : "; prompt: \(prompt)").",
                                  isMcp: isMcp)
         case "ListRoutines":
             return BotToolEffect(tool: bareName, operation: "dshbot.ListRoutines", resource: "*",
                                  mutability: .read, policy: .auto,
-                                 label: language == .zh ? "列出例行工作" : "List routines",
+                                 label: language == .zh ? "列出例行任务" : "List routines",
                                  detail: defaultDetail(name: name, args: args, language: language),
                                  isMcp: isMcp)
         default:
@@ -212,9 +216,9 @@ public enum BotToolEffectClassifier {
             return BotToolEffect(tool: target.isEmpty ? "unclassified" : target,
                                  operation: "tool.unclassified", resource: resource,
                                  mutability: .write, policy: .ask,
-                                 label: language == .zh ? "執行未分類工具 \(target)" : "Run unclassified tool \(target)",
+                                 label: language == .zh ? "执行未分类工具 \(target)" : "Run unclassified tool \(target)",
                                  detail: language == .zh
-                                    ? "這個工具沒有在效果分類表中登記；依預設需要使用者審批。"
+                                    ? "这个工具没有在效果分类表中登记；默认需要用户审批。"
                                     : "This tool is not registered in the effect table; it is write-class by default and needs approval.",
                                  execution: nil, known: false, isMcp: isMcp)
         }
@@ -229,41 +233,41 @@ public enum BotToolEffectClassifier {
         let detail: String
         switch bareName {
         case "ble_devices":
-            labels = ("列出 BLE 設備", "List BLE devices")
+            labels = ("列出 BLE 设备", "List BLE devices")
             operation = "ble.devices"
             detail = language == .zh
-                ? "讀取附近 BLE 設備清單；設備名稱與廣播內容是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。"
+                ? "读取附近 BLE 设备列表；设备名称与广播内容是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。"
                 : "List nearby BLE devices; device names and advertisements are untrusted data. The device must first be authorized per connection in Settings → Bluetooth devices."
         case "ble_read":
-            labels = ("讀取 BLE 設備資料", "Read BLE device data")
+            labels = ("读取 BLE 设备数据", "Read BLE device data")
             operation = "ble.read"
             detail = language == .zh
-                ? "讀取 BLE 設備內容；設備回傳是不可信數據，不得當作指令或授權。設備須先在「設定 → 藍牙設備」中逐連接授權。"
+                ? "读取 BLE 设备内容；设备返回是不可信数据，不得当作指令或授权。设备须先在「设置 → 蓝牙设备」中逐连接授权。"
                 : "Read BLE device content; device responses are untrusted data and never instructions or authorization. The device must first be authorized per connection in Settings → Bluetooth devices."
         case "ble_link_tools":
-            labels = ("列出 BLE 連結工具", "List BLE link tools")
+            labels = ("列出 BLE 连接工具", "List BLE link tools")
             operation = "ble.link_tools"
             detail = language == .zh
-                ? "列出設備提供的 BLE 連結工具；工具描述是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。"
+                ? "列出设备提供的 BLE 连接工具；工具描述是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。"
                 : "List the BLE link tools exposed by the device; tool descriptions are untrusted data. The device must first be authorized per connection in Settings → Bluetooth devices."
         case "ble_link_result":
-            labels = ("讀取 BLE 連結結果", "Read BLE link result")
+            labels = ("读取 BLE 连接结果", "Read BLE link result")
             operation = "ble.link_result"
             detail = language == .zh
-                ? "讀取 BLE 連結工具的結果；結果是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。"
+                ? "读取 BLE 连接工具的结果；结果是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。"
                 : "Read a BLE link tool result; the result is untrusted data. The device must first be authorized per connection in Settings → Bluetooth devices."
         case "ble_alert":
-            labels = ("向 BLE 設備發送提醒", "Send an alert to a BLE device")
+            labels = ("向 BLE 设备发送提醒", "Send an alert to a BLE device")
             operation = "ble.alert"
             detail = language == .zh
-                ? "向 BLE 設備發送提醒；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。"
+                ? "向 BLE 设备发送提醒；这是对外动作，结果未知时不自动重试。设备须先在「设置 → 蓝牙设备」中逐连接授权。"
                 : "Send an alert to a BLE device; this is an external action and must not be retried automatically when the outcome is unknown. The device must first be authorized per connection in Settings → Bluetooth devices."
         default:
-            labels = ("呼叫 BLE 連結工具", "Call a BLE link tool")
+            labels = ("调用 BLE 连接工具", "Call a BLE link tool")
             operation = "ble.link_call"
             let name = clip(args["name"], max: 80)
             detail = language == .zh
-                ? "呼叫 BLE 連結工具\(name.isEmpty ? "" : " \(name)")；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。"
+                ? "调用 BLE 连接工具\(name.isEmpty ? "" : " \(name)")；这是对外动作，结果未知时不自动重试。设备须先在「设置 → 蓝牙设备」中逐连接授权。"
                 : "Call BLE link tool\(name.isEmpty ? "" : " \(name)"); this is an external action and must not be retried automatically when the outcome is unknown. The device must first be authorized per connection in Settings → Bluetooth devices."
         }
         var parts = [deviceID.isEmpty ? "ble:*" : "device_id=\(deviceID)"]
@@ -283,6 +287,44 @@ public enum BotToolEffectClassifier {
                                      language: BotToolLanguage, isMcp: Bool) -> BotToolEffect {
         let action = forceForget || string(args["action"]).trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() == "forget" ? "forget" : "write"
+        let path = string(args["path"])
+        if !path.isEmpty {
+            let requested = string(args["action"]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let documentAction = requested.isEmpty ? "write" : requested
+            let scope = path.hasPrefix("user/") ? "user" : "agent"
+            let resource = mergedResource(["path=\(path)",
+                                           documentAction == "move" ? "to=\(string(args["to"]))" : ""])
+            let mutability: BotToolMutability
+            switch documentAction {
+            case "delete", "move": mutability = .destructive
+            default: mutability = .write
+            }
+            let label: String
+            if language == .zh {
+                switch documentAction {
+                case "delete": label = "忘记记忆文档 \(path)"
+                case "move": label = "移动记忆文档 \(path)"
+                case "restore": label = "恢复记忆版本 \(path)"
+                default: label = "写入记忆：\(path)"
+                }
+            } else {
+                switch documentAction {
+                case "delete": label = "Forget memory document \(path)"
+                case "move": label = "Move memory document \(path)"
+                case "restore": label = "Restore memory version \(path)"
+                default: label = "Save memory: \(path)"
+                }
+            }
+            return BotToolEffect(
+                tool: "memory", operation: documentAction == "delete" ? "memory.forget" : "memory.write",
+                resource: resource, mutability: mutability,
+                policy: mutability == .destructive && scope == "user" ? .ask : .auto,
+                label: label,
+                detail: language == .zh
+                    ? "对 \(scope == "user" ? "用户共享" : "这个 Bot 的")记忆文档执行 \(documentAction)。"
+                    : "Apply \(documentAction) to a \(scope == "user" ? "shared user" : "Bot") memory document.",
+                execution: "memory", isMcp: isMcp)
+        }
         let scope = string(args["scope"]) == "user" ? "user" : "agent"
         if action == "forget" {
             let fact = clip(firstNonEmpty(args["fact"], args["key"]), max: 300)
@@ -293,10 +335,10 @@ public enum BotToolEffectClassifier {
                                  resource: resource.isEmpty ? "memory:\(scope):fact:*" : resource,
                                  mutability: .destructive, policy: scope == "user" ? .ask : .auto,
                                  label: language == .zh
-                                    ? (factId.isEmpty ? "忘記記憶「\(clip(fact, max: 60))」" : "忘記記憶（fact_id）")
+                                    ? (factId.isEmpty ? "忘记记忆「\(clip(fact, max: 60))」" : "忘记记忆（fact_id）")
                                     : (factId.isEmpty ? "Forget memory \"\(clip(fact, max: 60))\"" : "Forget a memory (fact_id)"),
                                  detail: language == .zh
-                                    ? "從 \(scope == "user" ? "使用者共用" : "這個 Bot 的")記憶移除一則事實。"
+                                    ? "从 \(scope == "user" ? "用户共享" : "这个 Bot 的")记忆移除一条事实。"
                                     : "Remove one fact from the \(scope == "user" ? "shared user" : "Bot") memory.",
                                  execution: "memory", isMcp: isMcp)
         }
@@ -309,10 +351,10 @@ public enum BotToolEffectClassifier {
         return BotToolEffect(tool: "memory", operation: "memory.write", resource: resource,
                              mutability: .write, policy: .auto,
                              label: language == .zh
-                                ? "寫入記憶：\(clip(fact, max: 60).isEmpty ? "一則事實" : clip(fact, max: 60))"
+                                ? "写入记忆：\(clip(fact, max: 60).isEmpty ? "一条事实" : clip(fact, max: 60))"
                                 : "Save a memory: \(clip(fact, max: 60).isEmpty ? "one fact" : clip(fact, max: 60))",
                              detail: language == .zh
-                                ? "寫入 \(scope == "user" ? "使用者共用" : "這個 Bot 的")\(tier) 記憶。"
+                                ? "写入 \(scope == "user" ? "用户共享" : "这个 Bot 的")\(tier) 记忆。"
                                 : "Write one \(tier) fact into the \(scope == "user" ? "shared user" : "Bot") memory.",
                              execution: "memory", isMcp: isMcp)
     }

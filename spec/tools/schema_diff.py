@@ -19,6 +19,9 @@ from protocol_impact import (SpecError, comparison_base, changed_paths, git, loa
 
 SCHEMA_PATH = re.compile(r'^spec/(?:.*/)?schema/[^/]+\.json$')
 ANNOTATIONS = {'title', 'description', 'examples', '$comment', 'deprecated'}
+# Combinators with the same variant count compare variant-by-variant, which
+# intentionally relaxes the old any-change-is-breaking rule. Known miss: oneOf
+# variants can become ambiguous; see test_oneof_variant_ambiguity_is_known_limitation.
 COMBINATORS = {'oneOf', 'anyOf', 'allOf'}
 
 

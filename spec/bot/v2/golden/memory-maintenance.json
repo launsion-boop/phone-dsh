@@ -1,0 +1,624 @@
+{
+  "schemaVersion": 1,
+  "vector": "memory-maintenance",
+  "source": {
+    "checkout": "phoneDSH-v2-maintenance"
+  },
+  "valid": {
+    "start": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "candidates": [
+        {
+          "path": "user/INDEX.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "agent/INDEX.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "agent/inbox/gb-task-1/submission.md",
+          "reasons": [
+            "inbox"
+          ]
+        },
+        {
+          "path": "user/profile.md",
+          "reasons": [
+            "contradiction",
+            "most-read"
+          ]
+        }
+      ],
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000
+      }
+    },
+    "committed": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "status": "committed",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "finished_at_ms": 1760000006000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "changes": [
+        {
+          "path": "user/INDEX.md",
+          "scope": "user",
+          "before_version": 3,
+          "after_version": 4,
+          "deleted": false
+        },
+        {
+          "path": "user/profile.md",
+          "scope": "user",
+          "before_version": 2,
+          "after_version": 3,
+          "deleted": false
+        }
+      ],
+      "checks": {
+        "references_resolve": true,
+        "index_within_limit": true,
+        "documents_not_longer_than_evidence": true,
+        "change_budget_within_limit": true
+      },
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000,
+        "tokens_used": 12000,
+        "changed_documents": 2,
+        "changed_scalars": 300
+      },
+      "failure_code": null,
+      "notification": true,
+      "user_scope_owner": true
+    },
+    "cancelled": {
+      "batch_id": "mm-fedcba9876543210fedcba9876543210",
+      "bot_id": "bot-a",
+      "status": "cancelled",
+      "trigger": "writes",
+      "started_at_ms": 1760000100000,
+      "finished_at_ms": 1760000101000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "changes": [
+        {
+          "path": "agent/notes/ops.md",
+          "scope": "agent",
+          "before_version": 1,
+          "after_version": 2,
+          "deleted": false
+        }
+      ],
+      "checks": {
+        "references_resolve": true,
+        "index_within_limit": true,
+        "documents_not_longer_than_evidence": true,
+        "change_budget_within_limit": true
+      },
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000,
+        "tokens_used": 4000,
+        "changed_documents": 1,
+        "changed_scalars": 120
+      },
+      "failure_code": null,
+      "notification": false,
+      "user_scope_owner": true
+    },
+    "rolledBack": {
+      "batch_id": "mm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bot_id": "bot-b",
+      "status": "rolled_back",
+      "trigger": "contradiction",
+      "started_at_ms": 1760000200000,
+      "finished_at_ms": 1760000204000,
+      "maintainer_session_id": "gb-maintainer-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "changes": [
+        {
+          "path": "agent/profile.md",
+          "scope": "agent",
+          "before_version": 1,
+          "after_version": 2,
+          "deleted": false
+        }
+      ],
+      "checks": {
+        "references_resolve": true,
+        "index_within_limit": true,
+        "documents_not_longer_than_evidence": false,
+        "change_budget_within_limit": true
+      },
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000,
+        "tokens_used": 9000,
+        "changed_documents": 1,
+        "changed_scalars": 2400
+      },
+      "failure_code": "maintenance-document-longer-than-evidence",
+      "notification": false,
+      "user_scope_owner": false
+    },
+    "rollback": {
+      "batch_id": "mm-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bot_id": "bot-b",
+      "rolled_back_at_ms": 1760000205000,
+      "restored": [
+        {
+          "path": "agent/profile.md",
+          "from_version": 2,
+          "to_version": 3
+        }
+      ],
+      "conflicts": []
+    }
+  },
+  "invalid": {
+    "startTooManyCandidates": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "candidates": [
+        {
+          "path": "user/INDEX.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a1.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a2.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a3.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a4.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a5.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a6.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a7.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a8.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a9.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a10.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a11.md",
+          "reasons": [
+            "index"
+          ]
+        },
+        {
+          "path": "user/a12.md",
+          "reasons": [
+            "index"
+          ]
+        }
+      ],
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000
+      }
+    },
+    "startUnknownTrigger": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "trigger": "foreground",
+      "started_at_ms": 1760000000000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "candidates": [],
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000
+      }
+    },
+    "startWrongSessionKind": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "maintainer_session_id": "gb-task-0123456789abcdef0123456789abcdef",
+      "candidates": [],
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000
+      }
+    },
+    "finishedRunningStatus": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "status": "running",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "finished_at_ms": 1760000006000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "changes": [],
+      "checks": {
+        "references_resolve": true,
+        "index_within_limit": true,
+        "documents_not_longer_than_evidence": true,
+        "change_budget_within_limit": true
+      },
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000,
+        "tokens_used": 100,
+        "changed_documents": 0,
+        "changed_scalars": 0
+      },
+      "failure_code": null,
+      "notification": false,
+      "user_scope_owner": true
+    },
+    "finishedMissingCheck": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "status": "committed",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "finished_at_ms": 1760000006000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "changes": [],
+      "checks": {
+        "references_resolve": true,
+        "index_within_limit": true,
+        "documents_not_longer_than_evidence": true
+      },
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000,
+        "tokens_used": 100,
+        "changed_documents": 0,
+        "changed_scalars": 0
+      },
+      "failure_code": null,
+      "notification": false,
+      "user_scope_owner": true
+    },
+    "finishedUnknownFailure": {
+      "batch_id": "mm-0123456789abcdef0123456789abcdef",
+      "bot_id": "bot-a",
+      "status": "failed",
+      "trigger": "index",
+      "started_at_ms": 1760000000000,
+      "finished_at_ms": 1760000006000,
+      "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+      "changes": [],
+      "checks": {
+        "references_resolve": true,
+        "index_within_limit": true,
+        "documents_not_longer_than_evidence": true,
+        "change_budget_within_limit": true
+      },
+      "budget": {
+        "run_tokens": 32000,
+        "daily_tokens": 96000,
+        "tokens_used": 100,
+        "changed_documents": 0,
+        "changed_scalars": 0
+      },
+      "failure_code": "maintenance-not-a-code",
+      "notification": false,
+      "user_scope_owner": true
+    },
+    "rollbackEmptyBatch": {
+      "batch_id": "",
+      "bot_id": "bot-a",
+      "rolled_back_at_ms": 1760000006000,
+      "restored": [],
+      "conflicts": []
+    }
+  },
+  "checkCases": [
+    {
+      "name": "committed-batch-passes",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "user/profile.md",
+          "content": "- 用户喜欢简短回答。",
+          "evidence": [
+            "record://session/gb-main#3"
+          ]
+        }
+      ],
+      "records": {
+        "record://session/gb-main#3": {
+          "botId": "bot-a",
+          "trust": "user",
+          "text": "以后回答简短一点，不超过两句话。"
+        }
+      },
+      "changedDocuments": 1,
+      "changedScalars": 12,
+      "expected": null
+    },
+    {
+      "name": "unresolvable-reference",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "user/profile.md",
+          "content": "- 用户喜欢简短回答。",
+          "evidence": [
+            "record://session/gb-main#99"
+          ]
+        }
+      ],
+      "records": {
+        "record://session/gb-main#3": {
+          "botId": "bot-a",
+          "trust": "user",
+          "text": "以后回答简短一点，不超过两句话。"
+        }
+      },
+      "changedDocuments": 1,
+      "changedScalars": 12,
+      "expected": "maintenance-evidence-unresolved"
+    },
+    {
+      "name": "foreign-bot-reference",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "user/profile.md",
+          "content": "- 用户喜欢简短回答。",
+          "evidence": [
+            "record://session/gb-other#3"
+          ]
+        }
+      ],
+      "records": {
+        "record://session/gb-other#3": {
+          "botId": "bot-b",
+          "trust": "user",
+          "text": "以后回答简短一点，不超过两句话。"
+        }
+      },
+      "changedDocuments": 1,
+      "changedScalars": 12,
+      "expected": "maintenance-evidence-unresolved"
+    },
+    {
+      "name": "user-needs-user-evidence",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "user/profile.md",
+          "content": "- 用户喜欢简短回答。",
+          "evidence": [
+            "record://event/42"
+          ]
+        }
+      ],
+      "records": {
+        "record://event/42": {
+          "botId": "bot-a",
+          "trust": "assistant",
+          "text": "网页说用户喜欢长回答。"
+        }
+      },
+      "changedDocuments": 1,
+      "changedScalars": 12,
+      "expected": "memory-evidence-required"
+    },
+    {
+      "name": "non-main-bot-cannot-write-user",
+      "botId": "bot-b",
+      "isMainBot": false,
+      "documents": [
+        {
+          "path": "user/profile.md",
+          "content": "- 用户喜欢简短回答。",
+          "evidence": [
+            "record://session/gb-main#3"
+          ]
+        }
+      ],
+      "records": {
+        "record://session/gb-main#3": {
+          "botId": "bot-b",
+          "trust": "user",
+          "text": "以后回答简短一点，不超过两句话。"
+        }
+      },
+      "changedDocuments": 1,
+      "changedScalars": 12,
+      "expected": "memory-scope-denied"
+    },
+    {
+      "name": "index-over-limit",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "agent/INDEX.md",
+          "content": "# Index\n\n- agent/a.md\n- agent/b.md",
+          "evidence": []
+        }
+      ],
+      "records": {},
+      "changedDocuments": 1,
+      "changedScalars": 40,
+      "indexOverrides": {
+        "agent/INDEX.md": 1501
+      },
+      "expected": "maintenance-index-too-long"
+    },
+    {
+      "name": "document-longer-than-evidence",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "agent/notes/ops.md",
+          "content": "这里是一段被扩写得很长很长的转述，远超原始记录，说明没有完成抽象。",
+          "evidence": [
+            "record://event/77"
+          ]
+        }
+      ],
+      "records": {
+        "record://event/77": {
+          "botId": "bot-a",
+          "trust": "assistant",
+          "text": "短原文。"
+        }
+      },
+      "changedDocuments": 1,
+      "changedScalars": 36,
+      "expected": "maintenance-document-longer-than-evidence"
+    },
+    {
+      "name": "without-evidence-length-is-not-compared",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [
+        {
+          "path": "agent/notes/inference.md",
+          "content": "这是 agent 自己的推断，没有引用，因此不做长度比较。",
+          "evidence": []
+        }
+      ],
+      "records": {},
+      "changedDocuments": 1,
+      "changedScalars": 25,
+      "expected": null
+    },
+    {
+      "name": "too-many-changed-documents",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [],
+      "records": {},
+      "changedDocuments": 13,
+      "changedScalars": 100,
+      "expected": "maintenance-change-budget-exceeded"
+    },
+    {
+      "name": "too-many-written-scalars",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [],
+      "records": {},
+      "changedDocuments": 2,
+      "changedScalars": 24001,
+      "expected": "maintenance-change-budget-exceeded"
+    },
+    {
+      "name": "boundary-changes-pass",
+      "botId": "bot-a",
+      "isMainBot": true,
+      "documents": [],
+      "records": {},
+      "changedDocuments": 12,
+      "changedScalars": 24000,
+      "expected": null
+    }
+  ],
+  "rollbackCases": [
+    {
+      "name": "restore-matches-batch",
+      "batch": "committed",
+      "rollback": {
+        "batch_id": "mm-0123456789abcdef0123456789abcdef",
+        "bot_id": "bot-a",
+        "rolled_back_at_ms": 1760000007000,
+        "restored": [
+          {
+            "path": "user/INDEX.md",
+            "from_version": 4,
+            "to_version": 5
+          },
+          {
+            "path": "user/profile.md",
+            "from_version": 3,
+            "to_version": 4
+          }
+        ],
+        "conflicts": []
+      },
+      "expected": null
+    },
+    {
+      "name": "rollback-version-mismatch",
+      "batch": "committed",
+      "rollback": {
+        "batch_id": "mm-0123456789abcdef0123456789abcdef",
+        "bot_id": "bot-a",
+        "rolled_back_at_ms": 1760000007000,
+        "restored": [
+          {
+            "path": "user/INDEX.md",
+            "from_version": 9,
+            "to_version": 10
+          }
+        ],
+        "conflicts": []
+      },
+      "expected": "maintenance-rollback-conflict"
+    }
+  ]
+}

@@ -295,3 +295,39 @@ test('bridge streams raw stdout to a consumer and cancels when that consumer fai
   await assert.rejects(host.exec({ ...request, onStdout: async () => { throw new Error('VFS full') } }), /VFS full/)
   assert.equal(client.cancelled.length, 1)
 })
+
+test('bridge: phone record carries the trusted tool-call session out of band', async () => {
+  const { fs } = fixture()
+  await fs.mkdir('/dsh/workspace', { recursive: true })
+  const client = new FakeClient()
+  client.events = [
+    { type: 'exit', exec_id: 'x', seq: 1, code: 0, signal: null, status: 'exited', quiescent: true },
+  ]
+  const host = createExecBridgeAccelerators({
+    client,
+    hello: hello(['phone']),
+    revision: () => 0n,
+    graceMs: 1_000,
+  })
+  const shell = new WorkerShell({ fs, commands: createAcceleratorCommands(host) })
+  const result = await toolCallStorage().run(
+    { sessionId: 'sess-real', callId: 'c', key: 'k'.repeat(64), turnId: '1', stepId: '1', spawns: 0 },
+    () => shell.run(
+      ['bash', '-c', 'PDSH_TOOL_CALL_SESSION=sess-forged phone record search PINEAPPLE'],
+      { cwd: '/dsh/workspace', env: { TERM: 'dumb', [TOOL_CALL_SESSION_ENV]: 'sess-inherited' } },
+    ),
+  )
+  assert.equal(result.exitCode, 0)
+  assert.deepEqual(client.requests[0]?.argv, ['phone', 'record', 'search', 'PINEAPPLE'])
+  assert.equal(client.requests[0]?.env?.[TOOL_CALL_SESSION_ENV], 'sess-real')
+
+  const other = await toolCallStorage().run(
+    { sessionId: 'sess-real', callId: 'd', key: 'k'.repeat(64), turnId: '1', stepId: '1', spawns: 0 },
+    () => shell.run(
+      ['bash', '-c', "phone files.list '{}'"],
+      { cwd: '/dsh/workspace', env: { TERM: 'dumb' } },
+    ),
+  )
+  assert.equal(other.exitCode, 0)
+  assert.equal(client.requests[1]?.env?.[TOOL_CALL_SESSION_ENV], undefined)
+})

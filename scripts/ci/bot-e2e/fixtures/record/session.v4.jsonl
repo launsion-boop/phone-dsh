@@ -1,0 +1,7 @@
+{"createdAt": 1760000000000, "delegationDepth": 0, "id": "gb-main", "isSeeded": false, "type": "session", "version": 4}
+{"data": {"turn": 1}, "seq": 2, "time": 1760000002000, "type": "turn/start"}
+{"data": {"message": {"content": [{"text": "PINEAPPLE_ORIGINAL user statement", "type": "text"}], "role": "user"}, "source": {"kind": "user", "rpcId": "bot-1"}}, "seq": 3, "surfaceOp": "append", "time": 1760000003000, "type": "user/message"}
+{"data": {"arguments": "{\"url\":\"https://example.com\"}", "callId": "call-1", "name": "web_fetch", "step": 1, "turn": 1}, "seq": 4, "time": 1760000004000, "type": "tool/call"}
+{"data": {"message": {"content": [{"text": "PINEAPPLE_FETCH_RESULT", "type": "text"}], "isError": false, "role": "tool", "toolCallId": "call-1"}, "source": {"callId": "call-1", "kind": "tool"}, "step": 1, "turn": 1}, "seq": 5, "surfaceOp": "append", "time": 1760000005000, "type": "tool/result"}
+{"data": {"compactionId": "cmp-1", "shadowedRange": {"end": 9, "start": 3}, "shadowedSeqs": [3, 4, 5], "summary": "PINEAPPLE summary"}, "seq": 19, "time": 1760000019000, "type": "compaction/summary"}
+{"data": {"message": {"content": [{"text": "PINEAPPLE summary", "type": "text"}], "role": "user"}, "source": {"compactionId": "cmp-1", "kind": "compact-checkpoint"}}, "seq": 20, "surfaceOp": {"endSeq": 9, "op": "replace", "startSeq": 3}, "time": 1760000020000, "type": "user/message"}

@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "vector": "record-query.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-owned record search/read result vectors; there is no dsh-bot upstream file."
+  },
+  "upstream": [],
+  "delta": [
+    "Freeze the `phone record search` / `phone record read` answers as the P19 bounded phone-tool envelope with scope bot.",
+    "Freeze the caller rule: the host resolves the caller from the claimed DSH session carried out-of-band by the shell, never from --session or any argv word.",
+    "Freeze that a compaction replace checkpoint keeps its shadowed session lines readable, and that reading either side exposes the range/reference relation.",
+    "Freeze the P25 erased-payload answer: reading a record://event reference whose payload the host erased returns ok:false with code record_erased and never the original bytes; search skips it.",
+    "Freeze the S6 step-2 session answer: a record://session reference whose line was replaced by a tombstone returns the same ok:false record_erased shape and message; reading nearby surviving lines never reconstructs the erased one."
+  ],
+  "valid": [
+    {
+      "name": "search-session-and-event",
+      "result": {
+        "ok": true,
+        "tool": "record.search",
+        "egress": false,
+        "scope": "bot",
+        "data": {
+          "query": "PINEAPPLE",
+          "since": null,
+          "hits": [
+            {
+              "ref": "record://session/gb-main#3",
+              "record": "session",
+              "sessionId": "gb-main",
+              "seq": 3,
+              "type": "user/message",
+              "time": 1760000003000,
+              "snippet": "PINEAPPLE_ORIGINAL user statement"
+            },
+            {
+              "ref": "record://event/7",
+              "record": "event",
+              "commitSeq": 7,
+              "type": "conversation.tool_result",
+              "time": 1760000005000,
+              "snippet": "PINEAPPLE_FETCH_RESULT"
+            }
+          ]
+        },
+        "truncated": false,
+        "nextCursor": null
+      }
+    },
+    {
+      "name": "read-session-window",
+      "result": {
+        "ok": true,
+        "tool": "record.read",
+        "egress": false,
+        "scope": "bot",
+        "data": {
+          "ref": "record://session/gb-main#3",
+          "lines": [
+            {
+              "ref": "record://session/gb-main#2",
+              "record": "session",
+              "sessionId": "gb-main",
+              "seq": 2,
+              "type": "turn/start",
+              "time": 1760000002000,
+              "raw": "{\"data\":{\"turn\":1},\"seq\":2,\"time\":1760000002000,\"type\":\"turn/start\"}",
+              "truncated": false
+            },
+            {
+              "ref": "record://session/gb-main#3",
+              "record": "session",
+              "sessionId": "gb-main",
+              "seq": 3,
+              "type": "user/message",
+              "time": 1760000003000,
+              "raw": "{\"data\":{\"message\":{\"content\":[{\"text\":\"PINEAPPLE_ORIGINAL user statement\",\"type\":\"text\"}],\"role\":\"user\"},\"source\":{\"kind\":\"user\",\"rpcId\":\"bot-1\"}},\"seq\":3,\"surfaceOp\":\"append\",\"time\":1760000003000,\"type\":\"user/message\"}",
+              "truncated": false
+            }
+          ]
+        },
+        "truncated": false
+      }
+    },
+    {
+      "name": "read-compaction-checkpoint",
+      "result": {
+        "ok": true,
+        "tool": "record.read",
+        "egress": false,
+        "scope": "bot",
+        "data": {
+          "ref": "record://session/gb-main#20",
+          "lines": [
+            {
+              "ref": "record://session/gb-main#20",
+              "record": "session",
+              "sessionId": "gb-main",
+              "seq": 20,
+              "type": "user/message",
+              "time": 1760000020000,
+              "raw": "{\"data\":{\"message\":{\"role\":\"user\"}},\"seq\":20,\"surfaceOp\":{\"endSeq\":9,\"op\":\"replace\",\"startSeq\":3},\"time\":1760000020000,\"type\":\"user/message\"}",
+              "truncated": false,
+              "replaces": {
+                "startRef": "record://session/gb-main#3",
+                "endRef": "record://session/gb-main#9"
+              }
+            }
+          ]
+        },
+        "truncated": false
+      }
+    },
+    {
+      "name": "read-shadowed-original",
+      "result": {
+        "ok": true,
+        "tool": "record.read",
+        "egress": false,
+        "scope": "bot",
+        "data": {
+          "ref": "record://session/gb-main#3",
+          "lines": [
+            {
+              "ref": "record://session/gb-main#3",
+              "record": "session",
+              "sessionId": "gb-main",
+              "seq": 3,
+              "type": "user/message",
+              "time": 1760000003000,
+              "raw": "{\"data\":{\"message\":{\"content\":[{\"text\":\"PINEAPPLE_ORIGINAL user statement\",\"type\":\"text\"}],\"role\":\"user\"},\"source\":{\"kind\":\"user\",\"rpcId\":\"bot-1\"}},\"seq\":3,\"surfaceOp\":\"append\",\"time\":1760000003000,\"type\":\"user/message\"}",
+              "truncated": false,
+              "shadowedBy": "record://session/gb-main#20"
+            }
+          ]
+        },
+        "truncated": false
+      }
+    },
+    {
+      "name": "read-event",
+      "result": {
+        "ok": true,
+        "tool": "record.read",
+        "egress": false,
+        "scope": "bot",
+        "data": {
+          "ref": "record://event/7",
+          "lines": [
+            {
+              "ref": "record://event/7",
+              "record": "event",
+              "commitSeq": 7,
+              "type": "conversation.tool_result",
+              "time": 1760000005000,
+              "raw": "{\"commitSeq\":7,\"type\":\"conversation.tool_result\"}",
+              "truncated": false
+            }
+          ]
+        },
+        "truncated": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unclaimed-session",
+      "result": {
+        "ok": false,
+        "tool": "record.search",
+        "error": {
+          "code": "unclaimed_session",
+          "message": "the calling DSH session is not claimed by this Bot runtime"
+        }
+      }
+    },
+    {
+      "name": "session-out-of-scope",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "session_out_of_scope",
+          "message": "the requested session does not belong to this Bot"
+        }
+      }
+    },
+    {
+      "name": "unknown-reference",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "unknown_record",
+          "message": "no record exists at that reference"
+        }
+      }
+    },
+    {
+      "name": "invalid-around",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "invalid_around",
+          "message": "--around must be an integer in 0...20"
+        }
+      }
+    },
+    {
+      "name": "record-erased",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "record_erased",
+          "message": "该记录已被抹除"
+        }
+      }
+    },
+    {
+      "name": "record-erased-session",
+      "result": {
+        "ok": false,
+        "tool": "record.read",
+        "error": {
+          "code": "record_erased",
+          "message": "该记录已被抹除"
+        }
+      }
+    }
+  ],
+  "compactionRecall": {
+    "sessionId": "gb-main",
+    "header": {
+      "type": "session",
+      "version": 4,
+      "id": "gb-main",
+      "createdAt": 1760000000000,
+      "isSeeded": false,
+      "delegationDepth": 0
+    },
+    "events": [
+      {
+        "type": "turn/start",
+        "seq": 2,
+        "time": 1760000002000,
+        "data": {
+          "turn": 1
+        }
+      },
+      {
+        "type": "user/message",
+        "seq": 3,
+        "time": 1760000003000,
+        "data": {
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "PINEAPPLE_ORIGINAL user statement"
+              }
+            ]
+          },
+          "source": {
+            "kind": "user",
+            "rpcId": "bot-1"
+          }
+        },
+        "surfaceOp": "append"
+      },
+      {
+        "type": "tool/call",
+        "seq": 4,
+        "time": 1760000004000,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "callId": "call-1",
+          "name": "web_fetch",
+          "arguments": "{\"url\":\"https://example.com\"}"
+        }
+      },
+      {
+        "type": "tool/result",
+        "seq": 5,
+        "time": 1760000005000,
+        "data": {
+          "turn": 1,
+          "step": 1,
+          "message": {
+            "role": "tool",
+            "toolCallId": "call-1",
+            "content": [
+              {
+                "type": "text",
+                "text": "PINEAPPLE_FETCH_RESULT"
+              }
+            ],
+            "isError": false
+          },
+          "source": {
+            "kind": "tool",
+            "callId": "call-1"
+          }
+        },
+        "surfaceOp": "append"
+      },
+      {
+        "type": "compaction/summary",
+        "seq": 19,
+        "time": 1760000019000,
+        "data": {
+          "compactionId": "cmp-1",
+          "summary": "PINEAPPLE summary",
+          "shadowedRange": {
+            "start": 3,
+            "end": 9
+          },
+          "shadowedSeqs": [
+            3,
+            4,
+            5
+          ]
+        }
+      },
+      {
+        "type": "user/message",
+        "seq": 20,
+        "time": 1760000020000,
+        "data": {
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "PINEAPPLE summary"
+              }
+            ]
+          },
+          "source": {
+            "kind": "compact-checkpoint",
+            "compactionId": "cmp-1"
+          }
+        },
+        "surfaceOp": {
+          "op": "replace",
+          "startSeq": 3,
+          "endSeq": 9
+        }
+      }
+    ],
+    "originalRef": "record://session/gb-main#3",
+    "originalContains": "PINEAPPLE_ORIGINAL user statement",
+    "checkpointRef": "record://session/gb-main#20",
+    "checkpointRange": {
+      "start": 3,
+      "end": 9
+    }
+  }
+}
