@@ -413,6 +413,8 @@ enum BotUIFixtures {
         evidence: [String]
     ) -> BotMemoryDocumentInfo {
         let date = Date(timeIntervalSince1970: 1_760_000_000 + Double(version * 60))
+        let author = BotUIFormat.memoryAuthor(
+            kind: "chat", source: scope == "user" ? "user-turn" : "agent-message")
         let versions = (1...max(1, version)).map { number in
             BotMemoryVersionInfo(
                 id: "\(path)#\(number)",
@@ -421,7 +423,7 @@ enum BotUIFixtures {
                 deleted: false,
                 deletionReason: nil,
                 updatedAt: date,
-                author: scope == "user" ? "chat · 用户消息" : "chat · 这个 Bot",
+                author: author,
                 evidence: evidence)
         }
         return BotMemoryDocumentInfo(
@@ -431,9 +433,20 @@ enum BotUIFixtures {
             content: content,
             version: version,
             updatedAt: date,
-            author: scope == "user" ? "chat · 用户消息" : "chat · 这个 Bot",
+            author: author,
             evidence: evidence,
             versions: versions)
+    }
+
+    /// Fixture profile description used by the info-page subtitle (INFO-08).
+    /// Production reads the same value from `BotProfile.description`.
+    static func infoDescription(for fixture: BotUIFixtureCase) -> String? {
+        switch fixture {
+        case .info, .infoEmpty, .infoError, .infoLong, .infoAppearance:
+            return "帮你盯发布窗口和验收节奏，也会提醒喝水。"
+        default:
+            return nil
+        }
     }
 }
 
@@ -484,7 +497,8 @@ struct BotUIFixtureRootView: View {
         Group {
             switch fixture {
             case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
-                BotInfoPage(model: infoModel)
+                BotInfoPage(model: infoModel,
+                            description: BotUIFixtures.infoDescription(for: fixture))
             case .infoMemory:
                 BotInfoPage(model: infoModel, initialSection: .memory)
             case .infoGrants:
@@ -499,14 +513,14 @@ struct BotUIFixtureRootView: View {
                         } header: {
                             Text("在场")
                         } footer: {
-                            Text("截图夹具只展示信息页的在场区，组件与真实页面相同。")
+                            Text(BotInfoPage.presenceFooter)
                         }
                         Section {
                             BotDisruptionSection(model: infoModel)
                         } header: {
                             Text("打扰")
                         } footer: {
-                            Text("设置对所有 Bot 生效，改动立即持久化。")
+                            Text(BotInfoPage.disruptionFooter)
                         }
                     }
                     .homeGroupedList()
@@ -681,7 +695,8 @@ struct BotDrawerFixtureRootView: View {
             let model = BotInfoModel(
                 snapshot: BotInfoSnapshot(botName: profile.name, memories: [], routines: [], approvals: []),
                 appearance: BotFishAppearance.resolve(profile))
-            BotInfoPage(model: model, isMainBot: profile.id == roster.mainBotID)
+            BotInfoPage(model: model, isMainBot: profile.id == roster.mainBotID,
+                        description: profile.description)
         } else {
             Text("这个 Bot 已经不存在。")
                 .padding()
