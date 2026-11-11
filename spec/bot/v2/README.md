@@ -321,14 +321,19 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
   主对话、不是 Task、不是 routine，不能复用任何已有会话的凭证。
 - maintainer preset（`phone-bot-maintainer`）用 `tools.restrict` 加 guard 限定工具：允许
   `bash`（只为 `phone record search/read`）、`UpdateMemory`、`ReadMemory`、`RecallMemory`；
+  可见面 allow-list 在 `agent/created` 时装到该 maintainer Agent 自己的作用域上（不是共享
+  preset 作用域），模型看到的 `tools[]` 必须恰好是这四个名字；
   不挂载出站、网页、设备工具、`SendToUser`／`SendToAgent`／`CreateTeammate`、
   `Task`／`AwaitTask`／`StopSubagent`、routine、goal 或卡片工具。guard 对每个调用再按
   bare name 检查一次，restrict 只是可见面。`bash` 实参也必须匹配
   `phone record search|read`，否则 guard 拒绝；这是“能读原始记录”的唯一 shell 能力。
 - **与 verifier 共用受限会话机制。** maintainer 和 [v1 §2.8](../v1/README.md#28-task-交付终态与独立验证s3)
   的只读 verifier 使用同一份 `restricted-session` 实现：同一个 guard 函数、同一套
-  `session/create` 创建头 + 返回值核对、同一组 `gb-<kind>-` 保留前缀约定，以及 volatile
-  上下文同一处排除逻辑。两者的差别只有 allow-list 与 bash 规则；不存在第二套 guard。
+  `session/create` 创建头 + 返回值核对、同一组 `gb-<kind>-` 保留前缀约定、同一份
+  “创建时在 Agent 自己作用域装 allow-list”的可见面逻辑，以及 volatile 上下文同一处排除逻辑。
+  两者的差别只有 allow-list 与 bash 规则；不存在第二套 guard。受限会话的 `bash` 身份登记以
+  已认领的 session token 作为 liveness 证据（按保留前缀解析），不依赖被 allow-list 隐藏的
+  `BotVolatileContext`。
 - **preset 在 `session/create` 时指定。** 会话控制器在发布 `agent/created` 之前就已经
   解析并挂载 preset，之后再 `agentPresets.select` 会被 `agent-preset/locked` 拒绝。宿主
   必须在创建 maintainer 会话时带 `agentPreset: "phone-bot-maintainer"`，并核对

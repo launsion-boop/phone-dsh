@@ -1102,6 +1102,24 @@
                 "type": "string",
                 "minLength": 1
               }
+            },
+            "session": {
+              "enum": [
+                "main",
+                "task",
+                "verifier",
+                "maintainer"
+              ],
+              "description": "Host-minted session whose model-facing surface is checked. Defaults to main."
+            },
+            "exactly": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "The advertised tool set must equal exactly this list; cannot be combined with present/absent."
             }
           },
           "required": [

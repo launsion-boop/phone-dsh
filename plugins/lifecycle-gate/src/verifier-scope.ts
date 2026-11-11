@@ -3,9 +3,11 @@
  * Preset-scope isolation for the read-only verifier (`pdsh-verifier`).
  *
  * The shared mechanism lives in {@link ./restricted-session.ts}; this module
- * only binds the verifier policy to the preset scope. The policy hides every
- * inherited global tool and keeps the preset's own `read`/`grep`/`glob`/`bash`
- * registrations; the execution rule is the same function the global guard uses.
+ * only binds the verifier policy to the preset row. On `agent/created` it
+ * installs the policy's allow-list on the Agent's own scope, so every
+ * inherited tool outside `read`/`grep`/`glob`/`bash` is hidden while the
+ * preset's own contract tools stay visible. The execution rule is the same
+ * function the global guard uses.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { VERIFIER_POLICY, applyRestrictedScope, restrictedGuardReason } from './restricted-session.ts'

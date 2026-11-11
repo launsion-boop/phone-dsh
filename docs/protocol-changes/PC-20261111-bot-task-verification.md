@@ -14,6 +14,12 @@ contract_revision: spec/bot/v1/README.md@task-verification-v1 + spec/bot/v2/READ
 
 Protocol impact: P25, P26, P27, P09; P06: none — the verifier is a Bot session inside the existing AgentCore/DSH turn path; no host event or harness envelope changed; P16: none — the profile patch only adds agent preset rows and mounts the existing plugin, no Worker URL/env/init field changed; P13: none — no plugin Remote method changed; P19: none — the verifier uses the existing `phone record search|read` envelope and adds no tool. P09 is the existing Task card gaining a verification line; the UI authority spec (`spec/ui/v1/pages/bot-chat.md`) is updated, with no new page or source.
 
+> **更正（2026-11-12）：** 本记录 §2 表格里的“`tools.restrict({allow:[]})` 隐藏全部继承全局工具”
+> 是不可实现的实现描述：安装在共享 preset 作用域的空 allow-list 会连同 preset 自己挂载的
+> `read/grep/glob/bash` 一起从子 Agent 视角隐藏，产生空工具面。现行实现改为在 `agent/created`
+> 时把策略 allow-list 装到该 Agent 自己的作用域；条款见
+> [PC-20261112-restricted-session-surface](PC-20261112-restricted-session-surface.md)。
+
 ## 1. 识别与角色
 
 - **Trigger → 现况 → 期望.** §3.6 要求 Task 的交付物是终态：Task 参数明确完成条件、目的、约束、预算；

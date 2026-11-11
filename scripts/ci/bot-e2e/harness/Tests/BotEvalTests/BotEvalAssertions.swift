@@ -37,6 +37,18 @@ struct EvalSnapshot {
     /// repeat. The mock upstream records the request body; the Worker's
     /// model-facing `tools/list` is the surface a Bot turn actually runs on.
     var advertisedTools: Set<String> = []
+    /// Model-facing tool names per host-minted Bot session kind (`main`,
+    /// `task`, `verifier`, `maintainer`). A restricted session must be
+    /// evaluated on its own surface, never against the union of every request.
+    var advertisedToolsBySession: [String: Set<String>] = [:]
+
+    /// The surface recorded for one session kind. `main` falls back to the
+    /// legacy union so a hand-built snapshot keeps its old meaning.
+    func advertisedTools(for session: String) -> Set<String>? {
+        if let scoped = advertisedToolsBySession[session] { return scoped }
+        if session == "main" && !advertisedTools.isEmpty { return advertisedTools }
+        return nil
+    }
 }
 
 struct EvalAssertionResult {
@@ -137,27 +149,52 @@ enum EvalAssertions {
         case "tool_surface":
             if let bot = assertion.bot, bot != "main" {
                 throw EvalAssertionError.invalid(
-                    "tool_surface evaluates every model request in the repeat; "
-                    + "per-bot scoping is not available")
+                    "tool_surface selects a session, not a Bot; use `session`")
             }
-            guard !snapshot.advertisedTools.isEmpty else {
-                return (false, "no model request advertised a tool list")
+            let session = assertion.session ?? "main"
+            guard EvalSessionKinds.all.contains(session) else {
+                throw EvalAssertionError.invalid(
+                    "tool_surface session must be one of "
+                    + EvalSessionKinds.all.joined(separator: ", "))
+            }
+            guard let tools = snapshot.advertisedTools(for: session) else {
+                return (false, "no model request recorded for the \(session) session")
+            }
+            guard !tools.isEmpty else {
+                return (false, "the \(session) session advertised an empty tool list")
             }
             let present = assertion.present ?? []
             let absent = assertion.absent ?? []
-            if present.isEmpty && absent.isEmpty {
-                throw EvalAssertionError.invalid("tool_surface needs present or absent")
+            let exactly = assertion.exactly
+            if exactly != nil && (!present.isEmpty || !absent.isEmpty) {
+                throw EvalAssertionError.invalid(
+                    "tool_surface `exactly` cannot be combined with present/absent")
             }
-            let missing = present.filter { !snapshot.advertisedTools.contains($0) }
-            let leaked = absent.filter { snapshot.advertisedTools.contains($0) }
-            let names = snapshot.advertisedTools.sorted()
+            if let exactly {
+                guard !exactly.isEmpty else {
+                    throw EvalAssertionError.invalid("tool_surface exactly must not be empty")
+                }
+                let expected = Set(exactly)
+                let names = tools.sorted()
+                if tools != expected {
+                    return (false, "\(session) advertised tools are \(names); "
+                        + "expected exactly \(expected.sorted())")
+                }
+                return (true, "\(session) advertised exactly \(names)")
+            }
+            if present.isEmpty && absent.isEmpty {
+                throw EvalAssertionError.invalid("tool_surface needs present, absent or exactly")
+            }
+            let missing = present.filter { !tools.contains($0) }
+            let leaked = absent.filter { tools.contains($0) }
+            let names = tools.sorted()
             if !missing.isEmpty || !leaked.isEmpty {
-                var detail = "advertised tools are \(names)"
+                var detail = "\(session) advertised tools are \(names)"
                 if !missing.isEmpty { detail += "; missing \(missing.sorted())" }
                 if !leaked.isEmpty { detail += "; forbidden \(leaked.sorted())" }
                 return (false, detail)
             }
-            return (true, "advertised tools are \(names)")
+            return (true, "\(session) advertised tools are \(names)")
 
         case "echo_requests":
             let method = assertion.method?.uppercased()

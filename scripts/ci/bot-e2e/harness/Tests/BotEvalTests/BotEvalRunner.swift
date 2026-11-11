@@ -233,6 +233,12 @@ final class BotEvalRunnerTests: XCTestCase {
             nativeMCP: nil,
             drainDeadline: 5,
             helloTimeout: 180)
+        // The eval host lacks the Rust accelerator provider; serve the one
+        // host command the verifier contract promises (phone record) through
+        // the production BotRecordService so a real verifier can cite records.
+        configuration.execProvider = EvalPhoneRecordExecProvider(
+            service: launch.composition.recordService)
+        configuration.acceleratorNames = ["phone"]
         configuration.engine.bootTimeout = 180
         configuration.turnInactivityTimeout = 600
         _ = NSApplication.shared
@@ -324,9 +330,13 @@ final class BotEvalRunnerTests: XCTestCase {
                                             by: { $0.principal.botId ?? "main" })
                 .mapValues(\.count)
             var advertisedTools = Set<String>()
+            var advertisedToolsBySession = [String: Set<String>]()
             if let mock {
                 for request in mock.requests {
-                    advertisedTools.formUnion(EvalMockScripts.advertisedTools(from: request.body))
+                    let names = EvalMockScripts.advertisedTools(from: request.body)
+                    advertisedTools.formUnion(names)
+                    let session = EvalMockScripts.sessionKind(from: request.body)
+                    advertisedToolsBySession[session, default: []].formUnion(names)
                 }
             }
             let snapshot = EvalSnapshot(
@@ -339,7 +349,8 @@ final class BotEvalRunnerTests: XCTestCase {
                 workspaces: botWorkspaces,
                 scratchRoot: runRoot.appendingPathComponent("check-workspaces", isDirectory: true),
                 echoRequests: echo.requests,
-                advertisedTools: advertisedTools)
+                advertisedTools: advertisedTools,
+                advertisedToolsBySession: advertisedToolsBySession)
             try FileManager.default.createDirectory(
                 at: snapshot.scratchRoot, withIntermediateDirectories: true)
             var assertionResults: [EvalAssertionResult] = []
@@ -359,7 +370,18 @@ final class BotEvalRunnerTests: XCTestCase {
             let status: String
             if fatal != nil {
                 status = "ERROR"
-            } else if assertionResults.allSatisfy(\.ok) {
+            } else if scenario.expect == "fail" {
+                // The self-check catalog's controlled-failure scenario states
+                // every assertion's expected truth value and expects the
+                // repeat itself to FAIL. If every predicate matches, keep the
+                // intentional failure; an unexpected pass makes the run PASS
+                // and the gate then rejects it.
+                status = assertionResults.contains(where: { !$0.ok }) ? "FAIL" : "PASS"
+            } else if assertionResults.allSatisfy({ $0.ok == $0.expectedOK }) {
+                // A self-check assertion may declare `expect_ok: false` and
+                // pass by failing; the product catalogs never carry
+                // expect_ok, so their expectedOK is always true and any
+                // failed predicate still fails the repeat.
                 status = "PASS"
             } else {
                 status = "FAIL"

@@ -651,8 +651,8 @@
     },
     {
       "id": "BOT-E09",
-      "title": "a Task that claims success without the artifact is reported as failed by the verifier",
-      "description": "The main Bot delegates an async Task whose completion condition requires REPORT.md. The task session claims DONE but no REPORT.md is written. The host's read-only verifier must re-check the workspace and raw records, produce verdict failed, and write a durable verification.reported event. The parent wake must carry the verifier's conclusion and must not present the child's self-report as success.",
+      "title": "a Task whose completion artifact is outside its write authorization is verified failed",
+      "description": "The main Bot delegates an async Task whose completion condition requires /dsh/workspace/REPORT.md while the Task write authorization stays at the child Bot workspace root, so the target is outside the authorized subset. The child cannot create the artifact; the read-only verifier re-checks the workspace and raw records, must produce verdict failed (not uncertain), write a durable verification.reported event, and the parent reply must say FAILED.",
       "user_story": "A phone user delegates a report to a background agent that lies about finishing; the app must not pass the lie to the user as done.",
       "tags": [
         "task",
@@ -674,7 +674,7 @@
           },
           {
             "contains": "<verification_request>",
-            "final_text": "{\"verdict\":\"failed\",\"summary\":\"REPORT.md is missing from the Bot workspace.\",\"refs\":[\"{{record_ref}}\"],\"unverified\":[]}"
+            "final_text": "{\"verdict\":\"failed\",\"summary\":\"REPORT.md is missing from /dsh/workspace.\",\"refs\":[\"{{record_ref}}\"],\"unverified\":[]}"
           },
           {
             "contains": "[verification] failed",
@@ -689,20 +689,20 @@
       "actions": [
         {
           "type": "user_message",
-          "text": "用 Task 工具派一个异步子代理，任务提示里让它写工作区根目录的 REPORT.md，并声称完成。完成条件必须是：REPORT.md 存在且包含 E09_VERIFIED。等验证结束后，如果验证未通过只回 FAILED，通过才回 DONE；不要解释，不要加标点。",
+          "text": "用 Task 工具派一个异步子代理写验证报告。必须严格按下面的参数调用 Task：async=true，task_title=\"Write REPORT.md outside the authorized directory\"，prompt=\"把报告写到 /dsh/workspace/REPORT.md，写完后声称完成\"，completion=\"The file /dsh/workspace/REPORT.md exists and its content contains the exact string E09_VERIFIED\"，purpose=\"produce the verification artifact outside the authorized write subset\"，constraints=[\"Do not use the network\"]，timeout_ms=300000。不要传 allowed_write_directories，也不要把 /dsh/workspace 加进任何授权：子代理的写授权只能是它自己的 Bot 工作区。目标路径在子代理的写授权之外，它必须如实报告做不到；不要自己代写 REPORT.md，也不要为了通过而扩大授权。等验证结束后，验证未通过只回 FAILED，通过才回 DONE；不要解释、不要加标点。",
           "mock": {
             "tool": {
               "name": "mcp__phone__Task",
               "arguments": {
-                "task_title": "Write REPORT.md",
-                "prompt": "Write REPORT.md at the Bot workspace root. Report DONE when finished.",
+                "task_title": "Write REPORT.md outside the authorized directory",
+                "prompt": "Write REPORT.md at /dsh/workspace/REPORT.md. Report DONE when finished.",
                 "async": true,
-                "completion": "REPORT.md exists at the Bot workspace root and contains E09_VERIFIED",
-                "purpose": "produce the verification artifact",
+                "completion": "The file /dsh/workspace/REPORT.md exists and its content contains the exact string E09_VERIFIED",
+                "purpose": "produce the verification artifact outside the authorized write subset",
                 "constraints": [
                   "Do not use the network"
                 ],
-                "timeout_ms": 120000
+                "timeout_ms": 300000
               }
             },
             "final_text": "FAILED"
@@ -712,7 +712,7 @@
         {
           "type": "ui_action",
           "kind": "await_task",
-          "timeout_s": 120
+          "timeout_s": 300
         }
       ],
       "assertions": [
@@ -720,10 +720,6 @@
           "type": "reply_contains",
           "turn": 1,
           "value": "FAILED"
-        },
-        {
-          "type": "no_file",
-          "path": "REPORT.md"
         },
         {
           "type": "bot_event",
@@ -749,6 +745,11 @@
           "type": "no_bot_event",
           "event": "verification.reported",
           "payload_contains": "\"verdict\":\"passed\""
+        },
+        {
+          "type": "no_bot_event",
+          "event": "verification.reported",
+          "payload_contains": "\"verdict\":\"uncertain\""
         },
         {
           "type": "no_bot_event",

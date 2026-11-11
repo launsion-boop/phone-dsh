@@ -5,6 +5,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { botOwnedSessions } from './bot-sessions.ts'
 import { canonicalStringify } from './canonical-json.ts'
+import { restrictedPresetForSessionId } from '../../lifecycle-gate/src/restricted-session.ts'
 import { BOT_VOLATILE_CONTEXT_TOOL } from './volatile-mcp.ts'
 import { callerCatalogUrl, installCallerCatalog } from './caller-catalog.ts'
 import type { CallerCatalogConfig } from './caller-catalog.ts'
@@ -563,7 +564,12 @@ export function botRuntimeAvailable(ctx: Context, exec: Pick<ToolExecution, 'age
   // instead: a claimed maintainer session can still register phone calls, and
   // an unclaimed one stays fail-closed.
   const sessionId = sessionIdFor(exec.agent)
-  if (!sessionId.startsWith('gb-maintainer-')) return false
+  // Every host-minted restricted session (verifier and maintainer) gets the
+  // same liveness evidence: a claimed session token. The verifier's allow-list
+  // deliberately hides BotVolatileContext, so requiring that tool would make
+  // its only bash capability unusable and leave it unable to read the records
+  // the verification contract requires.
+  if (restrictedPresetForSessionId(sessionId) === undefined) return false
   return (botOwnedSessions(ctx).tokenFor(sessionId)?.length ?? 0) > 0
 }
 

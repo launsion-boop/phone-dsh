@@ -13,11 +13,10 @@
  * - a global execution-time guard resolves the session to exactly one policy
  *   by creation header (authoritative) or prefix (defense in depth), so a
  *   missed or later-changed preset scope cannot widen it;
- * - the preset scope installs only visibility restrictions plus the same
- *   guard function.
+ * - each restricted preset row installs the policy's visibility allow-list on
+ *   the agent's own scope when that agent is created, plus the same guard.
  *
- * The two kinds differ only in their allow-list, bash rule and visibility
- * strategy.
+ * The two kinds differ only in their allow-list and bash rule.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -45,8 +44,6 @@ export interface RestrictedSessionPolicy {
   /** Strip a provider prefix before comparing with {@link allowedTools}. */
   readonly bareToolName: (name: string) => string
   readonly toolDenial: string
-  /** Visibility strategy inside the preset scope. */
-  readonly visibility: 'mask-inherited' | 'allow-list'
   readonly bashAllowed?: (command: string) => boolean
   readonly bashDenial?: string
 }
@@ -135,7 +132,6 @@ export const VERIFIER_POLICY: RestrictedSessionPolicy = {
   allowedTools: VERIFIER_TOOLS,
   bareToolName: name => name,
   toolDenial: 'Verifier sessions are read-only and may only use read, grep, glob and read-only bash.',
-  visibility: 'mask-inherited',
   bashAllowed: isReadOnlyBashCommand,
   bashDenial: 'Verifier bash is restricted to read-only commands, including `phone record search|read`.',
 }
@@ -147,7 +143,6 @@ export const MAINTAINER_POLICY: RestrictedSessionPolicy = {
   allowedTools: MAINTAINER_ALLOWED_TOOLS,
   bareToolName: maintainerBareToolName,
   toolDenial: 'Maintainer sessions may only read and write memory (and use bash for `phone record`).',
-  visibility: 'allow-list',
   bashAllowed: maintainerBashAllowed,
   bashDenial: 'Maintainer bash is limited to `phone record search` and `phone record read`.',
 }
@@ -258,43 +253,58 @@ export function applyRestrictedGuard(
 }
 
 /**
- * Preset-scope install: the same guard plus the policy's visibility strategy.
- * `mask-inherited` hides every inherited global tool at once (verifier).
- * `allow-list` waits until the frozen set has registered (maintainer memory
- * tools arrive from the phone MCP client after compose) and then hides the
- * rest; restrictions are append-only, so a partial set would hide a sibling
- * forever.
+ * Install one policy's visibility allow-list on one agent's own scope.
+ *
+ * The restriction must live on the agent scope, not on the shared preset
+ * scope. DSH exempts the *viewing* scope's own registrations from its own
+ * filter but applies an ancestor scope's filter to the ancestor's own
+ * registrations too, so a filter installed on the preset hides the preset's
+ * own `read`/`grep`/`glob`/`bash` from every agent parented to it (the empty
+ * verifier surface this fixes). Per-agent installation hides every inherited
+ * tool outside the allow-list while leaving the preset's contract tools
+ * visible; an allow-list also hides tools registered after it, so a late MCP
+ * reconnect stays hidden without a deny convergence pass.
+ *
+ * The filter is installed only once every policy tool is registered:
+ * `tools.restrict({allow})` rejects names it cannot resolve, and the
+ * maintainer's memory tools arrive from the phone MCP client after compose.
+ * A partial allow-list is never installed.
+ */
+export function applyRestrictedVisibility(agent: Agent, policy: RestrictedSessionPolicy): void {
+  const agentCtx = (agent as Agent & { readonly ctx?: Context }).ctx
+  if (agentCtx === undefined || agentCtx.tools === undefined) return
+  const tools = agentCtx.tools
+  let restriction: (() => void) | undefined
+  const syncVisibility = (): void => {
+    if (restriction !== undefined) return
+    const visible = tools.definitions(agent).map(definition => definition.name)
+    const allow = visible.filter(name => policy.allowedTools.has(policy.bareToolName(name)))
+    const complete = [...policy.allowedTools].every(required =>
+      allow.some(name => policy.bareToolName(name) === required))
+    if (!complete) return
+    try {
+      restriction = tools.restrict({ allow })
+    } catch {
+      // The named tools disappeared while the registry was changing; the next
+      // tools/change retries.
+    }
+  }
+  syncVisibility()
+  agentCtx.on('tools/change', () => { syncVisibility() })
+}
+
+/**
+ * Preset row install: the same guard plus the policy's visibility allow-list,
+ * applied to every agent this preset revision is joined by. The preset
+ * generation is shared by the agent that created it and any child the host
+ * parents to it, so the filter is keyed by the resolved policy rather than by
+ * this row's context.
  */
 export function applyRestrictedScope(ctx: Context, policy: RestrictedSessionPolicy): void {
-  if (policy.visibility === 'mask-inherited') {
-    ctx.tools.restrict({ allow: [] })
-  } else {
-    let restriction: (() => void) | undefined
-    const syncVisibility = (): void => {
-      if (restriction !== undefined) return
-      const visible = ctx.tools.definitions().map(definition => definition.name)
-      const allow = visible.filter(name => policy.allowedTools.has(policy.bareToolName(name)))
-      const complete = [...policy.allowedTools].every(required =>
-        allow.some(name => policy.bareToolName(name) === required))
-      if (!complete) return
-      try {
-        restriction = ctx.tools.restrict({ allow })
-      } catch {
-        // The named tools disappeared while the registry was changing; the next
-        // tools/change retries.
-      }
-    }
-    let scheduled = false
-    const scheduleSync = (): void => {
-      if (scheduled || restriction !== undefined) return
-      scheduled = true
-      queueMicrotask(() => {
-        scheduled = false
-        syncVisibility()
-      })
-    }
-    scheduleSync()
-    ctx.on('tools/change', scheduleSync)
-  }
+  ctx.on('agent/created', ({ agent }) => {
+    if (restrictedPolicyFor(agent)?.kind !== policy.kind) return undefined
+    applyRestrictedVisibility(agent, policy)
+    return undefined
+  })
   ctx.tools.guard(execution => restrictedGuardReason(execution, policy))
 }

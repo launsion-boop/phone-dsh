@@ -13,6 +13,7 @@ import { BotRuntimeRemote, BotStreamHub } from '../bot-runtime/src/channel.ts'
 import dshbotIdentityBridge, { argsDigest, needsIdentityRegistration } from '../bot-runtime/src/identity-bridge.ts'
 import dshbotApprovalGate, { needsStructuralApproval, phoneEffectsForApproval, postApproval } from '../bot-runtime/src/approval-gate.ts'
 import type { ApprovalEffect } from '../bot-runtime/src/approval-gate.ts'
+import { botOwnedSessions } from '../bot-runtime/src/bot-sessions.ts'
 import { executeTool } from './bot-runtime-test-kit.ts'
 import { readBotGoldenMerged } from './bot-golden.ts'
 
@@ -164,6 +165,46 @@ test('Bot session registers once, asks once and executes once', async () => {
     assert.equal(registrations.length, 1)
     assert.equal(approvals.length, 1)
     assert.deepEqual(cancellations, ['registration-bash'])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a claimed verifier session can register and run its allowed read-only bash', async () => {
+  // The verifier allow-list hides BotVolatileContext (the ordinary liveness
+  // marker), so the claimed session token must be enough evidence for the
+  // identity bridge. Without this, the verifier's only record-reading path is
+  // denied as "App Bot MCP endpoint unavailable" and it cannot cite a record.
+  const ctx = await mount(false)
+  const registrations: Record<string, unknown>[] = []
+  let executed = 0
+  const verifier = agent('gb-verifier-identity-test')
+  botOwnedSessions(ctx).add('gb-verifier-identity-test', 'dshg_fixture_verifier')
+  try {
+    ctx.tools.register(defineTool({
+      name: 'bash', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { executed += 1; return 'ok' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        registrations.push(payload)
+        return { ok: true, id: 'verifier-registration' }
+      },
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => ({ ok: true, allowed: true }),
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('verifier-read-bash'), name: 'bash',
+      arguments: { command: 'cat notes.md' },
+      signal: new AbortController().signal, agent: verifier,
+    })
+    assert.equal(result.isError, false)
+    assert.equal(executed, 1)
+    assert.equal(registrations.length, 1)
+    assert.equal(registrations[0]!.sessionToken, 'dshg_fixture_verifier')
   } finally {
     await ctx.fiber.dispose()
   }

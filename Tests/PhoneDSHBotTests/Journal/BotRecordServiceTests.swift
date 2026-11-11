@@ -56,6 +56,23 @@ final class BotRecordServiceTests: XCTestCase {
         XCTAssertEqual(replaces["endRef"] as? String, "record://session/gb-main#9")
     }
 
+
+    func testProjectScopedSessionLogIsReadable() async throws {
+        try writeCompactionFixture()
+        let sessions = root.appendingPathComponent("materialized/home/sessions", isDirectory: true)
+        let project = sessions.appendingPathComponent(
+            "--dsh-workspace-.dshbot-agents-main--", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(
+            at: sessions.appendingPathComponent("gb-main", isDirectory: true),
+            to: project.appendingPathComponent("gb-main", isDirectory: true))
+        let read = await service.execute(
+            arguments: ["read", "record://session/gb-main#3"], callerSessionID: "gb-main")
+        XCTAssertEqual(read.exitCode, 0, read.stdout)
+        let line = try line(read.stdout, ref: "record://session/gb-main#3")
+        XCTAssertTrue((line["raw"] as? String ?? "").contains("PINEAPPLE_ORIGINAL user statement"))
+    }
+
     func testSearchIsScopedToTheCallerBot() async throws {
         try writeCompactionFixture()
         try writeLog(

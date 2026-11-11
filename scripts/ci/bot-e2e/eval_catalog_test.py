@@ -121,6 +121,25 @@ class CatalogValidationTests(unittest.TestCase):
             {"type": "tool_surface", "present": ["bash"], "absent": ["subagent"]}]
         self.assertEqual(catalog.validate_catalog(document, self.fixtures), [])
 
+    def test_tool_surface_session_and_exactly(self):
+        document = minimal_catalog()
+        document["scenarios"][0]["assertions"] = [{
+            "type": "tool_surface", "session": "verifier",
+            "exactly": ["bash", "glob", "grep", "read"],
+        }]
+        self.assertEqual(catalog.validate_catalog(document, self.fixtures), [])
+        document["scenarios"][0]["assertions"] = [{
+            "type": "tool_surface", "session": "unknown", "present": ["bash"],
+        }]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [{
+            "type": "tool_surface", "session": "verifier",
+            "exactly": ["bash"], "present": ["bash"],
+        }]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+        document["scenarios"][0]["assertions"] = [{"type": "tool_surface", "exactly": []}]
+        self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+
     def test_memory_assertion_accepts_empty_value_with_a_filter(self):
         # The live assertion matcher contains("") for an empty value and then
         # applies scope/tier/source, so the catalog validator must agree.
