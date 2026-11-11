@@ -4,7 +4,8 @@ import Foundation
 
 public enum BotRoutineTool {
     public static func handle(machine: RoutineMachine, principal: BotGatewayPrincipal,
-                              arguments: BotJSONValue, now: Int64) async throws -> BotJSONValue {
+                              arguments: BotJSONValue, now: Int64,
+                              authority: BotTurnAuthority? = nil) async throws -> BotJSONValue {
         guard case .object(let args) = arguments,
               case .string(let action)? = args["action"] else {
             throw BotMCPError.invalidRequest("UpdateRoutine requires action")
@@ -12,9 +13,13 @@ public enum BotRoutineTool {
         let botId = principal.botId
         switch action {
         case "create":
-            let title = try requiredString(args, "title")
+            let title = try routineTitle(from: args)
             let prompt = try requiredString(args, "prompt")
             guard let rawSchedule = args["schedule"] else { throw BotMCPError.invalidRequest("schedule is required") }
+            let creator = authority.map { RoutineCreator(authority: $0, approvalID: $0.approvalID) }
+            if let creator, creator.authorization == .userConfirmed, creator.approvalID == nil {
+                throw BotMCPError.invalidRequest("routine creation requires user confirmation")
+            }
             let routine = try await machine.create(
                 botId: botId, title: title, prompt: prompt,
                 schedule: try schedule(rawSchedule),
@@ -22,20 +27,15 @@ public enum BotRoutineTool {
                 urgent: bool(args["urgent"]) ?? false,
                 urgentReason: string(args["urgent_reason"]) ?? "",
                 delivery: try delivery(args),
-                interruptReason: string(args["interrupt_reason"]) ?? "", now: now)
+                interruptReason: string(args["interrupt_reason"]) ?? "",
+                creator: creator,
+                completionCriteria: optionalString(args["completion_criteria"]) ?? "",
+                constraints: optionalString(args["constraints"]) ?? "",
+                now: now)
             return try encode(routine)
         case "update":
             let id = try requiredString(args, "routine_id")
-            var patch = RoutinePatch()
-            if args["title"] != nil { patch.title = try requiredString(args, "title") }
-            if args["prompt"] != nil { patch.prompt = try requiredString(args, "prompt") }
-            if let rawSchedule = args["schedule"] { patch.schedule = try schedule(rawSchedule) }
-            patch.enabled = bool(args["enabled"])
-            patch.urgent = bool(args["urgent"])
-            if args["urgent_reason"] != nil { patch.urgentReason = string(args["urgent_reason"])
-            }
-            if args["delivery"] != nil { patch.delivery = try delivery(args) }
-            if args["interrupt_reason"] != nil { patch.interruptReason = string(args["interrupt_reason"]) }
+            let patch = try makePatch(from: args)
             return try await encode(machine.update(botId: botId, routineId: id, patch: patch, now: now))
         case "delete":
             let id = try requiredString(args, "routine_id")
@@ -66,7 +66,29 @@ public enum BotRoutineTool {
         return .object(["routines": .array(try routines.map(encode)), "count": .number(Double(routines.count))])
     }
 
-    private static func schedule(_ value: BotJSONValue) throws -> RoutineSchedule {
+    /// Parse the update half of an `UpdateRoutine` payload. `create` parsing
+    /// stays in `handle`; `RoutineAuthority.assess` uses the same builder so
+    /// the approval decision and the store see identical fields.
+    static func makePatch(from args: [String: BotJSONValue]) throws -> RoutinePatch {
+        var patch = RoutinePatch()
+        if args["title"] != nil { patch.title = try requiredString(args, "title") }
+        if args["prompt"] != nil { patch.prompt = try requiredString(args, "prompt") }
+        if let rawSchedule = args["schedule"] { patch.schedule = try schedule(rawSchedule) }
+        patch.enabled = bool(args["enabled"])
+        patch.urgent = bool(args["urgent"])
+        if args["urgent_reason"] != nil { patch.urgentReason = string(args["urgent_reason"]) }
+        if args["delivery"] != nil { patch.delivery = try delivery(args) }
+        if args["interrupt_reason"] != nil { patch.interruptReason = string(args["interrupt_reason"]) }
+        if args["completion_criteria"] != nil { patch.completionCriteria = optionalString(args["completion_criteria"]) }
+        if args["constraints"] != nil { patch.constraints = optionalString(args["constraints"]) }
+        return patch
+    }
+
+    static func routineTitle(from args: [String: BotJSONValue]) throws -> String {
+        try requiredString(args, "title")
+    }
+
+    static func schedule(_ value: BotJSONValue) throws -> RoutineSchedule {
         if case .string(let text) = value { return try schedule(text) }
         guard case .object(let object) = value,
               case .string(let kindName)? = object["kind"],
@@ -94,7 +116,7 @@ public enum BotRoutineTool {
         }
     }
 
-    private static func schedule(_ raw: String) throws -> RoutineSchedule {
+    static func schedule(_ raw: String) throws -> RoutineSchedule {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         var timezone = TimeZone.current.identifier
         if text.hasPrefix("CRON_TZ=") {
@@ -120,7 +142,7 @@ public enum BotRoutineTool {
         }
     }
 
-    private static func minutes(_ value: Substring) throws -> Int {
+    static func minutes(_ value: Substring) throws -> Int {
         guard let unit = value.last, let number = Int(value.dropLast()) else {
             throw BotMCPError.invalidRequest("invalid @every schedule")
         }
@@ -132,7 +154,7 @@ public enum BotRoutineTool {
         }
     }
 
-    private static func delivery(_ args: [String: BotJSONValue]) throws -> RoutineDeliveryMode {
+    static func delivery(_ args: [String: BotJSONValue]) throws -> RoutineDeliveryMode {
         guard let raw = string(args["delivery"]) else { return .held }
         guard let value = RoutineDeliveryMode(rawValue: raw) else { throw BotMCPError.invalidRequest("invalid delivery") }
         return value
@@ -144,31 +166,37 @@ public enum BotRoutineTool {
         return try BotJSONValue.parse(encoder.encode(routine))
     }
 
-    private static func requiredString(_ object: [String: BotJSONValue], _ key: String) throws -> String {
+    static func requiredString(_ object: [String: BotJSONValue], _ key: String) throws -> String {
         guard let value = string(object[key]), !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BotMCPError.invalidRequest("\(key) is required")
         }
         return value
     }
 
-    private static func string(_ value: BotJSONValue?) -> String? {
+    static func string(_ value: BotJSONValue?) -> String? {
         guard case .string(let text)? = value else { return nil }
         return text
     }
 
-    private static func bool(_ value: BotJSONValue?) -> Bool? {
+    static func optionalString(_ value: BotJSONValue?) -> String? {
+        guard let value else { return nil }
+        guard case .null = value else { return string(value) }
+        return ""
+    }
+
+    static func bool(_ value: BotJSONValue?) -> Bool? {
         guard case .bool(let flag)? = value else { return nil }
         return flag
     }
 
-    private static func integer(_ value: BotJSONValue) throws -> Int {
+    static func integer(_ value: BotJSONValue) throws -> Int {
         guard case .number(let number) = value, number.isFinite, number.rounded() == number else {
             throw BotMCPError.invalidRequest("weekdays must contain integers")
         }
         return Int(number)
     }
 
-    private static func optionalInt(_ value: BotJSONValue?) throws -> Int? {
+    static func optionalInt(_ value: BotJSONValue?) throws -> Int? {
         guard let value else { return nil }
         return try integer(value)
     }

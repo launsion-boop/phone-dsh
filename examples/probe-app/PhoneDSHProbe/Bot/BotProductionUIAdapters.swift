@@ -77,6 +77,11 @@ extension BotProductionInfoService {
             eraseShared: { [self] in try await self.eraseSharedMemories() },
             setRoutineEnabled: { [self] id, enabled in
                 try await self.setRoutineEnabled(id, enabled: enabled)
+            },
+            revokeGrant: { [self] id in try await self.revokeGrant(id) },
+            cancelRoutine: { [self] id in try await self.cancelRoutine(id) },
+            resolveReconciliation: { [self] routineID, decision in
+                try await self.resolveReconciliation(routineID: routineID, decision: decision)
             })
     }
 }
@@ -183,7 +188,12 @@ extension BotInfoSnapshot {
                     urgent: routine.urgent,
                     urgentReason: routine.urgentReason.isEmpty ? nil : routine.urgentReason,
                     lastResult: Self.lastResultText(routine.lastResult),
-                    enabled: routine.enabled)
+                    enabled: routine.enabled,
+                    creator: Self.creatorText(routine.creator),
+                    completionCriteria: routine.completionCriteria.isEmpty ? nil : routine.completionCriteria,
+                    routineConstraints: routine.constraints.isEmpty ? nil : routine.constraints,
+                    runStatus: routine.runState?.status.rawValue,
+                    runID: routine.runState?.runId)
             },
             approvals: snapshot.approvals.map { approval in
                 BotApprovalRecord(
@@ -191,7 +201,32 @@ extension BotInfoSnapshot {
                     parameterSummary: approval.parameterSummary,
                     decision: approval.decision == .allow ? "允许" : "拒绝",
                     decidedAt: Date(timeIntervalSince1970: Double(approval.decidedAtMS) / 1_000))
+            },
+            grants: snapshot.grants.map { grant in
+                BotGrantInfo(
+                    id: grant.id, tool: grant.tool, operation: grant.operation,
+                    resource: grant.resource, scope: grant.scope,
+                    sessionID: grant.sessionID,
+                    createdAt: Date(timeIntervalSince1970: Double(grant.createdAtMS) / 1_000),
+                    source: grant.source)
+            },
+            reconciliations: snapshot.reconciliations.map { item in
+                BotReconciliationInfo(
+                    routineID: item.routineID, routineTitle: item.routineTitle,
+                    attempt: item.attempt, runID: item.runID, error: item.error,
+                    effectSummary: item.effectSummary)
             })
+    }
+
+    private static func creatorText(_ creator: RoutineCreator?) -> String? {
+        guard let creator else { return nil }
+        let source: String
+        switch creator.authorization {
+        case .userTurn: source = "用户回合"
+        case .userConfirmed: source = "经用户确认"
+        }
+        let reference = creator.rpcId ?? creator.turnId ?? creator.sessionId
+        return reference.map { "\(source) · \($0)" } ?? source
     }
 
     private static func scheduleText(_ schedule: RoutineSchedule) -> String {

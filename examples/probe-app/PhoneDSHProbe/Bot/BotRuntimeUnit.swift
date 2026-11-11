@@ -66,9 +66,10 @@ final class BotRuntimeUnit {
                      sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
         let machine = await runtime.routineMachine
+        let grants = await runtime.grants
         let environment = BotProductionEnvironment(
             domain: store, botID: botID, sessionID: botID,
-            routineMachine: machine, memory: memory,
+            routineMachine: machine, memory: memory, grants: grants,
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
         let remote = try await BotDSHRemoteRuntime(
@@ -106,6 +107,9 @@ final class BotRuntimeUnit {
                 try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
             },
             leaseOwner: "bot-runtime-composition")
+        await environment.setRoutineCanceller { [scheduler] routineID in
+            await scheduler.cancelRunning(routineId: routineID)
+        }
         return BotRuntimeUnit(
             botID: botID, environment: environment, remote: remote,
             scheduler: scheduler, wakeInbox: inbox, planner: planner,

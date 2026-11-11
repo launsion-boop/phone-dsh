@@ -845,9 +845,53 @@ extension BotRuntimeComposition: BotTeamHost {
 
     func createBot(name: String, description: String, color: BotFishColor?,
                    hairstyle: BotFishHairstyle?) async throws -> BotProfile {
+        try await createBot(
+            name: name, description: description, color: color,
+            hairstyle: hairstyle, author: nil)
+    }
+
+    func createBot(name: String, description: String, color: BotFishColor?,
+                   hairstyle: BotFishHairstyle?,
+                   author: BotTeammateAuthor?) async throws -> BotProfile {
         let created = try await profileStore.createBot(
             name: name, fishColor: color, fishHairstyle: hairstyle,
             description: description.isEmpty ? nil : description)
+        if let author {
+            let eventID = "teammate-created-\(created.id)"
+            var authorFields: [String: PhoneDSHBot.BotJSONValue] = [
+                "origin": .string(author.origin.rawValue),
+                "authorization": .string(author.authorization.rawValue),
+            ]
+            func put(_ key: String, _ value: String?) {
+                authorFields[key] = value.map { .string($0) } ?? .null
+            }
+            put("rpcId", author.rpcId)
+            put("turnId", author.turnId)
+            put("sessionId", author.sessionId)
+            put("approvalID", author.approvalID)
+            let data: [String: PhoneDSHBot.BotJSONValue] = [
+                "event": .string("teammate.created"),
+                "agentId": .string(created.id),
+                "name": .string(created.name),
+                "description": .string(created.description),
+                "author": .object(authorFields),
+            ]
+            let event = BotEvent(
+                type: "ui.system_event", eventId: eventID,
+                time: botProductionNowMilliseconds(), origin: .local(source: "comm-service"),
+                traceId: eventID,
+                principal: BotPrincipal(
+                    botId: created.id, sessionId: author.sessionId, kind: "team"),
+                causationId: nil, correlationId: author.rpcId, data: .object(data))
+            do {
+                _ = try await domain.append(event)
+            } catch {
+                // The Bot exists; the audit is best-effort only if the journal
+                // rejects the event. Do not roll back a created Bot for an
+                // audit write, but never silently claim it was recorded.
+                print("[BotRuntimeComposition] teammate author audit failed: \(error)")
+            }
+        }
         await rosterModel.refresh()
         return created
     }

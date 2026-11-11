@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import posixpath
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -24,9 +25,10 @@ BOT = ROOT / "spec" / "bot" / "v1"
 GOLDEN_GLOB = "*.json"
 TURN_ORIGIN_VECTOR = "turn-origin.phone.json"
 MCP_EGRESS_VECTOR = "mcp-egress.phone.json"
+AUTHORITY_VECTOR = "authority.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
-PHONE_ONLY_VECTORS = frozenset({TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR})
+PHONE_ONLY_VECTORS = frozenset({TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR})
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
 # case-sensitive and anchored at offset 0; the payload must contain at least
@@ -631,6 +633,231 @@ def rejects(instance, schema_name: str, where: str) -> None:
     raise AssertionError(f"{where}: negative fixture unexpectedly validates")
 
 
+def expect_rule_violation(label: str, predicate) -> None:
+    """Mutation self-check: the predicate must raise for a deliberately wrong case."""
+    try:
+        predicate()
+    except AssertionError:
+        return
+    raise AssertionError(f"authority mutation {label!r} unexpectedly passed")
+
+
+def resolve_task_authorization(workspace_root: str, requested) -> dict:
+    """Reference oracle for `spec/bot/v1/README.md` §2.4.
+
+    The Swift `BotTaskAuthorization.resolve` must produce exactly this shape:
+    relative entries join the workspace root, `.`/`..` normalize, duplicates
+    collapse, and any directory outside the workspace sets the explicit
+    outside-workspace flag. Empty values and more than 32 entries are rejected.
+    Network write and task delegation are always false for a child in this
+    revision (there is no Task argument that raises them).
+    """
+    if not isinstance(requested, list):
+        raise AssertionError("allowed_write_directories must be an array")
+    if len(requested) > 32:
+        raise AssertionError("at most 32 allowed_write_directories entries are accepted")
+    root = posixpath.normpath(workspace_root)
+    directories: list[str] = []
+    for entry in requested:
+        if not isinstance(entry, str) or not entry.strip():
+            raise AssertionError("allowed_write_directories entries must be non-empty strings")
+        value = entry.strip()
+        if value == "~" or value.startswith("~/"):
+            raise AssertionError("the vector oracle cannot expand ~; fixtures stay absolute or relative")
+        if not value.startswith("/"):
+            value = posixpath.join(root, value)
+        value = posixpath.normpath(value)
+        if value not in directories:
+            directories.append(value)
+    if not directories:
+        directories = [root]
+    outside = any(directory != root and not directory.startswith(root + "/")
+                  for directory in directories)
+    return {
+        "allowedWriteDirectories": directories,
+        "canWriteOutsideWorkspace": outside,
+        "canNetworkWrite": False,
+        "canDelegateTasks": False,
+    }
+
+
+def assert_creator_expectation(case: dict) -> None:
+    expected = case["expected"]
+    creator = case["creator"]
+    if expected["creatorOrigin"] != creator["origin"]:
+        raise AssertionError("expected.creatorOrigin disagrees with the creator")
+    if expected["creatorAuthorization"] != creator["authorization"]:
+        raise AssertionError("expected.creatorAuthorization disagrees with the creator")
+    needs = creator["origin"] != "user"
+    if expected["creationNeedsConfirmation"] != needs:
+        raise AssertionError("creationNeedsConfirmation disagrees with the frozen rule")
+
+
+def assert_change_expectation(case: dict) -> bool:
+    expected = case["expectedConfirmation"]
+    current, patch = case["current"], case["patch"]
+    boundary = case["boundary"]
+    if boundary == "delivery":
+        derived = patch.get("delivery") == "interrupt" and current.get("delivery") != "interrupt"
+    elif boundary == "urgent":
+        derived = patch.get("urgent") is True and current.get("urgent") is not True
+    elif boundary == "enable":
+        derived = case["action"] == "resume" and patch.get("enabled") is True
+    elif boundary == "schedule-frequency":
+        old, new = current.get("schedule", {}), patch.get("schedule", {})
+        if old.get("kind") == new.get("kind") == "interval":
+            derived = new.get("everyMinutes", 0) < old.get("everyMinutes", 0)
+        elif old.get("kind") == new.get("kind") and old.get("kind") in {"daily", "weekly"}:
+            derived = False
+        else:
+            return False
+    else:
+        raise AssertionError(f"unregistered boundary {boundary!r}")
+    if derived != expected:
+        raise AssertionError("expectedConfirmation disagrees with the frequency/delivery rule")
+    return True
+
+
+def assert_task_expectation(case: dict) -> None:
+    actual = resolve_task_authorization(case["workspaceRoot"], case["requested"])
+    if actual != case["expected"]:
+        raise AssertionError(f"resolved authorization disagrees with expected: {actual}")
+    if actual["canNetworkWrite"] or actual["canDelegateTasks"]:
+        raise AssertionError("a Task child may not gain network-write or delegation")
+    outside = actual["canWriteOutsideWorkspace"]
+    if outside != case["expected"]["canWriteOutsideWorkspace"]:
+        raise AssertionError("canWriteOutsideWorkspace disagrees with the resolved directories")
+
+
+def assert_teammate_author_expectation(case: dict) -> None:
+    authority, expected = case["authority"], case["expected"]
+    if authority.get("isUserTurn"):
+        authorization = "user-turn"
+        approval = None
+    else:
+        authorization = "user-confirmed"
+        approval = authority.get("approvalID")
+        if not approval:
+            raise AssertionError("a non-user author needs an approvalID")
+    if authorization != expected["authorization"] or approval != expected["approvalID"]:
+        raise AssertionError("author expectation disagrees with the frozen rule")
+
+
+def validate_authority_fixture(fixture) -> tuple[int, int, int]:
+    if fixture.get("schemaVersion") != 1:
+        raise AssertionError("authority: schemaVersion must be 1")
+    if fixture.get("vector") != "authority.phone":
+        raise AssertionError("authority: vector must be authority.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("authority: phone-only vector must declare upstream: []")
+    delta = fixture.get("delta")
+    if not isinstance(delta, list) or not delta or not all(isinstance(item, str) for item in delta):
+        raise AssertionError("authority: delta must be a non-empty string array")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, dict) or not isinstance(invalid, list) or not invalid:
+        raise AssertionError("authority: valid must be an object and invalid a non-empty array")
+
+    template = valid.get("routineTemplate")
+    if not isinstance(template, dict):
+        raise AssertionError("authority: routineTemplate must be an object")
+    check(template, "routine.schema.json", "authority.routineTemplate")
+    if not template.get("completion_criteria") or not template.get("constraints"):
+        raise AssertionError("authority: routineTemplate must carry completion_criteria and constraints")
+
+    mutations = 0
+    creator_cases = valid.get("routineCreators")
+    if not isinstance(creator_cases, list) or not creator_cases:
+        raise AssertionError("authority: routineCreators must be a non-empty array")
+    for index, case in enumerate(creator_cases):
+        where = f"authority.routineCreators[{index}]"
+        routine = dict(template)
+        routine["creator"] = case["creator"]
+        check(routine, "routine.schema.json", where)
+        assert_creator_expectation(case)
+        mutated = json.loads(json.dumps(case))
+        mutated["expected"]["creationNeedsConfirmation"] = not mutated["expected"]["creationNeedsConfirmation"]
+        expect_rule_violation(f"{where}/flip-confirmation",
+                              lambda mutated=mutated: assert_creator_expectation(mutated))
+        mutations += 1
+
+    change_cases = valid.get("routineChanges")
+    if not isinstance(change_cases, list) or not change_cases:
+        raise AssertionError("authority: routineChanges must be a non-empty array")
+    for index, case in enumerate(change_cases):
+        where = f"authority.routineChanges[{index}]"
+        if not isinstance(case.get("expectedConfirmation"), bool):
+            raise AssertionError(f"{where}: expectedConfirmation must be a boolean")
+        derived = assert_change_expectation(case)
+        if derived:
+            mutated = json.loads(json.dumps(case))
+            mutated["expectedConfirmation"] = not mutated["expectedConfirmation"]
+            expect_rule_violation(f"{where}/flip-confirmation",
+                                  lambda mutated=mutated: assert_change_expectation(mutated))
+            mutations += 1
+
+    task_cases = valid.get("taskAuthorizations")
+    if not isinstance(task_cases, list) or not task_cases:
+        raise AssertionError("authority: taskAuthorizations must be a non-empty array")
+    for index, case in enumerate(task_cases):
+        where = f"authority.taskAuthorizations[{index}]"
+        assert_task_expectation(case)
+        mutated = json.loads(json.dumps(case))
+        mutated["expected"]["canWriteOutsideWorkspace"] = not case["expected"]["canWriteOutsideWorkspace"]
+        expect_rule_violation(f"{where}/flip-outside",
+                              lambda mutated=mutated: assert_task_expectation(mutated))
+        mutations += 1
+
+    author_cases = valid.get("teammateAuthors")
+    if not isinstance(author_cases, list) or not author_cases:
+        raise AssertionError("authority: teammateAuthors must be a non-empty array")
+    for index, case in enumerate(author_cases):
+        where = f"authority.teammateAuthors[{index}]"
+        assert_teammate_author_expectation(case)
+        mutated = json.loads(json.dumps(case))
+        if case["authority"].get("isUserTurn"):
+            mutated["expected"]["authorization"] = "user-confirmed"
+            mutated["expected"]["approvalID"] = "approval-mutated"
+        else:
+            mutated["authority"]["approvalID"] = None
+            mutated["expected"]["approvalID"] = None
+            mutated["expected"]["authorization"] = "user-turn"
+        expect_rule_violation(f"{where}/flip-authorization",
+                              lambda mutated=mutated: assert_teammate_author_expectation(mutated))
+        mutations += 1
+
+    invalid_creators = [case for case in invalid if case.get("suite") == "routine-schema"]
+    if not invalid_creators:
+        raise AssertionError("authority: no invalid routine creator fixture")
+    for index, case in enumerate(invalid_creators):
+        routine = dict(template)
+        routine["creator"] = case["creator"]
+        rejects(routine, "routine.schema.json", f"authority.invalid[{index}]")
+    task_invalid = [case for case in invalid if case.get("suite") == "task-authorization"]
+    if not task_invalid:
+        raise AssertionError("authority: no invalid Task authorization fixture")
+    for index, case in enumerate(task_invalid):
+        try:
+            resolve_task_authorization(case["workspaceRoot"], case["requested"])
+        except AssertionError:
+            continue
+        raise AssertionError(f"authority.invalid[{index}]: negative Task authorization unexpectedly passed")
+    teammate_invalid = [case for case in invalid if case.get("suite") == "teammate-author"]
+    if not teammate_invalid:
+        raise AssertionError("authority: no invalid CreateTeammate author fixture")
+    for index, case in enumerate(teammate_invalid):
+        try:
+            assert_teammate_author_expectation({
+                "authority": case["authority"],
+                "expected": {"authorization": "user-confirmed",
+                             "approvalID": case["authority"].get("approvalID")},
+            })
+        except AssertionError:
+            continue
+        raise AssertionError(f"authority.invalid[{index}]: negative teammate author unexpectedly passed")
+    return (len(creator_cases), len(change_cases), len(task_cases), mutations)
+
+
 def main() -> int:
     check_overlays()
     check(load("event-envelope.json")["valid"]["event"], "event-envelope.schema.json", "event")
@@ -740,11 +967,15 @@ def main() -> int:
         check(case["result"], "action-result.schema.json", f"action-result.invalid[{index}]")
     valid_origins, invalid_origins, mutations = validate_turn_origin_fixture(load(TURN_ORIGIN_VECTOR))
     valid_egress, invalid_egress, egress_mutations = validate_mcp_egress_fixture(load(MCP_EGRESS_VECTOR))
+    valid_authority, authority_changes, authority_task, authority_mutations = (
+        validate_authority_fixture(load(AUTHORITY_VECTOR)))
     print("bot vectors: PASS (schemas, positive vectors, negative vectors; "
           f"turn-origin {valid_origins} valid / {invalid_origins} invalid, "
           f"{mutations} mutation checks; "
           f"mcp-egress {valid_egress} valid / {invalid_egress} invalid, "
-          f"{egress_mutations} mutation checks)")
+          f"{egress_mutations} mutation checks; "
+          f"authority {valid_authority} creators / {authority_changes} changes / "
+          f"{authority_task} task subsets, {authority_mutations} mutation checks)")
     return 0
 
 

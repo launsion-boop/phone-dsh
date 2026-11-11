@@ -20,7 +20,7 @@
 phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json`（`schemaVersion: 3`）和 `runtime-settings.json` 的 `mainAgentId`；每个 Bot 有独立的 DSH 会话、记忆、例行任务、授权、held inbox 与未读计数。首个 Bot 成为主 Bot；主 Bot 是指针，不是记录字段。删除主 Bot 时指针移到剩余第一个 Bot；隐藏的 Bot 仍留在名册，但不进入模型可见的工具描述。
 
 - `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在线程链路中也按环路拒绝。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
-- `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 字符，`description` 截 300，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。
+- `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 字符，`description` 截 300，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。没有用户消息来源的回合（见 §4.1）调用时必须先经现有审批卡确认；确认后宿主把作者（`rpcId`/`turnId`/`origin`/`authorization`/`approvalID`）写入 `ui.system_event{event:"teammate.created"}` 的 durable 记录，描述随 Bot 资料保存。用户回合的记录同样写入，`authorization:"user-turn"` 且没有 `approvalID`。
 - 行：发送方 `outbound`/`inbound`、目标 `incoming`/`reply` 都使用上游 `toAgent`/`fromAgent`/`agentComm{direction,…}` 与 `threadId = <rowID>@<seq>:agent-comm`；发送方交换按 `summarizeCommRows` 汇总为 `single`/`fanout`/`thread`。
 - `agent.comm` 是 P27 的 additive UI event type，也是 P25 的 additive durable event；outbound/inbound 都写入 `origin = local/comm-service`。契约冻结见 [PC-20261111-bot-agent-comm-envelope](../../../docs/protocol-changes/PC-20261111-bot-agent-comm-envelope.md)。
 - 不在本期范围：Team 共享/发布/克隆、团队记忆/审核队列、Bot 模板导入导出、`CreateAgent` 云端工具、sidebar section 渲染，以及 macOS 本机工具。
@@ -68,6 +68,49 @@ P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-2026
 - 每个 Gateway principal 都有宿主生成的随机 `incarnation`。工具归属在注册时绑定该代次，解析时必须仍与当前 session 代次一致；重签、rotate、revoke 或重启后的旧调用不得借用新 principal。token 仍只存摘要，不把 Bearer token 写入事件或审计。
 - `BotExecutionPrincipal` 的已验证构造只在 `PhoneDSHBot` 宿主模块内使用；MCP 不得从工具参数反序列化 `userUI`、`certain` 或 trust。UI 写操作仍只能经 `BotUserActionDispatcher` 盖 `owner_direct`，effects 在执行点由宿主重新推导。
 
+### 2.4 Task 授权子集（S4b）
+
+Task 派发时宿主生成并持久化一个授权子集，随结果返回并在子会话的回合提示里说明：
+
+```json
+{
+  "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+  "allowedWriteDirectories": ["/dsh/workspace/.dshbot/agents/main"],
+  "canWriteOutsideWorkspace": false,
+  "canNetworkWrite": false,
+  "canDelegateTasks": false
+}
+```
+
+- `allowed_write_directories` 接受绝对路径或相对于 Bot 工作区根的路径；`~` 展开，`.`/`..` 规范化，重复项合并，最多 32 项。省略或为空表示只允许 Bot 工作区根。任一项在根外时 `canWriteOutsideWorkspace` 才为 `true`。
+- 子会话的 DSH principal capabilities 由该子集派生：`task.workspace:<root>`、`task.write-dir:<abs>`、`task.write-outside-workspace`、`task.network-write`、`task.delegate`。
+- 结构审批门禁对 `write`/`edit` 的路径和可识别的 `bash` 写入目标按 `task.write-dir:*` 拒绝越界；网络写入效果（`curl-post`/`network-egress`）在没有 `task.network-write` 时拒绝。拒绝发生在向用户出审批卡之前，返回 `permission_denied`，不执行。
+- 本修订没有提高子会话权限的 Task 参数：`canNetworkWrite` 与 `canDelegateTasks` 恒为 `false`。因此 `Task` 的子会话默认不能再派 `Task`，`startTask` 对缺少 `task.delegate` 的调用 fail-closed。
+- 结果与 `AwaitTask` 都带同一个 `authorization` 对象；durable `persistedTask` 保存它，Worker 重启后仍能对同一任务继续执行同一子集。
+
+### 2.5 routine 的设立者与放宽授权（S4b）
+
+- 每个 routine 记录 `creator`：本修订用回合来源 `rpcId`/`turnId`/`sessionId` 加 `origin`（§4.1 的七种）表达，`authorization` 为 `user-turn` 或 `user-confirmed`，后者带审批卡 `approvalID`。以后 S1 的 `record://` 引用到位时替换 `rpcId` 字段，不新增第二种字段。
+- routine 另带 `completion_criteria` 与 `constraints`（各最多 2,000 字符，可空）。创建/更新可携带；空字符串表示没有记录，不伪造内容。
+- **放宽**指：排程比当前更频繁、`delivery` 从 `held` 改为 `interrupt`、`urgent` 从 false 改为 true、`resume` 一个暂停的 routine。排程频率按同一时区下接下来两次运行的平均间隔比较。
+- 在**没有用户消息来源**的回合（§4.1 的 `routine`、`task`、`task-wake`、`agent`、`held`、`unknown`，以及隐藏回合）里创建 routine 或放宽已有 routine，必须先走现有审批卡并把 `approvalID` 写入 `creator`。用户回合不需要额外确认。删除、暂停、读取、以及不改变频率/交付/紧急度的更新不要求确认。
+- 审批卡是 durable `approval.requested`；拒绝或超时都不写 routine。审批被拒绝时的返回是 `permission_denied`，理由明确指出需要用户确认。
+
+### 2.6 持久待办审批（S5 target，本修订只冻结契约）
+
+现状：`BotApprovalCoordinator.defaultTimeoutMilliseconds = 300_000`，超时写 `approval.decided{status:"denied",timedOut:true}`；Worker 侧 `approval-gate.ts` 在 330 秒 abort 请求；身份登记 TTL 覆盖同一等待窗口。用户不在场的 routine/异步 Task 因此会得到“没有人回答”的拒绝。
+
+目标语义（尚未实现）：非交互回合的审批请求在超时后**不拒绝**，而是一条持久待办；用户的决定按 `approvalID + digest` 恢复，任务停在原地直到处理。与现状冲突、需要一并修改的契约：
+
+1. `approval.requested` 的 pending 状态必须跨进程重启保持，决定可由 `approvalID` 重新绑定；`BotApprovalCoordinator.resolve` 的 in-memory continuation 不能是唯一等待者。
+2. Worker 的 `tools/pre-execute` 不能在 330 秒 abort；需要可恢复的等待/租约，或用“停住 + 后续恢复”代替单次阻塞调用。
+3. 身份登记（`BotAttributionRegistry`）的 TTL 与 principal incarnation 必须覆盖停住的等待，或在恢复时重新登记同一次调用。
+4. 审批卡/行投影在重启后仍显示 pending；决定只能生效一次，执行恢复不得重复副作用。
+5. 交互前台回合是否保留 300 秒超时需单独决定；本契约只冻结“routine/异步 Task 不因超时拒绝”。
+
+实现风险：第 1、2 条跨 Bot MCP、Worker 插件与 App 生命周期，超出本单元允许修改的路径。因此本修订只冻结上述语义和冲突清单，`status: target`，不声称已实现。
+
+
 ## 3. 记忆
 
 facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；召回使用 CJK 分词、BM25、时近度和重要度；非 `user-turn` 不得写 `scope:user` 或 `profile`，来源只降級；forget/erase 与上游一致。
@@ -77,6 +120,8 @@ facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；
 ## 4. 唤醒与主动提醒
 
 routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox、隐藏唤醒和 `<automation_status>` 与上游一致。安静时段延后而不是丢弃；urgent 必须有理由；WebContent 不可用时常驻宿主排队，恢复后依次运行且错过的只补一次。
+
+每个 routine 的 `creator`、`completion_criteria` 与 `constraints` 见 §2.5。手动取消运行中的 routine 走宿主 `RoutineScheduler` 的同一取消链（`reason:"user"`），结果是交付行里的 `cancelOrigin:"user"`，不产生新的强制通知；`needs-reconciliation` 的人工处理见 §5 的 Bot 信息页。
 
 `HeldMessages.block` 的 `[agent]` 分支对 `fromAgentName`、`fromAgentId`、`title`、`text` 与 `msg id` 全部经 `escapedHeldField` 转义；agent-held 的回复仍是 held 数据与队友内容，不是用户授权，不能触发未经用户要求的动作。
 
@@ -133,6 +178,7 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 - 隐藏回合只显示卡片；question/steps 成功后宿主抑制模型收尾文字。
 - question/steps 只有 2–4 个真实选项，无“其他”或卡内输入；宿主在生成卡片时分配稳定 `optionID`（`o0`…`o3`），UI 只提交这个 ID，`cardAnswer` 仅含 `cardID + optionID`，选项值作为普通 `chat` 新消息，自由文本不经过卡片。推荐取第一个合法 recommended/primary 并移到第一位，其余 primary 归一为 default，danger 不推荐。回答写 durable `card.answered`，关闭写 durable `card.dismissed`；已回答、已关闭或已过期的卡再次提交返回 stale，新 question/steps 卡出现时旧的 open 选择卡过期。仅 question 可关闭：关闭不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；DSH 不可用时关闭仍在本地立即生效。steps 不提供关闭动作，`cardDismiss` 对 steps 返回 rejected。
 - 所有消息卡片与同一 assistant 回复气泡共享列宽，不得超过该气泡；question/steps 内距 12、选项视觉高 44、间距 4，其他卡片同样按内容紧凑排列。超过 4 个步骤/条目默认折叠，详细规则以 `spec/ui/v1/pages/bot-chat.md` 为准。
+- Bot 信息页（`spec/ui/v1/pages/bot-info.md`）新增三个宿主服务型用户出口，不进入 durable `BotUserAction` nonce 事务：查看/撤销本 Bot 的常设 Grant（`scope != once`，`BotGrantStore.revoke(id:)`）、取消运行中的 routine（`RoutineScheduler` 取消链）、处理 `needs-reconciliation`（显示 routine 的已产生效果，选择“确认完成”走 `BotEffectOutbox.ackReconciled` + `RoutineMachine.resolveReconciliation(decision:"acknowledge")`，或“重试”走 `retryNeedsReconciliation` + `resolveReconciliation(decision:"retry")`）。读取失败显示失败，不显示为零；撤销/取消/对账后重读权威状态，不用本地删除伪装成功。
 - 第一版不提供新建对话、对话列表、回滚或删除单条。现有 DSH 多 session 工作台保留为独立高级入口。
 
 ## 6. 观测与成本
@@ -185,6 +231,7 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `tool-catalog.phone.json`：团队工具与 `FishAction` 的目录增量。
 - `tool-effects.phone.json`：团队工具、`FishAction` 与原生 MCP BLE 工具的效果分类。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
+- `authority.phone.json`：routine 设立者/放宽判定、Task 授权子集和 CreateTeammate 作者的手机专属向量；用 `"upstream": []` 登记，含 schema 负例、解析负例和 mutation 自检。
 - `mcp-egress.phone.json`：MCP 出口凭证、会话凭证与 `tools/call` 调用者目录的手机专属向量；同样用 `"upstream": []` 登记。`valid` / `invalid` 的每条用例带 `suite`（`egress` / `identity` / `tools-call`）；`egress` 由精确路由集合与常量时间 token 比较判定，`identity` 由 token 登记表（含撤销／过期／轮换）解析 principal 并比较 `sessionId`，`tools-call` 由与 `tools/list` 相同的 per-caller 目录判定。`validate_vectors.py` 逐条校验并按 suite 强制边界覆盖，内部 mutation 变异预期值；`check_golden.py` 在 `PHONE_ONLY_VECTORS` 显式登记该文件。
 
 覆盖文件的合并语义由 `spec/tools/bot/golden_overlay.py`、Swift `BotGoldenFixture` 与 `plugins/tests/bot-golden.ts` 一致实现：

@@ -6,6 +6,7 @@
   "generator": "spec/tools/bot/export-vectors.mjs",
   "files": [
     "approval-patterns.json",
+    "authority.phone.json",
     "bot-attachments.json",
     "bot-profile.json",
     "card-payload.json",
@@ -61,6 +62,7 @@
     "watchdog.json"
   ],
   "phoneOverlays": [
+    "authority.phone.json",
     "card-payload.phone.json",
     "event-envelope.phone.json",
     "held-inbox.phone.json",
@@ -72,6 +74,7 @@
   ],
   "sha256": {
     "approval-patterns.json": "8dbac06c60729e3042e210cf07dd085d592c61e8074c32d23b5631ba2debf8cb",
+    "authority.phone.json": "ca33e719a196db5a7013b1c0732ec7894f5c985bf2f9bc6e4e48a0404299e781",
     "bot-attachments.json": "eff063a56da6341102e22c11a3c57d01fdc72a3936c5637bbcc43b3b3f0efbe7",
     "bot-profile.json": "fc8de274d26a95063b2e61e5e83749c07bb1ba5624a9dee216ca11e55319de40",
     "card-payload.json": "5e16774a4b08bbb68039b6d724b56e9eda6d5f09e3ee51523bb791ee4ef721c2",
@@ -79,6 +82,7 @@
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "event-envelope.json": "fded336f2e2dddf4b9c474bac5e6cefcbb1baf7c99637a988ed22dbb244bcaf5",
+    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853",
     "fish-director.json": "7216362cf4ff1c903ebce75cbf0d9d170dba9e233778caf3df1de1a36026cd85",
     "held-inbox.json": "0970f8f2fdfb28fe76a6cf39268cefaec0df6c287080c9513f24f11533ec311b",
     "held-inbox.phone.json": "e16b874df320dc5db0214d3f2bc3f6c57a12418fbb50a28503228b4ff9f93b63",
@@ -99,7 +103,6 @@
     "turn-origin.phone.json": "97f5a6febb5e8adea5d34d8ecee615ce8095af87445112ce58f8b2c91d7b6b83",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
     "wake-routine.json": "121397f4e36a2467c5b65c924a7cfa1ddc7957bdc8cdd66868b32c47502b4f5e",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
-    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed"
   }
 }

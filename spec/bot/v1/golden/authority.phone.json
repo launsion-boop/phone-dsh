@@ -1,0 +1,474 @@
+{
+  "schemaVersion": 1,
+  "vector": "authority.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH S4b authority delta: routine creator and confirmation, Task authorization subset, CreateTeammate author. No dsh-bot upstream vector exists for these host-only envelopes."
+  },
+  "upstream": [],
+  "delta": [
+    "a routine records its creator as the turn source (rpcId/turnId) plus whether a user message authorized it",
+    "creating a routine or widening it (more frequent schedule, interrupt delivery, urgent, resume) needs a user turn or an approvalID",
+    "a Task carries an explicit authorization subset: allowed write directories, network write, task delegation",
+    "allowed_write_directories resolve against the Bot workspace root and decide canWriteOutsideWorkspace",
+    "CreateTeammate records the authoring turn and approval in the created-Bot audit"
+  ],
+  "valid": {
+    "routineTemplate": {
+      "id": "routine-abc",
+      "agentId": "main",
+      "title": "晨间简报",
+      "prompt": "汇总重要变化；没有变化就保持安静。",
+      "schedule": {
+        "kind": "daily",
+        "time": "08:30",
+        "timezone": "Asia/Taipei"
+      },
+      "enabled": true,
+      "idempotent": false,
+      "urgent": false,
+      "urgent_reason": "",
+      "delivery": "held",
+      "interrupt_reason": "",
+      "created_at": 1760000000000,
+      "attempt": 0,
+      "run_state": null,
+      "quiet_defer": null,
+      "last_skip": null,
+      "skip_count": 0,
+      "crash_retry": false,
+      "last_run_at": null,
+      "next_run_at": 1760056200000,
+      "last_result": null,
+      "completion_criteria": "列出三项最重要的变化；没有变化时写出「无变化」。",
+      "constraints": "不要调用 SendToUser；没有变化时回复 [quiet]。"
+    },
+    "routineCreators": [
+      {
+        "name": "user-turn",
+        "creator": {
+          "rpcId": "bot-abc",
+          "turnId": "7",
+          "sessionId": "gb-main",
+          "origin": "user",
+          "authorization": "user-turn"
+        },
+        "expected": {
+          "creatorOrigin": "user",
+          "creatorAuthorization": "user-turn",
+          "creationNeedsConfirmation": false
+        }
+      },
+      {
+        "name": "routine-turn-confirmed",
+        "creator": {
+          "rpcId": "routine:run-1",
+          "turnId": "11",
+          "sessionId": "gb-routine-1",
+          "origin": "routine",
+          "authorization": "user-confirmed",
+          "approvalID": "approval-1"
+        },
+        "expected": {
+          "creatorOrigin": "routine",
+          "creatorAuthorization": "user-confirmed",
+          "creationNeedsConfirmation": true
+        }
+      },
+      {
+        "name": "held-turn-confirmed",
+        "creator": {
+          "rpcId": "held:digest",
+          "turnId": "12",
+          "sessionId": "gb-main",
+          "origin": "held",
+          "authorization": "user-confirmed",
+          "approvalID": "approval-2"
+        },
+        "expected": {
+          "creatorOrigin": "held",
+          "creatorAuthorization": "user-confirmed",
+          "creationNeedsConfirmation": true
+        }
+      },
+      {
+        "name": "agent-turn-confirmed",
+        "creator": {
+          "rpcId": "agent:call-1",
+          "turnId": "13",
+          "sessionId": "gb-main",
+          "origin": "agent",
+          "authorization": "user-confirmed",
+          "approvalID": "approval-3"
+        },
+        "expected": {
+          "creatorOrigin": "agent",
+          "creatorAuthorization": "user-confirmed",
+          "creationNeedsConfirmation": true
+        }
+      },
+      {
+        "name": "task-turn-confirmed",
+        "creator": {
+          "rpcId": "task-turn:task-1",
+          "turnId": "14",
+          "sessionId": "gb-task-1",
+          "origin": "task",
+          "authorization": "user-confirmed",
+          "approvalID": "approval-4"
+        },
+        "expected": {
+          "creatorOrigin": "task",
+          "creatorAuthorization": "user-confirmed",
+          "creationNeedsConfirmation": true
+        }
+      }
+    ],
+    "routineChanges": [
+      {
+        "name": "interval-faster",
+        "action": "update",
+        "current": {
+          "schedule": {
+            "kind": "interval",
+            "everyMinutes": 60,
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "patch": {
+          "schedule": {
+            "kind": "interval",
+            "everyMinutes": 15,
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "expectedConfirmation": true,
+        "boundary": "schedule-frequency"
+      },
+      {
+        "name": "interval-slower",
+        "action": "update",
+        "current": {
+          "schedule": {
+            "kind": "interval",
+            "everyMinutes": 60,
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "patch": {
+          "schedule": {
+            "kind": "interval",
+            "everyMinutes": 240,
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "expectedConfirmation": false,
+        "boundary": "schedule-frequency"
+      },
+      {
+        "name": "cron-more-often",
+        "action": "update",
+        "current": {
+          "schedule": {
+            "kind": "cron",
+            "expr": "0 * * * *",
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "patch": {
+          "schedule": {
+            "kind": "cron",
+            "expr": "*/5 * * * *",
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "expectedConfirmation": true,
+        "boundary": "schedule-frequency"
+      },
+      {
+        "name": "same-daily-frequency",
+        "action": "update",
+        "current": {
+          "schedule": {
+            "kind": "daily",
+            "time": "08:30",
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "patch": {
+          "schedule": {
+            "kind": "daily",
+            "time": "20:30",
+            "timezone": "Asia/Taipei"
+          }
+        },
+        "expectedConfirmation": false,
+        "boundary": "schedule-frequency"
+      },
+      {
+        "name": "delivery-to-interrupt",
+        "action": "update",
+        "current": {
+          "delivery": "held"
+        },
+        "patch": {
+          "delivery": "interrupt",
+          "interrupt_reason": "用户在等这封周报"
+        },
+        "expectedConfirmation": true,
+        "boundary": "delivery"
+      },
+      {
+        "name": "urgent-on",
+        "action": "update",
+        "current": {
+          "urgent": false
+        },
+        "patch": {
+          "urgent": true,
+          "urgent_reason": "生产故障"
+        },
+        "expectedConfirmation": true,
+        "boundary": "urgent"
+      },
+      {
+        "name": "pause",
+        "action": "pause",
+        "current": {
+          "enabled": true
+        },
+        "patch": {
+          "enabled": false
+        },
+        "expectedConfirmation": false,
+        "boundary": "enable"
+      },
+      {
+        "name": "resume",
+        "action": "resume",
+        "current": {
+          "enabled": false
+        },
+        "patch": {
+          "enabled": true
+        },
+        "expectedConfirmation": true,
+        "boundary": "enable"
+      }
+    ],
+    "taskAuthorizations": [
+      {
+        "name": "workspace-default",
+        "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+        "requested": [],
+        "expected": {
+          "allowedWriteDirectories": [
+            "/dsh/workspace/.dshbot/agents/main"
+          ],
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        }
+      },
+      {
+        "name": "relative-subdirectory",
+        "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+        "requested": [
+          "notes"
+        ],
+        "expected": {
+          "allowedWriteDirectories": [
+            "/dsh/workspace/.dshbot/agents/main/notes"
+          ],
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        }
+      },
+      {
+        "name": "outside-directory",
+        "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+        "requested": [
+          "/tmp/reports"
+        ],
+        "expected": {
+          "allowedWriteDirectories": [
+            "/tmp/reports"
+          ],
+          "canWriteOutsideWorkspace": true,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        }
+      },
+      {
+        "name": "normalizes-relative-parent",
+        "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+        "requested": [
+          "./notes/../notes"
+        ],
+        "expected": {
+          "allowedWriteDirectories": [
+            "/dsh/workspace/.dshbot/agents/main/notes"
+          ],
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        }
+      },
+      {
+        "name": "deduplicates",
+        "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+        "requested": [
+          "notes",
+          "notes/"
+        ],
+        "expected": {
+          "allowedWriteDirectories": [
+            "/dsh/workspace/.dshbot/agents/main/notes"
+          ],
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        }
+      }
+    ],
+    "teammateAuthors": [
+      {
+        "name": "user-turn",
+        "authority": {
+          "rpcId": "bot-abc",
+          "turnId": "7",
+          "sessionId": "gb-main",
+          "origin": "user",
+          "isUserTurn": true
+        },
+        "expected": {
+          "authorization": "user-turn",
+          "approvalID": null
+        }
+      },
+      {
+        "name": "routine-turn-approved",
+        "authority": {
+          "rpcId": "routine:run-1",
+          "turnId": "11",
+          "sessionId": "gb-routine-1",
+          "origin": "routine",
+          "isUserTurn": false,
+          "approvalID": "approval-1"
+        },
+        "expected": {
+          "authorization": "user-confirmed",
+          "approvalID": "approval-1"
+        }
+      }
+    ]
+  },
+  "invalid": [
+    {
+      "name": "creator-missing-origin",
+      "suite": "routine-schema",
+      "creator": {
+        "authorization": "user-turn"
+      },
+      "reason": "creator.origin is required"
+    },
+    {
+      "name": "creator-missing-authorization",
+      "suite": "routine-schema",
+      "creator": {
+        "origin": "user"
+      },
+      "reason": "creator.authorization is required"
+    },
+    {
+      "name": "creator-unknown-origin",
+      "suite": "routine-schema",
+      "creator": {
+        "origin": "system",
+        "authorization": "user-turn"
+      },
+      "reason": "creator.origin must be one of the frozen turn origins"
+    },
+    {
+      "name": "creator-unknown-authorization",
+      "suite": "routine-schema",
+      "creator": {
+        "origin": "user",
+        "authorization": "agent-turn"
+      },
+      "reason": "creator.authorization must be user-turn or user-confirmed"
+    },
+    {
+      "name": "creator-empty-rpc",
+      "suite": "routine-schema",
+      "creator": {
+        "rpcId": "",
+        "origin": "user",
+        "authorization": "user-turn"
+      },
+      "reason": "creator.rpcId must be non-empty when present"
+    },
+    {
+      "name": "task-empty-directory",
+      "suite": "task-authorization",
+      "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+      "requested": [
+        ""
+      ],
+      "reason": "allowed_write_directories entries must be non-empty"
+    },
+    {
+      "name": "task-too-many-directories",
+      "suite": "task-authorization",
+      "workspaceRoot": "/dsh/workspace/.dshbot/agents/main",
+      "requested": [
+        "/tmp/d00",
+        "/tmp/d01",
+        "/tmp/d02",
+        "/tmp/d03",
+        "/tmp/d04",
+        "/tmp/d05",
+        "/tmp/d06",
+        "/tmp/d07",
+        "/tmp/d08",
+        "/tmp/d09",
+        "/tmp/d10",
+        "/tmp/d11",
+        "/tmp/d12",
+        "/tmp/d13",
+        "/tmp/d14",
+        "/tmp/d15",
+        "/tmp/d16",
+        "/tmp/d17",
+        "/tmp/d18",
+        "/tmp/d19",
+        "/tmp/d20",
+        "/tmp/d21",
+        "/tmp/d22",
+        "/tmp/d23",
+        "/tmp/d24",
+        "/tmp/d25",
+        "/tmp/d26",
+        "/tmp/d27",
+        "/tmp/d28",
+        "/tmp/d29",
+        "/tmp/d30",
+        "/tmp/d31",
+        "/tmp/d32"
+      ],
+      "reason": "at most 32 allowed_write_directories entries are accepted"
+    },
+    {
+      "name": "teammate-missing-approval",
+      "suite": "teammate-author",
+      "authority": {
+        "rpcId": "routine:run-1",
+        "sessionId": "gb-routine-1",
+        "origin": "routine",
+        "isUserTurn": false
+      },
+      "reason": "a non-user CreateTeammate requires an approvalID before creation"
+    }
+  ]
+}

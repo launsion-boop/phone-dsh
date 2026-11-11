@@ -40,6 +40,15 @@ func registerAndExecute(
         context: BotMCPRequestContext(callId: callId))
 }
 
+/// Start a synthetic user turn so goal-widening tools (UpdateRoutine,
+/// CreateTeammate) see the same authority a real user message would give.
+func beginUserTurn(_ runtime: BotMCPRuntime, sessionId: String = "gb-main",
+                   rpcId: String = "bot-test") async {
+    await runtime.beginTurn(
+        sessionId: sessionId, hidden: false,
+        origin: BotTurnOrigin(rpcId: rpcId))
+}
+
 func botEvents(_ store: SQLiteDomainStore) async throws -> [BotEvent] {
     try await store.events(after: 0, limit: 1_000)
 }
