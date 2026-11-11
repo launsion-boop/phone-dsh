@@ -565,7 +565,6 @@ CHECKS = {
     "streaming": check_streaming,
     "single-copy": check_single_copy,
     "memory-input": check_memory_input,
-
 }
 
 
