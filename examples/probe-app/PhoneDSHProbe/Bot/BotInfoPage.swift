@@ -586,7 +586,7 @@ struct BotInfoPage: View {
                 } header: {
                     Text("外观")
                 } footer: {
-                    Text("只改发型和颜色，与桌面 DSH Bot 一致；点选即保存，自动外观保留给以后的多 Bot 接入。")
+                    Text("点选即保存。")
                 }
 
                 Section {
@@ -1502,8 +1502,9 @@ private struct BotApprovalHistoryPage: View {
     }
 }
 
-/// The appearance editor: one 112pt live preview, the four hairstyles as 40pt
-/// fish thumbnails in the current color, and the fifteen color dots. Every
+/// The appearance editor: the four hairstyles as 40pt fish thumbnails in the
+/// current color and the fifteen color dots. The page header already shows the
+/// 80pt avatar, so the shared picker's own preview is turned off here. Every
 /// tap saves immediately through `BotInfoModel`; no "auto" choice is exposed
 /// (the model keeps nil for the future multi-Bot import path).
 private struct BotAppearanceEditor: View {
@@ -1513,6 +1514,7 @@ private struct BotAppearanceEditor: View {
         BotAppearancePicker(
             appearance: model.appearance,
             isMainBot: model.isMainBot,
+            showsPreview: false,
             onSelectColor: { color in Task { await model.select(color: color) } },
             onSelectHairstyle: { hairstyle in Task { await model.select(hairstyle: hairstyle) } })
     }

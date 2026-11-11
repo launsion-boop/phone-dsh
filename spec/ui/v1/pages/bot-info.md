@@ -10,11 +10,11 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 
 名称下方是「外观」区，与桌面 DSH Bot 的 `NameBotDialog`/`InfoPane` 对齐，只暴露发型和颜色：
 
-- 112pt 实时预览（idle，可 poke），使用当前 Bot 资料的外观。
+- 信息页不另设预览，顶部 80pt 头像随发型 / 颜色点选即时更新，不画第二个头像。
 - 「发型」一行 4 个 40pt 静帧大肥鱼（`long`、`twin-tail`、`bob`、`side-braid`），每个以当前颜色着色；选中的外圈 44pt；accessibility label 用简体 displayName（经典长卷发、高双马尾、短鲍伯、粗侧辫）。
 - 「颜色」15 个 24pt 色点，44pt 点击区，自动换行；选中外圈；accessibility label 用简体 displayName。
-- 该外观选择器抽成 `BotAppearancePicker`，信息页与「添加 Bot」对话框共用同一个组件和同一组 accessibility id 前缀；对话框只保留草稿状态，信息页仍点选即保存。
-- 点选即保存（`BotProfileStore.upsert` 只带改动字段）并全页实时生效；预览、4 个发型缩略图与 Bot 页头部/空状态/状态行同步。
+- 该外观选择器抽成 `BotAppearancePicker`，信息页与「添加 Bot」对话框共用同一个组件（信息页 id 前缀 `bot.info.appearance`，对话框前缀 `bot.add.appearance`）；是否显示组件内预览由调用方决定。信息页关闭组件内预览；「添加 Bot」对话框没有顶部头像，保留其 104pt 预览和草稿状态，信息页仍点选即保存。
+- 点选即保存（`BotProfileStore.upsert` 只带改动字段）并全页实时生效；顶部 80pt 头像、4 个发型缩略图与 Bot 页头部/空状态/状态行同步。
 - 本轮不提供「自动」选项；资料模型的 `nil` 保留给以后的多 Bot 导入。页面不显示自动外观标记，也不伪造未保存状态。
 
 - 记忆：按 `user/` 和 `agent/` 两个根展示文档树，目录可展开；文档详情显示完整 Markdown、当前版本、更新时间、作者/会话类型和 `evidence`（`record://` 引用）；可查看历史版本列表和每个版本的正文/删除标记。路径、版本和 evidence 均来自宿主 `ReadMemory` 同一权威，不伪造条目或来源。删除有两个强度且文案不能混用：
