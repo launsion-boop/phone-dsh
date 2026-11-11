@@ -267,7 +267,7 @@ test('remote porcelain: unimplemented options fail loud instead of faking succes
       ['--no-single-branch', ['clone', '--no-single-branch', remote('origin.git'), join(temp.path, 'no-single')], 128, /--no-single-branch is not supported/],
       ['--shallow-since', ['clone', '--shallow-since', '2020-01-01', remote('origin.git'), join(temp.path, 'since')], 128, /only --depth <n> is available/],
       ['--shallow-exclude', ['clone', '--shallow-exclude', 'v1', remote('origin.git'), join(temp.path, 'exclude')], 128, /only --depth <n> is available/],
-      ['--filter', ['clone', '--filter=blob:none', remote('origin.git'), join(temp.path, 'partial')], 128, /partial clone.*--depth <n>/],
+      ['--filter', ['clone', '--filter=tree:0', remote('origin.git'), join(temp.path, 'partial')], 128, /only --filter=blob:none/],
       ['--bare', ['clone', '--bare', remote('origin.git'), join(temp.path, 'bare-clone')], 128, /non-bare/],
       ['-o', ['clone', '-o', 'upstream', remote('origin.git'), join(temp.path, 'renamed')], 129, /unsupported clone option/],
       ['--origin', ['clone', '--origin', 'upstream', remote('origin.git'), join(temp.path, 'renamed-long')], 129, /unsupported clone option/],
@@ -415,10 +415,11 @@ test('shallow and single-branch clone/fetch follow git smart HTTP v0', { skip },
     assert.equal(git(feature, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '1')
     assert.equal(git(feature, ['fsck', '--strict']).code, 0)
 
-    // A full `--single-branch` clone has the complete branch history, one
-    // fetch refspec, and only tags reachable from that branch.
+    // `--full --single-branch` has the complete branch history, one fetch
+    // refspec, and only tags reachable from that branch. `--single-branch`
+    // alone keeps the phone default and is covered above.
     const single = join(temp.path, 'single')
-    const singleClone = await worker(temp.path, ['clone', '--single-branch', remote('origin.git'), single])
+    const singleClone = await worker(temp.path, ['clone', '--full', '--single-branch', remote('origin.git'), single])
     assert.equal(singleClone.code, 0, singleClone.stderr.toString())
     assert.equal(git(single, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'false')
     assert.equal(git(single, ['config', '--get', 'remote.origin.fetch']).stdout.toString().trim(), '+refs/heads/main:refs/remotes/origin/main')
@@ -458,9 +459,17 @@ test('shallow and single-branch clone/fetch follow git smart HTTP v0', { skip },
     assert.match(mixed.stderr.toString(), /--full cannot be combined/)
     assert.equal(existsSync(join(temp.path, 'mixed', '.git')), false)
 
-    // `--no-tags` keeps every branch of a full clone but fetches no tags.
+    // `--no-tags` keeps the phone default; `--full --no-tags` keeps every
+    // branch of a full clone but fetches no tags.
+    const noTagsPhone = join(temp.path, 'no-tags-phone')
+    const noTagsPhoneClone = await worker(temp.path, ['clone', '--no-tags', remote('origin.git'), noTagsPhone])
+    assert.equal(noTagsPhoneClone.code, 0, noTagsPhoneClone.stderr.toString())
+    assert.equal(git(noTagsPhone, ['rev-parse', '--is-shallow-repository']).stdout.toString().trim(), 'true')
+    assert.equal(git(noTagsPhone, ['rev-list', '--count', 'HEAD']).stdout.toString().trim(), '1')
+    assert.equal(systemGit(['for-each-ref', '--format=%(refname)', 'refs/tags'], noTagsPhone, env).stdout.toString().trim(), '')
+    assert.notEqual(git(noTagsPhone, ['rev-parse', '--verify', 'refs/remotes/origin/feature']).code, 0)
     const noTags = join(temp.path, 'no-tags')
-    const noTagsClone = await worker(temp.path, ['clone', '--no-tags', remote('origin.git'), noTags])
+    const noTagsClone = await worker(temp.path, ['clone', '--full', '--no-tags', remote('origin.git'), noTags])
     assert.equal(noTagsClone.code, 0, noTagsClone.stderr.toString())
     assert.equal(git(noTags, ['config', '--get', 'remote.origin.tagopt']).stdout.toString().trim(), '--no-tags')
     assert.equal(systemGit(['for-each-ref', '--format=%(refname)', 'refs/tags'], noTags, env).stdout.toString().trim(), '')
