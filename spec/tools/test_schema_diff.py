@@ -23,7 +23,10 @@ class SchemaDiffTests(unittest.TestCase):
         self.path = 'spec/v1/schema/hello.schema.json'
         self.original = {'type': 'object', 'properties': {'value': {'type': 'string'},
                          'mode': {'type': 'string', 'enum': ['a', 'b']}},
-                         'required': ['value'], 'additionalProperties': False}
+                         'required': ['value'], 'additionalProperties': False,
+                         'oneOf': [{'type': 'object',
+                                    'properties': {'kind': {'type': 'string', 'enum': ['a', 'b']}},
+                                    'required': ['kind']}]}
         self.write('spec/registry.json', (ROOT / 'spec/registry.json').read_text())
         self.write_schema(self.original)
         self.git('init', '-q')
@@ -98,6 +101,27 @@ class SchemaDiffTests(unittest.TestCase):
         changed['properties']['optional'] = {'type': 'string', 'default': ''}
         self.write_schema(changed)
         self.assertEqual(self.run_check().returncode, 0)
+
+    def test_optional_property_inside_oneof_variant_is_not_breaking(self):
+        changed = copy.deepcopy(self.original)
+        changed['oneOf'][0]['properties']['optional'] = {'type': 'string'}
+        self.write_schema(changed)
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_required_addition_inside_oneof_variant_fails_at_variant_pointer(self):
+        changed = copy.deepcopy(self.original)
+        changed['oneOf'][0]['required'].append('optional')
+        self.assert_breaks(changed, '$.oneOf[0].required')
+
+    def test_oneof_variant_addition_fails(self):
+        changed = copy.deepcopy(self.original)
+        changed['oneOf'].append({'type': 'object', 'properties': {'other': {'type': 'string'}}})
+        self.assert_breaks(changed, '$.oneOf: validation/default/reference keyword changed')
+
+    def test_enum_change_inside_oneof_variant_fails(self):
+        changed = copy.deepcopy(self.original)
+        changed['oneOf'][0]['properties']['kind']['enum'] = ['a']
+        self.assert_breaks(changed, '$.oneOf[0].properties.kind.enum')
 
     def test_reordered_sets_and_implicit_additional_true_are_equal(self):
         before = {'type': ['string', 'null'], 'enum': ['a', None]}

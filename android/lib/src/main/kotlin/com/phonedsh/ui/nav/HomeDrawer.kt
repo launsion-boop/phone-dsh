@@ -3,6 +3,7 @@
 package com.phonedsh.ui.nav
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +13,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -32,19 +35,35 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.DialogWindowProvider
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
@@ -61,13 +80,17 @@ import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiDarkTheme
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
+import com.phonedsh.ui.theme.UiShadow
 import com.phonedsh.ui.theme.UiTokens
 import com.phonedsh.ui.theme.applySystemBarAppearance
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.phonedsh.ui.state.StateRequestId
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Caller-owned view state survives closing/reopening while the host keeps it remembered. */
 @Stable
@@ -133,7 +156,27 @@ public fun HomeDrawer(
     val darkTheme = LocalUiDarkTheme.current
     val tokens = homeDrawerTokens(inheritedTokens)
     val type = LocalUiType.current
+    val drawer = tokens.drawer
+    val drawerShape = RoundedCornerShape(
+        topEnd = drawer.panelTrailingRadius,
+        bottomEnd = drawer.panelTrailingRadius,
+    )
+    val closedPanelOffset = -drawer.width.value - drawer.closedOverhang.value
+    var panelOffset by remember { mutableFloatStateOf(closedPanelOffset) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val latestOnClose by rememberUpdatedState(onClose)
+    var dialogVisible by remember { mutableStateOf(isOpen) }
+    var closing by remember { mutableStateOf(false) }
+    var motionJob by remember { mutableStateOf<Job?>(null) }
     var dialog by rememberSaveable { mutableStateOf<String?>(null) }
+
+    suspend fun animatePanel(target: Float, durationMs: Int, easing: androidx.compose.animation.core.Easing) {
+        animate(
+            initialValue = panelOffset,
+            targetValue = target,
+            animationSpec = tween(durationMillis = durationMs, easing = easing),
+        ) { value, _ -> panelOffset = value }
+    }
     var draft by rememberSaveable { mutableStateOf("") }
     var targetId by rememberSaveable { mutableStateOf("") }
     var toast by rememberSaveable { mutableStateOf(false) }
@@ -172,22 +215,78 @@ public fun HomeDrawer(
         homeDrawerSessionsInHeldOrder(it, sessionRank)
     }
 
-    LaunchedEffect(isOpen) {
+    fun finishClose() {
+        dialogVisible = false
+        closing = false
+        dismissedLocally = true
+        latestOnClose()
+    }
+
+    fun requestClose() {
+        if (!dialogVisible || closing) return
+        closing = true
+        dismissedLocally = true
         operationEpoch++
-        dismissedLocally = !isOpen
-        if (!isOpen) {
-            pendingArchiveIds = emptySet()
-            toast = false
+        pendingArchiveIds = emptySet()
+        toast = false
+        motionJob?.cancel()
+        motionJob = coroutineScope.launch {
+            try {
+                animatePanel(closedPanelOffset, tokens.motion.drawerCloseMs, tokens.motion.drawerCloseEasing)
+                finishClose()
+            } finally {
+                closing = false
+            }
+        }
+    }
+
+    fun settleBack() {
+        motionJob?.cancel()
+        motionJob = coroutineScope.launch {
+            animatePanel(0f, tokens.motion.drawerSettleMs, tokens.motion.drawerSettleEasing)
         }
     }
 
     fun dismissDrawer() {
-        if (!dismissedLocally) {
+        requestClose()
+    }
+
+    // Open from the closed overhang and close with the contract's own motion.
+    // The dialog stays composed until the close animation ends (rule 8); only
+    // then does the host remove it and learn about the dismissal.
+    LaunchedEffect(isOpen) {
+        operationEpoch++
+        if (isOpen) {
+            dismissedLocally = false
+            if (closing) {
+                motionJob?.cancel()
+                closing = false
+            }
+            if (!dialogVisible) {
+                dialogVisible = true
+                panelOffset = closedPanelOffset
+            }
+            if (panelOffset < 0f) {
+                keyboardController?.hide()
+                motionJob?.cancel()
+                motionJob = coroutineScope.launch {
+                    animatePanel(0f, tokens.motion.drawerOpenMs, tokens.motion.drawerOpenEasing)
+                }
+            }
+        } else if (dialogVisible && !closing && !dismissedLocally) {
+            closing = true
             dismissedLocally = true
-            operationEpoch++
             pendingArchiveIds = emptySet()
             toast = false
-            onClose()
+            motionJob?.cancel()
+            try {
+                animatePanel(closedPanelOffset, tokens.motion.drawerCloseMs, tokens.motion.drawerCloseEasing)
+                dialogVisible = false
+                closing = false
+                latestOnClose()
+            } finally {
+                closing = false
+            }
         }
     }
 
@@ -282,7 +381,7 @@ public fun HomeDrawer(
         }
     }
 
-    if (isOpen && !dismissedLocally) Dialog(onDismissRequest = ::dismissDrawer, properties = DialogProperties(
+    if (dialogVisible) Dialog(onDismissRequest = ::dismissDrawer, properties = DialogProperties(
         usePlatformDefaultWidth = false,
         dismissOnBackPress = true,
         dismissOnClickOutside = true,
@@ -291,6 +390,9 @@ public fun HomeDrawer(
       val dialogView = LocalView.current
       SideEffect {
           (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
+              // Only the composable's own scrim may animate: the platform window
+              // enter/exit animation would add a second, unmeasured effect.
+              window.setWindowAnimations(0)
               // The composable owns the source's single 28% scrim. A second
               // platform dim would darken both the page and the status bar twice.
               window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -314,12 +416,53 @@ public fun HomeDrawer(
         paneTitle = "会话抽屉"
         isTraversalGroup = true
       }) {
-        val panelWidth = minOf(SessionsMetrics.drawerWidth, maxWidth - HomeMetrics.NAV_BUTTON_PT.dp)
-        Row(Modifier.fillMaxSize()) {
+        val panelWidth = minOf(drawer.width, maxWidth - HomeMetrics.NAV_BUTTON_PT.dp)
+        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize()
+            .background(Color.Black.copy(alpha = DrawerGesture.scrimAlpha(panelOffset)))
+            .pointerInput(drawer) {
+                drawerDrag(
+                    dragMinimumDistance = drawer.dragMinimumDistance,
+                    initialOffset = { panelOffset },
+                    onOffset = { if (!closing && !dismissedLocally) { motionJob?.cancel(); panelOffset = it } },
+                    onRelease = { dx, velocity ->
+                        if (!closing && !dismissedLocally) {
+                            when (DrawerGesture.release(dx, velocity)) {
+                                DrawerRelease.Close -> requestClose()
+                                DrawerRelease.Settle -> settleBack()
+                            }
+                        }
+                    },
+                    onTap = ::dismissDrawer,
+                )
+            }
+            .semantics {
+                contentDescription = "关闭抽屉"
+                role = Role.Button
+                onClick(label = "关闭抽屉") { dismissDrawer(); true }
+            }
+            .testTag(HomeDrawerTags.SCRIM))
         Column(
             Modifier.width(panelWidth).fillMaxHeight()
-                .clip(RoundedCornerShape(topEnd = SessionsMetrics.DRAWER_PANEL_RADIUS_PT.dp, bottomEnd = SessionsMetrics.DRAWER_PANEL_RADIUS_PT.dp))
+                .offset { IntOffset(panelOffset.dp.roundToPx(), 0) }
+                .drawerShadow(tokens.shadow, drawerShape)
+                .clip(drawerShape)
                 .background(tokens.colors.page)
+                .pointerInput(drawer) {
+                    drawerDrag(
+                        dragMinimumDistance = drawer.dragMinimumDistance,
+                        initialOffset = { panelOffset },
+                        onOffset = { if (!closing && !dismissedLocally) { motionJob?.cancel(); panelOffset = it } },
+                        onRelease = { dx, velocity ->
+                            if (!closing && !dismissedLocally) {
+                                when (DrawerGesture.release(dx, velocity)) {
+                                    DrawerRelease.Close -> requestClose()
+                                    DrawerRelease.Settle -> settleBack()
+                                }
+                            }
+                        },
+                    )
+                }
                 .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
                 .focusGroup().testTag(HomeDrawerTags.PANEL),
         ) {
@@ -468,10 +611,6 @@ public fun HomeDrawer(
                 }
             }
         }
-        Box(Modifier.weight(1f).fillMaxHeight().background(Color.Black.copy(alpha = SessionsMetrics.DRAWER_SCRIM_ALPHA))
-            .clickable(role = Role.Button, onClick = ::dismissDrawer)
-            .semantics { contentDescription = "关闭抽屉" }
-            .testTag(HomeDrawerTags.SCRIM))
         }
         if (toast) {
             LaunchedEffect(toast, operationEpoch) {
@@ -539,6 +678,74 @@ internal const val DRAWER_FOLDERS_ENABLED: Boolean = false
 /** One 13sp reason line, laid out even when there is no reason to show. */
 private val DRAWER_NEW_SESSION_REASON_HEIGHT = 20.dp
 private const val DRAWER_NEW_SESSION_REASON_FADE_MS = 150
+
+/**
+ * The contract's drawer shadow: black at the token opacity, SwiftUI blur radius
+ * and x/y offset. Compose's `shadow()` has no offset, so the drawing site maps
+ * the token's four values directly instead of pretending they equal an elevation.
+ */
+private fun Modifier.drawerShadow(shadow: UiShadow, shape: Shape): Modifier = drawBehind {
+    val drawScope = this
+    val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, drawScope)) }
+    val paint = Paint().apply {
+        color = Color.Black
+        isAntiAlias = true
+    }
+    paint.asFrameworkPaint().setShadowLayer(
+        shadow.drawerRadius.toPx(),
+        shadow.drawerX.toPx(),
+        shadow.drawerY.toPx(),
+        Color.Black.copy(alpha = shadow.drawerOpacity).toArgb(),
+    )
+    drawIntoCanvas { canvas -> canvas.drawPath(path, paint) }
+}
+
+/**
+ * Drag rule 3/4/6: start only after the contract's 12 dp Euclidean distance,
+ * follow horizontally dominant movement, and release through the shared rule.
+ * Vertical-dominant movement stays unconsumed so the inner list keeps scrolling.
+ */
+private suspend fun PointerInputScope.drawerDrag(
+    dragMinimumDistance: Dp,
+    initialOffset: () -> Float,
+    onOffset: (Float) -> Unit,
+    onRelease: (dx: Float, velocity: Float) -> Unit,
+    onTap: (() -> Unit)? = null,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val tracker = VelocityTracker()
+        tracker.addPosition(down.uptimeMillis, down.position)
+        var total = Offset.Zero
+        var started = false
+        var followed = false
+        var lastOffset = 0f
+        while (true) {
+            val event = awaitPointerEvent()
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            tracker.addPosition(change.uptimeMillis, change.position)
+            if (!change.pressed) {
+                if (followed) {
+                    onRelease(total.x / density, tracker.calculateVelocity().x / density)
+                } else if (!started && onTap != null) {
+                    onTap()
+                }
+                break
+            }
+            total += change.positionChange()
+            if (!started && total.getDistance() >= dragMinimumDistance.toPx()) {
+                started = true
+                lastOffset = initialOffset()
+            }
+            if (!started) continue
+            if (abs(total.x) <= abs(total.y)) continue
+            followed = true
+            lastOffset = DrawerGesture.followOffset(total.x / density, total.y / density, lastOffset)
+            onOffset(lastOffset)
+            change.consume()
+        }
+    }
+}
 
 public object HomeDrawerTags {
     public const val PANEL = "home.drawer.panel"

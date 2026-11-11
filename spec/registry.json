@@ -836,7 +836,8 @@
         "spec/ui/v1/tokens.json",
         "spec/ui/v1/pages",
         "spec/v1/trajectory.md",
-        "spec/ui/v1/page-completeness.md"
+        "spec/ui/v1/page-completeness.md",
+        "spec/ui/v1/interaction.md"
       ],
       "ends": {
         "Swift": [
@@ -894,7 +895,7 @@
         "spec/ui/v1/tools/test_extract_ios_pages.py"
       ],
       "source": {
-        "authority": "[ui/v1/README.md](ui/v1/README.md)、[page source inventory](ui/v1/page-completeness.md)、[tokens](ui/v1/tokens.json)、[pages](ui/v1/pages)、[v1/trajectory.md](v1/trajectory.md)",
+        "authority": "[ui/v1/README.md](ui/v1/README.md)、[interaction](ui/v1/interaction.md)、[page source inventory](ui/v1/page-completeness.md)、[tokens](ui/v1/tokens.json)、[pages](ui/v1/pages)、[v1/trajectory.md](v1/trajectory.md)",
         "ends": "iOS `examples/probe-app/PhoneDSHProbe`；Android `android/lib` ；HarmonyOS partial `harmony/entry/src/main/ets/ui`, `harmony/entry/src/main/ets/model/Contracts.ets`",
         "evidence": "Kotlin `UiStateProjectorGoldenTest`、`TrajectoryNormalizerTest`；`ui_check.py`、`extract_ios_pages.py` 及 mutation tests、`page_structure_check.py`",
         "triggers": "`spec/ui/v1/**`、`scripts/ci/check.sh`、`scripts/ci/test_p0_completeness.py`、`spec/v1/trajectory.md`、`spec/v1/schema/{trajectory,ui-state-sequence}.schema.json`、`spec/v1/golden/trajectory/**`、`examples/probe-app/PhoneDSHProbe/**`、`android/lib/src/main/**` 、`harmony/entry/src/main/ets/ui/**`、`harmony/entry/src/main/ets/model/Contracts.ets`"
