@@ -84,6 +84,7 @@ class AdbMcpGoldenTest {
         val NOT_SERVED_ON_ANDROID: Map<String, String> = mapOf(
             "file-transfer.json" to "Worker `adb push/pull/stat` needs HELLO accelerator:adb; Android does not advertise it",
             "ble-devices.json" to "BLE tools are iOS-only on /mcp/native (native-mcp.md §BLE tools)",
+            "iphone-agent-volume-policy.json" to "iphone_agent_run drives an iPhone through the TonoLink board; Android has no iphone_agent_run (spec/platform/whitelist.json platform.tonolink-iphone-agent)",
         )
     }
 }

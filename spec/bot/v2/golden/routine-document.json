@@ -21,6 +21,8 @@
             {
               "agentId": "main",
               "attempt": 0,
+              "completion_criteria": "",
+              "constraints": "",
               "crash_retry": false,
               "created_at": 1760000000000,
               "delivery": "held",
@@ -57,6 +59,8 @@
             {
               "agentId": "main",
               "attempt": 0,
+              "completion_criteria": "",
+              "constraints": "",
               "crash_retry": false,
               "created_at": 1760000000000,
               "delivery": "held",
@@ -98,6 +102,8 @@
             {
               "agentId": "main",
               "attempt": 1,
+              "completion_criteria": "",
+              "constraints": "",
               "crash_retry": false,
               "created_at": 1760000000000,
               "delivery": "held",
@@ -172,6 +178,8 @@
             {
               "agentId": "main",
               "attempt": 1,
+              "completion_criteria": "",
+              "constraints": "",
               "crash_retry": false,
               "created_at": 1760000000000,
               "delivery": "held",
