@@ -120,3 +120,13 @@ screen in, one action out, executed through §2, up to the step limit. The model
 endpoint, model name and key come from the app's UI-Venus settings (key in the
 Keychain service `dev.phone-dsh.ui-venus`, never in preferences). The task result is
 the model's assessment, not proof; `finished=false` must not be reported as success.
+
+The agent does not trust its own actions blindly. Before each step it compares the new
+screenshot with the previous one (36×52 grayscale, mean difference below 2/255 = unchanged);
+when a tap, swipe, Home, launch, Enter or typing left the screen unchanged, the model is told
+so. A run that repeats the same action three times, or goes back and forth between two actions
+twice, gets one nudge, and that repeat is not performed (finish if the screen already shows
+the answer, otherwise try something else). If it repeats itself again, the run stops with
+`finished=false` and an answer starting 「卡住了」, instead of using every step. LaunchApp presses
+Return a second time when Spotlight is still on screen, because the Pinyin keyboard's candidate
+bar took the first one.

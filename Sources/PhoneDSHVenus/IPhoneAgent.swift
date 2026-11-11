@@ -120,9 +120,18 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
         var feedback = ""
         var steps: [IPhoneAgentStep] = []
         var lastFrame: Int?
+        var previous: (jpeg: Data, action: IPhoneAction)?
+        var loopGuard = IPhoneLoopGuard()
         for index in 1...maxSteps {
             try Task.checkCancellation()
             let shot = try await Self.deadline(.seconds(20), "截图") { try await self.device.screenshot(after: lastFrame) }
+            // Tell the model when its last action left the screen as it was (a missed tap, a Home
+            // that did not take effect): otherwise it believes the action worked and repeats it.
+            if let previous, Self.visibleActions.contains(previous.action.name),
+               let difference = IPhoneScreenDiff.mean(previous.jpeg, shot.jpeg), difference < IPhoneScreenDiff.unchanged {
+                let note = "The screen looks unchanged after your previous action (\(previous.action.raw)): it may not have taken effect."
+                feedback = feedback.isEmpty ? note : note + " " + feedback
+            }
             let t0 = ContinuousClock.now
             let messages = Self.messages(task: task, turns: turns, feedback: feedback, jpeg: shot.jpeg)
             let reply = try await Self.deadline(stepTimeout, "UI-Venus 请求") {
@@ -144,6 +153,21 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
                 return done("需要你来处理：" + (action.text.isEmpty ? String((thought ?? action.raw).prefix(200)) : action.text), finished: false)
             default: break
             }
+            switch loopGuard.record(action) {
+            case .stop(let answer):
+                return done(answer, finished: false)
+            case .nudge(let note):
+                // Do not repeat the action again: ask once more about this same screen.
+                let step = IPhoneAgentStep(index: index, action: action.raw, executed: "skipped: repeated without progress",
+                                           modelSeconds: modelSeconds, screenshot: shot.jpeg)
+                steps.append(step)
+                onStep?(step)
+                turns.append((feedback, reply))
+                feedback = note
+                continue
+            case .proceed:
+                break
+            }
             let executed: String
             var nextFeedback = ""
             do {
@@ -161,10 +185,15 @@ public struct IPhoneAgentError: Error, CustomStringConvertible, Sendable {
             turns.append((feedback, reply))
             feedback = nextFeedback
             lastFrame = shot.frame
+            previous = (shot.jpeg, action)
             try await Task.sleep(for: settle)
         }
         return IPhoneAgentResult(answer: "没有在 \(maxSteps) 步内完成", finished: false, steps: steps, seconds: Self.seconds(ContinuousClock.now - started))
     }
+
+    /// Actions that should visibly change the screen (Wait and the answers do not).
+    static let visibleActions: Set<String> = ["click", "tap", "doubleclick", "longpress", "drag", "swipe", "scroll",
+                                              "presshome", "launchapp", "launch", "pressenter", "type"]
 
     /// Upper bound for one model request or one action (a stalled request must not freeze the agent).
     public var stepTimeout: Duration = .seconds(100)

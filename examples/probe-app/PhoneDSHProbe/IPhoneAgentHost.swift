@@ -188,8 +188,17 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
             try await Task.sleep(for: .milliseconds(1000))
             try await hands.type(query)
             try await Task.sleep(for: .milliseconds(900))
+            let typed = try? await screen.snapshot()
             try await hands.key("enter")
-            return "launched \(app): Spotlight \(query) → top hit"
+            try await Task.sleep(for: .milliseconds(1200))
+            // With the Pinyin keyboard active the letters sit in its candidate bar and Return only
+            // commits them; Spotlight is then still on screen (an opened app changes nearly every pixel).
+            if let typed, let after = try? await screen.snapshot(newerThan: typed.frame, fresh: 2, timeout: .seconds(1)),
+               let difference = IPhoneScreenDiff.mean(typed.jpeg, after.jpeg), difference < Self.stillSpotlight {
+                try await hands.key("enter")
+                return "searched \(query) in Spotlight and pressed Return twice (the first only committed the keyboard's input)"
+            }
+            return "searched \(query) in Spotlight and pressed Return (top hit)"
         case "wait":
             try await Task.sleep(for: .milliseconds(1500)); return "wait"
         case "pressback", "pressrecent", "getscreenshot":
@@ -200,6 +209,9 @@ final class NativeMCPDebugRecorder: NativeMCPServing, @unchecked Sendable {
     }
 
     // MARK: system gestures located on the current screen
+
+    /// Below this mean difference the screen after Return is still Spotlight, not a launched app.
+    static let stillSpotlight = 15.0
 
     static let assistiveButton = "the AssistiveTouch floating button: a round, semi-transparent grey button with a white ring, usually at the left or right edge of the screen"
     static let searchButton = "the 搜索 (Search) button: a small pill labelled 搜索 with a magnifier, just above the dock at the bottom of the home screen"
