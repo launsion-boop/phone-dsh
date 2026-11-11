@@ -221,6 +221,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// and lets a running tool finish inside the drain window, because its
     /// writes are exactly what the park/resume recovery has to preserve.
     private var stopping = false
+    /// Sessions whose open turn a background park had to leave interrupted:
+    /// the bounded escalation stopped the old Worker but its connection never
+    /// reached a clean end (iOS froze or killed the WebContent), so no
+    /// replacement could be booted inside the drain window to journal DSH's
+    /// own terminal record. The park still sealed the WAL at its tail; the
+    /// next boot runs DSH's resume/repair for these sessions before admission
+    /// opens. Keyed by session id, valued by the exact turns that must close.
+    private var sessionsInterruptedAtPark: [String: [PhoneDSHExpectedTerminalTurn]] = [:]
     /// A host-side planned restart owns the `Running -> Recovering` edge; a
     /// WebContent termination observed meanwhile must not start a second boot.
     private var restarting = false
@@ -447,6 +455,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         parking = true
         setState(.draining)
         beginDescendantDrainWindow()
+        var interrupted: [String: [PhoneDSHExpectedTerminalTurn]] = [:]
         do {
             switch await runtime.machine.currentState() {
             case .running:
@@ -471,7 +480,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                     await drainDescendantsBeforeGracefulPark(runtime)
                     await drainOpenTurnsGracefullyBeforePark(runtime)
                 }
-                try await abortOpenSessionTurns(runtime)
+                interrupted = try await abortOpenSessionTurnsForPark(runtime)
                 try await drainInFlightWork(runtime)
             case .draining:
                 if stopping {
@@ -480,7 +489,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                     await drainDescendantsBeforeGracefulPark(runtime)
                     await drainOpenTurnsGracefullyBeforePark(runtime)
                 }
-                try await abortOpenSessionTurns(runtime)
+                interrupted = try await abortOpenSessionTurnsForPark(runtime)
                 try await drainInFlightWork(runtime)
             case .parked:
                 break
@@ -493,10 +502,31 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             if let probe = drainWindowProbe {
                 try await probe(runtime.log)
             }
-            try await closeRuntimeForPark(runtime)
+            try await closeRuntimeForPark(runtime, interruptedSessions: interrupted)
         } catch {
             await failClassifying(error, context: "park")
             throw error
+        }
+    }
+
+    /// Runs ``abortOpenSessionTurns(_:allowInterruptedPark:)`` for a park and
+    /// returns the sessions a background park had to leave interrupted.
+    ///
+    /// Only a background park (not ``stop()``) may take the interrupted exit,
+    /// and only for the one escalation outcome that is still safe to park on:
+    /// the old Worker was stopped, its connection did not reach a clean end,
+    /// and therefore nothing was packed and no replacement was booted. The
+    /// caller then requires strict inbound-write quiescence after the
+    /// loopback is gone before it seals the WAL (``closeRuntimeForPark``).
+    private func abortOpenSessionTurnsForPark(
+        _ runtime: RuntimeServices
+    ) async throws -> [String: [PhoneDSHExpectedTerminalTurn]] {
+        do {
+            try await abortOpenSessionTurns(runtime, allowInterruptedPark: !stopping)
+            return [:]
+        } catch let interruption as PhoneDSHParkInterruption {
+            eventBus.send(.console(ConsolePayload(level: .warn, text: interruption.detail)))
+            return interruption.sessions
         }
     }
 
@@ -1783,8 +1813,16 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // the boot path needs the same guarantee, otherwise a retry after a
         // failed settlement can reopen admission while the step record is
         // still `tool_dispatched`. A boot with no open step pays nothing here.
-        if reconcileOrphans {
-            try await waitForWorkerToCloseOrphanSteps(runtime, reason: "boot-retry")
+        let repairsInterruptedPark = !sessionsInterruptedAtPark.isEmpty
+        if repairsInterruptedPark {
+            try await repairSessionsInterruptedAtPark(runtime,
+                                                      cancellation: cancellation)
+        }
+        if reconcileOrphans || repairsInterruptedPark {
+            // A park that left a turn interrupted may also have left its D13
+            // step at `tool_dispatched`; never reopen admission over it.
+            try await waitForWorkerToCloseOrphanSteps(
+                runtime, reason: reconcileOrphans ? "boot-retry" : "park-interrupted")
         }
         if resume != nil { beginResumePhase("running") }
         try await sendOpenFrames(hello.connection, runtime: runtime)
@@ -2025,7 +2063,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// published on the host event stream (the scenario report records it) and
     /// thrown, never silently swallowed. The host does not write DSH records;
     /// only the Worker's session layer does that.
-    private func abortOpenSessionTurns(_ runtime: RuntimeServices) async throws {
+    private func abortOpenSessionTurns(_ runtime: RuntimeServices,
+                                       allowInterruptedPark: Bool = false) async throws {
         let controllerDeadline = await runtime.machine.drainDeadline
         let now = Date()
         let configured = max(0, configuration.drainDeadline)
@@ -2253,6 +2292,40 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                             + "inside the drain window (\(outcome.diagnostic))"
                     eventBus.send(.console(ConsolePayload(level: outcome.settled ? .warn : .error,
                                                           text: text)))
+                    if !outcome.retryable, allowInterruptedPark,
+                       outcome.oldConnectionNotQuiescent {
+                        // Background park only. The old Worker is stopped and
+                        // nothing was packed or booted, so the overlay cannot
+                        // lag the WAL. What cannot be done inside this window
+                        // is closing the turn: that needs a Worker. Do not
+                        // fail the host for it. Record every turn observed
+                        // open as interrupted (never as completed), let the
+                        // park seal the WAL after the loopback is gone, and
+                        // let the next foreground boot rebuild the overlay
+                        // from the WAL and run DSH's own resume/repair.
+                        var sessions = terminalRequired
+                        for (sessionID, state) in open {
+                            guard let turn = state.openTurn else { continue }
+                            let expected = PhoneDSHExpectedTerminalTurn(
+                                turn: turn,
+                                openedAtMillis: state.lastTurnBoundaryTimeMillis)
+                            var turns = sessions[sessionID] ?? []
+                            if !turns.contains(expected) { turns.append(expected) }
+                            sessions[sessionID] = turns
+                        }
+                        var detail = "park: the old Worker's inbound writes for DSH "
+                        detail += "session(s) " + openIDs.joined(separator: ", ")
+                        detail += " did not quiesce inside the background drain "
+                        detail += "window; parking with the open turn(s) recorded "
+                        detail += "as interrupted. The next resume rebuilds the "
+                        detail += "overlay from the WAL and runs DSH's "
+                        detail += "resume/repair before admission opens"
+                        if let lastCancelError {
+                            detail += " (last error: \(lastCancelError))"
+                        }
+                        throw PhoneDSHParkInterruption(sessions: sessions,
+                                                       detail: detail)
+                    }
                     if !outcome.retryable {
                         // The old connection did not quiesce before the pack
                         // point. A queued VFS/JOURNAL frame may already be
@@ -4084,7 +4157,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// handlers that were already in flight, closes every epoch opened behind
     /// the close in the D18 order, and only then records `fence.wal_seq` at the
     /// tail. A close/record failure fails loud instead of silently parking.
-    private func closeRuntimeForPark(_ runtime: RuntimeServices) async throws {
+    private func closeRuntimeForPark(
+        _ runtime: RuntimeServices,
+        interruptedSessions: [String: [PhoneDSHExpectedTerminalTurn]] = [:]
+    ) async throws {
         parking = false
         engineObserver?.cancel()
         engineObserver = nil
@@ -4097,11 +4173,32 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             self.runtime = services
         }
         await runtime.loopback.stop()
-        // No frame can arrive now; let the handlers that were already
-        // dispatching finish so the seal observes their WAL tail.
-        _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
+        if interruptedSessions.isEmpty {
+            // No frame can arrive now; let the handlers that were already
+            // dispatching finish so the seal observes their WAL tail.
+            _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
+        } else {
+            // The interrupted exit left the non-quiescent old connection in
+            // the table. Close it and wait for its receive loop before the
+            // seal, then require (not just wait for) handler quiescence: a
+            // frame that never left the socket was never acknowledged and is
+            // not part of the WAL, but a handler still dispatching would
+            // append behind the fence. That case keeps the fail-loud path.
+            await runtime.coordinator.prepareForReboot()
+            guard await runtime.coordinator.waitForInboundWritesToQuiesce() else {
+                throw PhoneDSHError.invalidState(
+                    "park: an inbound write handler of the interrupted Worker is "
+                        + "still dispatching after the loopback stopped; refusing "
+                        + "to seal the WAL below a pending write")
+            }
+        }
         try await sealEpochAtTailAndRecordFence(runtime)
         await runtime.coordinator.prepareForReboot()
+        for (sessionID, turns) in interruptedSessions {
+            var merged = sessionsInterruptedAtPark[sessionID] ?? []
+            for turn in turns where !merged.contains(turn) { merged.append(turn) }
+            sessionsInterruptedAtPark[sessionID] = merged
+        }
         setState(.stopped)
         lastSnapshot = await diagnostics()
     }
@@ -4728,6 +4825,93 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             return nil
         }
         throw PhoneDSHError.notStarted
+    }
+
+    /// Closes the turns a background park left interrupted, on the freshly
+    /// booted Worker and before admission opens.
+    ///
+    /// The overlay this Worker mounted was packed from the sealed WAL, so it
+    /// carries the open `turn/start` (and possibly an assistant tool call with
+    /// no `tool/result`). The phone-only resume/repair route runs DSH's own
+    /// write-open: the tool-journal reconcile backfills what it can, and the
+    /// pinned session layer's `interruptedTurnClosers` appends an error
+    /// `tool/result` for every other unanswered call plus `step/end` and
+    /// `turn/end {kind:'interrupted'}`. Swift writes no session record; it
+    /// only verifies the materialized journal.
+    ///
+    /// This is bounded and best effort. DSH runs the same repair whenever the
+    /// session is next opened for writing, so a model request can never be
+    /// built from an unbalanced history; a failed repair here is reported, not
+    /// turned into a failed resume (which would strand the user again).
+    private func repairSessionsInterruptedAtPark(
+        _ runtime: RuntimeServices,
+        cancellation: PhoneDSHResumeCancellation?
+    ) async throws {
+        let required = sessionsInterruptedAtPark
+        guard !required.isEmpty else { return }
+        let deadline = Date().addingTimeInterval(
+            Double(PhoneDSHRecoveryProtocol.maximumResumeBudgetMilliseconds) / 1_000)
+        var routeErrors: [String] = []
+        if let recovery = makeTransport(runtime: runtime) as? any PhoneDSHRecoveryCalling {
+            for sessionID in required.keys.sorted() {
+                try cancellation?.throwIfCancelled()
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else { break }
+                let budget = PhoneDSHRecoveryBudget(
+                    timeoutMilliseconds: Int((remaining * 1_000).rounded(.down)),
+                    maximumMilliseconds: PhoneDSHRecoveryProtocol.maximumResumeBudgetMilliseconds)
+                let repaired = await phoneDSHResultWithinDeadline(remaining) {
+                    try await recovery.resumeSessionForRecovery(sessionID, budget: budget)
+                }
+                switch repaired {
+                case .success?:
+                    break
+                case .failure(let error)?:
+                    routeErrors.append("\(sessionID): \(error)")
+                case nil:
+                    routeErrors.append("\(sessionID): resume/repair timed out")
+                }
+            }
+        } else {
+            routeErrors.append("the Worker transport has no resume/repair route")
+        }
+        let log = runtime.log
+        let cache = sessionJournalCache
+        var unclosed = required
+        while true {
+            let states = await Self.sessionTurnStates(
+                log: log, cache: cache, sessionIDs: Set(unclosed.keys))
+            unclosed = unclosed.filter { sessionID, turns in
+                !turns.allSatisfy { $0.isClosed(by: states[sessionID]) }
+            }
+            if unclosed.isEmpty || Date() >= deadline { break }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try cancellation?.throwIfCancelled()
+        sessionsInterruptedAtPark = [:]
+        let closed = required.keys.filter { unclosed[$0] == nil }.sorted()
+        if !closed.isEmpty {
+            eventBus.send(.console(ConsolePayload(
+                level: .info,
+                text: "resume: DSH journaled the interrupted turn closers for "
+                    + "session(s) \(closed.joined(separator: ", ")) left open by the "
+                    + "background park")))
+        }
+        if !unclosed.isEmpty {
+            var text = "resume: the turn(s) a background park left interrupted in "
+            text += "session(s) \(unclosed.keys.sorted().joined(separator: ", ")) "
+            text += "have no terminal turn/end yet; DSH closes them as interrupted "
+            text += "when the session is next opened for writing"
+            if !routeErrors.isEmpty {
+                text += " (repair: \(routeErrors.joined(separator: "; ")))"
+            }
+            eventBus.send(.console(ConsolePayload(level: .warn, text: text)))
+        }
+    }
+
+    /// Test-only view of the sessions a background park left interrupted.
+    internal func sessionsInterruptedAtParkForTesting() -> [String: [Int]] {
+        sessionsInterruptedAtPark.mapValues { $0.map(\.turn) }
     }
 
     /// Budget for one recovery write-open inside the host's remaining grace.
