@@ -18,7 +18,15 @@ final class BotCompositionE2ETests: XCTestCase {
             .appendingPathComponent("bot-production-composition-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
-        let launch = try await BotRuntimeComposition.prepare(store: store)
+        // The routine scheduler defaults to the production quiet window
+        // 23:00–08:00. A test run at 04:42 would defer the due routine to
+        // 08:00 (the second-round rerun did exactly that: effects=[] runs=[]),
+        // so pin the production scheduler clock to local noon — the same
+        // deterministic start the eval runner uses — instead of changing any
+        // product default.
+        let schedulerNow = Self.deterministicNoon()
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, now: { schedulerNow })
         let environment = launch.environment
         let mock = MockModelUpstream()
         mock.script = .generic(command: "printf BOT_TOOL", toolText: "BOT_TOOL", finalText: "BOT_COMPOSITION_OK")
@@ -185,24 +193,49 @@ final class BotCompositionE2ETests: XCTestCase {
         })
         XCTAssertEqual(settled.data["status"]?.stringValue, "completed")
         XCTAssertTrue(settled.data["result"]?.stringValue?.contains("BOT_TASK_OK") == true)
-        XCTAssertTrue(taskEvents.contains {
-            $0.type == "conversation.assistant_message" && $0.data["text"]?.stringValue?.contains("TASK_PARENT_DONE") == true
-        })
+        // `rows.perform` returns when the user action is accepted; the turn's
+        // post-tool-result model call (and the Task-settled parent wake) write
+        // their assistant message afterwards. Reading the event log once here
+        // raced that write in the second-round rerun, so poll the durable log
+        // instead of asserting on the first snapshot.
+        var parentEvents = taskEvents
+        let parentDeadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while !parentEvents.contains(where: {
+            $0.type == "conversation.assistant_message"
+                && $0.data["text"]?.stringValue?.contains("TASK_PARENT_DONE") == true
+        }), ContinuousClock.now < parentDeadline {
+            try await Task.sleep(for: .milliseconds(100))
+            parentEvents = try await BotProductionEventReader.all(domain: store)
+        }
+        XCTAssertTrue(parentEvents.contains {
+            $0.type == "conversation.assistant_message"
+                && $0.data["text"]?.stringValue?.contains("TASK_PARENT_DONE") == true
+        }, "the parent turn/wake must persist TASK_PARENT_DONE; messages="
+            + "\(parentEvents.filter { $0.type == "conversation.assistant_message" }.map(\.data))")
 
         mock.script = .generic(command: "printf BOT_TOOL", toolText: "BOT_TOOL", finalText: "BOT_ROUTINE_OK")
         let routine = try await launch.composition.runtime.routineMachine.create(
             botId: "main", title: "生产组合根 routine", prompt: "生成固定结果",
             schedule: .interval(everyMinutes: 1, timezone: "UTC"),
-            now: Int64(Date().timeIntervalSince1970 * 1_000) - 120_000, id: "composition-routine")
+            now: schedulerNow - 120_000, id: "composition-routine")
         XCTAssertTrue(routine.enabled)
-        try await launch.composition.scheduler.tick()
-        await launch.composition.scheduler.waitForIdle()
+        // The Task parent turn/wake must finish before a routine may run
+        // (`RoutineScheduler.busy` skips a busy main chat). The assistant
+        // message above is durable before the turn fully settles, so wait for
+        // the remote turn state instead of ticking into a busy session.
+        let turnIdleDeadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while await launch.composition.remote.isMainTurnBusy(),
+              ContinuousClock.now < turnIdleDeadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         let clock = ContinuousClock()
         let deliveryDeadline = clock.now.advanced(by: .seconds(5))
         var deliveries = try await store.effects(state: .acked)
         while !deliveries.contains(where: { $0.effect.kind == BotRoutineOutbox.kind }),
               clock.now < deliveryDeadline {
-            try await Task.sleep(for: .milliseconds(50))
+            try await launch.composition.scheduler.tick()
+            await launch.composition.scheduler.waitForIdle()
+            try await Task.sleep(for: .milliseconds(100))
             deliveries = try await store.effects(state: .acked)
         }
         let routineEvents = try await BotProductionEventReader.all(domain: store)
@@ -277,6 +310,20 @@ final class BotCompositionE2ETests: XCTestCase {
         await launch.composition.stop()
         try await activeHost.stop()
         try await store.close()
+    }
+
+    /// A wall-clock-hour-independent scheduler start: local noon on the test
+    /// day. Mirrors `EvalSchedulerClock.deterministicStart`.
+    private static func deterministicNoon(now: Date = Date()) -> Int64 {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var components = calendar.dateComponents([.year, .month, .day], from: now)
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+        components.nanosecond = 0
+        let date = calendar.date(from: components) ?? now
+        return Int64(date.timeIntervalSince1970 * 1_000)
     }
 
     /// The old DEBUG-only production checks now live here instead of the App
