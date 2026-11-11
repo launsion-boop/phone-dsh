@@ -95,6 +95,24 @@ def main() -> int:
     check(load("wake-routine")["valid"], "wake-routine.schema.json", "wake-routine")
     check(load("wake-routine")["valid"]["quietDefer"], "routine.schema.json", "routine")
 
+    # CCR-7 routine snapshots: the outer wrapper is routine-document.schema.json;
+    # each routine and delivery is validated with its own frozen schema. The
+    # repository JSON-Schema subset does not resolve $ref, so the checker must
+    # perform the two nested checks explicitly.
+    documents = load("routine-document")
+    if documents.get("vector") != "routine-document":
+        raise AssertionError("routine-document: vector must be routine-document")
+    for index, case in enumerate(documents.get("valid", [])):
+        where = f"routine-document.valid[{index}]"
+        check(case["data"], "routine-document.schema.json", where)
+        document = case["data"]["document"]
+        check_many(document["routines"], "routine.schema.json", f"{where}.routines")
+        for key, delivery in sorted(document["deliveries"].items()):
+            check(delivery, "routine-delivery.schema.json", f"{where}.deliveries[{key}]")
+    for index, case in enumerate(documents.get("invalid", [])):
+        rejects(case["data"], "routine-document.schema.json",
+                f"routine-document.invalid[{index}]")
+
     held_fixture = load_merged("held-inbox")
     held = held_fixture["valid"]
     check(held["enqueued"]["item"], "held-inbox-item.schema.json", "held-item")
@@ -104,8 +122,8 @@ def main() -> int:
     for index, case in enumerate(held_fixture["invalid"]):
         rejects(case, "held-inbox-item.schema.json", f"held.invalid[{index}]")
 
-    print("bot v2 vectors: PASS (memory, wake, routine delivery, held inbox; "
-          "schema-positive and negative vectors)")
+    print("bot v2 vectors: PASS (memory, wake, routine delivery, routine document, "
+          "held inbox; schema-positive and negative vectors)")
     return 0
 
 

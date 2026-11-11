@@ -1,8 +1,16 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# BotDock / 四入口底部导航（target）
+# BotDock / 四入口底部导航（superseded proposal）
 
-契约：P09。实现路径：`examples/probe-app/PhoneDSHProbe/BotDock/**`。图标视觉仅以用户指定的 参考仓库 main `2c18fd848bffaeef88feae237cc4b88457f9fb57` 为参考：`MainTabs.swift`、`Primitives/Quiet.swift` 的 `LineIcon`、`Resources/Assets.xcassets/Icons/ic-tab-*.svg`，以及该提交 `ServiceCatalogFallback` 由填充图标改为线性图标的风格。颜色、字号和语义仍只使用 phoneDSH `tokens.json`，不引入 参考仓库 品牌、色板或依赖，也不搬入三环日记、引导或其他页面。
+> **Status: superseded proposal (2026-11-12, CCR-4 option b). Do not implement this file.**
+> The target is the shipped four equal columns in `examples/probe-app/PhoneDSHProbe/HomeTabBar.swift`:
+> Bot / DSH / 发现 / 我的, each an equal-width column. There is no standalone 64pt Chat circle and no
+> three-item floating capsule; the Chat/Personal Agent surface is the Bot tab. This file is retained
+> only as the rejected alternative so the two designs are not mistaken for two authorities. The Bot
+> tab's page, row and accessibility contract stays in [bot-chat.md](bot-chat.md) §1/§6.
+> Everything below records the rejected proposal and is non-normative.
+
+契约：P09（历史）。原提案实现路径：`examples/probe-app/PhoneDSHProbe/BotDock/**`。图标视觉仅以用户指定的 参考仓库 main `2c18fd848bffaeef88feae237cc4b88457f9fb57` 为参考：`MainTabs.swift`、`Primitives/Quiet.swift` 的 `LineIcon`、`Resources/Assets.xcassets/Icons/ic-tab-*.svg`，以及该提交 `ServiceCatalogFallback` 由填充图标改为线性图标的风格。颜色、字号和语义仍只使用 phoneDSH `tokens.json`，不引入 参考仓库 品牌、色板或依赖，也不搬入三环日记、引导或其他页面。
 
 ## 1. 结构与几何
 

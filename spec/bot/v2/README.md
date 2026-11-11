@@ -47,6 +47,26 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 
 普通用户消息正文和其他 Bot 的即时消息正文是消息内容，不是宿主拼进结构化框架的字段，不按本规则改写。该规则只约束宿主插入的 held 块、隐藏唤醒 prompt 和同类结构字段。回合是否隐藏、是否带 held 块、记忆写入算谁说的，仍由 [v1 §4.1](../v1/README.md#41-回合来源turn-origin) 的 `source.rpcId` 前缀决定；本目录不复制那张表。
 
+### 2.2 Routine snapshot 的 presence 与 RoutineDocument
+
+`routine.defined`／`routine.updated`／`routine.deleted` 的 `data` 是
+`{"botId":<string>,"document":<RoutineDocument>}`（`Routines/DurableSnapshot.swift`、
+`RoutineStore.swift`）。`RoutineDocument` 固定为 `{"version":1,"routines":[…],"deliveries":{…}}`；
+持久化字节由 `BotEventEnvelopeCodec` 以排序 key 输出。
+
+`routine.schema.json` 的 `run_state`、`quiet_defer`、`next_run_at`、`last_result` 是 nullable，
+且**absent ≡ null**（CCR-7；与 [v1 §1.2](../v1/README.md#12-envelope-presence-与编码ccr-1ccr-7) 同一规则）：
+
+1. reader MUST 接受 absent 与显式 `null`，解码为同一个 nil。
+2. writer MUST omit nil，不写显式 `null`。Swift `Routine` 的 synthesized Codable 已经这样写；既有
+   iOS snapshot 的省略字节保持有效，不回写。
+3. Kotlin writer MUST 同样 omit nil，否则同一 routine 的 snapshot bytes 与 iOS 不同。
+4. `routine-document.schema.json` 冻结 `data` 的外层；`routines` 的每一项按
+   `routine.schema.json` 校验，`deliveries` 的每个值按 `routine-delivery.schema.json` 校验。
+   `version` 不是 1 时 fail-closed，不静默重置。
+5. 向量 `golden/routine-document.json` 覆盖 new／deferred／started／needs-reconciliation／deleted，
+   由 Swift encoder 产生；实现必须用真实 encoder 对拍，不得手写期望字节。
+
 ## 3. 主动提醒
 
 主动提醒只用于 interrupt。保留的规则链只由三道硬限制和通知投递接口组成：
@@ -73,8 +93,11 @@ TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema
 
 ## 4. 一致性向量
 
-`golden/` 中的文件与 v1 移交时逐字节相同（`memory-policy` 已按 WPV-C 删除），覆盖
+`golden/` 中与 v1 移交时相同的文件保持逐字节不变（`memory-policy` 已按 WPV-C 删除），覆盖
 `memory-fact`、`memory-injection`、`memory-recall`、`wake-routine`、`held-inbox` 及其合并覆盖文件。
+`golden/routine-document.json` 是 phoneDSH 新增的 routine snapshot 向量（CCR-7），由 Swift
+encoder 产生，覆盖 new／deferred／started／needs-reconciliation／deleted；它没有上游对应文件，
+也不参与 v1 的导出器 manifest。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。
