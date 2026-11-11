@@ -59,8 +59,10 @@ public struct LogQuota: Equatable, Sendable {
         return true
     }
 
-    /// The journal has no safe droppable set (the tool journal is the record of
-    /// side effects), so an overflow fails loud immediately.
+    /// The journal's discardable set is the entries whose step's `completed`
+    /// record is level-2 durable (budgets.md §8). This method still answers only
+    /// the absolute limit; ``JournalLog`` prunes that set and retries once
+    /// before the append fails loud.
     public func requireJournalSpace(used: Int, additionalBytes: Int) throws {
         let projected = used + additionalBytes
         guard projected <= journalBytes else {

@@ -134,6 +134,96 @@ final class SQLiteDomainStoreTests: XCTestCase {
         try await store.close()
     }
 
+    func testOpenVerifiesOnlyRowsAboveThePersistedWatermark() async throws {
+        let file = directory.appendingPathComponent("domain.sqlite")
+        let store = try SQLiteDomainStore(fileURL: file, now: { 1_000 },
+                                          startsBackgroundIntegrityCheck: false)
+        let firstQuickChecks = await store.quickCheckCountForTesting()
+        XCTAssertEqual(firstQuickChecks, 1)
+        for index in 1...3 {
+            _ = try await store.append(Self.makeEvent(id: "evt-\(index)"))
+        }
+        // Appends are verified by the next open or the background pass, not by
+        // every commit.
+        let initialWatermark = try await store.integrityWatermarkForTesting()
+        XCTAssertEqual(initialWatermark, 0)
+        try await store.close()
+
+        let reopened = try SQLiteDomainStore(fileURL: file, now: { 2_000 },
+                                             startsBackgroundIntegrityCheck: false)
+        let reopenedWatermark = try await reopened.integrityWatermarkForTesting()
+        XCTAssertEqual(reopenedWatermark, 3)
+        let reopenedQuickChecks = await reopened.quickCheckCountForTesting()
+        XCTAssertEqual(reopenedQuickChecks, 1)
+        _ = try await reopened.append(Self.makeEvent(id: "evt-4"))
+        _ = try await reopened.append(Self.makeEvent(id: "evt-5"))
+        let afterAppends = try await reopened.integrityWatermarkForTesting()
+        XCTAssertEqual(afterAppends, 3,
+                       "the watermark advances only when a verification pass runs")
+        try await reopened.close()
+
+        let incremental = try SQLiteDomainStore(fileURL: file, now: { 3_000 },
+                                                startsBackgroundIntegrityCheck: false)
+        let incrementalWatermark = try await incremental.integrityWatermarkForTesting()
+        XCTAssertEqual(incrementalWatermark, 5)
+        try await incremental.verifyIntegrity()
+        let verifiedWatermark = try await incremental.integrityWatermarkForTesting()
+        XCTAssertEqual(verifiedWatermark, 5)
+        try await incremental.close()
+    }
+
+    func testPreparedStatementsAreCachedAcrossCommits() async throws {
+        let store = try SQLiteDomainStore(
+            fileURL: directory.appendingPathComponent("domain.sqlite"),
+            now: { 1_000 }, startsBackgroundIntegrityCheck: false)
+        for index in 1...40 {
+            _ = try await store.append(Self.makeEvent(id: "evt-\(index)"))
+        }
+        let first = await store.preparedStatementStatsForTesting()
+        XCTAssertGreaterThan(first.hits, 30)
+        XCTAssertLessThan(first.prepares, 20,
+                          "one prepare per distinct statement, not per call")
+        for index in 41...80 {
+            _ = try await store.append(Self.makeEvent(id: "evt-\(index)"))
+        }
+        let second = await store.preparedStatementStatsForTesting()
+        XCTAssertEqual(second.prepares, first.prepares)
+        XCTAssertGreaterThan(second.hits, first.hits)
+        try await store.close()
+    }
+
+    func testFileAttributesAreAppliedOncePerPathNotOnEveryCommit() async throws {
+        let store = try SQLiteDomainStore(
+            fileURL: directory.appendingPathComponent("domain.sqlite"),
+            now: { 1_000 }, startsBackgroundIntegrityCheck: false)
+        for index in 1...20 {
+            _ = try await store.append(Self.makeEvent(id: "evt-\(index)"))
+        }
+        let first = await store.fileAttributeApplyCountForTesting()
+        XCTAssertLessThanOrEqual(first, 3,
+                                 "database, WAL and SHM are each attributed once")
+        for index in 21...40 {
+            _ = try await store.append(Self.makeEvent(id: "evt-\(index)"))
+        }
+        let second = await store.fileAttributeApplyCountForTesting()
+        XCTAssertEqual(second, first)
+        try await store.close()
+    }
+
+    func testDeferredFullVerificationCompletesTheWatermark() async throws {
+        let store = try SQLiteDomainStore(
+            fileURL: directory.appendingPathComponent("domain.sqlite"),
+            now: { 1_000 }, startsBackgroundIntegrityCheck: false)
+        _ = try await store.append(Self.makeEvent(id: "evt-full-1"))
+        _ = try await store.append(Self.makeEvent(id: "evt-full-2"))
+        let beforeFull = try await store.integrityWatermarkForTesting()
+        XCTAssertEqual(beforeFull, 0)
+        try await store.runFullIntegrityVerificationForTesting()
+        let afterFull = try await store.integrityWatermarkForTesting()
+        XCTAssertEqual(afterFull, 2)
+        try await store.close()
+    }
+
     private func makeStore() throws -> SQLiteDomainStore {
         try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
     }
