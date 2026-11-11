@@ -4,10 +4,13 @@ import PhoneDSHBot
 import SwiftUI
 
 /// The one appearance editor shared by the Bot info page and the add-Bot
-/// dialog: a live preview, the four hairstyle stills and the fifteen colour
-/// swatches. Selection is rendered immediately from the value the caller
+/// dialog: an optional live preview, the four hairstyle stills and the fifteen
+/// colour swatches. Selection is rendered immediately from the value the caller
 /// passes; writing it is the caller's decision (the info page saves per tap,
-/// the add dialog keeps a draft until 创建).
+/// the add dialog keeps a draft until 创建). The caller also decides whether
+/// the picker draws its own preview: the info page hides it because its header
+/// already shows the 80pt avatar, and the add dialog hides it because the
+/// dialog has its own 104pt preview above the form.
 struct BotAppearancePicker: View {
     var appearance: BotFishAppearance
     var isMainBot = false
