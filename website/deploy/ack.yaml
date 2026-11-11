@@ -36,7 +36,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: website
-          image: tono-registry.cn-shenzhen.cr.aliyuncs.com/tonolive/phone-dsh-website@sha256:3c6377636be503f6203faa86531f36c85a0b54fc6de33d508bd68b44ce6d4c60
+          image: tono-registry.cn-shenzhen.cr.aliyuncs.com/tonolive/phone-dsh-website@sha256:4f39e1371d11d5e5f73c4ab12b1114d71400dce3b33f56b8b1bc381b510d9f0b
           ports:
             - name: http
               containerPort: 8080
