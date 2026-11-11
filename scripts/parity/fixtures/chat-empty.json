@@ -1,0 +1,80 @@
+{
+  "schema": "pdsh.parity.fixture.v0",
+  "id": "chat-empty",
+  "page": "chat",
+  "description": "The real chat page with no transcript rows; the engine has not started.",
+  "unit": "pt",
+  "frame": {
+    "widthPt": 402,
+    "heightPt": 874
+  },
+  "origin": "chat.header.title",
+  "seed": {
+    "android": {
+      "screen": "chat"
+    },
+    "ios": {
+      "launchArguments": [],
+      "launchEnvironment": {}
+    }
+  },
+  "actions": [],
+  "elements": [
+    {
+      "id": "chat.header.drawer",
+      "android": {
+        "testTag": "pdsh.chat.header.drawer"
+      },
+      "ios": {
+        "label": "打开会话列表",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.header.title",
+      "android": {
+        "testTag": "pdsh.chat.header.title"
+      },
+      "ios": {
+        "identifier": "chat.session-title"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.empty.start",
+      "android": {
+        "testTag": "pdsh.chat.empty.start"
+      },
+      "ios": {
+        "label": "启动本地引擎",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.composer.field",
+      "android": {
+        "testTag": "pdsh.composer.field"
+      },
+      "ios": {
+        "label": "发消息或创建任务，/ 调用指令，@ 文件或对话",
+        "type": "textView"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.composer.send",
+      "android": {
+        "testTag": "pdsh.composer.send"
+      },
+      "ios": {
+        "label": "发送消息",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    }
+  ]
+}

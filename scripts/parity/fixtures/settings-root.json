@@ -1,0 +1,98 @@
+{
+  "schema": "pdsh.parity.fixture.v0",
+  "id": "settings-root",
+  "page": "settings",
+  "description": "The real settings sheet at its root, showing the first two groups.",
+  "unit": "pt",
+  "frame": {
+    "widthPt": 402,
+    "heightPt": 874
+  },
+  "origin": "settings.row.modelProvider",
+  "seed": {
+    "android": {
+      "screen": "settings"
+    },
+    "ios": {
+      "launchArguments": [
+        "-uiPreview",
+        "settings"
+      ],
+      "launchEnvironment": {}
+    }
+  },
+  "actions": [],
+  "elements": [
+    {
+      "id": "settings.done",
+      "android": {
+        "testTag": "pdsh.settings.done"
+      },
+      "ios": {
+        "label": "完成",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.modelProvider",
+      "android": {
+        "testTag": "pdsh.settings.index.row.modelProvider"
+      },
+      "ios": {
+        "label": "模型服务",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.agentPresets",
+      "android": {
+        "testTag": "pdsh.settings.index.row.agentPresets"
+      },
+      "ios": {
+        "label": "Agent 预设",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.pluginsTools",
+      "android": {
+        "testTag": "pdsh.settings.index.row.pluginsTools"
+      },
+      "ios": {
+        "label": "插件与工具",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.permissionDefaults",
+      "android": {
+        "testTag": "pdsh.settings.index.row.permissionDefaults"
+      },
+      "ios": {
+        "label": "新会话默认权限",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.network",
+      "android": {
+        "testTag": "pdsh.settings.index.row.network"
+      },
+      "ios": {
+        "label": "网络访问",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    }
+  ]
+}
