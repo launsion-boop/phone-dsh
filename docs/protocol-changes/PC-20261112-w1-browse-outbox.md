@@ -8,9 +8,9 @@ change: PC-20261112-w1-browse-outbox
 contracts: [P02, P06, P18]
 status: frozen
 breaking: false
-version_decision: 無 proto 版本變更。W1 rev 3 在 host 私有 `send-outbox` entry 新增可選 `attachments[]`（引用＋metadata，非 inline bytes）；舊 entry 仍合法可讀（member 可選、additive、非 breaking）。舊 consumer 的 closed schema 會拒絕帶 attachments 的新 entry，這是同容器 App-only 邊界；回滾不得刪除或文字化降級排隊中的 attachment entry。materialized 寫入禁令、outbox 狀態機與 `rpcId` 不變，不改 P01 frame、P06 event 或 P18 既有設定鍵。
+version_decision: 無 proto 版本變更。W1 rev 3 在 host 私有 `send-outbox` entry 新增可選 `attachments[]`（引用＋metadata，非 inline bytes）；W1 rev 4 允許 `text:""` 當且僅當 attachments 非空，並把 `attachments` 上限改為 20（鏡像 host `imageLimits.maxImagesPerMessage` 的 fallback）。舊 text-only entry 仍合法可讀；舊 consumer 的 closed schema 會拒絕帶 attachments 的新 entry，這是同容器 App-only 邊界；回滾不得刪除或文字化降級排隊中的 attachment entry。materialized 寫入禁令、outbox 狀態機與 `rpcId` 不變，不改 P01 frame、P06 event 或 P18 既有設定鍵。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: spec/host/v1/README.md@2026-11-12-rev3 + spec/host/v1/schema/outbox-entry.schema.json@rev3 + spec/README.md@GAP-40 + spec/host/v1/{golden,tools}/outbox*@rev3（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2/3 freeze commit 見交接 head）
+contract_revision: spec/host/v1/README.md@2026-11-12-rev4 + spec/host/v1/schema/outbox-entry.schema.json@rev4 + spec/README.md@GAP-40 + spec/host/v1/{golden,tools}/outbox*@rev4（rev 1 spec commit 773fa69d081917adefc2a6ad114ee6d88b5832ce；rev 2/3/4 freeze commit 見交接 head）
 ```
 
 ## 1. 識別與角色
@@ -65,9 +65,9 @@ contract_revision: spec/host/v1/README.md@2026-11-12-rev3 + spec/host/v1/schema/
 
 - **獨占路徑**：`spec/v1/wal.md` §11、`spec/host/v1/{README.md,schema/outbox-entry.schema.json,golden/outbox-entry-*.json,tools/outbox_invalid_cases.json,tools/test_outbox_contract.py}`、`docs/protocol-changes/PC-20261112-w1-browse-outbox.md`。
 - **w1-browse 路徑**：`examples/probe-app/PhoneDSHProbe/{ChatModel,ChatPage,ChatEngineStoppedNoticePolicy,HomeDrawer,HomeDrawerNewSessionPolicy,HomeDrawerSwitchPolicy,SessionsPage,DSHManagementModel}.swift`、`examples/probe-app/ProbeKit/{Transcript,Outbox,Lifecycle}`、`examples/probe-app/PhoneDSHSimTests`。不得改 `Sources/` 或 `spec/`。
-- **共享 fixtures**：outbox 正向 4 筆（2 text、1 個 attachment、2 個 attachments）、負向 17 筆（9 schema、5 transition、3 attachment law：duplicate id／missing store／digest mismatch）；`test_outbox_contract.py` 同時驗 schema、狀態機與 attachment reference 法律。
+- **共享 fixtures**：outbox 正向 6 筆（2 text、1 個 attachment、2 個 attachments、1 個 attachment-only、1 個 20 attachments）、負向 18 筆（10 schema、5 transition、3 attachment law：duplicate id／missing store／digest mismatch）；`test_outbox_contract.py` 同時驗 schema、狀態機與 attachment reference 法律。
 - **Exact commands → result**（Linux 容器）：
-  - `python3 spec/host/v1/tools/host_check.py --root .` → PASS（47 files，0 error）。
+  - `python3 spec/host/v1/tools/host_check.py --root .` → PASS（49 files，0 error）。
   - `python3 -m unittest spec.host.v1.tools.test_outbox_contract` → PASS（5 tests）。
   - `python3 spec/v1/tools/spec_golden.py --full` → PASS（103 files，0 error）。
   - `swift test --filter PhoneDSHSimTests` → NOT_RUN（Linux 沒有 Xcode/Swift Apple 工具鏈；由呼叫方在本機執行）。
@@ -126,7 +126,7 @@ w1-browse head 5ea9e987; this is the only known W1 contract gap.
 
 **版本決定**：無版本變更。`host/v1/README.md` §10 只新增 scope／limitation 段落；`outbox_invalid_cases.json` 只加一個 schema 負例；`spec/README.md` 只加 GAP-40。沒有新 field、沒有放寬 schema、沒有刪除或弱化既有條款。
 
-## 6. Rev 3 — attachment durability (owner override), 2026-11-12
+## 6. Rev 3 — attachment durability (owner override), 2026-11-12（`maxItems: 8` 與 text `minLength: 1` 已被 Rev 4 取代；store/lifecycle/crash 規則不變）
 
 Status: **frozen**（rev 3）。Trigger: **owner override（sequence 40830）**，明確撤銷 Rev 2 的
 「text prompts only」裁定。Scope: 把 attachment send 接入同一個 durable outbox；這是
@@ -204,10 +204,84 @@ Status: **frozen**（rev 3）。Trigger: **owner override（sequence 40830）**�
 - **共享 fixtures**：正向 `outbox-entry-attachment.json`（1 個）、`outbox-entry-attachments-multiple.json`（2 個）；負向 inline bytes、未知 kind、缺 storePath、legacy shape、duplicate id、missing store file、digest mismatch；transition cases 不變。
 - **驗收命令**：`python3 spec/host/v1/tools/host_check.py --root .`、`python3 -m unittest spec.host.v1.tools.test_outbox_contract`、`python3 spec/v1/tools/spec_golden.py --full`，以及 Linux 可跑的 spec gates。Swift/XCTest 與真機 crash/digest 測試在本環境 NOT_RUN。
 
-## 7. 修訂紀錄
+## 7. Rev 4 — attachment-only sends and attachment-count bound, 2026-11-12
+
+Status: **frozen**（rev 4）。Trigger: `w1-browse-attachments` 的 CONTRACT CHANGE REQUEST（lead 已接受）。
+Scope: 只放寬兩個 composer 邊界（empty text 條件、attachment 上限），不改 Rev 3 的 store／lifecycle／crash 規則。這是 additive contract amendment，不是 schema 放寬到無界。
+
+### 7.1 Trigger → 現況 → 期望
+
+- **Trigger.** `ChatPage.canSubmit` 已允許 image-only send（空 draft、pending attachment 非空），`ChatModel.send` 已允許 attachments 存在時空 prompt；Rev 3 的 `text` 仍是 `minLength: 1`，image-only 訊息沒有合法 entry。Rev 3 的 `attachments` 上限是 8，但 host 已暴露 `imageLimits.maxImagesPerMessage`（`NativeImageLimits.fallback = 20`），9–20 張的 send 沒有合法 entry。
+- **現況.** 若不放寬，App 只能新增「請輸入文字」或「最多 8 張」的 user-visible refusal，或偽造 caption；兩者都違反 plan §1.2 的「不新增限制／提示」與「不偽造」原則。
+- **期望.** `text` 可以 `""` **當且僅當** `attachments` 非空；text-only entry 仍必須 `minLength: 1`。`attachments` 上限改為 20，鏡像 host 宣告的 `maxImagesPerMessage` fallback；App 不得超過 host 宣告值，也不得靜默丟棄附件。沒有第二種 entry kind、沒有 synthetic caption、沒有新提示。
+
+### 7.2 CCR 原文（w1-browse-attachments → lead/all，已接受）
+
+```text
+CONTRACT CHANGE REQUEST (w1-browse-attachments, P06 @ rev3 / outbox-entry.schema.json)
+
+1) text minLength 1 vs attachment-only send. ChatPage.canSubmit allows idle image-only sends (empty draft, pendingAttachments non-empty) and ChatModel.send permits empty prompt when attachments exist. Rev3 schema still requires text 1..1000000, so an image-only send has no valid entry and cannot go through the one durable outbox without either a new limit/refusal or a synthesized text value. Proposal: allow text:"" iff attachments is non-empty (schema: text minLength 0 + conditional/description), or state that every durable attachment entry must carry a non-empty caption and accept the UI limitation. No implementation has invented a field.
+
+2) attachments maxItems 8 vs host imageLimits.maxImagesPerMessage default 20 (NativeImageLimits.fallback 20; ChatModel imageLimits reads host projection, fallback 20). Rev3 §6.2 says at most 8, so a 9-20 image send has no valid entry and would need a new refusal. Proposal: raise maxItems to the host-declared limit (20) or state that >8 sends stay out of the durable outbox; the App cannot widen the schema itself.
+
+3) Note: my declared checkout is base d988108c1 + w1-browse 5ea9e987 only; contracts rev3 (2e1f63e4) is not fetched, so spec/host/v1/schema/outbox-entry.schema.json is still the rev1 text-only file in my tree. I am implementing against the published PC-20261112-w1-browse-outbox@3 text and will not edit spec/. If the unit is expected to run schema checks against rev3, please make that commit available or tell me the assembly plan.
+
+I am proceeding with the store/GC/digest/deletion work that is unambiguous; these two composer edge cases are stopped until decided.
+```
+
+第 3 點是單元的 checkout 事實，不是契約 delta；本 rev 4 只回應第 1、2 點。實作端必須 fetch 本 freeze commit 後再跑 schema 檢查，不得用舊的 text-only schema 冒充 rev 4。
+
+### 7.3 決定
+
+1. **Empty text 條件。** `text` MAY be `""` iff `attachments` non-empty；text-only entry MUST keep `minLength: 1`。以 root `oneOf` 的兩個 closed variants 表達（見 §7.4），不新增第二種 entry、不新增 synthetic caption、不新增 UI 文案。
+2. **Attachment count。** `attachments` `maxItems` 由 8 改為 **20**，鏡像 host `imageLimits.maxImagesPerMessage` 的 fallback 20。若 host 宣告更低的上限，App 以 host 值為準；App 不得超過 host 宣告值，也不得靜默丟棄超出的附件。21 個附件是 invalid entry，不是新的 UI refusal path。
+3. **為什麼不是 refusal。** Plan §1.2 明確禁止用新增限制／提示換效能；image-only 已經是合法 composer 狀態，加「請輸入文字」或「最多 8 張」會直接違反 plan。Synthetic caption 則是偽造用戶內容，同樣禁止。
+4. **Rev 3 其餘不變。** Store 位置、entry/bytes 落盤順序、lifecycle、orphan GC、dispatch 前 digest 驗證、缺檔／digest 不符的 no-submit/no-text-only/no-new-rpcId/no-prompt 規則全部保持；只取代 Rev 3 §6.2 的 `maxItems: 8` 與 text `minLength: 1` 兩個限制。
+5. **GAP-40 不關閉。** 跨裝置同步、at-rest 抹除、cross-entry dedupe/refcount、store 配額/清理、Kotlin/P06 consumer、回滾處理仍不在本 amendment。
+
+### 7.4 Schema excerpt（implementation target）
+
+```json
+"oneOf": [
+  {
+    "type": "object",
+    "required": ["v", "rpcId", "sessionId", "text", "createdAtMs", "state", "attempts"],
+    "properties": {
+      "text": {"type": "string", "minLength": 1, "maxLength": 1000000},
+      "attachments": {"type": "array", "maxItems": 20, "items": {"...": "..."}}
+    },
+    "additionalProperties": false
+  },
+  {
+    "type": "object",
+    "required": ["v", "rpcId", "sessionId", "text", "createdAtMs", "state", "attempts", "attachments"],
+    "properties": {
+      "text": {"const": ""},
+      "attachments": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"...": "..."}}
+    },
+    "additionalProperties": false
+  }
+]
+```
+
+兩個 variants 都保留完整欄位集合與 `additionalProperties: false`；attachment item 的 required／pattern／enum 與 Rev 3 相同。Exact schema：`spec/host/v1/schema/outbox-entry.schema.json`。
+
+### 7.5 兼容性（四格 impact）
+
+| Producer → Consumer | 支援／拒絕方式及理由 |
+| --- | --- |
+| old → new | 舊 text-only entry（text 非空、無 attachments）仍匹配第一個 variant，可讀可投遞；沒有 migration。 |
+| new → old | 文字 relaxation 對舊 consumer 沒有新 member；舊 consumer 仍會拒絕帶 `attachments` 的 entry（closed schema），同 Rev 3 的同容器 App-only 邊界。回滾不得刪除／改寫／text-only 降級 attachment entry。 |
+| new → new | Empty text 只在 attachments 非空時合法；attachment-only 與 text-only 共用同一 queue／state machine／`rpcId`／刪除條件；上限 20 與 host 宣告一致。 |
+| persisted old data → new／rollback | 沒有持久化資料改變語義：舊 entry 仍是 text-only；新 attachment entry 只是新增可選 member 的使用。回滾見 new → old；不得把空 text 的 entry 轉成新 caption。 |
+
+**版本決定**：無 proto bump。`text` 的 relaxation 只對 new→new 有效；old consumer 本來就拒絕 attachment entry。`maxItems` 由 8→20 是 host-declared image limit 的鏡像；沒有無界放寬。`breaking: false`（舊資料可讀、member additive），但矩陣明示 old consumer 的拒絕與回滾限制。
+
+## 8. 修訂紀錄
 
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | 1（本檔） | contracts | 初次凍結只讀投影與持久 outbox | all（contract freeze 公告） |
 | 2（本檔） | contracts | 接受 w1-browse 的 CONTRACT CHANGE REQUEST：text-only scope；新增 GAP-40 | all（amendment 公告） |
 | 3（本檔） | contracts | **owner override（sequence 40830）**：撤銷 text-only，attachment send 接入同一 durable outbox（optional `attachments`、outbox-owned store、crash/digest 規則、四格兼容矩陣）；GAP-40 改為跨端／抹除未覆蓋項 | all（amendment 公告） |
+| 4（本檔） | contracts | 接受 w1-browse-attachments 的 CCR：`text:""` iff attachments 非空（oneOf），`attachments` 上限 8→20（鏡像 host `maxImagesPerMessage` fallback），不加 UI refusal／synthetic caption | all（amendment 公告） |

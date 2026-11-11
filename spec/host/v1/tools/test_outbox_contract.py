@@ -100,7 +100,9 @@ class OutboxContractTests(unittest.TestCase):
         for name in ("outbox-entry-queued.json",
                      "outbox-entry-outcome-unknown.json",
                      "outbox-entry-attachment.json",
-                     "outbox-entry-attachments-multiple.json"):
+                     "outbox-entry-attachments-multiple.json",
+                     "outbox-entry-attachment-only.json",
+                     "outbox-entry-attachments-20.json"):
             wrapper = load_json(CONTRACT / "golden" / name)
             validate_json(wrapper["instance"], self.schema, name)
 

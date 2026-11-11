@@ -262,7 +262,7 @@ The UI→host send path is host behaviour above the worker contract (§9 row J2 
 for device commands; this is the user's outgoing message queue and has its own boundary). For all
 backends it is one durable queue with the same observable rules.
 
-**Scope (W1 rev 3, 2026-11-12; owner-authorized).** Text prompts and attachment sends use **one**
+**Scope (W1 rev 4, 2026-11-12; owner-authorized).** Text prompts and attachment sends use **one**
 outbox, the same `queued → submitting → accepted → durable` + `outcomeUnknown` machine, the same
 enqueue-time lowercase UUIDv4 `rpcId`, and the same delete condition: an entry is deleted only
 after authoritative history contains a `user_message` whose `source.rpcId` equals it and the
@@ -281,6 +281,15 @@ references plus minimal metadata, never inline bytes.
   `/dsh/tmp`, never inline/base64 in the entry. Before an entry is committed, every attachment file
   is written, fsynced and its digest verified; then the entry is atomically written. This gives at
   least level-1 durability: the bytes are lost only if the device container itself is destroyed.
+- **Text and attachment-only sends.** A text-only entry keeps `text` non-empty (1–1,000,000
+  characters). `text` MAY be the empty string **iff** `attachments` is non-empty; an attachment-only
+  send therefore has a valid entry without a synthetic caption. Empty text with no attachments is
+  invalid (schema `oneOf`: non-empty-text variant, or empty-text plus `attachments` `minItems: 1`).
+- **Attachment count.** `attachments` is bounded at 20, mirroring the host-declared per-message
+  image limit (`imageLimits.maxImagesPerMessage`, `NativeImageLimits.fallback = 20`). The App must
+  not exceed the host-declared limit and must not silently drop attachments; when the declared
+  limit is lower, that lower value wins. A 21st attachment is an invalid entry, not a new refusal
+  path in the UI.
 - **Attachment lifecycle.** An attachment file is unlinked only after its entry is deleted per the
   delete condition above; the entry (and its files) are never removed while the entry exists. Delete
   the entry first, then its `attachments/<rpcId>/` directory. Startup GC removes an
