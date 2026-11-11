@@ -26,6 +26,12 @@
       "status": "target"
     },
     {
+      "swift": "PhoneDSHBot",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
+    },
+    {
       "swift": "PhoneDSHController",
       "kotlin": "com.phonedsh.controller",
       "gradle": ":controller",
@@ -74,6 +80,12 @@
       "status": "mapped"
     },
     {
+      "swift": "PhoneDSHPCLink",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
+    },
+    {
       "swift": "PhoneDSHSSH",
       "kotlin": "com.phonedsh.ssh",
       "gradle": ":app",
@@ -90,6 +102,12 @@
       "kotlin": "com.phonedsh.shell",
       "gradle": ":shell",
       "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHVenus",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
     },
     {
       "swift": "PhoneDSHWire",
