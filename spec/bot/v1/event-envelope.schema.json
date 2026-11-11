@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BotEventEnvelope v1",
+  "title": "BotEventEnvelope v1 (durable)",
+  "description": "P25 durable stored-event envelope. This schema is durable-only: every valid event carries commitSeq >= 1. Ephemeral events are never stored and use event-envelope.ephemeral.schema.json instead. For principal.botId, principal.sessionId, causationId and correlationId, absent is equivalent to null (readers accept both); writers omit a nil member. See spec/bot/v1/README.md §1.2.",
   "type": "object",
-  "required": ["schemaVersion", "type", "eventId", "commitSeq", "time", "origin", "traceId", "principal", "causationId", "correlationId", "data"],
+  "required": ["schemaVersion", "type", "eventId", "commitSeq", "time", "origin", "traceId", "principal", "data"],
   "properties": {
     "schemaVersion": {"const": 1},
-    "type": {"enum": ["conversation.turn_started", "conversation.user_message", "conversation.assistant_message", "conversation.tool_call", "conversation.tool_result", "conversation.turn_ended", "conversation.automation_run", "approval.requested", "approval.decided", "grant.created", "grant.added", "grant.consumed", "grant.revoked", "grant.migrated", "card.presented", "card.answered", "card.dismissed", "ui.system_event", "ui.notice", "ui.send_to_user", "transcript.rollback", "transcript.row_deleted", "transcript.imported", "bot.greeting_seeded", "bot.created", "comm.outbound", "comm.inbound", "comm.reply", "comm.failed", "agent.comm", "task.created", "task.started", "task.updated", "task.stop_requested", "task.settled", "task.resumed", "background.started", "background.stop_requested", "background.settled", "routine.defined", "routine.updated", "routine.deleted", "routine.run_started", "routine.run_finished", "memory.written", "memory.forgotten", "memory.imported", "memory.review_requested", "memory.review_resolved", "effect.enqueued", "effect.attempted", "effect.acked", "effect.failed", "effect.dead_lettered", "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started", "runtime.exited", "proactive.considered", "ledger.usage_recorded", "watchdog.flagged", "verification.reported"]},
+    "type": {"enum": ["conversation.turn_started", "conversation.user_message", "conversation.assistant_message", "conversation.tool_call", "conversation.tool_result", "conversation.turn_ended", "conversation.automation_run", "approval.requested", "approval.decided", "grant.created", "grant.added", "grant.consumed", "grant.revoked", "grant.migrated", "authz.grant_snapshot", "card.presented", "card.answered", "card.dismissed", "ui.system_event", "ui.notice", "ui.send_to_user", "transcript.rollback", "transcript.row_deleted", "transcript.imported", "bot.greeting_seeded", "bot.created", "comm.outbound", "comm.inbound", "comm.reply", "comm.failed", "agent.comm", "task.created", "task.started", "task.updated", "task.stop_requested", "task.settled", "task.resumed", "background.started", "background.stop_requested", "background.settled", "routine.defined", "routine.updated", "routine.deleted", "routine.run_started", "routine.run_finished", "memory.written", "memory.forgotten", "memory.imported", "memory.review_requested", "memory.review_resolved", "effect.enqueued", "effect.attempted", "effect.acked", "effect.failed", "effect.dead_lettered", "effect.reconciliation_required", "effect.cancel_requested", "effect.canceled", "runtime.started", "runtime.exited", "proactive.considered", "ledger.usage_recorded", "watchdog.flagged", "verification.reported"]},
     "eventId": {"type": "string", "minLength": 1},
     "commitSeq": {"type": "integer", "minimum": 1},
     "time": {"type": "number", "minimum": 0},
@@ -18,7 +19,7 @@
     "traceId": {"type": "string", "minLength": 1},
     "principal": {
       "type": "object",
-      "required": ["botId", "sessionId", "kind", "capabilities"],
+      "required": ["kind", "capabilities"],
       "properties": {
         "botId": {"type": ["string", "null"]},
         "sessionId": {"type": ["string", "null"]},
@@ -34,7 +35,7 @@
     "attempt": {"type": "integer", "minimum": 1},
     "batch": {"type": "object", "required": ["id", "index", "total"], "properties": {"id": {"type": "string", "minLength": 1}, "index": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
     "ignorable": {"const": true},
-    "data": {"type": "object"}
+    "data": {"type": "object", "description": "Type-specific payload. For type=authz.grant_snapshot, data is the BotGrantSnapshot object validated by authz-grant-snapshot.schema.json; other durable types keep their own owning shape."}
   },
   "additionalProperties": true
 }

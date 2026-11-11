@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotGrantSnapshot v1",
+  "description": "Payload of the durable authz.grant_snapshot event. Frozen from Sources/PhoneDSHBot/Authz/BotGrantSnapshot.swift: one grants array, exactly the eleven entry fields Swift encodes, and no unknown members. Swift's custom Entry encoder writes sessionId and expiresAt explicitly as null when they are nil, so all eleven fields are required.",
+  "type": "object",
+  "required": ["grants"],
+  "properties": {
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["grantId", "botId", "tool", "operation", "canonicalResource", "scope", "sessionId", "expiresAt", "createdAt", "source", "decision"],
+        "properties": {
+          "grantId": {"type": "string", "minLength": 1},
+          "botId": {"type": "string", "minLength": 1},
+          "tool": {"type": "string", "minLength": 1},
+          "operation": {"type": "string", "minLength": 1},
+          "canonicalResource": {"type": "string", "minLength": 1},
+          "scope": {"enum": ["once", "session", "until"]},
+          "sessionId": {"type": ["string", "null"], "minLength": 1},
+          "expiresAt": {"type": ["integer", "null"], "minimum": 0},
+          "createdAt": {"type": "integer", "minimum": 0},
+          "source": {"type": "string", "minLength": 1},
+          "decision": {"enum": ["allow", "deny"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -7,6 +7,7 @@
   "files": [
     "approval-patterns.json",
     "bot-attachments.json",
+    "bot-attachments.phone.json",
     "bot-profile.json",
     "card-payload.json",
     "card-payload.phone.json",
@@ -48,6 +49,7 @@
     "watchdog.json"
   ],
   "phoneOverlays": [
+    "bot-attachments.phone.json",
     "card-payload.phone.json",
     "event-envelope.phone.json",
     "mcp-egress.phone.json",
@@ -59,13 +61,14 @@
   "sha256": {
     "approval-patterns.json": "8dbac06c60729e3042e210cf07dd085d592c61e8074c32d23b5631ba2debf8cb",
     "bot-attachments.json": "eff063a56da6341102e22c11a3c57d01fdc72a3936c5637bbcc43b3b3f0efbe7",
+    "bot-attachments.phone.json": "d6adcc32b19b9259e67ae6b8072e1f2245e80201f2838c6d093398bc5f9f96f6",
     "bot-profile.json": "fc8de274d26a95063b2e61e5e83749c07bb1ba5624a9dee216ca11e55319de40",
     "card-payload.json": "5e16774a4b08bbb68039b6d724b56e9eda6d5f09e3ee51523bb791ee4ef721c2",
     "card-payload.phone.json": "889fb08e218940db866db953e1dabe37184d9619aded0c951312775c62a82c43",
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "event-envelope.json": "fded336f2e2dddf4b9c474bac5e6cefcbb1baf7c99637a988ed22dbb244bcaf5",
-    "event-envelope.phone.json": "2bd705b5d122ba1a0121800abb1dadc8dec89e8946268d325ca3ac56d17fd853",
+    "event-envelope.phone.json": "fa6fc4b9123ba83bec740dcead03b42fdaf3598192aa211358471451092bdd76",
     "fish-director.json": "7216362cf4ff1c903ebce75cbf0d9d170dba9e233778caf3df1de1a36026cd85",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
     "mcp-egress.phone.json": "1a1e66c2e82f991fccea3a7674c3071f62092c0935c8347c4174cd7ffa64b090",

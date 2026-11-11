@@ -596,7 +596,12 @@ def check_overlays():
                 raise AssertionError(f"{overlay_path.name}: vector must be {overlay_path.name[:-5]!r}")
             continue
         upstream = load(base_name)
-        if source.get("checkout") != upstream.get("source", {}).get("checkout"):
+        # Most exports carry a `checkout`; the attachment export carries the
+        # same pinned SHA under `commit`. Compare the provenance the upstream
+        # file actually records instead of inventing a second source field.
+        upstream_source = upstream.get("source", {})
+        upstream_provenance = upstream_source.get("checkout", upstream_source.get("commit"))
+        if source.get("checkout") != upstream_provenance:
             raise AssertionError(f"{overlay_path.name}: source.checkout differs from {base_name}")
         if base_name not in declared:
             raise AssertionError(f"{overlay_path.name}: upstream must include {base_name}")
@@ -631,15 +636,35 @@ def rejects(instance, schema_name: str, where: str) -> None:
     raise AssertionError(f"{where}: negative fixture unexpectedly validates")
 
 
+GRANT_SNAPSHOT_TYPE = "authz.grant_snapshot"
+
+
+def check_event(instance, schema_name: str, where: str) -> None:
+    """Validate an envelope plus the type-specific `data` shape it names."""
+    check(instance, schema_name, where)
+    if schema_name == "event-envelope.schema.json" and instance.get("type") == GRANT_SNAPSHOT_TYPE:
+        check(instance.get("data"), "authz-grant-snapshot.schema.json", f"{where}.data")
+
+
+def rejects_event(instance, schema_name: str, where: str) -> None:
+    try:
+        check_event(instance, schema_name, where)
+    except Exception:
+        return
+    raise AssertionError(f"{where}: negative fixture unexpectedly validates")
+
+
 def main() -> int:
     check_overlays()
-    check(load("event-envelope.json")["valid"]["event"], "event-envelope.schema.json", "event")
+    check_event(load("event-envelope.json")["valid"]["event"],
+                "event-envelope.schema.json", "event")
     for index, case in enumerate(load("event-envelope.json")["invalid"]):
-        rejects(case["event"], "event-envelope.schema.json", f"event.invalid[{index}]")
+        rejects_event(case["event"], "event-envelope.schema.json", f"event.invalid[{index}]")
 
-    # phoneDSH P25 additive: `agent.comm` is a durable event type carried in
-    # the unchanged envelope. Its phone cases live in the append-only overlay
-    # so a fresh upstream export stays byte-identical.
+    # phoneDSH P25 additive cases live in the append-only overlay so a fresh
+    # upstream export stays byte-identical: `agent.comm`, the absent/null
+    # presence pairs (CCR-1), `authz.grant_snapshot` (CCR-2), and the separate
+    # ephemeral envelope (no commitSeq, never durable).
     phone_envelope = load("event-envelope.phone.json")
     if phone_envelope.get("vector") != "event-envelope.phone":
         raise AssertionError("event-envelope.phone: vector must be event-envelope.phone")
@@ -648,15 +673,37 @@ def main() -> int:
         raise AssertionError("event-envelope.phone: validCases must be a non-empty array")
     for index, case in enumerate(valid_phone_events):
         where = f"event-envelope.phone.validCases[{index}]"
-        check(case["event"], "event-envelope.schema.json", where)
+        check_event(case["event"], "event-envelope.schema.json", where)
+        if case["event"].get("type") == GRANT_SNAPSHOT_TYPE:
+            if not isinstance(case.get("provenance"), str) or "Swift" not in case["provenance"]:
+                raise AssertionError(f"{where}: grant snapshot vector must name its Swift provenance")
         if case.get("validation", {}).get("valid") is not True:
             raise AssertionError(f"{where}: validation.valid must be true")
     invalid_phone_events = phone_envelope.get("invalidCases")
     if not isinstance(invalid_phone_events, list) or not invalid_phone_events:
         raise AssertionError("event-envelope.phone: invalidCases must be a non-empty array")
     for index, case in enumerate(invalid_phone_events):
-        rejects(case["event"], "event-envelope.schema.json",
-                f"event-envelope.phone.invalidCases[{index}]")
+        rejects_event(case["event"], "event-envelope.schema.json",
+                      f"event-envelope.phone.invalidCases[{index}]")
+
+    ephemeral_valid = phone_envelope.get("ephemeralValidCases")
+    if not isinstance(ephemeral_valid, list) or not ephemeral_valid:
+        raise AssertionError("event-envelope.phone: ephemeralValidCases must be a non-empty array")
+    for index, case in enumerate(ephemeral_valid):
+        where = f"event-envelope.phone.ephemeralValidCases[{index}]"
+        check(case["event"], "event-envelope.ephemeral.schema.json", where)
+        if "commitSeq" in case["event"]:
+            raise AssertionError(f"{where}: ephemeral events must not carry commitSeq")
+        if case.get("validation", {}).get("valid") is not True:
+            raise AssertionError(f"{where}: validation.valid must be true")
+    ephemeral_invalid = phone_envelope.get("ephemeralInvalidCases")
+    if not isinstance(ephemeral_invalid, list) or not ephemeral_invalid:
+        raise AssertionError("event-envelope.phone: ephemeralInvalidCases must be a non-empty array")
+    for index, case in enumerate(ephemeral_invalid):
+        rejects(case["event"], "event-envelope.ephemeral.schema.json",
+                f"event-envelope.phone.ephemeralInvalidCases[{index}]")
+    if not any("commitSeq" in case["event"] for case in ephemeral_invalid):
+        raise AssertionError("event-envelope.phone: ephemeral negative vectors must cover commitSeq")
 
     check(load("tool-catalog.json")["valid"], "tool-catalog.schema.json", "tool-catalog")
     check(load("volatile-context.json")["valid"], "volatile-context.schema.json", "volatile-context")

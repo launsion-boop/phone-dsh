@@ -14,18 +14,45 @@ final class BotAttachmentGoldenTests: XCTestCase {
         XCTAssertEqual((limits["maxBytes"] as? NSNumber)?.int64Value, BotAttachmentPolicy.maxBytes)
     }
 
-    func testGoldenPromptBlockUsesThePhoneExplanationAndExactJSONLines() throws {
-        let prompt = try RowTestSupport.object(try fixture()["promptBlock"], in: "bot-attachments.promptBlock")
+    func testGoldenPromptBlockUsesTheFrozenPhoneBytes() throws {
+        let fixture = try fixture()
+        let prompt = try RowTestSupport.object(fixture["promptBlock"], in: "bot-attachments.promptBlock")
         let items = try RowTestSupport.decode([BotAttachment].self, prompt["items"])
+        // The upstream file stays the Mac export. The phone overlay is the
+        // authority for the bytes the model sees on iOS.
         let upstream = try XCTUnwrap(prompt["prompt"] as? String)
-        let mac = "The user attached these files. They are saved on this Mac; read them with your file tools when the task needs their contents."
-        let phonePrompt = upstream.replacingOccurrences(of: mac, with: BotAttachmentPrompt.explanation)
-        let text = try XCTUnwrap(prompt["text"] as? String)
-        XCTAssertTrue(phonePrompt.hasPrefix(text))
-        let expectedBlock = String(phonePrompt.dropFirst(text.count))
+        XCTAssertTrue(upstream.contains("saved on this Mac"))
+        let expectedBlock = try XCTUnwrap(fixture["promptBlockPhone"] as? String)
+        XCTAssertTrue(expectedBlock.contains(BotAttachmentPrompt.explanation))
         XCTAssertEqual(BotAttachmentPrompt.block(items), expectedBlock)
-        let empty = try XCTUnwrap(try fixture()["emptyBlock"] as? String)
+        let empty = try XCTUnwrap(fixture["emptyBlock"] as? String)
         XCTAssertEqual(BotAttachmentPrompt.block([]), empty)
+    }
+
+    func testEveryGoldenSafeNameCaseUsesTheRealSanitizer() throws {
+        let cases = try RowTestSupport.array(try fixture()["safeNameCases"], in: "bot-attachments.safeNameCases")
+        XCTAssertFalse(cases.isEmpty)
+        for (index, vector) in cases.enumerated() {
+            let input = try XCTUnwrap(vector["input"] as? String)
+            let expected = try XCTUnwrap(vector["safeName"] as? String)
+            XCTAssertEqual(BotAttachmentPolicy.safeName(input), expected,
+                           "safeNameCases[\(index)] \(input)")
+        }
+    }
+
+    func testEveryGoldenImportPathCaseUsesTheRealWorkspaceLayout() throws {
+        let cases = try RowTestSupport.array(try fixture()["importPathCases"], in: "bot-attachments.importPathCases")
+        XCTAssertFalse(cases.isEmpty)
+        for (index, vector) in cases.enumerated() {
+            let botID = try XCTUnwrap(vector["botID"] as? String)
+            let messageID = try XCTUnwrap(vector["messageID"] as? String)
+            let expectedRoot = try XCTUnwrap(vector["botRoot"] as? String)
+            let expectedDirectory = try XCTUnwrap(vector["directory"] as? String)
+            let root = BotWorkspaceLayout.botRoot(botId: botID)
+            XCTAssertEqual(root, expectedRoot, "importPathCases[\(index)].botRoot")
+            XCTAssertEqual("\(root)/imports/attachments-\(messageID)", expectedDirectory,
+                           "importPathCases[\(index)].directory")
+        }
     }
 
     func testEveryGoldenParseVectorUsesTheRealParser() throws {
@@ -58,18 +85,5 @@ final class BotAttachmentGoldenTests: XCTestCase {
             XCTAssertEqual(BotAttachmentPolicy.kind(name: name, mimeType: mimeType), expected,
                            "kindFor[\(index)] \(name)")
         }
-    }
-
-    func testSafeNameMatchesTheUpstreamRules() {
-        XCTAssertEqual(BotAttachmentPolicy.safeName("a/b.png"), "b.png")
-        XCTAssertEqual(BotAttachmentPolicy.safeName("a\\b.png"), "b.png")
-        XCTAssertEqual(BotAttachmentPolicy.safeName(".hidden"), "hidden")
-        XCTAssertEqual(BotAttachmentPolicy.safeName(""), "file")
-        XCTAssertEqual(BotAttachmentPolicy.safeName("/"), "file")
-        XCTAssertEqual(BotAttachmentPolicy.safeName("bad:name?.txt"), "bad_name_.txt")
-        XCTAssertEqual(BotAttachmentPolicy.safeName("周报.pdf"), "周报.pdf")
-        // dsh-bot replaces each non-BMP UTF-16 unit, so one emoji becomes "__".
-        XCTAssertEqual(BotAttachmentPolicy.safeName("🐟.png"), "__.png")
-        XCTAssertEqual(BotAttachmentPolicy.safeName(String(repeating: "a", count: 130)).count, 120)
     }
 }
