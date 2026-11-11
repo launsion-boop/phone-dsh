@@ -393,8 +393,11 @@ private struct BotDrawerRow: View {
             return "\(entry.pendingApprovalCount) 项待审批"
         }
         if entry.isRunning {
-            if let activity = entry.activity, !activity.detail.isEmpty {
-                return activity.detail
+            if let activity = entry.activity {
+                if !activity.detail.isEmpty { return activity.detail }
+                // No model text/target: the same category as the chat line,
+                // not the generic fish-state fallback below.
+                return BotActivityPhrases.primaryPhrase(for: activity.category)
             }
             switch entry.fishState {
             case .thinking: return "思考中"

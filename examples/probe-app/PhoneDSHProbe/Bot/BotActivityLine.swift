@@ -15,27 +15,17 @@ struct BotActivityLine: View {
 
     static let fishSize: CGFloat = 28
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
-    @State private var index = 0
-    @State private var rotationTask: Task<Void, Never>?
+    @State private var line = BotActivityLineState()
+    @State private var clockTask: Task<Void, Never>?
 
-    private var phrases: [String] {
-        switch activity.status {
-        case .thinking: return ["思考中…", "整理思绪…", "准备下一步…"]
-        case .toolRunning: return ["处理中…", "执行工具…", "整理结果…"]
-        case .streaming: return ["整理回复…", "组织内容…"]
-        }
-    }
-
-    private var text: String {
-        if !activity.detail.isEmpty { return activity.detail }
-        return phrases[index % phrases.count]
-    }
+    private var text: String { line.text }
+    private var workStyle: BotFishWorkStyle { BotActivityPhrases.workStyle(for: activity.category) }
 
     var body: some View {
         HStack(spacing: 10) {
-            BotActivityFloatingFish(state: fishState, appearance: appearance, reaction: reaction)
+            BotActivityFloatingFish(state: fishState, appearance: appearance,
+                                    reaction: reaction, workStyle: workStyle)
                 .accessibilityHidden(true)
             BotActivityShimmerText(text: text)
         }
@@ -45,41 +35,52 @@ struct BotActivityLine: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text)
         .accessibilityIdentifier("bot.activity.line")
-        .onAppear { startRotation() }
+        .onAppear { receive(activity) }
         .onDisappear {
-            rotationTask?.cancel()
-            rotationTask = nil
+            clockTask?.cancel()
+            clockTask = nil
         }
-        .onChange(of: activity.status) { _, _ in resetRotation() }
-        .onChange(of: activity.detail) { _, _ in resetRotation() }
-        .onChange(of: pageActive) { _, _ in resetRotation() }
+        .onChange(of: activity) { _, next in receive(next) }
+        .onChange(of: pageActive) { _, _ in
+            clockTask?.cancel()
+            clockTask = nil
+            if pageActive { receive(activity) }
+        }
     }
 
-    private func resetRotation() {
-        index = 0
-        startRotation()
+    /// Hand the factory's activity to the timing machine, then keep one clock
+    /// task parked at the next rotation/pending/minute boundary.
+    private func receive(_ next: BotActivity) {
+        line.receive(next, at: BotActivityLineState.now)
+        scheduleClock()
     }
 
-    private func startRotation() {
-        rotationTask?.cancel()
-        rotationTask = nil
-        guard activity.detail.isEmpty, pageActive else { return }
-        rotationTask = Task { @MainActor in
+    private func scheduleClock() {
+        clockTask?.cancel()
+        clockTask = nil
+        guard pageActive, let deadline = line.nextDeadline else { return }
+        clockTask = Task { @MainActor in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_400_000_000)
+                guard let target = line.nextDeadline else { return }
+                let delay = max(0, target - BotActivityLineState.now)
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
                 guard !Task.isCancelled else { return }
-                index += 1
+                line.tick(at: BotActivityLineState.now)
             }
         }
     }
 }
 
-/// The status fish: its own state animation, plus a slow float and breath so
-/// the line reads as alive even when the state does not change.
+/// The status fish: the app-only `.lively` clip set carries the head sway,
+/// nod, squash and hop itself, with the working clip chosen from the activity
+/// category. The outer layer keeps only one slow 2.6s 1.00–1.025 breath (no
+/// vertical bob and no second 0.98–1.04 pulse), so the two layers do not
+/// fight each other and the 28pt line keeps its height.
 private struct BotActivityFloatingFish: View {
     let state: BotFishLifecycle
     let appearance: BotFishAppearance
     let reaction: BotFishReaction?
+    let workStyle: BotFishWorkStyle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
@@ -87,9 +88,9 @@ private struct BotActivityFloatingFish: View {
 
     var body: some View {
         BotFishView(state: state, size: BotActivityLine.fishSize,
-                    appearance: appearance, reaction: reaction)
-            .offset(y: reduceMotion || !pageActive ? 0 : (up ? -2 : 1))
-            .scaleEffect(reduceMotion || !pageActive ? 1 : (up ? 1.04 : 0.98))
+                    appearance: appearance, reaction: reaction,
+                    motionProfile: .lively, workStyle: workStyle)
+            .scaleEffect(reduceMotion || !pageActive ? 1 : (up ? 1.025 : 1.0))
             .onAppear { start() }
             .onChange(of: reduceMotion) { _, _ in start() }
             .onChange(of: pageActive) { _, _ in start() }
@@ -100,7 +101,7 @@ private struct BotActivityFloatingFish: View {
         reset.disablesAnimations = true
         withTransaction(reset) { up = false }
         guard !reduceMotion, pageActive else { return }
-        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+        withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
             up = true
         }
     }
