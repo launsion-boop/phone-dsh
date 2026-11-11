@@ -1839,6 +1839,9 @@
         },
         {
           "glob": "Tests/PhoneDSHPCLinkTests/**"
+        },
+        {
+          "glob": "android/pclink/**"
         }
       ],
       "status": [
@@ -1854,7 +1857,7 @@
         "authority": "[PCLink v1](pclink/v1/README.md)、[schema](pclink/v1/schema)、[golden](pclink/v1/golden)、[endpoints.json](pclink/v1/endpoints.json)（`target`；依賴 P14、P06，承載 DSH Remote 呼叫但不改其格式）",
         "ends": "Node relay `relay/**`（target；獨立 `package.json`，只依賴 `ws`）、PC plugin／CLI `pclink/plugin/**`、`pclink/cli/**`、`pclink/core/**`（target）、Swift `Sources/PhoneDSHPCLink/**` + `Tests/PhoneDSHPCLinkTests/**`（target；`Package.swift` 為 P12），App 接線在 `examples/probe-app/**`（P09/P27）；Kotlin `android/pclink/**`（target；`com.phonedsh.pclink`，JVM，讀 `spec/pclink/v1/golden/**` 的 `PclinkGolden*Test`）與 `android/app/**/pc/**`、`android/lib/.../page/{PCPairingPage,ConnectedComputerPage}.kt`（P09）；證據為 `:pclink` JVM tests、`page_structure_check.py` 與真機 E2E。",
         "evidence": "`spec/pclink/v1/tools/vectors.mjs`、`check_samples.py` 與 `golden/`（v1.3：`§2.3` 嚴格 JSON 作用於 wire 位元組，DSH 透傳值允許合法 `\\u0000` 轉義並原樣承載；密碼向量與 25 條狀態機模型樣例分開計數；兩端 runtime 證據尚未存在，P28 維持 `target`）",
-        "triggers": "`spec/pclink/v1/**`、`relay/**`、`pclink/**`、`Sources/PhoneDSHPCLink/**`、`Tests/PhoneDSHPCLinkTests/**`（B/C/D 已落地；Android 實作目錄 android/pclink/**、android/app/src/main/kotlin/com/phonedsh/probe/pc/**、android/lib/src/main/kotlin/com/phonedsh/ui/page/{PCPairingPage,ConnectedComputerPage}.kt、android/lib/src/main/kotlin/com/phonedsh/ui/nav/PcDrawer*.kt 由 C0/C5 落地後加入 trigger）"
+        "triggers": "`spec/pclink/v1/**`、`relay/**`、`pclink/**`、`Sources/PhoneDSHPCLink/**`、`Tests/PhoneDSHPCLinkTests/**`、`android/pclink/**`（B/C/D 已落地；Android `:pclink` 由 C0 落地；其餘 Android 實作目錄 android/app/src/main/kotlin/com/phonedsh/probe/pc/**、android/lib/src/main/kotlin/com/phonedsh/ui/page/{PCPairingPage,ConnectedComputerPage}.kt、android/lib/src/main/kotlin/com/phonedsh/ui/nav/PcDrawer*.kt 由 C5 落地後加入 trigger）"
       }
     }
   ]
