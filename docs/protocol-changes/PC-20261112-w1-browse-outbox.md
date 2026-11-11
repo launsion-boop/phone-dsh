@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無 wire／proto 版本變更。新增的是「materialized/home/sessions 的只讀投影」邊界登記與 host 端持久 outbox 的磁盤格式；materialized 寫入禁令不變，outbox 是新的 host 私有持久資料，rpcId 為訊息本身的 `source.rpcId`，不改 P01 frame、P06 event 或 P18 既有設定鍵。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色

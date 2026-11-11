@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無 wire／proto 版本變更。WAL 的 droppable 定義不變，只把「每次 epoch close 成功後即可回收」寫成觸發；response-log 仍是 cache，新增「已 journaled+durable、非 Recovering、無續傳引用」的刪除條件與 `bodyLocation` 可選欄位（舊資料省略即 documents）；可重建內容移到 Library/Caches；budgets.md 新增 hostInternalBytes 總口徑與五級動作，所有絕對配額不變。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色

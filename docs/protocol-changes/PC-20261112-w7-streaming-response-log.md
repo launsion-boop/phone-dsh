@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無 wire／proto 版本變更。response-log 鍵的 recipe 不變，只允許換成 crypto 實作並要求位元級一致；舊鍵因此直接兼容，無 migration。streaming 只改轉發時機與合併上限，SSE/NDJSON 的 bytes 與順序不變；startup probe 只提早斷開 observer、console 加級別/限速，錯誤級別保留。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色

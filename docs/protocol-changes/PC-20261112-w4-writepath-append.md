@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無 wire／proto 版本變更。WAL 記錄格式、manifest schema、mseq 域不變；watermark 只在 epoch close 推進是對 wal.md §7.1／D18 的既有解讀（結論：允許）；exec ledger 改為 append-only `v:2` NDJSON 並保留 v1 讀取；step 行格式不變；tool-journal 追加式並保留舊檔讀取；空閒 epoch 可跳過 close；CRC32C 值不變。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色

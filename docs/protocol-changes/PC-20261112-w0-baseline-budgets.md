@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無版本變更。只在 budgets.md 新增 `target` 狀態的 §7 效能預算列，數值一律寫 `待基线`；不改任何既有行、既有配額或既有 schema。`target` 不可被當成已實現的門檻。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色

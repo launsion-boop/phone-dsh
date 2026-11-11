@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無版本變更。把 budgets.md §5 既有的「修剪 journaled 且 durable 的 journal 條目」寫精確，並把 exec.md §4 的 step 記錄收斂條件寫下；不改 journal 線格式、不改 jseq 域、不改 JOURNAL_ACK 語義、不放寬 64 MiB 配額。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色

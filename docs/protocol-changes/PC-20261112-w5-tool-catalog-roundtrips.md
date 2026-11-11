@@ -10,7 +10,7 @@ status: frozen
 breaking: false
 version_decision: 無 wire／proto 版本變更。`tool-catalog.schema.json` 只新增可選 `tiers` 與 item 的可選 `tier`/`requires`（舊 catalog 省略即舊行為）；不新增工具、不改 p0/p1 enum、不改 MCP frame；volatile time 精度是渲染語義；identity/approval/cancel 只合併往返，審批次數與安全檢查不變；model-purpose 執行點是宿主既有請求入口；profile 只改配置，不改 DSH 源碼。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
-contract_revision: 見交接 head（本單與 spec 同一 commit）
+contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
 
 ## 1. 識別與角色
