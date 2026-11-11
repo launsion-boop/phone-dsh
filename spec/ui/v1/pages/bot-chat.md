@@ -19,7 +19,7 @@
 
 ## 2. 手机尺寸换算
 
-结构、内容模型、空状态、超限处理和交互照 DSH Bot；视觉值只取 phoneDSH `tokens.json`，不复制桌面 CSS 色值或新增第二套 token；卡片表面本轮明确收紧为 16pt 圆角与 12pt 内距。用户最新明确要求：所有消息卡片必须比此前紧凑，不能呈现为全宽大窗口。
+结构、内容模型、空状态、超限处理和交互照 DSH Bot；视觉值只取 phoneDSH `tokens.json`，不复制桌面 CSS 色值或新增第二套 token；卡片表面本轮明确收紧为 16pt 圆角与 12pt 内距。用户最新明确要求：所有消息卡片必须比此前紧凑，不能呈现为全宽大窗口。卡片标题最多 2 行、摘要最多 2 行；超过时显示「展开」，展开后完整显示，不得用无上限的长文本撑开卡片。
 
 | DSH Bot 桌面语义 | phoneDSH 手机规则 |
 | --- | --- |
@@ -37,7 +37,7 @@
 
 桌面 32px 按钮、28px 密集行、40px 选项行在手机上统一提升到至少 44pt 的可点击区域；视觉图标可以更小，但命中区域不得缩小。question/steps 的选项视觉行高为 44 而非 52，行间 4，选项默认透明，不为每项再套一层厚底卡；recommended 才使用轻 tint、细边和推荐徽标。关闭图形可以紧凑，但命中区仍为 44。
 
-所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
+所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。标题最多 2 行、摘要最多 2 行，超过时提供「展开/收起」；超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
 
 会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
 
@@ -61,6 +61,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
   - 空闲且有文字 → 黑底白色 `arrow.up` 发送（id `bot.composer.send`）；空闲无文字 → 同一位置置灰禁用；
   - 运行中且输入为空 → 停止（id `bot.composer.stop`）；
   - 运行中且有文字 → 发送，文字并入当前回合（id `bot.composer.send`，accessibilityLabel「发送并 steering」）；不会排队。
+  - 输入胶囊下方不显示回合、排队或停止说明文字；按钮行为和 accessibilityLabel 不变。
   TextField 文本与按钮中心对齐；多行 TextField 的回车只换行，不直接发送。**没有麦克风、语音模式或语音入口。**
 - 附件：胶囊左侧 36pt「+」（id `bot.composer.attach`）打开「照片」（`PhotosPicker`，多选）与「文件」（`fileImporter`，`.data`，多选）。选中后在胶囊上方显示横向 chip（类型图标 + 文件名 + 大小/类型 + 移除 ×，id `bot.composer.attachment.<index>`）；每条最多 10 个、单个 ≤ 25 MiB，超限当场提示且不加入。有附件时无文字也可发送；运行中（steering）同样可带附件。发送时先经 `BotAttachmentImporting` 写入该 Bot 的 DSH 工作区，失败的逐个提示「附件「名」未附加：原因」，不阻止其余附件和文字。用户行在正文下方显示附件卡片（名字、大小、类型），复用同一紧凑卡片语言。runtimeNotice、steering 提示保持原功能并与胶囊样式协调。
 - 简洁回复：persona 与 runtime context 必须保留最新简洁回复预算和明确 next-step 文案，不允许为了显示卡片强凑选项；卡片是否提供由 Agent 根据真实下一步价值决定。

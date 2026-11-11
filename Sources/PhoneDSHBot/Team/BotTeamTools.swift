@@ -211,7 +211,7 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             if isTimeout(error) {
                 return .failure("timeout", BotTeamHostError.deliveryTimeout.description)
             }
-            return .failure("execution_failed", "送出失敗：\(failure)")
+            return .failure("execution_failed", "发送失败：\(failure)")
         }
 
         let inbound = BotTeamAgentCommRecord(
@@ -268,8 +268,8 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
         if duplicated { structured["duplicated"] = .bool(true) }
         if delivery == "queued" { structured["status"] = .string("held") }
         let text = delivery == "queued"
-            ? "已扣住給 \(target.name)：訊息會在對方下一個回合開頭交付，不會喚醒對方。"
-            : "已送出給 \(target.name)，回覆稍後以 agent-comm 訊息送達。"
+            ? "已扣住给 \(target.name)：消息会在对方下一个回合开头交付，不会唤醒对方。"
+            : "已发送给 \(target.name)，回复稍后以 agent-comm 消息送达。"
         return .success(.object(structured), text: text)
     }
 
@@ -335,19 +335,19 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                 name: name, description: description, color: color, hairstyle: hairstyle,
                 author: author)
         } catch {
-            return .failure("execution_failed", "建立隊友失敗：\(String(describing: error))")
+            return .failure("execution_failed", "创建队友失败：\(String(describing: error))")
         }
 
-        var text = "已建立隊友「\(created.name)」（agent_id: \(created.id)）"
+        var text = "已创建队友「\(created.name)」（agent_id: \(created.id)）"
         if !description.isEmpty { text += " — \(description)" }
         if let color, let hairstyle {
-            text += "；外觀：顏色=\(color.rawValue)、髮型=\(hairstyle.rawValue)"
+            text += "；外观：颜色=\(color.rawValue)、发型=\(hairstyle.rawValue)"
         } else if let color {
-            text += "；外觀：顏色=\(color.rawValue)"
+            text += "；外观：颜色=\(color.rawValue)"
         } else if let hairstyle {
-            text += "；外觀：髮型=\(hairstyle.rawValue)"
+            text += "；外观：发型=\(hairstyle.rawValue)"
         } else {
-            text += "；外觀：依 Bot ID 自動組合"
+            text += "；外观：按 Bot ID 自动组合"
         }
         text += "。"
         return .success(.object([

@@ -261,7 +261,10 @@ extension BotInfoSnapshot {
                 BotApprovalRecord(
                     id: approval.id,
                     parameterSummary: approval.parameterSummary,
-                    decision: approval.decision == .allow ? "允许" : "拒绝",
+                    decision: BotUIFormat.approvalDecision(
+                        approval.decision == .allow ? "allow" : "deny",
+                        scope: approval.scope,
+                        status: approval.status),
                     decidedAt: Date(timeIntervalSince1970: Double(approval.decidedAtMS) / 1_000))
             },
             grants: snapshot.grants.map { grant in

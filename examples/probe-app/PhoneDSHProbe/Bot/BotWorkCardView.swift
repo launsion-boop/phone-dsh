@@ -318,11 +318,8 @@ private struct BotApprovalCardView: View {
                     .botCardBody()
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if scope == "none" {
-                Text("这个操作只能允许一次，不能设为总是允许。").botCardMeta()
-            }
             if row.body["persistent"]?.bool == true {
-                Text("用户不在场，已转为待办；回来后处理即可，任务会停在原地等你。")
+                Text("用户不在场，已转为待办。")
                     .botCardMeta()
                     .accessibilityIdentifier("bot.approval.persistent")
             }

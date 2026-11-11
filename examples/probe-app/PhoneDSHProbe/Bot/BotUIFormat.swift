@@ -538,3 +538,61 @@ extension BotUIFormat {
         return "UTC\(sign)\(hours):\(String(format: "%02d", minutes))"
     }
 }
+
+// MARK: - Grants and approvals (appended by ui-grc)
+
+extension BotUIFormat {
+    /// Resource summary for one grant/approval operation. Network resources
+    /// keep only the host (`curl https://api.example.test/*` →
+    /// `api.example.test`); every other value delegates to the path-aware
+    /// ``grantResourceSummary(_:)``. The full value survives in the detail view.
+    static func grantResourceSummary(_ resource: String, operation: String) -> String {
+        let value = trimmed(resource)
+        guard !value.isEmpty else { return unknownValue }
+        let normalizedOperation = key(operation)
+        if normalizedOperation == "network-egress" || normalizedOperation.hasPrefix("egress.") {
+            if let host = urlHost(in: value) { return host }
+            if key(value).hasPrefix("host=") { return grantResourceSummary(value) }
+            return "网络资源"
+        }
+        return grantResourceSummary(value)
+    }
+
+    /// Human label for one approval record decision. `scope` only matters for
+    /// an allow; `status` wins for timeout/expiry/cancellation because those
+    /// are recorded as a deny with a separate status.
+    static func approvalDecision(_ decision: String, scope: String? = nil,
+                                 status: String? = nil) -> String {
+        switch key(status ?? "") {
+        case "expired": return "已过期（视为拒绝）"
+        case "timed-out", "timed_out", "timedout", "timeout": return "已超时（视为拒绝）"
+        case "cancelled", "canceled": return "已取消"
+        default: break
+        }
+        let normalizedScope = key(scope ?? "")
+        switch key(decision) {
+        case "allowonce", "allow-once", "allow":
+            switch normalizedScope {
+            case "session": return "本次会话允许"
+            case "until": return "总是允许"
+            default: return "允许一次"
+            }
+        case "always", "allowed":
+            switch normalizedScope {
+            case "session": return "本次会话允许"
+            case "once": return "允许一次"
+            default: return "总是允许"
+            }
+        case "deny", "denied": return "拒绝"
+        default: return unknownValue
+        }
+    }
+
+    private static func urlHost(in value: String) -> String? {
+        guard let range = value.range(of: #"https?://[^\s/]+"#,
+                                      options: [.regularExpression, .caseInsensitive]) else {
+            return nil
+        }
+        return URL(string: String(value[range]))?.host
+    }
+}

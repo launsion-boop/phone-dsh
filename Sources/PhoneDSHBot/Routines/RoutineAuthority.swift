@@ -114,7 +114,7 @@ public struct RoutineChangeAssessment: Sendable, Equatable {
 
 public enum RoutineAuthority {
     /// The fields whose change widens what the routine may do on its own.
-    public static let approvalAction = "更新例行工作授权"
+    public static let approvalAction = "更新例行任务授权"
 
     /// Classify one `UpdateRoutine` request. Parsing errors are left to
     /// `BotRoutineTool.handle`; this function returns `nil` when the caller
@@ -132,7 +132,7 @@ public enum RoutineAuthority {
             return RoutineChangeAssessment(
                 action: .create, routineID: nil, requiresConfirmation: true,
                 resource: "routine:create:\(safeResource(title))",
-                detail: "在新的例行工作「\(title)」创建前确认；它会在没有用户消息的回合里保存可自行触发的目标。")
+                detail: "在新的例行任务「\(title)」创建前确认；它会在没有用户消息的回合里保存可自行触发的目标。")
         case "update":
             let id = try BotRoutineTool.requiredString(args, "routine_id")
             guard let current = try await machine.get(botId: botId, routineId: id) else {
@@ -143,7 +143,7 @@ public enum RoutineAuthority {
             return RoutineChangeAssessment(
                 action: .update, routineID: id, requiresConfirmation: widens,
                 resource: "routine:widen:\(safeResource(id)):\(safeResource(RoutineAuthority.describe(patch)))",
-                detail: "例行工作「\(current.title)」会被放宽：\(describeWidening(current: current, patch: patch, now: now))。")
+                detail: "例行任务「\(current.title)」会被放宽：\(describeWidening(current: current, patch: patch, now: now))。")
         case "resume":
             let id = try BotRoutineTool.requiredString(args, "routine_id")
             guard let current = try await machine.get(botId: botId, routineId: id) else {
@@ -152,7 +152,7 @@ public enum RoutineAuthority {
             return RoutineChangeAssessment(
                 action: .resume, routineID: id, requiresConfirmation: !current.enabled,
                 resource: "routine:resume:\(safeResource(id))",
-                detail: "重新启用暂停的例行工作「\(current.title)」会恢复它的自动触发。")
+                detail: "重新启用暂停的例行任务「\(current.title)」会恢复它的自动触发。")
         default:
             return RoutineChangeAssessment(
                 action: .other, routineID: args["routine_id"]?.stringValue,
@@ -187,7 +187,7 @@ public enum RoutineAuthority {
         if patch.urgent == true, !current.urgent { parts.append("改为紧急") }
         if let schedule = patch.schedule,
            RoutineScheduleMath.isMoreFrequent(schedule, than: current.schedule, now: now) {
-            parts.append("排程更频繁")
+            parts.append("触发更频繁")
         }
         return parts.isEmpty ? "无" : parts.joined(separator: "、")
     }

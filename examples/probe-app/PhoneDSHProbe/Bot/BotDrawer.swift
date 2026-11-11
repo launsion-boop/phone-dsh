@@ -242,7 +242,7 @@ struct BotDrawer: View {
             Button("取消", role: .cancel) { deleteEntry = nil }
             Button("删除", role: .destructive) { performDelete() }
         } message: {
-            Text("会中止运行中的回合、拒绝待审批、撤销授权、归档 DSH 会话，并删除这个 Bot 的记忆、例行任务和待处理消息。此操作不可撤销，至少保留一个 Bot。")
+            Text("删除会中止运行、拒绝待审批、撤销授权、归档会话，并清除这个 Bot 的记忆、例行任务和待处理消息，无法撤销。")
         }
     }
 
@@ -523,8 +523,6 @@ struct BotManageList: View {
                     }
                 } header: {
                     Text("全部 Bot")
-                } footer: {
-                    Text("隐藏的 Bot 只在这里出现；取消隐藏后回到 Bot 列表。至少保留一个 Bot。")
                 }
 
                 if let message = roster.actionError ?? actionError {
@@ -559,7 +557,7 @@ struct BotManageList: View {
                 Button("取消", role: .cancel) { deleteEntry = nil }
                 Button("删除", role: .destructive) { performDelete() }
             } message: {
-                Text("会中止运行中的回合、拒绝待审批、撤销授权、归档 DSH 会话，并删除这个 Bot 的记忆、例行任务和待处理消息。此操作不可撤销，至少保留一个 Bot。")
+                Text("删除会中止运行、拒绝待审批、撤销授权、归档会话，并清除这个 Bot 的记忆、例行任务和待处理消息，无法撤销。")
             }
         }
     }
@@ -593,7 +591,8 @@ struct BotManageList: View {
                 Text(entry.description.isEmpty ? "还没有描述" : entry.description)
                     .font(.system(size: 12.5))
                     .foregroundStyle(HomeSpec.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
             Menu {

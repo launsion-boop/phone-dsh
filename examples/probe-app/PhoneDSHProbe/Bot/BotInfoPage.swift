@@ -542,11 +542,6 @@ struct BotInfoPage: View {
     @State private var deleting = false
     @State private var deleteError: String?
 
-    /// Shared with the capture-only `infoPresence` fixture so its screenshot
-    /// shows the production copy instead of a fixture explanation.
-    static let presenceFooter = "App 在前台时功能完整；退到后台后会尽量保持运行，被系统挂起后仍会按已登记的时间提醒。"
-    static let disruptionFooter = "设置对所有 Bot 生效。开启勿扰会暂停主动提醒；安静时段内非紧急提醒会延后，紧急提醒仍会送达。"
-
     init(model: BotInfoModel, isMainBot: Bool = false,
          initialSection: BotInfoSection? = nil,
          highlightRoutineID: String? = nil,
@@ -617,24 +612,18 @@ struct BotInfoPage: View {
                         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                 } header: {
                     Text("外观")
-                } footer: {
-                    Text("点选即保存。")
                 }
 
                 Section {
                     BotPresenceSection(model: model)
                 } header: {
                     Text("在场")
-                } footer: {
-                    Text(Self.presenceFooter)
                 }
 
                 Section {
                     BotDisruptionSection(model: model)
                 } header: {
                     Text("打扰")
-                } footer: {
-                    Text(Self.disruptionFooter)
                 }
 
                 Section("数据") {
@@ -689,8 +678,6 @@ struct BotInfoPage: View {
                         }
                     } header: {
                         Text("危险操作")
-                    } footer: {
-                        Text("删除会停止正在进行的运行、拒绝待审批、撤销授权并清除这个 Bot 的记忆，无法撤销。至少保留一个 Bot。")
                     }
                 }
             }
@@ -748,7 +735,7 @@ struct BotInfoPage: View {
                 }
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("删除后不能从页面内撤销。最后一个 Bot 不能删除。")
+                Text("删除会中止运行、拒绝待审批、撤销授权、归档会话，并清除这个 Bot 的记忆、例行任务和待处理消息，无法撤销。")
             }
         }
     }
@@ -852,14 +839,11 @@ private struct BotMemoryPage: View {
                 } header: {
                     Text("后台整理")
                 } footer: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("默认关闭。开启后，Bot 会在你不聊天时整理记忆；整理失败不会改动现有内容。")
-                        if let budget = maintenanceBudgetText {
-                            Text(budget)
-                                .foregroundStyle(maintenanceBudgetExhausted
-                                                 ? BotUIPalette.danger : HomeSpec.textTertiary)
-                                .accessibilityIdentifier("bot.memory.maintenance.budget")
-                        }
+                    if let budget = maintenanceBudgetText {
+                        Text(budget)
+                            .foregroundStyle(maintenanceBudgetExhausted
+                                             ? BotUIPalette.danger : HomeSpec.textTertiary)
+                            .accessibilityIdentifier("bot.memory.maintenance.budget")
                     }
                 }
                 if let batch = model.maintenance {
@@ -874,13 +858,11 @@ private struct BotMemoryPage: View {
                     memorySection(
                         title: "本 Bot 的记忆",
                         documents: botDocuments,
-                        root: "agent",
-                        footer: "这份记忆只属于这个 Bot，其他 Bot 看不到。")
+                        root: "agent")
                     memorySection(
                         title: "所有 Bot 共享的记忆",
                         documents: sharedDocuments,
-                        root: "user",
-                        footer: "所有 Bot 共享、彼此可见。")
+                        root: "user")
                     erasureSection
                 }
             }
@@ -917,7 +899,7 @@ private struct BotMemoryPage: View {
             Button("抹除这个 Bot 的记忆", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除。所有 Bot 共享的记忆不受影响。此操作不可撤销。")
+            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销。")
         }
         .confirmationDialog("抹除所有 Bot 共享的记忆？", isPresented: $confirmShared) {
             Button("继续", role: .destructive) {
@@ -928,13 +910,13 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除。此操作不可撤销。")
+            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销。")
         }
         .confirmationDialog("最后确认：抹除全部共享记忆？", isPresented: $confirmSharedAgain) {
             Button("抹除共享记忆", role: .destructive) { Task { await model.eraseShared() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除。此操作不可撤销。")
+            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销。")
         }
     }
 
@@ -969,19 +951,7 @@ private struct BotMemoryPage: View {
             }
         } header: {
             Text("危险操作")
-        } footer: {
-            Text(erasureFooter)
         }
-    }
-
-    private var erasureFooter: String {
-        if sharedDocuments.isEmpty {
-            return "抹除会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，无法撤销。"
-        }
-        if botDocuments.isEmpty {
-            return "抹除会永久删除所有 Bot 共享的记忆和全部历史版本，相关内容也会从旧对话里移除，无法撤销。"
-        }
-        return "抹除会永久删除文档和全部历史版本，相关内容也会从旧对话里移除，无法撤销。共享记忆被抹除后，所有 Bot 都会失去这些内容。"
     }
 
     @ViewBuilder
@@ -1032,10 +1002,6 @@ private struct BotMemoryPage: View {
             }
         } header: {
             Text("上次整理")
-        } footer: {
-            Text(batch.rolledBack
-                 ? "这一批已整批回滚，历史仍保留在记录里。"
-                 : "只显示最近一次整理。")
         }
     }
 
@@ -1086,8 +1052,7 @@ private struct BotMemoryPage: View {
     private func memorySection(
         title: String,
         documents: [BotMemoryDocumentInfo],
-        root: String,
-        footer: String
+        root: String
     ) -> some View {
         Section {
             if documents.isEmpty {
@@ -1102,8 +1067,6 @@ private struct BotMemoryPage: View {
             }
         } header: {
             Text(title)
-        } footer: {
-            Text(footer)
         }
     }
 
@@ -1150,7 +1113,7 @@ private struct BotMemoryTreeRowView: View {
     }
 }
 
-private struct BotMemoryDocumentView: View {
+struct BotMemoryDocumentView: View {
     let document: BotMemoryDocumentInfo
     let onForget: () -> Void
     let onErase: () -> Void
@@ -1191,7 +1154,7 @@ private struct BotMemoryDocumentView: View {
 
             Section {
                 if document.evidence.isEmpty {
-                    Text("没有来源引用：这是这个 Bot 的推断或直接写入的内容。")
+                    Text("没有来源引用。")
                         .foregroundStyle(HomeSpec.textSecondary)
                 } else {
                     DisclosureGroup {
@@ -1258,8 +1221,6 @@ private struct BotMemoryDocumentView: View {
                 }
                 .buttonStyle(BotDestructiveButtonStyle())
                 .accessibilityIdentifier("bot.memory.document.erase")
-            } footer: {
-                Text("忘记只移除当前版本，历史版本仍保留。抹除会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，无法撤销。")
             }
         }
         .confirmationDialog("抹除这份文档？", isPresented: $confirmErase) {
@@ -1269,7 +1230,7 @@ private struct BotMemoryDocumentView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除。共享记忆的其他文档不受影响。此操作不可撤销。")
+            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销。")
         }
         .homeGroupedList()
         .navigationTitle(document.fileName)
@@ -1465,7 +1426,7 @@ private struct BotRoutinesPage: View {
     }
 
     private var routineFreeTextSummary: String {
-        "原文包含执行提示，展开「详情」可查看。"
+        "原文包含执行提示。"
     }
 
     @ViewBuilder
@@ -1709,39 +1670,69 @@ private struct BotGrantsPage: View {
     @ViewBuilder
     private var loadedContent: some View {
             if model.grants.isEmpty {
-                Text("还没有常设授权。一次性授权只在执行时有效，不会出现在这里。")
+                Text("还没有常设授权。")
                     .foregroundStyle(HomeSpec.textSecondary)
             } else {
                 Section {
                     ForEach(model.grants) { grant in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(grant.tool)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(BotUIFormat.grantOperationTitle(grant.operation))
                                     .botTitleFont()
                                     .foregroundStyle(HomeSpec.textPrimary)
-                                Spacer()
-                                BotStatusPill(text: grant.scope, tone: .neutral)
+                                Spacer(minLength: 8)
+                                BotStatusPill(text: BotUIFormat.grantScope(grant.scope), tone: .neutral)
                             }
-                            Text("\(grant.operation) · \(grant.resource)")
-                                .botCaptionFont()
+                            Text(BotUIFormat.grantResourceSummary(
+                                grant.resource, operation: grant.operation))
+                                .botSecondaryFont()
                                 .foregroundStyle(HomeSpec.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text("来源：\(grant.source) · \(BotUIFormat.dateTime(grant.createdAt))")
+                            Text("来源：\(BotUIFormat.grantSource(grant.source)) · \(BotUIFormat.dateTime(grant.createdAt))")
                                 .botCaptionFont()
                                 .foregroundStyle(HomeSpec.textTertiary)
+                            DisclosureGroup("详情") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    grantDetailRow("工具", grant.tool)
+                                    grantDetailRow("操作", grant.operation)
+                                    grantDetailRow("完整资源", grant.resource)
+                                    if let sessionID = grant.sessionID, !sessionID.isEmpty {
+                                        grantDetailRow("会话", sessionID)
+                                    }
+                                }
+                                .padding(.top, 4)
+                            }
+                            .font(.system(size: 13))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .accessibilityIdentifier("bot.grant.detail.\(grant.id)")
+                            Rectangle()
+                                .fill(HomeSpec.borderList)
+                                .frame(height: 0.5)
                             Button("撤销这条授权", role: .destructive) {
                                 Task { await model.revocation(of: grant) }
                             }
-                            .buttonStyle(BotTextButtonStyle())
-                            .botHitTarget()
+                            .buttonStyle(BotDestructiveButtonStyle())
                             .accessibilityIdentifier("bot.grant.revoke.\(grant.id)")
                         }
                         .padding(.vertical, 4)
                     }
-                } footer: {
-                    Text("撤销后，同一操作需要重新审批；常设授权只属于这个 Bot。")
                 }
             }
+    }
+
+    /// The raw identifiers, full path/URL and session id stay folded here so
+    /// the main row can stay readable. Values remain selectable for support.
+    private func grantDetailRow(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .botCaptionFont()
+                .foregroundStyle(HomeSpec.textTertiary)
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -1837,11 +1828,11 @@ private struct BotApprovalHistoryPage: View {
                                 .botBodyFont()
                                 .foregroundStyle(HomeSpec.textPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            HStack {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(record.decision)
                                     .botSecondaryFont(weight: .medium)
                                     .foregroundStyle(HomeSpec.textSecondary)
-                                Spacer()
+                                Spacer(minLength: 8)
                                 Text(BotUIFormat.dateTime(record.decidedAt))
                                     .botCaptionFont()
                                     .foregroundStyle(HomeSpec.textTertiary)
