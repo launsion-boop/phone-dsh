@@ -1102,3 +1102,32 @@ struct LicensesPage: View {
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RenderedOrderDepthTest(unittest.TestCase):
+    """A long chain of staged `some View` members (body -> stage1 -> ... -> stageN) is
+    still reachable: splitting `body` to help the type checker must not turn rendered
+    members into dead code. Regression for the ChatPage type-check split (12 levels)."""
+
+    def test_deep_member_chain_is_reachable(self) -> None:
+        depth = 12
+        stages = "\n".join(
+            f"    private var stage{i}: some View {{ stage{i + 1} }}" for i in range(1, depth)
+        )
+        swift = f'''import SwiftUI
+struct DeepPage: View {{
+    var body: some View {{ stage1 }}
+{stages}
+    private var stage{depth}: some View {{ Text("deep") }}
+}}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_path = root / "examples/probe-app/PhoneDSHProbe/DeepPage.swift"
+            source_path.parent.mkdir(parents=True)
+            source_path.write_text(swift, encoding="utf-8")
+            source = E.Source(source_path, root)
+            _decl, start, end = E.find_page_struct(source, "DeepPage")
+            members = E.members_of(source, start + 1, end)
+            _order, reachable = E.rendered_order(source, members)
+        self.assertIn(f"stage{depth}", reachable)

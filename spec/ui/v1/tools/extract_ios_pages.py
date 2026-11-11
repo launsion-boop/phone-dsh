@@ -504,7 +504,9 @@ def rendered_order(source: Source, members: dict) -> tuple:
     order, seen = [], {"body"}
 
     def walk(name: str, depth: int) -> None:
-        if depth > 8:
+        # Recursion guard only (`seen` already stops cycles). Staged `some View`
+        # members split for the type checker nest deeper than 8 (ChatPage).
+        if depth > 32:
             return
         member = members[name]
         span = source.masked[member["body_start"]: member["body_end"]]

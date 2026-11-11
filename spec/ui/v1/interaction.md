@@ -63,7 +63,7 @@
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
-| `defaultDetents` | `default`（系統默認 large） | `ChatPage.swift:479` |
+| `defaultDetents` | `default`（系統默認 large） | `ChatPage.swift:496` |
 | `mediumFraction` | 系統比例，`needsDeviceMeasure` | 系統 API，源碼不可讀 |
 | `detentSets` | `default` / `medium` / `medium+large` / `large` 四組 | 四個站點，見 tokens |
 | `pageDetents` | 13 個顯式站點 → detent 組 | 13 個 `.presentationDetents` 站點 |
@@ -97,12 +97,12 @@
 
 | surface | 出處 | 項目（依序） |
 |---|---|---|
-| `drawerFolder` | `HomeDrawer.swift:465` | 在這裡新建會話；重命名（foldersEnabled）；刪除文件夾（destructive，foldersEnabled） |
-| `drawerSession` | `HomeDrawer.swift:565` | 編輯名稱；歸檔 |
+| `drawerFolder` | `HomeDrawer.swift:467` | 在這裡新建會話；重命名（foldersEnabled）；刪除文件夾（destructive，foldersEnabled） |
+| `drawerSession` | `HomeDrawer.swift:567` | 編輯名稱；歸檔 |
 | `subagentRow` | `NativeSubagentCatalogSheet.swift:250` | 打開子會話（notExternal）；在側邊欄打開（hasAside） |
-| `userBubble` | `ChatPage.swift:4279` | 複製；分享（share，hasText） |
-| `assistantBody` | `ChatPage.swift:4291` | 複製全文（hasText） |
-| `disclosurePayload` | `ChatPage.swift:5098` | 複製事件數據 |
+| `userBubble` | `ChatPage.swift:4313` | 複製；分享（share，hasText） |
+| `assistantBody` | `ChatPage.swift:4325` | 複製全文（hasText） |
+| `disclosurePayload` | `ChatPage.swift:5132` | 複製事件數據 |
 | `botLink` | `BotWorkCardView.swift:224` | 打開鏈接；複製鏈接 |
 | `botRow` | `BotDrawer.swift:324` | 改名；外觀；設為主 Bot（notMainBot）；隱藏／取消隱藏；分隔線；刪除 Bot（destructive，notLastBot）或「這是最後一個 Bot，不能刪除。」（info，lastBot） |
 | `botMessageRow` | `BotChatPage.swift:758` | 複製；查看來源 |
@@ -146,17 +146,17 @@
 5. 尺寸 36 pt 圓鈕（`geometry.sendButton`），點擊區域就是圓；`disabled` 時不得提交。
 6. 停止鍵與發送鍵不共享 transition：停止鍵出現/消失不動畫，發送鍵的 scale/opacity 只管自己。
 7. 無障礙標籤逐字照抄：發送鍵未運行時「发送消息」，運行中 steer 時「补充当前任务」、queue 時「排入下一轮」
-   （`sendButtonLabel`，`ChatPage.swift:3150-3153`）；停止鍵「停止执行」／正在停止時「正在停止」。
+   （`sendButtonLabel`，`ChatPage.swift:3183-3186`）；停止鍵「停止执行」／正在停止時「正在停止」。
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
-| `motion` | `motion.composerSend`（120 ms easeOut） | `ChatPage.swift:2462` |
-| `transitionScale` | 0.8 | `ChatPage.swift:2461` |
-| `transitionOpacity` | 從 0（`.opacity`） | `ChatPage.swift:2461` |
+| `motion` | `motion.composerSend`（120 ms easeOut） | `ChatPage.swift:2494` |
+| `transitionScale` | 0.8 | `ChatPage.swift:2493` |
+| `transitionOpacity` | 從 0（`.opacity`） | `ChatPage.swift:2493` |
 | `buttonSize` | `geometry.sendButton`（36 pt） | `HomeSpec.swift:72` |
-| `enabledFill` / `enabledInk` | `colors.primaryButton` / `colors.primaryButtonInk` | `ChatPage.swift:2454-2456` |
-| `disabledFill` / `disabledInk` | `colors.userBubble` / `colors.iconMuted` | `ChatPage.swift:2454-2456` |
-| `disabledRule` / `stopRule` | `canSubmit` / `!canSubmit && model.turnRunning` | `ChatPage.swift:2460` / `2448` |
+| `enabledFill` / `enabledInk` | `colors.primaryButton` / `colors.primaryButtonInk` | `ChatPage.swift:2486-2488` |
+| `disabledFill` / `disabledInk` | `colors.userBubble` / `colors.iconMuted` | `ChatPage.swift:2486-2488` |
+| `disabledRule` / `stopRule` | `canSubmit` / `!canSubmit && model.turnRunning` | `ChatPage.swift:2492` / `2448` |
 
 ## 6. 按壓態
 
@@ -171,18 +171,18 @@
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
-| `motion` | `motion.pressed`（120 ms easeOut） | `HomeDrawer.swift:694/707` |
-| `pillOverlay` / `pillOverlayColor` | 0.06 / 黑 | `HomeDrawer.swift:693` |
-| `rowFill` / `rowFillOpacity` | `colors.userBubble` / 0.7 | `HomeDrawer.swift:706` |
+| `motion` | `motion.pressed`（120 ms easeOut） | `HomeDrawer.swift:696/707` |
+| `pillOverlay` / `pillOverlayColor` | 0.06 / 黑 | `HomeDrawer.swift:695` |
+| `rowFill` / `rowFillOpacity` | `colors.userBubble` / 0.7 | `HomeDrawer.swift:708` |
 | `primaryPressedOpacity` / `primaryDisabledOpacity` | 0.8 / 0.25 | `HomeSpec.swift:241` / `240` |
-| `scale` | 1.0（no scaling） | `HomeDrawer.swift:689` |
+| `scale` | 1.0（no scaling） | `HomeDrawer.swift:691` |
 
 ## 7. 折疊
 
 `tokens.json#interaction.disclosure`，`golden/disclosure-motion.golden.json` 由三個 motion token 重算時長與曲線。
 
 1. 折疊內容（過程行、工具卡、變更檔、佇列、事件資料等）展開／收合用 `motion.disclosure`（160 ms easeOut）。
-2. 抽屜文件夾分組用 `motion.folderCollapse`（180 ms easeOut），`HomeDrawer.swift:460` 一次動畫覆蓋整組的插入/移除。
+2. 抽屜文件夾分組用 `motion.folderCollapse`（180 ms easeOut），`HomeDrawer.swift:462` 一次動畫覆蓋整組的插入/移除。
 3. 子代理 chevron 旋轉用 `motion.chevron`（120 ms easeInOut）；chevron 只旋轉 0→90°，不改變 row 高度。
 4. 一次點擊只切換一次狀態；整個折疊 body 作為一個單位做高度/透明度動畫，不做逐列 stagger。
 5. 系統關閉動畫（Android animator duration scale 0、iOS `reduceMotion` 站點）時直接落位（`reducedMotion: snap`），
@@ -192,7 +192,7 @@
 | 鍵 | 值 | 出處 |
 |---|---|---|
 | `bodyMotion` | `motion.disclosure`（160 ms easeOut） | `NativeMessageRows.swift:31` |
-| `folderMotion` | `motion.folderCollapse`（180 ms easeOut） | `HomeDrawer.swift:460` |
+| `folderMotion` | `motion.folderCollapse`（180 ms easeOut） | `HomeDrawer.swift:462` |
 | `chevronMotion` | `motion.chevron`（120 ms easeInOut） | `NativeSubagentCatalogSheet.swift:267` |
 | `reducedMotion` | `snap` | `NativeQuestionComposer.swift:627` |
 
