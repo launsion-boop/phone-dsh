@@ -5,15 +5,15 @@
 ```yaml
 change: PC-20261112-pclink-android
 contracts: [P28, P09, P18, P08, P12]
-status: draft
+status: frozen
 breaking: false
 version_decision: 不改 wire／版本；PCLink 仍是 pclink-v1.6，Android 是同一批 v1.6 位元組的第二個 phone 實作。本次只加平台映射、身分儲存措辭、驗收命令與一列相容性，無新欄位、新 capability、新錯誤碼或新 frame
 base: 56e7b6ceb5e66bcce72e7e6be53c5df674b22927
-contract_revision: 尚未凍結；由 P28 contract owner 套用 §2 後填 spec/pclink/v1/README.md@<rev>
+contract_revision: cb0bfd279baa1144c12e68d56f88b41087a2081a
 ```
 
-本單是 **draft**（AGENTS.md §3.1 的 contract freeze 之前一步）。它只描述差異與要套用的文字，
-不修改 `spec/**`；owner 套用後才成為 frozen revision。實作在
+本單原為 **draft**（AGENTS.md §3.1 的 contract freeze 之前一步）；P28 contract owner 已套用
+§2 條款與 §4 platform 條目，現在是 frozen revision（見 §7）。實作在
 [`docs/design/android-pclink-port.md`](../design/android-pclink-port.md) 的 C0–C5 檢查點。
 
 ## 1. 識別與角色
@@ -433,8 +433,16 @@ Until the owner rules, C2 implements the v1.6 path and the timeout+upgrade
 hint only; it MUST NOT display a fingerprint card or auto-delete the record.
 ```
 
-**Status:** open. This is the only contract-level blocker found; it does not
-block C1/C3/C4, and C2's happy path (v1.6 PC) is unaffected.
+**Status: resolved — option (a).** Owner decision: a v1.6 client does not
+support a new pairing with a pre-v1.6 PC; it reports the 120 s approval timeout
+with an upgrade hint for the PC plugin, and an already-paired v1.5 record keeps
+working (same E2E bytes). Reason: the pre-v1.6 PC still requires a
+phone-displayed fingerprint, while §4.6 forbids the v1.6 pairing page from
+showing one, so the old exchange always ends in that timeout. This writes down
+what iOS already does; there is no iOS code change and §4.6 is unchanged. The
+§11 row is replaced accordingly in this revision. C2 implements the timeout +
+upgrade hint only; it MUST NOT display a fingerprint card or auto-delete the
+record.
 
 ## 3. 相容性與發佈
 
@@ -465,6 +473,7 @@ owner 裁決的是 §2.3 的 pre-v1.6 PC 配對（UI/相容，不是 wire）。
 | **Android v1.6 → relay v1（現有）** | 支援。`peer.auth`、`relay.allow`、`relay.offline`、心跳/關閉碼完全不變；relay 只看到另一個 `role:"phone"`。測試：C3 的 `FakeRelay` + 本機真實 relay 的 `relay/pair` 流程（C4）。 |
 | **Android v1.6 → PC plugin v1.6（main）** | 支援。QR 與 manual 配對、E2E、`workspace/1`、chunk、rekey、replay 全部走既有 golden；PC 的 `approvedVia:"qr"\|"manual"`、`pairingMode` 由 PC/phone 各自記錄。測試：C2 的 `FakePc` + C4 的 in-memory transport；真實 `dsh web` 整合屬裝置階段。 |
 | **Android v1.6 → PC plugin v1.5（已部署）** | **已配對的 E2E 支援**（bytes 相同；PC 的 legacy `cli\|webui` record 仍可用）；**新的 compare-the-phone 配對不支援**，見 CCR-1。Android 不得顯示指紋卡；逾時顯示升級提示。測試：C2 的 timeout/拒絕/已配對 record 三條。 |
+| **new client (v1.6) → pre-v1.6 PC** | **新的配對不支援。** Client 回報 120 s approval timeout 並提示升級 PC plugin；已配對的 v1.5 record 仍可用（same E2E bytes）。理由：pre-v1.6 PC 要求 operator 輸入 phone-displayed fingerprint，而 v1.6 client 依 §4.6 不顯示 fingerprint。測試：C2 的 timeout／已配對 record 兩條。 |
 | **iOS v1.6 → PC（現有）** | 不變。本單不動 iOS。 |
 | **Android ↔ iOS** | 無直接鏈路；兩者都是同一 PC 的 phone，PC 最多 1024 條 record。Android 必須顯示 `pclink.notice{kind:"paired"}`；PC 對其他 phone 的 notice 行為不變。測試：C4/C5 的 notice 顯示。 |
 | **old → new（Android 首次發佈）** | Android 先前沒有任何 PCLink 資料；沒有 migration。App 既有的 P18 手機鍵不受影響；新的 PC scope 鍵是新增。 |
@@ -542,7 +551,7 @@ checker 常數。
 
 檢查點、owned paths、goldens、命令與大小的完整版在
 [`docs/design/android-pclink-port.md`](../design/android-pclink-port.md) §6。這裡只列
-contract-owner 需要知道的邊界：
+contract-owner 需要知道的邊界。C0 正由平行 worker 進行中；本凍結不等待 C0 落地。
 
 | 檢查點 | Owner | 獨占路徑（摘要） | 主要 goldens | 命令 → 期望 |
 | --- | --- | --- | --- | --- |
@@ -599,3 +608,4 @@ C4 的 `FakePc` 必須跑真實 `PclinkE2e`；C5 的頁面測試用 fake state�
 | revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
 | --- | --- | --- | --- |
 | draft-1 | 本單作者（非 owner） | 初稿：Android 納入 P28 的條款、P18/P09 提升清單、platform 三條、C0–C5 分工；提出 CCR-1（pre-v1.6 PC 配對） | P28 owner、P09/P18/P08/P12 owner、Android parity |
+| frozen-1 | P28 contract owner（contract revision `cb0bfd27`） | Owner applied §2.1 and CCR-1 option (a): v1.6 client 不支援與 pre-v1.6 PC 的新配對（回報 120 s timeout + 升級提示），已配對 v1.5 record 仍可用；wire／版本不變（`pclink-v1.6`）；Android 維持 `target`／in progress，未宣告 conformance | P09/P18/P08/P12 owner、Android parity、iOS/PC/relay |
