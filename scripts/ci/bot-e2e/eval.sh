@@ -341,6 +341,60 @@ fi
 cat "$RESOLVE_BUNDLE_LOG"
 mkdir -p "$WWW/lazy"
 
+# An eval-only context profile is applied to a derived copy of the packed
+# image. The production image and plugins/profile/phone.worker.cordis.patch.yml
+# stay untouched; the derived file changes only home/cordis.patch.yml. The
+# catalog names the profile and context-profiles.json holds its values.
+CONTEXT_PROFILE="$("$PYTHON" - "$PLAN" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        plan = json.load(handle)
+except Exception:
+    raise SystemExit(1)
+value = plan.get("context_profile")
+print(value if isinstance(value, str) else "")
+PY
+)" || not_run "could not read the plan's context profile"
+
+if [ -n "$CONTEXT_PROFILE" ]; then
+  CONTEXT_CACHE="${PDSH_BOT_EVAL_BUILD_DIR:-$BASE/pdsh-bot-eval-build}/context-images"
+  mkdir -p "$CONTEXT_CACHE"
+  CONTEXT_KEY="$("$PYTHON" - "$HERE/context-profiles.json" "$HERE/context-image.py" \
+      "$IMAGE" "$CONTEXT_PROFILE" <<'PY'
+import hashlib, sys
+digest = hashlib.sha256()
+for path in sys.argv[1:4]:
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    digest.update(b"\0")
+digest.update(sys.argv[4].encode())
+print(digest.hexdigest()[:24])
+PY
+)" || not_run "could not compute the context profile cache key"
+  CONTEXT_IMAGE="$CONTEXT_CACHE/image-$CONTEXT_PROFILE-$CONTEXT_KEY.tar.gz"
+  CONTEXT_EVIDENCE="$CONTEXT_CACHE/image-$CONTEXT_PROFILE-$CONTEXT_KEY.json"
+  rm -f "$RESULTS/context-profile.log"
+  if [ ! -f "$CONTEXT_IMAGE" ] || [ ! -f "$CONTEXT_EVIDENCE" ]; then
+    echo "bot-eval: applying eval context profile $CONTEXT_PROFILE to a derived image"
+    "$PYTHON" "$HERE/context-image.py" \
+      --profiles "$HERE/context-profiles.json" \
+      --profile "$CONTEXT_PROFILE" \
+      --source-image "$IMAGE" \
+      --out "$CONTEXT_IMAGE" \
+      --evidence "$CONTEXT_EVIDENCE" \
+      > "$RESULTS/context-profile.log" 2>&1 \
+      || not_run "context profile $CONTEXT_PROFILE could not be applied (see $RESULTS/context-profile.log)"
+    cat "$RESULTS/context-profile.log"
+  else
+    echo "bot-eval: reusing eval context image $CONTEXT_IMAGE"
+    echo "bot-eval: reused eval context image $CONTEXT_IMAGE" > "$RESULTS/context-profile.log"
+  fi
+  cp "$CONTEXT_EVIDENCE" "$RESULTS/context-profile.json"
+  IMAGE="$CONTEXT_IMAGE"
+fi
+
 AVAILABLE="$(disk_available_gib)"
 if [ -n "$AVAILABLE" ] && [ "$AVAILABLE" -lt 8 ]; then
   not_run "only ${AVAILABLE} GiB available; refusing to build (minimum 8 GiB)"
