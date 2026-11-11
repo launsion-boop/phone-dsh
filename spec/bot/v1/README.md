@@ -21,7 +21,7 @@
 
 phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json`（`schemaVersion: 3`）和 `runtime-settings.json` 的 `mainAgentId`；每个 Bot 有独立的 DSH 会话、记忆、例行任务、授权、held inbox 与未读计数。首个 Bot 成为主 Bot；主 Bot 是指针，不是记录字段。删除主 Bot 时指针移到剩余第一个 Bot；隐藏的 Bot 仍留在名册，但不进入模型可见的工具描述。
 
-- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在线程链路中也按环路拒绝。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
+- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在同一条**进行中的**转交链上也按环路拒绝。转交链只描述一次进行中的转交：`now` 的对方回合结束后释放，`queued` 在目标消费该 held 项时释放；对方回复写回发送方的 `agent-held` 项是这次转交的结束通知，不是新的转交，不给发送方安装链。真环（A→B→A 仍在同一条进行中的链里）仍拒绝，错误文案用 Bot 名字而不是内部 id。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
 - `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 字符，`description` 截 300，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。没有用户消息来源的回合（见 §4.1）调用时必须先经现有审批卡确认；确认后宿主把作者（`rpcId`/`turnId`/`origin`/`authorization`/`approvalID`）写入 `ui.system_event{event:"teammate.created"}` 的 durable 记录，描述随 Bot 资料保存。用户回合的记录同样写入，`authorization:"user-turn"` 且没有 `approvalID`。
 - 行：发送方 `outbound`/`inbound`、目标 `incoming`/`reply` 都使用上游 `toAgent`/`fromAgent`/`agentComm{direction,…}` 与 `threadId = <rowID>@<seq>:agent-comm`；发送方交换按 `summarizeCommRows` 汇总为 `single`/`fanout`/`thread`。
 - `agent.comm` 是 P27 的 additive UI event type，也是 P25 的 additive durable event；outbound/inbound 都写入 `origin = local/comm-service`。契约冻结见 [PC-20261111-bot-agent-comm-envelope](../../../docs/protocol-changes/PC-20261111-bot-agent-comm-envelope.md)。
@@ -151,6 +151,8 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 **行与 App 入口。** pending 仍由既有 durable `approval.requested` 投影为消息流里的审批卡（UI 权威规则见 [bot-chat.md](../../ui/v1/pages/bot-chat.md)），重启后重新投影为 pending；抽屉/头像的待处理计数来自同一事件差集。宿主为持久待办预登记一条本地通知（标识 `approval-pending:<botId>:<approvalID>`，触达深链回到该审批卡），决定、过期或 Bot 删除时撤销；这条通知不是新的 wire 事件。
 
+**回执与实际决定一致。** 审批卡的决定回执必须对应用户实际按下的按钮：允许一次显示「已允许一次」；`decision=always` 且 `alwaysScope=session` 显示「本次对话都允许」；`decision=always` 且 `alwaysScope=until` 显示「已总是允许」；拒绝、超时、过期、取消各自显示对应结果。`RequestApproval` 的工具结果在既有 `allowed`/`decision` 之外追加可选 `approvalDecision`（`allowOnce|always|deny`）和 `scope`（`once|session|until`），供行投影区分一次性与常设授权；缺省时按既有字段回退为一次性允许/拒绝，旧读者不受影响。UI 共享向量见 [golden/row-protocol.phone.json](golden/row-protocol.phone.json) 的 `approvalReceipts`。
+
 **兼容。** 本修订只追加事件字段与自由文本状态值，不新增事件类型、HTTP 路由或 JSON-RPC 方法。旧读者把 `waiting_approval`/`waiting-approval`/`denied` 当未知状态保守显示，把 pending approval 按既有审批卡显示；旧 App 与旧 Worker 的 300 秒混合行为不获得持久语义。持久审批只由新 App + 新 Worker 提供。
 
 ### 2.8 Task 交付终态与独立验证（S3）
@@ -195,6 +197,9 @@ DSH 会把祖先作用域的过滤器也应用到祖先自己注册的工具上�
 受限会话的 `bash` 仍走与普通 Bot 相同的身份登记；可用性 liveness 的证据是宿主签发并已认领的
 session token，按同一份 `restricted-session` 保留前缀解析，不能依赖已被 allow-list 隐藏的
 `BotVolatileContext` 工具（否则 verifier 的只读 bash 会在登记前被拒，读不到 `phone record`）。
+宿主即使没有链接 Rust `pdsh-shell`，只要装配了 Swift 侧只读 `phone record` 桥，就必须把
+`accelerator:phone` 放进 HELLO 并让该桥接住 `PDSH_TOOL_CALL_SESSION`；否则 verifier 的提示词
+承诺了一个 shell 里 `not-available` 的命令，证据条件只能得到 `uncertain`。
 volatile 注入也在同一处按“创建头或保留前缀”排除两种会话。两类会话
 的差别只有工具白名单与 bash 规则，不存在第二套 guard。即使 preset 作用域没有生效，全局
 guard 也只允许同一白名单。普通 Session 的创建头也会记录控制器默认 preset（例如 `standard`），

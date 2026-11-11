@@ -113,6 +113,16 @@ final class BotCardPayloadTests: XCTestCase {
         XCTAssertEqual(steps[0]["style"], .string("danger"))
     }
 
+    func testPlainDocumentUsesAChineseTypeLabelWithoutDuplication() throws {
+        let built = try BotCardPayloads.build(tool: "show_document", arguments: .object([
+            "path": .string("/dsh/workspace/.dshbot/agents/main/notes/sim-int-2-f.md"),
+            "kind": .string("document"),
+        ]))
+        XCTAssertEqual(built["card"]?["docKind"], .string("document"))
+        XCTAssertEqual(built["card"]?["docTypeLabel"], .string("文档"))
+        XCTAssertEqual(built["card"]?["title"], .string("sim-int-2-f.md"))
+    }
+
     func testContentCardFinalIsAcceptedValidatedAndStripped() throws {
         let cases: [(String, [String: BotJSONValue])] = [
             ("show_progress", ["title": .string("Wrap up"), "state": .string("done")]),

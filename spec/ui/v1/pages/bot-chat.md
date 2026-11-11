@@ -37,7 +37,7 @@
 
 桌面 32px 按钮、28px 密集行、40px 选项行在手机上统一提升到至少 44pt 的可点击区域；视觉图标可以更小，但命中区域不得缩小。question/steps 的选项视觉行高为 44 而非 52，行间 4，选项默认透明，不为每项再套一层厚底卡；recommended 才使用轻 tint、细边和推荐徽标。关闭图形可以紧凑，但命中区仍为 44。
 
-所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。标题最多 2 行、摘要最多 2 行，超过时提供「展开/收起」；超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
+document 卡只显示一个用户可读的类型名（文档、Markdown、PDF、表格、代码或文件库），不得拼成「文档 · Document」这类中英重复；标题与文件名保持真实值。所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。标题最多 2 行、摘要最多 2 行，超过时提供「展开/收起」；超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
 
 会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
 
@@ -47,7 +47,7 @@ P0 第一版必须实现：question、steps（含 recommended）、task、attach
 
 P1 仅登记为 target：table、callout、info、payload、library。第一版不渲染、不注册工具、不进 persona。canvas、product、gift、Bot 间通讯行不实现。
 
-question/steps 选项为整行可点并支持 recommended，提交时只使用宿主写入卡片的 `optionID`；**没有“其他”选项、卡内输入框或自定义答案提交控件**。仅 question 支持关闭：本地立即隐藏并写 durable `card.dismissed`，不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；DSH 不可用时关闭仍本地生效。steps 不提供关闭按钮，`cardDismiss` 对 steps 返回 rejected。用户需要自由回答时直接在 composer 输入，作为普通 `chat` 消息，而不是 `cardAnswer.customText`。审批为拒绝/允许一次/总是允许三选项加 alwaysScope，拒绝使用中性文字按钮，禁止把否定语义染红。checklist 本地勾选和回传行为沿上游；link 仅打开 HTTP/HTTPS 且经系统安全外部打开策略。
+question/steps 选项为整行可点并支持 recommended，提交时只使用宿主写入卡片的 `optionID`；**没有“其他”选项、卡内输入框或自定义答案提交控件**。仅 question 支持关闭：本地立即隐藏并写 durable `card.dismissed`，不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；DSH 不可用时关闭仍本地生效。steps 不提供关闭按钮，`cardDismiss` 对 steps 返回 rejected。用户需要自由回答时直接在 composer 输入，作为普通 `chat` 消息，而不是 `cardAnswer.customText`。审批为允许一次/本次对话都允许（`alwaysScope=session`）/总是允许（`alwaysScope=until`）/拒绝四选项加 alwaysScope，拒绝使用中性文字按钮，禁止把否定语义染红；决定后的卡片回执必须与用户按下的按钮一一对应（「已允许一次」/「本次对话都允许」/「已总是允许」），不能把会话授权显示成一次性允许。checklist 本地勾选和回传行为沿上游；link 仅打开 HTTP/HTTPS 且经系统安全外部打开策略。
 
 所有卡片先验证 `body.type`、`cardType` 和必需数据。未登记或数据不足时不渲染，不用空白卡或猜测默认值补齐。
 

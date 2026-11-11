@@ -39,6 +39,36 @@ final class RowProjectionBehaviorTests: XCTestCase {
         XCTAssertEqual(row.body["ask"]?["status"], .string("denied"))
     }
 
+    func testApprovalReceiptUsesTheActualDecisionAndScope() throws {
+        func project(_ result: String) throws -> BotRow {
+            let call = BotDSHSessionEvent(type: "tool/call", seq: 1, time: 1, data: [
+                "name": .string("mcp__phone__RequestApproval"), "callId": .string("approval-call"),
+                "arguments": .string(#"{"action":"整理笔记","detail":"写一页笔记"}"#)
+            ])
+            let toolResult = BotDSHSessionEvent(type: "tool/result", seq: 2, time: 2, data: [
+                "message": .object([
+                    "toolCallId": .string("approval-call"),
+                    "content": .array([.object(["type": .string("text"), "text": .string(result)])])
+                ])
+            ])
+            let rows = BotSessionLogProjector().project(
+                botID: "main", sessionID: "main",
+                sessionEvents: [call, toolResult], uiEvents: []).rows
+            return try XCTUnwrap(rows.first)
+        }
+
+        let once = try project(#"{"allowed":true,"decision":"allowed","approvalDecision":"allowOnce","scope":"once","approvalId":"approval-1"}"#)
+        XCTAssertEqual(once.body["status"], .string("allowed"))
+        XCTAssertEqual(BotDisplayContract.project(once).surface, "approval-card")
+
+        let session = try project(#"{"allowed":true,"decision":"allowed","approvalDecision":"always","scope":"session","approvalId":"approval-2"}"#)
+        XCTAssertEqual(session.body["status"], .string("allowed-session"))
+        XCTAssertEqual(session.body["ask"]?["status"], .string("allowed"))
+
+        let always = try project(#"{"allowed":true,"decision":"allowed","approvalDecision":"always","scope":"until","approvalId":"approval-3"}"#)
+        XCTAssertEqual(always.body["status"], .string("always"))
+    }
+
     func testNativeTaskLifecycleUsesOneCompletedRow() throws {
         let events = ["created", "started", "updated", "settled"].enumerated().map { index, kind in
             RowTestSupport.uiEvent(type: "task.\(kind)", id: "event-\(kind)", commitSeq: index + 1,

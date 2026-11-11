@@ -43,6 +43,10 @@ test('the phone persona carries the upstream parity chapters adapted to iOS', ()
     }
     assert.ok(result.persona.includes('FishAction'), `${lang} must keep the FishAction boundary`)
     assert.ok(result.persona.includes('<teammates>'), `${lang} must explain the teammates block`)
+    assert.ok(result.persona.includes(lang === 'zh'
+      ? '面向用户的正文只用人话：不写内部 id、工具名或英文状态枚举'
+      : 'Write user-facing prose in plain language: never include internal ids, tool names, or English status enums'),
+    `${lang} must keep the internal-detail boundary for user-facing prose`)
   }
   assert.equal(sections.get('zh')?.length, sections.get('en')?.length, 'both languages must mount the same chapter count')
 })

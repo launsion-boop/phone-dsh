@@ -67,6 +67,28 @@ final class BotVerificationTests: XCTestCase {
         """))
     }
 
+    func testVerifierPromptNamesOnlyTheFrozenReadOnlyForensics() throws {
+        let value = try fixture()
+        let policy = try XCTUnwrap(value["policy"] as? [String: Any])
+        let bash = try XCTUnwrap(policy["bash"] as? [String: Any])
+        let allowed = try XCTUnwrap(bash["allowed"] as? [String])
+        let prompt = BotVerifierPrompt.build(
+            subjectKind: "task", subjectId: "task-1",
+            completion: "REPORT.md exists", purpose: nil, constraints: [],
+            refs: ["record://session/gb-task#1"], subjectSessionId: "gb-task")
+        XCTAssertTrue(prompt.contains("`phone record search`"))
+        XCTAssertTrue(prompt.contains("`phone record read <ref>`"))
+        XCTAssertTrue(prompt.contains("`od`"))
+        XCTAssertTrue(allowed.contains { $0.hasPrefix("phone record search ") })
+        XCTAssertTrue(allowed.contains { $0.hasPrefix("phone record read ") })
+        XCTAssertTrue(allowed.contains { $0.hasPrefix("od ") })
+        // The prompt must not teach a command the read-only policy would deny.
+        for forbidden in ["`find ", "`sed ", "`curl ", "`python3 "]
+        where prompt.contains(forbidden) {
+            XCTFail("verifier prompt teaches a denied command: \(forbidden)")
+        }
+    }
+
     func testTaskToolSurfaceFreezesTheCompletionContract() throws {
         let task = try XCTUnwrap(BotToolCatalog.allDefinitions.first { $0.name == "Task" })
         let properties = try XCTUnwrap(task.inputSchema["properties"]?.objectValue)

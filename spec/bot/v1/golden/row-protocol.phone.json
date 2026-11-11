@@ -15,6 +15,32 @@
     "attachments are only valid on chat; cardAnswer/approval/stopTask/cardDismiss reject them",
     "a user message carrying an attachments prompt block projects to a renderable bubble whose visible text has the block stripped"
   ],
+  "approvalReceipts": [
+    {
+      "name": "allow-once",
+      "status": "allowed",
+      "scope": "once",
+      "label": "已允许一次"
+    },
+    {
+      "name": "allow-session",
+      "status": "allowed-session",
+      "scope": "session",
+      "label": "本次对话都允许"
+    },
+    {
+      "name": "allow-until",
+      "status": "always",
+      "scope": "until",
+      "label": "已总是允许"
+    },
+    {
+      "name": "deny",
+      "status": "denied",
+      "scope": "once",
+      "label": "已拒绝"
+    }
+  ],
   "valid": {
     "cardAnswer": {
       "nonce": "nonce-card-answer",
