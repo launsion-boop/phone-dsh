@@ -22,4 +22,4 @@ node "$HARMONY_ROOT/tools/stage-runtime.mjs"
 cargo build --manifest-path "$HARMONY_ROOT/host-rust/Cargo.toml" --target aarch64-unknown-linux-ohos --release
 cd "$HARMONY_ROOT"
 "$CLI" check arkts
-"$CLI" build
+"$CLI" build "$@"
