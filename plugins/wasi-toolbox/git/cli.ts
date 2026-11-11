@@ -274,6 +274,8 @@ async function dispatch(
           const equals = override.indexOf('=')
           if (equals > 0) repository.config.set(override.slice(0, equals).trim(), override.slice(equals + 1).trim())
         }
+        const { attachPromisor } = await import('./remote.ts')
+        attachPromisor(repository, context)
         return repository
       })()
       return await repositoryPromise
@@ -334,7 +336,12 @@ restore (--staged, --source, pathspecs), log (including --format/--pretty and
 -n), config, diff, diff-tree, ls-tree, ls-files, cat-file, write-tree,
 rev-parse, check-ignore, branch, tag (list, annotated/lightweight create,
 delete), checkout (including checkout -- <paths>),
-switch, merge (fast-forward only), clone, fetch, pull, push, remote, show, rm.
+switch, merge (fast-forward only), clone, fetch, pull, push, remote, show, rm,
+sparse-checkout (cone mode: init --cone, set, add, list, disable).
+clone --filter=blob:none is a protocol-v2 partial clone (promisor remote;
+missing blobs are fetched when checkout, show or diff needs them).
+--sparse checks out only top-level files. Other --filter values, and
+git worktree, are not available.
 Unsupported commands and options fail loud with a message naming the
 unsupported word and stating the Worker git's limitation.
 `

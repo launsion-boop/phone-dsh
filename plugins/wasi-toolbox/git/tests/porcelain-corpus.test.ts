@@ -102,7 +102,7 @@ export const UNSUPPORTED_VECTORS: readonly LogVector[] = [
   // action, never silently run a different remote command and exit 0.
   { name: 'clone/no-single-branch', args: ['clone', '--no-single-branch', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'clone/shallow-since', args: ['clone', '--shallow-since', '2020-01-01', 'https://example.test/repository.git', 'worker-clone'] },
-  { name: 'clone/filter', args: ['clone', '--filter=blob:none', 'https://example.test/repository.git', 'worker-clone'] },
+  { name: 'clone/filter', args: ['clone', '--filter=tree:0', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'clone/origin-short', args: ['clone', '-o', 'upstream', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'clone/origin-long', args: ['clone', '--origin', 'upstream', 'https://example.test/repository.git', 'worker-clone'] },
   { name: 'fetch/prune', args: ['fetch', '--prune', 'origin'] },

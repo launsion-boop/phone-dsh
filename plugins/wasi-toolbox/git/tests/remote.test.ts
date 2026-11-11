@@ -267,7 +267,7 @@ test('remote porcelain: unimplemented options fail loud instead of faking succes
       ['--no-single-branch', ['clone', '--no-single-branch', remote('origin.git'), join(temp.path, 'no-single')], 128, /--no-single-branch is not supported/],
       ['--shallow-since', ['clone', '--shallow-since', '2020-01-01', remote('origin.git'), join(temp.path, 'since')], 128, /only --depth <n> is available/],
       ['--shallow-exclude', ['clone', '--shallow-exclude', 'v1', remote('origin.git'), join(temp.path, 'exclude')], 128, /only --depth <n> is available/],
-      ['--filter', ['clone', '--filter=blob:none', remote('origin.git'), join(temp.path, 'partial')], 128, /partial clone.*--depth <n>/],
+      ['--filter', ['clone', '--filter=tree:0', remote('origin.git'), join(temp.path, 'partial')], 128, /only --filter=blob:none/],
       ['--bare', ['clone', '--bare', remote('origin.git'), join(temp.path, 'bare-clone')], 128, /non-bare/],
       ['-o', ['clone', '-o', 'upstream', remote('origin.git'), join(temp.path, 'renamed')], 129, /unsupported clone option/],
       ['--origin', ['clone', '--origin', 'upstream', remote('origin.git'), join(temp.path, 'renamed-long')], 129, /unsupported clone option/],

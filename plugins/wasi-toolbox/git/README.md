@@ -330,12 +330,22 @@ file here imports `node:zlib` again. The adapter boundaries stay `GitFs` and
   is consumed by at most one deletion, and a pathspec restricts both snapshots
   before rename pairing, so selecting only one side of a rename produces that
   side's deletion or addition, as git does.
-- Smart-HTTP v0 only: protocol v2, dumb HTTP, file remotes, `--bare`,
-  `--mirror`, partial clones (`--filter`), `--shallow-since`/`--shallow-exclude`
-  and `--unshallow` are not implemented. A received pack is stored whole with a
-  freshly built index that the system git can read.
+- Smart HTTP is v0 for an ordinary clone/fetch. `clone --filter=blob:none`
+  uses protocol v2 when the server advertises `fetch` `filter` (git needs
+  `uploadpack.allowFilter`). The commit/tree pack is still stored whole, with
+  an empty `pack-*.promisor` sidecar; missing blobs are fetched on demand for
+  checkout, show and diff. Other `--filter` values, `fetch --filter`,
+  `--shallow-since`/`--shallow-exclude` and `--unshallow` are not implemented.
+  Dumb HTTP, file remotes, `--bare` and `--mirror` are not implemented.
+- `git sparse-checkout` cone mode (`init --cone`, `set`, `add`, `list`,
+  `disable`) checks out root files plus the named directories and marks the
+  rest skip-worktree. Non-cone patterns and `git worktree` are not implemented.
+  `--sparse` on clone starts in the root-only cone. A received pack is stored
+  whole with a freshly built index that the system git can read. The delta-base
+  cache is 32 MiB (`PACK_DELTA_CACHE_BYTES`).
 - No hooks, `.gitattributes` filters, autocrlf, commit signing, replace
-  objects, sparse checkout or multi-pack-index.
+  objects or multi-pack-index. Cone-mode sparse checkout is implemented;
+  non-cone patterns are not.
 - Nothing in this package has run on an iPhone. iOS/WebKit behaviour is
   **NOT_VERIFIED**; the Phase 0 probe package owns that measurement. The
   package is exercised by `node --test` on the build host (macOS, Node 24) and

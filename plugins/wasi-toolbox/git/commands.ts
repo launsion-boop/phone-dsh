@@ -19,6 +19,7 @@ import { branch, checkout, diff, log, merge, remote, show, switchCommand } from 
 import { revList } from './revlist.ts'
 import { tag } from './tag.ts'
 import { clone, fetch, pull, push } from './remote.ts'
+import { sparseCheckout } from './sparse.ts'
 
 /** Subcommands that inspect the object database for DSH's workspace-changes. */
 export const inspectCommands: Readonly<Record<string, CommandHandler>> = {
@@ -62,6 +63,7 @@ export const remoteCommands: Readonly<Record<string, CommandHandler>> = {
   fetch,
   pull,
   push,
+  'sparse-checkout': sparseCheckout,
 }
 
 /** Every implemented subcommand. */

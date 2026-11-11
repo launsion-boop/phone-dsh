@@ -35,6 +35,12 @@ export interface IndexEntry {
   readonly gid: number
   readonly size: number
   readonly assumeValid: boolean
+  /**
+   * Cone-mode sparse-checkout: the path stays in the index but is not in the
+   * work tree. Absent means a normal entry. The on-disk bit is the extended
+   * flag `CE_SKIP_WORKTREE` (0x4000); entries without it stay byte-identical.
+   */
+  readonly skipWorktree?: boolean
 }
 
 /** A parsed index. */
@@ -94,11 +100,15 @@ export function parseIndex(bytes: Uint8Array): GitIndex {
     const oid = toHex(bytes.subarray(offset + 40, offset + 60))
     const flags = readUint16(bytes, offset + 60)
     const extended = (flags & 0x4000) !== 0
+    let skipWorktree = false
+    let nameStart = offset + 62
     if (extended) {
-      throw fatal('index file uses an extended (v3) entry; rewrite it with `git update-index --index-version 2`')
+      if (nameStart + 2 > bytes.byteLength) throw fatal('index file corrupt: truncated extended flags')
+      const extra = readUint16(bytes, nameStart)
+      skipWorktree = (extra & 0x4000) !== 0
+      nameStart += 2
     }
     let nameLength = flags & 0x0fff
-    let nameStart = offset + 62
     if (nameLength === 0x0fff) {
       const nul = bytes.indexOf(0, nameStart)
       if (nul < 0) throw fatal('index file corrupt: unterminated name')
@@ -106,7 +116,7 @@ export function parseIndex(bytes: Uint8Array): GitIndex {
     }
     if (nameStart + nameLength > bytes.byteLength) throw fatal('index file corrupt: truncated name')
     const path = decodeText(bytes.subarray(nameStart, nameStart + nameLength))
-    const entrySize = (62 + nameLength + 8) & ~7
+    const entrySize = (nameStart - offset + nameLength + 8) & ~7
     offset += entrySize
     entries.push({
       path,
@@ -123,6 +133,7 @@ export function parseIndex(bytes: Uint8Array): GitIndex {
       gid,
       size,
       assumeValid: (flags & 0x8000) !== 0,
+      ...skipWorktree ? { skipWorktree: true } : {},
     })
   }
   // Extensions follow the entries; an unknown required one (lowercase
@@ -145,7 +156,8 @@ export function encodeIndex(index: GitIndex): Uint8Array {
   let size = 12
   for (const entry of entries) {
     const nameLength = encodeText(entry.path).byteLength
-    size += (62 + nameLength + 8) & ~7
+    const base = entry.skipWorktree === true ? 64 : 62
+    size += (base + nameLength + 8) & ~7
   }
   size += 20
   const out = new Uint8Array(size)
@@ -166,10 +178,16 @@ export function encodeIndex(index: GitIndex): Uint8Array {
     writeUint32(out, offset + 32, entry.gid)
     writeUint32(out, offset + 36, entry.size)
     out.set(Uint8Array.from(entry.oid.match(/.{2}/g)?.map(byte => Number.parseInt(byte, 16)) ?? []), offset + 40)
-    const flags = (entry.assumeValid ? 0x8000 : 0) | ((entry.stage & 0x3) << 12) | Math.min(name.byteLength, 0x0fff)
+    const extended = entry.skipWorktree === true
+    const flags = (entry.assumeValid ? 0x8000 : 0)
+      | (extended ? 0x4000 : 0)
+      | ((entry.stage & 0x3) << 12)
+      | Math.min(name.byteLength, 0x0fff)
     writeUint16(out, offset + 60, flags)
-    out.set(name, offset + 62)
-    offset += (62 + name.byteLength + 8) & ~7
+    const nameAt = extended ? offset + 64 : offset + 62
+    if (extended) writeUint16(out, offset + 62, 0x4000)
+    out.set(name, nameAt)
+    offset += (nameAt - offset + name.byteLength + 8) & ~7
   }
   const digest = createHash('sha1').update(out.subarray(0, size - 20)).digest()
   out.set(digest, size - 20)

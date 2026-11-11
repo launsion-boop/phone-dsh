@@ -9,8 +9,9 @@
  * `info/refs` discovery, one `git-upload-pack` request for fetch/clone, one
  * `git-receive-pack` request for push, and the pack reader/writer from
  * `pack.ts`. `--depth`/`--single-branch`/`--no-tags` shallow negotiation is
- * implemented for v0; partial clones, protocol v2 and dumb HTTP are not
- * implemented and fail with a message stating that limitation.
+ * implemented for v0. `clone --filter=blob:none` uses protocol v2
+ * (`v2.ts`) and fetches missing blobs later. Other filters, dumb HTTP and
+ * `fetch --filter` are not implemented and fail with a message stating that.
  * @module @phone-dsh/dsh-wasi-toolbox/git/remote
  */
 import { posix } from 'node:path'
@@ -33,6 +34,8 @@ import { fastForwardHead, isAncestor, switchTo } from './history.ts'
 import type { CommandContext } from './cli.ts'
 import { HostHttpTransport, redactUrl } from './http.ts'
 import type { HttpResult, RemoteTransport } from './http.ts'
+import { discoverV2, fetchPackV2, listRefsV2 } from './v2.ts'
+import { activeCone, conePatternText, coneSelectsFile } from './sparse.ts'
 
 /** A pkt-line token: a payload or the protocol's flush marker. */
 type Pkt = { readonly kind: 'line'; readonly payload: Uint8Array } | { readonly kind: 'flush' }
@@ -503,13 +506,20 @@ function readUint32(buffer: Uint8Array, offset: number): number {
 }
 
 /** Store a received pack and its freshly built index in the object database. */
-export async function importPack(repository: Repository, pack: Uint8Array): Promise<number> {
+export async function importPack(
+  repository: Repository,
+  pack: Uint8Array,
+  options: { readonly promisor?: boolean } = {},
+): Promise<number> {
+  repository.odb.suppressMissingHook(true)
   const parsed = await parsePack(pack, async oid => {
     try {
       return await repository.odb.read(oid)
     } catch {
       return undefined
     }
+  }).finally(() => {
+    repository.odb.suppressMissingHook(false)
   })
   // parsePack computed the object id and CRC while it had the bytes; never
   // decompress or hash a second time here.
@@ -524,8 +534,43 @@ export async function importPack(repository: Repository, pack: Uint8Array): Prom
   await repository.fs.mkdir(packDirectory, true)
   await repository.fs.writeFile(`${packDirectory}/pack-${parsed.packSha}.pack`, pack)
   await repository.fs.writeFile(`${packDirectory}/pack-${parsed.packSha}.idx`, index)
+  if (options.promisor === true) {
+    // An empty sidecar is how git marks a pack whose missing objects are promisor objects.
+    await repository.fs.writeFile(`${packDirectory}/pack-${parsed.packSha}.promisor`, '')
+  }
   repository.odb.invalidatePacks()
   return parsed.objects.length
+}
+
+/**
+ * Fetch objects a promisor remote promised and that are not in the local
+ * database. No-op when every id is already present. A repository that is not
+ * a promisor clone does not open the network; the following read fails as usual.
+ */
+export async function prefetchMissing(
+  context: CommandContext,
+  repository: Repository,
+  oids: readonly string[],
+): Promise<void> {
+  const missing: string[] = []
+  for (const oid of new Set(oids)) {
+    if (!(await repository.odb.has(oid))) missing.push(oid)
+  }
+  if (missing.length === 0) return
+  const url = repository.config.get('remote.origin.url')
+  if (repository.config.get('remote.origin.promisor') !== 'true' || url === undefined || url === '') return
+  const transport = transportFor(context)
+  const fetched = await fetchPackV2(transport, url, { wants: missing })
+  if (fetched.pack === undefined) throw fatal('the promisor remote sent no objects for the missing blobs')
+  await importPack(repository, fetched.pack, { promisor: true })
+}
+
+/** Point a discovered promisor repository at {@link prefetchMissing} for later reads. */
+export function attachPromisor(repository: Repository, context: CommandContext): void {
+  if (repository.config.get('remote.origin.promisor') !== 'true') return
+  repository.odb.setMissingHook(async oid => {
+    await prefetchMissing(context, repository, [oid])
+  })
 }
 
 /** Map a source ref to its destination using one fetch refspec. */
@@ -593,6 +638,10 @@ interface CloneOptions {
   readonly depth: number | undefined
   readonly singleBranch: boolean
   readonly noTags: boolean
+  /** `blob:none` partial clone. Undefined keeps the v0 full-object clone. */
+  readonly filter: 'blob:none' | undefined
+  /** Check out only the cone root (top-level files) after clone. */
+  readonly sparse: boolean
 }
 
 /** Parse `git clone` options, failing loud on the ones that are not modelled. */
@@ -602,6 +651,8 @@ function cloneOptions(args: readonly string[]): CloneOptions {
   let depth: number | undefined
   let singleBranch = false
   let noTags = false
+  let filter: 'blob:none' | undefined
+  let sparse = false
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] as string
     if (arg === '-q' || arg === '--quiet') quiet = true
@@ -629,12 +680,18 @@ function cloneOptions(args: readonly string[]): CloneOptions {
         `git clone ${arg.split('=')[0]} is not supported inside the Worker; only --depth <n> is available for a shallow clone. `
         + 'Nothing was changed.',
       )
-    } else if (arg === '--filter' || arg.startsWith('--filter=')) {
-      throw fatal(
-        'git clone --filter (partial clone) is not supported inside the Worker; use --depth <n> to limit history instead. '
-        + 'Nothing was changed.',
-      )
-    } else if (arg === '--bare' || arg === '--mirror') {
+    }     else if (arg === '--filter' || arg.startsWith('--filter=')) {
+      const value = arg === '--filter' ? args[index + 1] : arg.slice('--filter='.length)
+      if (arg === '--filter') index += 1
+      if (value !== 'blob:none') {
+        throw fatal(
+          `git clone --filter=${value ?? ''} is not supported inside the Worker; only --filter=blob:none is available. `
+          + 'Nothing was changed.',
+        )
+      }
+      filter = 'blob:none'
+    } else if (arg === '--sparse') sparse = true
+    else if (arg === '--bare' || arg === '--mirror') {
       throw fatal(
         `git clone ${arg} is not supported inside the Worker; the Worker git only provides non-bare smart-HTTP clones `
         + 'with a work tree. Nothing was changed.',
@@ -645,7 +702,7 @@ function cloneOptions(args: readonly string[]): CloneOptions {
       throw fatal(`unsupported clone option '${arg}'`, 129)
     }
   }
-  return { quiet, branch, depth, singleBranch, noTags }
+  return { quiet, branch, depth, singleBranch, noTags, filter, sparse }
 }
 
 /** `git clone`. */
@@ -662,6 +719,7 @@ export async function clone(context: CommandContext): Promise<number> {
   const target = positional[1] ?? posix.basename(source.replace(/\/+$/, '').replace(/\.git$/, ''))
   const directory = context.absolute(target)
   if (await context.fs.exists(`${directory}/.git`)) throw fatal(`destination path '${target}' already exists and is not an empty directory`)
+  if (options.filter === 'blob:none') return await cloneBlobNone(context, options, source, target, directory)
   if (!options.quiet) context.output.stderr(`Cloning into '${target}'...\n`)
   const transport = transportFor(context)
   const advertisement = await discoverRefs(transport, source, 'git-upload-pack')
@@ -694,9 +752,13 @@ export async function clone(context: CommandContext): Promise<number> {
     `\turl = ${source}`,
     `\tfetch = ${fetchRefspec}`,
     ...options.noTags ? ['\ttagOpt = --no-tags'] : [],
+    ...options.sparse ? ['[core]', '\tsparseCheckout = true', '\tsparseCheckoutCone = true'] : [],
     ...localBranch === undefined ? [] : [`[branch "${localBranch}"]`, `\tremote = origin`, `\tmerge = refs/heads/${localBranch}`],
     '',
   ].join('\n'))
+  if (options.sparse) {
+    await context.fs.writeFile(`${directory}/.git/info/sparse-checkout`, conePatternText([]))
+  }
   const wants: string[] = []
   if (singleBranch) {
     const tip = heads.find(ref => ref.name === `refs/heads/${localBranch}`)
@@ -757,7 +819,7 @@ function clonePositionals(args: readonly string[]): string[] {
   const rest: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index] as string
-    if (arg === '-b' || arg === '--branch' || arg === '--depth') {
+    if (arg === '-b' || arg === '--branch' || arg === '--depth' || arg === '--filter') {
       index += 1
       continue
     }
@@ -767,17 +829,113 @@ function clonePositionals(args: readonly string[]): string[] {
   return rest
 }
 
+/**
+ * Protocol-v2 `clone --filter=blob:none`. The commit/tree pack is stored;
+ * blobs stay on the promisor remote until a checkout, show or diff needs them.
+ * `--sparse` limits that checkout to top-level files.
+ */
+async function cloneBlobNone(
+  context: CommandContext,
+  options: CloneOptions,
+  source: string,
+  target: string,
+  directory: string,
+): Promise<number> {
+  if (!options.quiet) context.output.stderr(`Cloning into '${target}'...\n`)
+  const transport = transportFor(context)
+  const advertisement = await discoverV2(transport, source)
+  if (advertisement === undefined || !advertisement.fetchFeatures.includes('filter')) {
+    throw fatal(
+      `the remote at ${redactUrl(source)} does not advertise protocol v2 partial clone (fetch filter). `
+      + 'Nothing was written. Use a server with uploadpack.allowFilter, or clone without --filter.',
+    )
+  }
+  const refs = await listRefsV2(transport, source)
+  const heads = refs.filter(ref => ref.name.startsWith('refs/heads/'))
+  const head = refs.find(ref => ref.name === 'HEAD')
+  const remoteHeadName = head?.target?.replace(/^refs\/heads\//, '')
+  if (options.branch !== undefined && !heads.some(ref => ref.name === `refs/heads/${options.branch}`)) {
+    throw fatal(`remote branch ${options.branch} not found in ${redactUrl(source)}`)
+  }
+  const singleBranch = options.singleBranch || options.depth !== undefined
+  let localBranch = options.branch ?? remoteHeadName
+  if (singleBranch && localBranch === undefined) localBranch = heads[0]?.name.replace(/^refs\/heads\//, '')
+  if (singleBranch && (localBranch === undefined || !heads.some(ref => ref.name === `refs/heads/${localBranch}`))) {
+    throw fatal(`remote at ${redactUrl(source)} has no branch to clone with --single-branch`)
+  }
+  if (options.depth !== undefined && !advertisement.fetchFeatures.includes('shallow')) {
+    throw fatal(`the remote at ${redactUrl(source)} does not advertise shallow fetch. Nothing was written.`)
+  }
+  const wants = singleBranch
+    ? [heads.find(ref => ref.name === `refs/heads/${localBranch}`)?.oid].filter((oid): oid is string => oid !== undefined)
+    : heads.map(ref => ref.oid)
+  const fetched = await fetchPackV2(transport, source, {
+    wants: [...new Set(wants)],
+    filter: 'blob:none',
+    ...options.depth === undefined ? {} : { depth: options.depth },
+  })
+  if (fetched.pack === undefined) throw fatal('the remote sent no objects for this clone')
+  const fetchRefspec = singleBranch
+    ? `+refs/heads/${localBranch}:refs/remotes/origin/${localBranch}`
+    : '+refs/heads/*:refs/remotes/origin/*'
+  await createRepositorySkeleton(context.fs, directory, localBranch ?? 'master')
+  await appendConfig(context.fs, `${directory}/.git`, [
+    '[extensions]',
+    '\tpartialClone = origin',
+    '[remote "origin"]',
+    `\turl = ${source}`,
+    `\tfetch = ${fetchRefspec}`,
+    '\tpromisor = true',
+    '\tpartialclonefilter = blob:none',
+    ...options.noTags ? ['\ttagOpt = --no-tags'] : [],
+    ...options.sparse ? ['[core]', '\tsparseCheckout = true', '\tsparseCheckoutCone = true'] : [],
+    ...localBranch === undefined ? [] : [`[branch "${localBranch}"]`, `\tremote = origin`, `\tmerge = refs/heads/${localBranch}`],
+    '',
+  ].join('\n'))
+  if (options.sparse) await context.fs.writeFile(`${directory}/.git/info/sparse-checkout`, conePatternText([]))
+  await writeShallow(context.fs, `${directory}/.git`, new Set(fetched.shallow))
+  const repository = await discoverRepository(context.fs, directory, context.env)
+  if (repository === undefined) throw fatal('clone created no repository')
+  attachPromisor(repository, context)
+  await importPack(repository, fetched.pack, { promisor: true })
+  for (const ref of refs) {
+    if (!ref.name.startsWith('refs/heads/')) continue
+    const name = ref.name.slice('refs/heads/'.length)
+    if (singleBranch && name !== localBranch) continue
+    if (name === localBranch) await writeRef(repository, `refs/heads/${name}`, ref.oid)
+    if (name !== localBranch || singleBranch) await writeRef(repository, `refs/remotes/origin/${name}`, ref.oid)
+  }
+  if (localBranch !== undefined) await writeRef(repository, 'HEAD', `ref: refs/heads/${localBranch}\n`)
+  const checkoutOid = localBranch === undefined ? undefined : await resolveRef(repository, `refs/heads/${localBranch}`)
+  if (checkoutOid !== undefined) await materializeTree(repository, checkoutOid, context)
+  if (!options.quiet) context.output.stderr('done.\n')
+  return 0
+}
+
 /** Write one commit's tree into the work tree and index (clone checkout). */
-async function materializeTree(repository: Repository, commitOid: string, context: CommandContext): Promise<void> {
+export async function materializeTree(repository: Repository, commitOid: string, context: CommandContext): Promise<void> {
   const workTree = requireWorkTree(repository)
   const tree = (await readCommit(repository, commitOid)).tree
   const flat = await flattenTree(repository, tree)
+  const cone = await activeCone(repository)
+  const missing: string[] = []
+  for (const [path, entry] of flat) {
+    if (entry.mode === '160000') continue
+    if (cone !== undefined && !coneSelectsFile(path, cone)) continue
+    if (!(await repository.odb.has(entry.oid))) missing.push(entry.oid)
+  }
+  if (missing.length > 0) await prefetchMissing(context, repository, missing)
   const entries: IndexEntry[] = []
   for (const [path, entry] of [...flat.entries()].sort(([left], [right]) => compareStrings(left, right))) {
-    const data = (await repository.odb.read(entry.oid)).data
-    await ensureParent(context.fs, workTree, path)
-    await context.fs.writeFile(`${workTree}/${path}`, data, parseMode(entry.mode))
-    entries.push(await statEntry(context.fs, workTree, path, entry.oid, parseMode(entry.mode)))
+    if (entry.mode === '160000') continue
+    const selected = cone === undefined || coneSelectsFile(path, cone)
+    if (selected) {
+      const data = (await repository.odb.read(entry.oid)).data
+      await ensureParent(context.fs, workTree, path)
+      await context.fs.writeFile(`${workTree}/${path}`, data, parseMode(entry.mode))
+    }
+    const stat = await statEntry(context.fs, workTree, path, entry.oid, parseMode(entry.mode))
+    entries.push({ ...stat, ...selected ? {} : { skipWorktree: true } })
   }
   await writeIndex(context.fs, repository.indexPath, { version: 2, entries })
 }

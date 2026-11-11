@@ -87,6 +87,8 @@ export async function unstagedChanges(repository: Repository, index: GitIndex): 
   for (const entry of index.entries) {
     if (entry.stage !== 0) continue
     const info = files.get(entry.path)
+    // A skip-worktree path is intentionally absent. It is not a deletion.
+    if (entry.skipWorktree === true && (info === undefined || info.isDirectory)) continue
     if (info === undefined || info.isDirectory) {
       changes.push({ path: entry.path, status: 'D', oldMode: entry.mode.toString(8), oldOid: entry.oid })
       continue

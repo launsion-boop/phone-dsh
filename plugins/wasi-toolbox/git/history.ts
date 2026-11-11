@@ -25,6 +25,7 @@ import { diffFlatTrees, parseMode, readWorktreeBlob } from './tree.ts'
 import type { TreeChange } from './tree.ts'
 import { countDiff, isBinary, splitLines, unifiedHunks, formatRange, renderHunkBody } from './textdiff.ts'
 import { ensureParent, removeWorktreePath, scanWorktree } from './worktree.ts'
+import { activeCone, coneSelectsFile } from './sparse.ts'
 import type { CommandContext } from './cli.ts'
 import { loadIndex, parsePathspec, pathspecSelector, quotePath, selectedByPathspecs } from './inspect.ts'
 import type { Pathspec } from './inspect.ts'
@@ -1634,10 +1635,22 @@ export async function switchTo(context: CommandContext, target: SwitchTarget): P
     ? new Map()
     : await flattenTree(repository, (await readCommit(repository, target.commit)).tree)
   const files = await scanWorktree(repository)
+  const cone = await activeCone(repository)
+  const inCone = (path: string): boolean => cone === undefined || coneSelectsFile(path, cone)
+  const missing: string[] = []
+  for (const [path, entry] of targetTree) {
+    if (!inCone(path) || entry.mode === '160000') continue
+    if (!(await repository.odb.has(entry.oid))) missing.push(entry.oid)
+  }
+  if (missing.length > 0) {
+    const { prefetchMissing } = await import('./remote.ts')
+    await prefetchMissing(context, repository, missing)
+  }
   // Refuse to overwrite work that is not recoverable: a target path that
   // differs from the index is a conflict when the path is dirty or untracked.
   const conflicts: string[] = []
   for (const [path, entry] of targetTree) {
+    if (!inCone(path)) continue
     const current = indexByPath.get(path)
     const unchangedInTarget = current !== undefined && current.oid === entry.oid && current.mode.toString(8) === entry.mode
     if (unchangedInTarget) continue
@@ -1668,8 +1681,13 @@ export async function switchTo(context: CommandContext, target: SwitchTarget): P
   // Materialize the target tree.
   for (const [path, entry] of targetTree) {
     const current = indexByPath.get(path)
+    const selected = inCone(path) && entry.mode !== '160000'
+    if (!selected) {
+      if (await context.fs.exists(`${workTree}/${path}`)) await removeWorktreePath(context.fs, workTree, path)
+      continue
+    }
     const unchangedInTarget = current !== undefined && current.oid === entry.oid && current.mode.toString(8) === entry.mode
-    if (unchangedInTarget) continue
+    if (unchangedInTarget && current.skipWorktree !== true) continue
     const data = (await repository.odb.read(entry.oid)).data
     await ensureParent(context.fs, workTree, path)
     await removeWorktreePath(context.fs, workTree, path)
@@ -1688,10 +1706,12 @@ export async function switchTo(context: CommandContext, target: SwitchTarget): P
   const entries: IndexEntry[] = []
   for (const [path, entry] of [...targetTree.entries()].sort(([left], [right]) => compareStrings(left, right))) {
     const previous = previousEntries.get(path)
+    const selected = inCone(path) && entry.mode !== '160000'
+    const skip = selected ? {} : { skipWorktree: true as const }
     if (previous !== undefined && previous.oid === entry.oid && previous.mode.toString(8) === entry.mode) {
-      entries.push(previous)
+      entries.push({ ...previous, ...skip })
     } else {
-      entries.push(await statEntry(context.fs, workTree, path, entry.oid, parseMode(entry.mode)))
+      entries.push({ ...await statEntry(context.fs, workTree, path, entry.oid, parseMode(entry.mode)), ...skip })
     }
   }
   await writeIndex(context.fs, repository.indexPath, { version: 2, entries })
