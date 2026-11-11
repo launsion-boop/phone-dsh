@@ -878,7 +878,12 @@ final class BotRuntimeComposition {
                     if self.suppressesWorkerBootRebind {
                         self.workerRecovery.noteBootCandidate(hello.bootID)
                     } else {
-                        self.workerRecovery.noteWorkerBoot(hello.bootID)
+                        // The HELLO count discards a duplicate; the termination
+                        // event decides that this connection is the replacement,
+                        // so a reused boot id still rebinds.
+                        self.workerRecovery.noteWorkerBoot(
+                            hello.bootID, helloCount: hello.count,
+                            fenceGeneration: hello.generation)
                     }
                 default:
                     break

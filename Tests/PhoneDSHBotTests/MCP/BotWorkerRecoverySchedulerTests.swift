@@ -64,6 +64,87 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         XCTAssertEqual(attempts, ["boot-new"])
     }
 
+    /// The real termination path (`bootReplacementWorker` / the
+    /// `bootWorker` fallback for an engine without the restart lever) reuses
+    /// the host's engine configuration, so the replacement Worker can present
+    /// the *same* boot id as the one already bound. The ordered-channel HELLO
+    /// that follows a termination is nevertheless a new Worker connection and
+    /// must rebind; comparing only `bootID` would leave the page at
+    /// recovering forever, which is the d-heal regression.
+    func testSameBootIDReplacementHelloAfterTerminationRebinds() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        // The initial composition bind attached this Worker and seeded its id.
+        scheduler.seed(recoveredBootID: "boot-same")
+        scheduler.noteWorkerBoot("boot-same", helloCount: 1, fenceGeneration: 7)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the HELLO of the already-seeded Worker must not rebind: \(attempts)")
+
+        scheduler.noteTermination(count: 1)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        // Replacement Worker, same process id, next host-monotonic HELLO. The
+        // fence generation is unchanged because a WebContent kill does not
+        // advance the host's WAL authority.
+        scheduler.noteWorkerBoot("boot-same", helloCount: 2, fenceGeneration: 7)
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready,
+                      "a HELLO after a termination must rebind even when the boot id "
+                          + "is unchanged; phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-same"],
+                       "the replacement connection is claimed exactly once")
+        XCTAssertEqual(scheduler.recoveredBootID, "boot-same")
+    }
+
+    /// A channel reconnect of the already-bound Worker increments the host
+    /// HELLO count but is not a new Worker. It must not start a redundant
+    /// bind.
+    func testSameWorkerChannelReconnectAfterRecoveryDoesNotRebind() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteWorkerBoot("boot-one", helloCount: 1, fenceGeneration: 2)
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-one"])
+
+        scheduler.noteWorkerBoot("boot-one", helloCount: 2, fenceGeneration: 2)
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(attempts, ["boot-one"],
+                       "a same-Worker channel reconnect must not trigger a second bind")
+        XCTAssertEqual(scheduler.phase, .ready)
+    }
+
+    /// `.restarted` is page boot-ready, not a bind point. It normally carries
+    /// the same boot id the following HELLO uses, but an engine (or a Worker
+    /// bundle that does not forward the page boot id) can report an id that is
+    /// not the Worker's. A late page report must not undo a completed bind and
+    /// leave the page at recovering with no further HELLO to consume.
+    func testALatePageReadyDoesNotUndoACompletedRecovery() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteWorkerBoot("boot-worker", helloCount: 1, fenceGeneration: 2)
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-worker"])
+
+        scheduler.noteBootCandidate("page-boot-id")
+        XCTAssertEqual(scheduler.phase, .ready,
+                       "a late page boot-ready must not move a bound page back to recovering")
+        XCTAssertEqual(scheduler.latestBootID, "boot-worker",
+                       "the page boot id is not a Worker bind target")
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(attempts, ["boot-worker"])
+    }
+
     func testRestartCandidateShowsRecoveringButWaitsForHello() async throws {
         let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
         defer { scheduler.stop() }

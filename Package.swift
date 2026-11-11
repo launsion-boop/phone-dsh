@@ -125,7 +125,7 @@ targets.append(.testTarget(
     name: "PhoneDSHKillTests",
     dependencies: [.target(name: "PhoneDSHHarness"), .target(name: "PhoneDSH"), .target(name: "PhoneDSHWire"), .target(name: "PhoneDSHLog"),
                    .target(name: "PhoneDSHController"), .target(name: "PhoneDSHEngine"), .target(name: "PhoneDSHLoopback"),
-                   .target(name: "PhoneDSHAgentCore")]))
+                   .target(name: "PhoneDSHAgentCore"), .target(name: "PhoneDSHBot")]))
 // Catalog-driven real-model scenario runner (scripts/ci/scenarios.sh); reuses the smoke's scripted upstream.
 targets.append(.testTarget(
     name: "PhoneDSHScenarioTests",

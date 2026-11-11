@@ -31,6 +31,17 @@ public final class BotWorkerRecoveryScheduler {
     public private(set) var recoveredBootID: String?
     /// The newest Worker boot id observed from the host (HELLO or restart).
     public private(set) var latestBootID: String?
+    /// The newest page boot-ready id reported by the engine. It is diagnostic
+    /// only: `.restarted` is emitted by the engine/page, while only the Worker
+    /// HELLO identifies the ordered channel this scheduler can bind.
+    public private(set) var latestPageBootID: String?
+    /// Host-monotonic HELLO sequence last consumed. A reconnect increments it
+    /// too, so it is a duplicate filter, not a replacement signal.
+    public private(set) var latestHelloCount: UInt64 = 0
+    /// Fence generation last reported by a HELLO. The fence is the host's WAL
+    /// authority; a WebContent kill does not advance it, so it is not a Worker
+    /// process identity.
+    public private(set) var latestFenceGeneration: UInt64 = 0
     /// For diagnostics/tests: whether a rebind is currently running.
     public private(set) var isRecovering = false
 
@@ -72,6 +83,14 @@ public final class BotWorkerRecoveryScheduler {
     /// The host's monotonic WebContent-termination count. A delayed duplicate
     /// of the event that was already consumed must not undo a completed boot.
     private var lastTerminationCount: UInt64 = 0
+    /// Whether the next ordered-channel HELLO belongs to the replacement of a
+    /// terminated Worker. The HELLO's boot id alone cannot answer this: the
+    /// termination-recovery boot path reuses the host's engine configuration,
+    /// so the replacement may present the id already bound. A same-Worker
+    /// channel reconnect is the opposite case and must not rebind. The ordered
+    /// termination event is the only reliable discriminator; the HELLO count
+    /// only filters duplicate HELLOs.
+    private var replacementHelloPending = false
     /// Invalidates a cancelled/superseded attempt. Its late completion must
     /// not publish `.ready` over a newer attempt or a visible failure.
     private var generation = 0
@@ -102,10 +121,15 @@ public final class BotWorkerRecoveryScheduler {
         automaticRetriesRemaining = 0
         self.recoveredBootID = recoveredBootID
         self.latestBootID = recoveredBootID
+        self.latestPageBootID = nil
+        self.latestHelloCount = 0
+        self.latestFenceGeneration = 0
         // A seed follows a host bind, which may have replaced the engine. The
         // WebEngine's termination count is per engine, so later counts restart
-        // at 1; do not compare them with the previous engine's.
+        // at 1; do not compare them with the previous engine's. Any HELLO still
+        // queued from that bind is not a replacement.
         self.lastTerminationCount = 0
+        self.replacementHelloPending = false
     }
 
     /// A WebContent termination is not a Worker boot: it only tells the page
@@ -121,35 +145,65 @@ public final class BotWorkerRecoveryScheduler {
         // boot belongs to the previous round.
         cancelAutomaticRetry()
         automaticRetriesRemaining = 0
+        // Even if the engine reuses the Worker boot id, the next ordered
+        // channel HELLO is a new Worker connection and owns a bind.
+        replacementHelloPending = true
         setPhase(.recovering)
     }
 
-    /// Records a boot id the host announced before the ordered channel is
-    /// ready (the engine's `.restarted` page boot-ready report). It moves the
-    /// page to recovering immediately but only becomes a bind target when the
-    /// matching `.workerHello` confirms the channel.
-    public func noteBootCandidate(_ bootID: String) {
-        latestBootID = bootID
-        guard bootID != recoveredBootID else { return }
+    /// Records the engine's page boot-ready report. It moves the page to
+    /// recovering before the ordered channel is ready, but it is not a bind
+    /// point: `.workerHello` owns the bind.
+    ///
+    /// The report id is the engine's page boot id. The production page forwards
+    /// that id to the Worker, so it normally equals the following HELLO id,
+    /// but an engine that reuses its configuration (the `bootWorker` fallback)
+    /// or a Worker bundle that does not forward it can report a different id.
+    /// It must therefore never become a bind target, and a late report must not
+    /// undo a bind that already completed: the HELLO that would replace it has
+    /// already been consumed, so the page would stay recovering forever.
+    public func noteBootCandidate(_ pageBootID: String) {
+        latestPageBootID = pageBootID
+        guard pageBootID != recoveredBootID else { return }
+        guard phase != .ready else { return }
         setPhase(.recovering)
     }
 
     /// The authoritative point to rebind: the replacement Worker completed its
     /// ordered-channel HELLO. If another attempt is still running, remember
     /// the newest boot and redo it when that attempt ends.
-    public func noteWorkerBoot(_ bootID: String) {
+    ///
+    /// - Parameters:
+    ///   - bootID: Worker process identity from the HELLO.
+    ///   - helloCount: Host-monotonic HELLO sequence (0 when unknown). It
+    ///     increments for every channel HELLO, including a same-Worker
+    ///     reconnect, so it can discard a duplicate but cannot by itself tell
+    ///     a replacement from a reconnect.
+    ///   - fenceGeneration: Fence generation the Worker presented. This is the
+    ///     host's WAL authority, not a process identity: a WebContent kill does
+    ///     not advance it. It is recorded for diagnostics only.
+    public func noteWorkerBoot(_ bootID: String, helloCount: UInt64 = 0,
+                               fenceGeneration: UInt64 = 0) {
+        if helloCount > 0 {
+            guard helloCount > latestHelloCount else { return }
+            latestHelloCount = helloCount
+        }
         latestBootID = bootID
+        latestFenceGeneration = fenceGeneration
         // The engine restart / resume behind this HELLO can have a fresh
         // per-engine termination counter (a parked host gets a new engine).
         lastTerminationCount = 0
+        let isReplacement = replacementHelloPending
+        replacementHelloPending = false
         if isRecovering {
-            if bootID != activeTarget?.bootID, bootID != recoveredBootID {
+            if isReplacement
+                || (bootID != activeTarget?.bootID && bootID != recoveredBootID) {
                 pendingTarget = .boot(bootID)
             }
             setPhase(.recovering)
             return
         }
-        guard bootID != recoveredBootID else { return }
+        guard isReplacement || bootID != recoveredBootID else { return }
         startEventDriven(.boot(bootID))
     }
 
@@ -195,7 +249,11 @@ public final class BotWorkerRecoveryScheduler {
         pendingTarget = nil
         recoveredBootID = nil
         latestBootID = nil
+        latestPageBootID = nil
+        latestHelloCount = 0
+        latestFenceGeneration = 0
         lastTerminationCount = 0
+        replacementHelloPending = false
         automaticRetriesRemaining = 0
         setPhase(.idle)
     }
