@@ -114,9 +114,12 @@ that only exists to make one OS happy belongs to `spec/platform`, never here.
 | `schema/device-envelope.schema.json` | transport-independent device envelope (`CONN` §4.1, `DRAFT` §3) |
 | `schema/device-capabilities.schema.json` | manifest: capability map, limits, auth (`CONN` §4.5, `DRAFT` §5) |
 | `schema/device-receipt.schema.json` | applied/failed receipt of one downlink command (`DRAFT` §4) |
+| `schema/outbox-entry.schema.json` | one durable send-outbox entry: `rpcId`, state and timestamps (§10) |
 | `golden/*.json` | at least one instance per schema; event sequences prove resume |
 | `tools/host_check.py` | schema lint, golden validation, sequence and capability rules |
 | `tools/test_host_check.py` | mutation tests that keep the gate honest |
+| `tools/outbox_invalid_cases.json` | negative outbox cases (UUID, state and transition) read by `test_outbox_contract.py` |
+| `tools/test_outbox_contract.py` | state-machine and schema negatives for the outbox |
 
 ## 4. Source A — AgentHarness (`AH:480-501`)
 
@@ -252,3 +255,44 @@ Named so that a Kotlin engineer does not invent them locally.
 | a device command channel inside the worker protocol | two candidate designs, undecided | `PLAN` §13.7 row J4 |
 | media port and the second foreground-service type | platform slice, `spec/platform` | `PLAN` §13.7 row J5 |
 | per-device audio stack (BLE, codec, buffering, ASR) | protocol-specific implementation work | `PLAN` §13.7 row J7 |
+
+## 10. Durable send outbox (P06, W1)
+
+The UI→host send path is host behaviour above the worker contract (§9 row J2 is the *ingress* queue
+for device commands; this is the user's outgoing message queue and has its own boundary). For all
+backends it is one durable queue with the same observable rules.
+
+- **Enqueue is the durable fact.** A send creates one entry and writes it with the §7 atomic order
+  (temp file, fsync, rename, directory fsync) **before** any transport attempt. The entry is
+  shown immediately as `queued`; a transport failure never removes it and never loses the user
+  text. The file is `send-outbox/<rpcId>.json`, unique per `rpcId`.
+- **`rpcId`.** A lowercase UUIDv4 generated at enqueue, immutable for the entry's life. It is the
+  `source.rpcId` of the user message and the only idempotency key used for delivery. The authority
+  de-duplicates by it; a retry of the same entry reuses it.
+- **State machine.** `queued → submitting → accepted → durable`, plus
+  `submitting → outcomeUnknown`. The only other allowed edges are
+  `outcomeUnknown → accepted` (read-back found the `rpcId`) and `outcomeUnknown → queued`
+  (read-back proved the message absent before a resend). No other edge exists; `durable` is not a
+  stored state after deletion (the file is removed).
+- **Delete condition.** An entry is deleted **only** after an authoritative history contains a
+  `user_message` whose `source.rpcId` equals the entry's `rpcId`, and the entry is `durable`.
+  A local `accepted` acknowledgement is not enough; an `outcomeUnknown` entry is not deleted
+  until the read-back resolves it.
+- **Outcome unknown.** A transport interruption after the request was written is
+  `outcomeUnknown`, never an automatic resend. The host first reads the authoritative history
+  (the same source that would make it `durable`); if the `rpcId` is present it becomes `accepted`
+  then `durable`; if proof of absence is available it returns to `queued` with the same `rpcId`;
+  if the read-back cannot run it stays `outcomeUnknown` and does not resend.
+- **Ordering and crash points.** Per session the queue is FIFO by `createdAtMs`; sessions are
+  independent. The five kill points — before the file write, after the write before submit,
+  mid-submit, `accepted` before `durable`, `durable` before delete — must neither lose nor
+  duplicate: the first shows no accepted message (the UI may not have shown it), the last two
+  replay the same `rpcId`, and the authority's `source.rpcId` is the only de-duplicator. Startup
+  scans `send-outbox/` and resumes `queued`/`outcomeUnknown` entries; it never invents a new
+  `rpcId`.
+- **Backends.** `backend: local` and `backend: pc` use the same entry shape and machine; the PC
+  path keeps its existing workspace/session scope. A backend switch never moves an entry to a
+  different session.
+- **No UI restriction.** The queue never refuses a send for a closed admission, an engine that is
+  starting, or a running turn; it accepts and shows `queued`. The only new visible state is the
+  existing "排队中" (queued) projection.

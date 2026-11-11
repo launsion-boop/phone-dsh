@@ -57,6 +57,9 @@ PHONE_ONLY_VECTORS = frozenset({
     "record-reference.phone.json", "observation-envelope.phone.json", "record-query.phone.json",
     "erasure-event.phone.json",
     "verification.phone.json",
+    "tool-catalog-tiers.phone.json",
+    "volatile-context-time.phone.json",
+    "model-purpose-enforcement.phone.json",
 })
 
 

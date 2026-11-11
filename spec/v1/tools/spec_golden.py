@@ -206,13 +206,25 @@ LINE_CAPS = {
     # §9's decided reading now states that a listed epoch at or below
     # `last_durable_epoch` is durable without its own retained close record and
     # is not "unclosed history" for §10. The cap moves 412 -> 416.
-    "wal.md": 416,
+    # D16 amendment (2026-11-12, PC-20261112-w4-writepath-append):
+    # §11 registers the read-only session projection (W1), §12 fixes the
+    # epoch-close reclamation trigger (W3), and §13 fixes the watermark and
+    # idle-epoch reading (W4). These are contract rules, not prose. The cap
+    # moves 416 -> 510.
+    "wal.md": 510,
     # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
     # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
     # refusal). The implementation and the spec disagreed; the spec was the narrower one.
-    "exec.md": 232,
+    # D16 amendment (2026-11-12, PC-20261112-w2/w4): §7 fixes step and journal
+    # retention; §8 fixes the append-only durable record formats. The cap moves
+    # 232 -> 300.
+    "exec.md": 300,
     "handoff.md": 200,
-    "budgets.md": 200,
+    # D16 amendment (2026-11-12, PC-20261112-w0/w2/w3): §7 adds the target
+    # performance rows, §8 makes the existing journal prune rule precise, §9 adds
+    # the aggregate host-internal budget and its five levels. The cap moves
+    # 200 -> 320.
+    "budgets.md": 320,
     # D16 amendment: §12 is **new normative text**, not a document that outgrew its
     # cap. It gives a home to a contract that had none: `ubuntu.exec` /
     # `ubuntu.status` / `ubuntu.fetch`, the job state machine with its exhaustive
@@ -227,7 +239,10 @@ LINE_CAPS = {
     # "enforced", which needs lines to say what is now required.
     # D16 amendment: the redirect, refusal-surface and number-rendering rules the
     # Kotlin port had to infer are now written down.
-    "gateway-security.md": 240,
+    # D16 amendment (2026-11-12, PC-20261112-w3/w7): §11 fixes response-log
+    # retention, §12 the content-key recipe, §13 streaming arrival and the delta
+    # merge bound. The cap moves 240 -> 330.
+    "gateway-security.md": 330,
     # D16 amendment (2026-10-31): the UiState `kind` vocabulary gained `context`
     # (an injected user-role block). A new legal kind needs one sentence saying
     # what it carries and which member names the injector; the alternative is a
@@ -3381,6 +3396,14 @@ def check_spec(spec_dir, full):
     check_decision_references(spec_dir, found, texts, rep)
     check_wal_docs(texts, rep, full)
     check_handoff_docs(texts, rep, full)
+    # W0/W2/W3/W4/W7 contract cases: their envelope is a schema; the per-vector
+    # law lives in the dedicated checker. The import is lazy so the dedicated
+    # checker can reuse this module's validator without a circular import.
+    from plan_cases_check import run as run_plan_cases  # noqa: E402
+    for rel, message in run_plan_cases(spec_dir):
+        rep.add(rel)
+        if message != "ok":
+            rep.fail(rel, message)
     for name, text in texts.items():
         if INTERNAL_TASK_ID in text:
             rep.fail(name, "contains an internal task identifier")
