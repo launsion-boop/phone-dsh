@@ -57,6 +57,8 @@ class HomeDrawerStateTest {
         compose.onNodeWithText("设置").assertDoesNotExist()
         compose.onNodeWithText("定时任务").assertDoesNotExist()
         compose.onNodeWithTag(HomeDrawerTags.SCRIM).performSemanticsAction(SemanticsActions.OnClick)
+        // Rule 8: the host learns about the dismissal only after 220 ms of close.
+        compose.mainClock.advanceTimeBy(300)
         compose.runOnIdle { assertEquals(true, closed) }
     }
 
@@ -91,6 +93,8 @@ class HomeDrawerStateTest {
         val dialog = ShadowDialog.getLatestDialog()
         assertNotNull(dialog)
         (dialog as OnBackPressedDispatcherOwner).onBackPressedDispatcher.onBackPressed()
+        // Rule 9 uses the same 220 ms close animation; nothing is instant.
+        compose.mainClock.advanceTimeBy(300)
         compose.runOnIdle { assertEquals(true, closed) }
     }
 
@@ -389,6 +393,7 @@ class HomeDrawerStateTest {
         compose.onNodeWithTag(HomeDrawerTags.FOLDER_PREFIX + "stable-folder-9").performSemanticsAction(SemanticsActions.OnLongClick)
         compose.onNodeWithText("在这里新建会话").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(300)
         compose.runOnIdle {
             assertEquals("stable-folder-9", requestedFolder)
             assertEquals(true, closed)
