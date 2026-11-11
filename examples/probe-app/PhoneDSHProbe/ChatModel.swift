@@ -371,6 +371,10 @@ final class ChatModel {
         outboxScanStarted = true
         Task { @MainActor [weak self] in
             guard let self, self.pcRuntime == nil else { return }
+            // Attachment bytes are user data. Only directories without an
+            // entry file are orphans; a directory whose entry still exists is
+            // a consistency failure handled at dispatch, never GC'd here.
+            _ = await self.sendOutbox.collectOrphanAttachments()
             let entries = await self.sendOutbox.entries()
             self.queuedSendCount = entries.filter {
                 $0.state == .queued || $0.state == .submitting
@@ -3437,19 +3441,19 @@ final class ChatModel {
         await send(text, attachments: [])
     }
 
-    /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出新的一行。
+    /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出一行。
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty || !attachments.isEmpty else { return false }
-        if pcRuntime != nil || !attachments.isEmpty {
+        if pcRuntime != nil {
             return await sendDirect(prompt, attachments: attachments, reusing: itemID)
         }
-        return await enqueueSend(prompt, reusing: itemID)
+        return await enqueueSend(prompt, attachments: attachments, reusing: itemID)
     }
 
-    /// The pre-W1 direct send. Used by the PC backend, attachment sends and the
-    /// first-ever launch where no session identifier exists yet to key a
-    /// durable entry.
+    /// The pre-W1 direct send. Used by the PC backend and the first-ever launch
+    /// where no session identifier exists yet to key a durable entry. Local
+    /// text and attachment sends share the durable outbox.
     private func sendDirect(_ prompt: String, attachments: [HarnessAttachment],
                             reusing itemID: String?) async -> Bool {
         // Sending is the clearest signal that the engine is wanted. Boot it
@@ -3493,19 +3497,21 @@ final class ChatModel {
         }
     }
 
-    /// Durably enqueue one text prompt and return immediately. Delivery is a
-    /// separate step (`drainSendOutbox`); a crash at any point before the
-    /// authoritative message leaves the file for the next launch.
-    private func enqueueSend(_ prompt: String, reusing itemID: String?) async -> Bool {
+    /// Durably enqueue one prompt (text and/or attachment references) and
+    /// return immediately. Delivery is a separate step (`drainSendOutbox`); a
+    /// crash at any point before the authoritative message leaves the files
+    /// for the next launch.
+    private func enqueueSend(_ prompt: String, attachments: [HarnessAttachment],
+                             reusing itemID: String?) async -> Bool {
         // A brand-new engine with no persisted session still has to boot once
         // before a sessionId exists. Everything after that is durable.
         if currentSessionID == nil, sessionID == nil,
            WorkspaceStorage.currentSessionID(for: .phone) == nil {
-            return await sendDirect(prompt, attachments: [], reusing: itemID)
+            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
         }
         guard let target = currentSessionID ?? sessionID
                 ?? WorkspaceStorage.currentSessionID(for: .phone) else {
-            return await sendDirect(prompt, attachments: [], reusing: itemID)
+            return await sendDirect(prompt, attachments: attachments, reusing: itemID)
         }
         // A retry of the same failed row keeps the original rpcId so the
         // authority de-duplicates instead of appending a second message.
@@ -3523,7 +3529,9 @@ final class ChatModel {
                 }
             } else {
                 entry = try await sendOutbox.enqueue(
-                    sessionID: target, text: prompt, backend: .local,
+                    sessionID: target, text: prompt,
+                    attachments: attachments.map { Self.outboxAttachment($0) },
+                    backend: .local,
                     rpcId: reuseRequestID)
             }
         } catch {
@@ -3531,11 +3539,12 @@ final class ChatModel {
             return false
         }
         let rowID = itemID ?? "\(target):prompt:\(entry.rpcId)"
-        var input = ChatItem(id: rowID, kind: .user, title: "You", text: prompt)
+        var input = ChatItem(id: rowID, kind: .user, title: "You",
+                             text: Self.visiblePrompt(prompt, attachments: attachments))
         input.promptRequestID = entry.rpcId
         NativeTranscriptProjector.acceptInput(input, in: &items)
         markQueued(itemID: rowID, requestID: entry.rpcId)
-        lastPrompt = (prompt, [])
+        lastPrompt = (prompt, attachments)
         lastPromptRequestID = entry.rpcId
         clearError()
         syncIdleTimer()
@@ -3548,6 +3557,52 @@ final class ChatModel {
         }
         scheduleRecoveryQueueFlush()
         return true
+    }
+
+    /// The same visible label `sendDirect` has always shown for attachments.
+    private nonisolated static func visiblePrompt(_ prompt: String,
+                                                   attachments: [HarnessAttachment]) -> String {
+        let label = attachments.map { "[\($0.name)]" }.joined(separator: " ")
+        return [prompt, label].filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    private nonisolated static func outboxAttachment(
+        _ attachment: HarnessAttachment) -> SendOutboxAttachmentInput {
+        SendOutboxAttachmentInput(
+            kind: SendOutboxAttachmentKind(mimeType: attachment.mimeType),
+            contentType: attachment.mimeType,
+            filename: attachment.name,
+            data: attachment.data)
+    }
+
+    /// Reads the verified bytes for one entry. Returns nil after recording an
+    /// internal `attachment_missing` / `attachment_digest_mismatch`; the entry
+    /// stays queued (or outcomeUnknown) and is never sent text-only.
+    private func dispatchAttachments(for entry: SendOutboxEntry) async -> [HarnessAttachment]? {
+        guard let attachments = entry.attachments, !attachments.isEmpty else { return [] }
+        do {
+            let loaded = try await sendOutbox.verifiedAttachmentData(rpcId: entry.rpcId)
+            return loaded.map {
+                HarnessAttachment(name: $0.attachment.filename,
+                                  mimeType: $0.attachment.contentType,
+                                  data: $0.data)
+            }
+        } catch let error as SendOutboxError {
+            let failure: SendOutboxAttachmentFailure
+            switch error {
+            case .attachmentMissing:
+                failure = .missing
+            case .attachmentDigestMismatch:
+                failure = .digestMismatch
+            default:
+                return nil
+            }
+            _ = try? await sendOutbox.recordAttachmentFailure(
+                rpcId: entry.rpcId, failure: failure)
+            return nil
+        } catch {
+            return nil
+        }
     }
 
     private func refreshQueuedSendCount() async {
@@ -3603,6 +3658,12 @@ final class ChatModel {
                 guard await activateSessionForOutbox(entry.sessionId) else { break }
             }
             guard let activeHarness = harness else { break }
+            // Both the first attempt and every retry re-verify every byte
+            // reference before submit. A missing or modified file blocks the
+            // entry; it is never downgraded to a text-only send.
+            guard let submittedAttachments = await dispatchAttachments(for: entry) else {
+                continue
+            }
             let submitted: SendOutboxEntry
             do {
                 submitted = try await sendOutbox.markSubmitting(rpcId: entry.rpcId)
@@ -3611,7 +3672,7 @@ final class ChatModel {
             }
             do {
                 try await activeHarness.send(
-                    .prompt(text: submitted.text, attachments: [],
+                    .prompt(text: submitted.text, attachments: submittedAttachments,
                             requestID: submitted.rpcId),
                     to: submitted.sessionId)
                 _ = try? await sendOutbox.markAccepted(rpcId: submitted.rpcId)
