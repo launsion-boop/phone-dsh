@@ -108,6 +108,7 @@ struct SettingsPage: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(NativeText("完成", "Done")) { dismiss() }
                         .fontWeight(.semibold)
+                        .accessibilityIdentifier("settings.done")
                 }
             }
         }
@@ -139,14 +140,17 @@ struct SettingsPage: View {
         Section(NativeText("模型与智能体", "Models and agents")) {
             if includesProviders {
                 link(NativeText("模型服务", "Model providers"), icon: "cpu") { ModelProviderSettingsPage() }
+                    .accessibilityIdentifier("settings.row.modelProvider")
                 link(NativeText("Tono 账号", "Tono account"), icon: "person.crop.circle") { TonoAccountPage() }
             }
             link(NativeText("Agent 预设", "Agent presets"), icon: "person.2") {
                 NativeAgentPresetsPage(onOpenSession: openedPresetSession)
             }
+            .accessibilityIdentifier("settings.row.agentPresets")
             link(NativeText("插件与工具", "Plugins and tools"), icon: "puzzlepiece.extension") {
                 NativeConfigurationPage()
             }
+            .accessibilityIdentifier("settings.row.pluginsTools")
         }
     }
 
@@ -154,8 +158,10 @@ struct SettingsPage: View {
         Section(NativeText("权限与隐私", "Permissions and privacy")) {
             link(NativeText("新会话默认权限", "Default permission"), icon: "lock.shield",
                  value: permissionTitle) { PermissionDefaultsPage() }
+                .accessibilityIdentifier("settings.row.permissionDefaults")
             if includesPhone { phonePermissionsLink }
             link(NativeText("网络访问", "Network access"), icon: "network") { EgressAllowListPage() }
+                .accessibilityIdentifier("settings.row.network")
             link(NativeText("MCP 与局域网设备", "MCP and LAN devices"), icon: "server.rack") { MCPSettingsPage() }
             link(NativeText("SSH 主机", "SSH hosts"), icon: "terminal",
                  value: "\(SSHSettingsStore.shared.connections.count)") { SSHSettingsPage() }

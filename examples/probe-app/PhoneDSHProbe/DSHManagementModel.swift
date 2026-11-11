@@ -1439,16 +1439,20 @@ extension DSHManagementModel {
         }
         let now = Date()
         let count = max(workspaceCount, 1)
-        sessions = (0..<sessionCount).map { index in
-            ManagedSession(id: "preview-s-\(index)",
-                           title: index % 7 == 3 ? "" : "预览会话 \(index + 1)",
-                           updatedAt: now.addingTimeInterval(Double(-index) * 3600),
-                           running: index == 1,
-                           blank: false,
-                           cwd: workspaces.isEmpty ? base : workspaces[index % count].path,
-                           parentSessionID: nil,
-                           searchSnippet: nil)
+        let previewSessions: [ManagedSession] = (0..<sessionCount).map { (index: Int) -> ManagedSession in
+            let title: String = index % 7 == 3 ? "" : "预览会话 \(index + 1)"
+            let updatedAt: Date = now.addingTimeInterval(Double(-index) * 3600)
+            let cwd: String = workspaces.isEmpty ? base : workspaces[index % count].path
+            return ManagedSession(id: "preview-s-\(index)",
+                                  title: title,
+                                  updatedAt: updatedAt,
+                                  running: index == 1,
+                                  blank: false,
+                                  cwd: cwd,
+                                  parentSessionID: nil,
+                                  searchSnippet: nil)
         }
+        sessions = previewSessions
         for index in workspaces.indices {
             workspaces[index].sessionIDs = sessions
                 .filter { $0.cwd == workspaces[index].path }

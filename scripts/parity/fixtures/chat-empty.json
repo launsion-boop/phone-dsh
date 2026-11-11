@@ -26,7 +26,7 @@
         "testTag": "pdsh.chat.header.drawer"
       },
       "ios": {
-        "label": "打开会话列表",
+        "identifier": "chat.header.drawer",
         "type": "button"
       },
       "tolerance": 1.0
@@ -48,7 +48,7 @@
         "testTag": "pdsh.chat.empty.start"
       },
       "ios": {
-        "label": "启动本地引擎",
+        "identifier": "chat.empty.start",
         "type": "button"
       },
       "tolerance": 1.0
@@ -59,7 +59,7 @@
         "testTag": "pdsh.composer.field"
       },
       "ios": {
-        "label": "发消息或创建任务，/ 调用指令，@ 文件或对话",
+        "identifier": "chat.composer.field",
         "type": "textView"
       },
       "tolerance": 1.0
@@ -70,7 +70,7 @@
         "testTag": "pdsh.composer.send"
       },
       "ios": {
-        "label": "发送消息",
+        "identifier": "chat.composer.send",
         "type": "button"
       },
       "text": true,

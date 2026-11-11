@@ -29,7 +29,7 @@
         "testTag": "pdsh.settings.done"
       },
       "ios": {
-        "label": "完成",
+        "identifier": "settings.done",
         "type": "button"
       },
       "tolerance": 1.0
@@ -40,7 +40,7 @@
         "testTag": "pdsh.settings.index.row.modelProvider"
       },
       "ios": {
-        "label": "模型服务",
+        "identifier": "settings.row.modelProvider",
         "type": "button"
       },
       "text": true,
@@ -52,7 +52,7 @@
         "testTag": "pdsh.settings.index.row.agentPresets"
       },
       "ios": {
-        "label": "Agent 预设",
+        "identifier": "settings.row.agentPresets",
         "type": "button"
       },
       "text": true,
@@ -64,7 +64,7 @@
         "testTag": "pdsh.settings.index.row.pluginsTools"
       },
       "ios": {
-        "label": "插件与工具",
+        "identifier": "settings.row.pluginsTools",
         "type": "button"
       },
       "text": true,
@@ -76,7 +76,7 @@
         "testTag": "pdsh.settings.index.row.permissionDefaults"
       },
       "ios": {
-        "label": "新会话默认权限",
+        "identifier": "settings.row.permissionDefaults",
         "type": "button"
       },
       "text": true,
@@ -88,7 +88,7 @@
         "testTag": "pdsh.settings.index.row.network"
       },
       "ios": {
-        "label": "网络访问",
+        "identifier": "settings.row.network",
         "type": "button"
       },
       "text": true,
