@@ -9,6 +9,8 @@ public struct BotMemoryWriteRequest: Sendable {
     public var scope: BotMemoryScope
     public var key: String?
     public var source: BotMemorySource
+    /// Canonical `record://` references the host validated before this write.
+    public var evidence: [String]
     public var sensitivity: BotMemorySensitivity
     public var importance: Double
     public var supersededBy: String?
@@ -23,6 +25,7 @@ public struct BotMemoryWriteRequest: Sendable {
         scope: BotMemoryScope = .agent,
         key: String? = nil,
         source: BotMemorySource,
+        evidence: [String] = [],
         sensitivity: BotMemorySensitivity = .personal,
         importance: Double = 0.5,
         supersededBy: String? = nil,
@@ -36,6 +39,7 @@ public struct BotMemoryWriteRequest: Sendable {
         self.scope = scope
         self.key = key
         self.source = source
+        self.evidence = evidence
         self.sensitivity = sensitivity
         self.importance = importance
         self.supersededBy = supersededBy
@@ -242,13 +246,14 @@ public actor BotMemory {
         context: BotMemoryWriteContext
     ) async throws -> BotMemoryWriteResult {
         try await writeMutex.withLock {
-            try await performWrite(request, source: context.source)
+            try await performWrite(request, source: context.source, trust: context.trust)
         }
     }
 
     private func performWrite(
         _ request: BotMemoryWriteRequest,
-        source verifiedSource: BotMemorySource
+        source verifiedSource: BotMemorySource,
+        trust verifiedTrust: BotRecordTrust?
     ) async throws -> BotMemoryWriteResult {
         if verifiedSource.kind != .userTurn && (request.scope == .user || request.tier == .profile) {
             let kind = verifiedSource.kind.rawValue
@@ -259,6 +264,24 @@ public actor BotMemory {
                     language,
                     zh: "來源 \(kind) 不能寫入 scope:\"user\" 或 tier:\"profile\"；請改用 scope:\"agent\" 的 tier:\"log\" 或 tier:\"note\"。",
                     en: "Source \(kind) cannot write scope:\"user\" or tier:\"profile\"; use scope:\"agent\" with tier:\"log\" or tier:\"note\"."
+                ),
+                tier: request.tier,
+                scope: request.scope
+            )
+        }
+        // The MCP tool path supplies the host-derived trust. It must still be
+        // a user-message trust for the shared/profile boundary; this is the
+        // second, stricter half of the rule (source kind is the first half).
+        if let trust = verifiedTrust,
+           trust != .user,
+           request.scope == .user || request.tier == .profile {
+            return BotMemoryWriteResult(
+                ok: false,
+                code: "memory-evidence-required",
+                error: BotMemoryNormalizer.bilingual(
+                    language,
+                    zh: "寫入 scope:\"user\" 或 tier:\"profile\" 需要至少一條指向用戶消息的 record:// 引用。",
+                    en: "Writing scope:\"user\" or tier:\"profile\" needs at least one record:// reference to a user message."
                 ),
                 tier: request.tier,
                 scope: request.scope
@@ -317,12 +340,13 @@ public actor BotMemory {
             tier: request.tier,
             scope: request.scope,
             key: request.tier == .note ? noteKey : nil,
-            trust: .string(source.kind == .userTurn ? "user" : "assistant"),
+            trust: .string(verifiedTrust?.rawValue ?? (source.kind == .userTurn ? "user" : "assistant")),
             sensitivity: request.sensitivity,
             importance: BotMemoryRecallIndex.normalizeImportance(request.importance),
             lastUsedMS: 0,
             extractor: "manual",
             source: source,
+            evidence: request.evidence.isEmpty ? nil : request.evidence,
             supersededBy: trimmed(request.supersededBy),
             expiresAt: request.expiresAt.flatMap { $0 > 0 ? $0 : nil },
             applicableWhen: emptyAsNil(BotMemoryNormalizer.normalizeConditionText(request.applicableWhen)),

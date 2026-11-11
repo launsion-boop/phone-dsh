@@ -73,11 +73,12 @@ public enum BotToolCatalog {
                 "kind": enumString(["doc", "repo", "article", "video", "tool", "other"]),
             ], required: ["url"]), minItems: 1, maxItems: 4),
         ], required: ["links"], additionalProperties: false)),
-        tool("UpdateMemory", "Write or forget one durable memory fact.", schema([
+        tool("UpdateMemory", "Write or forget one durable memory fact. Evidence is a list of record:// references to the records you relied on; a user/profile write needs at least one that points to a user message.", schema([
             "action": .object(["type": .string("string"), "enum": .array([.string("write"), .string("forget")])]),
             "fact": string(), "fact_id": string(),
             "tier": .object(["type": .string("string"), "enum": .array([.string("profile"), .string("log"), .string("note")]), "default": .string("log")]),
             "scope": enumString(["agent", "user"]), "key": string(),
+            "evidence": array(string(), maxItems: 8),
         ], additionalProperties: false)),
         tool("RecallMemory", "Search durable memory in agent and user scopes.", schema([
             "query": string(), "limit": .object(["type": .string("number"), "minimum": .number(1), "maximum": .number(50)]),

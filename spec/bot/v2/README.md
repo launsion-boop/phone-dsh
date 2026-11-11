@@ -25,6 +25,35 @@ facts 是 SQLite 唯一权威。写入归一为单行；注入块逐字对齐；
 
 第一版不实现自动抽取、MemoryPolicy 决策、L2 反思和衰減。facts 中对应字段保留供以后启用；MemoryPolicy 决策契约已按 PC-20261111-bot-v2-unwired 删除，不再保留 schema 或向量。
 
+### 1.1 记忆证据与信任推导
+
+`UpdateMemory` 的 `write` 动作可以带 `evidence`：0–8 条 [v1 §4.2](../v1/README.md#42-原始记录引用record-reference)
+的规范 `record://` 引用。知识来源不再由会话类型猜：宿主校验每条引用存在且属于调用者这个 Bot，
+再按引用指向的**宿主记录结构**推导信任。
+
+| 引用指向 | 推导出的信任 | 说明 |
+| --- | --- | --- |
+| 真实用户消息 | `user` | `user/message`，`source.kind == "user"`，且 `source.rpcId` 按 v1 §4.1 属于用户回合（`bot-`、`user-action:`、`card-answer:`；缺失按用户处理）。`held:`、`agent:`、`routine:`、`task-*` 与 `compact-checkpoint` 都不算用户消息。 |
+| 观察信封或外部来源调用 | `observation` | 引用指向的 session `tool/call`／`tool/result` 的名称属于 v1 §4.3 的外部来源，或事件是可核验的观察记录；模型文本里出现信封标记不算证据。 |
+| 其他记录或没有引用 | `assistant` | agent 自己的推断；包括 routine、Task、held、其他 Bot 消息、压缩摘要和普通宿主工具结果。 |
+
+- `evidence` 只允许出现在 `write`。每条引用必须在解析后存在，且 session 属于该 Bot 的已认领会话、
+  event 的 principal 是该 Bot；任一失效都整条写入失败（`memory-evidence-invalid`），不降级、不忽略。
+- 推导结果写入 fact 的 `trust`，并取代旧的「会话类型决定 trust」规则；`source` 仍记录实际回合
+  来源，供审计。`evidence` 按规范化形态写入 fact，最多 8 条。
+- `scope:"user"` 或 `tier:"profile"` 必须**同时**满足两条边界：现有回合来源规则（`source.kind`
+  必须是 `user-turn`）和至少一条推导为 `user` 的引用；取更严的一方。缺引用返回
+  `memory-evidence-required`，有引用但来源更弱返回 `memory-source-boundary`。
+  没有 evidence 的 `scope:"agent"`／`log`／`note` 写入仍允许，但 trust 为 `assistant`。
+- 共享 `user` 记忆的出处在其他 Bot 看来只能读到被引用的那句用户原话；本读取能力由宿主按引用
+  实现，不扩大 v1 §4.4 的 `phone record` 检索范围。
+- 注入文本必须说明：写记忆时优先引用来源；关于用户的持久事实用用户消息引用，观察所得注明观察，
+  没有引用就按自己的推断记录。不得再声称所有聊天回合都是用户陈述。
+
+`memory-fact.schema.json` 增加可选 `evidence`（字符串数组），`golden/memory-fact.json` 的
+`valid` 条目与新增 `evidenceCases` 是共享向量；`validate_vectors.py` 用参考解析器逐条校验
+`user`／`observation`／`assistant` 推导、引用无效时的拒绝和 source 规则的叠加。
+
 ## 2. 唤醒标记
 
 routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox、隐藏唤醒和 `<automation_status>` 与上游一致。安静时段延后而不是丢弃；urgent 必须有理由；WebContent 不可用时常驻宿主排队，恢复后依次运行且错过的只补一次。

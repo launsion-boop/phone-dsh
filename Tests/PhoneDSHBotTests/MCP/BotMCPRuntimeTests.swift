@@ -366,13 +366,15 @@ final class BotMCPRuntimeTests: XCTestCase {
             sessionId: "gb-main", hidden: false,
             origin: BotTurnOrigin(rpcId: "user-action:memory-turn"))
         await fixture.runtime.updateTurn(sessionId: "gb-main", turnId: "42")
+        let evidence = BotJSONValue.array([.string("record://session/gb-main#1")])
         let result = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
             "action": .string("write"), "scope": .string("user"), "fact": .string("likes concise replies"),
+            "evidence": evidence,
         ]))
         XCTAssertEqual(result.structuredContent?["ok"], .bool(true))
         let profile = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
             "action": .string("write"), "scope": .string("user"), "tier": .string("profile"),
-            "fact": .string("prefers short summaries"),
+            "fact": .string("prefers short summaries"), "evidence": evidence,
         ]))
         XCTAssertEqual(profile.structuredContent?["ok"], .bool(true))
         let store = SQLiteBotMemoryFactStore(eventLog: fixture.store, now: { 1_000 })
@@ -394,15 +396,16 @@ final class BotMCPRuntimeTests: XCTestCase {
             sessionId: "gb-main", hidden: false,
             origin: BotTurnOrigin(rpcId: BotTurnOrigin.cardAnswerRequestId(nonce: "answer-1")))
         await fixture.runtime.updateTurn(sessionId: "gb-main", turnId: "43")
+        let evidence = BotJSONValue.array([.string("record://session/gb-main#1")])
         let shared = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
             "action": .string("write"), "scope": .string("user"),
-            "fact": .string("card answer user fact"),
+            "fact": .string("card answer user fact"), "evidence": evidence,
         ]))
         XCTAssertEqual(shared.structuredContent?["ok"], .bool(true),
                        String(describing: shared.structuredContent))
         let profile = try await registerAndExecute(fixture.runtime, name: "UpdateMemory", arguments: .object([
             "action": .string("write"), "scope": .string("user"), "tier": .string("profile"),
-            "fact": .string("card answer profile fact"),
+            "fact": .string("card answer profile fact"), "evidence": evidence,
         ]))
         XCTAssertEqual(profile.structuredContent?["ok"], .bool(true),
                        String(describing: profile.structuredContent))

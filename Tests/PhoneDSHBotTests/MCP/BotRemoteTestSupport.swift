@@ -44,11 +44,12 @@ struct BotScriptedEvent {
         ]), time: time)
     }
 
-    static func toolResult(id: String = "call-1", failed: Bool = false, time: Int64 = 1_003) -> Self {
+    static func toolResult(id: String = "call-1", failed: Bool = false,
+                           text: String = "已显示提问卡", time: Int64 = 1_003) -> Self {
         Self("tool/result", .object([
             "message": .object([
                 "toolCallId": .string(id), "isError": .bool(failed),
-                "content": .array([.object(["type": .string("text"), "text": .string("已显示提问卡")])]),
+                "content": .array([.object(["type": .string("text"), "text": .string(text)])]),
             ]),
         ]), time: time)
     }

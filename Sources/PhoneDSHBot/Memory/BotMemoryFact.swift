@@ -65,9 +65,14 @@ public struct BotMemorySource: Codable, Sendable, Equatable {
 
 public struct BotMemoryWriteContext: Sendable {
     public let source: BotMemorySource
+    /// Trust the host derived from `evidence`. Absent means the caller is an
+    /// internal/migration write that predates the record-evidence rule; the
+    /// MCP tool path always supplies it.
+    public let trust: BotRecordTrust?
 
-    init(source: BotMemorySource) {
+    init(source: BotMemorySource, trust: BotRecordTrust? = nil) {
         self.source = source
+        self.trust = trust
     }
 }
 
@@ -98,6 +103,8 @@ public struct BotMemoryFact: Codable, Sendable, Equatable, Identifiable {
     public var lastUsedMS: Int64
     public var extractor: String?
     public var source: BotMemorySource?
+    /// Canonical `record://` references this fact was learned from.
+    public var evidence: [String]?
     public var supersededBy: String?
     public var expiresAt: Int64?
     public var applicableWhen: String?
@@ -123,6 +130,7 @@ public struct BotMemoryFact: Codable, Sendable, Equatable, Identifiable {
         lastUsedMS: Int64 = 0,
         extractor: String? = nil,
         source: BotMemorySource? = nil,
+        evidence: [String]? = nil,
         supersededBy: String? = nil,
         expiresAt: Int64? = nil,
         applicableWhen: String? = nil,
@@ -145,6 +153,7 @@ public struct BotMemoryFact: Codable, Sendable, Equatable, Identifiable {
         self.lastUsedMS = lastUsedMS
         self.extractor = extractor
         self.source = source
+        self.evidence = evidence
         self.supersededBy = supersededBy
         self.expiresAt = expiresAt
         self.applicableWhen = applicableWhen
@@ -169,6 +178,7 @@ public struct BotMemoryFact: Codable, Sendable, Equatable, Identifiable {
         case lastUsedMS = "last_used_ms"
         case extractor
         case source
+        case evidence
         case supersededBy = "superseded_by"
         case expiresAt = "expires_at"
         case applicableWhen
@@ -194,6 +204,7 @@ public struct BotMemoryFact: Codable, Sendable, Equatable, Identifiable {
         lastUsedMS = try container.decodeIfPresent(Int64.self, forKey: .lastUsedMS) ?? 0
         extractor = try container.decodeIfPresent(String.self, forKey: .extractor)
         source = try container.decodeIfPresent(BotMemorySource.self, forKey: .source)
+        evidence = try container.decodeIfPresent([String].self, forKey: .evidence)
         supersededBy = try container.decodeIfPresent(String.self, forKey: .supersededBy)
         expiresAt = try container.decodeIfPresent(Int64.self, forKey: .expiresAt)
         applicableWhen = try container.decodeIfPresent(String.self, forKey: .applicableWhen)

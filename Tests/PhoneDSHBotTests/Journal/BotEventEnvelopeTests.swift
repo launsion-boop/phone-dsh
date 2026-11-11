@@ -42,14 +42,22 @@ final class BotEventEnvelopeTests: XCTestCase {
     func testPhoneGoldenAgentCommUsesRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
         let valid = fixture["validCases"] as! [[String: Any]]
-        XCTAssertEqual(valid.count, 2)
+        XCTAssertEqual(valid.count, 3)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
             let decoded = try codec.decode(data)
-            XCTAssertEqual(decoded.type, "agent.comm")
-            XCTAssertEqual(decoded.origin, .local(source: "comm-service"))
-            XCTAssertEqual(decoded.principal.kind, "team")
+            switch vector["name"] as? String {
+            case "redaction-applied":
+                XCTAssertEqual(decoded.type, "redaction.applied")
+                XCTAssertEqual(decoded.origin, .dsh(sessionId: "gb-main", seq: 5))
+                XCTAssertEqual(decoded.data["record"]?.stringValue, "record://event/7")
+                XCTAssertEqual(decoded.data["sessionRecord"]?.stringValue, "record://session/gb-main#5")
+            default:
+                XCTAssertEqual(decoded.type, "agent.comm")
+                XCTAssertEqual(decoded.origin, .local(source: "comm-service"))
+                XCTAssertEqual(decoded.principal.kind, "team")
+            }
             XCTAssertEqual(try codec.decode(codec.encode(decoded)), decoded)
         }
 

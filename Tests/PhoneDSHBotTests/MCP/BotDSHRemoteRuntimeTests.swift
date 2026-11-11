@@ -159,6 +159,40 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertEqual(replacement.createCount, 0)
     }
 
+    func testRedactionTraceAppendsOneDurableEventWithRulesAndRefs() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[
+                .turn(),
+                .toolCall("mcp__phone__web_fetch"),
+                .toolResult(text: "page\n[pdsh-redaction rules=jwt:1,sk-token:2]"),
+                .assistant("ok"),
+                .end(),
+            ]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("go")
+        let events = try await botEvents(fixture.store)
+        let traces = events.filter { $0.type == "redaction.applied" }
+        XCTAssertEqual(traces.count, 1)
+        let trace = try XCTUnwrap(traces.first)
+        let result = try XCTUnwrap(events.first {
+            $0.type == "conversation.tool_result" && $0.origin == .dsh(sessionId: "gb-main", seq: 3)
+        })
+        XCTAssertEqual(trace.data["record"]?.stringValue,
+                       "record://event/\(try XCTUnwrap(result.commitSeq))")
+        XCTAssertEqual(trace.data["sessionRecord"]?.stringValue, "record://session/gb-main#3")
+        let rules = try XCTUnwrap(trace.data["rules"]?.arrayValue)
+        XCTAssertEqual(rules.count, 2)
+        XCTAssertEqual(rules[0]["rule"]?.stringValue, "jwt")
+        XCTAssertEqual(rules[0]["count"]?.numberValue, 1)
+        XCTAssertEqual(rules[1]["rule"]?.stringValue, "sk-token")
+        XCTAssertEqual(rules[1]["count"]?.numberValue, 2)
+        XCTAssertFalse(String(decoding: try BotEventEnvelopeCodec().encode(trace), as: UTF8.self).contains("page"))
+    }
+
     func testQuestionSuppressesModelWrapUpAndSendToUser() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

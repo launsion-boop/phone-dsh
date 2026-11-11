@@ -14,14 +14,39 @@ struct BotMCPTestFixture {
     }
 }
 
+/// Test resolver for `UpdateMemory.evidence`. It validates reference syntax
+/// but deliberately does not read a session log, so unit tests can exercise the
+/// source/trust stacking without a materialized store.
+final class FixedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked Sendable {
+    let trust: BotRecordTrust
+
+    init(trust: BotRecordTrust = .user) {
+        self.trust = trust
+    }
+
+    func resolveEvidence(_ references: [String], callerBotID: String,
+                         callerSessionID: String) async throws -> BotRecordEvidence {
+        var canonical: [String] = []
+        for reference in references {
+            guard let parsed = BotRecordReference.parse(reference) else {
+                throw BotRecordServiceError.invalidReference
+            }
+            canonical.append(parsed.canonical)
+        }
+        return BotRecordEvidence(trust: trust, refs: canonical)
+    }
+}
+
 func makeBotMCPFixture(
     volatileProvider: (any BotVolatileContextProviding)? = nil,
-    taskExecutor: (any BotTaskExecuting)? = nil
+    taskExecutor: (any BotTaskExecuting)? = nil,
+    recordEvidence: (any BotRecordEvidenceResolving)? = FixedRecordEvidenceResolver()
 ) throws -> BotMCPTestFixture {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
     let runtime = BotMCPRuntime(
-        store: store, volatileProvider: volatileProvider, taskExecutor: taskExecutor, now: { 1_000 })
+        store: store, volatileProvider: volatileProvider, taskExecutor: taskExecutor,
+        recordEvidence: recordEvidence, now: { 1_000 })
     return BotMCPTestFixture(directory: directory, store: store, runtime: runtime)
 }
 

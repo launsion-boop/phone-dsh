@@ -50,7 +50,10 @@ except ImportError:  # `python3 -m spec.tools.bot.check_golden`
 PINNED_SHA = "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
 # A phone-only vector has no upstream dsh-bot export to extend. Keep this list
 # explicit: a new standalone golden needs review, not just a suffix.
-PHONE_ONLY_VECTORS = frozenset({"turn-origin.phone.json", "mcp-egress.phone.json"})
+PHONE_ONLY_VECTORS = frozenset({
+    "turn-origin.phone.json", "mcp-egress.phone.json",
+    "record-reference.phone.json", "observation-envelope.phone.json", "record-query.phone.json",
+})
 
 
 def fail(message: str) -> None:

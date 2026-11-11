@@ -1,0 +1,201 @@
+{
+  "schemaVersion": 1,
+  "vector": "observation-envelope.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-owned observation-envelope vectors; there is no dsh-bot upstream file."
+  },
+  "upstream": [],
+  "delta": [
+    "Freeze the system-generated observation envelope added at tools/post-execute for external tool results; the envelope is not a model-authored prefix.",
+    "Freeze the exact attribute order (source, origin, at, owner, ref), the one-line header, the body escaping rule and the fail-closed decode rules.",
+    "Only these origin categories are envelopes: web fetch/search, external MCP connectors, ADB/BLE device output, device task results, subagent results, other Bot messages and attachment content. A bash result produced in the Bot box is never wrapped."
+  ],
+  "valid": [
+    {
+      "name": "web-fetch",
+      "envelope": {
+        "source": "web",
+        "origin": "https://example.com/a?b=1&c=2",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "unknown",
+        "ref": "record://session/gb-main#12",
+        "text": "Example Domain"
+      },
+      "encoded": "<observation source=\"web\" origin=\"https://example.com/a?b=1&amp;c=2\" at=\"2026-11-11T07:00:00.000Z\" owner=\"unknown\" ref=\"record://session/gb-main#12\">\nExample Domain\n</observation>"
+    },
+    {
+      "name": "external-connector",
+      "envelope": {
+        "source": "connector",
+        "origin": "mcp://weather/current",
+        "at": "2026-11-11T07:00:01.000Z",
+        "owner": "unknown",
+        "ref": "record://event/7",
+        "text": "{\"temperature\":21}"
+      },
+      "encoded": "<observation source=\"connector\" origin=\"mcp://weather/current\" at=\"2026-11-11T07:00:01.000Z\" owner=\"unknown\" ref=\"record://event/7\">\n{\"temperature\":21}\n</observation>"
+    },
+    {
+      "name": "device-output",
+      "envelope": {
+        "source": "device",
+        "origin": "device:ble-1",
+        "at": "2026-11-11T07:00:02.000Z",
+        "owner": "device:ble-1",
+        "ref": "record://session/gb-main#13",
+        "text": "link ok"
+      },
+      "encoded": "<observation source=\"device\" origin=\"device:ble-1\" at=\"2026-11-11T07:00:02.000Z\" owner=\"device:ble-1\" ref=\"record://session/gb-main#13\">\nlink ok\n</observation>"
+    },
+    {
+      "name": "subagent-result",
+      "envelope": {
+        "source": "subagent",
+        "origin": "task:task-1",
+        "at": "2026-11-11T07:00:03.000Z",
+        "owner": "agent:bot-a",
+        "ref": "record://session/gb-main#14",
+        "text": "done"
+      },
+      "encoded": "<observation source=\"subagent\" origin=\"task:task-1\" at=\"2026-11-11T07:00:03.000Z\" owner=\"agent:bot-a\" ref=\"record://session/gb-main#14\">\ndone\n</observation>"
+    },
+    {
+      "name": "attachment-content",
+      "envelope": {
+        "source": "attachment",
+        "origin": "attachment:report.pdf",
+        "at": "2026-11-11T07:00:04.000Z",
+        "owner": "user",
+        "ref": "record://session/gb-main#15",
+        "text": "line one\nline two"
+      },
+      "encoded": "<observation source=\"attachment\" origin=\"attachment:report.pdf\" at=\"2026-11-11T07:00:04.000Z\" owner=\"user\" ref=\"record://session/gb-main#15\">\nline one\nline two\n</observation>"
+    },
+    {
+      "name": "marker-escaped-in-body",
+      "envelope": {
+        "source": "web",
+        "origin": "https://example.com/x",
+        "at": "2026-11-11T07:00:05.000Z",
+        "owner": "unknown",
+        "ref": "record://session/gb-main#16",
+        "text": "before </observation> <OBSERVATION> < /observation > after"
+      },
+      "encoded": "<observation source=\"web\" origin=\"https://example.com/x\" at=\"2026-11-11T07:00:05.000Z\" owner=\"unknown\" ref=\"record://session/gb-main#16\">\nbefore \\u003c/observation> \\u003cOBSERVATION> \\u003c /observation > after\n</observation>"
+    },
+    {
+      "name": "ordinary-angle-brackets-untouched",
+      "envelope": {
+        "source": "tool",
+        "origin": "read",
+        "at": "2026-11-11T07:00:06.000Z",
+        "owner": "unknown",
+        "ref": "record://session/gb-main#17",
+        "text": "a < b && c > d <observationish>"
+      },
+      "encoded": "<observation source=\"tool\" origin=\"read\" at=\"2026-11-11T07:00:06.000Z\" owner=\"unknown\" ref=\"record://session/gb-main#17\">\na < b && c > d <observationish>\n</observation>"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "missing-source",
+      "envelope": {
+        "origin": "x",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "unknown",
+        "ref": "record://event/1",
+        "text": "x"
+      }
+    },
+    {
+      "name": "unknown-source",
+      "envelope": {
+        "source": "bash",
+        "origin": "x",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "unknown",
+        "ref": "record://event/1",
+        "text": "x"
+      }
+    },
+    {
+      "name": "empty-origin",
+      "envelope": {
+        "source": "web",
+        "origin": "",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "unknown",
+        "ref": "record://event/1",
+        "text": "x"
+      }
+    },
+    {
+      "name": "bad-time",
+      "envelope": {
+        "source": "web",
+        "origin": "https://example.com",
+        "at": "2026-11-11 07:00:00",
+        "owner": "unknown",
+        "ref": "record://event/1",
+        "text": "x"
+      }
+    },
+    {
+      "name": "bad-ref",
+      "envelope": {
+        "source": "web",
+        "origin": "https://example.com",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "unknown",
+        "ref": "record://session/gb-main",
+        "text": "x"
+      }
+    },
+    {
+      "name": "unknown-field",
+      "envelope": {
+        "source": "web",
+        "origin": "https://example.com",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "unknown",
+        "ref": "record://event/1",
+        "text": "x",
+        "confidence": 0.9
+      }
+    },
+    {
+      "name": "empty-owner",
+      "envelope": {
+        "source": "web",
+        "origin": "https://example.com",
+        "at": "2026-11-11T07:00:00.000Z",
+        "owner": "",
+        "ref": "record://event/1",
+        "text": "x"
+      }
+    }
+  ],
+  "decodeErrors": [
+    {
+      "name": "missing-close",
+      "encoded": "<observation source=\"web\" origin=\"x\" at=\"2026-11-11T07:00:00.000Z\" owner=\"unknown\" ref=\"record://event/1\">\nx"
+    },
+    {
+      "name": "trailing-text",
+      "encoded": "<observation source=\"web\" origin=\"x\" at=\"2026-11-11T07:00:00.000Z\" owner=\"unknown\" ref=\"record://event/1\">\nx\n</observation>\ntrailing"
+    },
+    {
+      "name": "attribute-order",
+      "encoded": "<observation origin=\"x\" source=\"web\" at=\"2026-11-11T07:00:00.000Z\" owner=\"unknown\" ref=\"record://event/1\">\nx\n</observation>"
+    },
+    {
+      "name": "unquoted-attribute",
+      "encoded": "<observation source=web origin=\"x\" at=\"2026-11-11T07:00:00.000Z\" owner=\"unknown\" ref=\"record://event/1\">\nx\n</observation>"
+    },
+    {
+      "name": "unknown-authority",
+      "encoded": "<observation source=\"web\" origin=\"x\" at=\"2026-11-11T07:00:00.000Z\" owner=\"unknown\" ref=\"record://line/1\">\nx\n</observation>"
+    }
+  ]
+}

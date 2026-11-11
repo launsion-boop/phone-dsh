@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "vector": "record-reference.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-owned record:// vectors; there is no dsh-bot upstream file."
+  },
+  "upstream": [],
+  "delta": [
+    "Freeze the two phoneDSH record reference shapes: record://session/<sessionId>#<seq> for one DSH session-log line and record://event/<commitSeq> for one bot_events row.",
+    "Parser normalization is limited to surrounding ASCII whitespace, ASCII case-insensitive scheme/authority and leading zeros in the decimal position; every other non-canonical spelling is invalid.",
+    "The decimal position is bounded by 2^53-1 and event commitSeq starts at 1."
+  ],
+  "valid": [
+    {
+      "name": "session-line",
+      "input": "record://session/gb-main#12",
+      "canonical": "record://session/gb-main#12",
+      "kind": "session",
+      "sessionId": "gb-main",
+      "seq": 12
+    },
+    {
+      "name": "session-head",
+      "input": "record://session/gb-main#0",
+      "canonical": "record://session/gb-main#0",
+      "kind": "session",
+      "sessionId": "gb-main",
+      "seq": 0
+    },
+    {
+      "name": "session-leading-zero",
+      "input": "record://session/gb-main#0007",
+      "canonical": "record://session/gb-main#7",
+      "kind": "session",
+      "sessionId": "gb-main",
+      "seq": 7
+    },
+    {
+      "name": "scheme-and-authority-case",
+      "input": "RECORD://SESSION/gb-main#7",
+      "canonical": "record://session/gb-main#7",
+      "kind": "session",
+      "sessionId": "gb-main",
+      "seq": 7
+    },
+    {
+      "name": "surrounding-whitespace",
+      "input": " \trecord://session/gb-a_1.2#9 \n",
+      "canonical": "record://session/gb-a_1.2#9",
+      "kind": "session",
+      "sessionId": "gb-a_1.2",
+      "seq": 9
+    },
+    {
+      "name": "event-row",
+      "input": "record://event/42",
+      "canonical": "record://event/42",
+      "kind": "event",
+      "commitSeq": 42
+    },
+    {
+      "name": "event-leading-zero",
+      "input": "record://event/0042",
+      "canonical": "record://event/42",
+      "kind": "event",
+      "commitSeq": 42
+    },
+    {
+      "name": "json-safe-maximum",
+      "input": "record://session/gb-main#9007199254740991",
+      "canonical": "record://session/gb-main#9007199254740991",
+      "kind": "session",
+      "sessionId": "gb-main",
+      "seq": 9007199254740991
+    }
+  ],
+  "invalid": [
+    {
+      "name": "empty",
+      "input": "",
+      "reason": "syntax"
+    },
+    {
+      "name": "scheme-only",
+      "input": "record://",
+      "reason": "syntax"
+    },
+    {
+      "name": "missing-authority",
+      "input": "record://session",
+      "reason": "syntax"
+    },
+    {
+      "name": "missing-session-id",
+      "input": "record://session/#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "missing-seq",
+      "input": "record://session/gb-main#",
+      "reason": "syntax"
+    },
+    {
+      "name": "missing-fragment",
+      "input": "record://session/gb-main",
+      "reason": "syntax"
+    },
+    {
+      "name": "negative-seq",
+      "input": "record://session/gb-main#-1",
+      "reason": "decimal"
+    },
+    {
+      "name": "plus-seq",
+      "input": "record://session/gb-main#+1",
+      "reason": "decimal"
+    },
+    {
+      "name": "hex-seq",
+      "input": "record://session/gb-main#0x10",
+      "reason": "decimal"
+    },
+    {
+      "name": "unicode-digit",
+      "input": "record://session/gb-main#١",
+      "reason": "decimal"
+    },
+    {
+      "name": "seq-over-safe-integer",
+      "input": "record://session/gb-main#9007199254740992",
+      "reason": "range"
+    },
+    {
+      "name": "event-zero",
+      "input": "record://event/0",
+      "reason": "range"
+    },
+    {
+      "name": "event-leading-zero-zero",
+      "input": "record://event/000",
+      "reason": "range"
+    },
+    {
+      "name": "double-fragment",
+      "input": "record://session/gb-main#1#2",
+      "reason": "syntax"
+    },
+    {
+      "name": "path-traversal-dot",
+      "input": "record://session/.#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "path-traversal-dotdot",
+      "input": "record://session/..#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "session-id-too-long",
+      "input": "record://session/abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcd#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "percent-escape",
+      "input": "record://session/gb%2Dmain#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "inner-whitespace",
+      "input": "record://session/gb main#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "query",
+      "input": "record://session/gb-main?x=1#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "trailing-slash",
+      "input": "record://session/gb-main/#1",
+      "reason": "session-id"
+    },
+    {
+      "name": "wrong-scheme",
+      "input": "http://session/gb-main#1",
+      "reason": "syntax"
+    },
+    {
+      "name": "unknown-authority",
+      "input": "record://line/gb-main#1",
+      "reason": "authority"
+    },
+    {
+      "name": "bare-authority",
+      "input": "record://event",
+      "reason": "syntax"
+    }
+  ]
+}

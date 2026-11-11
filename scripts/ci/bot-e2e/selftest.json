@@ -32,8 +32,8 @@
             "arguments": {
               "action": "write",
               "fact": "SELFTEST_MEMORY",
-              "scope": "user",
-              "tier": "profile"
+              "scope": "agent",
+              "tier": "log"
             }
           },
           {
@@ -103,8 +103,8 @@
         {
           "type": "memory_contains",
           "value": "SELFTEST_MEMORY",
-          "scope": "user",
-          "tier": "profile",
+          "scope": "agent",
+          "tier": "log",
           "source": "user-turn"
         },
         {
@@ -142,7 +142,7 @@
           "event": "memory.written",
           "where": {
             "text": "SELFTEST_MEMORY",
-            "scope": "user"
+            "scope": "agent"
           }
         },
         {
@@ -396,7 +396,7 @@
             "arguments": {
               "action": "write",
               "fact": "FORGET_USER",
-              "scope": "user"
+              "scope": "agent"
             }
           }
         ],
@@ -439,7 +439,7 @@
         {
           "type": "memory_absent",
           "value": "FORGET_USER",
-          "scope": "user"
+          "scope": "agent"
         },
         {
           "type": "bot_event",
@@ -509,6 +509,54 @@
       ]
     },
     {
+      "id": "BOT-SELFTEST-RECORD",
+      "title": "compaction range and record references are still readable (expected PASS)",
+      "user_story": "A DSH session log fixture contains a seq 20 replace(3..9) compaction checkpoint. The self-check reads the original seq 3 line, the checkpoint range and the canonical record:// references without any model or host permission.",
+      "expect": "pass",
+      "budget": {
+        "max_minutes": 2,
+        "max_model_requests": 4
+      },
+      "workspace": {
+        "bot": "main",
+        "fixture": "record"
+      },
+      "mock": {
+        "final_text": "RECORD_SELFCHECK_OK"
+      },
+      "actions": [
+        {
+          "type": "user_message",
+          "bot": "main",
+          "text": "record self check"
+        }
+      ],
+      "assertions": [
+        {
+          "type": "reply_contains",
+          "value": "RECORD_SELFCHECK_OK"
+        },
+        {
+          "type": "file_contains",
+          "path": "session.v4.jsonl",
+          "value": "PINEAPPLE_ORIGINAL user statement"
+        },
+        {
+          "type": "file_contains",
+          "path": "session.v4.jsonl",
+          "value": "\"startSeq\": 3"
+        },
+        {
+          "type": "workspace_command",
+          "command": "python3 - <<'PY'\nimport json\nrows=[json.loads(line) for line in open('session.v4.jsonl', encoding='utf-8') if line.strip()]\nheader, events = rows[0], rows[1:]\nassert header['type']=='session' and header['id']=='gb-main', header\nby_seq={event['seq']:event for event in events}\nassert by_seq[3]['data']['message']['content'][0]['text']=='PINEAPPLE_ORIGINAL user statement'\nop=by_seq[20]['surfaceOp']\nassert op=={'op':'replace','startSeq':3,'endSeq':9}, op\nrefs=['record://session/gb-main#3','record://session/gb-main#9','record://session/gb-main#20','record://event/7']\nimport re\npattern=re.compile(r'^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$')\nassert all(pattern.fullmatch(ref) for ref in refs), refs\nprint('record self-check OK')\nPY"
+        },
+        {
+          "type": "no_tool_call",
+          "name": "NeverCalled"
+        }
+      ]
+    },
+    {
       "id": "BOT-SELFTEST-EXPECT-FAIL",
       "title": "Every assertion in the negative direction (expected controlled FAIL)",
       "expect": "fail",
@@ -530,8 +578,8 @@
             "arguments": {
               "action": "write",
               "fact": "SELFTEST_MEMORY",
-              "scope": "user",
-              "tier": "profile"
+              "scope": "agent",
+              "tier": "log"
             }
           },
           {

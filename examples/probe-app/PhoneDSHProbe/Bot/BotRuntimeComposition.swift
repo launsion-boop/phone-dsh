@@ -5,6 +5,7 @@ import PhoneDSH
 import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHDeviceTasks
+import PhoneDSHShell
 #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
 import PhoneDSHADB
 import PhoneDSHLoopback
@@ -91,6 +92,9 @@ final class BotRuntimeComposition {
     let domain: SQLiteDomainStore
     let profileStore: BotProfileStore
     let runtime: BotMCPRuntime
+    /// Shared read-only record service used by the shell `phone record`
+    /// command and the memory evidence resolver.
+    let recordService: BotRecordService
     let handler: BotMCPHandler
     let server: BotMCPHTTPServer
     let outbox: BotProductionEffectRunner
@@ -167,6 +171,7 @@ final class BotRuntimeComposition {
                             directory: BotProfileStorage.directory()),
                         selectedBotID: String? = nil,
                         sessionLogURL: URL? = nil,
+                        workspaceRoot: URL? = nil,
                         now: (@Sendable () -> Int64)? = nil,
                         sleep: RoutineScheduler.Sleeper? = nil) async throws -> Launch {
         let legacyName = await legacyRenamedName(domain: store)
@@ -188,7 +193,13 @@ final class BotRuntimeComposition {
             throw BotTeamHostError.botNotFound("empty roster")
         }
         let deferred = BotDeferredVolatileContextProvider()
-        let runtime = BotMCPRuntime(store: store, volatileProvider: deferred)
+        let gateway = BotGateway()
+        let recordService = BotRecordService(
+            store: store, gateway: gateway,
+            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
+        let runtime = BotMCPRuntime(store: store, gateway: gateway,
+                                    volatileProvider: deferred,
+                                    recordEvidence: recordService)
         let machine = await runtime.routineMachine
         let baseMemory = await runtime.memory(for: selectedCandidate)
         let language = Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh" : "en"
@@ -226,6 +237,7 @@ final class BotRuntimeComposition {
             selectionStore: selectionStore, defaults: defaults)
         let composition = try await BotRuntimeComposition(
             domain: store, profileStore: profileStore, runtime: runtime,
+            recordService: recordService,
             handler: handler, server: server, rosterModel: rosterModel,
             selectionStore: selectionStore, schedulerNow: now, schedulerSleep: sleep)
         composition.workerEnvironment = [
@@ -258,7 +270,8 @@ final class BotRuntimeComposition {
     }
 
     private init(domain: SQLiteDomainStore, profileStore: BotProfileStore,
-                 runtime: BotMCPRuntime, handler: BotMCPHandler,
+                 runtime: BotMCPRuntime, recordService: BotRecordService,
+                 handler: BotMCPHandler,
                  server: BotMCPHTTPServer, rosterModel: BotRosterModel,
                  selectionStore: BotSelectionStore,
                  schedulerNow: (@Sendable () -> Int64)?,
@@ -266,6 +279,7 @@ final class BotRuntimeComposition {
         self.domain = domain
         self.profileStore = profileStore
         self.runtime = runtime
+        self.recordService = recordService
         self.handler = handler
         self.server = server
         self.rosterModel = rosterModel
@@ -1119,4 +1133,19 @@ struct UnstartedBotTransport: DSHRemoteTransport {
         throw BotMCPError.unavailable("Host transport is not attached")
     }
     func authenticationFailed() async {}
+}
+
+
+/// Bridges the Bot module's record service into the shell's protocol without
+/// making `PhoneDSHShell` depend on `PhoneDSHBot`.
+struct BotRecordPhoneAdapter: PhoneRecordQuerying {
+    let service: BotRecordService
+
+    func runRecordCommand(arguments: [String], callerSessionID: String) async -> PhoneRecordCommandResult {
+        let output = await BotRecordService.bridge(
+            arguments: arguments, callerSessionID: callerSessionID, service: service)
+        return PhoneRecordCommandResult(stdout: output.stdout,
+                                        stderr: output.stderr,
+                                        exitCode: output.exitCode)
+    }
 }

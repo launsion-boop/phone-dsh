@@ -100,5 +100,33 @@
       "已在介面播放",
       "沒有改變任何工作狀態"
     ]
+  },
+  "memory": {
+    "updateMemory": {
+      "required": [
+        "action"
+      ],
+      "properties": [
+        "action",
+        "fact",
+        "fact_id",
+        "tier",
+        "scope",
+        "key",
+        "evidence"
+      ],
+      "evidence": {
+        "type": "array",
+        "maxItems": 8,
+        "items": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "descriptionContains": [
+        "evidence",
+        "user message"
+      ]
+    }
   }
 }
