@@ -879,17 +879,7 @@ public enum MaterializedInvariant {
                 result.append(record)
                 continue
             }
-            guard let blob = try record.blobWrite() else {
-                throw LogError.corrupt("a blob-write record did not decode")
-            }
-            let data = try store.read(digest: blob.sha256Hex,
-                                      expectedLength: Int(blob.blobLength))
-            let mutation = VfsMutationBody(op: .write,
-                                           mode: blob.mode,
-                                           mflags: blob.mflags,
-                                           appendFrom: blob.appendFrom,
-                                           path: blob.path,
-                                           data: data)
+            let mutation = try record.resolvedMutationBody(using: store)
             result.append(try WALRecord(mseq: record.mseq, mutation: mutation))
         }
         return result

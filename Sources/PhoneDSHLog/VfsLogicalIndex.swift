@@ -143,23 +143,10 @@ struct VfsLogicalIndex {
         let records = try WALReader.records(directory: paths.walDirectory, fromMseq: from)
         let blobs = WorkspaceBlobStore(paths: paths)
         for record in records {
-            let body: VfsMutationBody
-            if record.isBlobWrite {
-                // W6 §14.2: the mutation's data lives in the §14.1 store; the
-                // logical size must count it exactly like an inline write.
-                guard let blob = try record.blobWrite() else { continue }
-                let data = try blobs.read(digest: blob.sha256Hex,
-                                          expectedLength: Int(blob.blobLength))
-                body = VfsMutationBody(op: .write,
-                                       mode: blob.mode,
-                                       mflags: blob.mflags,
-                                       appendFrom: blob.appendFrom,
-                                       path: blob.path,
-                                       data: data)
-            } else {
-                guard let decoded = try? record.mutationBody() else { continue }
-                body = decoded
-            }
+            // W6 §14.2: the mutation's data may live in the §14.1 store; the
+            // logical size must count it exactly like an inline write. A
+            // missing/mismatched blob fails loud like the WAL reader.
+            let body = try record.resolvedMutationBody(using: blobs)
             guard WireValidation.isValidMutationPath(body.path) else { continue }
             apply(body)
         }

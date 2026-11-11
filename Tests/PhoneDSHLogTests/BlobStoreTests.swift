@@ -63,6 +63,39 @@ final class BlobStoreTests: XCTestCase {
                                                           expectedLength: 8))
     }
 
+    // MARK: - Record resolver (scenario / kill support)
+
+    func testResolvedMutationBodyKeepsInlineRecordsByteIdentical() throws {
+        let root = LogTestSupport.root(for: self)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let inline = LogTestSupport.write("/dsh/workspace/notes.txt", data: "hello\n")
+        let record = try WALRecord(mseq: 7, mutation: inline)
+        let resolved = try record.resolvedMutationBody(using: store(root))
+        XCTAssertEqual(try resolved.encoded(), try inline.encoded())
+    }
+
+    func testResolvedMutationBodyResolvesBlobAndFailsLoudWhenMissing() throws {
+        let root = LogTestSupport.root(for: self)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let bytes = Data(repeating: 0x21, count: WireLimits.walBlobWriteThresholdBytes)
+        let ref = try store(root).write(bytes)
+        let blob = try WALBlobWrite(mode: 0o644,
+                                    mflags: [.entryChanged],
+                                    appendFrom: 0,
+                                    blobLength: UInt32(bytes.count),
+                                    blobSHA256: ref.digestBytes,
+                                    path: "/dsh/workspace/big.bin")
+        let record = try WALRecord(mseq: 8, blobWrite: blob)
+        let resolved = try record.resolvedMutationBody(using: store(root))
+        XCTAssertEqual(resolved.op, .write)
+        XCTAssertEqual(resolved.path, "/dsh/workspace/big.bin")
+        XCTAssertEqual(resolved.data, bytes)
+
+        try FileManager.default.removeItem(
+            at: try store(root).blobURL(for: ref.sha256))
+        XCTAssertThrowsError(try record.resolvedMutationBody(using: store(root)))
+    }
+
     // MARK: - WAL writer / materializer
 
     func testLargeWriteBecomesBlobRecordAndMaterializes() async throws {

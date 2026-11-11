@@ -74,8 +74,19 @@ public struct HostStorageScanner: Sendable {
     public func scan(fileManager: FileManager = .default) -> HostStorageUsage {
         var seen = Set<String>()
         let root = paths.workspaceRoot
-        let wal = bytes(at: root.appendingPathComponent("wal", isDirectory: true),
-                        seen: &seen, fileManager: fileManager)
+        let walSegments = bytes(at: root.appendingPathComponent("wal", isDirectory: true),
+                                seen: &seen, fileManager: fileManager)
+        // W6 §14.1/§14.6: the content-addressed blob store is part of the WAL's
+        // live set (budgets.md §9 counts `hostInternalBytes` as segments + live
+        // blobs). Every blob is one immutable regular file, and `seen` keeps a
+        // repeated inode from being counted twice. The materialized copy is a
+        // clonefile (COW, separate inode) or a copy, so blob + materialized is
+        // an upper bound on physical bytes, never an undercount. Orphan blobs
+        // only exist until the next §14.5 GC; counting them is the conservative
+        // direction, and this scanner never moves or deletes anything here.
+        let blobs = bytes(at: root.appendingPathComponent("blobs", isDirectory: true),
+                          seen: &seen, fileManager: fileManager)
+        let wal = walSegments + blobs
         let materialized = bytes(at: root.appendingPathComponent("materialized", isDirectory: true),
                                  seen: &seen, fileManager: fileManager)
         let journal = bytes(at: root.appendingPathComponent("journal.xljournal"),

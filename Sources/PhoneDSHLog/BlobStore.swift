@@ -26,6 +26,34 @@ public struct BlobRef: Equatable, Sendable {
     }
 }
 
+public extension WALRecord {
+    /// Resolves one WAL record to the VFS mutation a replay applies.
+    ///
+    /// An inline mutation decodes exactly as before (byte-identical legacy
+    /// behaviour). A §14.2 blob-write record is resolved from `store`, with its
+    /// bytes verified, and returned as the pre-W6 inline write form at the same
+    /// mseq. A missing, short or digest-mismatched blob throws the same
+    /// `WAL_CORRUPT` (`LogError.corrupt`) the WAL reader uses; it is never
+    /// reported as an empty body. The epoch-close record has no mutation body.
+    func resolvedMutationBody(using store: WorkspaceBlobStore) throws -> VfsMutationBody {
+        guard !isEpochClose else {
+            throw LogError.corrupt("epoch-close record has no mutation body")
+        }
+        guard isBlobWrite else { return try mutationBody() }
+        guard let blob = try blobWrite() else {
+            throw LogError.corrupt("blob-write record did not decode")
+        }
+        let data = try store.read(digest: blob.sha256Hex,
+                                  expectedLength: Int(blob.blobLength))
+        return VfsMutationBody(op: .write,
+                               mode: blob.mode,
+                               mflags: blob.mflags,
+                               appendFrom: blob.appendFrom,
+                               path: blob.path,
+                               data: data)
+    }
+}
+
 /// The content-addressed store of `Library/xl/<workspace_id>/blobs/` (wal.md
 /// §14.1). The type is a plain class: the WAL writer actor and the recovery
 /// pass each own one; there is no cross-instance mutable state to race on.
