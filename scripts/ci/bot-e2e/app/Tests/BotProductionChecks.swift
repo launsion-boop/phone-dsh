@@ -126,10 +126,22 @@ enum BotProductionChecks {
         _ = try await domain.append(rename)
         let infoDriver = BotProductionInfoDriver.production(environment: environment)
         let snapshot = try await infoDriver.load()
-        try require(snapshot.botName == "真实大肥鱼" && snapshot.memories.map(\.document.path) == ["agent/notes/check.md"]
-                    && snapshot.memories.first?.document.content == "真实只读记忆"
-                    && snapshot.routines.map(\.id) == ["routine-check"] && snapshot.routines[0].enabled,
-                    "production info read interface failed")
+        let readableMemories = snapshot.memories.filter {
+            !BotMemoryAuthorizer.isIndex($0.document.path)
+        }
+        let readableMemoryPaths = readableMemories.map(\.document.path)
+        try require(snapshot.botName == "真实大肥鱼",
+                    "production info botName mismatch: \(snapshot.botName)")
+        try require(readableMemoryPaths == ["agent/notes/check.md"]
+                    && readableMemories.first?.document.content == "真实只读记忆",
+                    "production info non-index memories mismatch: paths=\(readableMemoryPaths), "
+                        + "contents=\(readableMemories.map(\.document.content))")
+        let memoryPaths = snapshot.memories.map(\.document.path)
+        try require(memoryPaths.contains("agent/INDEX.md") && memoryPaths.contains("user/INDEX.md"),
+                    "production info memory indexes missing: \(memoryPaths)")
+        try require(!snapshot.routines.isEmpty && snapshot.routines.map(\.id) == ["routine-check"]
+                    && snapshot.routines[0].enabled,
+                    "production info routines mismatch: \(snapshot.routines.map(\.id))")
         try require(snapshot.approvals.count == 1 && snapshot.approvals[0].decision == .allow
                     && snapshot.approvals[0].parameterSummary.contains("phone.files/delete")
                     && !snapshot.approvals[0].parameterSummary.contains("production-check"),
@@ -166,7 +178,10 @@ enum BotProductionChecks {
 
         let reopenedInfo = BotProductionInfoDriver.production(environment: reopenedEnvironment)
         let reopenedSnapshot = try await reopenedInfo.load()
-        try require(reopenedSnapshot.botName == "真实大肥鱼" && reopenedSnapshot.memories.count == 1
+        let reopenedMemories = reopenedSnapshot.memories.filter {
+            !BotMemoryAuthorizer.isIndex($0.document.path)
+        }
+        try require(reopenedSnapshot.botName == "真实大肥鱼" && reopenedMemories.count == 1
                     && reopenedSnapshot.routines.first?.enabled == true && reopenedSnapshot.approvals.count == 1,
                     "reopened production info is inconsistent")
 

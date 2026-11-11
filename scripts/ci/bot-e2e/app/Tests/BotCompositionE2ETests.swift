@@ -38,11 +38,13 @@ final class BotCompositionE2ETests: XCTestCase {
         ])
         // The same production assembly the App's ChatModel boots, including
         // nativeMCP and the Bot Worker environment.
+        // Match ChatModel.swift's production assembly: model inference endpoints must be replay-safe, otherwise Bot egress approval applies.
         let configuration = ChatHostConfiguration.makeProduction(
             workspaceRoot: root.appendingPathComponent("workspace", isDirectory: true),
             bundle: bundle,
             allowedModelHosts: [mockURL.absoluteString],
             egressAllowHosts: [],
+            replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(baseURL: mockURL),
             credentialProvider: PhoneMCPCredentialProvider(policy: mcpPolicy, base: baseCredentials),
             egressAuthorizer: mcpPolicy,
             workerEnvironment: launch.workerEnvironment.merging([
@@ -142,6 +144,7 @@ final class BotCompositionE2ETests: XCTestCase {
         XCTAssertEqual(directTask.status, "completed", directTask.error ?? "no error")
         XCTAssertTrue(directTask.result?.contains("BOT_TASK_OK") == true)
 
+        // The host prefixes the child task prompt with `<task_authorization>` and `<task_contract>`; the original prompt is at the end.
         mock.scriptForRequest = { body in
             guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
                   let messages = object["messages"] as? [[String: Any]],
@@ -150,7 +153,7 @@ final class BotCompositionE2ETests: XCTestCase {
                             let content = message["content"] as? [[String: Any]] else { return false }
                       return content.first?["type"] as? String == "text"
                   }), let content = prompt["content"] as? [[String: Any]] else { return nil }
-            return content.first?["text"] as? String == "完成委派"
+            return (content.first?["text"] as? String)?.hasSuffix("完成委派") == true
                 ? .generic(command: "printf TASK_TOOL", toolText: "TASK_TOOL", finalText: "BOT_TASK_OK")
                 : nil
         }
