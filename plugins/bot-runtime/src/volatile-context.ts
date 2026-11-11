@@ -5,6 +5,25 @@ import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
 import { createPhoneVolatileContextSource } from './volatile-mcp.ts'
 import { BOT_SESSION_PREFIX } from './bot-sessions.ts'
 
+/** Host-minted read-only verifier sessions use this reserved `gb-` shape. */
+export const VERIFIER_SESSION_PREFIX = 'gb-verifier-'
+export const VERIFIER_AGENT_PRESET = 'pdsh-verifier'
+
+/**
+ * A host-minted verifier is read-only and its input is frozen to the
+ * completion contract plus raw-record references. It must not receive the
+ * ordinary Bot volatile blocks (memory, automation, variant, persona), which
+ * would leak evidence the verifier is supposed to re-check itself.
+ */
+export function isVerifierAgent(agent: Agent | undefined): boolean {
+  if (agent === undefined) return false
+  const header = (agent.session as { header?: { agentPreset?: unknown } } | undefined)
+    ?.header?.agentPreset
+  if (header === VERIFIER_AGENT_PRESET) return true
+  const sessionId = String(agent.id || agent.session?.id || '')
+  return sessionId.startsWith(VERIFIER_SESSION_PREFIX)
+}
+
 export const VOLATILE_BLOCK_ORDER = Object.freeze([
   'variant',
   'time',
@@ -167,10 +186,23 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
 
   if (botAgentPreset !== '') {
     ctx.on('agent/created', async ({ agent }) => {
+      // A host-minted restricted session (for example the S3 verifier) already
+      // carries its immutable creation header preset. Never overwrite it with
+      // the ordinary Bot surface; the preset decides the tool boundary.
+      const headerPreset = (agent.session as { header?: { agentPreset?: unknown } } | undefined)
+        ?.header?.agentPreset
+      if (typeof headerPreset === 'string' && headerPreset !== '') return
       const presets = ctx.get('agentPresets') as BotAgentPresetSelector | undefined
       if (presets === undefined) {
         if (!agent.id.startsWith(BOT_SESSION_PREFIX)) return
         throw new Error(`botAgentPreset "${botAgentPreset}" is configured but the agentPresets service is not mounted`)
+      }
+      // Defense in depth: if a transport dropped the explicit header, the
+      // reserved verifier id still selects the read-only preset instead of
+      // silently inheriting the full Bot surface.
+      if (agent.id.startsWith(VERIFIER_SESSION_PREFIX)) {
+        await selectBotAgentPreset(presets, agent, VERIFIER_AGENT_PRESET)
+        return
       }
       await selectBotAgentPreset(presets, agent, botAgentPreset)
     })
@@ -212,11 +244,13 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
   ctx.systemPrompt.context({
     name: 'dshbot:volatile',
     order: 300,
-    text: context => renderVolatileContext(snapshotFor(context), { now: now(), lang: lang() }),
+    text: context => isVerifierAgent(context.agent)
+      ? ''
+      : renderVolatileContext(snapshotFor(context), { now: now(), lang: lang() }),
   })
 
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
-    await refresh(context)
+    if (!isVerifierAgent(context.agent)) await refresh(context)
     const transformed = await next()
     return ctx.systemPrompt.refreshContext({ ...transformed, tools: [] }, context)
   })

@@ -141,6 +141,58 @@
         "valid": true,
         "errors": []
       }
+    },
+    {
+      "name": "verification-reported",
+      "event": {
+        "schemaVersion": 1,
+        "type": "verification.reported",
+        "eventId": "evt-verification.reported-verification-1",
+        "commitSeq": 10,
+        "time": 1760000009000,
+        "origin": {
+          "kind": "local",
+          "source": "mcp"
+        },
+        "traceId": "trace-evt-verification.reported-verification-1",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": "gb-verifier-1",
+          "kind": "verifier",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "gb-verifier-1",
+        "data": {
+          "verificationId": "verification-1",
+          "subjectKind": "task",
+          "subjectId": "task-1",
+          "subjectSessionId": "gb-task-abc",
+          "task_id": "task-1",
+          "title": "Write REPORT.md",
+          "status": "completed",
+          "verification": {
+            "verdict": "failed",
+            "summary": "REPORT.md is missing.",
+            "refs": [
+              "record://session/gb-task-abc#10"
+            ],
+            "unverified": [],
+            "budget": {
+              "ratio": 0.3,
+              "limitMs": 54000,
+              "usedMs": 1200,
+              "exceeded": false
+            },
+            "output": "valid"
+          },
+          "createdAt": 1760000009000
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
     }
   ],
   "invalidCases": [

@@ -87,6 +87,11 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
   字段记录，改为引用需另开变更单，不新增第二种字段。
 - routine 另带 `completion_criteria` 与 `constraints`（各最多 2,000 字符，可空）。创建/更新可携带；
   空字符串表示没有记录，不伪造内容。
+- `completion_criteria` 非空且本次运行以 `succeeded` 结束时，宿主按
+  [v1 §2.8](../v1/README.md#28-task-交付终态与独立验证s3) 起一次只读 verifier；预算取本次 routine
+  运行预算的 30%。结论写入 durable `verification.reported`，`subjectKind:"routine"`。若结论不是
+  `passed`，交付文本以「验证未通过：…」或「验证不确定：…」开头并保留 verifier 的依据引用，不能把
+  未验证的运行说成成功；安静运行在这种情况下不再保持 `[quiet]`。
 - **放宽**指：排程比当前更频繁、`delivery` 从 `held` 改为 `interrupt`、`urgent` 从 false 改为 true、
   `resume` 一个暂停的 routine。排程频率按同一时区下接下来两次运行的平均间隔比较。
 - 在**没有用户消息来源**的回合（[v1 §4.1](../v1/README.md#41-回合来源turn-origin) 的 `routine`、

@@ -31,6 +31,7 @@
     "tool-effects.json",
     "tool-effects.phone.json",
     "turn-origin.phone.json",
+    "verification.phone.json",
     "volatile-context.json",
     "watchdog.json"
   ],
@@ -64,7 +65,8 @@
     "row-protocol.phone.json",
     "tool-catalog.phone.json",
     "tool-effects.phone.json",
-    "turn-origin.phone.json"
+    "turn-origin.phone.json",
+    "verification.phone.json"
   ],
   "sha256": {
     "approval-patterns.json": "8dbac06c60729e3042e210cf07dd085d592c61e8074c32d23b5631ba2debf8cb",
@@ -77,7 +79,7 @@
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "event-envelope.json": "fded336f2e2dddf4b9c474bac5e6cefcbb1baf7c99637a988ed22dbb244bcaf5",
-    "event-envelope.phone.json": "40b6c49b823217fddd0b294155d379cd929ace23ca6daa9f4d475168dd923db4",
+    "event-envelope.phone.json": "c9f2a233ce87dad06f3c26f8c85ff285b429c7f76144f884f02765ddd56b18ca",
     "fish-director.json": "7216362cf4ff1c903ebce75cbf0d9d170dba9e233778caf3df1de1a36026cd85",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
     "mcp-egress.phone.json": "62a4a0ec83484715916584c3a474dc2fa36e2d3e058e763c9ccfb11f856b0f34",
@@ -94,6 +96,7 @@
     "tool-effects.phone.json": "94ff62dbd68538440df08b92824b24d6c66c8c8f35996028594e3f28cbfcd637",
     "turn-origin.phone.json": "97f5a6febb5e8adea5d34d8ecee615ce8095af87445112ce58f8b2c91d7b6b83",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
+    "verification.phone.json": "17bb56f48899de988cef944b139f1a5af6ac270ae4e9267ed2508b67151fb712"
   }
 }

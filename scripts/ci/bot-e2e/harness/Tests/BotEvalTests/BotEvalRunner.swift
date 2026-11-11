@@ -654,6 +654,32 @@ final class BotEvalRunnerTests: XCTestCase {
             try await unit.info.forget(factID: fact.factID)
             return EvalActionOutcome(status: "ok", detail: "forgot \(fact.factID)", replies: [])
 
+        case "await_task":
+            // Asynchronous Task verification finishes after the parent's
+            // visible turn. Wait for the durable settled marker instead of
+            // letting the scenario tear the host down mid-verification.
+            let events = try await BotProductionEventReader.all(domain: context.store)
+            let taskID = action.taskID
+                ?? events.last(where: {
+                    $0.type == "task.created" && $0.principal.botId == botID
+                })?.data["task_id"]?.stringValue
+            guard let taskID, !taskID.isEmpty else {
+                throw EvalRunnerError.invalid("no task to await")
+            }
+            let deadline = Date().addingTimeInterval(context.actionTimeout(action))
+            while Date() < deadline {
+                let current = try await BotProductionEventReader.all(domain: context.store)
+                if current.contains(where: {
+                    $0.type == "task.settled" && $0.principal.botId == botID
+                        && $0.data["task_id"]?.stringValue == taskID
+                }) {
+                    return EvalActionOutcome(
+                        status: "ok", detail: "task \(taskID) settled", replies: [])
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            throw EvalRunnerError.timeout("task \(taskID) did not settle")
+
         case "stop_task":
             let events = try await BotProductionEventReader.all(domain: context.store)
             let taskID = action.taskID ?? events.last(where: {

@@ -310,7 +310,7 @@ public actor BotMCPRuntime {
             case .chat: return .userTurn
             case .task: return .task
             case .routine: return .routine
-            case .team, .proactive, .watchdog: return .hiddenWake
+            case .verifier, .team, .proactive, .watchdog: return .hiddenWake
             }
         }
         let interval = Self.registrationMaintenanceIntervalMilliseconds
@@ -1236,6 +1236,37 @@ public actor BotMCPRuntime {
         }
         let timeout = try optionalInt(args["timeout_ms"]) ?? 180_000
         guard (1_000...300_000).contains(timeout) else { throw BotMCPError.invalidRequest("Task timeout_ms must be 1000…300000") }
+        let completion = (string(args["completion"]) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard completion.count <= 4_000 else {
+            throw BotMCPError.invalidRequest("Task completion must be at most 4000 characters")
+        }
+        let purpose = string(args["purpose"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (purpose?.count ?? 0) <= 2_000 else {
+            throw BotMCPError.invalidRequest("Task purpose must be at most 2000 characters")
+        }
+        let constraints = (args["constraints"]?.arrayValue ?? []).compactMap { value -> String? in
+            guard let text = value.stringValue else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard constraints.count <= 8, constraints.allSatisfy({ $0.count <= 500 }) else {
+            throw BotMCPError.invalidRequest("Task constraints accepts at most 8 entries of at most 500 characters")
+        }
+        var budget: BotTaskBudget?
+        if let rawBudget = args["budget"], rawBudget != .null {
+            guard case .object(let fields) = rawBudget,
+                  fields.keys.allSatisfy({ $0 == "max_duration_ms" }) else {
+                throw BotMCPError.invalidRequest("Task budget accepts only max_duration_ms")
+            }
+            let duration = try optionalInt(fields["max_duration_ms"])
+            if let duration {
+                guard (BotTaskBudget.minimumDurationMs...BotTaskBudget.maximumDurationMs).contains(duration) else {
+                    throw BotMCPError.invalidRequest("Task budget.max_duration_ms must be 1000…300000")
+                }
+            }
+            budget = BotTaskBudget(maxDurationMs: duration)
+        }
         let requestedDirectories = (args["allowed_write_directories"]?.arrayValue ?? [])
             .compactMap(\.stringValue)
         guard requestedDirectories.count <= BotTaskAuthorization.maximumWriteDirectories else {
@@ -1248,7 +1279,9 @@ public actor BotMCPRuntime {
             canDelegateTasks: false)
         let request = BotTaskRequest(
             parent: call, title: title, prompt: prompt,
-            asynchronous: bool(args["async"]) ?? false, timeoutMs: timeout)
+            asynchronous: bool(args["async"]) ?? false, timeoutMs: timeout,
+            completion: completion, purpose: purpose,
+            constraints: constraints, budget: budget)
         let executor = try taskExecutor(for: call.principal.botId)
         let record: BotTaskRecord
         let authorization: BotTaskAuthorization

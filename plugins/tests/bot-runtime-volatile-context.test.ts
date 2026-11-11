@@ -65,6 +65,60 @@ test('the configured Bot preset is selected for gb- sessions before their first 
   }
 })
 
+test('an explicit immutable preset header is never overwritten by the Bot preset selection', async () => {
+  const ctx = new Context()
+  const selected: [string, string][] = []
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    ctx.provide('agentPresets', {
+      async select(subject: Agent, preset: string) {
+        selected.push([subject.id, preset])
+        return preset
+      },
+    })
+    await ctx.plugin(dshbotVolatileContext, {
+      botAgentPreset: 'phone-bot',
+      now: () => new Date('2026-11-06T08:09:59.900Z'),
+      lang: () => 'en' as const,
+      source: async () => ({}),
+    })
+    const restricted = agent('gb-verifier-a')
+    ;(restricted.session as { header?: { agentPreset?: string } }).header = { agentPreset: 'pdsh-verifier' }
+    await ctx.serial('agent/created', { agent: restricted, source: 'startup' })
+    assert.deepEqual(selected, [])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a verifier-gb session without an explicit header still selects the read-only preset', async () => {
+  const ctx = new Context()
+  const selected: [string, string][] = []
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    ctx.provide('agentPresets', {
+      async select(subject: Agent, preset: string) {
+        selected.push([subject.id, preset])
+        return preset
+      },
+    })
+    await ctx.plugin(dshbotVolatileContext, {
+      botAgentPreset: 'phone-bot',
+      now: () => new Date('2026-11-06T08:09:59.900Z'),
+      lang: () => 'en' as const,
+      source: async () => ({}),
+    })
+    await ctx.serial('agent/created', { agent: agent('gb-verifier-fallback'), source: 'startup' })
+    assert.deepEqual(selected, [['gb-verifier-fallback', 'pdsh-verifier']])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('the real SystemPrompt registry refreshes an App-hosted snapshot before every assembly', async () => {
   const ctx = new Context()
   const calls: string[] = []
@@ -146,6 +200,38 @@ test('a failed or late snapshot never exposes stale memory', async () => {
     fail = true
     const failed = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
     assert.doesNotMatch(failed.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '', /fresh-memory|late-memory/)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a verifier session receives no Bot memory or automation from volatile context', async () => {
+  const ctx = new Context()
+  let calls = 0
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(dshbotVolatileContext, {
+      now: () => new Date('2026-11-06T08:09:59.900Z'),
+      lang: () => 'en' as const,
+      source: async () => {
+        calls += 1
+        return { variant: 'leak-variant', persona: 'leak-persona', memory: 'leak-memory', automation: 'leak-automation' }
+      },
+    })
+    const verifier = agent('gb-verifier-no-memory')
+    ;(verifier.session as { header?: { agentPreset?: string } }).header = { agentPreset: 'pdsh-verifier' }
+    const assembly = await ctx.systemPrompt.assemble({ agent: verifier, scope: verifier })
+    const text = assembly.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? ''
+    assert.equal(text, '')
+    assert.equal(calls, 0)
+
+    const ordinary = agent('gb-main')
+    const ordinaryAssembly = await ctx.systemPrompt.assemble({ agent: ordinary, scope: ordinary })
+    const ordinaryText = ordinaryAssembly.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? ''
+    assert.match(ordinaryText, /leak-variant[\s\S]*leak-persona[\s\S]*leak-memory[\s\S]*leak-automation/)
+    assert.equal(calls, 1)
   } finally {
     await ctx.fiber.dispose()
   }

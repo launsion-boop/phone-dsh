@@ -124,6 +124,67 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 实现风险：第 1、2 条跨 Bot MCP、Worker 插件与 App 生命周期，超出本单元允许修改的路径。因此本修订只冻结上述语义和冲突清单，`status: target`，不声称已实现。
 
+### 2.8 Task 交付终态与独立验证（S3）
+
+Task 的交付物是终态，不是过程自述。`Task` 在既有 `title`/`prompt` 之外可选四个字段；
+省略即旧行为，不伪造内容：
+
+| 字段 | 形状 | 语义 |
+| --- | --- | --- |
+| `completion` | string，1–4,000 字符 | 可判定的完成条件。非空才进入独立验证 |
+| `purpose` | string，≤2,000 字符 | 这次工作要解决什么 |
+| `constraints` | array<string>，≤8 项、每项 ≤500 字符 | 边界与限制 |
+| `budget` | object `{max_duration_ms?: integer}` | 任务预算；随 Task 记录并用于派生 verifier 预算，省略时取 `timeout_ms`，范围 1,000–300,000 ms；既有的 `timeout_ms` 仍是任务调用的超时 |
+
+验证强度与任务相称：同步 Task 一律不验证；只有 `async: true` 且 `completion` 非空的 Task，
+在做事会话以 `completed` 结束（或 routine 以 `succeeded` 结束且 `completion_criteria` 非空）后
+验证一次。`failed`、`stopped`、`interrupted` 的做事会话不启动 verifier：它们已经是失败终态，
+不会再被当成完成。
+
+**只读 verifier 会话。** verifier 是独立 DSH session，principal kind 为 `verifier`（区别 chat/
+task/routine），由宿主签发并认领自己的会话凭证；Agent preset 固定为 `pdsh-verifier`，只挂载
+`read`、`grep`、`glob` 和只读 `bash`（`phone record search|read` 走同一 bash 桥）。`tools.restrict`
+隐藏所有继承的全局工具，guard 再拒绝白名单外的调用和非只读 bash。它没有 `write`/`edit`、
+没有出站写、不能 `SendToUser`/`SendToAgent`、不能派 `Task`、不能读写记忆。
+
+验证输入只有完成条件、目的、约束和做事会话的 `record://session/<sessionId>#<seq>` 引用；
+全局 volatile 上下文（variant/persona/memory/automation）对 verifier 会话不注入；
+不把做事会话的最后一段自述当证据。verifier 回合沿用既有的隐藏 `task-turn:` 请求前缀
+（verifier 不写记忆，因此不新增前缀）；principal kind 仍是独立的 `verifier`。宿主 profile 另有一个以
+不可变创建头 `agentPreset=pdsh-verifier` 为准的全局 guard 作为后备，即使 preset 作用域没有生效也只允许
+同一白名单。verifier 重新检查工作区产物和原始记录，最终回复必须恰好是
+一个 JSON 对象（无代码围栏、无额外散文）：
+
+```json
+{"verdict":"passed|failed|uncertain","summary":"…","refs":["record://session/<id>#<seq>"],"unverified":["…"]}
+```
+
+- `summary` 非空、≤2,000 字符；`refs` 为 1–8 条规范 `record://` 引用；`unverified` ≤20 项、
+  每项 ≤500 字符。`passed` 要求全部完成条件都已核验，因此 `unverified` 必须为空。
+- 宿主校验格式、引用的规范形态、存在性和本 Bot 范围。任一失败、超时、预算耗尽或引用无效，
+  结论记为 `uncertain`，不把模型输出原样当结论。
+- 验证预算 = `floor(任务预算 × 30%)`，在 `spec/bot/v1/README.md` 本节的 `0.30` 冻结；超过即
+  `uncertain`，并在 `budget.exceeded=true` 留痕。该比例不随任务放宽。
+
+每次实际启动 verifier 的验证写一条 durable `verification.reported`（P25），principal 是 verifier
+的会话凭证，数据至少含 `verificationId`、`subjectKind`（`task|routine`）、`subjectId`、
+`subjectSessionId`、`title`、`status`、`verification{verdict,summary,refs,unverified,budget{ratio,limitMs,usedMs,exceeded},output}`
+和 `createdAt`；`output` 取 `valid|invalid|budget_exceeded|unavailable`。verifier 会话无法创建时没有
+verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` 写进 Task/Routine 记录及其结束事件
+（`task.settled`/`routine.run_finished`），Task 行仍由该结束事件显示结论。`output:"valid"` 时
+`refs` 仍有 1–8 条；宿主自身的失败路径（`invalid`/`budget_exceeded`/`unavailable`）结论必须是
+`uncertain`，并且允许 `refs: []`——没有可引用证据时不伪造引用。Task 的 durable 记录与
+`AwaitTask` 结果都带同一个 `verification` 对象；`verification.reported` 不会把已经 `settled`
+的 Task 改回运行态。
+
+**结果以证据呈现。** 异步 Task 的父对话隐藏唤醒文本包含 verifier 的 `verdict`、`summary` 和
+`refs`，不复制模型自述摘要；`failed`/`uncertain` 时唤醒文本必须写明“如实告诉用户没有通过或
+无法验证”，回复不得把它说成完成。Task 行复用 `cardType:"task"` 形状，在标题下显示
+验证结论、摘要和依据条数；`failed` 用 danger、`uncertain` 用 warning、`passed` 用 success tone。
+共享向量见 [golden/verification.phone.json](golden/verification.phone.json)，输出与事件形状由
+[verifier-output.schema.json](verifier-output.schema.json) 和
+[verification-report.schema.json](verification-report.schema.json) 冻结。
+
 ## 3. 记忆（已迁至 v2）
 
 记忆契约（`memory-fact`、`memory-injection`、`memory-recall`）自 2026-11-10 起迁到
@@ -353,6 +414,7 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `approval-patterns.phone.json`：把 upstream 的 curl/wget/python 网络命令模式登记为手机端降级（`matches=[]`），并列出脚本文件/变量拼接/解释器与 `python3 /tmp/x.py`；`rm`/`git reset --hard`/`find -delete` 仍匹配 upstream，不得降级。出口写审批与文件 Grant 的向量在 `mcp-egress.phone.json` 的 `egress-approval`、`grant-directory` 套件。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
 - `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`：原始记录引用、观察信封和 `phone record` 结果的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这三个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。
+- `verification.phone.json`：S3 只读 verifier 的工具白名单、只读 bash 允许/拒绝命令、结构化输出正反例、30% 预算边界与 `verification.reported` 事件正反例；`"upstream": []`，由 Python 校验器和 Swift／TS 运行时测试共用。它不是 dsh-bot 的上游导出。
 - `authority.phone.json`：routine 设立者/放宽判定、Task 授权子集和 CreateTeammate 作者的手机专属向量；用 `"upstream": []` 登记，含 schema 负例、解析负例和 mutation 自检。
 - `mcp-egress.phone.json`：MCP 出口凭证、会话凭证与 `tools/call` 调用者目录的手机专属向量；同样用 `"upstream": []` 登记。`valid` / `invalid` 的每条用例带 `suite`（`egress` / `identity` / `tools-call` / `egress-approval` / `grant-directory`）；`egress` 由精确路由集合与常量时间 token 比较判定，`identity` 由 token 登记表（含撤销／过期／轮换）解析 principal 并比较 `sessionId`，`tools-call` 由与 `tools/list` 相同的 per-caller 目录判定；`egress-approval` 逐条覆盖登记/job 生命周期、同 Bot 分组、无登记时的单/多/无 Bot 与工作台回合，以及 Task 授权子集（无 `task.network-write` 拒绝且不出卡、有授权照常送审、主对话不受影响），`grant-directory` 覆盖目录 Grant 命中和不命中。`validate_vectors.py` 逐条校验并按 suite 强制边界覆盖，内部 mutation 变异预期值；`check_golden.py` 在 `PHONE_ONLY_VECTORS` 显式登记该文件。
 

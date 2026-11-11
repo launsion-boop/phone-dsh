@@ -55,6 +55,7 @@ PINNED_SHA = "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
 PHONE_ONLY_VECTORS = frozenset({
     "turn-origin.phone.json", "mcp-egress.phone.json", "authority.phone.json",
     "record-reference.phone.json", "observation-envelope.phone.json", "record-query.phone.json",
+    "verification.phone.json",
 })
 
 

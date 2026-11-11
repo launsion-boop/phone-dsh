@@ -9,13 +9,19 @@ public struct BotRemoteTurnResult: Sendable, Equatable {
     public let status: String
     public let text: String
     public let error: String?
+    /// Canonical `record://session/<id>#<seq>` references for the user,
+    /// assistant, tool-call and tool-result rows this turn observed. A
+    /// verifier receives these instead of the doer session's self-report.
+    public let recordRefs: [String]
 
-    public init(sessionId: String, turnId: String?, status: String, text: String, error: String? = nil) {
+    public init(sessionId: String, turnId: String?, status: String, text: String,
+                error: String? = nil, recordRefs: [String] = []) {
         self.sessionId = sessionId
         self.turnId = turnId
         self.status = status
         self.text = text
         self.error = error
+        self.recordRefs = recordRefs
     }
 }
 
@@ -73,6 +79,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         /// Optional for old persisted rows. A missing value restores the
         /// workspace-only default rather than an unrestricted child.
         var authorization: BotTaskAuthorization?
+        /// S3 completion contract. Optional so rows written before S3 restore
+        /// as "no completion condition" instead of an unverifiable task.
+        var completion: String?
+        var purpose: String?
+        var constraints: [String]?
+        var budget: BotTaskBudget?
+        var verification: BotVerification?
     }
 
     private struct TaskState {
@@ -84,6 +97,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var prompt: String
         var asynchronous: Bool
         var timeoutMs: Int
+        var completion: String
+        var purpose: String?
+        var constraints: [String]
+        var budget: BotTaskBudget?
         var authorization: BotTaskAuthorization
         var record: BotTaskRecord
         var generation: Int
@@ -363,7 +380,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         taskStates[taskID]?.record = BotTaskRecord(
             taskId: state.record.taskId, sessionId: state.record.sessionId,
             status: "stopping", title: state.record.title,
-            result: nil, partial: state.record.partial, error: nil)
+            result: nil, partial: state.record.partial, error: nil,
+            completion: state.record.completion, purpose: state.record.purpose,
+            constraints: state.record.constraints, budget: state.record.budget,
+            verification: state.record.verification)
         return try await performStop(taskId: taskID, generation: generation)
     }
 
@@ -385,17 +405,46 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             let result = try await runTurn(
                 sessionId: sessionId, kind: .routine, prompt: request.wake.text,
                 requestId: BotTurnOrigin.routineRequestId(runId: request.runId))
-            let reply = RoutineWakeBuilder.normalizeReply(result.text)
+            let completion = request.routine.completionCriteria
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var verification: BotVerification?
+            if result.status == "completed", !completion.isEmpty {
+                let constraints = request.routine.constraints
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                verification = await verify(
+                    subjectKind: "routine", subjectId: request.routine.id,
+                    subjectSessionId: sessionId, title: request.routine.title,
+                    status: "succeeded", taskId: nil,
+                    routineId: request.routine.id, runId: request.runId,
+                    completion: completion, purpose: nil,
+                    constraints: constraints.isEmpty ? [] : [constraints],
+                    budgetMs: Int(request.timeoutMs), doerRefs: result.recordRefs)
+            }
+            let baseReply = RoutineWakeBuilder.normalizeReply(result.text)
+            var replyText = baseReply.quiet ? "" : baseReply.text
+            if let verification, verification.verdict != .passed {
+                let label = verification.verdict == .failed ? "验证未通过" : "验证不确定"
+                let summary = String(verification.summary
+                    .prefix(BotVerificationPolicy.maximumSummaryCharacters))
+                replyText = replyText.isEmpty
+                    ? "\(label)：\(summary)"
+                    : "\(label)：\(summary)\n\(replyText)"
+            }
+            let reply = RoutineWakeBuilder.normalizeReply(replyText)
+            var finishedData: [String: BotJSONValue] = [
+                "runId": .string(request.runId), "routineId": .string(request.routine.id),
+                "title": .string(request.routine.title), "attempt": .number(Double(request.attempt)),
+                "status": .string(result.status), "text": .string(reply.text),
+                "quiet": .bool(reply.quiet), "delivery": .string(request.routine.delivery.rawValue),
+            ]
+            if let verification {
+                finishedData["verification"] = verification.jsonValue
+            }
             _ = try await runtime.eventWriter.append(
                 type: "routine.run_finished", principal: principal,
-                data: .object([
-                    "runId": .string(request.runId), "routineId": .string(request.routine.id),
-                    "title": .string(request.routine.title), "attempt": .number(Double(request.attempt)),
-                    "status": .string(result.status), "text": .string(reply.text),
-                    "quiet": .bool(reply.quiet), "delivery": .string(request.routine.delivery.rawValue),
-                ]), eventId: "finished:\(request.runId)")
+                data: .object(finishedData), eventId: "finished:\(request.runId)")
             if result.status == "completed" {
-                return .success(result.text)
+                return .success(reply.text, quiet: reply.quiet)
             }
             return RoutineExecutionResult(
                 status: result.status == "cancelled" ? .cancelled : .failed,
@@ -435,7 +484,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             kind: .task, capabilities: authorization.capabilities)
         let record = BotTaskRecord(
             taskId: taskId, sessionId: sessionId, status: "running", title: request.title,
-            result: nil, partial: "")
+            result: nil, partial: "", completion: request.completion.isEmpty ? nil : request.completion,
+            purpose: request.purpose, constraints: request.constraints, budget: request.budget)
         let state = TaskState(
             ownerBotId: request.parent.principal.botId,
             ownerSessionId: request.parent.sessionId,
@@ -443,6 +493,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             parentKind: request.parent.principal.kind,
             title: request.title, prompt: request.prompt,
             asynchronous: request.asynchronous, timeoutMs: request.timeoutMs,
+            completion: request.completion, purpose: request.purpose,
+            constraints: request.constraints, budget: request.budget,
             authorization: authorization,
             record: record, generation: 1, work: nil, stopWork: nil,
             live: true, wakeDelivered: false)
@@ -500,6 +552,31 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         return resolved
     }
 
+    /// The doer sees the same terminal contract the verifier will check. The
+    /// verifier never receives the doer's later self-report.
+    static func taskContractPrompt(completion: String, purpose: String?,
+                                   constraints: [String], budgetMs: Int) -> String {
+        var lines = ["<task_contract>"]
+        lines.append("budget_ms: \(budgetMs)")
+        if !completion.isEmpty {
+            lines.append("completion:")
+            lines.append(HeldMessages.escapedHeldField(completion))
+        }
+        if let purpose, !purpose.isEmpty {
+            lines.append("purpose:")
+            lines.append(HeldMessages.escapedHeldField(purpose))
+        }
+        if !constraints.isEmpty {
+            lines.append("constraints:")
+            lines.append(contentsOf: constraints.map { "- \(HeldMessages.escapedHeldField($0))" })
+        }
+        if !completion.isEmpty {
+            lines.append("Finish only when the completion condition is true. A separate read-only verifier will re-check the artifacts and raw records; your own summary is not evidence.")
+        }
+        lines.append("</task_contract>")
+        return lines.joined(separator: "\n")
+    }
+
     static func authorizationPrompt(_ authorization: BotTaskAuthorization) -> String {
         let escapedRoot = HeldMessages.escapedHeldField(authorization.workspaceRoot)
         let directories = authorization.allowedWriteDirectories
@@ -538,7 +615,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         taskStates[taskId]?.record = BotTaskRecord(
             taskId: state.record.taskId, sessionId: state.record.sessionId,
             status: "stopping", title: state.record.title,
-            result: nil, partial: state.record.partial, error: nil)
+            result: nil, partial: state.record.partial, error: nil,
+            completion: state.record.completion, purpose: state.record.purpose,
+            constraints: state.record.constraints, budget: state.record.budget,
+            verification: state.record.verification)
         let work = Task { try await self.performStop(taskId: taskId, generation: generation) }
         taskStates[taskId]?.stopWork = work
         return try await work.value
@@ -554,7 +634,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let stopped = BotTaskRecord(
             taskId: state.record.taskId, sessionId: state.record.sessionId,
             status: "stopped", title: state.record.title,
-            result: nil, partial: state.record.partial, error: nil)
+            result: nil, partial: state.record.partial, error: nil,
+            completion: state.record.completion, purpose: state.record.purpose,
+            constraints: state.record.constraints, budget: state.record.budget,
+            verification: state.record.verification)
         if taskStates[taskId]?.generation == generation {
             taskStates[taskId]?.record = stopped
             taskStates[taskId]?.work = nil
@@ -578,6 +661,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         do {
             let prompt = Self.authorizationPrompt(state.authorization)
+                + "\n\n" + Self.taskContractPrompt(
+                    completion: state.completion, purpose: state.purpose,
+                    constraints: state.constraints,
+                    budgetMs: state.budget?.maxDurationMs ?? state.timeoutMs)
                 + "\n\n" + state.prompt
             let turn = try await runTurn(
                 sessionId: state.record.sessionId, kind: .task,
@@ -587,11 +674,29 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 return taskStates[taskId]?.record ?? state.record
             }
             let completed = turn.status == "completed"
+            var verification: BotVerification?
+            // P26 §2.8: every async Task with a completion condition is
+            // verified once on completion, regardless of which session
+            // delegated it. Only the parent wake below stays chat-specific.
+            if completed, !state.completion.isEmpty, state.asynchronous {
+                verification = await verify(
+                    subjectKind: "task", subjectId: taskId,
+                    subjectSessionId: state.record.sessionId,
+                    title: state.title, status: "completed",
+                    taskId: taskId, routineId: nil, runId: nil,
+                    completion: state.completion, purpose: state.purpose,
+                    constraints: state.constraints,
+                    budgetMs: (state.budget?.maxDurationMs ?? state.timeoutMs),
+                    doerRefs: turn.recordRefs)
+            }
             let record = BotTaskRecord(
                 taskId: taskId, sessionId: state.record.sessionId,
                 status: completed ? "completed" : "failed", title: state.record.title,
                 result: completed ? turn.text : nil,
-                partial: turn.text, error: completed ? nil : turn.error ?? "task turn failed")
+                partial: turn.text, error: completed ? nil : turn.error ?? "task turn failed",
+                completion: state.record.completion, purpose: state.record.purpose,
+                constraints: state.record.constraints, budget: state.record.budget,
+                verification: verification)
             taskStates[taskId]?.record = record
             taskStates[taskId]?.work = nil
             taskStates[taskId]?.live = false
@@ -606,8 +711,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let title = HeldMessages.escapedHeldField(state.title)
                 let status = HeldMessages.escapedHeldField(record.status)
                 let escapedTaskID = HeldMessages.escapedHeldField(taskId)
-                let excerpt = HeldMessages.escapedHeldField(String(turn.text.prefix(1_200)))
-                let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n\(title) | \(status) | \(escapedTaskID)\n\(excerpt)"
+                let body: String
+                if let verification {
+                    body = Self.verificationWakeBody(
+                        verification, title: state.title, status: record.status,
+                        taskID: taskId)
+                } else {
+                    let excerpt = HeldMessages.escapedHeldField(String(turn.text.prefix(1_200)))
+                    body = "\(title) | \(status) | \(escapedTaskID)\n\(excerpt)"
+                }
+                let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n\(body)"
                 _ = try await runTurn(
                     sessionId: state.ownerSessionId, kind: .chat, prompt: prompt,
                     requestId: BotTurnOrigin.taskSettledRequestId(taskId: taskId))
@@ -621,7 +734,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             let record = BotTaskRecord(
                 taskId: taskId, sessionId: state.record.sessionId,
                 status: "failed", title: state.record.title,
-                result: nil, partial: nil, error: String(describing: error))
+                result: nil, partial: nil, error: String(describing: error),
+                completion: state.record.completion, purpose: state.record.purpose,
+                constraints: state.record.constraints, budget: state.record.budget,
+                verification: state.record.verification)
             taskStates[taskId]?.record = record
             taskStates[taskId]?.work = nil
             taskStates[taskId]?.live = false
@@ -664,7 +780,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             let record = BotTaskRecord(
                 taskId: state.record.taskId, sessionId: state.record.sessionId,
                 status: "interrupted", title: state.record.title,
-                result: nil, partial: state.record.partial, error: "worker_restarted")
+                result: nil, partial: state.record.partial, error: "worker_restarted",
+                completion: state.record.completion, purpose: state.record.purpose,
+                constraints: state.record.constraints, budget: state.record.budget,
+                verification: state.record.verification)
             taskStates[taskId]?.record = record
             taskStates[taskId]?.generation = state.generation + 1
             taskStates[taskId]?.work = nil
@@ -714,6 +833,221 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         return delivered
     }
 
+    // MARK: - Independent verification (P26 §2.8)
+
+    /// Run one read-only verifier session and record its conclusion. Every
+    /// failure path becomes `uncertain`; the model can never self-certify a
+    /// passed verdict through a malformed response or an invented reference.
+    private func verify(subjectKind: String, subjectId: String, subjectSessionId: String,
+                        title: String, status: String, taskId: String?,
+                        routineId: String?, runId: String?,
+                        completion: String, purpose: String?, constraints: [String],
+                        budgetMs: Int, doerRefs: [String]) async -> BotVerification {
+        let startedAt = now()
+        let verificationId = "verification-\(UUID().uuidString.lowercased())"
+        let budgetLimit = BotVerificationPolicy.verifierLimitMs(subjectBudgetMs: budgetMs)
+        let verifierSession: String
+        do {
+            verifierSession = try await createSession(kind: .verifier)
+        } catch {
+            return BotVerification(
+                verdict: .uncertain,
+                summary: "the verifier session could not be created",
+                refs: [], unverified: ["Verifier session unavailable"],
+                budget: BotVerificationPolicy.budget(
+                    subjectBudgetMs: budgetMs, usedMs: max(0, Int(now() - startedAt))),
+                output: "unavailable")
+        }
+
+        func finish(_ verification: BotVerification) async -> BotVerification {
+            let used = max(0, Int(now() - startedAt))
+            var result = verification
+            if result.budget.usedMs != used || result.budget.exceeded {
+                result.budget = BotVerificationBudget(
+                    limitMs: budgetLimit, usedMs: max(used, result.budget.usedMs),
+                    exceeded: result.budget.exceeded || used > budgetLimit)
+                if result.budget.exceeded, result.verdict == .passed {
+                    result.verdict = .uncertain
+                    result.output = "budget_exceeded"
+                    result.summary = "the verifier budget was exceeded before the evidence was complete"
+                    if result.unverified.isEmpty {
+                        result.unverified = ["Verification budget exceeded"]
+                    }
+                }
+            }
+            var data: [String: BotJSONValue] = [
+                "verificationId": .string(verificationId),
+                "subjectKind": .string(subjectKind),
+                "subjectId": .string(subjectId),
+                "subjectSessionId": .string(subjectSessionId),
+                "title": .string(String(title.prefix(BotVerificationPolicy.maximumSubjectTitleCharacters))),
+                "status": .string(status),
+                "verification": result.jsonValue,
+                "createdAt": .number(Double(now())),
+            ]
+            if let taskId { data["task_id"] = .string(taskId) }
+            if let routineId { data["routine_id"] = .string(routineId) }
+            if let runId { data["runId"] = .string(runId) }
+            if let principal = try? await ensureSession(sessionId: verifierSession, kind: .verifier) {
+                _ = try? await runtime.eventWriter.append(
+                    type: "verification.reported", principal: principal,
+                    data: .object(data),
+                    eventId: "verification:\(verificationId)")
+            }
+            return result
+        }
+
+        let emptyBudget = BotVerificationPolicy.budget(
+            subjectBudgetMs: budgetMs, usedMs: max(0, Int(now() - startedAt)))
+        // Session-log refs can briefly lag materialization. Durable events for
+        // the doer session are already committed by the time it settled, so
+        // include them as additional record:// evidence for the verifier.
+        var refs = doerRefs
+        if let stored = try? await runtime.store.events(after: 0, limit: 1_000) {
+            let eventRefs = stored.compactMap { event -> String? in
+                guard event.principal.sessionId == subjectSessionId,
+                      let seq = event.commitSeq else { return nil }
+                return "record://event/\(seq)"
+            }.suffix(4)
+            refs.append(contentsOf: eventRefs)
+        }
+        refs = Array(refs.suffix(12))
+        guard !refs.isEmpty else {
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: "the doer turn produced no readable record references",
+                refs: [], unverified: ["No doer record references were available"],
+                budget: emptyBudget, output: "unavailable"))
+        }
+        let prompt = BotVerifierPrompt.build(
+            subjectKind: subjectKind, subjectId: subjectId,
+            completion: completion, purpose: purpose, constraints: constraints,
+            refs: refs, subjectSessionId: subjectSessionId)
+        let work = Task {
+            try await self.runTurn(
+                sessionId: verifierSession, kind: .verifier,
+                prompt: prompt,
+                requestId: BotTurnOrigin.taskTurnRequestId(taskId: "verifier-\(verificationId)"))
+        }
+        let completed = await waitForVerifierTurn(work, timeoutMs: budgetLimit)
+        guard completed else {
+            try? await cancelTurn(sessionId: verifierSession, includeQueued: true)
+            work.cancel()
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: "the verifier did not finish within its budget",
+                refs: [], unverified: ["Verification timed out"],
+                budget: BotVerificationBudget(
+                    limitMs: budgetLimit, usedMs: budgetLimit, exceeded: true),
+                output: "budget_exceeded"))
+        }
+        let turn: BotRemoteTurnResult
+        do {
+            turn = try await work.value
+        } catch {
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: "the verifier turn failed: \(String(describing: error))",
+                refs: [], unverified: ["Verifier turn failed"],
+                budget: emptyBudget, output: "unavailable"))
+        }
+        let used = max(0, Int(now() - startedAt))
+        let budget = BotVerificationPolicy.budget(subjectBudgetMs: budgetMs, usedMs: used)
+        if budget.exceeded {
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: "the verifier exceeded its 30% budget",
+                refs: [], unverified: ["Verification budget exceeded"],
+                budget: budget, output: "budget_exceeded"))
+        }
+        guard turn.status == "completed" else {
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: turn.error ?? "the verifier turn did not complete",
+                refs: [], unverified: ["Verifier turn did not complete"],
+                budget: budget, output: "unavailable"))
+        }
+        let output: BotVerifierOutput
+        do {
+            output = try BotVerifierOutputParser.parse(turn.text)
+        } catch {
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: "the verifier output was not the required JSON object: \(String(describing: error))",
+                refs: [], unverified: ["Verifier output format invalid"],
+                budget: budget, output: "invalid"))
+        }
+        guard let resolver = runtime.recordEvidence else {
+            return await finish(BotVerification(
+                verdict: .uncertain, summary: output.summary,
+                refs: output.refs, unverified: output.unverified,
+                budget: budget, output: "unavailable"))
+        }
+        do {
+            _ = try await resolver.resolveEvidence(
+                output.refs, callerBotID: botId, callerSessionID: verifierSession)
+        } catch {
+            return await finish(BotVerification(
+                verdict: .uncertain,
+                summary: "the verifier cited a record it could not resolve",
+                refs: [],
+                unverified: output.unverified + ["Cited record references were invalid or out of scope: \(String(describing: error))"],
+                budget: budget, output: "invalid"))
+        }
+        return await finish(BotVerification(
+            verdict: output.verdict, summary: output.summary,
+            refs: output.refs, unverified: output.unverified,
+            budget: budget, output: "valid"))
+    }
+
+    private func waitForVerifierTurn(_ work: Task<BotRemoteTurnResult, Error>,
+                                     timeoutMs: Int) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                _ = try? await work.value
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(max(0, timeoutMs)) * 1_000_000)
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// The parent wake carries the verifier's evidence, never the child's own
+    /// summary. Failed/uncertain conclusions carry an explicit instruction to
+    /// tell the user honestly.
+    static func verificationWakeBody(_ verification: BotVerification,
+                                     title: String, status: String,
+                                     taskID: String) -> String {
+        let escapedTitle = HeldMessages.escapedHeldField(title)
+        let escapedTaskID = HeldMessages.escapedHeldField(taskID)
+        let escapedStatus = HeldMessages.escapedHeldField(status)
+        let escapedSummary = HeldMessages.escapedHeldField(
+            String(verification.summary.prefix(BotVerificationPolicy.maximumSummaryCharacters)))
+        let refs = verification.refs.joined(separator: " ")
+        let unverified = verification.unverified.isEmpty
+            ? "none"
+            : verification.unverified.map(HeldMessages.escapedHeldField).joined(separator: "; ")
+        var lines = [
+            "\(escapedTitle) | \(escapedStatus) | \(escapedTaskID)",
+            "[verification] \(verification.verdict.rawValue)",
+            "summary: \(escapedSummary)",
+            "refs: \(refs)",
+            "unverified: \(unverified)",
+            "budget: used=\(verification.budget.usedMs)ms limit=\(verification.budget.limitMs)ms exceeded=\(verification.budget.exceeded)",
+        ]
+        if verification.verdict != .passed {
+            lines.append("[verification_instruction] This is the independent verifier's conclusion; the doer's own final message is not evidence. Tell the user honestly that the task did not pass or could not be verified and why, with the record references. Do not present it as done. Use SendToUser if you need to deliver that message from this hidden wake.")
+        } else {
+            lines.append("[verification_instruction] This is the independent verifier's conclusion; the doer's own final message is not evidence. The task passed. No message is required.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private func persistTask(taskId: String, type: String, eventId: String) async throws {
         guard let state = taskStates[taskId] else { return }
         let snapshot = PersistedBotTask(
@@ -724,7 +1058,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             timeoutMs: state.timeoutMs, status: state.record.status,
             result: state.record.result, partial: state.record.partial,
             error: state.record.error, createdAt: now(), wakeDelivered: state.wakeDelivered,
-            authorization: state.authorization)
+            authorization: state.authorization,
+            completion: state.completion.isEmpty ? nil : state.completion,
+            purpose: state.purpose, constraints: state.constraints,
+            budget: state.budget, verification: state.record.verification)
         let principal = sessions[state.ownerSessionId]?.principal ?? BotGatewayPrincipal(
             botId: state.ownerBotId, sessionId: state.ownerSessionId,
             kind: state.parentKind, expiresAt: Int64.max,
@@ -763,7 +1100,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                         title: record["title"]?.stringValue ?? "",
                         result: record["result"]?.stringValue,
                         partial: record["partial"]?.stringValue,
-                        error: record["error"]?.stringValue)
+                        error: record["error"]?.stringValue,
+                        completion: record["completion"]?.stringValue,
+                        purpose: record["purpose"]?.stringValue,
+                        constraints: record["constraints"]?.arrayValue?
+                            .compactMap(\.stringValue) ?? [],
+                        budget: Self.decodeTaskBudget(record["budget"]),
+                        verification: Self.decodeVerification(record["verification"]))
                 }
             }
             guard events.count == 1_000, let last = events.last?.commitSeq else { break }
@@ -774,20 +1117,39 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             var record = BotTaskRecord(
                 taskId: taskId, sessionId: snapshot.sessionId, status: snapshot.status,
                 title: snapshot.title, result: snapshot.result,
-                partial: snapshot.partial, error: snapshot.error)
+                partial: snapshot.partial, error: snapshot.error,
+                completion: snapshot.completion, purpose: snapshot.purpose,
+                constraints: snapshot.constraints ?? [], budget: snapshot.budget,
+                verification: snapshot.verification)
             if let terminal = settled[taskId] {
-                record = terminal
-                snapshot.status = terminal.status
-                snapshot.result = terminal.result
-                snapshot.partial = terminal.partial
-                snapshot.error = terminal.error
+                // The terminal event is authoritative for the lifecycle status,
+                // but an older binary may not have written the S3 fields. Keep
+                // the persisted snapshot's completion contract and verification
+                // rather than dropping them on restart.
+                record = BotTaskRecord(
+                    taskId: terminal.taskId, sessionId: terminal.sessionId,
+                    status: terminal.status, title: terminal.title,
+                    result: terminal.result, partial: terminal.partial,
+                    error: terminal.error,
+                    completion: terminal.completion ?? snapshot.completion,
+                    purpose: terminal.purpose ?? snapshot.purpose,
+                    constraints: terminal.constraints.isEmpty
+                        ? (snapshot.constraints ?? []) : terminal.constraints,
+                    budget: terminal.budget ?? snapshot.budget,
+                    verification: terminal.verification ?? snapshot.verification)
+                snapshot.status = record.status
+                snapshot.result = record.result
+                snapshot.partial = record.partial
+                snapshot.error = record.error
             }
             let interrupted = record.status == "running" || record.status == "stopping"
             if interrupted {
                 record = BotTaskRecord(
                     taskId: taskId, sessionId: snapshot.sessionId, status: "interrupted",
                     title: snapshot.title, result: nil, partial: record.partial,
-                    error: "worker_restarted")
+                    error: "worker_restarted", completion: snapshot.completion,
+                    purpose: snapshot.purpose, constraints: snapshot.constraints ?? [],
+                    budget: snapshot.budget, verification: snapshot.verification)
                 snapshot.status = "interrupted"
                 snapshot.error = "worker_restarted"
             }
@@ -797,6 +1159,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 ownerIncarnation: snapshot.parentIncarnation, parentKind: kind,
                 title: snapshot.title, prompt: snapshot.prompt,
                 asynchronous: snapshot.asynchronous, timeoutMs: snapshot.timeoutMs,
+                completion: snapshot.completion ?? "", purpose: snapshot.purpose,
+                constraints: snapshot.constraints ?? [], budget: snapshot.budget,
                 authorization: snapshot.authorization ?? (try? BotTaskAuthorization.resolve(
                     requestedDirectories: [], workspaceRoot: botRoot()))
                     ?? BotTaskAuthorization(
@@ -824,6 +1188,16 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     private static func decodeTaskRecord(_ data: BotJSONValue) -> BotJSONValue? {
         data["task_id"] == nil ? nil : data
+    }
+
+    private static func decodeTaskBudget(_ value: BotJSONValue?) -> BotTaskBudget? {
+        guard let value, case .object(let fields) = value else { return nil }
+        return BotTaskBudget(maxDurationMs: fields["max_duration_ms"]?.intValue)
+    }
+
+    private static func decodeVerification(_ value: BotJSONValue?) -> BotVerification? {
+        guard let value, let data = try? value.encoded() else { return nil }
+        return try? JSONDecoder().decode(BotVerification.self, from: data)
     }
 
     private static func deliveryRequestId(items: [WakeInboxItem]) -> String {
@@ -1091,6 +1465,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                                capabilities: [String] = []) async throws -> String {
         var fields: [String: BotJSONValue] = ["cwd": .string(botRoot())]
         fields["sessionId"] = .string(sessionID ?? mintedSessionID(kind: kind))
+        // The preset is part of the immutable creation header, so a later
+        // scope change cannot give the verifier a write-capable surface.
+        if kind == .verifier {
+            fields["agentPreset"] = .string("pdsh-verifier")
+        }
         let request: BotJSONValue = .object(fields)
         let created = try await transport.call("session/create", args: .object(["request": request]))
         guard let sessionId = created["sessionId"]?.stringValue, !sessionId.isEmpty else {
@@ -1375,6 +1754,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var texts: [String] = []
         var resultTexts: [String] = []
         var toolNames: [String: String] = [:]
+        var recordRefs: [String] = []
         var suppressWrapUp = false
         let live = kind == .chat && !hidden
         func publish(_ frameKind: BotLiveTurnFrame.Kind) {
@@ -1417,6 +1797,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                   let type = event["type"]?.stringValue,
                   let seq = event["seq"]?.intValue else { continue }
             let data = event["data"] ?? .null
+            if ["user/message", "assistant/message", "tool/call", "tool/result"].contains(type) {
+                let ref = "record://session/\(sessionId)#\(seq)"
+                if !recordRefs.contains(ref) { recordRefs.append(ref) }
+            }
             let eventTurn = data["turn"]?.intValue.map(String.init)
             if let currentTurn, let eventTurn, currentTurn != eventTurn { continue }
             if coordinators[sessionId]?.cancelRequested == true, type != "turn/end" { continue }
@@ -1527,7 +1911,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 return BotRemoteTurnResult(
                     sessionId: sessionId, turnId: currentTurn ?? eventTurn, status: status,
                     text: kind == .chat && hidden ? "" : resultTexts.joined(),
-                    error: status == "completed" ? nil : data["reason"]?["error"]?["message"]?.stringValue ?? reason)
+                    error: status == "completed" ? nil : data["reason"]?["error"]?["message"]?.stringValue ?? reason,
+                    recordRefs: recordRefs)
             default:
                 continue
             }
@@ -1563,7 +1948,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         case .chat: return .turn
         case .task: return .task
         case .routine: return .routine
-        case .team, .proactive, .watchdog: return .turn
+        case .verifier, .team, .proactive, .watchdog: return .turn
         }
     }
 

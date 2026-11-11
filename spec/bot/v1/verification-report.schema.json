@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotVerificationReport v1",
+  "description": "The data payload of a durable verification.reported event (P25/P26 §2.8).",
+  "type": "object",
+  "required": [
+    "verificationId",
+    "subjectKind",
+    "subjectId",
+    "subjectSessionId",
+    "title",
+    "status",
+    "verification",
+    "createdAt"
+  ],
+  "properties": {
+    "verificationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "subjectKind": {
+      "enum": [
+        "task",
+        "routine"
+      ]
+    },
+    "subjectId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "subjectSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "routine_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "summary",
+        "refs",
+        "unverified",
+        "budget",
+        "output"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed",
+            "uncertain"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "refs": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "pattern": "^record://(session/[A-Za-z0-9._-]{1,64}#[0-9]+|event/[0-9]+)$"
+          }
+        },
+        "unverified": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "budget": {
+          "type": "object",
+          "required": [
+            "ratio",
+            "limitMs",
+            "usedMs",
+            "exceeded"
+          ],
+          "properties": {
+            "ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "limitMs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usedMs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "exceeded": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "output": {
+          "enum": [
+            "valid",
+            "invalid",
+            "budget_exceeded",
+            "unavailable"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "description": "Host failure outputs may carry no evidence refs, but must stay uncertain; a valid model output must cite 1-8 refs.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "output": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "output"
+            ]
+          },
+          "then": {
+            "properties": {
+              "refs": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "output": {
+                "enum": [
+                  "invalid",
+                  "budget_exceeded",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "output"
+            ]
+          },
+          "then": {
+            "properties": {
+              "verdict": {
+                "const": "uncertain"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "createdAt": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

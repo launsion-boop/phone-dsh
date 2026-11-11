@@ -188,7 +188,8 @@
             "team",
             "proactive",
             "watchdog",
-            "ipc"
+            "ipc",
+            "verifier"
           ]
         },
         "capabilities": {

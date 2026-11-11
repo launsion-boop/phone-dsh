@@ -99,6 +99,8 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     private(set) var cancellations: [String] = []
     private(set) var createdIDs: [String] = []
     private(set) var requestedSessionIds: [String] = []
+    /// The immutable creation header preset requested for each created session.
+    private(set) var createdAgentPresets: [String: String] = [:]
     private(set) var claimedSessions: [String] = []
     private(set) var claimedSessionTokens: [(sessionId: String, sessionToken: String?)] = []
     private(set) var archivedSessions: [String] = []
@@ -170,6 +172,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
             }
             let requested = args["request"]?["sessionId"]?.stringValue ?? ""
             let cwd = args["request"]?["cwd"]?.stringValue
+            let agentPreset = args["request"]?["agentPreset"]?.stringValue
             let id = lock.withLock { () -> String in
                 defer { nextCreateIndex += 1 }
                 requestedSessionIds.append(requested)
@@ -178,6 +181,7 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
                     : (nextCreateIndex == 0 ? mainId : "gb-created-\(nextCreateIndex)")
                 createdIDs.append(id)
                 if let cwd { sessionCwds[id] = cwd }
+                if let agentPreset { createdAgentPresets[id] = agentPreset }
                 return id
             }
             return .object(["sessionId": .string(id)])
