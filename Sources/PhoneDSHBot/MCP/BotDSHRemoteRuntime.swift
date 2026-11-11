@@ -1575,6 +1575,13 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     public func mainSessionIdentifier() -> String? { mainSessionId }
 
+    /// Whether this Bot runtime owns the session. Used only to scope the
+    /// read-only bridge status to the Bot whose page is open.
+    public func ownsSession(_ sessionId: String) -> Bool {
+        sessions[sessionId] != nil || sessionId == mainSessionId
+            || sessionId.hasPrefix("gb-\(botId)")
+    }
+
     /// Stages the continuity seam the next user message of a freshly switched
     /// epoch receives once. It is cleared even if that turn fails.
     public func setPendingContinuation(_ seam: String?) {
@@ -1985,6 +1992,61 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             token: issued.token, principal: issued.principal,
             claimGeneration: claimGeneration, claimAcknowledged: acknowledged)
         return issued.principal
+    }
+
+    /// Re-claims every session this runtime still considers active into the
+    /// current Worker. A foreground resume replaces the Worker (and its
+    /// in-memory credential map) without a host process restart; this is the
+    /// App half of the recovery, before the next turn starts. A token that no
+    /// longer resolves (revoked, expired, or a rebuilt token registry) is
+    /// reissued with the same kind/capabilities and claimed first.
+    @discardableResult
+    public func reclaimOwnedSessions() async -> Int {
+        var reclaimed = 0
+        for sessionId in Array(sessions.keys) {
+            if await reclaimSessionForIdentity(sessionId, suppliedToken: "") {
+                reclaimed += 1
+            }
+        }
+        return reclaimed
+    }
+
+    /// Host-side recovery seam for one rejected `/identity/register`. The App
+    /// only re-claims a session it already owns; the request's `sessionId`
+    /// never authenticates by itself and the token is never returned to the
+    /// caller. A supplied token that resolves to a different session is an
+    /// impersonation attempt and is not healed. Returns whether the Worker
+    /// acknowledged the claim.
+    @discardableResult
+    public func reclaimSessionForIdentity(_ sessionId: String,
+                                          suppliedToken: String) async -> Bool {
+        guard let credential = sessions[sessionId] else { return false }
+        if !suppliedToken.isEmpty,
+           let resolved = await runtime.gateway.tokens.lookup(suppliedToken),
+           resolved.sessionId != sessionId {
+            return false
+        }
+        if let current = await runtime.gateway.tokens.lookup(credential.token),
+           current.sessionId == sessionId,
+           let live = await runtime.gateway.tokens.lookupSession(sessionId),
+           live.incarnation == current.incarnation {
+            guard let acknowledged = try? await claimOwnedSession(
+                sessionId, sessionToken: credential.token) else { return false }
+            if acknowledged {
+                sessions[sessionId] = SessionCredential(
+                    token: credential.token, principal: current,
+                    claimGeneration: claimGeneration, claimAcknowledged: true)
+            }
+            return acknowledged
+        }
+        // The host's copy no longer resolves: issue a fresh token for the same
+        // session incarnation and claim it. This is the rebuilt-token-registry
+        // path; it does not extend the TTL.
+        guard let principal = try? await issueAndClaimSession(
+            sessionId, kind: credential.principal.kind,
+            capabilities: credential.principal.capabilities) else { return false }
+        _ = principal
+        return sessions[sessionId]?.claimAcknowledged ?? false
     }
 
     /// Claims one Bot session for the current Worker generation. Returns

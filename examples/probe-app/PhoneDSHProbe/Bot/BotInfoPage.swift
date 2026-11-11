@@ -135,6 +135,9 @@ struct BotInfoSnapshot {
     var maintenanceEnabled = false
     var maintenanceDailyTokens = 0
     var maintenanceDailyBudget = 0
+    /// One human-readable line from the host's last failed identity
+    /// registration; nil when the runtime has no current bridge error.
+    var bridgeStatus: String?
 }
 
 struct BotInfoDriver {
@@ -178,6 +181,7 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var maintenanceEnabled = false
     @Published private(set) var maintenanceDailyTokens = 0
     @Published private(set) var maintenanceDailyBudget = 0
+    @Published private(set) var bridgeStatus: String?
     @Published var highlightedRoutineID: String?
     @Published private(set) var memoryState: BotInfoLoadState
     @Published private(set) var routinesState: BotInfoLoadState
@@ -210,6 +214,7 @@ final class BotInfoModel: ObservableObject {
         maintenanceEnabled = snapshot?.maintenanceEnabled ?? false
         maintenanceDailyTokens = snapshot?.maintenanceDailyTokens ?? 0
         maintenanceDailyBudget = snapshot?.maintenanceDailyBudget ?? 0
+        bridgeStatus = snapshot?.bridgeStatus
         let initial: BotInfoLoadState
         if let fixtureError { initial = .failed(fixtureError) }
         else { initial = snapshot == nil && driver != nil ? .loading : .loaded }
@@ -312,6 +317,7 @@ final class BotInfoModel: ObservableObject {
             maintenanceEnabled = snapshot.maintenanceEnabled
             maintenanceDailyTokens = snapshot.maintenanceDailyTokens
             maintenanceDailyBudget = snapshot.maintenanceDailyBudget
+            bridgeStatus = snapshot.bridgeStatus
             memoryState = .loaded
             routinesState = .loaded
             approvalsState = .loaded
@@ -1743,6 +1749,10 @@ struct BotPresenceSection: View {
         VStack(alignment: .leading, spacing: 8) {
             LabeledContent("当前级别", value: model.presence.level.displayName)
                 .accessibilityIdentifier("bot.info.presence.level")
+            if let bridgeStatus = model.bridgeStatus {
+                LabeledContent("桥状态", value: bridgeStatus)
+                    .accessibilityIdentifier("bot.info.presence.bridge")
+            }
             if model.presence.level == .scheduledNotification {
                 LabeledContent("已登记提醒", value: "\(model.presence.scheduledNotificationCount) 条")
                     .accessibilityIdentifier("bot.info.presence.notifications")

@@ -14,6 +14,22 @@ public struct BotMCPToolDefinition: Codable, Sendable, Equatable {
     }
 }
 
+/// The most recent failed `/identity/register` call, kept in host memory for
+/// the read-only Bot status line and diagnostics. It carries only the local
+/// time, the App's error code and the session id: never a token, argument or
+/// request body. A later successful registration clears it.
+public struct BotBridgeDiagnostic: Codable, Sendable, Equatable {
+    public let atMilliseconds: Int64
+    public let code: String
+    public let sessionId: String
+
+    public init(atMilliseconds: Int64, code: String, sessionId: String) {
+        self.atMilliseconds = atMilliseconds
+        self.code = code
+        self.sessionId = sessionId
+    }
+}
+
 public struct BotMCPCallResult: Codable, Sendable, Equatable {
     public let content: [BotJSONValue]
     public let structuredContent: BotJSONValue?

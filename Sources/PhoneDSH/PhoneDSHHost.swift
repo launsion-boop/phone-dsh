@@ -333,6 +333,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         eventBus.stream()
     }
 
+    /// The Worker boot id this host currently expects. The Bot runtime seeds a
+    /// watcher from this value and treats a later `.workerHello` with a
+    /// different id as a replaced Worker that needs its sessions re-claimed.
+    /// Read-only; it carries no credential.
+    public var currentWorkerBootID: String { workerBootID }
+
     // MARK: - Lifecycle
 
     /// Opens the workspace, recovers the WAL, boots the Worker and opens

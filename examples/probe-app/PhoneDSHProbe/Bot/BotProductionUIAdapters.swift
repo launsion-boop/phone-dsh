@@ -287,7 +287,11 @@ extension BotInfoSnapshot {
             maintenance: snapshot.maintenance.map(BotMaintenanceBatchInfo.production),
             maintenanceEnabled: snapshot.maintenanceEnabled,
             maintenanceDailyTokens: snapshot.maintenanceDailyTokens,
-            maintenanceDailyBudget: snapshot.maintenanceDailyBudget)
+            maintenanceDailyBudget: snapshot.maintenanceDailyBudget,
+            bridgeStatus: snapshot.bridgeStatus.map { diagnostic in
+                let at = Date(timeIntervalSince1970: Double(diagnostic.atMilliseconds) / 1_000)
+                return "最近一次身份登记失败：\(diagnostic.code) · \(BotUIFormat.dateTime(at))"
+            })
     }
 
     fileprivate static func maintenanceInfo(

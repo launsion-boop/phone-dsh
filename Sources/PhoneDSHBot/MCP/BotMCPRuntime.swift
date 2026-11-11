@@ -284,6 +284,13 @@ public actor BotMCPRuntime {
     private var maintenanceBatches: [String: String] = [:]
     /// Roster pointer: only the main Bot's maintainer may write shared user/.
     private var mainBotProvider: @Sendable (String) -> Bool = { _ in true }
+    /// Host-side seam used only after an `/identity/register` rejects a token:
+    /// the App re-claims that session's current credential into the rebuilt
+    /// Worker. It never reveals a token to the request and never registers the
+    /// call itself.
+    private var sessionReclaimer: (@Sendable (String, String) async -> Bool)?
+    /// Last failed identity registration, shown by the Bot status line.
+    private var lastBridgeDiagnostic: BotBridgeDiagnostic?
 
     public init(
         store: SQLiteDomainStore,
@@ -554,6 +561,33 @@ public actor BotMCPRuntime {
         mainBotProvider = provider
     }
 
+    /// Installs the App's recovery seam for a lost Worker credential. The
+    /// runtime calls it after `unauthorized`, with the request's session and
+    /// the token the Worker presented (empty when it had none). The App
+    /// re-claims that session's current token into the Worker; the Worker then
+    /// retries the registration exactly once. Returning false means no current
+    /// credential exists for that session, so the next turn must issue one.
+    public func installSessionReclaimer(
+        _ reclaim: (@Sendable (_ sessionId: String, _ suppliedToken: String) async -> Bool)?
+    ) {
+        sessionReclaimer = reclaim
+    }
+
+    /// The last failed identity registration (time, code, session). A
+    /// successful registration clears it. Read-only: the Bot info page and
+    /// diagnostics never infer a status from the tool catalog.
+    public func lastBridgeError() -> BotBridgeDiagnostic? {
+        lastBridgeDiagnostic
+    }
+
+    /// Records a missing or malformed credential rejected before the runtime's
+    /// token path (the HTTP handler answers those without a token). This keeps
+    /// the status line truthful for the exact failure the person saw.
+    public func noteBridgeError(code: String, sessionId: String) {
+        lastBridgeDiagnostic = BotBridgeDiagnostic(
+            atMilliseconds: now(), code: code, sessionId: sessionId)
+    }
+
     public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false,
                           origin: BotTurnOrigin? = nil) {
         suppressingTextSessions.remove(sessionId)
@@ -661,10 +695,39 @@ public actor BotMCPRuntime {
     /// `sessionId` is only a consistency check. Missing, unknown, revoked,
     /// expired or mismatched credentials throw ``BotMCPError/unauthorized`` and
     /// register nothing.
+    ///
+    /// A failed token is one recoverable case: the Worker may have been rebuilt
+    /// on foreground resume, losing its in-memory map while the App still holds
+    /// the current incarnation. The App re-claims that exact credential into
+    /// the Worker before this method throws; the Worker's one retry then
+    /// carries it. The App never accepts the body `sessionId` as identity and
+    /// never returns the token to the caller.
     public func registerIdentity(runtimeId: String, sessionId: String, callId: String,
                                  name: String, arguments: BotJSONValue,
                                  argsDigest: String? = nil,
                                  sessionToken: String) async throws -> BotAttribution {
+        do {
+            let attribution = try await registerIdentityOnce(
+                runtimeId: runtimeId, sessionId: sessionId, callId: callId,
+                name: name, arguments: arguments, argsDigest: argsDigest,
+                sessionToken: sessionToken)
+            lastBridgeDiagnostic = nil
+            return attribution
+        } catch BotMCPError.unauthorized {
+            await recoverLostCredential(sessionId: sessionId, suppliedToken: sessionToken)
+            noteBridgeError(code: "unauthorized", sessionId: sessionId)
+            throw BotMCPError.unauthorized
+        } catch BotGatewayError.unknownSession {
+            await recoverLostCredential(sessionId: sessionId, suppliedToken: sessionToken)
+            noteBridgeError(code: "unknown_session", sessionId: sessionId)
+            throw BotMCPError.unauthorized
+        }
+    }
+
+    private func registerIdentityOnce(runtimeId: String, sessionId: String, callId: String,
+                                      name: String, arguments: BotJSONValue,
+                                      argsDigest: String? = nil,
+                                      sessionToken: String) async throws -> BotAttribution {
         _ = pruneExpiredRegistrationsSync()
         guard !sessionToken.isEmpty,
               let principal = await gateway.tokens.lookup(sessionToken),
@@ -691,16 +754,29 @@ public actor BotMCPRuntime {
                 }
             }
         }
-        do {
-            let attribution = try await gateway.registerToolCall(
-                sessionToken: sessionToken, sessionId: sessionId, callId: callId,
-                name: bareName, arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
-            registrations[key] = attribution
-            registrationArguments[key] = arguments
-            return attribution
-        } catch BotGatewayError.unknownSession {
-            throw BotMCPError.unauthorized
+        let attribution = try await gateway.registerToolCall(
+            sessionToken: sessionToken, sessionId: sessionId, callId: callId,
+            name: bareName, arguments: arguments, argsDigest: argsDigest, runtimeId: scope)
+        registrations[key] = attribution
+        registrationArguments[key] = arguments
+        return attribution
+    }
+
+    /// Re-claims the session's current token into the Worker after a failed
+    /// registration. A token that resolves to a different session is an
+    /// impersonation attempt, not a lost Worker map, and gets no recovery.
+    public func recoverSessionCredential(sessionId: String, suppliedToken: String) async {
+        await recoverLostCredential(sessionId: sessionId, suppliedToken: suppliedToken)
+    }
+
+    private func recoverLostCredential(sessionId: String, suppliedToken: String) async {
+        guard let sessionReclaimer else { return }
+        if !suppliedToken.isEmpty,
+           let resolved = await gateway.tokens.lookup(suppliedToken),
+           resolved.sessionId != sessionId {
+            return
         }
+        _ = await sessionReclaimer(sessionId, suppliedToken)
     }
 
     @discardableResult

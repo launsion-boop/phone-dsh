@@ -233,6 +233,40 @@ final class BotCompositionE2ETests: XCTestCase {
         XCTAssertEqual(afterRebuild.status, "completed", afterRebuild.error ?? "no error")
         XCTAssertTrue(afterRebuild.text.contains("BOT_ROUTINE_OK"))
 
+        // Foreground resume: the Host parks (the Worker page is destroyed) and
+        // resumes into a fresh Worker with an empty session-credential map.
+        // The new HELLO boot id must make the composition re-claim the session
+        // before the next turn; otherwise the Worker's bash registration is
+        // rejected as `unauthorized` and never self-heals.
+        mock.script = .generic(command: "printf AFTER_RESUME", toolText: "AFTER_RESUME",
+                               finalText: "AFTER_RESUME_OK")
+        var sawWorkerRecovery = false
+        launch.composition.onStateChange = { state in
+            if state == .recovering { sawWorkerRecovery = true }
+        }
+        try await activeHost.park()
+        try await activeHost.resume()
+        let recoveryDeadline = Date().addingTimeInterval(20)
+        while Date() < recoveryDeadline {
+            if sawWorkerRecovery && launch.composition.state == .ready { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(sawWorkerRecovery && launch.composition.state == .ready,
+                      "the Bot composition must rebind after the resumed Worker's new HELLO")
+        let afterResume = try await launch.composition.remote.sendUserMessage("锁屏后继续")
+        XCTAssertEqual(afterResume.status, "completed", afterResume.error ?? "no error")
+        XCTAssertTrue(afterResume.text.contains("AFTER_RESUME_OK"),
+                      "text=\(afterResume.text); requests=\(mock.requestCount)")
+        let resumeEvents = try await BotProductionEventReader.all(domain: store)
+        let resumeToolResults = resumeEvents.filter { $0.type == "conversation.tool_result" }
+        let resumeResultText = String(describing: resumeToolResults.map(\.data))
+        XCTAssertTrue(resumeResultText.contains("AFTER_RESUME"),
+                      "the resumed turn must execute bash: \(resumeResultText)")
+        XCTAssertFalse(resumeResultText.contains("identity-bridge"),
+                       "a resumed Worker must not fail identity registration: \(resumeResultText)")
+        XCTAssertFalse(resumeResultText.contains("unauthorized"),
+                       "a resumed Worker must not stay unauthorized: \(resumeResultText)")
+
         await launch.composition.stop()
         try await activeHost.stop()
         try await store.close()
