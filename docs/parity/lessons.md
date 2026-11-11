@@ -19,3 +19,8 @@
    - spec 的 Python 測試用 `unittest`，這台機器沒有 pytest。
 7. **權限範圍外的必要改動。** 範圍外但必要的一行登記（例如在 cross_check 裡註冊新的 golden）可以做，
    但要在報告裡單獨列出並說明理由。
+8. **改 iOS Swift 會讓出處行號漂移。** 只要動了 `examples/probe-app/**` 或 `Sources/**` 裡被 spec 引用的 Swift 檔
+   （哪怕只加一行 `.accessibilityIdentifier`），就必須重跑 `python3 spec/ui/v1/tools/extract_ios_pages.py --root .`、
+   `python3 spec/ui/v1/tools/ui_check.py` 和 `bash scripts/ci/check.sh --only phone-p0-conformance`，
+   並把 `tokens.json`、`interaction.md`、`README.md`、`pages/*.json` 裡手寫（`"extraction": "manual"`）的行號一起更新。
+   第 2 波的 iOS 驗收台修復拆了 `ChatPage.body`，結果 83 處 token 出處和 page 契約整體失效，是整合時才發現的。
