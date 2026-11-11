@@ -359,11 +359,13 @@ Scenario notes:
   is expected to fail until in-workspace writes stop requesting approval.
 * **E08** asserts an outbound `agent.comm` event before the denial assertions.
   Without it, a failed `SendToAgent` call would leave the second Bot untouched
-  and every "did not write" assertion would pass vacuously. The validator in
-  `eval_catalog.py` rejects `memory_absent` with an empty `value` even when a
-  `source` filter is present, so the "no write was sourced as user-turn" check
-  is expressed as `no_bot_event` on `memory.written` with
-  `payload_contains: "\"kind\":\"user-turn\""`.
+  and every "did not write" assertion would pass vacuously. The validator
+  accepts `memory_contains`/`memory_absent` with an empty `value` when at
+  least one of `scope`, `tier` or `source` is present, matching the assertion
+  matcher's `contains("")` plus filter semantics. The current catalog still
+  expresses the "no write was sourced as user-turn" check as `no_bot_event` on
+  `memory.written` with `payload_contains: "\"kind\":\"user-turn\""` because
+  that also proves the write event itself carried the forbidden source.
 
 ## Limitations
 

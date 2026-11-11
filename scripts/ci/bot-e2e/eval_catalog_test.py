@@ -107,6 +107,35 @@ class CatalogValidationTests(unittest.TestCase):
         document["scenarios"][0]["assertions"][-1] = {"type": "approval_count", "equals": 1, "max": 2}
         self.assertTrue(catalog.validate_catalog(document, self.fixtures))
 
+    def test_memory_assertion_accepts_empty_value_with_a_filter(self):
+        # The live assertion matcher contains("") for an empty value and then
+        # applies scope/tier/source, so the catalog validator must agree.
+        for kind in ("memory_contains", "memory_absent"):
+            for filter_name, filter_value in (
+                ("scope", "user"), ("tier", "profile"), ("source", "user-turn")
+            ):
+                document = minimal_catalog()
+                document["scenarios"][0]["assertions"] = [{
+                    "type": kind, "value": "", filter_name: filter_value,
+                }]
+                self.assertEqual(
+                    catalog.validate_catalog(document, self.fixtures), [],
+                    f"{kind} with empty value + {filter_name} must be valid")
+
+    def test_memory_assertion_rejects_empty_value_without_a_filter(self):
+        for kind in ("memory_contains", "memory_absent"):
+            document = minimal_catalog()
+            document["scenarios"][0]["assertions"] = [{"type": kind, "value": ""}]
+            self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+
+    def test_memory_assertion_still_requires_value(self):
+        for kind in ("memory_contains", "memory_absent"):
+            document = minimal_catalog()
+            document["scenarios"][0]["assertions"] = [{
+                "type": kind, "source": "user-turn",
+            }]
+            self.assertTrue(catalog.validate_catalog(document, self.fixtures))
+
 
 class PlanTests(unittest.TestCase):
     def setUp(self):
