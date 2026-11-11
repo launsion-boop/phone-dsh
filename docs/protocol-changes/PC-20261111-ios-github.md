@@ -6,7 +6,7 @@ contracts: [P09, P18]
 status: frozen
 breaking: false
 version_decision: Add an iPhone route and one new Keychain record. Keep existing protocols and records compatible.
-base: ce2f2436be34751a5496c31402c75f8b35c04193
+base: bddb6d5b070ae96f107e4b50a60b1ed9e1935d28
 contract_revision: PC-20261111-ios-github@1
 ```
 

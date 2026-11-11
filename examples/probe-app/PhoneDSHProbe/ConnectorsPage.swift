@@ -10,7 +10,7 @@ import ProbeKit
 import SwiftUI
 
 enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
-    case gmail, devices, webSearch, mcp
+    case gmail, github, devices, webSearch, mcp
 
     var id: String { rawValue }
 
@@ -20,6 +20,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return "globe"
         case .mcp: return "server.rack"
         case .gmail: return "envelope.fill"
+        case .github: return "GitHubMark"
         }
     }
 
@@ -29,6 +30,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return Color(red: 0.20, green: 0.78, blue: 0.35)
         case .mcp: return HomeSpec.textPrimary
         case .gmail: return Color(red: 0.92, green: 0.26, blue: 0.21)
+        case .github: return Color(red: 0.13, green: 0.15, blue: 0.18)
         }
     }
 
@@ -38,6 +40,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return NativeText("网页搜索", "Web search")
         case .mcp: return NativeText("自定义 MCP 服务", "Custom MCP server")
         case .gmail: return "Gmail"
+        case .github: return "GitHub"
         }
     }
 
@@ -47,13 +50,14 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return NativeText("让 DSH 搜索和读取网页", "Let DSH search and read the web")
         case .mcp: return NativeText("添加你自己的服务地址", "Add your own server")
         case .gmail: return NativeText("读取、撰写和发送邮件", "Read, write and send mail")
+        case .github: return NativeText("浏览已授权的仓库", "Browse authorized repositories")
         }
     }
 
     /// The gray pill on the row, naming what the sheet's action does.
     var pillTitle: String {
         switch self {
-        case .devices, .gmail: return NativeText("连接", "Connect")
+        case .devices, .gmail, .github: return NativeText("连接", "Connect")
         case .webSearch: return NativeText("设置", "Set up")
         case .mcp: return NativeText("添加", "Add")
         }
@@ -118,6 +122,7 @@ struct ConnectorsPage: View {
         case .webSearch: WebSearchSettingsPage()
         case .mcp: MCPSettingsPage()
         case .gmail: EmptyView()
+        case .github: GitHubConnectorPage()
         }
     }
 
@@ -131,7 +136,7 @@ struct ConnectorsPage: View {
     private func row(_ connector: DiscoverConnector) -> some View {
         Button { selected = connector } label: {
             HStack(spacing: 14) {
-                ConnectorTile(icon: connector.icon, tint: connector.tint, size: 44)
+                ConnectorTile(connector: connector, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(connector.title)
                         .font(.system(size: HomeSpec.bodySize))
@@ -152,20 +157,28 @@ struct ConnectorsPage: View {
     }
 }
 
-/// Rounded tile with a tinted glyph, the connector's icon.
-struct ConnectorTile: View {
-    let icon: String
-    let tint: Color
-    var size: CGFloat = 44
+private struct ConnectorTile: View {
+    let connector: DiscoverConnector
+    let size: CGFloat
 
     var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: size * 0.46, weight: .medium))
-            .foregroundStyle(tint)
-            .frame(width: size, height: size)
-            .background(Color(red: 0.95, green: 0.95, blue: 0.95),
-                        in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
-            .accessibilityHidden(true)
+        Group {
+            if connector == .github {
+                Image(connector.icon)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: size * 0.46, height: size * 0.46)
+            } else {
+                Image(systemName: connector.icon)
+                    .font(.system(size: size * 0.46, weight: .medium))
+            }
+        }
+        .foregroundStyle(connector.tint)
+        .frame(width: size, height: size)
+        .background(Color(red: 0.95, green: 0.95, blue: 0.95),
+                    in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
+        .accessibilityHidden(true)
     }
 }
 
@@ -195,7 +208,7 @@ private struct ConnectorDetailSheet: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                ConnectorTile(icon: connector.icon, tint: connector.tint, size: 96)
+                ConnectorTile(connector: connector, size: 96)
                     .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
                     .padding(.top, 28)
                 Text(connector.title)
@@ -245,6 +258,7 @@ private struct ConnectorDetailSheet: View {
         case .webSearch: return NativeText("设置网页搜索", "Set up web search")
         case .mcp: return NativeText("添加服务", "Add a server")
         case .gmail: return NativeText("连接", "Connect")
+        case .github: return NativeText("打开 GitHub", "Open GitHub")
         }
     }
 
@@ -262,6 +276,9 @@ private struct ConnectorDetailSheet: View {
         case .gmail:
             return NativeText("让 DSH 读取和搜索你的邮件，帮你整理收件箱、撰写和发送邮件。暂时还不能连接。",
                               "Let DSH read and search your mail, tidy your inbox, write and send mail. Not available yet.")
+        case .github:
+            return NativeText("连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
+                              "Connect a GitHub account to browse the repositories you choose on this phone.")
         }
     }
 
@@ -302,6 +319,15 @@ private struct ConnectorDetailSheet: View {
                 ("paperplane", NativeText("撰写和发送邮件", "Write and send mail"),
                  NativeText("按你的意思写新邮件或回复，直接发送。",
                             "Write new mail or replies the way you want and send them.")),
+            ]
+        case .github:
+            return [
+                ("book.closed", NativeText("只读仓库元数据", "Read-only repository metadata"),
+                 NativeText("只读取你选择的仓库名称和链接，不下载仓库内容。",
+                            "Reads only the names and links of repositories you choose; no repository content is downloaded.")),
+                ("lock.shield", NativeText("令牌只存在本机", "Token stays on this phone"),
+                 NativeText("细粒度令牌保存在设备钥匙串，你可以随时断开或到 GitHub 撤销。",
+                            "The fine-grained token stays in the device keychain; disconnect here or revoke it on GitHub at any time.")),
             ]
         }
     }

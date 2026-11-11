@@ -1,0 +1,585 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "GitHubConnectorPage",
+  "pageId": "git-hub-connector",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "GitHub",
+    "provenance": "GitHubConnectorPage.swift:296",
+    "anchor": ".navigationTitle(\"GitHub\")"
+  },
+  "source": {
+    "file": "GitHubConnectorPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift",
+    "lines": 445,
+    "structLine": 264,
+    "renderedFrom": [
+      "body",
+      "tokenSection",
+      "connectingSection",
+      "accountSection",
+      "noticeSection",
+      "repositorySection"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "GitHubConnectorPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "github-令牌",
+      "title": "GitHub 令牌",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "github-pat-开头的细粒度令牌",
+          "label": "github_pat_ 开头的细粒度令牌",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:314",
+          "anchor": "NativeText(\"github_pat_ 开头的细粒度令牌\", \"Fine-grained token starting with github_pat_",
+          "extraction": "syntax"
+        },
+        {
+          "id": "连接-github",
+          "label": "连接 GitHub",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:328",
+          "anchor": "Label(NativeText(\"连接 GitHub\", \"Connect GitHub\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "custom-333",
+          "label": null,
+          "labelExpr": "Link",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:333",
+          "anchor": "Link(destination: Self.tokenPage) {",
+          "extraction": "manual",
+          "template": "Link"
+        }
+      ],
+      "provenance": "GitHubConnectorPage.swift:338",
+      "anchor": "Text(NativeText(\"GitHub 令牌\", \"GitHub token\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "在 GitHub 创建 fine-grained token 时选择要读取的仓库，并只授予 Metadata 只读权限。令牌只保存在本机钥匙串。",
+        "labelExpr": null,
+        "provenance": "GitHubConnectorPage.swift:341",
+        "anchor": "\"在 GitHub 创建 fine-grained token 时选择要读取的仓库，并只授予 Metadata 只读权限。令牌只保存在本机钥匙串。\","
+      }
+    },
+    {
+      "id": "github-令牌",
+      "title": "GitHub 令牌",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "loading-350",
+          "label": null,
+          "labelExpr": null,
+          "kind": "loading",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:350",
+          "anchor": "ProgressView()",
+          "extraction": "manual"
+        },
+        {
+          "id": "正在验证-github-令牌",
+          "label": "正在验证 GitHub 令牌…",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:351",
+          "anchor": "Text(NativeText(\"正在验证 GitHub 令牌…\", \"Verifying the GitHub token…\"))",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GitHubConnectorPage.swift:354",
+      "anchor": "Text(NativeText(\"GitHub 令牌\", \"GitHub token\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "正在读取账号和仓库。",
+        "labelExpr": null,
+        "provenance": "GitHubConnectorPage.swift:356",
+        "anchor": "Text(NativeText(\"正在读取账号和仓库。\", \"Reading the account and repositories.\"))"
+      }
+    },
+    {
+      "id": "github-账号",
+      "title": "GitHub 账号",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-362",
+          "label": null,
+          "labelExpr": "login",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:362",
+          "anchor": "Label(login, systemImage: \"checkmark.circle\")",
+          "extraction": "manual"
+        },
+        {
+          "id": "断开连接",
+          "label": "断开连接",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:367",
+          "anchor": "Label(NativeText(\"断开连接\", \"Disconnect\"),",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GitHubConnectorPage.swift:371",
+      "anchor": "Text(NativeText(\"GitHub 账号\", \"GitHub account\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "只读取登录名和仓库元数据。",
+        "labelExpr": null,
+        "provenance": "GitHubConnectorPage.swift:373",
+        "anchor": "Text(NativeText(\"只读取登录名和仓库元数据。\","
+      }
+    },
+    {
+      "id": "仓库",
+      "title": "仓库",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "loading-384",
+          "label": null,
+          "labelExpr": null,
+          "kind": "loading",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "model.loading",
+          "provenance": "GitHubConnectorPage.swift:384",
+          "anchor": "ProgressView()",
+          "extraction": "manual"
+        },
+        {
+          "id": "没有可读取的仓库",
+          "label": "没有可读取的仓库。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "notice == nil",
+          "provenance": "GitHubConnectorPage.swift:386",
+          "anchor": "Text(NativeText(\"没有可读取的仓库。\", \"No repositories available.\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "custom-391",
+          "label": null,
+          "labelExpr": "Link",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!(repos.isEmpty)",
+          "provenance": "GitHubConnectorPage.swift:391",
+          "anchor": "Link(destination: repo.htmlURL) {",
+          "extraction": "manual",
+          "template": "Link",
+          "collection": "repos"
+        },
+        {
+          "id": "loading-412",
+          "label": null,
+          "labelExpr": null,
+          "kind": "loading",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "model.loading",
+          "provenance": "GitHubConnectorPage.swift:412",
+          "anchor": "if model.loading { ProgressView() }",
+          "extraction": "manual"
+        },
+        {
+          "id": "加载更多",
+          "label": "加载更多",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "nextPage != nil, notice == nil, !model.loading",
+          "provenance": "GitHubConnectorPage.swift:415",
+          "anchor": "Button(NativeText(\"加载更多\", \"Load more\")) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GitHubConnectorPage.swift:420",
+      "anchor": "Text(NativeText(\"仓库\", \"Repositories\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "按最近更新排序，每页 30 个。",
+        "labelExpr": null,
+        "provenance": "GitHubConnectorPage.swift:422",
+        "anchor": "Text(NativeText(\"按最近更新排序，每页 30 个。\","
+      }
+    },
+    {
+      "id": "section-428",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-429",
+          "label": null,
+          "labelExpr": "verbatim: notice",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "GitHubConnectorPage.swift:429",
+          "anchor": "Text(verbatim: notice)",
+          "extraction": "manual"
+        },
+        {
+          "id": "重试",
+          "label": "重试",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "let retry",
+          "provenance": "GitHubConnectorPage.swift:433",
+          "anchor": "Button(NativeText(\"重试\", \"Retry\")) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "重试删除令牌",
+          "label": "重试删除令牌",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": "model.needsDeleteRetry",
+          "provenance": "GitHubConnectorPage.swift:439",
+          "anchor": "Button(NativeText(\"重试删除令牌\", \"Retry deleting token\")) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GitHubConnectorPage.swift:428",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "重试",
+        "provenance": "GitHubConnectorPage.swift:433"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "连接-github",
+      "label": "连接 GitHub",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ let candidate = token Task { await model.connect(token: candidate) if case .connected = model.state { token = \"\" } }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:328",
+      "anchor": "Label(NativeText(\"连接 GitHub\", \"Connect GitHub\"),",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "断开连接",
+      "label": "断开连接",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmDisconnect = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:367",
+      "anchor": "Label(NativeText(\"断开连接\", \"Disconnect\"),",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "alert-300"
+    },
+    {
+      "id": "加载更多",
+      "label": "加载更多",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await model.loadMore() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:415",
+      "anchor": "Button(NativeText(\"加载更多\", \"Load more\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await retry() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:433",
+      "anchor": "Button(NativeText(\"重试\", \"Retry\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "重试删除令牌",
+      "label": "重试删除令牌",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ model.retryDelete()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:439",
+      "anchor": "Button(NativeText(\"重试删除令牌\", \"Retry deleting token\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "断开连接",
+      "label": "断开连接",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ model.disconnect()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:301",
+      "anchor": "Button(NativeText(\"断开连接\", \"Disconnect\"), role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubConnectorPage.swift:304",
+      "anchor": "Button(NativeText(\"取消\", \"Cancel\"), role: .cancel) {}",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "alert-300",
+      "kind": "alert",
+      "title": "断开 GitHub？",
+      "destination": null,
+      "triggerBindings": [
+        "confirmDisconnect"
+      ],
+      "span": [
+        300,
+        305
+      ],
+      "provenance": "GitHubConnectorPage.swift:300",
+      "anchor": ".alert(NativeText(\"断开 GitHub？\", \"Disconnect GitHub?\"), isPresented: $confirmDisc",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "没有可读取的仓库。",
+          "when": "notice == nil",
+          "provenance": "GitHubConnectorPage.swift:386",
+          "anchor": "Text(NativeText(\"没有可读取的仓库。\", \"No repositories available.\"))"
+        }
+      ],
+      "data": [
+        {
+          "renders": "GitHub 令牌 | GitHub 令牌 | GitHub 账号 | 仓库 | untitled section at 428",
+          "when": null,
+          "provenance": "GitHubConnectorPage.swift:264",
+          "anchor": "struct GitHubConnectorPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "重试",
+          "when": "let retry",
+          "provenance": "GitHubConnectorPage.swift:433",
+          "anchor": "Button(NativeText(\"重试\", \"Retry\")) {"
+        },
+        {
+          "renders": "重试删除令牌",
+          "when": "model.needsDeleteRetry",
+          "provenance": "GitHubConnectorPage.swift:439",
+          "anchor": "Button(NativeText(\"重试删除令牌\", \"Retry deleting token\")) {"
+        }
+      ],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "正在验证 GitHub 令牌…",
+          "when": null,
+          "provenance": "GitHubConnectorPage.swift:351",
+          "anchor": "Text(NativeText(\"正在验证 GitHub 令牌…\", \"Verifying the GitHub token…\"))"
+        },
+        {
+          "renders": "正在读取账号和仓库。",
+          "when": null,
+          "provenance": "GitHubConnectorPage.swift:356",
+          "anchor": "Text(NativeText(\"正在读取账号和仓库。\", \"Reading the account and repositories.\"))"
+        },
+        {
+          "renders": "ProgressView",
+          "when": null,
+          "provenance": "GitHubConnectorPage.swift:350",
+          "anchor": "ProgressView()"
+        },
+        {
+          "renders": "ProgressView",
+          "when": "model.loading",
+          "provenance": "GitHubConnectorPage.swift:384",
+          "anchor": "ProgressView()"
+        },
+        {
+          "renders": "ProgressView",
+          "when": "model.loading",
+          "provenance": "GitHubConnectorPage.swift:412",
+          "anchor": "if model.loading { ProgressView() }"
+        }
+      ]
+    },
+    "absent": [
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 1,
+      "data": 1,
+      "failure": 2,
+      "unknown": 0,
+      "loading": 5
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 5,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 5,
+    "warnings": []
+  }
+}
