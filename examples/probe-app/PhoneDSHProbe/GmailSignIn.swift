@@ -9,6 +9,7 @@ enum GmailSignIn {
 
     enum Failure: Error {
         case notAuthorized
+        case readPermissionRequired
         case cannotPresent
     }
 
@@ -35,7 +36,7 @@ enum GmailSignIn {
             guard signIn.hasPreviousSignIn() else { return false }
             _ = try await signIn.restorePreviousSignIn()
         }
-        return signIn.currentUser?.grantedScopes?.contains(readScope) == true
+        return signIn.currentUser != nil
     }
 
     static func connect() async throws {
@@ -51,10 +52,12 @@ enum GmailSignIn {
     }
 
     static func accessToken() async throws -> String {
-        guard let user = GIDSignIn.sharedInstance.currentUser,
-              user.grantedScopes?.contains(readScope) == true
-        else { throw Failure.notAuthorized }
-        return try await user.refreshTokensIfNeeded().accessToken.tokenString
+        guard let user = GIDSignIn.sharedInstance.currentUser else { throw Failure.notAuthorized }
+        let refreshedUser = try await user.refreshTokensIfNeeded()
+        if let grantedScopes = refreshedUser.grantedScopes, !grantedScopes.contains(readScope) {
+            throw Failure.readPermissionRequired
+        }
+        return refreshedUser.accessToken.tokenString
     }
 
     static func disconnect() async -> Bool {

@@ -94,9 +94,7 @@ final class GmailMailbox {
             nextPage = page.nextPageToken
         } catch {
             guard id == requestID, !Task.isCancelled else { return }
-            if needsAuthorization(error) {
-                loseAuthorization()
-            } else {
+            if !handleAuthorizationError(error) {
                 notice = readErrorMessage(error)
             }
         }
@@ -112,8 +110,8 @@ final class GmailMailbox {
             try Task.checkCancellation()
             return message
         } catch {
-            if isCurrent(connection), !Task.isCancelled, needsAuthorization(error) {
-                loseAuthorization()
+            if isCurrent(connection), !Task.isCancelled {
+                handleAuthorizationError(error)
             }
             throw error
         }
@@ -152,12 +150,28 @@ final class GmailMailbox {
     private func failConnection(_ error: Error) {
         if GmailSignIn.isCancellation(error) {
             account = .disconnected
-        } else if needsAuthorization(error) {
-            loseAuthorization()
-        } else {
+        } else if !handleAuthorizationError(error) {
             account = .disconnected
             notice = readErrorMessage(error)
         }
+    }
+
+    @discardableResult
+    private func handleAuthorizationError(_ error: Error) -> Bool {
+        if case GmailSignIn.Failure.readPermissionRequired = error {
+            clearSearch()
+            account = .reconnect
+            notice = NativeText(
+                "请点击“连接 Google 账号”，并在 Google 页面勾选 Gmail 读取权限。",
+                "Tap Connect Google account and select Gmail read access on the Google page."
+            )
+            return true
+        }
+        if needsAuthorization(error) {
+            loseAuthorization()
+            return true
+        }
+        return false
     }
 
     private func isCurrent(_ connection: UUID) -> Bool {
@@ -274,6 +288,7 @@ struct GmailConnectorPage: View {
                             .lineLimit(1)
                     }
                 }
+                .accessibilityIdentifier("gmail.message.row")
             }
             if mailbox.loading {
                 ProgressView()
@@ -324,8 +339,10 @@ private struct GmailMessagePage: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding()
                     }
+                    .accessibilityIdentifier("gmail.message.body")
                 case .html(let html):
                     GmailHTMLPreview(html: html)
+                        .accessibilityIdentifier("gmail.message.body")
                 case .unavailable:
                     Text(NativeText("这封邮件没有可预览的正文。", "This message has no previewable body."))
                         .padding()

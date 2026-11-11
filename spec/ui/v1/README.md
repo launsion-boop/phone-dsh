@@ -59,7 +59,8 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
 | ChatPage | PR22 首页：对话、输入坞、审批/问题卡、目标条；空对话也是首页 | RootView 的默认原生面（NativeShell） | 根页；自绘页头：抽屉 / 改名 / 设备+更多（含产物、工作区、运行状态、插件与工具、导出） | must |
-| ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail 示例连接器 | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；设备 push BluetoothDevicesPage | must |
+| ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；Gmail 在 iPhone 打开 GmailConnectorPage | must |
+| GmailConnectorPage | iPhone Gmail 只读授权、搜索、正文预览、断开 | 发现 › Gmail | push；授权由 Google 提供，其他平台单独接入 | later |
 | SessionsPage | 抽屉会话列表（PR22 已不是产品首页） | **预览专用（`-uiPreview sessions`、`DrawerPreview`）；产品抽屉换 HomeDrawer** | 预览壳；选中会话即关闭 | later |
 | SessionActivityPage | 单会话的步骤/用量/上下文 | **触发点缺失（sheet 已接线但无人置位，基线不可达）** | sheet | later |
 | FilesPage | 工作区文件树、导入 | Chat 工具写出路径；文件段内联 | 页面栈；文件行 push `PreviewSurface`（独立预览面，契约 `pages/preview-surface.json`） | must |
