@@ -281,6 +281,50 @@ test('a failed or late snapshot never exposes stale memory', async () => {
   }
 })
 
+test('an aborted read clears memory but does not permanently drop the accepted snapshot', async () => {
+  const ctx = new Context()
+  const subject = agent('gb-abort-retry')
+  let call = 0
+  let markStarted: () => void = () => {}
+  let release: (value: VolatileSnapshot) => void = () => {}
+  const started = new Promise<void>(resolve => { markStarted = resolve })
+  try {
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRuntime, {})
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(dshbotVolatileContext, {
+      lang: () => 'en' as const,
+      source: async () => {
+        call += 1
+        if (call === 1) return { memory: 'accepted-memory' }
+        if (call === 2) {
+          return new Promise<VolatileSnapshot>(resolve => {
+            release = resolve
+            markStarted()
+          })
+        }
+        return { memory: 'accepted-memory' }
+      },
+    })
+    const first = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
+    assert.match(first.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '', /accepted-memory/)
+
+    const controller = new AbortController()
+    const abortedAssembly = ctx.systemPrompt.assemble({ agent: subject, scope: subject, signal: controller.signal })
+    await started
+    controller.abort({ kind: 'user' })
+    release({ memory: 'aborted-memory' })
+    const aborted = await abortedAssembly
+    assert.doesNotMatch(aborted.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '',
+      /accepted-memory|aborted-memory/)
+
+    const retried = await ctx.systemPrompt.assemble({ agent: subject, scope: subject })
+    assert.match(retried.contexts.find(entry => entry.name === 'dshbot:volatile')?.text ?? '', /accepted-memory/)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('both restricted session kinds receive no Bot memory or automation from volatile context', async () => {
   const ctx = new Context()
   let calls = 0

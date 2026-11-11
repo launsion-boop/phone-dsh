@@ -446,7 +446,8 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
       // schema, so the consumer compares the accepted content itself. An
       // unchanged digest keeps the previous object (and its prompt cache key)
       // instead of replacing it with an equal copy.
-      if (digests.get(sessionId) === digest && previous !== undefined) {
+      if (digests.get(sessionId) === digest && previous !== undefined
+          && previous !== EMPTY_SNAPSHOT) {
         snapshots.set(sessionId, previous)
         return
       }
