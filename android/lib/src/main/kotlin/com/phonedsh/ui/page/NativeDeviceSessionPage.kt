@@ -70,6 +70,7 @@ import com.phonedsh.domain.connector.DeviceSessionSnapshot
 import com.phonedsh.domain.connector.DeviceToolState
 import com.phonedsh.domain.connector.DeviceTranscriptItem
 import com.phonedsh.domain.connector.DeviceTranscriptProjector
+import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiMetrics
 import com.phonedsh.ui.UiStrings
@@ -228,15 +229,16 @@ private fun DeviceTranscript(
     val type = LocalUiType.current
     // The shared 402 pt metric: the transcript is the official 338 pt content
     // column, centred in the frame, and its rows are spaced at the official 6/12
-    // flow gaps. Both numbers come from `UiMetrics` (their single definition), not
-    // from this file; a narrower display shrinks the column instead of clipping it.
+    // flow gaps. The column width comes from `UiMetrics` and the flow gap from
+    // `ChatMetrics` (their single definitions), not from this file; a narrower
+    // display shrinks the column instead of clipping it.
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = UiMetrics.contentColumnWidth)
                 .fillMaxSize()
                 .testTag(UiPageTags.DEVICE_SESSION_LIST),
-            verticalArrangement = Arrangement.spacedBy(UiMetrics.flowGap),
+            verticalArrangement = Arrangement.spacedBy(ChatMetrics.flowGap),
             // The baseline anchors this scroll view to its bottom
             // (`.defaultScrollAnchor(.bottom)`): a monitor should open on what the
             // device just did, not on the oldest window it happens to hold. A

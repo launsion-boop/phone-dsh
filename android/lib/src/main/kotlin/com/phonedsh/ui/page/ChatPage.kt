@@ -904,7 +904,7 @@ private fun RunStatusDot(
         modifier = modifier
             .clickable(role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) { contentDescription = label }
-            .defaultMinSize(minHeight = UiMetrics.headerHeight)
+            .defaultMinSize(minHeight = ChatMetrics.headerHeight)
             .padding(horizontal = tokens.spacing.iconText),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spacing.copyGap),
@@ -2463,7 +2463,7 @@ private fun ComposerDock(
             // iOS stacks the dock's rows with `NativeParityTokens.flowGap` = 6 pt
             // (`ChatPage.swift:1795`); the old 40 pt was the trailing *reserve*
             // for the send key, which pushed the queue strip 28 pt too high.
-            verticalArrangement = Arrangement.spacedBy(UiMetrics.flowGap),
+            verticalArrangement = Arrangement.spacedBy(ChatMetrics.flowGap),
         ) {
             if (state.todoItems.isNotEmpty()) {
                 TodoDock(

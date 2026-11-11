@@ -127,10 +127,10 @@ Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionV
 |---|---|---|---|
 | 工具行（tool run） | 首个 `tool_call` 起；连续工具行合并为一行 | 默认折叠，行内只留标题 + 首行摘要；`tool_result` 只改状态与摘要；点标题展开，展开后是白底 r18 列表卡 | 只随会话切换/回合清理消失 |
 | thinking_pill | `colors.textSecondary` `colors.textTertiary` | `typography.process` |  |  |  | `geometry.processRowHeight` `geometry.processIcon` | `motion.disclosure` `motion.shimmer` |
-| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
+| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.approvalCardSpacing` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
 | 问题卡 | `question_requested` | 单选/多选/自定义答案，全部必答才能提交；折叠与槽位规则同上 | 提交后消失；同时刻最多一张 |
 | NativeChangedFilesCard | 回合末最后一条非流式 assistant 行 | 按 `turn` 聚合成功的 write/edit/str_replace_editor；同路径后者覆盖前者；>4 个只列 4 个 + 「全部 N 个文件」 | 回合结束仍保留；清除随会话切换 |
-| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` |  |
+| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` `geometry.composerOuterMarginBottom` `geometry.composerPortLeading` `geometry.composerPortTrailing` |  |
 | fail-loud 横幅 | `colors.sessionWarning` `colors.sessionDanger` `colors.sessionAccent` `colors.sessionSecondary` | `typography.secondary` |  |  |  | `geometry.bannerGap` `geometry.bannerInsetH` `geometry.bannerInsetV` |  |
 
 页头 `⋯` 里的「导出对话记录」是页内动作，parity 到 Android 的平台分享 affordance（形态差异见 §5 `share-sheet`）；Android 不注册为外部分享目标、不做深链。
@@ -197,8 +197,8 @@ Parity is asserted on **two different object graphs**，混用两者就是端口
 | 气泡 | `colors.userBubble` `colors.textPrimary` | `typography.body` | `radius.bubble` |  | `spacing.paragraphGap` | `geometry.contentInset` `geometry.bubblePaddingH` `geometry.bubblePaddingV` `geometry.bubbleMaxWidthRatio` |  |
 | 工具行 | `colors.surface` `colors.textSecondary` `colors.textTertiary` `colors.borderList` | `typography.process` `typography.listItem` | `radius.listCard` | `stroke.hairline` | `spacing.disclosureGap` | `geometry.processRowHeight` `geometry.processIcon` `geometry.listRowHeight` | `motion.disclosure` |
 | thinking_pill | `colors.textSecondary` `colors.textTertiary` | `typography.process` |  |  |  | `geometry.processRowHeight` `geometry.processIcon` | `motion.disclosure` `motion.shimmer` |
-| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
-| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` |  |
+| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.approvalCardSpacing` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
+| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` `geometry.composerOuterMarginBottom` `geometry.composerPortLeading` `geometry.composerPortTrailing` |  |
 | fail-loud 横幅 | `colors.sessionWarning` `colors.sessionDanger` `colors.sessionAccent` `colors.sessionSecondary` | `typography.secondary` |  |  |  | `geometry.bannerGap` `geometry.bannerInsetH` `geometry.bannerInsetV` |  |
 
 审批卡以实际 `PermissionCardView` 为准（selector、r12、17/15 字号），错误提示以实际 `ChatPage.errorBanner` / `failureLine` 为准；HomeSpec 示例卡不能覆盖仍在使用的组件。气泡段落间距和工具组卡外壳由 `ChatRows` 父级持有，并由检查显式核对。
@@ -247,8 +247,8 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | 间距 | `blockGap`=20 `paragraphGap`=16 `disclosureGap`=8 | `HomeSpec.swift:57`–`:61` |
 | 圆角 | `radius.bubble`=24 `radius.listCard`=18 `radius.composerOpen`=24 | `HomeSpec.swift:78`–`:80` |
 | 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3948`–`:3906` |
-| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4636`–`:4594`、`:927` |
-| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:2025`、`:2007` |
+| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 `approvalCardSpacing`=10 | `ChatPage.swift:4636`–`:4594`、`:927`、`:5210` |
+| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 `composerOuterMarginBottom`=0 `composerPortLeading`=11 `composerPortTrailing`=8 | `ChatPage.swift:2025`、`:2007`、`:2352`、`:2409`–`:2410` |
 | 页面层 | `bannerGap`=12 `bannerInsetH`=4 `bannerInsetV`=6 | `ChatPage.swift:1054`、`:1045`–`:1046` |
 
 `geometry` 的 `scalesWith` 全部为 null：HomeSpec 使用固定 `frame` / padding，没有 `@ScaledMetric`；字号本身仍按
