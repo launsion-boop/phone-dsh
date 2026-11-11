@@ -89,3 +89,24 @@ test('Bot name comes from runtime context and profile persona matches the checke
   assert.match(profile, /maxInlineTokens: 12500/)
   assert.doesNotMatch(profile, /thresholdRatio: 0\.4/)
 })
+
+test('an explicit content-card request outranks the no-manufactured-card default', () => {
+  for (const lang of ['zh', 'en'] as const) {
+    const { persona } = assemblePrompt({ lang })
+    if (lang === 'zh') {
+      assert.ok(persona.includes('与任务长短无关'), 'zh must not qualify content cards by task length')
+      assert.ok(persona.includes('卡片发出之前不要结束回合'), 'zh must require the requested card before ending the turn')
+      assert.equal(persona.includes('长工作进度'), false, 'zh must not call progress cards long-work only')
+      assert.ok(persona.includes('一回合最多两张'), 'zh keeps the two-card cap')
+      assert.ok(persona.includes('先把结论写进正文，再把卡放在回复最后'), 'zh keeps cards after the prose conclusion')
+      assert.ok(persona.includes('**硬规则：回复里只要是在请用户做选择，就必须用卡片。**'), 'zh keeps the decision-card hard rule')
+    } else {
+      assert.ok(persona.includes('task length does not matter'), 'en must not qualify content cards by task length')
+      assert.ok(persona.includes('do not end the turn until that card is sent'), 'en must require the requested card before ending the turn')
+      assert.equal(persona.includes('show_progress` for long work'), false, 'en must not call progress cards long-work only')
+      assert.ok(persona.includes('At most two content cards per turn'), 'en keeps the two-card cap')
+      assert.ok(persona.includes('put the conclusion in prose first, then the card at the end'), 'en keeps cards after the prose conclusion')
+      assert.ok(persona.includes('**Hard rule: when your reply would ASK the user to choose, use the card.**'), 'en keeps the decision-card hard rule')
+    }
+  }
+})
