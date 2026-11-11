@@ -1035,7 +1035,7 @@ private struct BotMemoryTreeRowView: View {
     }
 }
 
-private struct BotMemoryDocumentView: View {
+struct BotMemoryDocumentView: View {
     let document: BotMemoryDocumentInfo
     let onForget: () -> Void
     let onErase: () -> Void
@@ -1354,26 +1354,43 @@ private struct BotGrantsPage: View {
             } else {
                 Section {
                     ForEach(model.grants) { grant in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(grant.tool)
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(BotUIFormat.grantOperationTitle(grant.operation))
                                     .botTitleFont()
                                     .foregroundStyle(HomeSpec.textPrimary)
-                                Spacer()
-                                BotStatusPill(text: grant.scope, tone: .neutral)
+                                Spacer(minLength: 8)
+                                BotStatusPill(text: BotUIFormat.grantScope(grant.scope), tone: .neutral)
                             }
-                            Text("\(grant.operation) · \(grant.resource)")
-                                .botCaptionFont()
+                            Text(BotUIFormat.grantResourceSummary(
+                                grant.resource, operation: grant.operation))
+                                .botSecondaryFont()
                                 .foregroundStyle(HomeSpec.textSecondary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            Text("来源：\(grant.source) · \(BotUIFormat.dateTime(grant.createdAt))")
+                            Text("来源：\(BotUIFormat.grantSource(grant.source)) · \(BotUIFormat.dateTime(grant.createdAt))")
                                 .botCaptionFont()
                                 .foregroundStyle(HomeSpec.textTertiary)
+                            DisclosureGroup("详情") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    grantDetailRow("工具", grant.tool)
+                                    grantDetailRow("操作", grant.operation)
+                                    grantDetailRow("完整资源", grant.resource)
+                                    if let sessionID = grant.sessionID, !sessionID.isEmpty {
+                                        grantDetailRow("会话", sessionID)
+                                    }
+                                }
+                                .padding(.top, 4)
+                            }
+                            .font(.system(size: 13))
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .accessibilityIdentifier("bot.grant.detail.\(grant.id)")
+                            Rectangle()
+                                .fill(HomeSpec.borderList)
+                                .frame(height: 0.5)
                             Button("撤销这条授权", role: .destructive) {
                                 Task { await model.revocation(of: grant) }
                             }
-                            .buttonStyle(BotTextButtonStyle())
-                            .botHitTarget()
+                            .buttonStyle(BotDestructiveButtonStyle())
                             .accessibilityIdentifier("bot.grant.revoke.\(grant.id)")
                         }
                         .padding(.vertical, 4)
@@ -1382,6 +1399,21 @@ private struct BotGrantsPage: View {
                     Text("撤销后，同一操作需要重新审批；常设授权只属于这个 Bot。")
                 }
             }
+    }
+
+    /// The raw identifiers, full path/URL and session id stay folded here so
+    /// the main row can stay readable. Values remain selectable for support.
+    private func grantDetailRow(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .botCaptionFont()
+                .foregroundStyle(HomeSpec.textTertiary)
+            Text(value)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -1483,11 +1515,11 @@ private struct BotApprovalHistoryPage: View {
                                 .botBodyFont()
                                 .foregroundStyle(HomeSpec.textPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
-                            HStack {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(record.decision)
                                     .botSecondaryFont(weight: .medium)
                                     .foregroundStyle(HomeSpec.textSecondary)
-                                Spacer()
+                                Spacer(minLength: 8)
                                 Text(BotUIFormat.dateTime(record.decidedAt))
                                     .botCaptionFont()
                                     .foregroundStyle(HomeSpec.textTertiary)

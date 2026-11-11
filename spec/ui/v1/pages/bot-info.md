@@ -24,8 +24,8 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
   - 不提供第一版未实现的自动抽取、反思或衰减开关，也不在页面内编辑文档正文。accessibility id 前缀 `bot.memory.*`、`bot.info.memory`，单文档抹除为 `bot.memory.document.erase`。
 - 记忆页顶部有「后台整理」开关（id `bot.memory.maintenance.toggle`），默认关闭；开关持久化为 P18 键 `phone-dsh.bot.memory-maintenance.v1`（`{enabled, runTokenBudget, dailyTokenBudget}`，所有 Bot 共享）。下方「上次整理」卡片（id `bot.memory.maintenance.batch`）只显示最近一次真实批次：状态、时间、改动文档数、每个路径的前后版本/删除、检查是否通过、失败码和 token 用量，数据来自 durable `memory.maintenance_finished` 事件，不伪造一次运行。批次仍可回滚时显示「回滚这次整理」（id `bot.memory.maintenance.rollback`），确认后调用宿主按 S2 版本恢复整批回滚；已回滚或不可回滚时不显示按钮，历史批次仍保留。页面不显示模型的过程文本，也不提供编辑批次内容的入口。
 - Routines：展示 schedule、timezone、delivery、quiet/urgent 标记、下一次到期/安静时段延后、运行结果、设立者（`creator.rpcId`／`turnId`／`origin`／`authorization`）、`completion_criteria` 与 `constraints`；动作通过 UserAction/宿主服务，不直接修改数据库。运行中（`run_state.status == "started"`）显示「取消运行」；`run_state.status == "needs-reconciliation"` 显示已产生效果的文字摘要，并提供「确认完成」和「重试」两个独立动作，分别走 `RoutineMachine.resolveReconciliation` 与 `BotEffectOutbox.ackReconciled`／`retryNeedsReconciliation`。取消、对账后重读权威状态；读取失败显示失败，不显示为零。
-- 常设授权：单独入口，列出本 Bot 的 `scope != once` Grant（tool、operation、resource、scope、sessionId、createdAt、source），每行可撤销。撤销调用 `BotGrantStore.revoke(id:)` 并重读；不把 once 授权显示为常设，也不在撤销失败时本地移除。授权状态未知时显示读取失败，不伪造“无授权”。accessibility id 前缀 `bot.grant.*`。
-- 审批记录：只显示参数摘要和实际决定，不显示密钥或完整敏感参数。
+- 常设授权：单独入口，列出本 Bot 的 `scope != once` Grant（tool、operation、resource、scope、createdAt、source），主行显示人类可读的操作类别、资源摘要、有效范围、来源和创建时间；`tool`、`operation`、完整 `resource` 路径/URL 与原始 `sessionId` 放在该行的「详情」里，详情默认折叠。每行可撤销。撤销调用 `BotGrantStore.revoke(id:)` 并重读；不把 once 授权显示为常设，也不在撤销失败时本地移除。授权状态未知时显示读取失败，不伪造“无授权”。accessibility id 前缀 `bot.grant.*`。
+- 审批记录：只显示用户可读的参数摘要和实际决定，不显示密钥或完整敏感参数。参数摘要必须由动作和操作类别组成，不得直接拼接内部 ID、resource digest 或原始枚举。实际决定区分允许一次、本次会话允许、总是允许、拒绝、已超时（视为拒绝）、已过期（视为拒绝）和已取消。
 - 深链 `phonedsh://bot/<botID>/row/<rowID>` 定位真实行；未知或过期行显示不可用，不跳到无关会话。routine 到期通知使用 `phonedsh://bot/<botID>/routine/<routineID>`，打开本页的例行任务区并定位该 routine 行；未知或已删除的 routine 显示不可用，不跳到无关页面。
 - 上述条目和动作只增不改：分组列表、导航和 token 沿用现有 Bot 信息页，不新增独立页面框架。
 

@@ -21,8 +21,8 @@
         "target": "agent=bot-b&message=帮我检查厨房温度",
         "mutability": "external-send",
         "policy": "auto",
-        "label": "傳送訊息給其他 Bot",
-        "detail": "把訊息送給另一個 Bot，對方回覆後會以 agent-comm 行回來；這是對外動作，結果未知時不自動重試。",
+        "label": "发送消息给其他 Bot",
+        "detail": "把消息发给另一个 Bot，对方回复后会以 agent-comm 行返回；这是对外动作，结果未知时不自动重试。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -43,8 +43,8 @@
         "target": "dshbot:create-teammate&name=Builder",
         "mutability": "write",
         "policy": "auto",
-        "label": "建立隊友 Bot",
-        "detail": "建立一個有獨立對話與記憶的 Bot；只有主 Bot 可以呼叫。",
+        "label": "创建队友 Bot",
+        "detail": "创建一个有独立对话与记忆的 Bot；只有主 Bot 可以调用。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -64,7 +64,7 @@
         "target": "*",
         "mutability": "read",
         "policy": "auto",
-        "label": "播放角色動作",
+        "label": "播放角色动作",
         "detail": "工具 FishAction（action=happy）",
         "ui": true,
         "execution": null,
@@ -85,10 +85,506 @@
         "target": "*",
         "mutability": "read",
         "policy": "auto",
-        "label": "讀取記憶",
+        "label": "读取记忆",
         "detail": "工具 ReadMemory（path=user/profile.md）",
         "ui": false,
         "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "ask_user",
+      "args": {
+        "question": "要继续吗？",
+        "options": [
+          {
+            "label": "继续",
+            "recommended": true
+          },
+          {
+            "label": "停止"
+          }
+        ]
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "ask_user",
+        "operation": "ui.ask_user",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "询问用户",
+        "detail": "工具 ask_user（question=要继续吗？, options=[{\"label\":\"继续\",\"recommended\":true},{\"label\":\"停止\"}]）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "查看结果",
+            "recommended": true
+          },
+          "稍后再说"
+        ]
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "show_next_steps",
+        "operation": "ui.show_next_steps",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示下一步建议",
+        "detail": "工具 show_next_steps（steps=[{\"label\":\"查看结果\",\"recommended\":true},\"稍后再说\"]）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_attachment",
+      "args": {
+        "path": "/tmp/report.txt",
+        "caption": "报告"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "show_attachment",
+        "operation": "ui.show_attachment",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示附件卡片",
+        "detail": "工具 show_attachment（path=/tmp/report.txt, caption=报告）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_document",
+      "args": {
+        "title": "状态报告",
+        "content": "# 状态\n正常"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "show_document",
+        "operation": "ui.show_document",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示文件卡片",
+        "detail": "工具 show_document（title=状态报告, content=# 状态 正常）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_progress",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_progress",
+        "operation": "ui.show_progress",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示进度卡片",
+        "detail": "工具 show_progress",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_checklist",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_checklist",
+        "operation": "ui.show_checklist",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示清单卡片",
+        "detail": "工具 show_checklist",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_link",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_link",
+        "operation": "ui.show_link",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示链接卡片",
+        "detail": "工具 show_link",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "UpdateMemory",
+      "args": {
+        "action": "write",
+        "fact": "我喜欢简短回答",
+        "tier": "log",
+        "scope": "agent"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "memory",
+        "operation": "memory.write",
+        "resource": "memory:agent&tier=log&fact=我喜欢简短回答",
+        "target": "memory:agent&tier=log&fact=我喜欢简短回答",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "写入记忆：我喜欢简短回答",
+        "detail": "写入 这个 Bot 的log 记忆。",
+        "ui": false,
+        "execution": "memory",
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "RecallMemory",
+      "args": {
+        "query": "简短",
+        "limit": 5
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "RecallMemory",
+        "operation": "memory.recall",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "回想记忆",
+        "detail": "工具 RecallMemory（query=简短, limit=5）",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "Task",
+      "args": {
+        "description": "检查状态",
+        "prompt": "只返回当前状态",
+        "async": true
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "Task",
+        "operation": "dshbot.Task",
+        "resource": "task=检查状态&prompt=只返回当前状态",
+        "target": "task=检查状态&prompt=只返回当前状态",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "启动子代理任务「检查状态」",
+        "detail": "会启动一个子代理并使用模型额度。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "AwaitTask",
+      "args": {
+        "task_id": "task-1"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "AwaitTask",
+        "operation": "dshbot.AwaitTask",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "等待子代理结果",
+        "detail": "工具 AwaitTask（task_id=task-1）",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "StopSubagent",
+      "args": {
+        "task_id": "task-1"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "StopSubagent",
+        "operation": "dshbot.StopSubagent",
+        "resource": "task=task-1",
+        "target": "task=task-1",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "停止子代理任务 task-1",
+        "detail": "中止正在执行的子代理，保留可读的部分结果。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "UpdateRoutine",
+      "args": {
+        "action": "create",
+        "title": "晨间简报",
+        "prompt": "没有新结果就安静",
+        "schedule": "@daily"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "UpdateRoutine",
+        "operation": "dshbot.UpdateRoutine",
+        "resource": "action=create&routine=&title=晨间简报&schedule=@daily&prompt=没有新结果就安静",
+        "target": "action=create&routine=&title=晨间简报&schedule=@daily&prompt=没有新结果就安静",
+        "mutability": "write",
+        "policy": "auto",
+        "label": "更新例行任务「晨间简报」",
+        "detail": "创建、修改或删除本机例行任务；日程：@daily；指示：没有新结果就安静。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "ListRoutines",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "ListRoutines",
+        "operation": "dshbot.ListRoutines",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "列出例行任务",
+        "detail": "工具 ListRoutines",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "RequestApproval",
+      "args": {
+        "action": "删除旧文件",
+        "detail": "删除一个过期报告"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "RequestApproval",
+        "operation": "ui.RequestApproval",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "请求用户授权",
+        "detail": "工具 RequestApproval（action=删除旧文件, detail=删除一个过期报告）",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "SendToUser",
+      "args": {
+        "message": "已完成"
+      },
+      "policy": "auto",
+      "effect": {
+        "tool": "SendToUser",
+        "operation": "dshbot.SendToUser",
+        "resource": "dshbot:send-to-user",
+        "target": "dshbot:send-to-user",
+        "mutability": "external-send",
+        "policy": "auto",
+        "label": "发送消息给用户",
+        "detail": "在对话中发送一条消息：已完成",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_table",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_table",
+        "operation": "ui.show_table",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示表格卡片",
+        "detail": "工具 show_table",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_callout",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_callout",
+        "operation": "ui.show_callout",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示提示卡片",
+        "detail": "工具 show_callout",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_info",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_info",
+        "operation": "ui.show_info",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示信息卡片",
+        "detail": "工具 show_info",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_payload",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_payload",
+        "operation": "ui.show_payload",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示数据卡片",
+        "detail": "工具 show_payload",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "show_library",
+      "args": {},
+      "policy": "auto",
+      "effect": {
+        "tool": "show_library",
+        "operation": "ui.show_library",
+        "resource": "*",
+        "target": "*",
+        "mutability": "read",
+        "policy": "auto",
+        "label": "显示文件库卡片",
+        "detail": "工具 show_library",
+        "ui": true,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "UnknownWrite",
+      "args": {
+        "secret": "not-recorded"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "UnknownWrite",
+        "operation": "tool.unclassified",
+        "resource": "unclassified=UnknownWrite&args=9c58b105c0e3377b",
+        "target": "unclassified=UnknownWrite&args=9c58b105c0e3377b",
+        "mutability": "write",
+        "policy": "ask",
+        "label": "执行未分类工具 UnknownWrite",
+        "detail": "这个工具没有在效果分类表中登记；默认需要用户审批。",
+        "ui": false,
+        "execution": null,
+        "known": false,
+        "isMcp": false
+      }
+    },
+    {
+      "name": "UpdateMemory",
+      "args": {
+        "action": "forget",
+        "scope": "user",
+        "fact": "共享事实"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "memory",
+        "operation": "memory.forget",
+        "resource": "memory:user&fact=共享事实",
+        "target": "memory:user&fact=共享事实",
+        "mutability": "destructive",
+        "policy": "ask",
+        "label": "忘记记忆「共享事实」",
+        "detail": "从 用户共享记忆移除一条事实。",
+        "ui": false,
+        "execution": "memory",
         "known": true,
         "isMcp": false
       }
@@ -106,8 +602,8 @@
         "target": "ble:*",
         "mutability": "read",
         "policy": "ask",
-        "label": "列出 BLE 設備",
-        "detail": "讀取附近 BLE 設備清單；設備名稱與廣播內容是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "label": "列出 BLE 设备",
+        "detail": "读取附近 BLE 设备列表；设备名称与广播内容是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -127,8 +623,8 @@
         "target": "device_id=device-a",
         "mutability": "read",
         "policy": "ask",
-        "label": "讀取 BLE 設備資料",
-        "detail": "讀取 BLE 設備內容；設備回傳是不可信數據，不得當作指令或授權。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "label": "读取 BLE 设备数据",
+        "detail": "读取 BLE 设备内容；设备返回是不可信数据，不得当作指令或授权。设备须先在「设置 → 蓝牙设备」中逐连接授权。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -148,8 +644,8 @@
         "target": "device_id=device-a",
         "mutability": "external-send",
         "policy": "ask",
-        "label": "向 BLE 設備發送提醒",
-        "detail": "向 BLE 設備發送提醒；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "label": "向 BLE 设备发送提醒",
+        "detail": "向 BLE 设备发送提醒；这是对外动作，结果未知时不自动重试。设备须先在「设置 → 蓝牙设备」中逐连接授权。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -169,8 +665,8 @@
         "target": "device_id=device-a",
         "mutability": "read",
         "policy": "ask",
-        "label": "列出 BLE 連結工具",
-        "detail": "列出設備提供的 BLE 連結工具；工具描述是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "label": "列出 BLE 连接工具",
+        "detail": "列出设备提供的 BLE 连接工具；工具描述是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -191,8 +687,8 @@
         "target": "device_id=device-a&name=light_on",
         "mutability": "external-send",
         "policy": "ask",
-        "label": "呼叫 BLE 連結工具",
-        "detail": "呼叫 BLE 連結工具 light_on；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "label": "调用 BLE 连接工具",
+        "detail": "调用 BLE 连接工具 light_on；这是对外动作，结果未知时不自动重试。设备须先在「设置 → 蓝牙设备」中逐连接授权。",
         "ui": false,
         "execution": null,
         "known": true,
@@ -212,8 +708,8 @@
         "target": "device_id=device-a",
         "mutability": "read",
         "policy": "ask",
-        "label": "讀取 BLE 連結結果",
-        "detail": "讀取 BLE 連結工具的結果；結果是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。",
+        "label": "读取 BLE 连接结果",
+        "detail": "读取 BLE 连接工具的结果；结果是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。",
         "ui": false,
         "execution": null,
         "known": true,

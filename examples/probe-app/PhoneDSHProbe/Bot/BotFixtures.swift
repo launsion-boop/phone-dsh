@@ -13,7 +13,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
-    case infoPresence
+    case infoPresence, infoApprovals, infoMemoryDocument
 
     var id: String { rawValue }
 
@@ -54,9 +54,13 @@ enum BotUIFixtures {
         ])
     }
 
-    static func rows(for fixture: BotUIFixtureCase) -> [BotUIRow] {
-        let intro = BotUIRow.text(id: "intro-\(fixture.rawValue)", seq: 1, role: "assistant",
-                                  text: "Fixture：\(fixture.rawValue)")
+    static func rows(for fixture: BotUIFixtureCase, diagnostics: Bool = false) -> [BotUIRow] {
+        // The fixture marker is a diagnostic aid, not a product message: only
+        // the UI-test/-BotUIDiagnostics runs carry it, so screenshots stay clean.
+        let introRows: [BotUIRow] = diagnostics ? [
+            BotUIRow.text(id: "intro-\(fixture.rawValue)", seq: 1, role: "assistant",
+                          text: "Fixture：\(fixture.rawValue)"),
+        ] : []
         let body: BotUIBody
         switch fixture {
         case .question:
@@ -116,7 +120,7 @@ enum BotUIFixtures {
             ])
         case .checklist:
             body = widget("checklist", [
-                "title": "发布前检查", "summary": "本地勾选不会改写卡片；可手动把结果送回对话。",
+                "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
                 "items": [
                     ["id": "c0", "text": "运行指定 CI 门禁", "done": true],
                     ["id": "c1", "text": "检查浅色与深色截图", "done": true],
@@ -130,7 +134,7 @@ enum BotUIFixtures {
                 "links": [
                     ["id": "docs", "url": "https://example.test/docs/cards", "title": "卡片内容模型",
                      "site": "example.test", "description": "字段、空状态和超限规则。", "kind": "doc"],
-                    ["id": "pr", "url": "https://example.test/repo/pull/9", "title": "WP9 SwiftUI 交互层",
+                    ["id": "pr", "url": "https://example.test/repo/pull/9", "title": "SwiftUI 交互示例",
                      "site": "example.test", "kind": "repo"],
                 ],
             ])
@@ -153,7 +157,7 @@ enum BotUIFixtures {
         case .denial:
             body = BotUIBody(type: "notice", values: ["tone": "denied", "text": "已拒绝这次操作，未执行任何更改。"])
         case .overflow:
-            return [intro, cardRow("overflow-progress", body: widget("progress", [
+            return introRows + [cardRow("overflow-progress", body: widget("progress", [
                 "title": "这是一个故意很长的工作标题，用来验证窄屏和动态字体下标题不会挤压状态或破坏卡片布局",
                 "state": "running", "percent": 68,
                 "summary": .string(String(repeating: "长摘要需要限制在两行以内，不能让整页失去阅读节奏。", count: 8)),
@@ -239,12 +243,13 @@ enum BotUIFixtures {
                               text: "收到。我会先读 PDF，再看图片，然后把要点整理成一页摘要。"),
             ]
         case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong, .infoMemory,
-             .infoGrants, .infoRoutines, .infoReconcile, .infoPresence:
+             .infoGrants, .infoRoutines, .infoReconcile, .infoPresence, .infoApprovals,
+             .infoMemoryDocument:
             return []
         case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
             return []
         }
-        return [intro, cardRow("card-\(fixture.rawValue)", body: body)]
+        return introRows + [cardRow("card-\(fixture.rawValue)", body: body)]
     }
 
     static var composerAttachments: [BotDraftAttachment] {
@@ -343,10 +348,27 @@ enum BotUIFixtures {
                            routineConstraints: "只在发布窗口期间通知。",
                            runStatus: "needs-reconciliation", runID: "run-fixture-2"),
         ], approvals: [
-            BotApprovalRecord(id: "record-1", parameterSummary: "删除 /tmp 中的旧验收报告（参数摘要）",
-                              decision: "拒绝", decidedAt: Date(timeIntervalSince1970: 1_760_000_100)),
-            BotApprovalRecord(id: "record-2", parameterSummary: "创建本周发布报告（参数摘要）",
-                              decision: "允许一次", decidedAt: Date(timeIntervalSince1970: 1_760_000_200)),
+            approvalRecord(id: "record-1", summary: "删除文件 · 旧验收报告",
+                           decision: "deny", status: "denied",
+                           at: 1_760_000_100),
+            approvalRecord(id: "record-2", summary: "写入文件 · 本周发布报告",
+                           decision: "allow", scope: "once", status: "allowed",
+                           at: 1_760_000_200),
+            approvalRecord(id: "record-3", summary: "访问网络 · api.example.test",
+                           decision: "allow", scope: "session", status: "allowed",
+                           at: 1_760_000_300),
+            approvalRecord(id: "record-4", summary: "修改例行任务 · 晨间简报",
+                           decision: "allow", scope: "until", status: "allowed",
+                           at: 1_760_000_400),
+            approvalRecord(id: "record-5", summary: "删除文件 · 临时截图目录",
+                           decision: "deny", status: "timed-out",
+                           at: 1_760_000_500),
+            approvalRecord(id: "record-6", summary: "读取记忆 · 用户偏好",
+                           decision: "deny", status: "expired",
+                           at: 1_760_000_600),
+            approvalRecord(id: "record-7", summary: "执行命令 · 构建检查",
+                           decision: "deny", status: "cancelled",
+                           at: 1_760_000_700),
         ], grants: [
             BotGrantInfo(id: "grant-1", tool: "write", operation: "write.file",
                          resource: "/dsh/workspace/.dshbot/agents/main/reports/**",
@@ -356,6 +378,10 @@ enum BotUIFixtures {
                          resource: "curl https://api.example.test/*",
                          scope: "session", sessionID: "gb-main",
                          createdAt: Date(timeIntervalSince1970: 1_760_000_400), source: "approval-card"),
+            BotGrantInfo(id: "grant-3", tool: "bash", operation: "git-destructive",
+                         resource: "dir=/dsh/workspace/.dshbot/agents/main/repo",
+                         scope: "until", sessionID: "gb-main",
+                         createdAt: Date(timeIntervalSince1970: 1_760_000_500), source: "approval-standing"),
         ], reconciliations: [
             BotReconciliationInfo(
                 routineID: "routine-2", routineTitle: "发布窗口检查", attempt: 3, runID: "run-fixture-2",
@@ -394,6 +420,23 @@ enum BotUIFixtures {
            maintenanceEnabled: true,
            maintenanceDailyTokens: 12_400,
            maintenanceDailyBudget: 96_000)
+    }
+
+    /// Builds one approval row through the same display mapper the production
+    /// adapter uses, so a fixture never hardcodes a raw decision enum.
+    static func approvalRecord(
+        id: String,
+        summary: String,
+        decision: String,
+        scope: String? = nil,
+        status: String? = nil,
+        at seconds: TimeInterval
+    ) -> BotApprovalRecord {
+        BotApprovalRecord(
+            id: id,
+            parameterSummary: summary,
+            decision: BotUIFormat.approvalDecision(decision, scope: scope, status: status),
+            decidedAt: Date(timeIntervalSince1970: seconds))
     }
 
     static func memoryDocument(
@@ -441,7 +484,7 @@ struct BotUIFixtureRootView: View {
         self.fixture = fixture
         self.diagnostics = diagnostics
         let chat = BotChatModel(
-            rows: BotUIFixtures.rows(for: fixture),
+            rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
             context: .fixture,
             fixtureHistory: fixture == .failClosed || fixture == .empty
                 ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
@@ -466,7 +509,7 @@ struct BotUIFixtureRootView: View {
         _infoModel = StateObject(wrappedValue: BotInfoModel(
             snapshot: fixture == .infoEmpty ? BotInfoSnapshot(botName: "大肥鱼", memories: [], routines: [], approvals: [])
                 : BotUIFixtures.infoSnapshot(for: fixture),
-            fixtureError: fixture == .infoError ? "fixture.read_failed" : nil,
+            fixtureError: fixture == .infoError ? "模拟器暂时无法读取记忆" : nil,
             appearance: BotUIFixtures.appearance(for: fixture)
         ))
     }
@@ -474,14 +517,38 @@ struct BotUIFixtureRootView: View {
     var body: some View {
         Group {
             switch fixture {
-            case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
+            case .infoAppearance, .info, .infoLong:
                 BotInfoPage(model: infoModel)
+            case .infoEmpty, .infoError:
+                // Land on the memory subpage so the screenshot shows the real
+                // empty/failure state instead of another copy of the info top.
+                BotInfoPage(model: infoModel, initialSection: .memory)
             case .infoMemory:
                 BotInfoPage(model: infoModel, initialSection: .memory)
             case .infoGrants:
                 BotInfoPage(model: infoModel, initialSection: .grants)
+            case .infoApprovals:
+                BotInfoPage(model: infoModel, initialSection: .approvals)
             case .infoRoutines, .infoReconcile:
                 BotInfoPage(model: infoModel, initialSection: .routines)
+            case .infoMemoryDocument:
+                NavigationStack {
+                    BotMemoryDocumentView(
+                        document: BotUIFixtures.memoryDocument(
+                            path: "agent/notes/acceptance.md",
+                            scope: "agent",
+                            content: """
+                            # 验收记录
+
+                            - 发布材料已按最新契约整理。
+                            - 浅色与深色截图都已检查。
+                            - 未验证项：真机后台通知。
+                            """,
+                            version: 4,
+                            evidence: ["record://session/gb-main#12"]),
+                        onForget: {},
+                        onErase: {})
+                }
             case .infoPresence:
                 NavigationStack {
                     List {
@@ -490,7 +557,9 @@ struct BotUIFixtureRootView: View {
                         } header: {
                             Text("在场")
                         } footer: {
-                            Text("截图夹具只展示信息页的在场区，组件与真实页面相同。")
+                            if diagnostics {
+                                Text("截图夹具只展示信息页的在场区，组件与真实页面相同。")
+                            }
                         }
                         Section {
                             BotDisruptionSection(model: infoModel)
@@ -869,8 +938,9 @@ enum BotUIFixtureChecks {
         try checkRowProtocol(at: rowProtocolURL)
         passed.append("shared-row-protocol-decoding")
 
-        let model = BotChatModel(rows: BotUIFixtures.rows(for: .progress), context: .fixture, fixtureActions: true)
-        var updated = BotUIFixtures.rows(for: .progress)[1]
+        let progressRows = BotUIFixtures.rows(for: .progress)
+        let model = BotChatModel(rows: progressRows, context: .fixture, fixtureActions: true)
+        var updated = progressRows[0]
         updated.id = "progress-updated"
         updated.seq = 3
         updated.updatedSeq = 3

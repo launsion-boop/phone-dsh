@@ -146,19 +146,19 @@ public struct RoutineAutomation: Sendable, Equatable, Identifiable {
             result = delivery.text
         case .cancelled:
             status = "idle"
-            result = "執行已取消"
+            result = "执行已取消"
         case .timedOut:
             status = "failed"
-            result = "執行逾時，已取消"
+            result = "执行超时，已取消"
         case .needsReconciliation:
             status = "failed"
-            result = "執行結果未知，需要確認：\(String((delivery.error ?? "未知原因").prefix(300)))"
+            result = "执行结果未知，需要确认：\(String((delivery.error ?? "未知原因").prefix(300)))"
         default:
             status = "failed"
-            result = "執行失敗：\(String((delivery.error ?? "未知錯誤").prefix(300)))"
+            result = "执行失败：\(String((delivery.error ?? "未知错误").prefix(300)))"
         }
         if delivery.resultStatus == .succeeded && delivery.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            result = "已完成（沒有新結果）"
+            result = "已完成（没有新结果）"
         }
         error = delivery.error
         routineId = delivery.routineId
@@ -174,12 +174,12 @@ public struct RoutineAutomation: Sendable, Equatable, Identifiable {
         func append(_ value: String) { context = context.isEmpty ? value : "\(context) · \(value)" }
         if let deferredFrom = delivery.quietDeferredFrom {
             let clock = RoutineScheduleMath.formatMinute(deferredFrom, timezone: TimeZone.current.identifier) ?? "—"
-            append("（因安靜時段延後，原定 \(String(clock.suffix(5)))）")
+            append("（因安静时段延后，原定 \(String(clock.suffix(5)))）")
         } else if delivery.lateByMs > 60_000 {
-            append("（延遲 \(max(1, (delivery.lateByMs + 30_000) / 60_000)) 分鐘觸發）")
+            append("（延迟 \(max(1, (delivery.lateByMs + 30_000) / 60_000)) 分钟触发）")
         }
-        if delivery.urgent { append("（緊急：\(delivery.urgentReason.isEmpty ? "—" : delivery.urgentReason)）") }
-        if delivery.heldInbox == "failed" { append("結果未能交給主對話") }
+        if delivery.urgent { append("（紧急：\(delivery.urgentReason.isEmpty ? "—" : delivery.urgentReason)）") }
+        if delivery.heldInbox == "failed" { append("结果未能交给主对话") }
         if delivery.delivery == .interrupt {
             if delivery.notified == "sent" { append("已通知") }
             if delivery.notified == "skipped" { append("未通知：\(delivery.notifyReason ?? "unknown")") }

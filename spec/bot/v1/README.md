@@ -557,7 +557,7 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、内容卡 `final` 接受/剥离用例与负向 fixture。
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
 - `tool-catalog.phone.json`：团队工具、`FishAction` 与记忆三原语（`UpdateMemory`/`ReadMemory`/`RecallMemory`）的目录增量，以及五个内容卡的工具 schema `final` 增量（替换同名上游 p0 条目；上游文件不变）。
-- `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory`（`RecallMemory` 沿用上游 `tool-effects.json`）与原生 MCP BLE 工具的效果分类。
+- `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory` 与原生 MCP BLE 工具的效果分类；另按 identity 替换上游 21 条 `valid` + 2 条 `invalid` 用例的 zh `label`/`detail` 为简体（`RecallMemory` 的 `read + auto` 语义仍沿用上游 `tool-effects.json`，`tool`、`operation`、`resource`、`policy`、`known`/`isMcp` 等字段不变）。上游 `tool-effects.json` 保持原样导出，简体文案不得回写到上游。
 - `approval-patterns.phone.json`：把 upstream 的 curl/wget/python 网络命令模式登记为手机端降级（`matches=[]`），并列出脚本文件/变量拼接/解释器与 `python3 /tmp/x.py`；`rm`/`git reset --hard`/`find -delete` 仍匹配 upstream，不得降级。出口写审批与文件 Grant 的向量在 `mcp-egress.phone.json` 的 `egress-approval`、`grant-directory` 套件。
 - `turn-origin.phone.json`：回合来源的有效／无效 `rpcId` 向量；它没有同名上游文件，用 `"upstream": []` 声明为手机专属向量，`check_golden.py` 对显式注册的手机专属文件跳过 append-only 合并，`validate_vectors.py` 逐条校验解析结果并做 mutation 自检。
 - `record-reference.phone.json`、`observation-envelope.phone.json`、`record-query.phone.json`、`erasure-event.phone.json`：原始记录引用、观察信封、`phone record` 结果和 `erasure` 事件的手机专属向量；同样用 `"upstream": []` 登记，逐条校验解析／编码／解码并做 mutation 自检。这四个文件不是 dsh-bot 的上游导出，重跑导出器不会写它们。

@@ -593,7 +593,8 @@ struct BotManageList: View {
                 Text(entry.description.isEmpty ? "还没有描述" : entry.description)
                     .font(.system(size: 12.5))
                     .foregroundStyle(HomeSpec.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
             Menu {
