@@ -10,7 +10,8 @@
   "delta": [
     "phoneDSH P25 additive durable event type: agent.comm. The envelope shape is unchanged.",
     "agent.comm is written with local origin comm-service; team-tools is not a registered local source.",
-    "phoneDSH P25 additive durable event type: redaction.applied. It records rule names and counts for one redacted tool result and never the original text."
+    "phoneDSH P25 additive durable event type: redaction.applied. It records rule names and counts for one redacted tool result and never the original text.",
+    "phoneDSH P25 additive principal kind: maintainer. Maintenance batches write memory.maintenance_started / memory.maintenance_finished / memory.maintenance_rolled_back and every document write carries correlationId memory-maintenance:<batch>."
   ],
   "validCases": [
     {
@@ -135,6 +136,153 @@
               "count": 2
             }
           ]
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "maintenance-started",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.maintenance_started",
+        "eventId": "memory.maintenance_started:mm-0123456789abcdef0123456789abcdef",
+        "commitSeq": 10,
+        "time": 1760000010000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "memory-maintenance:mm-0123456789abcdef0123456789abcdef",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": "gb-maintainer-0123456789abcdef0123456789abcdef",
+          "kind": "maintainer",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "memory-maintenance:mm-0123456789abcdef0123456789abcdef",
+        "data": {
+          "batch_id": "mm-0123456789abcdef0123456789abcdef",
+          "bot_id": "bot-a",
+          "trigger": "index",
+          "started_at_ms": 1760000010000,
+          "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+          "candidates": [
+            {
+              "path": "user/INDEX.md",
+              "reasons": [
+                "index"
+              ]
+            }
+          ],
+          "budget": {
+            "run_tokens": 32000,
+            "daily_tokens": 96000
+          }
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "maintenance-finished",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.maintenance_finished",
+        "eventId": "memory.maintenance_finished:mm-0123456789abcdef0123456789abcdef",
+        "commitSeq": 15,
+        "time": 1760000020000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "memory-maintenance:mm-0123456789abcdef0123456789abcdef",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": "gb-maintainer-0123456789abcdef0123456789abcdef",
+          "kind": "maintainer",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "memory-maintenance:mm-0123456789abcdef0123456789abcdef",
+        "data": {
+          "batch_id": "mm-0123456789abcdef0123456789abcdef",
+          "bot_id": "bot-a",
+          "status": "committed",
+          "trigger": "index",
+          "started_at_ms": 1760000010000,
+          "finished_at_ms": 1760000020000,
+          "maintainer_session_id": "gb-maintainer-0123456789abcdef0123456789abcdef",
+          "changes": [
+            {
+              "path": "user/INDEX.md",
+              "scope": "user",
+              "before_version": 1,
+              "after_version": 2,
+              "deleted": false
+            }
+          ],
+          "checks": {
+            "references_resolve": true,
+            "index_within_limit": true,
+            "documents_not_longer_than_evidence": true,
+            "change_budget_within_limit": true
+          },
+          "budget": {
+            "run_tokens": 32000,
+            "daily_tokens": 96000,
+            "tokens_used": 4000,
+            "changed_documents": 1,
+            "changed_scalars": 20
+          },
+          "failure_code": null,
+          "notification": true,
+          "user_scope_owner": true
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "maintenance-rolled-back",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.maintenance_rolled_back",
+        "eventId": "memory.maintenance_rolled_back:mm-0123456789abcdef0123456789abcdef",
+        "commitSeq": 16,
+        "time": 1760000030000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "memory-maintenance:mm-0123456789abcdef0123456789abcdef",
+        "principal": {
+          "botId": "bot-a",
+          "sessionId": "gb-maintainer-0123456789abcdef0123456789abcdef",
+          "kind": "maintainer",
+          "capabilities": []
+        },
+        "causationId": null,
+        "correlationId": "memory-maintenance:mm-0123456789abcdef0123456789abcdef",
+        "data": {
+          "batch_id": "mm-0123456789abcdef0123456789abcdef",
+          "bot_id": "bot-a",
+          "rolled_back_at_ms": 1760000030000,
+          "restored": [
+            {
+              "path": "user/INDEX.md",
+              "from_version": 2,
+              "to_version": 3
+            }
+          ],
+          "conflicts": []
         }
       },
       "validation": {

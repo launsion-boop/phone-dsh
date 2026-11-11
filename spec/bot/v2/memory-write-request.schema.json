@@ -3,10 +3,21 @@
   "title": "BotMemoryWriteRequest v2",
   "description": "Arguments of UpdateMemory. Every mutating action carries the doc version it read (0 means the document must not exist).",
   "type": "object",
-  "required": ["action", "path", "expected_version"],
+  "required": [
+    "action",
+    "path",
+    "expected_version"
+  ],
   "properties": {
     "action": {
-      "enum": ["write", "append", "replace", "move", "delete", "restore"]
+      "enum": [
+        "write",
+        "append",
+        "replace",
+        "move",
+        "delete",
+        "restore"
+      ]
     },
     "path": {
       "type": "string",
@@ -44,6 +55,10 @@
         "pattern": "^record://(session/(?!\\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$",
         "maxLength": 128
       }
+    },
+    "marked_contradiction": {
+      "type": "boolean",
+      "description": "Set by a chat turn when this write records one side of a contradiction that later maintenance must resolve or mark uncertain."
     }
   },
   "additionalProperties": false

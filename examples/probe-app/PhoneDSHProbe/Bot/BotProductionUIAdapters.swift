@@ -87,6 +87,12 @@ extension BotProductionInfoService {
             },
             saveProactiveSettings: { [self] settings in
                 await self.saveProactiveSettings(settings)
+            },
+            setMaintenanceEnabled: { [self] enabled in
+                await self.setMaintenanceEnabled(enabled)
+            },
+            rollbackMaintenance: { [self] batchID in
+                try await self.rollbackMaintenance(batchID: batchID)
             })
     }
 }
@@ -169,6 +175,14 @@ extension BotUIActionResult {
     }
 }
 
+extension BotMaintenanceBatchInfo {
+    fileprivate static func production(
+        _ view: PhoneDSHBot.BotMemoryMaintenanceBatchView
+    ) -> BotMaintenanceBatchInfo {
+        BotInfoSnapshot.maintenanceInfo(view)
+    }
+}
+
 extension BotInfoSnapshot {
     static func production(_ snapshot: BotProductionInfoSnapshot) -> BotInfoSnapshot {
         BotInfoSnapshot(
@@ -237,7 +251,38 @@ extension BotInfoSnapshot {
                     effectSummary: item.effectSummary)
             },
             presence: snapshot.presence,
-            proactiveSettings: snapshot.proactiveSettings)
+            proactiveSettings: snapshot.proactiveSettings,
+            maintenance: snapshot.maintenance.map(BotMaintenanceBatchInfo.production),
+            maintenanceEnabled: snapshot.maintenanceEnabled,
+            maintenanceDailyTokens: snapshot.maintenanceDailyTokens,
+            maintenanceDailyBudget: snapshot.maintenanceDailyBudget)
+    }
+
+    fileprivate static func maintenanceInfo(
+        _ view: PhoneDSHBot.BotMemoryMaintenanceBatchView
+    ) -> BotMaintenanceBatchInfo {
+        let batch = view.batch
+        return BotMaintenanceBatchInfo(
+            batchID: batch.batchID,
+            status: batch.status.rawValue,
+            trigger: batch.trigger.rawValue,
+            startedAt: Date(timeIntervalSince1970: Double(batch.startedAtMS) / 1_000),
+            finishedAt: Date(timeIntervalSince1970: Double(batch.finishedAtMS) / 1_000),
+            changedDocuments: batch.changes.count,
+            changes: batch.changes.map { change in
+                BotMaintenanceChangeInfo(
+                    path: change.path,
+                    scope: change.scope.rawValue,
+                    beforeVersion: change.beforeVersion,
+                    afterVersion: change.afterVersion,
+                    deleted: change.deleted)
+            },
+            failureCode: batch.failureCode,
+            checksPassed: batch.checks.passedAll,
+            rolledBack: view.isRolledBack,
+            canRollback: view.canRollback,
+            tokensUsed: batch.budget.tokensUsed,
+            notification: batch.notification)
     }
 
     private static func creatorText(_ creator: RoutineCreator?) -> String? {

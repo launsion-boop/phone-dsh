@@ -42,6 +42,33 @@ export interface VolatileContextConfig {
    * Empty/absent means no selection is attempted.
    */
   readonly botAgentPreset?: string
+  /**
+   * Agent preset for the host-issued maintainer session (`gb-maintainer-*`,
+   * spec/bot/v2 §4.1). Empty/absent means the Bot preset is used, which would
+   * be wrong for maintenance; the profile sets it.
+   */
+  readonly maintainerAgentPreset?: string
+}
+
+/** Session prefix the host mints for one Bot's maintenance session. */
+export const MAINTAINER_SESSION_PREFIX = 'gb-maintainer-'
+
+/** Pick the preset for one freshly created Bot-owned session. */
+export function agentPresetForSession(
+  sessionId: string,
+  botAgentPreset: string,
+  maintainerAgentPreset: string,
+): string {
+  if (sessionId.startsWith(MAINTAINER_SESSION_PREFIX)) return maintainerAgentPreset
+  return botAgentPreset
+}
+
+/** Session id of an Agent; `agent.id` is a SessionId, but resumed agents may
+ * expose the live session id more reliably. */
+export function agentSessionIdOf(agent: Agent): string {
+  const sessionId = (agent as Agent & { session?: { id?: unknown } }).session?.id
+  if (typeof sessionId === 'string' && sessionId !== '') return sessionId
+  return typeof agent.id === 'string' ? agent.id : ''
 }
 
 /** Structural view of the DSH agent-preset registry, kept dependency-free. */
@@ -62,7 +89,8 @@ export async function selectBotAgentPreset(
   agentPreset: string,
 ): Promise<boolean> {
   const preset = agentPreset.trim()
-  if (presets === undefined || preset === '' || !agent.id.startsWith(BOT_SESSION_PREFIX)) return false
+  if (presets === undefined || preset === ''
+      || !agentSessionIdOf(agent).startsWith(BOT_SESSION_PREFIX)) return false
   try {
     await presets.select(agent, preset)
     return true
@@ -164,15 +192,21 @@ export default function dshbotVolatileContext(ctx: Context, config: VolatileCont
   const now = config.now ?? (() => new Date())
   const lang = config.lang ?? (() => resolvePromptLang())
   const botAgentPreset = typeof config.botAgentPreset === 'string' ? config.botAgentPreset.trim() : ''
+  const maintainerAgentPreset = typeof config.maintainerAgentPreset === 'string'
+    ? config.maintainerAgentPreset.trim()
+    : ''
 
-  if (botAgentPreset !== '') {
+  if (botAgentPreset !== '' || maintainerAgentPreset !== '') {
     ctx.on('agent/created', async ({ agent }) => {
+      const preset = agentPresetForSession(
+        agentSessionIdOf(agent), botAgentPreset, maintainerAgentPreset)
+      if (preset === '') return
       const presets = ctx.get('agentPresets') as BotAgentPresetSelector | undefined
       if (presets === undefined) {
         if (!agent.id.startsWith(BOT_SESSION_PREFIX)) return
-        throw new Error(`botAgentPreset "${botAgentPreset}" is configured but the agentPresets service is not mounted`)
+        throw new Error(`agent preset "${preset}" is configured but the agentPresets service is not mounted`)
       }
-      await selectBotAgentPreset(presets, agent, botAgentPreset)
+      await selectBotAgentPreset(presets, agent, preset)
     })
   }
 

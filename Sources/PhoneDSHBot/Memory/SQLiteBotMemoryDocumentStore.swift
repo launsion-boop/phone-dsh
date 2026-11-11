@@ -206,8 +206,10 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                     author: request.author,
                     evidence: request.evidence,
                     trust: request.trust?.rawValue)
-                let event = try deletionEvent(deletion, expectedVersion: request.expectedVersion,
-                                              data: deletionData(deletion, expectedVersion: request.expectedVersion))
+                let event = try deletionEvent(
+                    deletion, expectedVersion: request.expectedVersion,
+                    data: deletionData(deletion, expectedVersion: request.expectedVersion),
+                    correlationID: request.correlationID)
                 try await commit([event])
                 return .deleted(deletion)
             }
@@ -233,7 +235,9 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 trust: request.trust?.rawValue ?? (scope == .user ? "user" : "assistant"),
                 source: request.source)
             let targetExpected = snapshot.live[targetPath]?.version ?? 0
-            let writeEvent = try writtenEvent(document, expectedVersion: targetExpected)
+            let writeEvent = try writtenEvent(
+                document, expectedVersion: targetExpected,
+                correlationID: request.correlationID)
 
             if request.action == .move {
                 guard let sourceVersion = current?.version,
@@ -254,7 +258,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 let deleteEvent = try deletionEvent(
                     deletion,
                     expectedVersion: sourceVersion,
-                    data: deletionData(deletion, expectedVersion: sourceVersion))
+                    data: deletionData(deletion, expectedVersion: sourceVersion),
+                    correlationID: request.correlationID)
                 try await commit([writeEvent, deleteEvent])
             } else {
                 try await commit([writeEvent])
@@ -285,7 +290,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 events.append(try deletionEvent(
                     deletion,
                     expectedVersion: document.version,
-                    data: deletionData(deletion, expectedVersion: document.version)))
+                    data: deletionData(deletion, expectedVersion: document.version),
+                    correlationID: nil))
             }
             try await commit(events)
             return targets.count
@@ -414,7 +420,11 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         }
     }
 
-    private func writtenEvent(_ document: BotMemoryDocument, expectedVersion: Int) throws -> BotEvent {
+    private func writtenEvent(
+        _ document: BotMemoryDocument,
+        expectedVersion: Int,
+        correlationID: String? = nil
+    ) throws -> BotEvent {
         let data = WrittenData(
             path: document.path,
             scope: document.scope,
@@ -435,13 +445,15 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             data: Self.encode(data),
             at: document.updatedAtMS,
             author: document.author,
-            source: document.source)
+            source: document.source,
+            correlationID: correlationID)
     }
 
     private func deletionEvent(
         _ version: BotMemoryDocumentVersion,
         expectedVersion: Int,
-        data: DeletedData
+        data: DeletedData,
+        correlationID: String? = nil
     ) throws -> BotEvent {
         try makeEvent(
             type: "memory.document_deleted",
@@ -452,7 +464,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             data: Self.encode(data),
             at: version.updatedAtMS,
             author: version.author,
-            source: nil)
+            source: nil,
+            correlationID: correlationID)
     }
 
     private func deletionData(
@@ -478,7 +491,8 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
         data: BotJSONValue,
         at: Int64,
         author: BotMemoryAuthor,
-        source: BotMemorySource?
+        source: BotMemorySource?,
+        correlationID: String? = nil
     ) throws -> BotEvent {
         BotEvent(
             type: type,
@@ -491,7 +505,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
                 sessionId: author.sessionID,
                 kind: author.principalKind),
             causationId: nil,
-            correlationId: nil,
+            correlationId: correlationID,
             turnId: source?.turnID,
             runId: nil,
             data: data)

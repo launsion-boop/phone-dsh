@@ -37,7 +37,7 @@
           "minLength": 1
         },
         "kind": {
-          "enum": ["chat", "task", "routine", "team", "proactive", "watchdog", "ui", "migration", "system"]
+          "enum": ["chat", "task", "routine", "team", "proactive", "watchdog", "maintainer", "ui", "migration", "system"]
         }
       },
       "additionalProperties": false
@@ -59,7 +59,7 @@
       "required": ["kind"],
       "properties": {
         "kind": {
-          "enum": ["user-turn", "hidden-wake", "agent-message", "routine", "task"]
+          "enum": ["user-turn", "hidden-wake", "agent-message", "routine", "task", "maintenance"]
         },
         "sessionId": {
           "type": "string"

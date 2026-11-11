@@ -18,6 +18,7 @@
     "event-envelope.phone.json",
     "fish-director.json",
     "llm-ledger.json",
+    "llm-ledger.phone.json",
     "mcp-egress.phone.json",
     "model-purpose-policy.json",
     "observation-envelope.phone.json",
@@ -57,6 +58,7 @@
     "authority.phone.json",
     "card-payload.phone.json",
     "event-envelope.phone.json",
+    "llm-ledger.phone.json",
     "mcp-egress.phone.json",
     "observation-envelope.phone.json",
     "record-query.phone.json",
@@ -77,7 +79,7 @@
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "event-envelope.json": "fded336f2e2dddf4b9c474bac5e6cefcbb1baf7c99637a988ed22dbb244bcaf5",
-    "event-envelope.phone.json": "40b6c49b823217fddd0b294155d379cd929ace23ca6daa9f4d475168dd923db4",
+    "event-envelope.phone.json": "92186d1f7672efd4da35634c7e8d00b1d4b6d54fdbbdc4005531b0ce5c5df0da",
     "fish-director.json": "7216362cf4ff1c903ebce75cbf0d9d170dba9e233778caf3df1de1a36026cd85",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
     "mcp-egress.phone.json": "62a4a0ec83484715916584c3a474dc2fa36e2d3e058e763c9ccfb11f856b0f34",
@@ -89,11 +91,12 @@
     "row-protocol.json": "e06ede98bf6dc3baceef146ed8a07886a1f2cae7af471a94ce852f3c3394586a",
     "row-protocol.phone.json": "ca9f21eb9d35d8c7fb2ce961fb4dd6ad23657f222f2abe2e1c9f321667b6b4eb",
     "tool-catalog.json": "3dc16f3c0c0c3d8cd1f94e2ff31ca289eaf668d2794f12d6f9fb55f6c5f5e8b0",
-    "tool-catalog.phone.json": "17f20e452d6477c43386581c686610b2b73c53802c2c26d54db50af21bd0a12c",
+    "tool-catalog.phone.json": "11a51a16ca8ab5d83b321112469723c6daf4e5a9062b35b110520e39a741ad70",
     "tool-effects.json": "084bcc8f28b057e83a056aea3f4757c7e2ffddf8153d01a31374a31a4dd3eeff",
     "tool-effects.phone.json": "7bfbf8e013bdab89f4732dad6b176686712c795b356ce92365ae275fe699a9c7",
     "turn-origin.phone.json": "97f5a6febb5e8adea5d34d8ecee615ce8095af87445112ce58f8b2c91d7b6b83",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
+    "llm-ledger.phone.json": "86f85b32391cc8707de0443a2d3e67d30f1da65a6c9507be34295cc8378e71ce"
   }
 }

@@ -8,10 +8,13 @@
     ".": "./src/index.ts",
     "./gate": "./src/gate.ts",
     "./device-scope": "./src/device-scope.ts",
-    "./device-guard": "./src/device-guard.ts"
+    "./device-guard": "./src/device-guard.ts",
+    "./maintainer-scope": "./src/maintainer-scope.ts",
+    "./maintainer-guard": "./src/maintainer-guard.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
     "@deepseek-ai/schemastery": "~3.19.0",
     "@phone-dsh/dsh-exec-bridge": "0.1.0",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.1",

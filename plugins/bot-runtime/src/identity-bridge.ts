@@ -557,7 +557,14 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
  * Bot session from a workbench session in the same Worker.
  */
 export function botRuntimeAvailable(ctx: Context, exec: Pick<ToolExecution, 'agent'>): boolean {
-  return ctx.tools.get(BOT_VOLATILE_CONTEXT_TOOL, exec.agent) !== undefined
+  if (ctx.tools.get(BOT_VOLATILE_CONTEXT_TOOL, exec.agent) !== undefined) return true
+  // The maintainer preset deliberately hides the volatile-context marker from
+  // the model surface. Its host-issued session token is the liveness evidence
+  // instead: a claimed maintainer session can still register phone calls, and
+  // an unclaimed one stays fail-closed.
+  const sessionId = sessionIdFor(exec.agent)
+  if (!sessionId.startsWith('gb-maintainer-')) return false
+  return (botOwnedSessions(ctx).tokenFor(sessionId)?.length ?? 0) > 0
 }
 
 export function botSessionOwned(ctx: Context, exec: Pick<ToolExecution, 'agent'>): boolean {

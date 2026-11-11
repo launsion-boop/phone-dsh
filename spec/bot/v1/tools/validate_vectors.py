@@ -1559,6 +1559,10 @@ def main() -> int:
         if case["result"].get("ok") is not False:
             raise AssertionError(f"card-payload.phone.invalid[{index}]: expected fail-closed result")
     check(load("llm-ledger.json")["valid"], "llm-ledger.schema.json", "llm-ledger")
+    ledger_phone = load("llm-ledger.phone.json")
+    check(ledger_phone["valid"], "llm-ledger.schema.json", "llm-ledger.phone")
+    if ledger_phone["valid"]["purpose"] != "memory-maintenance":
+        raise AssertionError("llm-ledger.phone: the phone-only purpose must be memory-maintenance")
     check(load("model-purpose-policy.json")["valid"], "model-purpose-policy.schema.json", "model-purpose-policy")
     check(load("watchdog.json")["valid"], "watchdog.schema.json", "watchdog")
     check(load("fish-director.json")["valid"], "fish-director.schema.json", "fish-director")

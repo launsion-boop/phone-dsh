@@ -70,6 +70,9 @@
         "memory.imported",
         "memory.review_requested",
         "memory.review_resolved",
+        "memory.maintenance_started",
+        "memory.maintenance_finished",
+        "memory.maintenance_rolled_back",
         "effect.enqueued",
         "effect.attempted",
         "effect.acked",
@@ -188,6 +191,7 @@
             "team",
             "proactive",
             "watchdog",
+            "maintainer",
             "ipc"
           ]
         },

@@ -274,6 +274,10 @@ public actor BotMCPRuntime {
     private var workbenchTurnProbe: (@Sendable () async -> Bool)?
     private var turnOrigins: [String: BotTurnOrigin] = [:]
     private var turnIDs: [String: String] = [:]
+    /// sessionId → maintenance batch id for the duration of one maintainer turn.
+    private var maintenanceBatches: [String: String] = [:]
+    /// Roster pointer: only the main Bot's maintainer may write shared user/.
+    private var mainBotProvider: @Sendable (String) -> Bool = { _ in true }
 
     public init(
         store: SQLiteDomainStore,
@@ -314,6 +318,7 @@ public actor BotMCPRuntime {
             case .task: return .task
             case .routine: return .routine
             case .team, .proactive, .watchdog: return .hiddenWake
+            case .maintainer: return .maintenance
             }
         }
         let interval = Self.registrationMaintenanceIntervalMilliseconds
@@ -477,6 +482,21 @@ public actor BotMCPRuntime {
     }
 
     public func currentTurnID(sessionId: String) -> String? { turnIDs[sessionId] }
+
+    /// Marks one session as the active maintenance batch. Called by the host
+    /// immediately before the hidden maintainer turn and cleared afterwards.
+    public func beginMaintenanceTurn(sessionId: String, batchID: String) {
+        maintenanceBatches[sessionId] = batchID
+    }
+
+    public func endMaintenanceTurn(sessionId: String) {
+        maintenanceBatches.removeValue(forKey: sessionId)
+    }
+
+    /// Installs the roster main-Bot pointer used by the maintenance write rule.
+    public func setMainBotProvider(_ provider: @escaping @Sendable (String) -> Bool) {
+        mainBotProvider = provider
+    }
 
     public func beginTurn(sessionId: String, hidden: Bool, held: Bool = false,
                           origin: BotTurnOrigin? = nil) {
@@ -1091,6 +1111,7 @@ public actor BotMCPRuntime {
     /// downgrade from `userTurn`, so a stale origin can never upgrade the
     /// session-derived source.
     private func memorySourceKind(for call: BotResolvedToolCall) -> BotMemorySourceKind {
+        if maintenanceBatches[call.sessionId] != nil { return .maintenance }
         guard let origin = turnOrigins[call.sessionId] else { return .agentMessage }
         var state = BotMemorySourceState(kind: memorySource(call))
         state.join(origin.memorySource)
@@ -1169,8 +1190,24 @@ public actor BotMCPRuntime {
                 sessionID: call.principal.sessionId,
                 turnID: turnIDs[call.sessionId],
                 role: call.principal.kind.rawValue),
-            trust: evidence.trust)
+            trust: evidence.trust,
+            isMainBot: mainBotProvider(call.principal.botId),
+            batchID: maintenanceBatches[call.sessionId])
         let result = try await memory(for: call.principal.botId).write(request, context: context)
+        if result.ok, args["marked_contradiction"]?.boolValue == true,
+           let version = result.version, let scope = result.scope {
+            _ = try? await eventWriter.append(
+                type: "memory.review_requested",
+                principal: call.principal,
+                data: .object([
+                    "path": .string(result.path),
+                    "scope": .string(scope.rawValue),
+                    "version": .number(Double(version)),
+                    "evidence": .array(evidence.refs.map(BotJSONValue.string)),
+                    "marked_at_ms": .number(Double(now())),
+                ]),
+                eventId: "memory.review_requested:\(call.principal.botId):\(result.path):\(version)")
+        }
         var output: [String: BotJSONValue] = [
             "ok": .bool(result.ok),
             "action": .string(result.action.rawValue),

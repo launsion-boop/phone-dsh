@@ -28,6 +28,8 @@ public enum BotMemorySourceKind: String, Codable, Sendable, CaseIterable {
     case agentMessage = "agent-message"
     case routine
     case task
+    /// S3: a maintainer session has no user turn; trust still comes from evidence.
+    case maintenance = "maintenance"
 }
 
 public struct BotMemorySource: Codable, Sendable, Equatable {

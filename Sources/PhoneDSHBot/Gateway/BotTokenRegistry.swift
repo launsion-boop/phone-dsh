@@ -10,6 +10,8 @@ public enum BotSessionKind: String, Codable, Sendable {
     case team
     case proactive
     case watchdog
+    /// S3 maintenance: a host-issued, hidden, memory-only background session.
+    case maintainer
 }
 
 public struct BotGatewayPrincipal: Codable, Sendable, Equatable {

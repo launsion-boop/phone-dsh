@@ -26,6 +26,7 @@ public actor BotLLMLedger {
         switch record.purpose {
         case .workerTurn: principalKind = "task"
         case .watchdog: principalKind = "watchdog"
+        case .memoryMaintenance: principalKind = "maintainer"
         default: principalKind = "chat"
         }
         guard let date = BotLLMLedgerRecord.date(from: record.ts) else {

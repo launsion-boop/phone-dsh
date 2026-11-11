@@ -83,7 +83,10 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
 
 - 主对话（`chat`）可以写 `user/` 和 `agent/`。Task、routine、team、proactive、watchdog 会话不能
   直接改这两个根，只能提交到 `agent/inbox/<自己的 sessionId>/`；写到别的目录或别人的 inbox
-  返回 `memory-scope-denied`。inbox 的合入由主对话或 S3 maintainer 负责。
+  返回 `memory-scope-denied`。inbox 的合入由主对话或 §4 的 maintainer 负责。
+- maintainer 会话可以写 `user/` 和 `agent/`，但写 `user/` 的回合来源规则换成 §4.2 的证据
+  边界：至少一条 `user` 引用，且必须是主 Bot 的 maintainer。它不在用户回合里，`source.kind`
+  是 `maintenance`；见 §1.5。
 - 每次写入都必须带 `expected_version`。宿主在写入前按当前 live 版本校验；并发写入只有一个
   能成功，另一个得到 `memory-version-conflict`，因此同一时刻一份文档只有一个作者能写成功。
 - `user/` 有多个 Bot 写入者，靠版本前提加证据约束：写入 `user/` 必须同时满足
@@ -123,6 +126,9 @@ CJK 分词。`scope` 为 `agent`、`user` 或 `all`；默认 `all`，但 `agent`
 - `user/` 写入必须**同时**满足两条边界：现有回合来源规则（`source.kind` 必须是 `user-turn`）和
   至少一条推导为 `user` 的引用；取更严的一方。来源不合格返回 `memory-source-boundary`，来源合格
   但缺 `user` 引用（或没有 `evidence`）返回 `memory-evidence-required`。`agent/` 写入不要求用户证据。
+  **maintainer 例外：** `source.kind == "maintenance"` 时不套用 `user-turn` 来源检查（它不在用户
+  回合里），但至少要有一条 `user` 引用，否则返回 `memory-evidence-required`；只有主 Bot 的
+  maintainer 能写 `user/`，否则 `memory-scope-denied`（§4.2、§4.7）。
 - 共享 `user/` 记忆的出处在其他 Bot 看来只能读到被引用的那句用户原话；本读取能力由宿主按引用
   实现，不扩大 v1 §4.4 的 `phone record` 检索范围。
 - 注入文本必须说明：写记忆时优先引用来源；关于用户的持久事实用用户消息引用，观察所得注明观察，
@@ -272,11 +278,176 @@ routine（标题、原定时间、延后到时间）。没有条目时显示空�
 TTL、去重窗口、模型 triage 和 idle-checkin 来源。它们没有 schema，也不再有 Swift 类型或
 事件字段；重新引入需要新的 v2 变更单。
 
-## 4. 一致性向量
+## 4. 后台整理（maintainer，S3 后半）
+
+状态 `target`，默认关闭。这一节冻结方案 §3.4 的 maintainer：一个受限的独立后台会话，
+对照原始记录整理记忆；它不替模型做分类，也不在用户回合里做。运行、检查、回滚和通知
+都由宿主做；模型只负责读写记忆。
+
+### 4.1 会话与权限
+
+- 新增 `maintainer` session kind / principal kind。宿主像其他 Bot 会话一样签发 token 并在
+  Worker 里认领（`phone/botClaimSession`），session id 固定为 `gb-maintainer-<…>`；它不是
+  主对话、不是 Task、不是 routine，不能复用任何已有会话的凭证。
+- maintainer preset（`phone-bot-maintainer`）用 `tools.restrict` 加 guard 限定工具：允许
+  `bash`（只为 `phone record search/read`）、`UpdateMemory`、`ReadMemory`、`RecallMemory`；
+  不挂载出站、网页、设备工具、`SendToUser`／`SendToAgent`／`CreateTeammate`、
+  `Task`／`AwaitTask`／`StopSubagent`、routine、goal 或卡片工具。guard 对每个调用再按
+  bare name 检查一次，restrict 只是可见面。`bash` 实参也必须匹配
+  `phone record search|read`，否则 guard 拒绝；这是“能读原始记录”的唯一 shell 能力。
+- **preset 在 `session/create` 时指定。** 会话控制器在发布 `agent/created` 之前就已经
+  解析并挂载 preset，之后再 `agentPresets.select` 会被 `agent-preset/locked` 拒绝。宿主
+  必须在创建 maintainer 会话时带 `agentPreset: "phone-bot-maintainer"`，并核对
+  `session/create` 返回值里的 `agentPreset`；不一致时 fail-closed，不运行该批次。
+- **全局兜底 guard。** 另有一个全局 `maintainer-guard` 行，按 `gb-maintainer-` 前缀识别
+  会话并在执行点复检同一个 allow-list 与 bash 规则。它覆盖“会话在升级前已创建”或
+  “preset 解析失败但会话仍被复用”的情况；`tools.restrict` 只是可见面，执行边界不依赖
+  preset 是否成功挂载。
+- maintainer 的回合是 hidden turn，不进入主对话行、不向用户显示过程。它的工具调用和
+  结果仍按 P25 记录 durable 事件（`principal.kind = "maintainer"`），供审计与批次检查。
+- 会话只用于整理：不与另一个 maintainer 并发、不派 Task、不改 routine 或授权。
+
+### 4.2 写入规则（与主对话相同）
+
+- **版本前提。** 每次写入都带刚读到的 `expected_version`；对不上返回
+  `memory-version-conflict`，这一份这次放弃，不重试、不整批失败，下次整理再看。
+- **信任由引用推导。** maintainer 的写入 `source.kind = "maintenance"`；`trust` 仍按 §1.5
+  从 `evidence` 推导。它不在用户回合里，因此 §1.3 的「回合来源必须是真实用户回合」
+  对 maintainer 不适用；写 `user/` 的边界改为**至少一条引用按 §1.5 推导为 `user`**。
+  没有用户引用时只能写 `agent/`。`maintenance` 只是来源，不是更高的信任等级。
+- **索引上限。** 两份 `INDEX.md` 仍各 ≤ 1,500 scalar；超限的写入直接拒绝，不是截断。
+- **单次改动量。** 一个批次最多改 **12 份文档**、最多写入 **24,000 scalar**（删除的文档
+  计 0；同一路径多次写入按最后一个 live 版本计一次）。超过由 §4.4 的机械检查整批回滚。
+- **标记矛盾（轻量入口）。** `UpdateMemory` 增加可选布尔参数
+  `marked_contradiction=true`（`memory-write-request.schema.json`）。写入成功后宿主追加
+  一条 durable `memory.review_requested`，data 为
+  `{path, scope, version, evidence}`；写失败不记。这个标记只把路径排进候选，不改变
+  本次写入的信任或内容。整理批次处理完这些路径后写 `memory.review_resolved`
+  `{path, batch_id, outcome: resolved|uncertain|dropped}`；没有处理的继续留待下次。
+- maintainer 写入 `user/` 只有主 Bot 的 maintainer 能做（§4.7）；非主 Bot 的 maintainer
+  得到 `memory-scope-denied`。工具失败是终局：不重试、不换路径。
+
+### 4.3 批次
+
+一次运行是一个批次，批次 id 形如 `mm-<uuid 的前 32 位小写十六进制>`。
+
+- 回合开始前写 durable `memory.maintenance_started`（`memory-maintenance-start.schema.json`）：
+  批次 id、触发原因、maintainer session、候选和两条预算。
+- 回合期间每次记忆写入事件把 `correlationId` 设为 `memory-maintenance:<batch_id>`；宿主
+  由此按事件序号收集本批改动和写入前后的版本，不依赖模型自述。
+- 回合结束后先跑 §4.4 的机械检查，再写 durable `memory.maintenance_finished`
+  （`memory-maintenance.schema.json`）：状态、改动、检查结果、实际 token、本次改动量、
+  失败码和是否发出 held 通知。检查不过时先把本批改动全部回滚，状态写
+  `rolled_back` + 失败码；回滚本身冲突时写 `rollback_failed`，冲突路径保留在事件里。
+- 用户在主对话开口时取消正在进行的回合：已提交的写入保留；宿主仍对已发生的改动跑
+  §4.4 机械检查，通过则状态 `cancelled`（改动保留），不过则回滚后 `rolled_back`。
+  被取消没有做完的候选留待下次，不补写“下一步”。
+- 回滚使用 §1.2 的 `restore` 语义：每份文档恢复到批次开始时的 live 版本（批次开始时
+  `expected_version=0` 的文档则删除），作为新版本写入，`author.kind = "ui"`，
+  并写 `memory.maintenance_rolled_back`（`memory-maintenance-rollback.schema.json`）。
+  批次开始后被其他写者改过的文档视为冲突：不覆盖，记 `conflicts`，状态
+  `rollback_failed`；其他文档照常恢复。
+
+### 4.4 宿主机械检查（不增加模型）
+
+批次结束后宿主逐项检查；任一项不过，整批回滚，模型不参与判断：
+
+1. **引用都能解析。** 本批每个写入版本的每一条 `evidence` 都能按 §1.5 解析、存在且属于
+   这个 Bot，并按 §1.5 重新推导出与写入时一致的 trust。
+2. **索引在上限内。** 检查结束时 `user/INDEX.md` 与 `agent/INDEX.md` 各自 ≤ 1,500 scalar。
+   写入时的拒绝仍然生效，这一条是批次级的复核。
+3. **文档不比它引用的原文长。** 对每个非删除的写入版本，如果 `evidence` 非空，正文
+   Unicode scalar 数不得超过其**去重后**引用原文的 scalar 数之和；没有引用的文档不做
+   这项比较（它是 agent 自己的推断）。原文按宿主记录的规范文本计：session 行取该行
+   `data` 的可读文本（`data.content` 或 `data.message.content` 的文本块，其次
+   `data.text`／`data.message.text`，都没有则取 `data` 的规范 JSON），event 取该事件
+   `data` 的同一规则。
+4. **单次改动量有上限。** 本批 live 改动路径去重后 ≤ 12，写入 scalar 之和 ≤ 24,000
+   （§4.2 的定义）。
+
+此外，宿主在运行前后各查一次预算（§4.6）：本次 token 超过单次上限的批次按
+`maintenance-budget-exceeded` 整批回滚；日报消耗达到上限时不启动新批次。
+
+### 4.5 可见、可回滚、给主对话让路
+
+- 记忆页显示最近一次批次：状态、时间、候选数、改动路径和前后版本、检查结果、失败码，
+  以及一个整批回滚按钮（见 `spec/ui/v1/pages/bot-info.md`）。被回滚的批次仍保留为历史，
+  不删除事件。回滚入口只对最近一次仍可回滚的批次出现。
+- 批次改变了 `user/INDEX.md`、`agent/INDEX.md` 或任一 `user/` 文档时，主对话下一回合
+  开头收到**一行** held 通知：`记忆整理：<状态>，更改 N 份文档（path…）。`
+  其余情况不打扰；通知文本按 v2 §2.1 的 held 字段转义规则转义。
+- **给主对话让路。** 只在该 Bot 主对话空闲（没有进行中或已排队的回合）、没有
+  `approval.requested` 待审批、且 App 前台时运行。主对话开始新的用户回合时取消正在
+  运行的维护回合；已被取消的候选不算完成，下一次从当前状态重新评估。Task、routine
+  和 verifier 的运行不阻止维护，但维护不与主对话争用同一个会话来“排队”。
+- **时机（按可得性）。** ① 主对话安静下来且 App 仍存活时（回合结束后至少 60 秒没有
+  新的主对话回合）；② App 下次打开且空闲时。充电时的 `processing` 后台窗口目前只登记
+  为待 spike：本轮没有注册 `BGProcessingTask` 的宿主入口，WKWebView Worker 在 App 挂起
+  后是否还能运行未验证，所以不声称可用，也不在后台启动维护。
+
+### 4.6 触发、候选与预算
+
+**触发**（任一成立；全部不成立不运行）：
+
+- 上次批次结束后新增的 `memory.document_written` + `memory.document_deleted` 事件数
+  **> 40**；
+- 任一 `INDEX.md` ≥ **1,350 scalar**（硬上限 1,500 的 90%）；
+- 有未处理的 `memory.review_requested`（`marked_contradiction` 留下）。
+
+**候选由宿主给出，不全量扫。** 按以下顺序去重，最多 12 个：
+
+| 原因 | 取法 |
+| --- | --- |
+| `inbox` | `agent/inbox/` 下存在的文档，每个提交会话取一条（Task/routine 的提交）。 |
+| `contradiction` | 未处理的 `memory.review_requested` 指向的路径。 |
+| `index` | 达到 1,350 scalar 的 `INDEX.md`。 |
+| `most-read` | durable `conversation.tool_call` 里 `ReadMemory` 参数路径的调用次数最多的文档。 |
+| `most-changed` | `memory.document_written` 次数最多的文档（最近一次批次之后也算）。 |
+| `least-verified` | 带 evidence、但最近一次成功批次没有核验过、或最后更新时间最老的文档。 |
+| `overlong` | 正文 > 4,000 scalar 的文档。 |
+
+同一路径多个原因合并，最多保留 4 个原因。索引和 inbox 永远在候选里；候选不保证每次
+都被修改。
+
+**预算。** 单次运行 **32,000 token**、每个 UTC 自然日 **96,000 token**（输入 + 输出 +
+cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purpose` 是独立值
+`memory-maintenance`；日报只统计这个 purpose。预算耗尽时触发条件再满足也不启动，
+在记忆页显示“今日整理预算已用完”，不伪造一次运行。token 用量从 LLM 账本按
+`sessionId = maintainer_session_id` 读取，不依赖模型自报。
+
+### 4.7 多 Bot 分工
+
+- 每个 Bot 有自己的 maintainer 会话和批次；它只整理自己的 `agent/`。
+- 共享 `user/` **只由主 Bot 的 maintainer 整理**。非主 Bot 的 maintainer 候选里不出现
+  `user/`，它的写入被 `memory-scope-denied` 拒绝；用户看到的批次也标出
+  `user_scope_owner=false`。
+- 多 Bot 同时空闲时，各 Bot 的维护互不阻塞；同一份 `user/` 仍由版本前提保证只有一个
+  作者能写成功。
+
+### 4.8 默认关闭，凭证据开启
+
+- 设置开关默认 **关**。存储 key 为 `phone-dsh.bot.memory-maintenance.v1`，值为
+  `{enabled, runTokenBudget, dailyTokenBudget}` 的 Codable JSON；缺失时
+  `enabled=false`、预算取 §4.6 的值。所有 Bot 共享这一份开关。
+- 开启条件写进契约，不在代码里自行放开：
+  1. 评测场景「埋入一条与记录矛盾的记忆」运行后，该记忆被修正，或被标为不确定并同时
+     保留两种说法和各自的引用；
+  2. 既有 E01（压缩后回忆）和 E02（记忆更正）不因维护开启而退步；
+  3. 每次运行的成本可从账本量化（purpose = `memory-maintenance`，单次与每日预算可见）。
+- 没有满足三条证据前，生产默认保持关闭；本修订只提供 mock 自检和手动运行入口。
+
+### 4.9 一致性向量
+
+`memory-maintenance` golden 固化本节的批次形状、机械检查正反例、候选上限、跨 Bot
+`user/` 拒绝、单次改动量上限和回滚记录。Python 校验器实现与宿主相同的检查规则；
+`spec/bot/v1/tools/validate_vectors.py` 调用 v2 校验入口，因此 `phone-spec` 同时覆盖。
+
+## 5. 一致性向量
 
 `golden/` 覆盖 `memory-document`、`memory-write`、`memory-read`、`memory-recall`、
-`memory-injection`、`memory-migration`、`memory-legacy-fact`、`wake-routine`、`held-inbox`
-及其合并覆盖文件；旧 fact 形状只保留为迁移输入（`memory-legacy-fact`）。
+`memory-injection`、`memory-migration`、`memory-legacy-fact`、`memory-maintenance`、
+`wake-routine`、`held-inbox` 及其合并覆盖文件；旧 fact 形状只保留为迁移输入
+（`memory-legacy-fact`）。
 `routine-notification` 是本目录新增的 phoneDSH-owned 向量，覆盖正常、安静时段延后、紧急绕过和
 四类非法输入。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
