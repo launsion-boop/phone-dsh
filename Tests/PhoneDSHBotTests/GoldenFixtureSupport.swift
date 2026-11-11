@@ -24,7 +24,7 @@ enum BotGoldenFixture {
     /// Everything else is still the untouched dsh-bot export under v1.
     private static let v2GoldenNames: Set<String> = [
         "memory-fact", "memory-injection", "memory-recall",
-        "wake-routine", "held-inbox",
+        "wake-routine", "held-inbox", "routine-notification",
     ]
 
     private static func goldenDirectory(for name: String) -> String {

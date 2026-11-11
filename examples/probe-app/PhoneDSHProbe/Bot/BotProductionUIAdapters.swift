@@ -77,6 +77,9 @@ extension BotProductionInfoService {
             eraseShared: { [self] in try await self.eraseSharedMemories() },
             setRoutineEnabled: { [self] id, enabled in
                 try await self.setRoutineEnabled(id, enabled: enabled)
+            },
+            saveProactiveSettings: { [self] settings in
+                await self.saveProactiveSettings(settings)
             })
     }
 }
@@ -191,7 +194,9 @@ extension BotInfoSnapshot {
                     parameterSummary: approval.parameterSummary,
                     decision: approval.decision == .allow ? "允许" : "拒绝",
                     decidedAt: Date(timeIntervalSince1970: Double(approval.decidedAtMS) / 1_000))
-            })
+            },
+            presence: snapshot.presence,
+            proactiveSettings: snapshot.proactiveSettings)
     }
 
     private static func scheduleText(_ schedule: RoutineSchedule) -> String {

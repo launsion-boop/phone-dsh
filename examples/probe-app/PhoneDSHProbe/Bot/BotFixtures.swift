@@ -12,7 +12,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case empty, runningThinking, runningTool, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
-    case info, infoEmpty, infoError, infoLong
+    case info, infoEmpty, infoError, infoLong, infoPresence
 
     var id: String { rawValue }
 
@@ -236,7 +236,7 @@ enum BotUIFixtures {
                 BotUIRow.text(id: "attachments-assistant", seq: 2, role: "assistant",
                               text: "收到。我会先读 PDF，再看图片，然后把要点整理成一页摘要。"),
             ]
-        case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
+        case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong, .infoPresence:
             return []
         case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
             return []
@@ -287,7 +287,15 @@ enum BotUIFixtures {
             ], approvals: [
                 BotApprovalRecord(id: "long-approval", parameterSummary: String(repeating: "只显示参数摘要，不显示完整敏感参数；", count: 8),
                                   decision: "允许一次", decidedAt: Date(timeIntervalSince1970: 1_760_000_100)),
-            ])
+            ], presence: RoutinePresence(
+                level: .scheduledNotification,
+                deferred: [RoutinePresenceDelay(
+                    routineId: "long-routine", title: String(repeating: "很长的例行任务名称", count: 3),
+                    scheduledFor: 1_760_003_600_000, deferredUntil: 1_760_006_800_000)],
+                scheduledNotificationCount: 2),
+               proactiveSettings: ProactiveSettings(
+                    mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
+                    timeZone: "Asia/Shanghai"))
         }
         return BotInfoSnapshot(botName: "大肥鱼", memories: [
             BotMemoryFact(id: "memory-1", text: "验收报告必须区分模拟器与真机证据。", tier: "profile", scope: "agent",
@@ -306,7 +314,15 @@ enum BotUIFixtures {
                               decision: "拒绝", decidedAt: Date(timeIntervalSince1970: 1_760_000_100)),
             BotApprovalRecord(id: "record-2", parameterSummary: "创建本周发布报告（参数摘要）",
                               decision: "允许一次", decidedAt: Date(timeIntervalSince1970: 1_760_000_200)),
-        ])
+        ], presence: RoutinePresence(
+            level: .scheduledNotification,
+            deferred: [RoutinePresenceDelay(
+                routineId: "routine-1", title: "晨间简报",
+                scheduledFor: 1_760_018_400_000, deferredUntil: 1_760_021_600_000)],
+            scheduledNotificationCount: 1),
+           proactiveSettings: ProactiveSettings(
+                mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
+                timeZone: "Asia/Shanghai"))
     }
 }
 
@@ -330,6 +346,8 @@ struct BotUIFixtureRootView: View {
             fixtureActions: true
         )
         switch fixture {
+        case .infoPresence:
+            break
         case .runningThinking:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
         case .runningTool:
@@ -356,6 +374,28 @@ struct BotUIFixtureRootView: View {
             switch fixture {
             case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong:
                 BotInfoPage(model: infoModel)
+            case .infoPresence:
+                NavigationStack {
+                    List {
+                        Section {
+                            BotPresenceSection(model: infoModel)
+                        } header: {
+                            Text("在场")
+                        } footer: {
+                            Text("截图夹具只展示信息页的在场区，组件与真实页面相同。")
+                        }
+                        Section {
+                            BotDisruptionSection(model: infoModel)
+                        } header: {
+                            Text("打扰")
+                        } footer: {
+                            Text("设置对所有 Bot 生效，改动立即持久化。")
+                        }
+                    }
+                    .homeGroupedList()
+                    .navigationTitle("Bot 信息")
+                    .navigationBarTitleDisplayMode(.inline)
+                }
             case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
                 BotDrawerFixtureRootView(fixture: fixture)
             default:

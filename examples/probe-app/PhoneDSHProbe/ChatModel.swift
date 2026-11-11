@@ -2432,6 +2432,7 @@ final class ChatModel {
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
         appIsActive = phase == .active
+        BotPresenceCenter.shared.update(appActive: appIsActive)
         // PC lifecycle is connection-only: nothing to park or keep alive. On
         // foreground return, nudge the relay client's reconnect loop. The
         // phone's resume/rebuild/keep-alive state machine below must never run
@@ -2470,11 +2471,14 @@ final class ChatModel {
             }
             guard !parked, !keepingAlive else { return }
             beginBackgroundTask()
-            // A running turn is kept alive (the user's task continues), and so is
-            // an idle host while the TonoLink board's wake word is armed (a voice
-            // turn may arrive while backgrounded, tonolink-board.md §4.1); any
-            // other idle host is parked as before, which costs no battery.
-            if backgroundKeepAlive && (turnRunning || botTurnsRunning || TonoLinkVoiceHost.shared.isArmed) {
+            // A running turn is kept alive (the user's task continues), and so are
+            // any Bot's running turn, a routine due inside the keep-alive window,
+            // and an armed TonoLink wake word. Any other idle host is parked as
+            // before, which costs no battery.
+            let routineDueSoon = await botRuntime?.hasRoutineDueSoon() ?? false
+            if backgroundKeepAlive
+                && (turnRunning || botTurnsRunning || routineDueSoon
+                    || TonoLinkVoiceHost.shared.isArmed) {
                 do {
                     try beginKeepAlive()
                     appendStatus("App in background: keeping the agent alive with a silent audio session; the turn continues")
@@ -2524,6 +2528,7 @@ final class ChatModel {
         keepAlive.onEvent = { [weak self] message in self?.appendStatus(message) }
         try keepAlive.start()
         keepingAlive = true
+        BotPresenceCenter.shared.update(keepingAlive: true)
         startBackgroundHeartbeat()
     }
 
@@ -2534,6 +2539,7 @@ final class ChatModel {
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false
+        BotPresenceCenter.shared.update(keepingAlive: false)
     }
 
     private func parkHost(_ host: PhoneDSHHost) async {
@@ -2815,6 +2821,7 @@ final class ChatModel {
             stopBackgroundHeartbeat()
             keepAlive.stop()
             keepingAlive = false
+            BotPresenceCenter.shared.update(keepingAlive: false)
             endBackgroundTask()
         }
         syncIdleTimer()
@@ -2912,7 +2919,8 @@ final class ChatModel {
     /// the TonoLink board's wake word is armed the host stays up instead: the
     /// next voice turn may arrive before the app returns (tonolink-board.md §4.1).
     private func finishBackgroundKeepAlive() async {
-        guard keepingAlive, !turnRunning, !botTurnsRunning, let host else { return }
+        let routineDueSoon = await botRuntime?.hasRoutineDueSoon() ?? false
+        guard keepingAlive, !turnRunning, !botTurnsRunning, !routineDueSoon, let host else { return }
         if TonoLinkVoiceHost.shared.isArmed {
             Self.persistStatus("Turn finished in the background; the board's wake word is armed, keeping the host up")
             return
@@ -2920,6 +2928,7 @@ final class ChatModel {
         stopBackgroundHeartbeat()
         keepAlive.stop()
         keepingAlive = false
+        BotPresenceCenter.shared.update(keepingAlive: false)
         appendStatus("Turn finished in the background; keep-alive audio stopped, parking the idle host")
         await parkHost(host)
     }
@@ -3054,6 +3063,7 @@ final class ChatModel {
             stopBackgroundHeartbeat()
             keepAlive.stop()
             keepingAlive = false
+            BotPresenceCenter.shared.update(keepingAlive: false)
             endBackgroundTask()
         }
         syncIdleTimer()

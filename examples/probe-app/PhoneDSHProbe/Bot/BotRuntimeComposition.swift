@@ -509,8 +509,11 @@ final class BotRuntimeComposition {
                 let roster = try await self.profileStore.roster()
                 guard let botID = BotMainPointerRouting.deviceTaskRecipient(in: roster) else { return }
                 let unit = try await self.ensureUnit(for: botID, reason: "device-result")
-                let item = try notice.wakeInboxItem()
-                _ = try await unit.wakeInbox.enqueue(item)
+                let enqueued = try await unit.deviceResults.enqueue(
+                    notice, botID: botID, in: unit.wakeInbox)
+                // A startup replay may already have inserted this exact item;
+                // do not bump unread twice for one terminal result.
+                guard !enqueued.duplicate else { return }
                 let selected = self.rosterModel.selectedBotID
                 await self.rosterModel.noteMessage(
                     to: botID,
@@ -521,6 +524,16 @@ final class BotRuntimeComposition {
                 print("[BotRuntimeComposition] device task result delivery failed: \(error)")
             }
         }
+    }
+
+    /// The background keep-alive branch: any attached Bot with a routine due
+    /// inside the window keeps the silent-audio session alive even when no
+    /// turn is running.
+    func hasRoutineDueSoon(within windowMs: Int64 = RoutinePresencePolicy.keepAliveWindowMs) async -> Bool {
+        for unit in units.values {
+            if await unit.hasRoutineDueSoon(within: windowMs) { return true }
+        }
+        return false
     }
 
     // MARK: - Tick / observation
