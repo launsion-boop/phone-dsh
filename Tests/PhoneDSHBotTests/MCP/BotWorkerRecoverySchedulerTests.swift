@@ -374,6 +374,67 @@ final class BotWorkerRecoverySchedulerTests: XCTestCase {
         XCTAssertEqual(attempts, ["boot-one", "boot-two"])
     }
 
+    /// A deliberate manual park/start (the S6 memory eraser) suppresses the
+    /// automatic `.workerHello` rebind. The page still sees `.restarted` /
+    /// HELLO boot candidates during that window, so the scheduler enters
+    /// recovering. Once the manual path reattaches the replacement Worker, its
+    /// recorded boot must publish `.ready` — otherwise the banner stays until
+    /// the user taps 重试 even though the new session already started.
+    func testManualRebindAfterSuppressedParkStartReturnsToReady() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.seed(recoveredBootID: "boot-old")
+        // `.restarted` and the suppressed HELLO both arrive as page candidates.
+        scheduler.noteBootCandidate("boot-new")
+        XCTAssertEqual(scheduler.phase, .recovering)
+
+        scheduler.beginManualRebind()
+        scheduler.completeManualRebind(recoveredBootID: "boot-new")
+        XCTAssertEqual(scheduler.phase, .ready)
+        XCTAssertEqual(scheduler.recoveredBootID, "boot-new")
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the manual path owns the reattach; no automatic bind may run: \(attempts)")
+    }
+
+    /// The ready gate armed by a replacement HELLO must be released when the
+    /// caller takes over the park/start. Otherwise the fallback timer or a
+    /// later ready line starts a second, racing bind.
+    func testManualRebindReleasesAnArmedReadyGate() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.seed(recoveredBootID: "boot-old")
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-new", helloCount: 1)
+        XCTAssertTrue(scheduler.isAwaitingWorkerReady)
+
+        scheduler.beginManualRebind()
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+        scheduler.completeManualRebind(recoveredBootID: "boot-new")
+        XCTAssertEqual(scheduler.phase, .ready)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the released gate must not bind after the manual path: \(attempts)")
+    }
+
+    func testFailedManualRebindPublishesARetryableFailure() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        scheduler.seed(recoveredBootID: "boot-old")
+        scheduler.beginManualRebind()
+        scheduler.failManualRebind("Bot 连接没有恢复，请重试。")
+        XCTAssertTrue(scheduler.phase.isFailure)
+        if case let .failed(message) = scheduler.phase {
+            XCTAssertEqual(message, "Bot 连接没有恢复，请重试。")
+        }
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+    }
+
     func testANewTerminationAfterRecoveryShowsRecoveringAgain() async throws {
         let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
         defer { scheduler.stop() }

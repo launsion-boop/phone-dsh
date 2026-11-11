@@ -138,6 +138,13 @@ struct BotInfoSnapshot {
     /// One human-readable line from the host's last failed identity
     /// registration; nil when the runtime has no current bridge error.
     var bridgeStatus: String?
+    /// Per-entry failures. Each entry is independent: one failed projection
+    /// must not mark the other pages as failed. The value is human-facing
+    /// copy; the host logs the raw error separately.
+    var memoryError: String? = nil
+    var routinesError: String? = nil
+    var approvalsError: String? = nil
+    var grantsError: String? = nil
 }
 
 struct BotInfoDriver {
@@ -186,6 +193,7 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var memoryState: BotInfoLoadState
     @Published private(set) var routinesState: BotInfoLoadState
     @Published private(set) var approvalsState: BotInfoLoadState
+    @Published private(set) var grantsState: BotInfoLoadState
     @Published var actionError: String?
     /// The profile's appearance is the authority for the preview and for the
     /// 4 hairstyle thumbnails; selecting one saves immediately.
@@ -221,6 +229,7 @@ final class BotInfoModel: ObservableObject {
         memoryState = initial
         routinesState = initial
         approvalsState = initial
+        grantsState = initial
         self.appearance = profileCenter?.appearance ?? appearance
         self.driver = driver
         self.fixtureError = fixtureError
@@ -291,16 +300,19 @@ final class BotInfoModel: ObservableObject {
                 memoryState = .failed(fixtureError)
                 routinesState = .failed(fixtureError)
                 approvalsState = .failed(fixtureError)
+                grantsState = .failed(fixtureError)
             } else {
                 memoryState = .loaded
                 routinesState = .loaded
                 approvalsState = .loaded
+                grantsState = .loaded
             }
             return
         }
         memoryState = .loading
         routinesState = .loading
         approvalsState = .loading
+        grantsState = .loading
         do {
             let snapshot = try await driver.load()
             let name = profileCenter?.displayName ?? snapshot.botName
@@ -318,14 +330,21 @@ final class BotInfoModel: ObservableObject {
             maintenanceDailyTokens = snapshot.maintenanceDailyTokens
             maintenanceDailyBudget = snapshot.maintenanceDailyBudget
             bridgeStatus = snapshot.bridgeStatus
-            memoryState = .loaded
-            routinesState = .loaded
-            approvalsState = .loaded
+            memoryState = snapshot.memoryError.map(BotInfoLoadState.failed) ?? .loaded
+            routinesState = snapshot.routinesError.map(BotInfoLoadState.failed) ?? .loaded
+            approvalsState = snapshot.approvalsError.map(BotInfoLoadState.failed) ?? .loaded
+            grantsState = snapshot.grantsError.map(BotInfoLoadState.failed) ?? .loaded
         } catch {
-            let message = error.localizedDescription
+            // The page never prints a host type name, an English
+            // `localizedDescription` or an internal error code. The raw error
+            // belongs to the diagnostic log.
+            BotRebindDiagnostics.emit(
+                "bot-info refresh error=\(String(reflecting: error))")
+            let message = "暂时读不出来，请稍后重试。"
             memoryState = .failed(message)
             routinesState = .failed(message)
             approvalsState = .failed(message)
+            grantsState = .failed(message)
         }
     }
 
@@ -649,7 +668,7 @@ struct BotInfoPage: View {
                     }
                     .accessibilityIdentifier("bot.info.approvals")
                     NavigationLink(value: BotInfoSection.grants) {
-                        BotInfoEntryLabel(title: "常设授权", systemImage: "key", state: model.approvalsState,
+                        BotInfoEntryLabel(title: "常设授权", systemImage: "key", state: model.grantsState,
                                           count: model.grants.count)
                     }
                     .accessibilityIdentifier("bot.info.grants")
@@ -830,7 +849,7 @@ private struct BotMemoryPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "记忆读取失败：\(message)。这不代表没有记忆。") {
+                BotFailureRow(message: "记忆读取失败：\(message)这不代表没有记忆。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -1296,7 +1315,7 @@ private struct BotRoutinesPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "例行任务读取失败：\(message)。这不代表没有例行任务。") {
+                BotFailureRow(message: "例行任务读取失败：\(message)这不代表没有例行任务。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -1657,11 +1676,11 @@ private struct BotGrantsPage: View {
 
     var body: some View {
         List {
-            switch model.approvalsState {
+            switch model.grantsState {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "常设授权读取失败：\(message)。这不代表没有授权。") {
+                BotFailureRow(message: "常设授权读取失败：\(message)这不代表没有授权。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -1823,7 +1842,7 @@ private struct BotApprovalHistoryPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "审批记录读取失败：\(message)。") {
+                BotFailureRow(message: "审批记录读取失败：\(message)") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)

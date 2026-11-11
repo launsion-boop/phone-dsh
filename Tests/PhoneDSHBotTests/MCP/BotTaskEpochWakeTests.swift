@@ -269,6 +269,77 @@ final class BotTaskEpochWakeTests: XCTestCase {
         transport.resume(setup.task.sessionId)
     }
 
+    // MARK: - Deliberate host park
+
+    /// The S6 epoch eraser parks the Worker while a `session/follow` is open.
+    /// That EOF is an expected interruption: the Task must not be settled as
+    /// `failed`, and the queued `task-interrupted:` wake must reach the new
+    /// main session after the replacement Worker is attached.
+    func testIntentionalParkTurnsFollowEOFIntoInterruptedWakeOnNewMain() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [:])
+        let parent = try await makeParent(fixture.runtime)
+        feedParentTurn(transport)
+        let setup = try await startPausedTask(
+            fixture, transport, parent: parent, title: "Parked task", prompt: "long work",
+            taskEvents: [.turn()])
+
+        let switched = try await setup.remote.switchMainSessionForErasure(
+            erasureID: "erasure-park", erasedRecords: [])
+        XCTAssertEqual(switched.old, parent.sessionId)
+        feedParentTurn(transport, sessionId: switched.new, turn: 2, text: "interrupted wake consumed")
+
+        // The eraser marks the deliberate park before host.park(); the open
+        // follow stream then ends without a turn/end.
+        await setup.remote.beginHostPark()
+        transport.resume(setup.task.sessionId)
+
+        let interrupted = try await waitForStatus(
+            setup.remote, taskID: setup.task.taskId, parent: parent,
+            status: "interrupted")
+        XCTAssertEqual(interrupted.error, "worker_restarted")
+        XCTAssertEqual(interrupted.sessionId, setup.task.sessionId)
+        await setup.remote.endHostPark()
+
+        let delivered = await setup.remote.deliverInterruptedTaskWakes()
+        XCTAssertEqual(delivered, 1)
+        let requestID = "task-interrupted:\(setup.task.taskId)"
+        try await waitUntil {
+            transport.promptRequestIds.contains {
+                $0.sessionId == switched.new && $0.requestId == requestID
+            }
+        }
+        XCTAssertEqual(transport.promptRequestIds.filter { $0.requestId == requestID }
+            .map(\.sessionId), [switched.new])
+        XCTAssertFalse(transport.promptRequestIds.contains {
+            $0.sessionId == switched.old && $0.requestId == requestID
+        })
+        let replayed = await setup.remote.deliverInterruptedTaskWakes()
+        XCTAssertEqual(replayed, 0, "the interrupted wake is delivered exactly once")
+        XCTAssertFalse(transport.promptRequestIds.contains {
+            $0.requestId == "task-settled:\(setup.task.taskId)"
+        })
+    }
+
+    /// The same EOF outside a deliberate park is a real failure. The park
+    /// signal must not swallow genuine transport errors.
+    func testFollowEOFWithoutIntentionalParkRemainsFailed() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [:])
+        let parent = try await makeParent(fixture.runtime)
+        feedParentTurn(transport)
+        let setup = try await startPausedTask(
+            fixture, transport, parent: parent, title: "Broken task", prompt: "work",
+            taskEvents: [.turn()])
+        transport.resume(setup.task.sessionId)
+
+        let failed = try await waitForStatus(
+            setup.remote, taskID: setup.task.taskId, parent: parent, status: "failed")
+        XCTAssertEqual(failed.error, "session/follow ended before turn/end")
+    }
+
     // MARK: - AwaitTask / StopSubagent
 
     func testEpochSwitchNewMainCanAwaitAndStopTaskAndOtherSessionsAreRejected() async throws {

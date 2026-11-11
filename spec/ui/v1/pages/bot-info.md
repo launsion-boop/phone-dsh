@@ -4,7 +4,7 @@
 
 契约：P09、P25、P26。目标实现路径：`examples/probe-app/PhoneDSHProbe/Bot/**`。
 
-Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展示并编辑由 runtime-context 注入的 Bot 名，提供记忆、Routines、审批记录三个真实数据入口，并在同一分组列表内展示在场状态、编辑打扰设置。头部 80pt 头像调用冻结的 `BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)`（不跑帧循环）；Bot 页「…」菜单可直接打开与数据区相同的记忆／例行任务／审批记录目标页。页面不得伪造条目数、授权状态或后台 session 过程；读取失败显示失败，不显示为零。
+Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展示并编辑由 runtime-context 注入的 Bot 名，提供记忆、Routines、审批记录三个真实数据入口，并在同一分组列表内展示在场状态、编辑打扰设置。四个数据入口（含常设授权）**各自独立加载**：一处投影失败只把该入口标成读取失败，不得拖垮其他入口。读取失败的文案必须是用户能看懂的中文，不得显示宿主错误类型名、英文 `localizedDescription`、内部错误码或 `error N`；具体错误只写宿主诊断日志。头部 80pt 头像调用冻结的 `BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)`（不跑帧循环）；Bot 页「…」菜单可直接打开与数据区相同的记忆／例行任务／审批记录目标页。页面不得伪造条目数、授权状态或后台 session 过程；读取失败显示失败，不显示为零。
 
 ## 外观（P26）
 

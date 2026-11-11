@@ -173,6 +173,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
     private var taskStates: [String: TaskState] = [:]
     private var interruptedTaskWakes: [String] = []
+    /// True while the host is deliberately parking the Worker (the S6 epoch
+    /// eraser's park/start). A follow EOF in this window is an interruption.
+    private var hostParkExpected = false
     /// A decision that arrived before the task finished persisting its
     /// `waiting_approval` state. Keyed by session id.
     private var earlyApprovalDecisions: [String: BotApprovalResolutionNotice] = [:]
@@ -790,6 +793,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 taskId: taskId, generation: generation, state: state, partial: turn.text) {
                 return parked
             }
+            if turn.status == "interrupted" {
+                return await markTaskInterrupted(
+                    taskId: taskId, generation: generation,
+                    state: taskStates[taskId] ?? state, partial: turn.text)
+            }
             let completed = turn.status == "completed"
             var verification: BotVerification?
             // P26 §2.8: every async Task with a completion condition is
@@ -854,6 +862,14 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 partial: state.record.partial) {
                 return parked
             }
+            // A deliberate host park replaces the Worker under an open turn.
+            // The follow EOF / transport close is expected: the Task is
+            // interrupted and wakes its parent once, never failed.
+            if hostParkExpected {
+                return await markTaskInterrupted(
+                    taskId: taskId, generation: generation, state: current,
+                    partial: current.record.partial)
+            }
             let record = BotTaskRecord(
                 taskId: taskId, sessionId: state.record.sessionId,
                 status: "failed", title: state.record.title,
@@ -868,6 +884,39 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                                    eventId: "persisted:failed:\(taskId)")
             return record
         }
+    }
+
+    /// One interrupt transition shared by the deliberate-park path. The
+    /// record is durable before the wake is queued; `wakeDelivered` stays
+    /// false until `deliverInterruptedTaskWakes` actually lands the hidden
+    /// turn in the (possibly new) main session.
+    @discardableResult
+    private func markTaskInterrupted(taskId: String, generation: Int,
+                                     state: TaskState, partial: String?)
+        async -> BotTaskRecord {
+        guard taskStates[taskId]?.generation == generation,
+              taskStates[taskId]?.record.status == "running" else {
+            return taskStates[taskId]?.record ?? state.record
+        }
+        let record = BotTaskRecord(
+            taskId: taskId, sessionId: state.record.sessionId,
+            status: "interrupted", title: state.record.title,
+            result: nil, partial: partial ?? state.record.partial,
+            error: "worker_restarted", completion: state.record.completion,
+            purpose: state.record.purpose, constraints: state.record.constraints,
+            budget: state.record.budget, verification: state.record.verification)
+        taskStates[taskId]?.record = record
+        taskStates[taskId]?.generation = generation + 1
+        taskStates[taskId]?.work = nil
+        taskStates[taskId]?.stopWork = nil
+        taskStates[taskId]?.live = false
+        try? await persistTask(taskId: taskId, type: "task.updated",
+                               eventId: "persisted:interrupted:\(taskId)")
+        if state.asynchronous, state.parentKind == .chat, !state.wakeDelivered,
+           !interruptedTaskWakes.contains(taskId) {
+            interruptedTaskWakes.append(taskId)
+        }
+        return record
     }
 
     // MARK: - Durable approval parking / resume
@@ -1185,6 +1234,19 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // `waiting_approval` tasks are not live work and must survive the
         // restart. Reconcile them against decisions that were already durable.
         await reconcileWaitingApprovals()
+    }
+
+    /// Marks the start of a deliberate host park. A `session/follow` stream
+    /// that ends while this flag is set is an expected interruption, not a
+    /// task failure. The epoch eraser sets it around its own park/start.
+    public func beginHostPark() {
+        hostParkExpected = true
+    }
+
+    /// Ends the deliberate-park window. Called after the replacement Worker is
+    /// attached and the main session has resumed.
+    public func endHostPark() {
+        hostParkExpected = false
     }
 
     /// Delivers the single hidden wake for each task interrupted by a Worker
@@ -2419,11 +2481,23 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     text: "", error: "stale turn attempt")
             }
             guard let frame = try await mux.receive() else {
+                if hostParkExpected {
+                    return BotRemoteTurnResult(
+                        sessionId: sessionId, turnId: currentTurn,
+                        status: "interrupted", text: texts.joined(),
+                        error: "worker_restarted")
+                }
                 return BotRemoteTurnResult(sessionId: sessionId, turnId: currentTurn,
                                            status: "failed", text: texts.joined(),
                                            error: "session/follow ended before turn/end")
             }
             if frame["type"]?.stringValue == "error" {
+                if hostParkExpected {
+                    return BotRemoteTurnResult(
+                        sessionId: sessionId, turnId: currentTurn,
+                        status: "interrupted", text: texts.joined(),
+                        error: "worker_restarted")
+                }
                 return BotRemoteTurnResult(sessionId: sessionId, turnId: currentTurn,
                                            status: "failed", text: texts.joined(),
                                            error: frame["error"]?["message"]?.stringValue ?? "session/follow failed")
