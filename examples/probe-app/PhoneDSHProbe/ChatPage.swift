@@ -346,16 +346,18 @@ struct ChatPage: View {
         }
     }
 
-    /// PC strip copy: a resume in flight is not an offline PC. Cached rows and
-    /// the cached transcript stay readable either way (§10, P18).
+    /// PC strip copy: a resume in flight is not an offline PC. While offline it
+    /// says what is actually on screen — the cached tail only when one was
+    /// restored, never a promise of content that is not there.
     private var pcStatusStripText: String {
         switch workspaceModels.pcLink.presence.reachability {
         case .reconnecting:
             return "正在连接电脑，发送暂时停用。草稿保留在 PC 工作区，不会自动切回手机。"
-        case .offline:
-            return "电脑暂时连不上，显示的是上次同步的内容。草稿保留在 PC 工作区。"
-        case .online:
-            return "电脑离线，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。"
+        case .offline, .online:
+            if model.cachedPreview.isPreviewing {
+                return "电脑暂时连不上，显示的是上次同步的对话，发送已停用。草稿保留在 PC 工作区。"
+            }
+            return "电脑暂时连不上，发送已停用。草稿保留在 PC 工作区，不会自动切回手机。"
         }
     }
 
@@ -1706,18 +1708,20 @@ struct ChatPage: View {
     private var pcEmptyTitle: String {
         if model.isStarted { return "这台电脑还没有打开会话" }
         switch workspaceModels.pcLink.presence.reachability {
-        case .reconnecting: return "正在连接电脑"
+        case .reconnecting, .online: return "正在连接电脑"
         case .offline: return "电脑暂时连不上"
-        case .online: return "电脑离线"
         }
     }
 
     private var pcEmptyMessage: String {
         if model.isStarted { return "从会话列表选择会话，或新建一个。" }
         switch workspaceModels.pcLink.presence.reachability {
-        case .reconnecting: return "正在重新连上这台电脑，连上后会回到上次的会话。"
-        case .offline: return "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。"
-        case .online: return "停留在 PC 工作区，恢复后会自动重连；也可以在会话列表里重试。"
+        case .reconnecting, .online:
+            return "正在重新连上这台电脑，连上后会回到上次的会话。"
+        case .offline:
+            // A session this phone cached opens read-only; one it never opened
+            // cannot. The retry lives on the drawer's offline card.
+            return "打开过的会话仍可查看上次同步的内容；连上后自动恢复，也可以在会话列表里点「重试」。"
         }
     }
 

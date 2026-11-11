@@ -65,18 +65,46 @@ public enum CachedTranscriptCodec {
     public static let maxFileBytes = 512 * 1024
     /// One row cannot dominate the file (a tool result can be megabytes).
     public static let maxItemCharacters = 4_096
+    /// The row's own label line is a single line of UI text; cap it too so a
+    /// pathological title cannot push a single row past the file budget.
+    public static let maxTitleCharacters = 256
 
     public static func encode(items: [CachedTranscriptItem],
                               backend: BackendID,
                               sessionID: String,
                               lastSeq: UInt64?,
                               capturedAt: Date = Date()) -> Data? {
-        let bounded = bounded(items)
-        guard !bounded.isEmpty else { return nil }
-        let snapshot = CachedTranscriptSnapshot(capturedAt: capturedAt, backend: backend,
-                                               sessionID: sessionID, lastSeq: lastSeq,
-                                               items: bounded)
-        return try? JSONEncoder().encode(snapshot)
+        var kept = bounded(items)
+        guard !kept.isEmpty else { return nil }
+        // The byte budget above is estimated; JSON escaping (quotes, newlines,
+        // control characters) can inflate a row by up to ~2x. Encode and drop
+        // the oldest rows until the real file fits, so the bound is a guarantee
+        // and not a guess (review of PR #98, secondary finding).
+        while true {
+            let snapshot = CachedTranscriptSnapshot(capturedAt: capturedAt, backend: backend,
+                                                    sessionID: sessionID, lastSeq: lastSeq,
+                                                    items: kept)
+            guard let data = try? JSONEncoder().encode(snapshot) else { return nil }
+            if data.count <= maxFileBytes { return data }
+            guard kept.count > 1 else { return nil }
+            let drop = max(1, kept.count / 4)
+            kept.removeFirst(min(drop, kept.count - 1))
+        }
+    }
+
+    /// UTF-8 bytes a string occupies in the encoded JSON, including the escapes
+    /// JSONEncoder emits. Used for the pre-encode estimate only.
+    static func escapedUTF8Count(_ value: String) -> Int {
+        var bytes = 0
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\"", "\\", "\n", "\r", "\t":
+                bytes += 2
+            default:
+                if scalar.value < 0x20 { bytes += 6 } else { bytes += String(scalar).utf8.count }
+            }
+        }
+        return bytes
     }
 
     public static func decode(_ data: Data,
@@ -102,9 +130,15 @@ public enum CachedTranscriptCodec {
     /// rows go first, so the newest exchange always survives.
     public static func bounded(_ items: [CachedTranscriptItem]) -> [CachedTranscriptItem] {
         let trimmed = items.suffix(maxItems).map { item -> CachedTranscriptItem in
-            guard item.text.count > maxItemCharacters else { return item }
+            guard item.text.count > maxItemCharacters || item.title.count > maxTitleCharacters
+            else { return item }
             var copy = item
-            copy.text = String(item.text.prefix(maxItemCharacters)) + "…"
+            if item.title.count > maxTitleCharacters {
+                copy.title = String(item.title.prefix(maxTitleCharacters)) + "…"
+            }
+            if item.text.count > maxItemCharacters {
+                copy.text = String(item.text.prefix(maxItemCharacters)) + "…"
+            }
             return copy
         }
         var kept: [CachedTranscriptItem] = []
@@ -112,8 +146,8 @@ public enum CachedTranscriptCodec {
         // Structural overhead per row: ids, kind, title and JSON punctuation.
         let overhead = 256
         for item in trimmed.reversed() {
-            let cost = item.text.utf8.count + item.title.utf8.count
-                + item.id.utf8.count + item.kind.utf8.count + overhead
+            let cost = escapedUTF8Count(item.text) + escapedUTF8Count(item.title)
+                + escapedUTF8Count(item.id) + escapedUTF8Count(item.kind) + overhead
             if bytes + cost > maxFileBytes { break }
             bytes += cost
             kept.append(item)

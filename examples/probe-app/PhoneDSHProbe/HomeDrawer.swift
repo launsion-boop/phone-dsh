@@ -48,9 +48,10 @@ struct HomeDrawer: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 10)
                         .padding(.bottom, 10)
-                    if showsPCState && management.sessions.isEmpty {
-                        // Nothing cached and nothing reachable: the offline or
-                        // connecting card is all there is to show.
+                    if models.showsPCStateCard {
+                        // No pairing, or nothing cached and nothing reachable:
+                        // the card is all there is to show. The decision uses
+                        // the PC scope's own rows, never the phone fallback.
                         PCDrawerStateView(onPair: { showPairing = true })
                     } else {
                         if let note = models.pcCachedListNote {
