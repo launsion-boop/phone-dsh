@@ -67,6 +67,10 @@ private struct BotFishFaceSignature: Equatable {
     var decorationPhase: Int
     var tearsTime: Int
     var motionScale: Int
+    var gazeEmphasis: Int
+    var dotLift: Int
+    var dotScale: Int
+    var dotStagger: Int
     var eyeArt: String?
     var mouthArt: String?
     var eyeArtPrev: String?
@@ -130,9 +134,16 @@ final class BotFishRenderer {
     /// the visible motion).
     static let headSlicingMinimumSize: CGFloat = 40
 
+    /// `.lively` already has hand-tuned head/hair/ear motion at the 28pt
+    /// status line, so its slice pass starts at 24pt. The 0.25-unit quantum
+    /// is <0.02pt at 28pt and roughly quarters the slice rebuild rate
+    /// compared with the standard 0.1-unit quantum, without a visible step.
+    static let livelyHeadSlicingMinimumSize: CGFloat = 24
+    static let livelyHeadSliceQuantum = 0.25
+
     /// Head-slice inputs are quantised to 1/10 source unit (~0.07px at 96pt
     /// @3x). Anything finer changed no displayed pixel.
-    private static let headSliceQuantum = 0.1
+    static let headSliceQuantum = 0.1
 
     private let assets: BotFishAssets?
     private let crownStyle: BotFishCrownStyle
@@ -164,6 +175,7 @@ final class BotFishRenderer {
     private struct SliceKey: Equatable {
         var faceGeneration: Int
         var head: BotFishHeadSignature
+        var quantumTag: Int
     }
     private var sliceKey: SliceKey?
     private var slicedBase: CGImage?
@@ -186,11 +198,15 @@ final class BotFishRenderer {
         return motionBoostFactor + (1 - motionBoostFactor) * t
     }
 
-    /// Quantised head-slice inputs. Values are source-space tenths of a pixel.
-    private static func headSignature(_ p: BotFishParams, size: CGFloat) -> BotFishHeadSignature {
-        guard size > headSlicingMinimumSize else { return .identity }
+    /// Quantised head-slice inputs. Values are source-space units divided by
+    /// the caller's quantum (0.1 standard, 0.25 lively).
+    private static func headSignature(_ p: BotFishParams,
+                                      enabled: Bool,
+                                      quantum: Double) -> BotFishHeadSignature {
+        guard enabled else { return .identity }
+        let step = quantum > 0 ? quantum : headSliceQuantum
         func quantise(_ value: Double) -> Int {
-            Int((value / headSliceQuantum).rounded())
+            Int((value / step).rounded())
         }
         return BotFishHeadSignature(headX: quantise(p.headX),
                                     headY: quantise(p.headY),
@@ -203,7 +219,9 @@ final class BotFishRenderer {
     func prepare(_ params: BotFishParams, time: Double, size: CGFloat,
                  displayScale: CGFloat,
                  appearance: BotFishAppearance = .classic,
-                 crowned: Bool = false) -> BotFishPreparedFrame? {
+                 crowned: Bool = false,
+                 headSlicing: Bool = false,
+                 headSliceQuantum: Double = headSliceQuantum) -> BotFishPreparedFrame? {
         guard let assets, !assets.eyeCels.isEmpty, !assets.mouthCels.isEmpty else {
             return nil
         }
@@ -237,9 +255,12 @@ final class BotFishRenderer {
         }
 
         guard let baseImage, let faceImage else { return nil }
-        let head = Self.headSignature(params, size: size)
+        let head = Self.headSignature(params, enabled: headSlicing,
+                                      quantum: headSliceQuantum)
         if !head.isIdentity {
-            let key = SliceKey(faceGeneration: faceGeneration, head: head)
+            let quantumTag = Int((max(0.001, headSliceQuantum) * 1000).rounded())
+            let key = SliceKey(faceGeneration: faceGeneration, head: head,
+                               quantumTag: quantumTag)
             if sliceKey != key || slicedBase == nil || slicedFace == nil {
                 guard ensureSliceContexts(),
                       let b = sliceImage(baseImage, head: head, into: slicedBaseContext,
@@ -426,6 +447,10 @@ final class BotFishRenderer {
         default:
             animatedPhase = 0
         }
+        // The lively dot hop needs a finer phase bucket than the upstream
+        // opacity-only pulse; standard avatars keep the 1/24 bucket so their
+        // face-repaint rate is unchanged.
+        let decorationStep = p.dotLift > 0.01 ? 1.0 / 64.0 : 1.0 / 24.0
         return BotFishFaceSignature(
             eyeL: q(p.eyeL), eyeR: q(p.eyeR), joy: q(p.joy),
             browL: q(p.browL), browR: q(p.browR),
@@ -437,12 +462,16 @@ final class BotFishRenderer {
             blink: q(p.blink), artMix: q(p.artMix, 1.0 / 16.0),
             finL: q(p.finL), finR: q(p.finR),
             finWave: q(p.finWave, 1.0 / 32.0), finFold: q(p.finFold),
-            decorationPhase: q(animatedPhase, 1.0 / 24.0),
+            decorationPhase: q(animatedPhase, decorationStep),
             // Tears are the only face painter that reads the raw clock. When
             // no tears are visible the signature must stay constant so an
             // idle avatar does not repaint on every tick.
             tearsTime: p.tears > 0.01 ? q(time / 40.0, 1.0) : 0,
             motionScale: q(p.motionScale, 0.05),
+            gazeEmphasis: q(p.gazeEmphasis, 0.05),
+            dotLift: q(p.dotLift, 0.1),
+            dotScale: q(p.dotScale, 0.01),
+            dotStagger: q(p.dotStagger, 0.001),
             eyeArt: p.eyeArt, mouthArt: p.mouthArt,
             eyeArtPrev: p.eyeArtPrev, mouthArtPrev: p.mouthArtPrev,
             decoration: p.decoration)
@@ -510,10 +539,10 @@ final class BotFishRenderer {
                 let sourceY = 297.0 + (art == "laughing" ? 8 : 0)
                 let sidePixels = max(1, Int((102 * pixelScale).rounded()))
                 let image = eyeCelImage(cel, sidePixels: sidePixels, assets: assets)
-                let offsetX = (sourceX + p.gazeX * 2 - Double(cropOrigin.x))
-                    * Double(pixelScale)
-                let offsetY = (sourceY + p.gazeY * 1.2 - Double(cropOrigin.y))
-                    * Double(pixelScale)
+                let offsetX = (sourceX + p.gazeX * 2 * p.gazeEmphasis
+                    - Double(cropOrigin.x)) * Double(pixelScale)
+                let offsetY = (sourceY + p.gazeY * 1.2 * p.gazeEmphasis
+                    - Double(cropOrigin.y)) * Double(pixelScale)
                 cg.saveGState()
                 cg.translateBy(x: CGFloat(offsetX), y: CGFloat(offsetY))
                 cg.scaleBy(x: 1, y: CGFloat(blink))
@@ -542,12 +571,14 @@ final class BotFishRenderer {
         let designToPixel = CGFloat(BotFishRenderer.scale) * pixelScale
         // The eye texture and its clip move together by `gaze * 2` / `* 1.2`
         // design units; the iris gets an additional clamped `* 8` / `* 6`.
-        let irisX = BotFishMath.clamp(p.gazeX, -1, 1) * 8
-        let irisY = BotFishMath.clamp(p.gazeY, -1, 1) * 6
+        // `.lively` multiplies both by `gazeEmphasis` (2.4) so the scan reads
+        // at 28pt; `.standard` leaves it at exactly 1.
+        let irisX = BotFishMath.clamp(p.gazeX, -1, 1) * 8 * p.gazeEmphasis
+        let irisY = BotFishMath.clamp(p.gazeY, -1, 1) * 6 * p.gazeEmphasis
         let moving = abs(irisX) + abs(irisY) > 0.05
         let centerShift = CGPoint(
-            x: CGFloat(p.gazeX * 2) * designToPixel,
-            y: CGFloat(p.gazeY * 1.2) * designToPixel)
+            x: CGFloat(p.gazeX * 2 * p.gazeEmphasis) * designToPixel,
+            y: CGFloat(p.gazeY * 1.2 * p.gazeEmphasis) * designToPixel)
 
         cg.saveGState()
         cg.translateBy(x: center.x + centerShift.x, y: center.y + centerShift.y)
@@ -942,11 +973,28 @@ final class BotFishRenderer {
             case "dots", "waiting":
                 let x = decoration == "dots" ? 353.0 : 78.0
                 let y = decoration == "dots" ? 64.0 : 369.0
+                let radius = 3.6 * p.dotScale
+                let spacing = 13.0 * p.dotScale
                 for index in 0..<3 {
-                    cg.setAlpha(CGFloat(0.35 + 0.65 * (0.5 + 0.5 * sin(phase * BotFishRenderer.tau - Double(index) * 0.7))))
+                    var lift = 0.0
+                    let alpha: Double
+                    if p.dotLift > 0.01 {
+                        // Lively: the three dots hop in turn (0.12s apart)
+                        // instead of only fading.
+                        let local = phase - Double(index) * p.dotStagger
+                        let wave = max(0, sin(local * BotFishRenderer.tau))
+                        lift = p.dotLift * wave
+                        alpha = 0.45 + 0.55 * wave
+                    } else {
+                        alpha = 0.35 + 0.65
+                            * (0.5 + 0.5 * sin(phase * BotFishRenderer.tau
+                                              - Double(index) * 0.7))
+                    }
+                    cg.setAlpha(CGFloat(alpha))
                     cg.setFillColor(palette.ink.cgColor)
-                    cg.fillEllipse(in: CGRect(x: x + Double(index) * 13 - 3.6, y: y - 3.6,
-                                              width: 7.2, height: 7.2))
+                    cg.fillEllipse(in: CGRect(x: x + Double(index) * spacing - radius,
+                                              y: y - radius - lift,
+                                              width: radius * 2, height: radius * 2))
                 }
             case "alert":
                 cg.setStrokeColor(UIColor(red: 206.0 / 255.0, green: 94.0 / 255.0,

@@ -146,35 +146,115 @@ struct BotFishGalleryView: View {
 
 /// Animated companion to the still grid: the five runtime states whose motion
 /// the acceptance run samples three times. It lives in the capture app only.
+/// Each state shows the existing 88pt standard fish next to the old
+/// status-line size (28pt standard) and the new 28pt `.lively` fish, so the
+/// three-frame burst can compare per-tile frame deltas directly.
 struct BotFishDynamicGalleryView: View {
     static let states: [BotFishLifecycle] = [
         .thinking, .working, .speaking, .alerting, .celebrate,
     ]
+    static let workStyles: [BotFishWorkStyle] = [
+        .generic, .reading, .searching, .running, .writing,
+    ]
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("standard 88pt · standard 28pt · lively 28pt")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .padding(.horizontal, 20)
                 ForEach(Self.states, id: \.rawValue) { state in
-                    HStack(spacing: 16) {
-                        BotFishView(state: state, size: 88)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(state.rawValue)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(HomeSpec.textPrimary)
-                            Text("animated")
-                                .font(.system(size: 12))
-                                .foregroundStyle(HomeSpec.textSecondary)
+                    HStack(alignment: .top, spacing: 12) {
+                        tile(state: state, size: 88, profile: .standard,
+                             style: .generic, caption: "std 88", width: 88)
+                        tile(state: state, size: 28, profile: .standard,
+                             style: .generic, caption: "std 28", width: 58)
+                        if state == .celebrate {
+                            livelyCelebrationTile
+                        } else {
+                            tile(state: state, size: 28, profile: .lively,
+                                 style: .generic, caption: "lively", width: 58)
                         }
+                        Text(state.rawValue)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(HomeSpec.textPrimary)
+                            .padding(.top, 8)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 20)
                     .accessibilityIdentifier("bot.fish.dynamic.\(state.rawValue)")
                 }
+                Text("lively working styles · 28pt")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 2)
+                HStack(alignment: .top, spacing: 8) {
+                    ForEach(Self.workStyles, id: \.self) { style in
+                        tile(state: .working, size: 28, profile: .lively,
+                             style: style, caption: style.rawValue, width: 58)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("bot.fish.dynamic.workstyles")
             }
-            .padding(.vertical, 16)
+            .padding(.vertical, 12)
         }
         .background(HomeSpec.page)
         .accessibilityIdentifier("bot.fish.dynamic")
+    }
+
+    /// `celebrate` is a one-shot 1.2s clip (it holds its happy final pose for
+    /// the exit animation). The capture burst lands two seconds after launch,
+    /// so for the gallery only, restart the view every 1.2s to keep sampling
+    /// the hop itself.
+    private var livelyCelebrationTile: some View {
+        BotFishLivelyCelebrationTile(width: 58)
+    }
+
+    private func tile(state: BotFishLifecycle, size: CGFloat,
+                      profile: BotFishMotionProfile, style: BotFishWorkStyle,
+                      caption: String, width: CGFloat) -> some View {
+        VStack(spacing: 3) {
+            BotFishView(state: state, size: size, motionProfile: profile,
+                        workStyle: style)
+                .frame(width: size, height: size)
+            Text(caption)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: width)
+        }
+        .frame(width: width)
+    }
+}
+
+private struct BotFishLivelyCelebrationTile: View {
+    let width: CGFloat
+    @State private var cycle = 0
+
+    var body: some View {
+        VStack(spacing: 3) {
+            BotFishView(state: .celebrate, size: 28, motionProfile: .lively)
+                .id(cycle)
+                .frame(width: 28, height: 28)
+            Text("lively")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: width)
+        }
+        .frame(width: width)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                guard !Task.isCancelled else { return }
+                cycle &+= 1
+            }
+        }
     }
 }
 

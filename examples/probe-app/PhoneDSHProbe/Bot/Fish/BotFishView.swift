@@ -7,7 +7,9 @@
 //                 appearance: BotFishAppearance = .classic,
 //                 crowned: Bool = false,
 //                 still: Bool = false, allowsPoke: Bool = false,
-//                 reaction: BotFishReaction? = nil)
+//                 reaction: BotFishReaction? = nil,
+//                 motionProfile: BotFishMotionProfile = .standard,
+//                 workStyle: BotFishWorkStyle = .generic)
 
 import Combine
 import SwiftUI
@@ -27,6 +29,13 @@ struct BotFishView: View {
     /// the renderer plays one action clip or a 4 s face expression and then
     /// falls back to the lifecycle state.
     let reaction: BotFishReaction?
+    /// `.standard` is upstream behaviour. `.lively` is the app-only status
+    /// line profile (30fps + louder clips); it never reaches production
+    /// lifecycle code.
+    let motionProfile: BotFishMotionProfile
+    /// App-only `.working` sub-style; ignored for other lifecycle states and
+    /// for `.standard`.
+    let workStyle: BotFishWorkStyle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
@@ -42,7 +51,9 @@ struct BotFishView: View {
          appearance: BotFishAppearance = .classic,
          crowned: Bool = false,
          still: Bool = false, allowsPoke: Bool = false,
-         reaction: BotFishReaction? = nil) {
+         reaction: BotFishReaction? = nil,
+         motionProfile: BotFishMotionProfile = .standard,
+         workStyle: BotFishWorkStyle = .generic) {
         self.state = state
         self.size = size
         self.appearance = appearance
@@ -50,6 +61,8 @@ struct BotFishView: View {
         self.still = still
         self.allowsPoke = allowsPoke
         self.reaction = reaction
+        self.motionProfile = motionProfile
+        self.workStyle = workStyle
     }
 
     private var side: CGFloat { max(1, size) }
@@ -69,10 +82,13 @@ struct BotFishView: View {
         return false
     }
 
-    /// 20fps is the animation cap; the tiny 28/32/40pt avatars use 15fps,
-    /// where the upstream motion amplitudes are already boosted 2.2×.
+    /// Standard: 20fps cap, tiny 28/32/40pt avatars 15fps (the upstream
+    /// amplitudes are boosted there). Lively: 30fps cap. This view only draws
+    /// the timeline while `hardPaused` is false, so paused/hidden/low-power/
+    /// reduced-motion avatars still render one frozen frame and schedule none.
     private var frameInterval: Double {
-        size <= BotFishRenderer.motionBoostSmallSize ? 1.0 / 15.0 : 1.0 / 20.0
+        if motionProfile == .lively { return 1.0 / 30.0 }
+        return size <= BotFishRenderer.motionBoostSmallSize ? 1.0 / 15.0 : 1.0 / 20.0
     }
 
     /// Re-evaluated after a pause-condition, lifecycle, appearance, crown or
@@ -82,6 +98,7 @@ struct BotFishView: View {
             + "-\(appearance.hairstyle.rawValue)-\(crowned)-\(still)-\(reduceMotion)"
             + "-\(displayScale)-\(lowPowerMode)-\(isVisible)"
             + "-\(reaction?.id ?? "")"
+            + "-\(motionProfile.rawValue)-\(workStyle.rawValue)"
     }
 
     var body: some View {
@@ -94,7 +111,9 @@ struct BotFishView: View {
                                                still: still, reduced: reduceMotion,
                                                size: side, displayScale: displayScale,
                                                appearance: appearance, crowned: crowned,
-                                               reaction: reaction))
+                                               reaction: reaction,
+                                               profile: motionProfile,
+                                               workStyle: workStyle))
                 }
             }
         }
@@ -177,7 +196,8 @@ struct BotFishView: View {
         let frame = engine.advance(at: Date(), state: state, still: still,
                                    reduced: reduceMotion, size: side,
                                    displayScale: displayScale, appearance: appearance,
-                                   crowned: crowned, reaction: reaction)
+                                   crowned: crowned, reaction: reaction,
+                                   profile: motionProfile, workStyle: workStyle)
         frozenFrame = frame ?? engine.currentFrame
     }
 }

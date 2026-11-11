@@ -20,10 +20,12 @@ struct BotActivityLine: View {
     @State private var clockTask: Task<Void, Never>?
 
     private var text: String { line.text }
+    private var workStyle: BotFishWorkStyle { BotActivityPhrases.workStyle(for: activity.category) }
 
     var body: some View {
         HStack(spacing: 10) {
-            BotActivityFloatingFish(state: fishState, appearance: appearance, reaction: reaction)
+            BotActivityFloatingFish(state: fishState, appearance: appearance,
+                                    reaction: reaction, workStyle: workStyle)
                 .accessibilityHidden(true)
             BotActivityShimmerText(text: text)
         }
@@ -69,12 +71,16 @@ struct BotActivityLine: View {
     }
 }
 
-/// The status fish: its own state animation, plus a slow float and breath so
-/// the line reads as alive even when the state does not change.
+/// The status fish: the app-only `.lively` clip set carries the head sway,
+/// nod, squash and hop itself, with the working clip chosen from the activity
+/// category. The outer layer keeps only one slow 2.6s 1.00–1.025 breath (no
+/// vertical bob and no second 0.98–1.04 pulse), so the two layers do not
+/// fight each other and the 28pt line keeps its height.
 private struct BotActivityFloatingFish: View {
     let state: BotFishLifecycle
     let appearance: BotFishAppearance
     let reaction: BotFishReaction?
+    let workStyle: BotFishWorkStyle
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
@@ -82,9 +88,9 @@ private struct BotActivityFloatingFish: View {
 
     var body: some View {
         BotFishView(state: state, size: BotActivityLine.fishSize,
-                    appearance: appearance, reaction: reaction)
-            .offset(y: reduceMotion || !pageActive ? 0 : (up ? -2 : 1))
-            .scaleEffect(reduceMotion || !pageActive ? 1 : (up ? 1.04 : 0.98))
+                    appearance: appearance, reaction: reaction,
+                    motionProfile: .lively, workStyle: workStyle)
+            .scaleEffect(reduceMotion || !pageActive ? 1 : (up ? 1.025 : 1.0))
             .onAppear { start() }
             .onChange(of: reduceMotion) { _, _ in start() }
             .onChange(of: pageActive) { _, _ in start() }
@@ -95,7 +101,7 @@ private struct BotActivityFloatingFish: View {
         reset.disablesAnimations = true
         withTransaction(reset) { up = false }
         guard !reduceMotion, pageActive else { return }
-        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+        withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) {
             up = true
         }
     }

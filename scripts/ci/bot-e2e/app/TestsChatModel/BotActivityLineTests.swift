@@ -45,6 +45,28 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(BotActivityPhrases.primaryPhrase(for: .generic), "处理中")
     }
 
+    // MARK: - Fish work style
+
+    func testEveryCategorySelectsItsLivelyWorkingSubStyle() {
+        let expected: [BotActivityCategory: BotFishWorkStyle] = [
+            .reading: .reading,
+            .memory: .reading,
+            .searching: .searching,
+            .browsing: .searching,
+            .running: .running,
+            .writing: .writing,
+            .thinking: .generic,
+            .reviewing: .generic,
+            .messaging: .generic,
+            .generic: .generic,
+        ]
+        XCTAssertEqual(expected.count, BotActivityCategory.allCases.count)
+        for category in BotActivityCategory.allCases {
+            XCTAssertEqual(BotActivityPhrases.workStyle(for: category), expected[category],
+                           "work style for \(category.rawValue)")
+        }
+    }
+
     // MARK: - Model description
 
     func testModelDescriptionWinsButCategoryStillFollowsTool() {

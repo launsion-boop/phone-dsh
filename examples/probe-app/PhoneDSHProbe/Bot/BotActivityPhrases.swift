@@ -315,6 +315,21 @@ enum BotActivityPhrases {
         }
     }
 
+    // MARK: - Fish work style
+
+    /// The App-only `.lively` working sub-style for a category. `BotFishView`
+    /// ignores it unless the lifecycle is `.working`; it never becomes a
+    /// lifecycle state or enters the FishDirector schema.
+    static func workStyle(for category: BotActivityCategory) -> BotFishWorkStyle {
+        switch category {
+        case .reading, .memory: return .reading
+        case .searching, .browsing: return .searching
+        case .running: return .running
+        case .writing: return .writing
+        case .thinking, .reviewing, .messaging, .generic: return .generic
+        }
+    }
+
     // MARK: - 60s suffix
 
     /// `0` before a full minute, then the whole minutes for the same activity.
