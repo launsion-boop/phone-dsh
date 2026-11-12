@@ -17,7 +17,8 @@
 - **Contract first.** `spec/v1` is the host↔Worker contract; golden vectors are the interoperability oracle for the Swift
   and TypeScript codecs. Change the spec and the vectors together, in one change.
 - **Gates.** `bash scripts/ci/check.sh --list` shows every stage. A change must keep `phone-plugins`, `phone-sdk`,
-  `phone-image`, `phone-gate-contracts`, `phone-hygiene`, `phone-license` and `phone-no-dsh-patch` green; changes to
+  `phone-image`, `phone-gate-contracts`, `phone-github-oauth`, `phone-hygiene`, `phone-license` and
+  `phone-no-dsh-patch` green; changes to
   the host path also run `scripts/ci/smoke.sh` (macOS, real WKWebView). The Xcode package-resolution stage is optional
   on developer machines without XcodeGen/Xcode; a run with any skipped stage exits as `INCOMPLETE`, never `PASS`.
 - **Rust codec evidence.** `phone-rust-tests` runs `cargo test -p pdsh-wire -p pdsh-wal`
