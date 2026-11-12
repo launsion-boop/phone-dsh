@@ -258,7 +258,7 @@ internal class PclinkChunkReassembler(
 class PclinkRpc(
     private val configuration: PclinkRpcConfiguration = PclinkRpcConfiguration(),
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
-) : PclinkRpcHost {
+) : PclinkRpcHost, PclinkRelayEventHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
     private val random = SecureRandom()
@@ -297,6 +297,66 @@ class PclinkRpc(
      */
     override suspend fun sendInner(inner: PclinkJson) {
         receive(inner)
+    }
+
+    /**
+     * §10 `relay.offline` correlation. A frame that echoes `id`/`streamId`
+     * identifies exactly one undelivered call/stream: it settles as
+     * [PclinkError.PeerOffline] (the unsafe side effect did not happen) and
+     * never settles another in-flight frame. A `sid`-only frame identifies the
+     * session, not a frame: unsafe calls/streams become
+     * [PclinkError.UnknownOutcome], read/idempotent keep retrying per §7.
+     * `sid` and `id` must both agree with the pending call before an exact
+     * match is accepted, so a collision in a stale session cannot settle this
+     * one. Returns true when a pending call/stream matched.
+     */
+    override fun onRelayOffline(offline: PclinkRelayOffline): Boolean {
+        if (isClosed()) return false
+        val exactCalls = ArrayList<PendingCall>()
+        val exactStreams = ArrayList<PclinkRpcStream>()
+        val lostCalls = ArrayList<PendingCall>()
+        val lostStreams = ArrayList<PclinkRpcStream>()
+        synchronized(lock) {
+            if (closed) return false
+            val sid = offline.sid
+            val identifiesFrame = offline.id != null || offline.streamId != null
+            if (identifiesFrame) {
+                offline.id?.let { id ->
+                    val pending = pendingCalls[id]
+                    if (pending != null && (sid == null || pending.sid == sid)) {
+                        exactCalls.add(pending)
+                    }
+                }
+                offline.streamId?.let { streamId ->
+                    val stream = streams[streamId]
+                    if (stream != null && (sid == null || stream.sid == sid)) {
+                        exactStreams.add(stream)
+                    }
+                }
+            } else {
+                for (call in pendingCalls.values) {
+                    if (sid == null || call.sid == sid) lostCalls.add(call)
+                }
+                for (stream in streams.values) {
+                    if (sid == null || stream.sid == sid) lostStreams.add(stream)
+                }
+            }
+        }
+        for (call in exactCalls) failCall(call, PclinkError.PeerOffline())
+        for (call in lostCalls) failCallLost(call, PclinkError.PeerOffline())
+        for (stream in exactStreams) {
+            if (removeStream(stream)) stream.finish(PclinkError.PeerOffline())
+        }
+        for (stream in lostStreams) {
+            val error: Exception = if (stream.retry == PclinkRetryClass.UNSAFE) {
+                PclinkError.UnknownOutcome(stream.endpoint)
+            } else {
+                PclinkError.PeerOffline()
+            }
+            if (removeStream(stream)) stream.finish(error)
+        }
+        return exactCalls.isNotEmpty() || exactStreams.isNotEmpty() ||
+            lostCalls.isNotEmpty() || lostStreams.isNotEmpty()
     }
 
     // ---- Unary calls ---------------------------------------------------
