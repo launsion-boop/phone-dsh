@@ -33,6 +33,7 @@ package com.phonedsh.probe
 import com.phonedsh.dsh.localexec.UbuntuApproval
 import android.util.Log
 import android.view.View
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
@@ -84,6 +85,7 @@ import com.phonedsh.engine.HandshakeSummary
 import com.phonedsh.engine.KernelVerdict
 import com.phonedsh.platform.EngineHostState
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.nav.BackCoordinator
 import com.phonedsh.ui.nav.PdshBackLevel
 import com.phonedsh.ui.nav.PdshHostAction
 import com.phonedsh.ui.nav.SettingsWrite
@@ -99,10 +101,15 @@ import com.phonedsh.ui.nav.HomeDrawerArchiveRequest
 import com.phonedsh.ui.nav.rememberHomeDrawerUiState
 import com.phonedsh.ui.nav.PdshNavState
 import com.phonedsh.ui.nav.PdshRoute
+import com.phonedsh.ui.nav.HomeTab
 import com.phonedsh.ui.nav.HomeTabBar
+import com.phonedsh.ui.nav.PushBackState
+import com.phonedsh.ui.nav.PushOverlay
 import com.phonedsh.ui.nav.selectHomeTab
 import com.phonedsh.ui.nav.selectedHomeTab
 import com.phonedsh.ui.nav.confirms
+import com.phonedsh.ui.sheet.SheetBackHost
+import com.phonedsh.ui.theme.generated.TokenBackLayer
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.AgentPresetActions
 import com.phonedsh.ui.page.PhoneCapability
@@ -121,6 +128,139 @@ import java.util.UUID
 /** The installed app opens the real conversation; the diagnostic face is opt-in. */
 internal fun initialHostNavState(probeFaceOnLaunch: Boolean): PdshNavState =
     PdshNavState(listOf(if (probeFaceOnLaunch) PdshRoute.Home else PdshRoute.Chat))
+
+/**
+ * How many pages sit above [tab]'s root in [nav].
+ *
+ * The host keeps one route stack, so the selected tab's depth is the only one
+ * the stack can truthfully carry; a tab whose root is not on the stack (the
+ * diagnostic [PdshRoute.Home] face) counts every route above the stack floor.
+ * The probe pushes pages over `Home`, so its floor is index 0, not the last
+ * index.
+ */
+internal fun PdshNavState.hostPushDepth(tab: HomeTab): Int {
+    // The *first* occurrence is the tab's root; a later route may name the same
+    // page (Sessions → Chat pushes Chat again), and that push is a level above
+    // the root rather than a new floor.
+    val rootIndex = stack.indexOfFirst { it == tab.root }
+    val floorIndex = if (rootIndex >= 0) rootIndex else 0
+    return (stack.lastIndex - floorIndex).coerceAtLeast(0)
+}
+
+/**
+ * Mirrors [nav]'s selected-tab depth into the contract's push state.
+ *
+ * `interaction.md` §4 rule 1 wants one stack per tab, but [PdshNavState] is a
+ * single stack: storing a depth for a tab the host is not showing would be a
+ * number no route can reach. The mirror therefore records the selected tab
+ * only; every depth is recomputed from the route stack at the moment it moves.
+ * Overlays and the keyboard flag are not depth and are preserved untouched.
+ */
+internal fun PushBackState.mirroredTo(nav: PdshNavState, tab: HomeTab = selectedTab): PushBackState {
+    val depth = nav.hostPushDepth(tab)
+    return copy(
+        selectedTab = tab,
+        stackDepths = if (depth == 0) emptyMap() else mapOf(tab to depth),
+    )
+}
+
+/**
+ * The host's one navigation value: the route stack and the layered back state.
+ *
+ * `interaction.md` §4 makes [PushBackState] the authority for the tab bar
+ * (rule 4), tab selection (rules 1-2) and layer order (rule 5), while the
+ * pages are still rendered from [PdshNavState]. Keeping both halves in one
+ * value is what stops the two from drifting: every transition below updates
+ * both, and [applyPushState] is the only way a coordinator transition reaches
+ * the route stack. A back that the coordinator reports at depth 0 leaves both
+ * halves unchanged, so the platform's own exit remains in charge.
+ */
+internal data class HostBackChain(
+    val nav: PdshNavState = productFloor,
+    val pushBack: PushBackState = PushBackState(),
+) {
+    private companion object {
+        /** The product floor; the diagnostic `Home` face is built explicitly. */
+        val productFloor: PdshNavState = PdshNavState(listOf(PdshRoute.Chat))
+    }
+
+    /** True while the drawer's overlay layer is present (`interaction.md` §1 rule 9). */
+    val drawerOpen: Boolean get() = PushOverlay.DRAWER in pushBack.overlays
+
+    /** The selected tab's contract depth; the tab bar reads [PushBackState.tabBarVisible]. */
+    val depth: Int get() = pushBack.depth
+
+    /** Push one route and add one level to the selected tab's mirrored depth. */
+    fun push(route: PdshRoute): HostBackChain = withNav(nav.push(route))
+
+    /**
+     * Pop one route, mirroring the depth. The page header's back arrow calls
+     * this directly (there is no gesture to dispatch), so the tab bar returns
+     * at the same moment the route does.
+     */
+    fun pop(): HostBackChain {
+        if (!nav.canGoBack) return this
+        return withNav(nav.pop())
+    }
+
+    /**
+     * `interaction.md` §4 rules 1-2: select a tab. A re-tap of the current tab
+     * returns this value, so it can never pop to root. `nav.selectHomeTab`
+     * remains the route half of the same transition; because that stack is
+     * single, the target tab's depth is recomputed from its root (the `:lib`
+     * `PdshNavState` can carry only one tab's pages — see the handoff gap).
+     */
+    fun selectTab(tab: HomeTab): HostBackChain {
+        val selected = pushBack.selectTab(tab)
+        if (selected === pushBack) return this
+        val next = nav.selectHomeTab(tab)
+        return copy(nav = next, pushBack = selected.mirroredTo(next, tab))
+    }
+
+    /** §1 rule 9: the drawer becomes the top overlay; the page stack is untouched. */
+    fun openDrawer(): HostBackChain = copy(pushBack = pushBack.openOverlay(PushOverlay.DRAWER))
+
+    /** Close the drawer overlay only; the motion stays mounted until `onClose`. */
+    fun closeDrawer(): HostBackChain = copy(pushBack = pushBack.closeOverlay(PushOverlay.DRAWER))
+
+    /** §4 rule 4: the keyboard hides the bar without touching the stack. */
+    fun withKeyboard(visible: Boolean): HostBackChain =
+        copy(pushBack = pushBack.withKeyboardVisible(visible))
+
+    /**
+     * Return to a single-route floor (`Home` or `Chat`) and drop every overlay.
+     * The drawer stays mounted through its close motion because [drawerOpen]
+     * turns false here; the host clears `drawerMounted` only in `onClose`.
+     */
+    fun resetTo(route: PdshRoute, tab: HomeTab = HomeTab.TASKS): HostBackChain = copy(
+        nav = PdshNavState(listOf(route)),
+        pushBack = pushBack.copy(selectedTab = tab, stackDepths = emptyMap(), overlays = emptyList()),
+    )
+
+    /**
+     * Apply one [BackCoordinator] transition.
+     *
+     * The coordinator consumes exactly one layer (`interaction.md` §4 rule 5).
+     * A stack pop must also pop the route it names; an overlay close must leave
+     * the route stack alone. The depth difference is that decision, so the host
+     * never repeats the layer order here.
+     */
+    fun applyPushState(next: PushBackState): HostBackChain {
+        val pops = (pushBack.depth - next.depth).coerceAtLeast(0)
+        var nextNav = nav
+        repeat(pops) { nextNav = nextNav.pop() }
+        // A pop that lands on a tab root names that tab; a pop that lands on a
+        // pushed page keeps the tab the person selected.
+        val tab = if (pops > 0) nextNav.selectedHomeTab() ?: next.selectedTab else next.selectedTab
+        return copy(nav = nextNav, pushBack = next.mirroredTo(nextNav, tab))
+    }
+
+    /** Move the route stack and keep `selectedTab` on the tab root under it. */
+    private fun withNav(next: PdshNavState): HostBackChain {
+        val tab = next.selectedHomeTab() ?: pushBack.selectedTab
+        return copy(nav = next, pushBack = pushBack.mirroredTo(next, tab))
+    }
+}
 
 private fun ShellRun.withExecEvent(event: com.phonedsh.dsh.exec.ExecEvent): ShellRun = when (event) {
     is com.phonedsh.dsh.exec.ExecEvent.Start -> copy(runningExecId = event.execId)
@@ -326,7 +466,41 @@ internal fun HostShell(
     var activeProviderSaveRequest by remember { mutableStateOf<String?>(null) }
     val providerProbeScope = rememberCoroutineScope()
     var notice by remember { mutableStateOf<String?>(null) }
-    var nav by remember { mutableStateOf(initialHostNavState(engine.probeFaceOnLaunch())) }
+    // The route stack and the contract's push state move as one value: the tab
+    // bar, the drawer overlay and the coordinator all read the same [hostBack],
+    // so a back gesture can never leave the two halves at different depths.
+    var hostBack by remember {
+        mutableStateOf(HostBackChain(nav = initialHostNavState(engine.probeFaceOnLaunch())))
+    }
+    val nav: PdshNavState = hostBack.nav
+
+    fun pushRoute(route: PdshRoute) {
+        hostBack = hostBack.push(route)
+    }
+
+    fun popRoute() {
+        hostBack = hostBack.pop()
+    }
+
+    fun selectHomeTab(tab: HomeTab) {
+        hostBack = hostBack.selectTab(tab)
+    }
+
+    fun resetTo(route: PdshRoute) {
+        hostBack = hostBack.resetTo(route)
+    }
+
+    fun openHostDrawer() {
+        hostBack = hostBack.openDrawer()
+    }
+
+    fun closeHostDrawer() {
+        hostBack = hostBack.closeDrawer()
+    }
+
+    fun applyPushState(next: PushBackState) {
+        hostBack = hostBack.applyPushState(next)
+    }
     var shellRun by remember { mutableStateOf(ShellRun()) }
     var speechNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(nav.current) {
@@ -645,10 +819,10 @@ internal fun HostShell(
             }
         }
         available(com.phonedsh.ui.nav.PdshActionKey.OPEN_SETTINGS) { request ->
-            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSettings) nav = nav.push(PdshRoute.Settings)
+            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSettings) pushRoute(PdshRoute.Settings)
         }
         available(com.phonedsh.ui.nav.PdshActionKey.OPEN_SCHEDULES) { request ->
-            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSchedules) nav = nav.push(PdshRoute.Automation)
+            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSchedules) pushRoute(PdshRoute.Automation)
         }
         available(com.phonedsh.ui.nav.PdshActionKey.PROVIDER_GET_MODELS) { request ->
             if (request is com.phonedsh.ui.nav.PdshUiHostCommand.ProviderGetModels) {
@@ -743,7 +917,7 @@ internal fun HostShell(
                     val receipt = engine.newChatSessionConfirmed(request.requestId)
                     if (receipt.confirms(request.requestId, receipt.sessionId, null)) {
                         if (draft.isNotEmpty()) engine.chatDraftChanged(draft)
-                        nav = PdshNavState(listOf(PdshRoute.Chat))
+                        resetTo(PdshRoute.Chat)
                     }
                 }
             }
@@ -813,13 +987,15 @@ internal fun HostShell(
     // rather than inside the remembered walk.
     val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, tonoAccount = tonoAccountFacts, lan = lanFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
-        if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
+        if (chatUi.commandExecution != null) pushRoute(PdshRoute.CommandResult)
     }
     // The model may have saved a new target with android_connect since the last read.
     LaunchedEffect(nav.current) {
         if (nav.current == PdshRoute.AndroidAdb) androidAdb.refresh()
     }
-    var drawerOpen by remember { mutableStateOf(false) }
+    // The drawer's open state is the contract's DRAWER overlay (`interaction.md`
+    // §1 rule 9), so the system back and the close button consume the same layer.
+    val drawerOpen = hostBack.drawerOpen
     // The drawer stays mounted after the host closes it (selecting a session, a tab,
     // a route) so its close motion can run (spec/ui/v1/interaction.md §1 rule 8);
     // HomeDrawer reports the end of that motion through onClose.
@@ -885,32 +1061,54 @@ internal fun HostShell(
         LaunchedEffect(state, webFaceOnLaunch) {
             if (webFaceOnLaunch && !webFaceOpened && state is EngineHostState.Running) {
                 webFaceOpened = true
-                nav = nav.push(PdshRoute.WebSurface)
+                pushRoute(PdshRoute.WebSurface)
             }
         }
-        // `spec/ui/v1/README.md` §5 back-gesture: one gesture pops one level, and the
-        // root page exits the app. The chain is three deep because two of its levels
-        // are not routes: the drawer, the top route's own inner level (a sheet's
-        // child page, a folder drill-down, an embedded preview — registered by the
-        // route through `PdshBackLevel`), then the route stack. When none of the
-        // three can consume the gesture no callback is registered, which is what
-        // leaves "exit the app" to the platform's own default behaviour.
+        // `spec/ui/v1/README.md` §5 back-gesture: one gesture consumes exactly
+        // one layer in `interaction.md` §4 rule 5's order (sheet, drawer, stack,
+        // root). [BackCoordinator] is that order's only owner; this host supplies
+        // the two inner levels a route owns:
         //
-        // L62 adds a fourth level *above* the route stack: the probe is the home
-        // address's host-owned face, so while it is showing, one gesture leaves it
-        // for the product home instead of closing the app.
+        //   * STACK — the rendered page's own inner level (`PdshBackLevel`: a
+        //     folder drill-down, an embedded preview), then the route pop;
+        //   * SHEET — a mounted `PdshSheet`, whose own inner stack pops before
+        //     the sheet closes (§2 rule 9). The sheet layer is backed by the one
+        //     [SheetBackHost] this host owns, so page sheets register on the same
+        //     decider rather than a per-sheet chain.
+        //
+        // The probe is the host's own face *at* the home address (L62), not a
+        // route: while it is showing, its root back leaves it for the product
+        // home. Passing `onExit` only for that case keeps the real root free of a
+        // callback, which is what leaves "exit the app" (and the platform's
+        // back-to-home animation) to the platform itself.
         val backLevel = remember { PdshBackLevel() }
-        PdshBackHandler(enabled = drawerOpen || probeOpen || backLevel.available || nav.canGoBack) {
-            when {
-                drawerOpen -> drawerOpen = false
-                probeOpen -> {
-                    probeOpen = false
-                    nav = PdshNavState(listOf(PdshRoute.Chat))
-                }
-                backLevel.consume() -> Unit
-                else -> nav = nav.pop()
-            }
+        val sheetBackHost = remember { SheetBackHost() }
+        val sheetBackLayer = remember(sheetBackHost) {
+            observingBackLayer(TokenBackLayer.SHEET) { sheetBackHost.dispatch() }
         }
+        val stackBackLayer = remember(backLevel) {
+            observingBackLayer(TokenBackLayer.STACK) { backLevel.consume() }
+        }
+        val activityBackDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+        BackCoordinator(
+            state = hostBack.pushBack,
+            onStateChange = { next -> applyPushState(next) },
+            layers = remember(sheetBackLayer, stackBackLayer) {
+                listOf(sheetBackLayer, stackBackLayer)
+            },
+            // Only the diagnostic face intercepts the root; anywhere else the
+            // platform's default exit stays in charge (`BackCoordinator` then
+            // registers no callback at all).
+            onExit = if (probeOpen) {
+                {
+                    probeOpen = false
+                    resetTo(PdshRoute.Chat)
+                }
+            } else {
+                null
+            },
+            enabled = hostBack.pushBack.canConsumeBack || probeOpen,
+        )
         val note = notice ?: speechNotice ?: routeNote
         val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         Box(Modifier.fillMaxSize().background(tokens.colors.selector)) {
@@ -936,7 +1134,11 @@ internal fun HostShell(
                 val homeTab = if (probeOpen) null else nav.selectedHomeTab()
                 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
                 val imeVisible = WindowInsets.isImeVisible
-                val showTabBar = homeTab != null && !imeVisible
+                // §4 rule 4: the bar follows the *selected tab's* contract depth
+                // and leaves while the keyboard is up. `PushBackState` owns both
+                // facts; the host only supplies the measured IME state.
+                val showTabBar = homeTab != null &&
+                    hostBack.withKeyboard(imeVisible).pushBack.tabBarVisible
                 Box(
                     Modifier
                         .weight(1f)
@@ -948,15 +1150,15 @@ internal fun HostShell(
                         nav = nav,
                         facts = shownFacts,
                         onNavigate = { route ->
-                            drawerOpen = false
-                            nav = nav.push(route)
+                            closeHostDrawer()
+                            pushRoute(route)
                         },
-                        onBack = { nav = nav.pop() },
+                        onBack = { popRoute() },
                         onHome = {
                             // 原生恢复 returns to the *product* home, never back
                             // into the diagnostic face the person left open.
                             probeOpen = false
-                            nav = PdshNavState(listOf(PdshRoute.Chat))
+                            resetTo(PdshRoute.Chat)
                         },
                         onHostAction = { action ->
                             // L72: one action is a navigation edge, not a handoff —
@@ -983,7 +1185,7 @@ internal fun HostShell(
                                 lanDiscovery.handle(action)
                             } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
-                                nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
+                                pushRoute(PdshRoute.Files(action.id.ifBlank { null }))
                             } else if (action == PdshHostAction.RestartRuntime) {
                                 engine.restartChatEngine()
                                 notice = null
@@ -1201,7 +1403,7 @@ internal fun HostShell(
                         // it (see `HostPhonePermissions.kt`).
                         onPhonePermissionRequest = onPhonePermissionRequest,
                         onPhonePermissionSettings = onPhonePermissionSettings,
-                        onOpenDrawer = { drawerOpen = true },
+                        onOpenDrawer = { openHostDrawer() },
                         onOpenSubagentSession = engine::openSubagentSession,
                         onLoadEarlierChatTranscript = engine::loadEarlierSubagentTranscript,
                         onFilesImportRequest = onPickWorkspaceFile,
@@ -1260,7 +1462,7 @@ internal fun HostShell(
                                 )
                                 if (failure == null) {
                                     notice = null
-                                    nav = PdshNavState(listOf(PdshRoute.Chat))
+                                    resetTo(PdshRoute.Chat)
                                 }
                                 failure
                             },
@@ -1284,11 +1486,11 @@ internal fun HostShell(
                                     onStart = onStart,
                                     onStop = onStop,
                                     onRunTurn = onRunTurn,
-                                    onOpenDrawer = { drawerOpen = true },
-                                    onOpenConfiguration = { nav = nav.push(PdshRoute.Configuration) },
-                                    onOpenRuntime = { nav = nav.push(PdshRoute.Runtime) },
+                                    onOpenDrawer = { openHostDrawer() },
+                                    onOpenConfiguration = { pushRoute(PdshRoute.Configuration) },
+                                    onOpenRuntime = { pushRoute(PdshRoute.Runtime) },
                                     onOpenWorkbench = { section, path ->
-                                        nav = nav.push(
+                                        pushRoute(
                                             PdshRoute.Workbench(previewPath = path, section = section),
                                         )
                                     },
@@ -1300,9 +1502,9 @@ internal fun HostShell(
                                     turn = turn,
                                     providerConfigured = providerConfigured,
                                     onHostNotice = { notice = it },
-                                    onOpenDrawer = { drawerOpen = true },
-                                    onOpenModelProvider = { nav = nav.push(PdshRoute.ModelProvider) },
-                                    onOpenChat = { nav = nav.push(PdshRoute.Chat) },
+                                    onOpenDrawer = { openHostDrawer() },
+                                    onOpenModelProvider = { pushRoute(PdshRoute.ModelProvider) },
+                                    onOpenChat = { pushRoute(PdshRoute.Chat) },
                                 )
                             }
                         },
@@ -1315,13 +1517,13 @@ internal fun HostShell(
                                 engine = engine,
                                 state = state,
                                 turn = turn,
-                                onBack = { nav = nav.pop() },
+                                onBack = { popRoute() },
                                 onHostNotice = { notice = it },
                                 // L69: selecting a row (or 新建会话) opens the chat at
                                 // that conversation. The list stays the drawer's
                                 // 会话 page; the person lands on the transcript they
                                 // chose instead of an empty one.
-                                onOpenChat = { nav = nav.push(PdshRoute.Chat) },
+                                onOpenChat = { pushRoute(PdshRoute.Chat) },
                             )
                         },
                         // The chain's middle level: what the top route can still go
@@ -1384,12 +1586,14 @@ internal fun HostShell(
                         artifacts = artifactFacts,
                     )
                 }
-                if (showTabBar && homeTab != null) {
+                if (showTabBar) {
                     HomeTabBar(
                         selection = homeTab,
                         onSelect = { tab ->
-                            drawerOpen = false
-                            nav = nav.selectHomeTab(tab)
+                            // A re-tap is a no-op inside `selectTab` (§4 rule 2), and
+                            // the target tab's route stack is the only one this host owns.
+                            closeHostDrawer()
+                            selectHomeTab(tab)
                         },
                     )
                 }
@@ -1473,14 +1677,25 @@ internal fun HostShell(
                     facts = drawerFacts,
                     isOpen = drawerOpen,
                     state = drawerUiState,
-                    onClose = { drawerOpen = false; drawerMounted = false },
+                    // One back, one layer: the drawer's dialog forwards the gesture
+                    // to the Activity's [BackCoordinator] and the host starts the
+                    // same close motion. The guard keeps a gesture made in the
+                    // one-frame gap after the overlay closed (session chosen,
+                    // drawer still animating) from reaching the platform default,
+                    // which would exit the app instead of doing nothing.
+                    onBackPressed = {
+                        if (hostBack.pushBack.canConsumeBack || probeOpen) {
+                            activityBackDispatcher?.onBackPressed()
+                        }
+                    },
+                    onClose = { closeHostDrawer(); drawerMounted = false },
                     onCreateSession = {
                         val requestId = StateRequestId(UUID.randomUUID().toString())
                         val receipt = engine.newChatSessionConfirmed(requestId)
                         val created = receipt.confirms(requestId, receipt.sessionId, null)
                         if (created) {
                             notice = null
-                            nav = PdshNavState(listOf(PdshRoute.Chat))
+                            resetTo(PdshRoute.Chat)
                             settingsRevision++
                         } else {
                             drawerSnapshotFailure = "新会话没有创建成功，列表未改变。请重试。"
@@ -1494,7 +1709,7 @@ internal fun HostShell(
                         if (created) {
                             notice = null
                             drawerSnapshotFailure = null
-                            nav = PdshNavState(listOf(PdshRoute.Chat))
+                            resetTo(PdshRoute.Chat)
                             settingsRevision++
                         }
                         created
@@ -1532,8 +1747,7 @@ internal fun HostShell(
                     onOpenSession = { id ->
                         engine.openChatSession(id)
                         notice = null
-                        drawerOpen = false
-                        nav = PdshNavState(listOf(PdshRoute.Chat))
+                        resetTo(PdshRoute.Chat)
                     },
                     onArchiveSession = { request: HomeDrawerArchiveRequest ->
                         val receipt = withContext(Dispatchers.IO) {

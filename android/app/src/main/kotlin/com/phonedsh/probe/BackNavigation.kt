@@ -1,4 +1,4 @@
-// The one back chain and the one predictive-back measurement.
+// The layered back chain's observation half (`interaction.md` §4, rule 6).
 // SPDX-License-Identifier: MIT
 //
 // `spec/ui/v1/README.md` §5 `back-gesture`: 系统预测性返回，页面栈逐级出栈，根页面退出应用；
@@ -6,88 +6,69 @@
 // `platform.predictive-back` names the mechanism (`OnBackInvokedCallback`, androidx's
 // `OnBackPressedDispatcher`) and its evidence level (`emulator-probe`).
 //
-// This file owns the two things a Compose `BackHandler` call cannot express:
+// The chain itself is `ui/nav/BackCoordinator` (one callback, `interaction.md`
+// §4 rule 5). This file owns only what a library component cannot know: whether
+// this *platform* really carried a gesture through the new back path. The
+// manifest declares `android:enableOnBackInvokedCallback="true"`; that is a
+// build-time claim. The proof is a predictive animation event (API 34+), so the
+// settings row reports what arrived instead of what the manifest asked for.
 //
-//   1. the *chain*. One gesture means, in order, close the drawer, step out of the
-//      top route's own inner level (a sheet's sub-page, a folder drill-down, an
-//      embedded preview — the route registers it on [PdshBackLevel]), pop the route
-//      stack. Nothing else registers a back callback, so the order is one place.
-//   2. the *measurement*. The manifest declares
-//      `android:enableOnBackInvokedCallback="true"`; that is a build-time claim.
-//      Whether this platform actually carries the gesture through the new path is
-//      only observable when the platform sends an animation event
-//      (`OnBackPressedCallback.handleOnBackStarted`, API 34+), so the settings row
-//      reports what arrived instead of what the manifest asked for. See
-//      [predictiveBackFact].
+// The observation hangs off the coordinator's layer delegates rather than a
+// second `OnBackPressedCallback`: the platform dispatches a gesture to one
+// enabled callback (the last registered), so a separate observer would either
+// never run or consume the gesture twice. [observingBackLayer] forwards the
+// delegate callbacks the coordinator already delivers to the active layer.
 //
 // Why the root case registers nothing: a callback that popped-and-finished would
 // produce the same visible result, but it would take the task away from the
 // platform's own predictive animation and from the multi-window/recents semantics
-// that apply when the *system* ends an Activity. So `enabled` is false at the root
-// and the platform's default (finish) runs.
+// that apply when the *system* ends an Activity. `BackCoordinator` is disabled
+// there and the platform's default (finish) runs.
 package com.phonedsh.probe
 
 import android.os.Build
 import android.util.Log
-import androidx.activity.BackEventCompat
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.phonedsh.ui.nav.PdshNavFacts
+import com.phonedsh.ui.nav.PushBackLayer
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.SettingsPlatformFacts
+import com.phonedsh.ui.theme.generated.TokenBackLayer
 
 /**
- * The one system-back handler for the whole app.
+ * Wraps one [PushBackLayer] so the coordinator's gesture callbacks also feed
+ * [PredictiveBack].
  *
- * When [enabled] is false the callback is not registered at all, so the platform's
- * default behaviour runs: at the root route that is `finish()`, which is the
- * documented Android behaviour for "back at the start of the task" and the one the
- * predictive back-to-home animation is attached to.
+ * The coordinator calls `onPredictiveBack*` only on the topmost present layer's
+ * delegate, which is exactly the gesture the person performed; the delegate
+ * stays the only consumer of the back. A gesture at the root registers no
+ * callback at all, and no observation is claimed for it.
  *
- * The animation overrides do not change what back *does*: they only record that the
- * platform delivered a predictive gesture, which is what [predictiveBackFact]
- * reports. A host that saw no gesture keeps saying 未知 rather than claiming the
- * manifest made it so.
- *
- * @param enabled whether any level of the chain can consume the gesture.
- * @param onBack consumes one level; only called when [enabled].
+ * @param layer the generated layer this delegate owns.
+ * @param onConsume the layer's own one-level back; `true` leaves the state alone.
  */
-@Composable
-internal fun PdshBackHandler(enabled: Boolean, onBack: () -> Unit) {
-    val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher ?: return
-    // The lambda closes over `nav`, which moves on every gesture; the callback is
-    // registered once per `enabled` change, so it must read the latest lambda.
-    val current = rememberUpdatedState(onBack)
-    DisposableEffect(dispatcher, enabled) {
-        if (!enabled) {
-            return@DisposableEffect onDispose {}
-        }
-        val callback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                PredictiveBack.observeStarted(backEvent.progress)
-            }
+internal fun observingBackLayer(
+    layer: TokenBackLayer,
+    onConsume: () -> Boolean,
+): PushBackLayer = object : PushBackLayer {
+    override val layer: TokenBackLayer = layer
 
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                PredictiveBack.observeProgressed(backEvent.progress)
-            }
+    override fun consumeBack(): Boolean = onConsume()
 
-            override fun handleOnBackCancelled() {
-                PredictiveBack.observeCancelled()
-            }
+    override fun onPredictiveBackStarted() {
+        PredictiveBack.observeStarted(0f)
+    }
 
-            override fun handleOnBackPressed() {
-                current.value()
-            }
-        }
-        dispatcher.addCallback(callback)
-        onDispose { callback.remove() }
+    override fun onPredictiveBackProgressed(progress: Float) {
+        PredictiveBack.observeProgressed(progress)
+    }
+
+    override fun onPredictiveBackCancelled() {
+        PredictiveBack.observeCancelled()
     }
 }
 
