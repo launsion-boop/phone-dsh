@@ -302,6 +302,14 @@ public actor BotMCPRuntime {
     /// session/page, short enough to stay far below the 130 s Worker client
     /// deadline.
     public static let defaultRuntimeReadinessTimeoutMilliseconds = 10_000
+    /// How long an interactive chat egress write waits for a present user
+    /// before returning the durable pending answer. Kept below the common
+    /// `curl -m 30` budget so the caller receives the human "approval
+    /// submitted" sentence instead of `Fetch is aborted`; an approval landing
+    /// inside the window completes the same request. Task/routine egress
+    /// writes never wait because they have a parked host recovery point.
+    static let defaultEgressInteractiveWaitMilliseconds: Int64 = 20_000
+    var egressInteractiveWaitMilliseconds = defaultEgressInteractiveWaitMilliseconds
 
     public init(
         store: SQLiteDomainStore,
@@ -371,6 +379,12 @@ public actor BotMCPRuntime {
             let budget = max(0, timeoutMilliseconds)
             return { _ in await closure(budget) }
         }
+    }
+
+    /// Test seam for the bounded interactive egress wait. Production keeps the
+    /// default; a test can force the pending fallback without waiting 20 s.
+    func setEgressInteractiveWaitMilliseconds(_ value: Int64) {
+        egressInteractiveWaitMilliseconds = max(0, value)
     }
 
     /// One bounded wait for the App composition to finish reattaching a
@@ -1004,8 +1018,15 @@ public actor BotMCPRuntime {
     /// any card is created. The subset was issued by the host at task creation
     /// and cannot be widened by command text, a model argument or a standing
     /// Grant.
+    /// `hostAllowed` is the gateway allow-list decision computed before this
+    /// seam runs. A Task without `task.network-write` is denied with its named
+    /// cause even when the host is outside the allow-list (the Task subset
+    /// check is the first, stable answer). Other not-allowed hosts keep the
+    /// workbench behaviour and are answered by the gateway's ordinary
+    /// `host_not_allowed` failure, without a card.
     public func approveEgress(method: String, host: String, scheme: String,
-                              port: Int?) async -> BotEgressApproval {
+                              port: Int?,
+                              hostAllowed: Bool = true) async -> BotEgressApproval {
         let upper = method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard ["POST", "PUT", "PATCH", "DELETE"].contains(upper) else { return .notBot }
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1062,6 +1083,7 @@ public actor BotMCPRuntime {
             if let denial = taskNetworkWriteDenial(principal: chosen.principal) {
                 return denial
             }
+            guard hostAllowed else { return .notBot }
             guard let call = BotResolvedToolCall(
                 sessionId: chosen.attribution.sessionId, callId: chosen.attribution.callId,
                 agentId: chosen.principal.botId, principal: chosen.principal,
@@ -1081,13 +1103,14 @@ public actor BotMCPRuntime {
         // diverted to another Bot merely because the workbench is busy.
         if await (workbenchTurnProbe?() ?? false) { return .notBot }
         return await unattributedEgressApproval(
-            host: normalizedHost, target: target, method: upper)
+            host: normalizedHost, target: target, method: upper,
+            hostAllowed: hostAllowed)
     }
 
     /// One active Bot and no live registration: ask that Bot's user. Several
     /// active Bots (or none) cannot be attributed safely.
     private func unattributedEgressApproval(
-        host: String, target: String, method: String
+        host: String, target: String, method: String, hostAllowed: Bool
     ) async -> BotEgressApproval {
         let principals = await gateway.tokens.activePrincipals()
         let bots = Set(principals.map(\.botId))
@@ -1107,6 +1130,7 @@ public actor BotMCPRuntime {
         if let denial = taskNetworkWriteDenial(principal: principal) {
             return denial
         }
+        guard hostAllowed else { return .notBot }
         guard let call = syntheticEgressCall(principal: principal) else {
             return .denied(
                 code: "bot_egress_unattributed",
@@ -1129,7 +1153,7 @@ public actor BotMCPRuntime {
         else { return nil }
         return .denied(
             code: "task_network_write_denied",
-            message: "the Task session has no task.network-write authorization")
+            message: "Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出")
     }
 
     /// A card-bearing call for the fallback. It is never persisted as an
@@ -1158,47 +1182,72 @@ public actor BotMCPRuntime {
         return ""
     }
 
-    /// Shared card wait/cancellation for an attributed call and the fallback.
+    /// Shared bounded wait/cancellation for an attributed call and the
+    /// fallback. Egress writes are always durable: a Worker `curl` can abort
+    /// while the user is deciding, so holding its `/v1/http` request for the
+    /// full 300 s decision window loses the response. A chat write waits only
+    /// `egressInteractiveWaitMilliseconds` (so a present user still completes
+    /// the same request); after that the card stays pending and the approved
+    /// retry consumes its once Grant.
     private func requestEgressApproval(
         call: BotResolvedToolCall, effect: BotToolEffect,
         command: String
     ) async -> BotEgressApproval {
         let cancellation = BotEgressApprovalCancellation(approvals: approvals)
-        let persistence = approvalPersistence(for: call)
+        let isChat = call.principal.kind == .chat
         let outcome = await withTaskCancellationHandler {
             let result = await approvals.request(
                 call: call, effects: [effect],
                 action: effect.label, detail: effect.detail,
                 command: command, alwaysScope: "until",
-                persistence: persistence, origin: "egress",
-                onPending: { id in cancellation.set(approvalID: id) })
+                persistence: .durable, origin: "egress",
+                onPending: { id in cancellation.set(approvalID: id) },
+                interactiveWaitMilliseconds: isChat
+                    ? egressInteractiveWaitMilliseconds : 0)
             cancellation.clear()
             return result
         } onCancel: {
             cancellation.cancel()
         }
         if outcome.pending {
-            // The original HTTP write is not retried here: a durable allowOnce
-            // grant must survive for the resumed task's retry. Stop the turn
-            // now (the structural gate stops its own turn) and let the task
-            // park; the user decision wakes it.
-            let pendingState = await approvals.pendingApproval(sessionId: call.sessionId)
-            let recentState = pendingState == nil
-                ? await approvals.pendingOrRecentApproval(sessionId: call.sessionId) : nil
-            if let state = pendingState ?? recentState {
-                await dispatchApprovalPending(state)
+            // The original HTTP write is not retried here: the durable once
+            // Grant must survive for the retried request. A task/routine has a
+            // parked host turn that the decision wakes; a chat retry is the
+            // model's (or user's) next call.
+            if !isChat {
+                let pendingState = await approvals.pendingApproval(
+                    sessionId: call.sessionId)
+                let recentState = pendingState == nil
+                    ? await approvals.pendingOrRecentApproval(
+                        sessionId: call.sessionId) : nil
+                if let state = pendingState ?? recentState {
+                    await dispatchApprovalPending(state)
+                }
             }
             // Keep the frozen egress taxonomy: the loopback layer maps
             // `egress_approval_denied` to 403/`xl_error.code`. The message is
-            // what tells the model that a durable decision will resume it.
+            // what tells the model that a durable decision authorizes a retry.
             return .denied(
                 code: "egress_approval_denied",
-                message: "审批还在等待用户确认；这次网络写入没有发出，用户决定后会继续")
+                message: isChat
+                    ? "已提交审批，批准后请重试；这次网络写入没有发出"
+                    : "审批还在等待用户确认；这次网络写入没有发出，用户决定后会继续")
         }
         guard outcome.allowed else {
             return .denied(
                 code: "egress_approval_denied",
                 message: outcome.message ?? "用户没有批准这次网络写入")
+        }
+        // A fresh durable allowOnce leaves its Grant for this request to
+        // consume: if the request was aborted while the user decided, the
+        // Grant must survive for the retry; if it is still alive, consume it
+        // before the gateway writes so a concurrent retry cannot reuse it.
+        if !outcome.onceGrantIDs.isEmpty, !Task.isCancelled {
+            guard await approvals.consumeOnceGrants(outcome.onceGrantIDs) else {
+                return .denied(
+                    code: "egress_approval_denied",
+                    message: "这次审批已经被另一次重试使用，请重新发起网络写入")
+            }
         }
         return .allowed
     }

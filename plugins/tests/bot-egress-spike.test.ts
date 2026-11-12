@@ -429,7 +429,10 @@ test('egress: script-file and concatenated curl POSTs reach the host exit', asyn
         env: { ...process.env, PDSH_CHANNEL_ORIGIN: exitOrigin, PDSH_CHANNEL_TOKEN: CHANNEL_TOKEN },
       })
       assert.equal(result.exitCode, 22, `${command}: ${result.stderr}`)
-      assert.match(result.stderr, /host allow-list rejected/u)
+      // The host exit answered with the structured egress envelope; the shim
+      // must surface the named cause instead of collapsing every 403 into the
+      // generic allow-list sentence.
+      assert.match(result.stderr, /egress_approval_denied: approval denied/u)
     }
     assert.equal(seen.length, 2, JSON.stringify(seen))
     for (const request of seen) {

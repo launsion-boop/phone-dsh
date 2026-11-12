@@ -218,9 +218,17 @@ final class BotRuntimeComposition {
     private(set) var state: BotRuntimeState = .idle {
         didSet {
             guard oldValue != state else { return }
+            // Mirror readiness outside the main actor. `tools/call` reads this
+            // snapshot; it must not wait for a blocked UI thread.
+            readinessState.update(
+                ready: state == .ready,
+                terminal: state == .stopped || state.isFailure)
             onStateChange?(state)
         }
     }
+    /// Nonisolated mirror of ``state`` for the Bot MCP tool path. Only the
+    /// `.ready` bit and the terminal bit matter to the readiness probe.
+    private let readinessState = BotRuntimeReadinessState()
     var onStateChange: ((BotRuntimeState) -> Void)?
     /// Called after a successful delete so the UI can drop cached models.
     var onBotDeleted: ((String) -> Void)?
@@ -340,9 +348,10 @@ final class BotRuntimeComposition {
         // its MCP client open until the 130 s client deadline while this
         // composition is still reattaching the transport. The probe resolves
         // on the first `.ready` or gives up with a retryable human error.
-        await runtime.setRuntimeReadinessProbe { [weak composition] _ in
+        await runtime.setRuntimeReadinessProbe { [weak composition] timeout in
             guard let composition else { return false }
-            return await composition.waitUntilRuntimeReady()
+            return await composition.waitUntilRuntimeReady(
+                timeoutMilliseconds: timeout)
         }
         composition.routineRouter = BotRoutineOutboxRouter(
             store: store, machine: machine, profileStore: profileStore,
@@ -555,34 +564,16 @@ final class BotRuntimeComposition {
 
     /// Bounded wait used by `BotMCPRuntime` before a Bot/team tool executes.
     /// Returns immediately when ready, and `false` for a terminal failure or
-    /// after the same budget the Worker-side client must not exceed. The
-    /// actual tool error is the human "连接正在恢复" sentence returned by the
-    /// runtime.
-    func waitUntilRuntimeReady() async -> Bool {
+    /// after the supplied budget. This is deliberately `nonisolated`: the
+    /// runtime calls it from an arbitrary executor, and hopping onto the main
+    /// actor here was what let a blocked UI thread hold every `tools/call`
+    /// until the Worker's 130 s deadline.
+    nonisolated func waitUntilRuntimeReady(
+        timeoutMilliseconds: Int = BotMCPRuntime.defaultRuntimeReadinessTimeoutMilliseconds
+    ) async -> Bool {
         await BotRuntimeReadiness.wait(
-            timeoutMilliseconds: BotMCPRuntime.defaultRuntimeReadinessTimeoutMilliseconds,
-            isReady: { [weak self] in
-                guard let self else { return false }
-                return await self.isRuntimeReady()
-            },
-            isTerminal: { [weak self] in
-                guard let self else { return true }
-                let state = await self.state
-                return state == .stopped || state.isFailure
-            })
-    }
-
-    /// The composition's single readiness predicate for turns and tools.
-    /// A planned restart emits `.restarted`/`.workerHello` while the host is
-    /// still finishing its boot, so `state` is already `.recovering` by the
-    /// time `plannedRestart` returns. Waiting for `.ready` keeps a new user
-    /// turn out of the rejected-Worker window whose `attachTransport` would
-    /// otherwise cancel it. No boot-id comparison is used: an engine may
-    /// rotate its internal id without the corresponding HELLO event reaching
-    /// the App, and the transport itself always addresses the newest channel.
-    @MainActor
-    private func isRuntimeReady() async -> Bool {
-        state == .ready
+            timeoutMilliseconds: timeoutMilliseconds,
+            state: readinessState)
     }
 
     private func bind(to newHost: PhoneDSHHost, recovering: Bool) async throws {
@@ -619,7 +610,8 @@ final class BotRuntimeComposition {
                             method: request.method,
                             host: request.url.host ?? "",
                             scheme: request.url.scheme ?? "",
-                            port: request.url.port)
+                            port: request.url.port,
+                            hostAllowed: request.hostAllowed)
                         switch outcome {
                         case .notBot: return .notBot
                         case .allowed: return .allow
@@ -1249,7 +1241,10 @@ final class BotRuntimeComposition {
 // MARK: - BotTeamHost
 
 extension BotRuntimeComposition: BotTeamHost {
-    func roster() async throws -> BotRoster {
+    /// `BotTeamTools.toolDefinitions` runs the per-caller catalog check on
+    /// every `tools/call`. `roster()` only reads the profile-store actor, so
+    /// it must not be pinned to the composition's main actor.
+    nonisolated func roster() async throws -> BotRoster {
         try await profileStore.roster()
     }
 
