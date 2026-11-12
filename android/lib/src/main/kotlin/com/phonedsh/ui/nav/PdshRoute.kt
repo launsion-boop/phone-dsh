@@ -422,6 +422,36 @@ public sealed interface PdshRoute {
     public data class Preview(public val path: String) : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
+
+    // -----------------------------------------------------------------------
+    // Appended by the C5 PCLink lane. Both pages already exist as Swift sheets/
+    // pushes; the Android route keeps the same form so the host's one back
+    // gesture matches the baseline (`PCPairingPage.swift:79`, `SettingsPage.swift:353`).
+    // -----------------------------------------------------------------------
+
+    /**
+     * 连接电脑: the PCLink pairing flow.
+     *
+     * Presented as a sheet at both iOS call sites (`HomeDrawer.swift:109`,
+     * `ConnectedComputerPage.swift:34`); its scanner is a second sheet inside the
+     * page (`PCPairingPage.swift:79`). `interaction.sheet.pageDetents` declares no
+     * entry for it, so it keeps the system default detent. The route carries no
+     * flow state; the host owns the pairing flow and passes a
+     * [com.phonedsh.ui.page.PCPairingUiState] to the page.
+     */
+    public data object PcPairing : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.SHEET
+    }
+
+    /**
+     * 已连接的电脑: the one paired PC, its verified DSH version and unpairing.
+     *
+     * The iOS settings row is a `NavigationLink` push (`SettingsPage.swift:353`),
+     * so the Android route is a PUSH; the page keeps its own back.
+     */
+    public data object ConnectedComputer : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
 }
 
 /**
