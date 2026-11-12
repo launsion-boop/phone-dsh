@@ -32,6 +32,7 @@
 | 正文 14/20 | 卡片正文和列表行 14/20；主要回答正文仍用 `typography.body` |
 | 密集/辅助 13、备注 12 | eyebrow / meta 12/18，仍取 `typography.caption` 层级 |
 | 主、次、文字三按钮层级 | `colors.primaryButton` + `colors.primaryButtonInk`、`colors.sessionSelector` + `colors.sessionPrimary`、透明底 + `colors.sessionSecondary`；触控目标至少 44pt，主要操作按手机视觉动线置于上方 |
+| 交互卡片结算 | question/steps/approval/带发送按钮的 checklist 在用户操作被接受、宿主写回 answered/已决定、发送勾选结果或之后出现下一条用户消息时，收起为一行 `BotCardGlyph` + `botCardRow(weight: .medium)` + `botCardMeta()` 的灰色摘要，不显示按钮；`.pending`/发送中保留 loading，`.failed` 保留完整卡片；动画 0.25s easeInOut，reduce motion 关闭 |
 | 成功/进行中/警告/失败/失效 | `colors.sessionSuccess` / `colors.sessionAccent` / `colors.sessionWarning` / `colors.sessionDanger` / `colors.sessionTertiary`；每卡最多两个语义色 |
 | 描边和表面 | `colors.sessionBorderL1/L2`、`colors.surface` / `colors.sessionSelector`；浅色和深色必须使用同一角色 |
 
@@ -47,7 +48,11 @@ P0 第一版必须实现：question、steps（含 recommended）、task、attach
 
 P1 仅登记为 target：table、callout、info、payload、library。第一版不渲染、不注册工具、不进 persona。canvas、product、gift、Bot 间通讯行不实现。
 
-question/steps 选项为整行可点并支持 recommended，提交时只使用宿主写入卡片的 `optionID`；**没有“其他”选项、卡内输入框或自定义答案提交控件**。仅 question 支持关闭：本地立即隐藏并写 durable `card.dismissed`，不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；DSH 不可用时关闭仍本地生效。steps 不提供关闭按钮，`cardDismiss` 对 steps 返回 rejected。用户需要自由回答时直接在 composer 输入，作为普通 `chat` 消息，而不是 `cardAnswer.customText`。审批为拒绝/允许一次/总是允许三选项加 alwaysScope，拒绝使用中性文字按钮，禁止把否定语义染红。checklist 本地勾选和回传行为沿上游；link 仅打开 HTTP/HTTPS 且经系统安全外部打开策略。
+question/steps 选项为整行可点并支持 recommended，提交时只使用宿主写入卡片的 `optionID`；**没有“其他”选项、卡内输入框或自定义答案提交控件**。仅 question 支持关闭：关闭写 durable `card.dismissed`，不产生模型可见回合，宿主在下一次用户回合开头以 held 项告知模型视为不回答；关闭动作被接受后卡片收起为一行「已关闭」，动作失败则保留完整卡片可重试。steps 不提供关闭按钮，`cardDismiss` 对 steps 返回 rejected。用户需要自由回答时直接在 composer 输入，作为普通 `chat` 消息，而不是 `cardAnswer.customText`。审批为拒绝/允许一次/总是允许三选项加 alwaysScope，拒绝使用中性文字按钮，禁止把否定语义染红。checklist 本地勾选和回传行为沿上游；link 仅打开 HTTP/HTTPS 且经系统安全外部打开策略。
+
+需要交互的四类卡片——question、steps、approval、带「把勾选结果发给 Bot」的 checklist——在以下任一情况发生后，从完整卡片收起为一行灰色摘要（`BotCardGlyph` + 一行 `botCardRow(weight: .medium)` 主文字 + 一行 `botCardMeta()` 说明，沿用审批已决定行，不显示任何按钮）：用户操作被接受；宿主写回 answered 或已决定；发送勾选结果被接受；卡片位于最后一条用户文字之前且用户未操作（被下一条消息略过）。动作进行中（`.pending`，沿用现有 loading）和动作失败（`.failed`）保持完整卡片；失败后可重试。收起使用 0.25s easeInOut 动画，reduce motion 时不做动画。文案逐字为：question/steps 已选择「已选择：<选项 label>」，拿不到 label 时「已送出」，说明用卡片的问题或 prompt，steps 没有 prompt 时说明「建议下一步」；question/steps 被略过「已略过」，说明同上；question 被关闭「已关闭」；approval 保持已决定行，被下一条消息自动拒绝的为「已略过，视为拒绝」；checklist 已发送「已发送勾选结果」、说明「<标题> · 已完成 x/y」，被略过「已略过」、说明相同。
+
+审批仍待决定时用户发送下一条消息（`BotChatModel.send`）视为拒绝：对每张仍待决定的审批走现有 `decide(row:decision:.deny)` 路径，不新增协议字段或动作；拒绝动作在同一个 Task 中先于聊天 action 发出，本地 `actionStates` 已标 `.pending` 或 `.accepted` 的审批立即不再计入 `pendingApprovalCount`，头部随即离开「等你确认」。卡片是否收起统一由 `BotChatModel.settlement(for:)` 判断，`needsAttentionCount` 使用同一判断；`mutedCardIDs` 覆盖 question、steps 和 checklist。
 
 所有卡片先验证 `body.type`、`cardType` 和必需数据。未登记或数据不足时不渲染，不用空白卡或猜测默认值补齐。
 
@@ -71,7 +76,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 
 ## 5. 验收
 
-每种 P0 卡片在浅色和深色模拟器截图，逐项对照上游内容模型、空状态、超限、按钮层级和交互。覆盖窄屏、长标题、动态字体、44pt 命中区、卡片关闭/选择、重复点击、迟到结果和 progress 同 key 更新。另需覆盖真实鱼头像的 idle/working/alerting/celebrate/sad、活动行显隐和推荐色对比度。模拟器结果不得写成真机结果。
+每种 P0 卡片在浅色和深色模拟器截图，逐项对照上游内容模型、空状态、超限、按钮层级和交互。覆盖窄屏、长标题、动态字体、44pt 命中区、卡片关闭/选择、重复点击、迟到结果和 progress 同 key 更新。交互卡片的收起另需在浅色和深色验证：已选择、已略过、已关闭、审批已决定/发消息自动拒绝、勾选已发送；确认收起后只有一行摘要且没有按钮，并确认 reduce motion 下无动画。另需覆盖真实鱼头像的 idle/working/alerting/celebrate/sad、活动行显隐和推荐色对比度。模拟器结果不得写成真机结果。
 
 ## 6. Grok 式改版结构与 id
 

@@ -14,10 +14,24 @@ struct BotCardView: View {
     let card: BotUICardContent
     @ObservedObject var model: BotChatModel
     let actions: BotCardActions
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var settlement: BotCardSettlement? { model.settlement(for: row) }
 
     var body: some View {
         BotContentWidth {
-            cardContent
+            Group {
+                if let settlement {
+                    BotCardSurface {
+                        BotCardSettledLine(settlement: settlement)
+                    }
+                    .transition(.opacity)
+                } else {
+                    cardContent
+                        .transition(.opacity)
+                }
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: settlement)
         }
     }
 

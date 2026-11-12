@@ -191,6 +191,144 @@ final class BotChatModelTests: XCTestCase {
         XCTAssertNotNil(model.lineActivity)
     }
 
+    // MARK: - Interactive card settlement
+
+    /// A send is the user's implicit deny for every approval still pending:
+    /// the existing approval action must reach the driver before the chat.
+    func testSendAutoDeclinesApprovalsBeforeChat() async throws {
+        var performed: [String] = []
+        let model = BotChatModel(
+            rows: [approvalRow(id: "approval-auto")],
+            context: context,
+            driver: driver { action in
+                switch action {
+                case .approval(_, _, _, let decision, _):
+                    performed.append("approval:\(decision.rawValue)")
+                case .chat:
+                    performed.append("chat")
+                case .cardAnswer:
+                    performed.append("cardAnswer")
+                case .cardDismiss:
+                    performed.append("cardDismiss")
+                case .stopTask:
+                    performed.append("stopTask")
+                }
+                return .accepted(eventID: "evt-\(performed.count)")
+            })
+
+        XCTAssertEqual(model.pendingApprovalCount, 1)
+        model.send(text: "先继续，这个审批不用了。")
+        XCTAssertEqual(model.pendingApprovalCount, 0,
+                       "a send must clear pendingApprovalCount before the async deny finishes")
+
+        try await waitFor { performed.count == 2 }
+        XCTAssertEqual(performed, ["approval:deny", "chat"])
+        XCTAssertEqual(model.actionLog, ["approval:deny", "chat"])
+        XCTAssertTrue(model.autoDeclinedApprovalIDs.contains("approval-auto"))
+
+        let row = try XCTUnwrap(model.rows.first(where: { $0.id == "approval-auto" }))
+        let settlement = try XCTUnwrap(model.settlement(for: row))
+        XCTAssertEqual(settlement.title, "已略过，视为拒绝")
+        XCTAssertEqual(settlement.detail, "rm -f /tmp/phone-dsh-old-report.pdf")
+        XCTAssertEqual(model.needsAttentionCount, 0)
+    }
+
+    func testSendClearsPendingApprovalCountImmediately() {
+        let model = BotChatModel(rows: [approvalRow(id: "approval-immediate")],
+                                 context: context,
+                                 driver: driver())
+        XCTAssertEqual(model.pendingApprovalCount, 1)
+        model.send(text: "下一条消息")
+        XCTAssertEqual(model.pendingApprovalCount, 0)
+    }
+
+    func testAnswerSettlesIntoSelectedOptionLine() async throws {
+        let model = BotChatModel(rows: [questionRow()], context: context,
+                                 driver: driver())
+        let row = try XCTUnwrap(model.rows.first(where: { $0.id == "question-settle" }))
+        model.answer(row: row, optionID: "library")
+
+        // Pending keeps the full card (existing loading).
+        XCTAssertNil(model.settlement(for: row))
+        try await waitFor { model.actionStates["card:question-settle"] == .accepted }
+
+        let settlement = try XCTUnwrap(model.settlement(for: row))
+        XCTAssertEqual(settlement.title, "已选择：保存到文档库")
+        XCTAssertEqual(settlement.detail, "要把这份整理好的内容保存到哪里？")
+        XCTAssertEqual(model.needsAttentionCount, 0)
+    }
+
+    func testDurableAnsweredAndSkippedRules() throws {
+        let answered = BotChatModel(rows: [questionRow(status: "answered",
+                                                       answeredOptionID: "library")],
+                                    context: context)
+        let answeredRow = try XCTUnwrap(answered.rows.first)
+        XCTAssertEqual(answered.settlement(for: answeredRow)?.title, "已选择：保存到文档库")
+
+        let skipped = BotChatModel(rows: [
+            checklistRow(),
+            BotUIRow.text(id: "next-user", seq: 2, role: "user", text: "继续"),
+        ], context: context)
+        let checklist = try XCTUnwrap(skipped.rows.first(where: { $0.id == "checklist-settle" }))
+        let settlement = try XCTUnwrap(skipped.settlement(for: checklist))
+        XCTAssertEqual(settlement.title, "已略过")
+        XCTAssertEqual(settlement.detail, "发布前检查 · 已完成 2/4")
+        XCTAssertEqual(skipped.needsAttentionCount, 0)
+    }
+
+    func testStepsWithoutPromptUsesSuggestedNextStepDetail() throws {
+        let model = BotChatModel(rows: [stepsRow()], context: context)
+        let row = try XCTUnwrap(model.rows.first)
+        let settlement = try XCTUnwrap(model.settlement(for: row))
+        XCTAssertEqual(settlement.title, "已选择：查看验收结果")
+        XCTAssertEqual(settlement.detail, "建议下一步")
+    }
+
+    func testFailedAnswerKeepsFullCardForRetry() async throws {
+        let model = BotChatModel(
+            rows: [questionRow()], context: context,
+            driver: driver { _ in .rejected(reason: "离线") })
+        let row = try XCTUnwrap(model.rows.first)
+        model.answer(row: row, optionID: "library")
+        XCTAssertNil(model.settlement(for: row))
+
+        try await waitFor {
+            guard let state = model.actionStates["card:question-settle"] else { return false }
+            if case .failed = state { return true }
+            return false
+        }
+        XCTAssertNil(model.settlement(for: row), "a failed action must stay a full retryable card")
+        XCTAssertEqual(model.needsAttentionCount, 1)
+    }
+
+    func testDismissedQuestionSettlesClosed() async throws {
+        let model = BotChatModel(rows: [questionRow()], context: context,
+                                 driver: driver())
+        let row = try XCTUnwrap(model.rows.first)
+        model.dismiss(row: row)
+        try await waitFor { model.dismissedCardIDs.contains("question-settle") }
+
+        let settlement = try XCTUnwrap(model.settlement(for: row))
+        XCTAssertEqual(settlement.title, "已关闭")
+        XCTAssertEqual(model.needsAttentionCount, 0)
+    }
+
+    func testChecklistSendSettlesOnlyAfterAcceptance() async throws {
+        let model = BotChatModel(rows: [checklistRow()], context: context,
+                                 driver: driver())
+        let row = try XCTUnwrap(model.rows.first(where: { $0.id == "checklist-settle" }))
+        model.sendChecklist(row: row, done: 2, total: 4,
+                            message: "发布前检查：已完成 2/4。")
+        XCTAssertNil(model.settlement(for: row), "the full checklist stays while the action is in flight")
+
+        try await waitFor { model.checklistProgress["checklist-settle"]?.sent == true }
+        let settled = try XCTUnwrap(model.rows.first(where: { $0.id == "checklist-settle" }))
+        let settlement = try XCTUnwrap(model.settlement(for: settled))
+        XCTAssertEqual(settlement.title, "已发送勾选结果")
+        XCTAssertEqual(settlement.detail, "发布前检查 · 已完成 2/4")
+        XCTAssertEqual(model.needsAttentionCount, 0)
+    }
+
     // MARK: - Helpers
 
     private var context: BotRuntimeContext {
@@ -209,6 +347,18 @@ final class BotChatModelTests: XCTestCase {
             stopCurrentTurn: { _ in })
     }
 
+    private func waitFor(timeout: TimeInterval = 2,
+                         _ condition: @MainActor () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            guard Date() < deadline else {
+                XCTFail("condition was not met within \(timeout)s")
+                return
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
     /// Live frames carry the DSH session-event shape (`type`/`seq`/`time`/
     /// `data`), exactly like the runtime forwards them.
     private func liveEvent(_ type: String, turn: Int, seq: Int,
@@ -223,12 +373,56 @@ final class BotChatModelTests: XCTestCase {
         ]))
     }
 
-    private func approvalRow() -> BotUIRow {
-        BotUIRow.fixture(id: "approval-activity", seq: 2, body: BotUIBody(type: "approval", values: [
-            "approvalID": "approval-activity",
+    private func approvalRow(id: String = "approval-activity",
+                             status: String = "pending") -> BotUIRow {
+        BotUIRow.fixture(id: id, seq: 2, body: BotUIBody(type: "approval", values: [
+            "approvalID": .string(id),
             "digest": "sha256:activity",
-            "status": "pending",
+            "status": .string(status),
             "action": "删除旧的临时报告",
+            "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+        ]))
+    }
+
+    private func questionRow(id: String = "question-settle",
+                             status: String? = nil,
+                             answeredOptionID: String? = nil) -> BotUIRow {
+        var values: [String: BotJSONValue] = [
+            "cardType": "question",
+            "question": "要把这份整理好的内容保存到哪里？",
+            "options": [
+                ["id": "library", "label": "保存到文档库"],
+                ["id": "pdf", "label": "导出 PDF"],
+            ],
+        ]
+        if let status { values["status"] = .string(status) }
+        if let answeredOptionID { values["answeredOptionID"] = .string(answeredOptionID) }
+        return BotUIRow.fixture(id: id, seq: 1,
+                                body: BotUIBody(type: "widget", values: values))
+    }
+
+    private func stepsRow() -> BotUIRow {
+        BotUIRow.fixture(id: "steps-settle", seq: 1, body: BotUIBody(type: "widget", values: [
+            "cardType": "steps",
+            "status": "answered",
+            "answeredOptionID": "review",
+            "steps": [
+                ["id": "review", "label": "查看验收结果"],
+                ["id": "pr", "label": "创建 Pull Request"],
+            ],
+        ]))
+    }
+
+    private func checklistRow(id: String = "checklist-settle") -> BotUIRow {
+        BotUIRow.fixture(id: id, seq: 1, body: BotUIBody(type: "widget", values: [
+            "cardType": "checklist",
+            "title": "发布前检查",
+            "items": [
+                ["id": "c0", "text": "运行指定 CI 门禁", "done": true],
+                ["id": "c1", "text": "检查浅色与深色截图", "done": true],
+                ["id": "c2", "text": "验证重复点击和迟到结果"],
+                ["id": "c3", "text": "记录未验证项目"],
+            ],
         ]))
     }
 }

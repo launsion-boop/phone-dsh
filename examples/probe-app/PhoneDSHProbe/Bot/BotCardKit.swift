@@ -364,6 +364,44 @@ struct BotCardGlyph: View {
     }
 }
 
+/// The one-line summary an interactive card settles into: the approval's
+/// decided row shape, with no buttons. The model owns all text and precedence;
+/// this view only draws it.
+struct BotCardSettledLine: View {
+    let settlement: BotCardSettlement
+
+    var body: some View {
+        HStack(spacing: 12) {
+            BotCardGlyph(systemImage: settlement.glyph, ink: settlement.tone.ink)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(settlement.title)
+                    .botCardRow(weight: .medium)
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .lineLimit(1)
+                if let detail = settlement.detail, !detail.isEmpty {
+                    Text(detail)
+                        .botCardMeta()
+                        .monospaced(settlement.monospacedDetail)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(minHeight: BotCardMetrics.rowMinHeight)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("bot.card.settled")
+    }
+}
+
+extension BotCardSettlementTone {
+    var ink: Color {
+        switch self {
+        case .neutral: HomeSpec.textSecondary
+        case .success: HomeSpec.success
+        }
+    }
+}
+
 /// A 32pt gray tile with an 17pt glyph, for files, links and routines.
 struct BotCardTile: View {
     let systemImage: String

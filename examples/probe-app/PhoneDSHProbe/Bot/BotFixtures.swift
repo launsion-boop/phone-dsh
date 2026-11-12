@@ -8,7 +8,7 @@ import SwiftUI
 
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
-    case approval, automation, error, denial, overflow, failClosed
+    case approval, approvalAutoDeclined, settledCards, automation, error, denial, overflow, failClosed
     case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
     case runningStreamingWithLine, runningAwaitingApproval, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
@@ -38,6 +38,10 @@ enum BotUIFixtures {
     }
 
     static func cardRow(_ id: String, body: BotUIBody, seq: Int = 2) -> BotUIRow {
+        BotUIRow.fixture(id: id, seq: seq, body: body)
+    }
+
+    static func cardRow(_ id: String, seq: Int, body: BotUIBody) -> BotUIRow {
         BotUIRow.fixture(id: id, seq: seq, body: body)
     }
 
@@ -147,6 +151,62 @@ enum BotUIFixtures {
                 "detail": "文件位于临时目录，删除后无法在页面内恢复。",
                 "alwaysScope": "until", "risk": ["level": "high", "tags": ["irreversible"]],
             ])
+        case .settledCards:
+            // The fixture root closes the dismissed question and sends the
+            // checklist below, which also auto-denies the pending approval.
+            // Every other settled state is a durable host state in this list.
+            return [
+                cardRow("settled-question-selected", seq: 1, body: widget("question", [
+                    "question": "要把这份整理好的内容保存到哪里？",
+                    "status": "answered", "answeredOptionID": "library",
+                    "options": [
+                        ["id": "library", "label": "保存到文档库", "recommended": true],
+                        ["id": "pdf", "label": "导出 PDF"],
+                    ],
+                ])),
+                cardRow("settled-question-dismissed", seq: 2, body: widget("question", [
+                    "question": "要把这份整理好的内容保存到哪里？",
+                    "options": [
+                        ["id": "library", "label": "保存到文档库"],
+                        ["id": "later", "label": "稍后决定"],
+                    ],
+                ])),
+                cardRow("settled-steps-skipped", seq: 3, body: widget("steps", [
+                    "steps": [
+                        ["id": "review", "label": "查看验收结果", "recommended": true],
+                        ["id": "pr", "label": "创建 Pull Request"],
+                    ],
+                ])),
+                cardRow("settled-approval-allowed", seq: 4, body: BotUIBody(type: "approval", values: [
+                    "approvalID": "settled-approval-allowed", "digest": "sha256:settled-allowed",
+                    "status": "allowed", "action": "删除旧的临时报告",
+                    "command": "rm -f /tmp/phone-dsh-old-report.pdf", "alwaysScope": "until",
+                ])),
+                cardRow("settled-approval-auto", seq: 5, body: BotUIBody(type: "approval", values: [
+                    "approvalID": "settled-approval-auto", "digest": "sha256:settled-auto",
+                    "status": "pending", "action": "删除旧的临时报告",
+                    "command": "rm -f /tmp/phone-dsh-old-report.pdf", "alwaysScope": "none",
+                ])),
+                cardRow("settled-checklist-sent", seq: 6, body: widget("checklist", [
+                    "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
+                    "items": [
+                        ["id": "c0", "text": "运行指定 CI 门禁", "done": true],
+                        ["id": "c1", "text": "检查浅色与深色截图", "done": true],
+                        ["id": "c2", "text": "验证重复点击和迟到结果"],
+                        ["id": "c3", "text": "记录未验证项目"],
+                    ],
+                ])),
+            ]
+        case .approvalAutoDeclined:
+            return [
+                BotUIRow.text(id: "approval-auto-user", seq: 1, role: "user",
+                              text: "帮我删掉旧的临时报告。"),
+                cardRow("approval-auto-next", seq: 2, body: BotUIBody(type: "approval", values: [
+                    "approvalID": "approval-auto-next", "digest": "sha256:auto-next",
+                    "status": "pending", "action": "删除旧的临时报告",
+                    "command": "rm -f /tmp/phone-dsh-old-report.pdf", "alwaysScope": "none",
+                ])),
+            ]
         case .automation:
             body = BotUIBody(type: "automation", values: [
                 "title": "晨间简报", "status": "sent", "schedule": "每天 07:30",
@@ -283,6 +343,17 @@ enum BotUIFixtures {
             .fixture(name: "验收记录.pdf", size: 12_400, mimeType: "application/pdf", kind: "pdf"),
             .fixture(name: "release-notes.md", size: 3_100, mimeType: "text/markdown", kind: "markdown"),
         ]
+    }
+
+    /// A fixture-only transport that accepts immediately and never starts a
+    /// turn. The settlement fixtures need the same async action path as the
+    /// page, without the fixture status line covering the transcripts.
+    static func settlementDriver() -> BotChatDriver {
+        BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { _ in BotUIRowBatch(rows: [], deletes: [], cursor: 0, reset: false) },
+            perform: { action in .accepted(eventID: "evt-settled-\(action.nonce)") },
+            stopCurrentTurn: { _ in })
     }
 
     /// Wraps to about five lines at the capture device width, so the composer
@@ -536,6 +607,8 @@ struct BotUIFixtureRootView: View {
         let chat = BotChatModel(
             rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
             context: .fixture,
+            driver: fixture == .settledCards || fixture == .approvalAutoDeclined
+                ? BotUIFixtures.settlementDriver() : nil,
             fixtureHistory: fixture == .failClosed || fixture == .empty
                 ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
             fixtureActions: true
@@ -543,6 +616,21 @@ struct BotUIFixtureRootView: View {
         switch fixture {
         case .infoPresence:
             break
+        case .settledCards:
+            if let dismissed = chat.rows.first(where: { $0.id == "settled-question-dismissed" }) {
+                chat.dismiss(row: dismissed)
+            }
+            if let checklist = chat.rows.first(where: { $0.id == "settled-checklist-sent" }) {
+                chat.sendChecklist(row: checklist, done: 2, total: 4,
+                                   message: "发布前检查：已完成 2/4。")
+            }
+            // The fixture driver accepts instantly and never opens a turn;
+            // clear the local send's waiting line so the settled rows are the
+            // only thing this capture demonstrates.
+            chat.stop()
+        case .approvalAutoDeclined:
+            chat.send(text: "先继续，这个审批不用了。")
+            chat.stop()
         case .runningThinking:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
         case .runningTool:
