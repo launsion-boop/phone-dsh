@@ -8,7 +8,7 @@ import SwiftUI
 
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
-    case approval, approvalAutoDeclined, settledCards, automation, error, denial, overflow, failClosed
+    case approval, approvalAutoDeclined, settledCards, sendCollapse, automation, error, denial, overflow, failClosed
     case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
     case runningStreamingWithLine, runningAwaitingApproval, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
@@ -205,6 +205,52 @@ enum BotUIFixtures {
                     "approvalID": "approval-auto-next", "digest": "sha256:auto-next",
                     "status": "pending", "action": "删除旧的临时报告",
                     "command": "rm -f /tmp/phone-dsh-old-report.pdf", "alwaysScope": "none",
+                ])),
+            ]
+        case .sendCollapse:
+            // Taller than the capture screen even after every interactive card
+            // collapses into its one-line summary: the opening text keeps the
+            // transcript scrollable, so the post-collapse scroll can put the
+            // newest message back above the composer. The four cards below are
+            // all unhandled before the send: question/steps get skipped and the
+            // pending approval is auto-denied by `settlementDriver()`.
+            let intro = String(
+                repeating: "上一轮已经把发布材料按验收记录整理了一遍，构建、截图和交互检查的结论都写在报告里；这里继续保留完整的上下文，方便在发送新消息后观察消息流是否仍然贴着输入区。",
+                count: 7)
+            return [
+                BotUIRow.text(id: "send-collapse-intro", seq: 1, role: "assistant", text: intro),
+                cardRow("send-collapse-question", seq: 2, body: widget("question", [
+                    "question": "要把这份整理好的内容保存到哪里？",
+                    "helpText": "推荐保存到文档库，之后可以继续编辑。",
+                    "options": [
+                        ["id": "library", "label": "保存到文档库", "description": "保留版本并方便之后查找", "recommended": true],
+                        ["id": "pdf", "label": "导出 PDF", "description": "生成适合分享的固定版面"],
+                        ["id": "later", "label": "稍后决定"],
+                    ],
+                ])),
+                cardRow("send-collapse-steps", seq: 3, body: widget("steps", [
+                    "steps": [
+                        ["id": "review", "label": "查看验收结果", "description": "先确认测试和截图证据", "recommended": true],
+                        ["id": "pr", "label": "创建 Pull Request"],
+                        ["id": "pause", "label": "暂停，稍后继续", "style": "default"],
+                    ],
+                ])),
+                cardRow("send-collapse-question-two", seq: 4, body: widget("question", [
+                    "question": "整理好的发布说明要同步给谁？",
+                    "helpText": "可以稍后在信息页里修改。",
+                    "options": [
+                        ["id": "team", "label": "同步给发布群", "recommended": true],
+                        ["id": "self", "label": "只保留给自己"],
+                    ],
+                ])),
+                cardRow("send-collapse-approval", seq: 5, body: BotUIBody(type: "approval", values: [
+                    "approvalID": "approval-send-collapse", "digest": "sha256:send-collapse",
+                    "status": "pending", "persistent": true, "kind": "routine",
+                    "sessionId": "routine-send-collapse",
+                    "title": "允许执行这个操作吗？", "action": "删除临时验收截图",
+                    "command": "rm -f /tmp/phone-dsh-send-collapse/*.png",
+                    "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+                    "alwaysScope": "none", "risk": ["level": "high", "tags": ["irreversible"]],
                 ])),
             ]
         case .automation:
@@ -608,6 +654,7 @@ struct BotUIFixtureRootView: View {
             rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
             context: .fixture,
             driver: fixture == .settledCards || fixture == .approvalAutoDeclined
+                || fixture == .sendCollapse
                 ? BotUIFixtures.settlementDriver() : nil,
             fixtureHistory: fixture == .failClosed || fixture == .empty
                 ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],

@@ -56,8 +56,7 @@ final class BotCaptureUITests: XCTestCase {
         let option = app.buttons["bot.choice.option.library"]
         XCTAssertTrue(option.waitForExistence(timeout: 3))
         XCTAssertGreaterThanOrEqual(option.frame.height, 44 - 0.01)
-        option.tap()
-        option.tap()
+        option.doubleTap()
         usleep(300_000)
         assertCount("cardAnswer", 1)
         let settled = app.descendants(matching: .any)["bot.card.settled"]
@@ -110,6 +109,33 @@ final class BotCaptureUITests: XCTestCase {
         usleep(200_000)
         assertCount("stop:fixture-turn", 1)
         XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
+    }
+
+    func testSendAfterCollapseKeepsMessageAboveComposer() throws {
+        launch("sendCollapse")
+        let input = app.textFields["bot.composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 3))
+        input.tap()
+        input.typeText("继续")
+        app.buttons["bot.composer.send"].tap()
+        usleep(1_500_000)
+
+        // The send skips the unanswered question/steps cards and auto-denies
+        // the pending approval, so at least one settled line must exist.
+        let settled = app.descendants(matching: .any)
+            .matching(identifier: "bot.card.settled")
+        XCTAssertTrue(settled.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(settled.count, 1)
+
+        // After the collapse shrinks the transcript, the newest user message
+        // must still sit just above the composer instead of being pushed up
+        // with a large blank area underneath.
+        let bubble = app.staticTexts["继续"]
+        XCTAssertTrue(bubble.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(bubble.frame.maxY, input.frame.minY,
+                                 "user bubble must stay above the composer")
+        XCTAssertLessThanOrEqual(input.frame.minY - bubble.frame.maxY, 160,
+                                 "no large blank gap below the newest message")
     }
 
     func testDocumentAndSafeLinkActions() throws {

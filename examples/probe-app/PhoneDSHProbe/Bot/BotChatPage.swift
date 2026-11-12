@@ -31,6 +31,9 @@ struct BotChatPage: View {
     @State private var composerDockHeight: CGFloat = 0
     /// Bumped by the send button so the transcript can scroll after layout.
     @State private var sendScrollTick = 0
+    /// Pending scroll after the settled-card set changes. A newer change
+    /// cancels the older work, so a burst of collapses scrolls only once.
+    @State private var settledScrollWork: DispatchWorkItem?
     /// Files chosen but not sent yet. The optimistic user row is built from
     /// the same `BotUIAttachment` shape the durable projection returns.
     @State private var pendingAttachments: [BotDraftAttachment] = []
@@ -39,6 +42,7 @@ struct BotChatPage: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @FocusState private var composerFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: BotChatModel, isMainBot: Bool = false,
          cardActions: BotCardActions = BotCardActions(),
@@ -325,6 +329,12 @@ struct BotChatPage: View {
                     // Let the local echo lay out first.
                     DispatchQueue.main.async { scrollToBottom(proxy) }
                 }
+                .onChange(of: model.settledRowIDs) { _, _ in
+                    // Cards collapsing into one-line summaries shrink the
+                    // content; the send-scroll above ran against the old
+                    // height, so run once more after the 0.25s animation.
+                    scheduleSettledScroll(proxy)
+                }
                 .onChange(of: model.scrollRequestID) { _, rowID in
                     guard let rowID else { return }
                     withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(rowID, anchor: .center) }
@@ -606,6 +616,24 @@ struct BotChatPage: View {
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
         proxy.scrollTo("bot-transcript-bottom", anchor: .bottom)
+    }
+
+    /// A settled card collapses with a 0.25s animation; wait for it to finish
+    /// (no wait under reduce motion) before giving the shorter transcript one
+    /// more scroll. A newer change replaces the pending one.
+    private func scheduleSettledScroll(_ proxy: ScrollViewProxy) {
+        settledScrollWork?.cancel()
+        guard !preservingHistoryPosition, model.scrollRequestID == nil else {
+            settledScrollWork = nil
+            return
+        }
+        let work = DispatchWorkItem { scrollToBottom(proxy) }
+        settledScrollWork = work
+        if reduceMotion {
+            DispatchQueue.main.async(execute: work)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        }
     }
 
     /// Exactly one round button with three states: send (idle, disabled when

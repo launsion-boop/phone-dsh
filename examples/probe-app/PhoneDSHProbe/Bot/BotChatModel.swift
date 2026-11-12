@@ -267,6 +267,16 @@ final class BotChatModel: ObservableObject {
         return visibleRows.filter { !(Self.isAnswer($0) && Self.turn(of: $0) == turn) }
     }
 
+    /// IDs of the interactive cards currently drawn as one-line settled
+    /// summaries. The transcript watches this set: when a card collapses the
+    /// content gets shorter while the scroll offset stays at the old bottom,
+    /// so it scrolls to the bottom once more after the collapse animation.
+    var settledRowIDs: Set<String> {
+        Set(displayRows.compactMap { row in
+            settlement(for: row) == nil ? nil : row.id
+        })
+    }
+
     static func turn(of row: BotUIRow) -> Int? { row.body["turn"]?.int }
 
     static func isAnswer(_ row: BotUIRow) -> Bool {
