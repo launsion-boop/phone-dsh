@@ -913,12 +913,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         // the doer session are already committed by the time it settled, so
         // include them as additional record:// evidence for the verifier.
         var refs = doerRefs
-        if let stored = try? await runtime.store.events(after: 0, limit: 1_000) {
-            let eventRefs = stored.compactMap { event -> String? in
-                guard event.principal.sessionId == subjectSessionId,
-                      let seq = event.commitSeq else { return nil }
-                return "record://event/\(seq)"
-            }.suffix(4)
+        // P26 §2.9: evidence is the subject session's NEWEST events. Reading a
+        // single oldest-1000 page hid every event of a new session; page the
+        // whole durable log and keep a bounded tail of that one session.
+        if let eventRefs = try? await BotVerifierEvidence.latestRefs(
+            in: runtime.store, subjectSessionId: subjectSessionId, limit: 4) {
             refs.append(contentsOf: eventRefs)
         }
         refs = Array(refs.suffix(12))
@@ -1744,6 +1743,18 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
     }
 
+    /// P26 §2.9 ledger mapping: a verifier's model spend is a
+    /// `completion-check`, never a `worker-turn`. Maintainer keeps its own
+    /// purpose; chat is the user-facing front turn.
+    static func ledgerPurpose(for kind: BotSessionKind) -> BotModelPurpose {
+        switch kind {
+        case .chat: return .frontTurn
+        case .maintainer: return .memoryMaintenance
+        case .verifier: return .completionCheck
+        default: return .workerTurn
+        }
+    }
+
     private func runTurn(sessionId: String, kind: BotSessionKind,
                          prompt: String, requestId: String,
                          allowSteer: Bool = true) async throws -> BotRemoteTurnResult {
@@ -1962,9 +1973,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let record = BotLLMLedgerRecord(
                     ts: BotLLMLedgerRecord.timestamp(Date(timeIntervalSince1970: Double(eventTime) / 1_000)),
                     botId: botId, sessionId: sessionId,
-                    purpose: kind == .chat
-                        ? .frontTurn
-                        : (kind == .maintainer ? .memoryMaintenance : .workerTurn),
+                    purpose: Self.ledgerPurpose(for: kind),
                     model: data["model"]?.stringValue ?? model,
                     provider: data["provider"]?.stringValue ?? providerName,
                     inputTokens: usage?["inputTokens"]?.intValue ?? 0,

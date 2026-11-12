@@ -42,6 +42,29 @@ final class ADBMCPTests: XCTestCase {
         let unknown = try JSONValue.parse(await server.handle(request("unknown")).body)
         XCTAssertEqual(unknown.fields["error"]?.fields["code"], .number(-32601))
     }
+    func testUnconfiguredAndroidListsOnlyTheConnectEntryPoint() async throws {
+        let suite = "phone-dsh-adb-test-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let settings = ADBSettings(defaults: defaults)
+        try settings.save(ADBConfiguration(enabled: false, host: ""))
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let server = ADBMCPServer(settings: settings, executor: RecordingADB(), receiptDirectory: directory)
+
+        let listed = try result(await server.handle(request("tools/list")))
+        guard case .array(let tools) = listed.fields["tools"] else { return XCTFail("missing tools") }
+        XCTAssertEqual(tools.compactMap { $0.fields["name"]?.text }, ["android_connect"])
+
+        // A real configuration change is reflected by the very next list on the
+        // same server; it must not require a process restart or a second request.
+        try settings.save(ADBConfiguration(enabled: true, host: "192.0.2.1"))
+        let enabledList = try result(await server.handle(request("tools/list")))
+        guard case .array(let enabledTools) = enabledList.fields["tools"] else { return XCTFail("missing tools") }
+        XCTAssertEqual(enabledTools.count, 26)
+        XCTAssertTrue(enabledTools.contains { $0.fields["name"] == .string("android_shell") })
+    }
+
     func testToolCallAndIdempotentReplayNeverRepeatTap() async throws {
         let (server, recorder) = try fixture()
         let req = try call("android_tap", ["x": .number(12), "y": .number(34)], key: "tap-once")

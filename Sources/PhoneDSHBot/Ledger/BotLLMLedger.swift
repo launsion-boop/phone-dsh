@@ -26,6 +26,7 @@ public actor BotLLMLedger {
         switch record.purpose {
         case .workerTurn: principalKind = "task"
         case .watchdog: principalKind = "watchdog"
+        case .completionCheck: principalKind = "verifier"
         case .memoryMaintenance: principalKind = "maintainer"
         default: principalKind = "chat"
         }
