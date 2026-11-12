@@ -39,6 +39,7 @@ actor FakeBotTeamHost: BotTeamHost {
     var enqueueError: BotTeamHostError?
     var busyBotIDs: Set<String> = []
     private(set) var deliveredWhileBusy: [String] = []
+    var createdProfileID: String?
     private var createdCount = 0
 
     init(roster: BotRoster = botTeamRoster()) {
@@ -52,7 +53,8 @@ actor FakeBotTeamHost: BotTeamHost {
         createdCount += 1
         created.append((name, description, color, hairstyle))
         let profile = BotProfile(
-            id: "agent-00000000000000\(String(format: "%02d", createdCount))",
+            id: createdProfileID
+                ?? "agent-00000000000000\(String(format: "%02d", createdCount))",
             name: name, fishColor: color ?? .blue,
             fishHairstyle: hairstyle ?? .long, nameExplicit: true,
             createdAt: 1, updatedAt: 1, description: description)
@@ -106,6 +108,12 @@ actor FakeBotTeamHost: BotTeamHost {
     func setContext(_ context: BotAgentCommContext, for botID: String) {
         contexts[botID] = context
     }
+
+    func seedThread(botID: String, requestID: String, threadID: String) {
+        threads[threadKey(botID: botID, requestID: requestID)] = threadID
+    }
+
+    func setCreatedProfileID(_ id: String?) { createdProfileID = id }
 
     func setReply(_ value: BotAgentDeliveryReply) { reply = value }
     func setDeliveryDelay(_ milliseconds: Int) { deliveryDelayMilliseconds = milliseconds }
