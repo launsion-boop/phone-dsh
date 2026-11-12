@@ -461,8 +461,7 @@ final class BotCompositionE2ETests: XCTestCase {
         try await unit.rows.start()
         let batch = try await unit.rows.watch(after: 0)
         try assertErasureProjection(
-            rows: batch.rows, newSession: newSession,
-            checksNewEpoch: true,
+            rows: batch.rows,
             oldSessionLog: oldLog, projectionCache: projectionCache)
 
         // Cold start: a fresh composition reads the durable main-session
@@ -480,8 +479,7 @@ final class BotCompositionE2ETests: XCTestCase {
         try await coldUnit.rows.start()
         let coldBatch = try await coldUnit.rows.watch(after: 0)
         try assertErasureProjection(
-            rows: coldBatch.rows, newSession: newSession,
-            checksNewEpoch: false,
+            rows: coldBatch.rows,
             oldSessionLog: nil, projectionCache: nil)
         // The cold projection still carries the unerased old-epoch line.
         XCTAssertTrue(coldBatch.rows.contains {
@@ -493,7 +491,7 @@ final class BotCompositionE2ETests: XCTestCase {
     }
 
     private func assertErasureProjection(
-        rows: [BotRow], newSession: String, checksNewEpoch: Bool,
+        rows: [BotRow],
         oldSessionLog: URL?, projectionCache: URL?
     ) throws {
         let texts = rows.compactMap { $0.body["text"]?.stringValue }
@@ -506,11 +504,13 @@ final class BotCompositionE2ETests: XCTestCase {
         XCTAssertTrue(texts.contains {
             $0.contains("KEEP_ERASE_UI")
         }, "the non-erased old epoch row is missing")
-        if checksNewEpoch {
-            XCTAssertTrue(rows.contains {
-                $0.id.hasPrefix("e-\(newSession)-")
-            }, "no row belongs to the new session epoch")
-        }
+        // A `BotRow` has no session-ownership field: `ui.notice` projects as
+        // `e-ui-<eventID>` and carries no sessionId/epoch, so no row can name
+        // the new epoch. The epoch switch is covered by the old/new
+        // `mainSessionIdentifier()` assertion in the test body, and the
+        // session/log resolution by its `sessionSnapshot()` assertion
+        // (sessionID is the composition's main session and logURL lives in
+        // this workspace); the durable notice itself is asserted above.
         if let oldSessionLog {
             let data = try Data(contentsOf: oldSessionLog)
             let text = String(decoding: data, as: UTF8.self)

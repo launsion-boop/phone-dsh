@@ -1839,9 +1839,11 @@ struct BotPresenceSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             LabeledContent("当前级别", value: model.presence.level.displayName)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("bot.info.presence.level")
             if let bridgeStatus = model.bridgeStatus {
                 LabeledContent("连接状态", value: bridgeStatus)
+                    .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("bot.info.presence.bridge")
             }
             // The count is host authority, not a level decoration: a foreground
@@ -1850,6 +1852,7 @@ struct BotPresenceSection: View {
             // even when it is zero (permission denied / DND) instead of hiding
             // the row; add the earliest registered fire time when one exists.
             LabeledContent("已登记提醒", value: notificationSummary)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("bot.info.presence.notifications")
             if model.presence.deferred.isEmpty {
                 Text("没有因安静时段延后的例行任务。")
