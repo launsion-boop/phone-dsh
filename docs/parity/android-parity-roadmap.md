@@ -26,6 +26,36 @@
 | 5 | 3D/HTML 預覽（獨立進程 + 安全評審）；HarmonyOS 跟進 | 安全評審 |
 | 常駐 | 防回退：iOS UI PR 必須附 Android 實作或 GAP 條目；驗收台每晚在 main 上跑 | 驗收台 |
 
+## 第 3 波進度（2026-11-12）
+
+驗收分支 `feat/android-parity-w3`，base `cb5401ae`。第 1 回合的頁面採用已合入；
+第 2 回合的七個 worker 正在平行進行。
+
+### 第 1 回合：完成（頁面採用）
+
+| 項目 | 合入 |
+| --- | --- |
+| PCLink C4：workspace/1 RPC、DSH transport、roster cache、presence | `883b3e81` |
+| Shell 返回鏈與 per-tab push 狀態（`BackCoordinator`） | `10458c91` |
+| Composer：`PdshComposerSendKeys`、統計 sheet、empty geometry | `ec0f4342` |
+| Chat rows：shared context menu、pressed、disclosure | `6596d0c5` |
+| Drawer：`PdshFolderGroup`、menu、pressed | `23a408d8` |
+| Sessions / Subagent catalog：menu、sheet、chevron | `66fe2601` |
+| Settings：root row geometry、chrome、disclosure | `e0fd4b64` |
+| Page sheets / host-address menu | `2cdb9853` |
+| Page chrome：shared pressed 與 disclosure | `8fc77192` |
+| Changed-files card：iOS row order 與 180° toggle chevron | `605bf417`（merge `cb5401ae`） |
+
+### 第 2 回合：進行中
+
+- Per-tab nav。
+- Sheet host seam + sheet routes。
+- Turn usage。
+- Bench host。
+- PCLink C5（收掉 GAP-35 剩下的 page-structure 差異）。
+- Settings geometry contract（62 pt row / 57 pt group gap）。
+- 清理與文件刷新：dead press constants、legacy session params、disclosure pressed seam、docs（本輪）。
+
 ## 能力差距（2026-11-12）
 
 | 能力 | Android | 規範是否足以移植 |

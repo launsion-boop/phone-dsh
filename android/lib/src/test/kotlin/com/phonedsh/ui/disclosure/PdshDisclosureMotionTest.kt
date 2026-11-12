@@ -11,12 +11,16 @@ package com.phonedsh.ui.disclosure
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.Interaction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +30,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.theme.PdshTheme
@@ -248,6 +253,40 @@ class PdshDisclosureMotionTest {
         assertEquals(1, toggles)
         assertEquals("reduced motion skips every body frame", BODY_HEIGHT_DP, bodyHeightDp(PdshDisclosureTags.body(TAG)), 0.5f)
         assertEquals("reduced motion snaps the chevron", 90f, rotation, 0.01f)
+    }
+
+    @Test
+    fun `folder header feeds the caller interaction source`() {
+        val source = MutableInteractionSource()
+        val interactions = mutableListOf<Interaction>()
+        compose.setContent {
+            PdshTheme {
+                LaunchedEffect(source) {
+                    source.interactions.collect { interactions += it }
+                }
+                PdshFolderGroup(
+                    expanded = false,
+                    onToggle = {},
+                    tag = TAG,
+                    interactionSource = source,
+                    header = {
+                        Box(modifier = Modifier.fillMaxWidth().height(ROW_HEIGHT_DP.dp)) {
+                            Text("folder")
+                        }
+                    },
+                    body = {
+                        Box(modifier = Modifier.fillMaxWidth().height(FOLDER_BODY_HEIGHT_DP.dp))
+                    },
+                )
+            }
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag(PdshDisclosureTags.header(TAG)).performTouchInput { down(center) }
+        compose.waitForIdle()
+        assertTrue(
+            "the supplied source receives the header's press",
+            interactions.any { it is PressInteraction.Press },
+        )
     }
 
     private fun mountBody(onToggle: (DisclosureAnchor) -> Unit) {

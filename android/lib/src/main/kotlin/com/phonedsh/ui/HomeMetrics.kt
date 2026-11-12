@@ -104,12 +104,6 @@ public object HomeMetrics {
     /** HomeSpec primary action capsule height (50). */
     public const val HOME_PRIMARY_BUTTON_HEIGHT_PT: Float = HomeSpecData.HOME_PRIMARY_BUTTON_HEIGHT
 
-    /** `HomePrimaryButtonStyle` disabled fill opacity. */
-    public const val HOME_PRIMARY_BUTTON_DISABLED_OPACITY: Float = HomeSpecData.HOME_PRIMARY_BUTTON_DISABLED_OPACITY
-
-    /** `HomePrimaryButtonStyle` pressed content opacity. */
-    public const val HOME_PRIMARY_BUTTON_PRESSED_OPACITY: Float = HomeSpecData.HOME_PRIMARY_BUTTON_PRESSED_OPACITY
-
     /** Open composer minimum height. */
     public const val COMPOSER_OPEN_MIN_HEIGHT_PT: Float = HomeSpecData.COMPOSER_OPEN_MIN_HEIGHT
 

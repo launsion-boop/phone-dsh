@@ -89,29 +89,14 @@ class HomeMetricsTest {
     fun `HomeSpec list and primary-action modifiers stay JSON sourced`() {
         val tokens = SpecFixtures.tokens
         val geometry = tokens["geometry"] as JsonObject
-        val interactions = tokens["componentMetrics"] as JsonObject
         assertEquals(48, HomeMetrics.DEFAULT_MIN_LIST_ROW_HEIGHT_PT.toInt())
         assertEquals(50, HomeMetrics.HOME_PRIMARY_BUTTON_HEIGHT_PT.toInt())
-        assertEquals(0.25f, HomeMetrics.HOME_PRIMARY_BUTTON_DISABLED_OPACITY, 0f)
-        assertEquals(0.8f, HomeMetrics.HOME_PRIMARY_BUTTON_PRESSED_OPACITY, 0f)
         assertEquals(number(geometry, "defaultMinListRowHeight"), HomeMetrics.DEFAULT_MIN_LIST_ROW_HEIGHT_PT, 0f)
         assertEquals(number(geometry, "homePrimaryButtonHeight"), HomeMetrics.HOME_PRIMARY_BUTTON_HEIGHT_PT, 0f)
-        assertEquals(
-            number(interactions, "homePrimaryButtonDisabledOpacity"),
-            HomeMetrics.HOME_PRIMARY_BUTTON_DISABLED_OPACITY,
-            0f,
-        )
-        assertEquals(
-            number(interactions, "homePrimaryButtonPressedOpacity"),
-            HomeMetrics.HOME_PRIMARY_BUTTON_PRESSED_OPACITY,
-            0f,
-        )
         assertEquals(48f, HomeMetrics.defaultMinListRowHeight.value, 0f)
         assertEquals(50f, HomeMetrics.homePrimaryButtonHeight.value, 0f)
         assertTrue(generated.contains("const val DEFAULT_MIN_LIST_ROW_HEIGHT: Float = 48f"))
         assertTrue(generated.contains("const val HOME_PRIMARY_BUTTON_HEIGHT: Float = 50f"))
-        assertTrue(generated.contains("const val HOME_PRIMARY_BUTTON_DISABLED_OPACITY: Float = 0.25f"))
-        assertTrue(generated.contains("const val HOME_PRIMARY_BUTTON_PRESSED_OPACITY: Float = 0.8f"))
     }
 
     @Test

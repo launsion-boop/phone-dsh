@@ -320,11 +320,6 @@ public data class SessionsLocalState(
     public val collapsedWorkspaceIDs: Set<String> = emptySet(),
     /** Whether 已归档 is expanded; it starts collapsed. */
     public val showArchived: Boolean = false,
-    /**
-     * Legacy host-side session-menu selection, kept so existing hosts still
-     * compile. The shared [PdshContextMenu] owns the popup and no longer reads it.
-     */
-    public val sessionMenuID: String? = null,
     /** The workspace whose overflow menu is open. */
     public val workspaceMenuID: String? = null,
     /** The workspace whose rename editor is open. */
@@ -719,8 +714,6 @@ public data class SessionsScreenState(
  * @param onCancelCreateWorkspace close the editor without creating.
  * @param onToggleArchived expand or collapse 已归档.
  * @param onRestoreArchived restore one archived session.
- * @param onSessionMenuToggle retained for hosts compiled against the previous page; the shared
- *   [PdshContextMenu] now owns the session-row popup, so this callback is no longer invoked.
  * @param onArchiveSession archive one session (the baseline's alternative to delete).
  * @param onRefresh pull-to-refresh; `null` leaves the gesture inert.
  */
@@ -761,7 +754,6 @@ public fun SessionsPage(
     onCancelCreateWorkspace: () -> Unit = {},
     onToggleArchived: () -> Unit = {},
     onRestoreArchived: (ArchivedRowView) -> Unit = {},
-    onSessionMenuToggle: (SessionRowView) -> Unit = {},
     onArchiveSession: (SessionRowView) -> Unit = {},
     /** Pull-to-refresh (`null` leaves the gesture a no-op). */
     onRefresh: (() -> Unit)? = null,
