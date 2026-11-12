@@ -48,6 +48,7 @@ class ClassificationTests(unittest.TestCase):
         expected = {
             "wal": 101,
             "materialized": 505,       # workspace 202 + session log 303
+            "caches": 0,
             "response-log": 404,
             "overlay": 1717,           # 808 + 909
             "journal": 707,
@@ -66,6 +67,111 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(report["subdirectories"]["sessions"], 303)
         self.assertEqual(report["subdirectories"]["workspace"], 202)
         self.assertEqual(report["subdirectories"]["wal"], 101)
+        self.assertEqual(report["subdirectories"]["caches"], 0)
+
+    def test_store_named_directories_inside_materialized_are_workspace_bytes(self) -> None:
+        # Regression for docs/perf/baseline-fixtures-20261112.md §8.1: a real
+        # user workspace may contain these directories, and they must never be
+        # reported as store bytes.
+        root = self.temp / "container"
+        store_names = ("wal", "steps", "exec", "journal", "overlay",
+                       "response-log", "transcript-snapshots")
+        for name in store_names:
+            _write(root / "Library" / "xl" / "perf" / "materialized" /
+                   "workspace" / name / "asset.bin", 10)
+        # A nested collision two levels deep must not escape either.
+        _write(root / "Library" / "xl" / "perf" / "materialized" / "workspace" /
+               "wal" / "steps" / "nested.bin", 5)
+
+        report = measure.measure(root)
+        self.assertEqual(report["total_bytes"], 75)
+        self.assertEqual(report["categories"]["materialized"], 75)
+        self.assertEqual(report["breakdown"]["workspace"], 75)
+        self.assertEqual(report["breakdown"]["sessions"], 0)
+        for name in store_names:
+            self.assertEqual(report["categories"][name], 0, name)
+        self.assertEqual(report["file_counts"]["materialized"], 8)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+
+    def test_store_paths_outside_materialized_still_classify_as_stores(self) -> None:
+        root = self.temp / "container"
+        base = root / "Library" / "xl" / "perf"
+        _write(base / "wal" / "00000001.000000.xlwal", 101)
+        _write(base / "steps" / "s.ndjson", 202)
+        _write(base / "exec" / "ledger", 303)
+        _write(base / "journal.xljournal", 404)
+        _write(base / "response-log" / "key" / "body", 505)
+        _write(base / "overlay-abc.tar", 606)
+        _write(root / "Documents" / "transcript-snapshots" / "s.json", 707)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["wal"], 101)
+        self.assertEqual(report["categories"]["steps"], 202)
+        self.assertEqual(report["categories"]["exec"], 303)
+        self.assertEqual(report["categories"]["journal"], 404)
+        self.assertEqual(report["categories"]["response-log"], 505)
+        self.assertEqual(report["categories"]["overlay"], 606)
+        self.assertEqual(report["categories"]["transcript-snapshots"], 707)
+        self.assertEqual(report["categories"]["materialized"], 0)
+        self.assertEqual(report["categories"]["caches"], 0)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+
+    def test_caches_bucket_is_separate_from_the_stores(self) -> None:
+        # Library/Caches/pdsh/<workspace_id> is the W3 rebuildable tree
+        # (WorkspacePaths.cacheRoot).  Its children are named after the stores,
+        # but the system may purge it, so it is its own bucket.
+        root = self.temp / "container"
+        cache = root / "Library" / "Caches" / "pdsh" / "perf"
+        _write(cache / "response-log" / "key" / "body", 300)
+        _write(cache / "transcript-snapshots" / "s.json", 200)
+        _write(cache / "overlay-cache.tar", 100)
+        # The cache domain is `Library/Caches/**`, not only the pdsh subtree
+        # (`defaultStagingRoot` in WebEngineDirectoryImport.swift uses
+        # Library/Caches/PhoneDSHImport).
+        _write(root / "Library" / "Caches" / "PhoneDSHImport" / "staging.bin", 25)
+        # The authoritative (Documents) copy at the same relative names must
+        # keep its own store buckets.
+        durable = root / "Library" / "xl" / "perf"
+        _write(durable / "response-log" / "key" / "body", 400)
+        _write(durable / "overlay-cache.tar", 50)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["caches"], 625)
+        self.assertEqual(report["file_counts"]["caches"], 4)
+        self.assertEqual(report["categories"]["response-log"], 400)
+        self.assertEqual(report["categories"]["overlay"], 50)
+        self.assertEqual(report["categories"]["transcript-snapshots"], 0)
+        self.assertEqual(report["subdirectories"]["caches"], 625)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+        self.assertIn("caches", report["category_notes"])
+        self.assertIn("Library/Caches/pdsh", report["category_notes"]["caches"])
+        self.assertIn("not Documents authoritative", report["category_notes"]["caches"])
+
+    def test_caches_anchor_requires_the_library_path(self) -> None:
+        # A user directory that merely shares the name must stay in `other`;
+        # only the app container's `Library/Caches` domain is system-reclaimable.
+        root = self.temp / "container"
+        _write(root / "Documents" / "Caches" / "asset.bin", 11)
+        _write(root / "Caches" / "asset.bin", 13)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["caches"], 0)
+        self.assertEqual(report["categories"]["other"], 24)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+
+    def test_workspace_subdirectory_named_sessions_is_not_the_session_bucket(self) -> None:
+        root = self.temp / "container"
+        _write(root / "Library" / "xl" / "perf" / "materialized" / "workspace" /
+               "sessions" / "s.v4.jsonl", 42)
+        _write(root / "Library" / "xl" / "perf" / "materialized" / "home" /
+               "sessions" / "p" / "s" / "session.v4.jsonl", 58)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["materialized"], 100)
+        self.assertEqual(report["breakdown"]["workspace"], 42)
+        self.assertEqual(report["breakdown"]["sessions"], 58)
+        self.assertEqual(report["subdirectories"]["workspace"], 42)
+        self.assertEqual(report["subdirectories"]["sessions"], 58)
 
     def test_hard_links_are_counted_once(self) -> None:
         root = self.temp / "container"
@@ -80,6 +186,26 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(report["hardlinks_deduplicated"], 1)
         self.assertEqual(report["file_count"], 1)
         self.assertEqual(sum(report["categories"].values()), 1000)
+
+    def test_hard_link_into_the_cache_tree_is_counted_once(self) -> None:
+        # W3 moves rebuildable bytes to Library/Caches with hard links; a link
+        # there must not add bytes to either the store or the workspace.
+        root = self.temp / "container"
+        first = root / "Library" / "xl" / "perf" / "materialized" / "workspace" / "first.bin"
+        second = root / "Library" / "Caches" / "pdsh" / "perf" / "response-log" / "k" / "body"
+        _write(first, 1000)
+        second.parent.mkdir(parents=True, exist_ok=True)
+        os.link(first, second)
+
+        report = measure.measure(root)
+        self.assertEqual(report["total_bytes"], 1000)
+        self.assertEqual(report["hardlinks_deduplicated"], 1)
+        self.assertEqual(report["file_count"], 1)
+        self.assertEqual(sum(report["categories"].values()), 1000)
+        self.assertEqual(report["file_counts"]["materialized"]
+                         + report["file_counts"]["caches"], 1)
+        self.assertEqual(report["categories"]["materialized"]
+                         + report["categories"]["caches"], 1000)
 
     def test_symlinks_are_not_followed(self) -> None:
         root = self.temp / "container"
@@ -123,6 +249,8 @@ class GeneratedContainerTests(unittest.TestCase):
         self.assertGreater(report["categories"]["overlay"], 0)
         self.assertGreater(report["categories"]["journal"], 0)
         self.assertGreater(report["categories"]["transcript-snapshots"], 0)
+        self.assertEqual(report["categories"]["caches"], 0)
+        self.assertIn("caches", report["category_notes"])
         self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
 
     def test_largest_files_are_sorted(self) -> None:
@@ -139,6 +267,8 @@ class GeneratedContainerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(report["schemaVersion"], 1)
+        self.assertEqual(report["categories"]["caches"], 0)
+        self.assertIn("caches", report["category_notes"])
         self.assertEqual(report["total_bytes"], measure.measure(self.root)["total_bytes"])
 
 
