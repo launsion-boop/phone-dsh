@@ -42,11 +42,21 @@ struct URLSessionForwarder: Sendable {
     }
 
     /// Starts the upstream request and yields status/headers followed by body
-    /// chunks of at most 16 KiB.
+    /// chunks.
+    ///
+    /// W7 (§13): forwarded bytes are never accumulated to a 16 KiB batch. A
+    /// complete NDJSON line or SSE line (`\n`) is written downstream as soon
+    /// as it arrives, and a frame with no terminator flushes at most at the
+    /// 4 KiB coalescing bound. Bytes are only coalesced inside one line/event
+    /// frame, so an SSE event boundary is never crossed by a merge.
     func forward(method: String, url: URL, headers: [String: String],
                  body: Data) -> AsyncThrowingStream<HTTPEgressChunk, Error> {
         let session = self.session
-        return AsyncThrowingStream { continuation in
+        // A bounded downstream queue makes a stalled consumer apply
+        // backpressure instead of growing the forwarding buffer without limit.
+        // When the bound is hit the drop is loud (the stream fails), never a
+        // silent gap in the response.
+        return AsyncThrowingStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
             let task = Task {
                 do {
                     var request = URLRequest(url: url)
@@ -65,21 +75,39 @@ struct URLSessionForwarder: Sendable {
                         if Self.hopByHop.contains(name.lowercased()) { continue }
                         responseHeaders[name] = String(describing: rawValue)
                     }
-                    continuation.yield(HTTPEgressChunk(status: http.statusCode,
-                                                       headers: responseHeaders,
-                                                       body: Data(),
-                                                       isFinal: false))
+                    try Self.emit(HTTPEgressChunk(status: http.statusCode,
+                                                  headers: responseHeaders,
+                                                  body: Data(),
+                                                  isFinal: false),
+                                  to: continuation)
+                    let isEventStream = (responseHeaders.first {
+                        $0.key.lowercased() == "content-type"
+                    }?.value.lowercased().contains("text/event-stream") ?? false)
                     var buffer = Data()
-                    buffer.reserveCapacity(16 * 1024)
+                    buffer.reserveCapacity(Self.coalesceMaxBytes)
+                    var trailingNewlines = 0
                     for try await byte in bytes {
                         buffer.append(byte)
-                        if buffer.count >= 16 * 1024 {
-                            continuation.yield(HTTPEgressChunk(body: buffer))
+                        if byte == 0x0A {
+                            trailingNewlines += 1
+                        } else if byte != 0x0D {
+                            trailingNewlines = 0
+                        }
+                        // §13: an SSE event ends at its blank line; an NDJSON
+                        // frame ends at one newline. Never flush an SSE event
+                        // at its first line break.
+                        let frameBoundary = isEventStream
+                            ? trailingNewlines >= 2
+                            : byte == 0x0A
+                        if frameBoundary || buffer.count >= Self.coalesceMaxBytes {
+                            try Self.emit(HTTPEgressChunk(body: buffer), to: continuation)
                             buffer.removeAll(keepingCapacity: true)
+                            trailingNewlines = 0
                         }
                     }
                     if !buffer.isEmpty {
-                        continuation.yield(HTTPEgressChunk(body: buffer, isFinal: true))
+                        try Self.emit(HTTPEgressChunk(body: buffer, isFinal: true),
+                                      to: continuation)
                     }
                     continuation.finish()
                 } catch {
@@ -87,6 +115,23 @@ struct URLSessionForwarder: Sendable {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// Maximum bytes coalesced without a line terminator (§13 fixes 4 KiB as
+    /// the size half of the bound). A complete line is always written
+    /// immediately, so no timer is needed to protect the first event; only a
+    /// partial, unterminated frame waits for more bytes or the 4 KiB bound.
+    static let coalesceMaxBytes = 4 * 1024
+
+    private static func emit(_ chunk: HTTPEgressChunk,
+                             to continuation: AsyncThrowingStream<HTTPEgressChunk, Error>.Continuation) throws {
+        switch continuation.yield(chunk) {
+        case .dropped(_):
+            throw LoopbackError.upstreamFailed(
+                "the downstream stopped consuming the forwarded response")
+        default:
+            return
         }
     }
 }

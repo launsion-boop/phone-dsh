@@ -32,6 +32,7 @@ import PhoneDSHAgentCore
 import PhoneDSH
 import PhoneDSHEngine
 import PhoneDSHHarness
+import PhoneDSHLog
 import PhoneDSHWire
 
 // MARK: - Fixture
@@ -518,6 +519,36 @@ final class PhoneDSHSmokeToolSettleTests: XCTestCase {
         return state
     }
 
+    /// Read the retained terminal journal record back through the real
+    /// `JournalLog` decoder.
+    ///
+    /// budgets.md §8 (PC-20261112-w2-journal-step-pruning): a successful epoch
+    /// close makes the terminal step record prunable, and `stop()` triggers
+    /// such a close, so the post-stop `steps/` file can no longer witness the
+    /// D13 `journaled` transition. The host MUST keep, per session, the newest
+    /// retained high-water/terminal journal record when dropping it would
+    /// lower `lastJseq`; that intact record with its original `jseq` is the
+    /// durable proof the drain waited for the tool journal end.
+    private func retainedJournalTerminal(
+        _ fixture: ToolSettleFixture
+    ) async throws -> (jseq: UInt64, record: [String: Any]) {
+        let journal = try JournalLog(
+            configuration: WorkspaceLogConfiguration(root: fixture.workspace),
+            bootID: Data(repeating: 0x11, count: 16))
+        let bodies = await journal.recoveredSnapshot()
+        for body in bodies.reversed() where body.sessionID == "session-regression" {
+            guard let object = try? JSONSerialization.jsonObject(with: body.record),
+                  let dictionary = object as? [String: Any] else { continue }
+            let type = (dictionary["t"] as? String) ?? (dictionary["type"] as? String)
+            if type == "done" || type == "completed" {
+                return (body.jseq, dictionary)
+            }
+        }
+        throw ToolSettleError.failed(
+            "the retained journal has no terminal record after stop: "
+                + "\(bodies.map { "\($0.sessionID):\($0.jseq)" })")
+    }
+
     /// The regression: the host must not report the drain complete while the
     /// D13 step of the cancelled tool call is still `tool_dispatched`. The
     /// journal end arrives after the turn/end (it is a separate 0x30 frame);
@@ -548,8 +579,23 @@ final class PhoneDSHSmokeToolSettleTests: XCTestCase {
         let lifecycleStops = await worker.lifecycleStops()
         XCTAssertGreaterThan(lifecycleStops, 0,
                              "the abort drain sent LIFECYCLE stop to the Worker tool layer")
-        XCTAssertEqual(try lastStepState(fixture), "journaled",
-                       "the drain must wait for the terminal journal record and the D13 step it closes")
+        // budgets.md §8 (PC-20261112-w2-journal-step-pruning): the epoch close
+        // during stop may prune the terminal step line, so the wait is proven
+        // by the journal's retained high-water/terminal record (the record the
+        // D13 step closed on), not by a post-stop step-file read.
+        let terminal = try await retainedJournalTerminal(fixture)
+        XCTAssertEqual(terminal.jseq, 2,
+                       "stop returned only after the delayed journal end (jseq 2) was appended")
+        XCTAssertEqual(terminal.record["call_id"] as? String, "call-1",
+                       "the retained terminal belongs to the settled tool call")
+        XCTAssertEqual((terminal.record["result"] as? [String: Any])?["isError"] as? Bool, true,
+                       "the retained journal end records the aborted tool result")
+        // If the epoch close retained rather than pruned the step line, it must
+        // still be terminal: a pruned file must never hide an in-flight step.
+        if let retainedStep = try? lastStepState(fixture) {
+            XCTAssertEqual(retainedStep, "journaled",
+                           "a retained post-stop step line is the journaled terminal state")
+        }
         let materialized = try String(decoding: Data(contentsOf: fixture.sessionJournal),
                                       as: UTF8.self)
         XCTAssertTrue(materialized.contains("\"tool/result\""),

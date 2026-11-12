@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "vector": "append-records",
+  "valid": [
+    {
+      "id": "exec-ledger-v2-append",
+      "format": "exec-ledger",
+      "appendOnly": true,
+      "oldFormatReadable": true,
+      "resultCopies": 1,
+      "lines": [
+        {"v": 2, "kind": "exec", "idem_key": "0000000000000000000000000000000000000000000000000000000000000001", "terminal": false},
+        {"seq": 0, "event": {"type": "start"}},
+        {"seq": 1, "event": {"type": "stdout", "data": "hi"}},
+        {"seq": 2, "event": {"type": "exit"}}
+      ]
+    },
+    {
+      "id": "step-record-terminal-fsync",
+      "format": "step-record",
+      "appendOnly": true,
+      "oldFormatReadable": true,
+      "resultCopies": 0,
+      "lines": [
+        {"v": 1, "step_id": 1, "turn_id": "t1", "state": "tool_dispatched", "at_ms": 1},
+        {"v": 1, "step_id": 1, "turn_id": "t1", "state": "wal_written", "at_ms": 2},
+        {"v": 1, "step_id": 1, "turn_id": "t1", "state": "journaled", "at_ms": 3, "jseq": 1}
+      ]
+    },
+    {
+      "id": "tool-journal-start-awaited-one-result",
+      "format": "tool-journal",
+      "appendOnly": true,
+      "oldFormatReadable": true,
+      "resultCopies": 1,
+      "startAwaited": true,
+      "lines": [
+        {"jseq": 1, "type": "start", "key": "xl1-0f1e2d3c4b5a69788796a5b4c3d2e1f0"},
+        {"jseq": 2, "type": "executed", "result": {"exit": 0}},
+        {"jseq": 3, "type": "done", "resultRef": 2}
+      ]
+    }
+  ],
+  "invalid": [
+    {"case": {"format": "tool-journal", "appendOnly": true, "oldFormatReadable": true, "resultCopies": 2, "startAwaited": true, "lines": [{"jseq": 1}]}, "reason": "two_result_copies"},
+    {"case": {"format": "exec-ledger", "appendOnly": true, "oldFormatReadable": true, "resultCopies": 1, "rewritesInPlace": true, "lines": [{"v": 2}]}, "reason": "in_place_rewrite"},
+    {"case": {"format": "tool-journal", "appendOnly": true, "oldFormatReadable": true, "resultCopies": 1, "startAwaited": false, "lines": [{"jseq": 1}]}, "reason": "start_not_awaited"},
+    {"case": {"format": "step-record", "appendOnly": true, "oldFormatReadable": false, "resultCopies": 0, "lines": [{"v": 1}]}, "reason": "old_format_unreadable"}
+  ]
+}

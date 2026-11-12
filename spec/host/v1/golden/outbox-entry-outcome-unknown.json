@@ -1,0 +1,17 @@
+{
+  "name": "outbox-entry-outcome-unknown",
+  "schema": "schema/outbox-entry.schema.json",
+  "instance": {
+    "v": 1,
+    "rpcId": "9d8c7b6a-5f4e-4d3c-8b2a-190817161514",
+    "sessionId": "gb-main",
+    "text": "把刚才那个文件删掉",
+    "createdAtMs": 1794398651000,
+    "state": "outcomeUnknown",
+    "attempts": 1,
+    "lastError": "transport closed after the request was written",
+    "outcomeUnknownAtMs": 1794398652000,
+    "backend": "pc"
+  },
+  "notes": "docs/protocol-changes/PC-20261112-w1-browse-outbox.md:§2 — a transport interruption after submission is outcomeUnknown; the host reads the authoritative history before any resend."
+}

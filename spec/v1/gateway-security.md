@@ -238,3 +238,83 @@ workbench-turn probe keeps `notBot` for a running workbench turn; otherwise one 
 - **The positive response log is pinned.** `gw-log-001` requires `recorded: true` / `recorded_ok`; a never-recording gateway must not pass by omission.
 - **Empty bodies are not failures.** `HEAD` and 1xx/204/205/304 carry no body (`body_bytes: 0`, `body_withheld: false`) and still record (`gw-resp-006`).
 
+## 11. Response-log retention and deletion (P05/P17, W3)
+
+The response log stays a cache, not an authority. Its 128 MiB LRU quota (§6, budgets.md §5) is
+unchanged; this section adds the epoch-close reclamation condition.
+
+- **Entry.** One response-log entry is a complete body plus its receipt. A partial stream is never
+  logged (§6). A body larger than the whole quota is dropped whole (§6), never truncated.
+- **Deletion condition.** An entry may be removed only when all of these hold: the step whose
+  request produced it is `journaled` and level-2 durable (`exec.md` §4); the host is not in
+  `Recovering`; no resume request references the entry (no in-flight `resume` header/offset
+  delivery, no pending replay); and the entry is complete. Removal is whole-entry (body and
+  receipt together); the replay of a removed key returns `missing`, never a partial body and
+  never a different response.
+- **When.** The condition is evaluated after every successful epoch close together with the WAL
+  reclamation (wal.md §12), and on a quota overflow before the fail-loud branch. It is silent.
+- **Cache location.** Entries whose step is `journaled` and durable, and which are retained only
+  for bounded replay, may live under `Library/Caches/pdsh/<workspace_id>/response-log/`; entries
+  that do not yet satisfy the condition stay in the app's durable log directory. An entry whose
+  body moves carries a `bodyLocation` marker (`documents`|`caches`); a reader with no marker
+  looks in `documents` (v1 compatibility) and then `caches`; a crash that leaves the body in the
+  old location and the marker pointing at the new one is repaired by the same fallback. A system
+  cache purge may remove the whole `caches` tree: the affected replays return `missing` and the
+  gateway does not error, because the step's durable result already exists elsewhere.
+- **No weakening.** A purged or pruned entry never changes a recorded receipt's status, never
+  makes a partial body replayable, and never causes a second upstream request for a non-replay-safe
+  write.
+
+## 12. Response-log content key (P05, W7)
+
+The key selects an entry; changing its implementation must not orphan existing entries. The key
+is fixed as the lowercase hex SHA-256 of this byte sequence, in this order:
+
+```
+UPPERCASE(method) "\n"
+canonical-URL "\n"
+for each selected header, name ascending: lowercased-name ":" trimmed-value "\n"
+"\n"
+canonical-body
+```
+
+- `canonical-URL` is the absolute URL with the fragment removed and the existing normalization
+  unchanged (scheme/host/port/path/query as the platform URL parser produces them). The method is
+  uppercased with ASCII rules.
+- `selected header` means only names in `responseLogHeaderNames`, compared case-insensitively,
+  each value trimmed of ASCII spaces/tabs; volatile headers (authorization, date, trace ids) are
+  never selected. Duplicate names after lowercasing are one entry.
+- `canonical-body` is the body re-encoded as canonical JSON when it parses as JSON (sorted keys, no
+  insignificant whitespace, `/` not escaped, integers only), and the raw bytes otherwise; an empty
+  body stays empty.
+- The hash is SHA-256, not a platform-specific digest. CryptoKit/slicing-table/hardware
+  implementations must produce **byte-identical** keys for every input; the shared key vectors in
+  `golden/response-log/` are the oracle.
+- **Compatibility.** Because the recipe is unchanged, a new implementation writes the same keys as
+  the old one and both read each other's entries; no migration is required. If a later revision
+  changes the recipe, it must first read the legacy key, then the new key, and it must not delete a
+  legacy entry until the step's deletion condition (§11) holds; a legacy entry that cannot be
+  re-keyed safely is left to LRU. A key collision or a failure to hash is fail-closed (no entry,
+  no partial replay), never a silent overwrite of another key.
+
+## 13. Streaming forwarding and delta merge (P05, W7)
+
+This section fixes the observable timing and the bound; it does not change the recorded payload.
+
+- **Arrival, not batch.** `/mcp` SSE and `/v1/exec` NDJSON are forwarded as they arrive. A
+  complete SSE event (its terminating blank line) or a complete NDJSON line is written downstream
+  immediately; it is never held until 16 KiB accumulates or the stream ends. The first event of a
+  response must be observable before the upstream has produced 16 KiB.
+- **Coalescing window.** Bytes may be coalesced only within one event/line frame, or for at most
+  100 ms / 4 KiB, whichever comes first; an event boundary is never crossed by a merge. No
+  artificial delay is added when a frame is already complete.
+- **Delta merge.** Consecutive streaming text deltas of the same response item may be merged into
+  one frame. The merge bound is 32 KiB of UTF-8 text or 100 ms, whichever comes first; it never
+  crosses an item boundary, never reorders, and never merges across `tool_call`, `finish`,
+  `error` or a non-text part. An implementation that does not merge is compliant; one that
+  merges beyond the bound is not.
+- **Response log.** Only a complete stream is recorded; a partial stream is never logged (§6).
+  Buffering for the log may be asynchronous but must not block forwarding, and the recorded bytes
+  and replay semantics are unchanged.
+- **Backpressure.** The downstream queue is bounded; when it is full the reader waits (does not
+  drop) and the upstream connection applies backpressure. A dropped frame is never silent.

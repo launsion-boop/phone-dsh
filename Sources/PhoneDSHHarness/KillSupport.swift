@@ -171,12 +171,16 @@ public struct KillReplayTree {
 
     public init() {}
 
-    /// Applies every non-epoch-close record in mseq order.
-    public static func replay(_ records: [WALRecord]) throws -> KillReplayTree {
+    /// Applies every non-epoch-close record in mseq order. A W6 §14.2 blob
+    /// write is resolved through `blobStore` with its bytes verified; a missing
+    /// or mismatched blob is the WAL reader's fail-loud error, never an empty
+    /// body. Inline records decode exactly as before.
+    public static func replay(_ records: [WALRecord],
+                              blobStore: WorkspaceBlobStore) throws -> KillReplayTree {
         var tree = KillReplayTree()
         for record in records.sorted(by: { $0.mseq < $1.mseq }) {
             if record.isEpochClose { continue }
-            let mutation = try record.mutationBody()
+            let mutation = try record.resolvedMutationBody(using: blobStore)
             try tree.apply(mutation)
         }
         return tree
@@ -293,29 +297,70 @@ public func verifyKillWorkspace(_ workspace: URL,
     -> [String: Any] {
     let paths = WorkspacePaths(root: workspace)
     let records = try WALReader.records(directory: paths.walDirectory, fromMseq: 1)
+    let blobStore = WorkspaceBlobStore(root: workspace)
     var walMutations: [UInt64: VfsMutationBody] = [:]
     for record in records where !record.isEpochClose {
-        walMutations[record.mseq] = try record.mutationBody()
+        walMutations[record.mseq] = try record.resolvedMutationBody(using: blobStore)
     }
 
-    // 1. Every level-1-acked mseq is present (and matches the sent body when
-    //    this process is the sender).
+    // 1. Every level-1-acked mseq is present with the sent body when this
+    //    process is the sender. wal.md §12 (PC-20261112-w3-storage-watermark-tiers)
+    //    reclaims droppable segments after every successful close, so a prefix
+    //    below the materialized watermark may legitimately be absent from the
+    //    retained WAL; those bytes must still be in the durable copy.
     guard ackedUpto >= 1 else {
         throw KillError.replay("no level-1 ack was observed")
     }
+    let manifest = try ManifestStore(paths: paths).read()
+    let materializedUpto = manifest?.materializedUptoMseq ?? 0
+    var compactedPrefix: [UInt64] = []
     for mseq in 1...ackedUpto {
-        guard let present = walMutations[mseq] else {
-            throw KillError.replay("acked mseq \(mseq) is missing from the WAL")
-        }
-        if let sent = await worker?.sentMutation(mseq),
-           try sent.encoded() != present.encoded() {
-            throw KillError.replay("acked mseq \(mseq) differs from the sent mutation")
+        let sent = await worker?.sentMutation(mseq)
+        if let present = walMutations[mseq] {
+            if let sent, try sent.encoded() != present.encoded() {
+                throw KillError.replay("acked mseq \(mseq) differs from the sent mutation")
+            }
+        } else {
+            guard let sent else {
+                throw KillError.replay(
+                    "acked mseq \(mseq) is missing from the WAL and has no sender record")
+            }
+            guard mseq <= materializedUpto else {
+                throw KillError.replay(
+                    "acked mseq \(mseq) is missing from the WAL above the materialized watermark \(materializedUpto)")
+            }
+            compactedPrefix.append(mseq)
+            _ = sent
         }
     }
 
-    // 2. WAL replay equals the materialized copy, exactly: this catches
-    //    rm/rename inconsistencies and ghost writes.
-    let replay = try KillReplayTree.replay(records)
+    // 2. The replay equals the materialized copy, exactly: this catches
+    //    rm/rename inconsistencies and ghost writes. When a durable close has
+    //    reclaimed the prefix, the sender's recorded mutations reconstruct it;
+    //    otherwise the retained WAL is the source, exactly as before.
+    let replay: KillReplayTree
+    if compactedPrefix.isEmpty {
+        replay = try KillReplayTree.replay(records,
+                                           blobStore: WorkspaceBlobStore(root: workspace))
+    } else {
+        guard let worker else {
+            throw KillError.replay("a compacted acked prefix requires the sender record")
+        }
+        var tree = KillReplayTree()
+        for mseq in 1...ackedUpto {
+            if let sent = await worker.sentMutation(mseq) {
+                try tree.apply(sent)
+            }
+        }
+        // Retained records above the acked tail (if any) still count: apply
+        // them after the reconstructed prefix and in mseq order.
+        let blobStore = WorkspaceBlobStore(root: workspace)
+        for record in records.sorted(by: { $0.mseq < $1.mseq }) where record.mseq > ackedUpto {
+            if record.isEpochClose { continue }
+            try tree.apply(try record.resolvedMutationBody(using: blobStore))
+        }
+        replay = tree
+    }
     let materialized = try scanMaterialized(workspace)
     guard replay.files == materialized.files else {
         let missing = Set(replay.files.keys).subtracting(materialized.files.keys)
@@ -351,6 +396,7 @@ public func verifyKillWorkspace(_ workspace: URL,
 
     return [
         "wal_mutations": walMutations.count,
+        "compacted_acked_prefix": compactedPrefix.count,
         "materialized_files": materialized.files.count,
         "materialized_directories": materialized.directories.count,
         "interrupted_steps": interrupted.count,

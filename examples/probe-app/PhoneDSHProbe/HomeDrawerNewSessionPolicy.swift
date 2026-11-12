@@ -26,8 +26,15 @@ enum HomeDrawerNewSessionPolicy {
     /// Why the capsule shows a reason below it. `busy` is deliberately absent:
     /// opening another session flips it for one brief transition, and showing
     /// "本轮结束后可用" for that pushed the list down and back up.
-    static func reason(isStarted: Bool, turnRunning: Bool, keepingAlive: Bool) -> Reason? {
-        if !isStarted { return .engineNotStarted }
+    ///
+    /// W1: a boot in progress is not "引擎未启动". The capsule stays disabled
+    /// for the short start, but the reason line must not claim a stopped engine
+    /// while the Worker is starting.
+    static func reason(isStarted: Bool,
+                       turnRunning: Bool,
+                       keepingAlive: Bool,
+                       engineStarting: Bool = false) -> Reason? {
+        if !isStarted, !engineStarting { return .engineNotStarted }
         if turnRunning || keepingAlive { return .turnRunning }
         return nil
     }

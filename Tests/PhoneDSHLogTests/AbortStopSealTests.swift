@@ -138,15 +138,14 @@ final class AbortStopSealTests: XCTestCase {
         _ = try await log.closeEpoch()
         let accepted = await log.positions().ackedMseq
 
-        // A legal truncation: the durable, fully materialized epoch 1 segments
-        // are unlinked after the shorter manifest is written.
+        // A legal truncation already happened at the second close: wal.md §12
+        // (PC-20261112-w3-storage-watermark-tiers) reclaims every droppable
+        // segment after a successful close, so epoch 1 is gone and the shorter
+        // manifest is the durable record of that truncation.
         let manifest = try XCTUnwrap(try ManifestStore(root: root).read())
         let segments = try LogTestSupport.segments(in: root)
-        let epochOne = segments.filter { $0.epoch == 1 }
-        XCTAssertFalse(epochOne.isEmpty)
-        for segment in epochOne {
-            try FileManager.default.removeItem(at: segment.url)
-        }
+        XCTAssertTrue(segments.filter { $0.epoch == 1 }.isEmpty,
+                      "the first close's droppable segment was not reclaimed")
         let remaining = segments.filter { $0.epoch != 1 && !$0.records.isEmpty }
         let truncated = Manifest(bootID: manifest.bootID,
                                  materializedUptoMseq: manifest.materializedUptoMseq,

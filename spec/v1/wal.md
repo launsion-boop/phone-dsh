@@ -19,6 +19,7 @@ those of [channel.md](channel.md).
 | `manifest.json` | checkpoint, §7 |
 | `steps/` | exec step records, owned by the App ([exec.md](exec.md) §4) |
 | `exec/` | exec idempotency ledger ([exec.md](exec.md) §2) |
+| `blobs/sha256/<hh>/<sha256>` | content-addressed mutation payloads (§14); immutable, never part of the VFS |
 
 Segment names are `wal/<epoch:08d>.<segment:06d>.xlwal`: decimal epoch and segment numbers,
 zero-padded, epoch from 1, segment from 0 within its epoch. At the start of an epoch the host creates
@@ -63,13 +64,14 @@ payload = mseq u64 | body
 | `len` | `u32` = 8 + `body length`; it covers `mseq` and `body` and excludes `len` and `crc32c` |
 | `crc32c` | `u32` CRC32C over `mseq ‖ body` only (not over `len`) |
 | `mseq` | `u64`; mutation records are `≥ 1`, consecutive, and equal to the record's VFS mseq |
-| `body` | mutation body, identical to the `0x10` VFS_MUT payload **without** its leading `mseq` (channel.md §3.1) |
+| `body` | mutation body for `op` 1–4, identical to the `0x10` VFS_MUT payload **without** its leading `mseq` (channel.md §3.1); or the §14.2 blob-write body for `op = 0xFE`, which is not a VFS_MUT payload |
 
 Mutation body: `op u8`, `mode u32`, `mflags u8`, `append_from u64`, `path_len u16`, `path`,
 `data_len u32`, `data`. The channel.md §3.1 invariants apply unchanged: op 1 write, 2 mkdir,
 3 remove, 4 chmod; `mode ≤ 0o7777`; only a write may set `mflags` bit 1 `appended`, and then `data`
 is the suffix from `append_from`; mkdir/remove/chmod carry no data. Mutation records are append-only
-and ordered by mseq with no holes across segments (§7.2). Only mutations and the §4 close exist.
+and ordered by mseq with no holes across segments (§7.2). Three record kinds exist: a mutation, the
+§4 close, and the §14 blob-write record (`op = 0xFE`) that carries a write's data by digest.
 
 ## 4. Epoch-close record (D7)
 
@@ -94,7 +96,10 @@ For every accepted VFS_MUT the host order is fixed:
    caps, op/mode/mflags/append_from consistency. Failure is `BAD_PATH`, `BAD_MSEQ` or `BAD_PAYLOAD`
    and closes the connection; nothing is appended.
 2. **WAL append** — encode the record of §3 and append it to the current segment. The WAL records
-   every mutation the VFS committed; materialization never suppresses or rewrites a record.
+   every mutation the VFS committed; materialization never suppresses or rewrites a record. A write
+   whose `data` is at or above the §14.2 threshold appends a blob-write record instead of an inline
+   one, after its bytes are written to the §14.1 store; the rest of the order is unchanged and level
+   1 covers both writes.
 3. **Ack level 1** — send `VFS_ACK level 1` with the cumulative `upto_mseq` once `write()` of those
    bytes returned (group commit: at most 2 ms). Level 1 promises survival of **process death** (a
    kill or crash leaves the bytes in the kernel page cache). It does **not** promise survival of
@@ -150,7 +155,9 @@ Otherwise the close runs in this order:
 
 1. **fsync the changed materialized copy**: every file materialized in the epoch (temp file fsynced
    before rename, or an fsync of the final file) and every changed directory (create, rename,
-   remove, chmod, including the parent of a chmod), deepest first;
+   remove, chmod, including the parent of a chmod), deepest first; every blob written in the epoch
+   is fsynced here as well, before step 2, so a level-2 record never names a blob that is not
+   durable;
 2. append the epoch-close record (§4) to the current segment, with `durable_upto` = highest mutation
    mseq appended so far;
 3. `F_FULLFSYNC` every segment file written in this epoch, including the one that received the close
@@ -223,6 +230,7 @@ records; it is never the input to a WAL write and never edited by the worker.
 | 2 mkdir | create the directory (and missing parents) with `mode`; an existing directory is not an error |
 | 3 remove | remove the file or the **whole directory subtree** at the path (the VFS collapses `rm -rf` into one remove); a missing path is a no-op (the tombstone replays idempotently). A rename appears as remove of the source plus `mkdir` for each moved directory and a complete `write` for each moved file |
 | 4 chmod | set `mode` on the existing path; a missing path is a host defect → `Failed` |
+| 0xFE blob write | the §6.1 rule of the write form it carries (`appended` clear = complete write, set = append at `append_from`), with the verified blob bytes as `data`; a missing or digest-mismatched blob is `WAL_CORRUPT` (§14.5) |
 
 ### 6.2 D9 idempotent appended replay
 
@@ -381,15 +389,59 @@ to boot. This has no unpacking consequence: both the packer and the loader admit
 neither the entry set nor the traversal rules. It contains no `tmp`, WAL, manifest or step files; `/dsh/tmp`
 is volatile and recreated empty. The overlay is rebuilt for each boot and is an input, not an authority.
 
-Image shards `lazy/<sha256>.tar.gz` are produced by the packaging tooling, served with
-`Cache-Control: no-store`, and fetched by the worker VFS on first read. They are never persisted by the
-host and are not in the boot overlay; a mutation of a lazy-loaded path is an ordinary VFS_MUT once the
-worker has the bytes.
+Image shards `lazy/<sha256>.tar.gz` are produced by the packaging tooling and fetched by the worker
+VFS on first read. They are never persisted by the host and are not in the boot overlay; a mutation of
+a lazy-loaded path is an ordinary VFS_MUT once the worker has the bytes.
+
+**Cacheability of immutable resources.** Only content-addressed resources may leave the `no-store`
+rule: `/image/lazy/<sha256>.tar.gz` and `/blobs/sha256/<hash>` (the §14 store and the §8.1 target
+overlay). They are served as `Cache-Control: private, max-age=31536000, immutable`; the version key is
+the sha256 in the path, so their URL carries no per-launch token (they authenticate with the
+same-origin launch cookie or a bearer header) and they never send `Vary: Cookie`. Every other route —
+the page, `/static/*`, `/image/base`, `/image/overlay/*`, `/channel`, `/v1/*` and `/mcp*` — stays
+`no-store`. A cache hit needs a stable origin: the loopback host and port are fixed for the
+installation, with an ephemeral port as the fallback when the fixed port cannot be bound; the fallback
+is a cache miss, never a correctness or security change, and the per-launch token remains required on
+every request. A fixed origin is still bound to `127.0.0.1` only and keeps the same `Origin`, cookie
+and main-frame checks; making the port predictable changes discoverability, not authorization. The
+cache holds only immutable build assets, never user, model or session data. At
+budgets.md §9 level 2 and above the host serves even these two routes with `no-store` (the "stop
+creating new caches" action); entries the platform already stored are outside the app's accounting and
+are reclaimed by the operating system.
+
+### 8.1 Overlay manifest (W6, `target`)
+
+Status: `target`; **not callable**. The archive above remains the only boot overlay until the pinned
+runtime can read a manifest. `readImage` lives in the pinned DSH checkout, not in this repository, and
+the repository may not patch it (AGENTS.md §6); a host that sent a manifest today would fail the boot.
+
+The target replaces the per-boot archive with a host-generated manifest served at
+`/image/overlay/<boot_id>.json`:
+
+```json
+{"format":1,"boot_id":"<32 hex>","materialized_upto_mseq":42,
+ "entries":[{"path":"home/AGENTS.md","sha256":"<64 hex>","mode":420,"size":1024}],
+ "tombstones":["workspace/old.txt"]}
+```
+
+`entries` are `home/...` and `workspace/...` only, never symlinks or special files, and `sha256` is the
+§14.1 digest of the file's bytes; `tombstones` exists only if the runtime can delete a path inherited
+from an earlier layer, and is empty otherwise. The worker fetches `/blobs/sha256/<hash>` on the first
+read and caches nothing itself. Regardless of when this becomes callable, these invariants hold: the
+in-memory VFS is still the runtime authority and a mutation is an ordinary VFS_MUT once the bytes are
+present; `VFS_RESYNC` is unchanged because the host's materialized copy is still the replay source; the
+quota counts each blob once; a missing or digest-mismatched blob fails the boot loudly and is never a
+silently empty file. The one-time manifest build is background and re-entrant, and W1's read-only
+projection serves browsing while it runs. Open question Q1 (owner) and GAP-41 track the upstream
+reader; until it exists, recovery time stays O(materialized bytes) because every boot repacks the
+overlay once per changed watermark.
 
 ## 9. Quotas and compaction
 
-- The host WAL is limited to **512 MiB**, the sum of the segment files including headers. The
-  response log (128 MiB) and the journal (64 MiB) follow the same rule — compact droppable data
+- The host WAL is limited to **512 MiB**, the sum of the segment files including headers and, since
+  §14, every *live* blob file (one that a retained record references); an orphan blob is not
+  counted and is reclaimed by the §14.5 pass. The response log (128 MiB) and the journal (64 MiB)
+  follow the same rule — compact droppable data
   first, then fail loud — in their own components; budgets.md (W1) fixes their behaviour.
 - A segment is **droppable** only when every mutation in it has `mseq <= materialized_upto_mseq` and
   its epoch is durable (closed in the D18 order, `F_FULLFSYNC`ed, listed). The newest epoch-close
@@ -447,7 +499,8 @@ worker has the bytes.
    agrees with its body header is a torn tail regardless of size; for it, a tail-search work budget
    is not evidence of a record after it. A CRC failure that is **not at the tail**, or an
    invalid record followed by a valid one, is `WAL_CORRUPT` → `Failed` with admission closed.
-   Acknowledged level-1 records are never truncated.
+   Acknowledged level-1 records are never truncated. A blob-write record is not decoded further here:
+its digest and length are checked when it is replayed (§14.5).
 3. Replay mutations with `mseq > materialized_upto_mseq` in ascending order using §6. A base
    mismatch joins §5.1: send `VFS_RESYNC` and hold the watermark below it; the repair write settles
    the deferred appends. A superseded append likewise holds the watermark below it until its cover
@@ -460,3 +513,217 @@ worker has the bytes.
    or 0.
 5. A live WebSocket reconnect in the same process is not recovery: the WAL tail is in memory and
    channel.md §9 applies; no file changes.
+
+## 11. Read-only projection of `materialized/home/sessions` (P02/P18, W1)
+
+The worker's in-memory VFS remains the single authority (§6). This section registers the one
+exception the app's browse path needs: a **read-only projection** of the materialized session
+copies. It is a view of §6's copy, not a second authority.
+
+- **Who may read.** Only the App process: the UI/model layer that lists sessions, opens any
+  session and pages backwards (the `ProbeKit/Transcript` reader), and the existing Bot
+  `phone record` path of bot/v1 §4.4. The worker, a device, a remote host and an arbitrary
+  process never read it through this exception.
+- **What may be read.** `materialized/home/sessions/**` only. The reader opens files read-only
+  (`O_RDONLY`/equivalent), never holds a write handle, and performs no create, write, append,
+  truncate, delete, move, rename, chmod or metadata rewrite anywhere under `materialized/`.
+  `materialized/workspace/**` and every other tree are outside this exception.
+- **Freshness.** The projection is the state of the materialized copy, so it may lag the WAL and
+  the worker's memory by up to the open epoch plus the materialization lag. It is a snapshot for
+  display and paging only: it never decides whether a turn is running, whether a send is
+  admitted, whether a step is finished, or which session is the active engine session. A line
+  that is not complete (a torn final line) is ignored; a file renamed or removed by the host
+  may make an open fail, and the reader then retries or falls back to the engine. The reader never
+  repairs, reconciles or "fixes" a file.
+- **Alignment.** Once the engine is ready, the reader aligns incrementally with the existing
+  `session/list` and `session/page` RPCs and the engine wins on any disagreement. An engine that
+  is `starting`, `failed` or absent does not block the projection; the UI may show the projected
+  copy until the engine answers.
+- **Not an input.** A write path may not read this projection to reconstruct a VFS mutation,
+  a WAL record or a journal decision. The projection is not a replay source and is not hashed
+  into any durable marker.
+
+## 12. Reclaiming droppable data (P02, W3)
+
+§9 defines which segment is droppable and the decided readings fix the conditions. This section
+fixes **when** the reclamation runs; it does not widen any condition.
+
+- **Every successful epoch close.** After the D18 order of §5.2 has completed (manifest durable,
+  level-2 ACK emitted), the host reclaims every segment that is droppable under §9: all mutations
+  `mseq <= materialized_upto_mseq`, the segment's epoch at or below `last_durable_epoch` and listed
+  in `segments[]`, and not the newest epoch-close segment or the open epoch. Reclaiming is not
+  limited to the quota path; the 512 MiB limit remains the fail-loud backstop, not the trigger.
+- **Order.** Drop oldest first and stop as soon as `used + reserve <= limit` is no longer needed
+  for quota; on the epoch-close path, drop all currently droppable segments. Manifest first, then
+  unlink (§7.2), fsync the materialized files and directories the dropped segments produced
+  (§9), and keep the newest close record.
+- **Crash.** A kill between the level-2 ACK and the reclaim leaves droppable segments on disk;
+  the next boot reclassifies them by §7.2 and reclaims them again. No acknowledged mutation and
+  no durable state is lost. A kill between the shorter manifest and the unlink leaves an unlisted
+  segment, which §7.2 replays as stale and re-lists, never drops silently.
+- **Idle close.** An epoch close that made no new mutation durable has nothing to reclaim; the
+  host may skip the close entirely under §13. Skipping is not a failure and does not lower
+  `last_durable_epoch`.
+- **Blobs.** The same pass runs the §14.5 GC: after the shorter manifest is durable and the
+  referencing segments are unlinked, every blob that no retained record references is deleted.
+- The response-log body deletion trigger at the same epoch-close point is fixed by
+  [gateway-security.md](gateway-security.md) §11; this section only fixes the WAL segment timing.
+- The absolute WAL quota is unchanged at 512 MiB (§9).
+
+## 13. Materialized watermark and idle epochs (P02/P03, W4)
+
+**Watermark timing.** Advancing `materialized_upto_mseq` in `manifest.json` only at epoch close
+**is compliant** with §7.1 and D18, and is the required write-path behaviour:
+
+- §7.1 requires a manifest rewrite at every epoch close, during reconcile and before a segment is
+  deleted, and requires §5.2 step 1 to have made every applied mutation durable first. It does not
+  require a manifest rewrite per mutation; the field is a property of the materialized copy (§5),
+  and §5.2 step 5 writes it after the copy is fsynced.
+- The **in-memory** watermark still advances per applied record; the persisted value may lag until
+  the next close. A crash replays every record above the persisted watermark with §6 idempotence
+  (§6.2 apply/skip and §5.1 repair), so the lag is safe. A manifest write before step 1 would
+  name an un-fsynced position and is forbidden.
+- Consequence: a segment is not droppable until the close that persists a watermark covering it.
+  This is exactly §9's "its epoch is durable" condition; advancing the manifest per mutation would
+  not make the segment droppable any earlier.
+- A host may still rewrite the manifest during reconcile and before a deletion; those writes carry
+  the same contiguous watermark and the same "after §5.2 step 1" rule.
+- **Contract conclusion.** "Only at epoch close" is allowed; a per-mutation `recordMaterializedUpto`
+  rewrite is an implementation choice that the contract neither requires nor forbids, but it must
+  not lower the durability order. The `WorkspaceLogService` per-change manifest rewrite is
+  therefore an optimisation defect, not a contract violation.
+
+**Idle epoch.** The periodic 30–60 s close may be skipped when, since the last successful close,
+no mutation was appended, no new segment was created, no materialization is pending, and no
+`VFS_RESYNC` is outstanding. The `durable_upto` of HELLO is the largest retained close record's
+`durable_upto` (§10 step 4); skipping does not change it. A close that is required for a handoff,
+a drain, a teardown seal or a planned restart still runs its §5.2 order when it has something to
+make durable, and may use `sealEpochCoveringTail` where the existing rule requires recording the
+current tail. Skipping an idle close performs no `F_FULLFSYNC`, writes no segment and sends no
+level-2 ACK.
+
+## 14. Single-copy blob store (P02/P03, W6)
+
+This section adds a second storage form for mutation **data**. It does not change the wire
+(channel.md §3.1 is byte-identical), the manifest schema, mseq, the ACK levels or the two durability
+promises; it changes only what the host writes to disk for a write's bytes. Its limits are stated in
+§14.4: a complete write becomes one physical copy through a clone, an appended chunk chain is one copy
+only after compaction, and the §8 per-boot archive is untouched until §8.1.
+
+### 14.1 Store layout and immutability
+
+`Library/xl/<workspace_id>/blobs/sha256/<first two hex digits>/<sha256>`, mode `0600`, no extension.
+Blobs are authoritative while a retained record references them: they are never moved to
+`Library/Caches` and never written under `/dsh/tmp`. A blob is named by the lowercase SHA-256 of its
+exact bytes and is **immutable**: never rewritten in
+place, never truncated, never chmod-ed, and only ever renamed from a temporary file in the same shard
+directory. A crash therefore leaves either no file or a complete one; a temporary name that never got
+renamed is an orphan and is removed by §14.5. An existing blob is never overwritten: a second write of
+the same bytes verifies its length (and, when this process did not create it in this boot, its
+digest) and reuses it — that is the single-copy property.
+
+### 14.2 Blob-write record (`op = 0xFE`)
+
+A write whose `data` is at or above **65 536 bytes** is appended as this record; a smaller write stays
+an inline §3 record. A reader accepts either form at any length. The threshold is a writer policy,
+not a wire rule, and it keeps small metadata-heavy trees on the single-append path.
+
+| Offset | Size | Field | Encoding |
+|---|---|---|---|
+| 0 | 1 | `op` | `u8 = 0xFE` (write-by-reference) |
+| 1 | 4 | `mode` | `u32`, permission bits `≤ 0o7777` |
+| 5 | 1 | `mflags` | `u8`: bit0 `entryChanged`, bit1 `appended`; bits 2–7 are 0 |
+| 6 | 8 | `append_from` | `u64`; 0 unless bit1 is set |
+| 14 | 4 | `blob_len` | `u32`, the mutation's `data` length; `1 .. 15 MiB` |
+| 18 | 32 | `blob_sha256` | SHA-256 of the `data` bytes |
+| 50 | 2 | `path_len` | `u16` |
+| 52 | `path_len` | `path` | UTF-8 absolute path, channel.md §6 |
+
+The record's own `crc32c` covers `mseq ‖ body` exactly as §3 fixes. `blob_sha256` and `blob_len`
+describe the mutation's `data`, not the whole file: for `appended` the blob is the suffix at
+`append_from`, so a file larger than one mutation is a chain of blob records, one copy of each chunk.
+mkdir/remove/chmod are never stored by reference and never carry a digest. There is no new `format`
+value: the kind is self-describing, old inline records are read forever, and a decoder that does not
+know `op = 0xFE` treats it as an unknown op and fails loudly (§3); it never applies a guessed record.
+
+### 14.3 Write order
+
+1. Structural validation (unchanged, §5 step 1).
+2. Write the blob: temporary file in the shard directory, `write()` the data, rename to the final
+   digest name.
+3. Append the §14.2 record (or the inline record below the threshold).
+4. Level-1 ACK once the record `write()` returns. The blob's `write()` returned before it, so both
+   are in the kernel page cache: level 1 covers the pair exactly as it covered one inline record.
+5. Materialize (§14.4).
+
+At the epoch close, §5.2 step 1 fsyncs every blob written in the epoch **before** the close record of
+step 2, so a durable record never names a blob that power loss could remove.
+
+### 14.4 Materialized copy
+
+A blob-backed write materializes exactly like its inline form, with the verified blob bytes as
+`data`: a complete write uses the temp-then-rename rule of §6.1 (and may use an APFS `clonefile` of
+the blob), an appended write uses the §6.2 base check and append. A clone is a copy-on-write
+optimisation: the materialized file is an independent inode, later in-place appends and chmods affect
+only it, and deleting the blob later leaves the file's blocks intact. **Hard links are forbidden** for
+the materialized copy: a hard link shares the inode, so a later in-place append or chmod would mutate
+the blob and corrupt every other reference. Where cloning is unavailable (Android, non-COW
+filesystems) the host copies; that keeps the same bytes and modes but is a correctness fallback, not
+a space win, and the implementation report must say so.
+
+The single-copy claim is therefore exact only for a **complete** write, whose materialized file can be
+the blob's clone: one physical copy, where the inline form held one in the WAL and one in the copy. A
+file larger than one mutation is a chain of *appended* chunks, and a clone cannot name a byte range;
+the host appends the blob bytes, so the file has the chunk blobs plus the materialized bytes until
+those records are compacted, after which §14.5 deletes the blobs and the materialized file is the only
+copy. Steady state is therefore the same single copy as before for such files; what W6 removes is the
+inline WAL copy during the open epoch (smaller WAL append, faster scan, more quota headroom) and, for
+repeated identical chunks, the duplicate itself. The per-boot overlay archive of §8 stays a transient
+third copy until §8.1 is callable.
+
+### 14.5 Recovery, reference and reclamation
+
+- **Verify before apply.** A retained blob record is resolved in mseq order: the blob must exist with
+  exactly `blob_len` bytes and the recorded digest. Anything else is `WAL_CORRUPT` → `Failed` with
+  admission closed; unverified bytes are never applied and the materialized copy is not used as a
+  fallback authority.
+- **Live set.** After the §7.2 placement (listed, stale or adopted), the live set is the digest of
+  every retained blob record. No manifest member and no separate reference-count file is added: the
+  WAL is the single reference source, so a count cannot diverge from it.
+- **GC.** After startup placement and after a close that dropped segments, delete every blob in the
+  store that is not in the live set. Manifest-before-deletion (§7.2) applies: only after the manifest
+  that no longer lists the referencing segment is durable may the blob be unlinked, and the shard
+  directory is fsynced afterwards. A crash leaves an orphan for the next GC; it never leaves a
+  referenced record without its blob (that is the fail-loud case above).
+- **Startup safety.** The startup GC is read-only with respect to every authoritative store: it
+  derives the live set from the WAL after placement and unlinks only files in `blobs/`. It does not
+  need a VFS authority and does not conflict with a `Recovering` host.
+
+### 14.6 Quota
+
+§9's 512 MiB limit applies to the sum of WAL segment files and **live** blobs; orphan blobs are
+excluded because they are reclaimed. If close + compaction + GC cannot bring the sum under the limit,
+§9's fail-loud branch runs. The number does not change; only what it covers grows. budgets.md §9's
+aggregate view counts the blob store once and the materialized copy once, so clone sharing makes that
+sum an upper bound — the safe direction for a budget.
+
+### 14.7 Handoff
+
+The `/v1/handoff` wire and schemas are unchanged. A blob record never crosses the boundary. In the
+phone→remote direction the snapshot is taken at `base_mseq == wal_seq`: the phone materializes the
+retained tail and closes the epoch before packing, so §4's segment set is empty. If an implementation
+needs a non-empty tail, it expands every blob record in the **transferred copy** to the pre-W6 inline
+form with the same mseq (a transfer encoding; the local WAL is still never rewritten), so an old
+remote sees only records it knows. The remote→phone set never carries a blob record; the phone refuses
+such a set as corrupt because the referenced bytes are not in the transfer.
+
+### 14.8 Migration: none is required, and why
+
+No pre-W6 record is rewritten (§5.1). Old segments with inline records stay readable forever and old
+materialized files are untouched until their path is written again. There is deliberately **no**
+adoption of existing materialized bytes into the blob store: a blob that no retained record references
+would need a second durable reference source (a clone ledger), whose crash consistency would duplicate
+the WAL's discipline and whose divergence could delete a referenced blob. Dedupe therefore accrues as
+writes arrive; the first rewrite of an old path already becomes one copy. The only one-time migration
+in W6 is the §8.1 overlay manifest (`target`): built in the background, re-entrant, verified before
+the old archive is retired, and W1's read-only projection serves browsing while it runs.

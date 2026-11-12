@@ -41,6 +41,25 @@ enum ADBTools {
               "timeoutMs": property("integer", "Wall-clock timeout from 100 to 120000 ms; default 30000.")], required: ["command"]),
     ] + ADBPackageTools.descriptors
 
+    /// W5 runtime tiering (spec/bot/v1 §2, PC-20261112-w5). Only the entry
+    /// point that enables Android control stays visible before a target is
+    /// configured; every other Android tool is listed only while the saved
+    /// configuration is enabled. Without `android_connect` the model could
+    /// never establish the connection that makes the rest visible.
+    static let coreNames: Set<String> = ["android_connect"]
+
+    static var coreDescriptors: [JSONValue] {
+        descriptors.filter { coreNames.contains($0.fields["name"]?.text ?? "") }
+    }
+
+    /// A real connection state change (saved target / enabled flag) is the only
+    /// input. The list is recomputed per `tools/list`, so the next request
+    /// after a change already reflects it and an unchanged state cannot churn
+    /// the upstream request sequence.
+    static func descriptors(configured: Bool) -> [JSONValue] {
+        configured ? Self.descriptors : coreDescriptors
+    }
+
     struct Plan: Sendable {
         var command: String
         var connection: ADBConfiguration?

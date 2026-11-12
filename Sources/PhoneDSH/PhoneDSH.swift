@@ -325,6 +325,19 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     ///     attached and occlusion-visible.
     ///   - turnInactivityTimeout: Event-silence threshold of an open turn
     ///     (G2-FIX-12); must be a positive finite number of seconds.
+    /// `Library/Caches/pdsh/<workspace_id>` for a real App-container
+    /// workspace (`Library/xl/<workspace_id>`). Test fixtures use arbitrary
+    /// temporary roots and keep the pre-W3 in-workspace layout.
+    static func cacheRoot(for workspaceRoot: URL) -> URL? {
+        let library = workspaceRoot.deletingLastPathComponent().deletingLastPathComponent()
+        guard workspaceRoot.deletingLastPathComponent().lastPathComponent == "xl",
+              library.lastPathComponent == "Library" else { return nil }
+        return library
+            .appendingPathComponent("Caches", isDirectory: true)
+            .appendingPathComponent("pdsh", isDirectory: true)
+            .appendingPathComponent(workspaceRoot.lastPathComponent, isDirectory: true)
+    }
+
     public init(workspaceRoot: URL, token: String, origin: URL,
                 deviceTier: DeviceTier = DeviceTier.default,
                 bundle: PhoneDSHBundleLocation? = nil,
@@ -359,6 +372,7 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
         self.loopback = LoopbackConfiguration(token: token)
         self.log = WorkspaceLogConfiguration(
             root: workspaceRoot,
+            cacheRoot: PhoneDSHConfiguration.cacheRoot(for: workspaceRoot),
             singleFileLimitBytes: resolvedBudgets.singleFileBytes)
         self.gateway = ModelGatewayConfiguration(
             allowedUpstreamHosts: ModelGatewayConfiguration.effectiveAllowedUpstreamHosts(

@@ -469,6 +469,14 @@ public enum HandoffSegmentArchive {
         var expected = baseMseq + 1
         for (_, segment) in validated {
             for record in segment.records where !record.isEpochClose {
+                // wal.md §14.7 / handoff.md §4: the remote→phone set never
+                // carries a §14 blob reference, because the referenced bytes are
+                // not in the transfer. Refuse it instead of materializing a
+                // record whose blob is absent.
+                if record.isBlobWrite {
+                    throw HandoffError.payloadMismatch(
+                        "a reclaimed segment carries a W6 blob-write record (mseq \(record.mseq))")
+                }
                 if record.mseq <= baseMseq { continue }
                 guard record.mseq == expected else {
                     throw HandoffError.segmentContinuity(

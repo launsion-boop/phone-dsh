@@ -245,7 +245,7 @@ struct HomeDrawer: View {
         return HomeDrawerNewSessionPolicy.reason(
             isStarted: chat.isStarted,
             turnRunning: chat.turnRunning,
-            keepingAlive: chat.keepingAlive)?.text
+            keepingAlive: chat.keepingAlive, engineStarting: chat.enginePhase == .starting)?.text
     }
 
     private var newSessionDisabled: Bool {

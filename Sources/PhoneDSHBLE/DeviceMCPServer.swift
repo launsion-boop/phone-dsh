@@ -14,8 +14,19 @@ public actor DeviceMCPServer: NativeMCPServing {
     private let receiptDirectory: URL
     /// The Android server whose tools, errors and receipts are served unchanged on `/mcp/native`.
     private let adb: ADBMCPServer
+    /// W5 runtime tiering: recomputed from the live connection/configuration
+    /// state for every `tools/list`. Injectable so the state transition can be
+    /// driven without CoreBluetooth.
+    private let bleToolVisibility: @MainActor @Sendable () -> Bool
     public init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared) {
+        self.init(receiptDirectory: receiptDirectory, adb: adb, bleToolVisibility: {
+            DeviceMCPServer.bleToolsVisible(devices: BLEDeviceStore.shared.devices)
+        })
+    }
+    init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared,
+         bleToolVisibility: @escaping @MainActor @Sendable () -> Bool) {
         self.adb = adb
+        self.bleToolVisibility = bleToolVisibility
         self.receiptDirectory = receiptDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("ble-alert-receipts", isDirectory: true)
     }
     private var linkJournal: LinkToolJournal { LinkToolJournal(directory: receiptDirectory.appendingPathComponent("link-intents")) }
@@ -27,6 +38,24 @@ public actor DeviceMCPServer: NativeMCPServing {
         tool("ble_read", "Read fresh standard GATT data from an explicitly authorized connected device. No cached measurements. Profiles: battery, temperature, humidity, manufacturer, model.", ["device_id": property("string"), "profile": .object(["type": .string("string"), "enum": .array(["battery", "temperature", "humidity", "manufacturer", "model"].map(JSONValue.string))])], ["device_id", "profile"]),
         tool("ble_alert", "Submit SIG Immediate Alert level 0=off, 1=mild, 2=high to an explicitly authorized device. No execution acknowledgement. Never retry an unknown outcome automatically. Requires journal idempotency key.", ["device_id": property("string"), "level": .object(["type": .string("integer"), "minimum": .number(0), "maximum": .number(2)])], ["device_id", "level"]),
     ]
+    /// W5 runtime tiering: the whole BLE family is a device group. Boards are
+    /// connected and granted in Settings, so before one exists the model has
+    /// nothing it could call; once a board is remembered/connected or has a
+    /// saved per-connection grant, the very next `tools/list` exposes the
+    /// family. The predicate is pure so it can be tested without CoreBluetooth.
+    static func bleToolsVisible(devices: [BLEDeviceStore.Device]) -> Bool {
+        devices.contains { device in
+            device.state == "已连接"
+                || device.allowRead || device.allowAlert
+                || !device.grantedTools.isEmpty
+                || !device.linkIdentity.isEmpty
+        }
+    }
+
+    static func descriptors(visible: Bool) -> [JSONValue] {
+        visible ? Self.descriptors : []
+    }
+
     private static func property(_ type: String) -> JSONValue { .object(["type": .string(type)]) }
     private static func tool(_ name: String, _ description: String, _ properties: [String: JSONValue], _ required: [String]) -> JSONValue {
         .object(["name": .string(name), "description": .string(description), "inputSchema": .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map(JSONValue.string)), "additionalProperties": .bool(false)])])
@@ -70,7 +99,9 @@ public actor DeviceMCPServer: NativeMCPServing {
             var response = await adb.handle(request)
             if let json = try? JSONValue.parse(response.body), case .object(var root) = json,
                case .object(var result) = root["result"], case .array(let tools) = result["tools"] {
-                result["tools"] = .array(tools + Self.descriptors); root["result"] = .object(result)
+                let visible = await bleToolVisibility()
+                result["tools"] = .array(tools + Self.descriptors(visible: visible))
+                root["result"] = .object(result)
                 response.body = (try? JSONValue.object(root).encoded()) ?? Data()
             }
             return response

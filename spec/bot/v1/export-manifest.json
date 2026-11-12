@@ -22,6 +22,7 @@
     "llm-ledger.json",
     "llm-ledger.phone.json",
     "mcp-egress.phone.json",
+    "model-purpose-enforcement.phone.json",
     "model-purpose-policy.json",
     "observation-envelope.phone.json",
     "record-query.phone.json",
@@ -29,12 +30,14 @@
     "row-projection.json",
     "row-protocol.json",
     "row-protocol.phone.json",
+    "tool-catalog-tiers.phone.json",
     "tool-catalog.json",
     "tool-catalog.phone.json",
     "tool-effects.json",
     "tool-effects.phone.json",
     "turn-origin.phone.json",
     "verification.phone.json",
+    "volatile-context-time.phone.json",
     "volatile-context.json",
     "watchdog.json"
   ],
@@ -65,14 +68,17 @@
     "event-envelope.phone.json",
     "llm-ledger.phone.json",
     "mcp-egress.phone.json",
+    "model-purpose-enforcement.phone.json",
     "observation-envelope.phone.json",
     "record-query.phone.json",
     "record-reference.phone.json",
     "row-protocol.phone.json",
+    "tool-catalog-tiers.phone.json",
     "tool-catalog.phone.json",
     "tool-effects.phone.json",
     "turn-origin.phone.json",
-    "verification.phone.json"
+    "verification.phone.json",
+    "volatile-context-time.phone.json"
   ],
   "sha256": {
     "approval-patterns.json": "8dbac06c60729e3042e210cf07dd085d592c61e8074c32d23b5631ba2debf8cb",
@@ -106,6 +112,9 @@
     "turn-origin.phone.json": "97f5a6febb5e8adea5d34d8ecee615ce8095af87445112ce58f8b2c91d7b6b83",
     "verification.phone.json": "104e79db5af9de8b8e691b94417721accd5e6a28630c37dbe58f2d4b59128c28",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
+    "tool-catalog-tiers.phone.json": "5e9099ee9cd4b02f8ecfbc0035e3de529abe0f885d0280436ee7cf8fb0575dfd",
+    "volatile-context-time.phone.json": "343d8d55b879458ec71b0ad7b4cf5430985135568c0b27300473cbf233c3b6cb",
+    "model-purpose-enforcement.phone.json": "2905eeba0f110fce25d01bee9ab62c05a35c91d2f98f8417e1c997bc96fb8a2e"
   }
 }

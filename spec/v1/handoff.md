@@ -113,6 +113,13 @@ is never sent, so the WAL has no holes. The remote validates every segment heade
 mutation records with the wal.md §6 rules in mseq order, and never applies an epoch-close record. A gap is `409 segments_gap`; a
 corrupt segment or hash mismatch is `400`; nothing past the first gap is applied.
 
+The phone→remote set is empty in the W6 single-copy layout: the snapshot is taken at
+`base_mseq == wal_seq`, after materializing the retained tail and closing the epoch, so no
+`wal.md` §14 blob reference can cross a boundary a remote cannot resolve. An implementation that must
+send a non-empty tail expands every blob record to the pre-W6 inline form **in the transferred copy**
+with the same mseq; the local WAL is never rewritten. The remote→phone set never contains a blob
+record, and the phone refuses one because the referenced bytes are not in the transfer.
+
 Response: [schema/handoff-segments-response.schema.json](schema/handoff-segments-response.schema.json).
 
 | Field | Type | Meaning |

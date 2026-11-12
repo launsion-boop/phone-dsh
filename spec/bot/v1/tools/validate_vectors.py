@@ -40,6 +40,9 @@ PHONE_ONLY_VECTORS = frozenset({
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
     VERIFICATION_VECTOR,
+    "tool-catalog-tiers.phone.json",
+    "volatile-context-time.phone.json",
+    "model-purpose-enforcement.phone.json",
 })
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
@@ -1621,6 +1624,134 @@ def validate_authority_fixture(fixture) -> tuple[int, int, int]:
     return (len(creator_cases), len(change_cases), len(task_cases), mutations)
 
 
+W5_TIER_CLASSES = frozenset({"adb", "ble", "venus", "ssh"})
+
+
+def w5_tier_problem(case):
+    """Return the first tiering law a W5 tool-catalog case violates, or None."""
+    catalog = case.get("catalog", {})
+    tiers = catalog.get("tiers", {})
+    p0 = [item.get("name") for item in catalog.get("p0", [])]
+    p1 = [item.get("name") for item in catalog.get("p1", [])]
+    known = set(p0) | set(p1)
+    requires = {item.get("name"): item.get("requires") for item in catalog.get("p0", []) + catalog.get("p1", [])
+                if item.get("requires") is not None}
+    core, device, discoverable = tiers.get("core", []), tiers.get("device", []), tiers.get("discoverable", [])
+    names = list(core) + list(discoverable)
+    for entry in device:
+        if entry.get("class") not in W5_TIER_CLASSES:
+            return "unknown_device_class"
+        names.extend(entry.get("tools", []))
+    seen = set()
+    for name in names:
+        if name in seen:
+            return "tool_in_two_tiers"
+        seen.add(name)
+    for name in core:
+        if name not in known:
+            return "core_tool_missing_from_p0"
+    if any(requires.get(name) is not None for name in core):
+        return "device_tool_in_core"
+    device_names = {tool for entry in device for tool in entry.get("tools", [])}
+    if set(core) & device_names:
+        return "device_tool_in_core"
+    connection = case.get("connection")
+    listed = case.get("listed")
+    if connection is not None and listed is not None:
+        expected = set(core) | set(discoverable)
+        for entry in device:
+            if connection.get(entry.get("class")) is True:
+                expected |= set(entry.get("tools", []))
+        if set(listed) != expected:
+            if set(listed) & device_names and any(
+                    connection.get(entry.get("class")) is False
+                    and set(listed) & set(entry.get("tools", [])) for entry in device):
+                return "stale_device_listing"
+            return "listing_mismatch"
+        not_listed = case.get("notListed")
+        if not_listed is not None and set(not_listed) & set(listed):
+            return "listing_mismatch"
+    return None
+
+
+def w5_hour_problem(case):
+    import re
+    current = case.get("current", "")
+    if case.get("precision") != "hour":
+        return "minute_precision"
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:00 \([^()]+\)", current):
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \([^()]+\)", current):
+            return "seconds_in_hour_bucket"
+        return "not_a_local_hour_bucket"
+    if not current.split(" ", 1)[1].split(":", 1)[1].startswith("00 "):
+        return "minute_precision"
+    return None
+
+
+W5_SMALL = "deepseek-flash"
+W5_LARGE = {"deepseek-v4-pro", "deepseek-pro", "deepseek-reasoner", "deepseek-chat"}
+W5_SMALL_PURPOSES = frozenset({
+    "triage", "memory-extract", "reflect", "compact", "watchdog",
+    "completion-check", "memory-maintenance",
+})
+
+
+def w5_model_allowed(purpose, model):
+    normalized = (model or "").strip().lower()
+    if not normalized:
+        return False, "EPURPOSE_MODEL_REQUIRED"
+    if purpose in {"front-turn", "worker-turn"}:
+        return True, None
+    if purpose not in W5_SMALL_PURPOSES:
+        return False, "EPURPOSE_MODEL_DENIED"
+    if normalized == W5_SMALL or normalized.startswith(W5_SMALL + "-"):
+        return True, None
+    return False, "EPURPOSE_MODEL_DENIED"
+
+
+def validate_w5_fixtures(load, check, rejects, check_many):
+    tiers = load("tool-catalog-tiers.phone.json")
+    check(tiers["valid"]["catalog"], "tool-catalog.schema.json", "tool-catalog-tiers.valid.catalog")
+    problem = w5_tier_problem(tiers["valid"])
+    if problem is not None:
+        raise AssertionError(f"tool-catalog-tiers.valid: {problem}")
+    for index, case in enumerate(tiers["invalid"]):
+        payload = case["case"]
+        if w5_tier_problem(payload) != case["reason"]:
+            raise AssertionError(
+                f"tool-catalog-tiers.invalid[{index}]: expected {case['reason']}, "
+                f"got {w5_tier_problem(payload)}")
+        if case["reason"] == "unknown_device_class":
+            rejects(payload.get("catalog"), "tool-catalog.schema.json",
+                    f"tool-catalog-tiers.invalid[{index}].catalog")
+        # The other negative cases are schema-valid by design; the tier law rejects them.
+
+    volatile = load("volatile-context-time.phone.json")
+    if w5_hour_problem(volatile["valid"]["timeBlock"]) is not None:
+        raise AssertionError("volatile-context-time.valid: time block is not hour precision")
+    if volatile["valid"]["rendered"].count("Current local time:") != 1:
+        raise AssertionError("volatile-context-time.valid: time block must render exactly once")
+    if volatile["valid"]["timeBlock"]["current"] not in volatile["valid"]["rendered"]:
+        raise AssertionError("volatile-context-time.valid: rendered text must carry the hour bucket")
+    for index, case in enumerate(volatile["invalid"]):
+        if w5_hour_problem(case["case"]) != case["reason"]:
+            raise AssertionError(
+                f"volatile-context-time.invalid[{index}]: expected {case['reason']}, "
+                f"got {w5_hour_problem(case['case'])}")
+
+    purpose = load("model-purpose-enforcement.phone.json")
+    for index, case in enumerate(purpose["valid"]):
+        allowed, code = w5_model_allowed(case["purpose"], case["model"])
+        if allowed is not case["allowed"] or code is not None:
+            raise AssertionError(f"model-purpose-enforcement.valid[{index}]: unexpected decision")
+    for index, case in enumerate(purpose["invalid"]):
+        allowed, code = w5_model_allowed(case["purpose"], case["model"])
+        if allowed or code != case["code"]:
+            raise AssertionError(
+                f"model-purpose-enforcement.invalid[{index}]: expected {case['code']}, got {code}")
+    return len(tiers["valid"].get("listed", [])), len(volatile["invalid"]), len(purpose["invalid"])
+
+
 def _content_card_entries(catalog):
     p0 = catalog.get("p0")
     if not isinstance(p0, list):
@@ -1796,6 +1927,7 @@ def main() -> int:
     if ledger_phone["valid"]["purpose"] != "memory-maintenance":
         raise AssertionError("llm-ledger.phone: the phone-only purpose must be memory-maintenance")
     check(load("model-purpose-policy.json")["valid"], "model-purpose-policy.schema.json", "model-purpose-policy")
+    validate_w5_fixtures(load, check, rejects, check_many)
     check(load("watchdog.json")["valid"], "watchdog.schema.json", "watchdog")
     check(load("fish-director.json")["valid"], "fish-director.schema.json", "fish-director")
     check(load("context-profiles.json")["valid"], "context-profiles.schema.json", "context-profiles")

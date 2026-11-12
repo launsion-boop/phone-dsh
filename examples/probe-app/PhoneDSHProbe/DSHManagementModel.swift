@@ -353,6 +353,28 @@ final class DSHManagementModel {
 
     private func performRefresh() async {
         guard chat.isStarted else {
+            // W1-A: while the phone engine is stopped/starting, list the
+            // read-only materialized projection instead of an empty drawer.
+            // The engine's own `session/list` replaces it on the next success.
+            if chat.backendID == .phone {
+                let projected = await chat.projectedSessions()
+                if !projected.isEmpty {
+                    let hints = SessionTitleHints.titles(for: backendID)
+                    sessions = projected.map { item in
+                        ManagedSession(
+                            id: item.id,
+                            title: hints[item.id] ?? item.title ?? Self.newSessionName,
+                            updatedAt: item.updatedAt,
+                            running: item.running,
+                            blank: item.blank,
+                            cwd: nil,
+                            parentSessionID: nil,
+                            searchSnippet: nil)
+                    }
+                    error = nil
+                    return
+                }
+            }
             // Nothing to read yet: keep the last known roster visible instead of
             // blanking, for both backends. Each one restores its own scoped key,
             // so a PC list can never be filled from the phone's cache (P18).
@@ -726,18 +748,14 @@ final class DSHManagementModel {
         }
         guard isStillWanted() else { return .superseded }
         if chat.currentSessionID == session.id { error = nil; return .opened }
-        // The optimistic target is already painted. If the local host is
-        // parked, resuming or rebuilding, wait for that lifecycle instead of
-        // refusing or queueing a second switch; the latest tap wins because
-        // this call re-checks its generation while waiting.
-        guard await chat.waitForSessionSwitchLifecycle(isStillWanted: isStillWanted) else {
-            return .superseded
+        // The optimistic target is already painted. A PC switch still waits on
+        // its recovery lifecycle; the phone views the materialized projection
+        // immediately and never blocks on a boot or a running turn (W1-B).
+        if chat.backendID != .phone {
+            guard await chat.waitForSessionSwitchLifecycle(isStillWanted: isStillWanted) else {
+                return .superseded
+            }
         }
-        // A drawer tap must work from any state the user can actually be in:
-        // a stopped host (cold launch, manual stop) or a parked one (after a
-        // trip to another app) gets started/resumed first, and a running turn
-        // is stopped first — refusing to switch used to look like "the session
-        // cannot be read".
         if !chat.isStarted, chat.backendID != .phone {
             // A PC session this phone cached opens read-only while the computer
             // is unreachable; a session it never opened cannot, and the copy
@@ -752,18 +770,19 @@ final class DSHManagementModel {
             }
             return .failed(chat.userFacingError ?? "电脑暂时连不上，这个会话还没有本地缓存")
         }
-        if !chat.isStarted {
+        if !chat.isStarted, chat.backendID != .phone {
             await chat.start()
             guard isStillWanted() else { return .superseded }
             guard chat.isStarted else {
                 return .failed(chat.userFacingError ?? "主机没有启动，无法打开会话")
             }
         }
-        if chat.parked {
+        if chat.parked, chat.backendID != .phone {
             await chat.resumeParkedHost()
             guard isStillWanted() else { return .superseded }
         }
-        if chat.turnRunning || chat.pendingPermission != nil || chat.pendingQuestion != nil {
+        if chat.backendID != .phone,
+           chat.turnRunning || chat.pendingPermission != nil || chat.pendingQuestion != nil {
             await chat.cancelTurn()
             chat.dismissPendingRequests()
             guard isStillWanted() else { return .superseded }
@@ -771,6 +790,9 @@ final class DSHManagementModel {
                 return .failed("当前回合停不下来，请稍后重试或重启主机")
             }
         }
+        // On the phone a running turn is never interrupted: `selectSession`
+        // paints the projection, and a later send activates the target once the
+        // turn ends.
         await chat.selectSession(session.id, switchGeneration: generation)
         guard isStillWanted() else { return .superseded }
         guard chat.currentSessionID == session.id else {

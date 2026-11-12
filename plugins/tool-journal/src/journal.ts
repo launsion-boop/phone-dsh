@@ -47,7 +47,16 @@ export type JournalRecord =
     args_sha256: string; schema_sha256: string | null; profile: string; at: number
     step_id?: string; turn_id?: string
   }
-  | { v: 1; t: 'executed' | 'done'; key: string; call_id: string; result: JournaledResult; at: number; step_id?: string; turn_id?: string }
+  | { v: 1; t: 'executed'; key: string; call_id: string; result: JournaledResult; at: number; step_id?: string; turn_id?: string }
+  // `done` stores the result once, by reference to the `executed` record's
+  // ordinal and canonical hash (exec.md §8, W4). `result` remains accepted so
+  // old files stay readable and a pre-W4 writer keeps working.
+  | {
+    v: 1; t: 'done'; key: string; call_id: string; at: number
+    result?: JournaledResult
+    result_ref?: { jseq: number; sha256: string }
+    step_id?: string; turn_id?: string
+  }
   | { v: 1; t: 'resolved'; key: string; call_id: string; action: string; detail?: string; at: number; step_id?: string; turn_id?: string }
 
 /** One local journal record together with the `jseq` it occupies. */
@@ -351,6 +360,12 @@ export class ToolJournalStore {
   private readonly mirror: ChannelJournalSync | undefined
   private readonly chains = new Map<string, Promise<void>>()
   private readonly nextJseq = new Map<string, bigint>()
+  /** Sessions whose on-disk tail has been read once in this process. */
+  private readonly loaded = new Set<string>()
+  /** Whether the session file already has its header line. */
+  private readonly headerWritten = new Set<string>()
+  /** Last `executed` result per call, for the `done` reference. */
+  private readonly executedRefs = new Map<string, { jseq: bigint; sha256: string }>()
 
   constructor(root: string, profile: string, options: {
     channel?: ChannelSource | undefined
@@ -376,20 +391,37 @@ export class ToolJournalStore {
   }
 
   /**
-   * Append one record: local NDJSON first (plaintext, no fsync), then the
-   * JOURNAL frame and its level-1 ack when the ordered channel is present.
+   * Append one record: local NDJSON first, then the JOURNAL frame and its
+   * level-1 ack when the ordered channel is present.
+   *
+   * W4: the file is read once per session per process to seed `jseq`; every
+   * later append is a plain line append. `start` is awaited and fsynced before
+   * the tool body runs (the header comment's promise); intermediate records
+   * rely on the page cache and the host's level-1/level-2 acks.
    */
   append(sessionId: string, record: JournalRecord, signal?: AbortSignal): Promise<void> {
     const result = this.enqueue(sessionId, async () => {
       signal?.throwIfAborted()
       const path = this.path(sessionId)
-      const existing = await readTextOrUndefined(path)
-      const base = existing === undefined ? 1n : nextJseqFrom(existing)
-      const jseq = this.nextJseq.get(sessionId) ?? base
-      const headerMissing = existing === undefined
-      if (headerMissing) await writeFile(path, `${JSON.stringify(this.header(sessionId))}\n`, { mode: 0o600 })
-      await appendFile(path, `${JSON.stringify(record)}\n`, { mode: 0o600 })
+      await this.ensureLoaded(sessionId, path)
+      const jseq = this.nextJseq.get(sessionId) ?? 1n
+      const headerMissing = !this.headerWritten.has(sessionId)
+      if (headerMissing) {
+        await writeFile(path, `${JSON.stringify(this.header(sessionId))}\n`, { mode: 0o600 })
+        this.headerWritten.add(sessionId)
+      }
+      const stored = record.t === 'done' ? await this.withResultRef(sessionId, record) : record
+      await appendFile(path, `${JSON.stringify(stored)}\n`, {
+        mode: 0o600,
+        flush: stored.t === 'start',
+      })
       this.nextJseq.set(sessionId, jseq + 1n)
+      if (record.t === 'executed') {
+        this.executedRefs.set(this.executedKey(sessionId, record.call_id), {
+          jseq,
+          sha256: canonicalHash(record.result),
+        })
+      }
       // Once the local record has consumed `jseq`, always send that same
       // sequence to the ordered channel before honoring cancellation. Throwing
       // here would leave a local-only jseq; the next append would send jseq+1
@@ -431,14 +463,35 @@ export class ToolJournalStore {
   entries(sessionId: string): { header?: Extract<JournalRecord, { t: 'header' }>; calls: Map<string, CallEntry> } {
     const calls = new Map<string, CallEntry>()
     let header: Extract<JournalRecord, { t: 'header' }> | undefined
-    for (const record of this.load(sessionId)) {
-      if (record.t === 'header') { header ??= record; continue }
+    const executed = new Map<string, JournaledResult>()
+    const records = this.load(sessionId)
+    header = records.find(record => record.t === 'header') as
+      | Extract<JournalRecord, { t: 'header' }>
+      | undefined
+    let jseq = BigInt(header?.jseq_base ?? 1)
+    for (const record of records) {
+      if (record.t === 'header') continue
       const entry = calls.get(record.call_id) ?? {}
       calls.set(record.call_id, entry)
       if (record.t === 'start') entry.start = record
-      else if (record.t === 'executed') entry.executed = record.result
-      else if (record.t === 'done') entry.done = record.result
-      else if (record.t === 'resolved') entry.resolved = record.action
+      else if (record.t === 'executed') {
+        entry.executed = record.result
+        executed.set(String(jseq), record.result)
+      } else if (record.t === 'done') {
+        if (record.result !== undefined) {
+          entry.done = record.result
+        } else if (record.result_ref !== undefined) {
+          const referenced = executed.get(String(record.result_ref.jseq))
+          // A reference is trusted only when the referenced result is still
+          // present and its hash matches; otherwise `executed` remains the
+          // fallback (never a fabricated result).
+          if (referenced !== undefined
+              && canonicalHash(referenced) === record.result_ref.sha256) {
+            entry.done = referenced
+          }
+        }
+      } else if (record.t === 'resolved') entry.resolved = record.action
+      jseq += 1n
     }
     return { ...header === undefined ? {} : { header }, calls }
   }
@@ -479,9 +532,14 @@ export class ToolJournalStore {
     const next = this.nextJseq.get(sessionId) ?? nextJseqOfFile(await readTextOrUndefined(this.path(sessionId)))
     const path = this.path(sessionId)
     const temp = `${path}.tmp-${process.pid}`
-    await writeFile(temp, `${JSON.stringify({ ...this.header(sessionId), jseq_base: Number(next) })}\n`, { mode: 0o600 })
+    await writeFile(temp, `${JSON.stringify({ ...this.header(sessionId), jseq_base: Number(next) })}\n`, { mode: 0o600, flush: true })
     await rename(temp, path)
     this.nextJseq.set(sessionId, next)
+    this.loaded.add(sessionId)
+    this.headerWritten.add(sessionId)
+    for (const key of [...this.executedRefs.keys()]) {
+      if (key.startsWith(`${sessionId}\n`)) this.executedRefs.delete(key)
+    }
   }
 
   /** Confirmation level of a session (0 when there is no ordered channel). */
@@ -507,6 +565,64 @@ export class ToolJournalStore {
       if (this.chains.get(sessionId) === result) this.chains.delete(sessionId)
     })
     return result
+  }
+
+  /** Seeds `jseq` and the header state by reading the file once per process. */
+  private async ensureLoaded(sessionId: string, path: string): Promise<void> {
+    if (this.loaded.has(sessionId)) return
+    const existing = await readTextOrUndefined(path)
+    this.nextJseq.set(sessionId,
+      existing === undefined ? 1n : nextJseqFrom(existing))
+    if (existing !== undefined) this.headerWritten.add(sessionId)
+    this.loaded.add(sessionId)
+  }
+
+  private executedKey(sessionId: string, callId: string): string {
+    return `${sessionId}\n${callId}`
+  }
+
+  /**
+   * Turns a `done` record into a reference to its `executed` result. The
+   * reference is only written when the executed record is known; otherwise the
+   * full result is kept so a reader never sees a dangling pointer.
+   */
+  private async withResultRef(sessionId: string, record: Extract<JournalRecord, { t: 'done' }>): Promise<JournalRecord> {
+    if (record.result === undefined || record.result_ref !== undefined) return record
+    const key = this.executedKey(sessionId, record.call_id)
+    let reference = this.executedRefs.get(key)
+    if (reference === undefined) {
+      // A process restart lost the in-memory map; recover the ordinal from the
+      // file once, never per append.
+      const existing = await readTextOrUndefined(this.path(sessionId))
+      if (existing !== undefined) {
+        const records = parseRecords(existing)
+        const header = records.find(candidate => candidate.t === 'header') as
+          | Extract<JournalRecord, { t: 'header' }>
+          | undefined
+        let jseq = BigInt(header?.jseq_base ?? 1)
+        for (const candidate of records) {
+          if (candidate.t === 'header') continue
+          if (candidate.t === 'executed' && candidate.call_id === record.call_id) {
+            reference = { jseq, sha256: canonicalHash(candidate.result) }
+          }
+          jseq += 1n
+        }
+      }
+    }
+    if (reference !== undefined) {
+      this.executedRefs.set(key, reference)
+      return {
+        v: record.v,
+        t: 'done',
+        key: record.key,
+        call_id: record.call_id,
+        at: record.at,
+        ...record.step_id === undefined ? {} : { step_id: record.step_id },
+        ...record.turn_id === undefined ? {} : { turn_id: record.turn_id },
+        result_ref: { jseq: Number(reference.jseq), sha256: reference.sha256 },
+      }
+    }
+    return record
   }
 
   private header(sessionId: string): JournalRecord {

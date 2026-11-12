@@ -1,0 +1,15 @@
+{
+  "name": "outbox-entry-queued",
+  "schema": "schema/outbox-entry.schema.json",
+  "instance": {
+    "v": 1,
+    "rpcId": "3f2a1c4e-5b6d-4e8f-9a0b-1c2d3e4f5a6b",
+    "sessionId": "gb-main",
+    "text": "帮我看一下这个测试为什么失败",
+    "createdAtMs": 1794398651000,
+    "state": "queued",
+    "attempts": 0,
+    "backend": "local"
+  },
+  "notes": "docs/protocol-changes/PC-20261112-w1-browse-outbox.md:§2 — enqueue writes the entry before any transport attempt; the UI may show it immediately."
+}

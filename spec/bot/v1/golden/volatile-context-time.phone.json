@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "vector": "volatile-context-time.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [],
+  "delta": [
+    "W5 freezes the volatile-context time block at hour precision and removes the duplicate upstream dsh-time-context injection through profile configuration only."
+  ],
+  "valid": {
+    "timeBlock": {
+      "lang": "en",
+      "heading": "## Time",
+      "current": "2026-11-12 09:00 (Asia/Taipei)",
+      "precision": "hour"
+    },
+    "rendered": "## Time\n\nThe user lives in Asia/Taipei (UTC+08:00), and this computer's clock is set to that zone, so `date`, file mtimes, and other local times already read in the user's time. Report every time to them in that zone with a short label; convert timestamps that carry their own zone (a trailing Z, an explicit offset, a git log line) before reporting them.\n\nCurrent local time: 2026-11-12 09:00 (Asia/Taipei)."
+  },
+  "invalid": [
+    {
+      "case": {
+        "current": "2026-11-12 09:07 (Asia/Taipei)",
+        "precision": "minute"
+      },
+      "reason": "minute_precision"
+    },
+    {
+      "case": {
+        "current": "2026-11-12 09:00:31 (Asia/Taipei)",
+        "precision": "hour"
+      },
+      "reason": "seconds_in_hour_bucket"
+    },
+    {
+      "case": {
+        "current": "2026-11-12T09:00Z",
+        "precision": "hour"
+      },
+      "reason": "not_a_local_hour_bucket"
+    }
+  ]
+}

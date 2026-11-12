@@ -85,7 +85,12 @@ public actor ADBMCPServer: NativeMCPServing {
                 "instructions": .string("Android tools connect directly from iPhone over LAN TCP/IP ADB. Use android_connect with the user-provided host and optional port to enable control and save or change the target, including when control is disabled; do not ask the user to visit Settings. android_shell supports arbitrary commands within Android ADB shell permissions. For file transfers use the Worker bash commands adb push LOCAL REMOTE and adb pull REMOTE [LOCAL] (single files; /dsh/transfers/NAME streams up to 1 GiB on iPhone disk, /dsh/workspace/NAME uses the smaller Worker budget; pull defaults to /dsh/transfers; use bash timeoutMs=3600000 for large transfers; after a timeout call Worker adb stat LOCAL before retrying and distinguish running from saved); do not run adb inside android_shell. Use android_list_packages for installed apps and android_list_apk_files for installer files. Uninstall uses packageName. Install requires source=workspace or device; workspace APKs require /dsh/workspace/...apk and sha256sum. Use android_command_help to discover device-supported commands; android_shell runs on Android, without an adb shell prefix. Use a screenshot before choosing pixels. No automatic retries."),
             ]))
         case "ping": return response(id: id, result: .object([:]))
-        case "tools/list": return response(id: id, result: .object(["tools": .array(ADBTools.descriptors)]))
+        case "tools/list":
+            // W5: the Android group is listed only while a target is
+            // configured; `android_connect` stays so the model can enable it.
+            let configuration = settings.load()
+            let configured = configuration.enabled && !configuration.host.isEmpty
+            return response(id: id, result: .object(["tools": .array(ADBTools.descriptors(configured: configured))]))
         case "tools/call":
             guard let name = params["name"]?.text else { return rpcError(id: id, code: -32602, message: "Tool name required") }
             let arguments = params["arguments"] ?? .object([:])

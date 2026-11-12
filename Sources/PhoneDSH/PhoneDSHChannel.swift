@@ -1061,7 +1061,7 @@ actor PhoneDSHChannelCoordinator {
 /// HELLO registration, journal evidence for the step machine, and console
 /// forwarding. Persistence of VFS and journal bytes stays in the landed
 /// handler and log adapters; this wrapper never weakens their checks.
-actor PhoneDSHChannelHandler: ChannelHandling {
+actor PhoneDSHChannelHandler: ChannelHandling, VFSMutationBatching {
     private let connection: PhoneDSHConnection
     private let delegate: any ChannelHandling
     private let coordinator: PhoneDSHChannelCoordinator
@@ -1106,6 +1106,26 @@ actor PhoneDSHChannelHandler: ChannelHandling {
         await coordinator.inboundWriteStarted()
         do {
             try await delegate.handleVFSMutation(body, mseq: mseq, seq: seq)
+        } catch {
+            await coordinator.inboundWriteFinished()
+            throw error
+        }
+        await coordinator.inboundWriteFinished()
+    }
+
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
+        guard !admissions.isEmpty else { return }
+        await coordinator.inboundWriteStarted()
+        do {
+            if let batchDelegate = delegate as? any VFSMutationBatching {
+                try await batchDelegate.handleVFSMutationBatch(admissions)
+            } else {
+                for admission in admissions {
+                    try await delegate.handleVFSMutation(admission.body,
+                                                         mseq: admission.mseq,
+                                                         seq: admission.seq)
+                }
+            }
         } catch {
             await coordinator.inboundWriteFinished()
             throw error

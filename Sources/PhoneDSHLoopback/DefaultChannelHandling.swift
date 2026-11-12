@@ -29,6 +29,29 @@ public struct LoopbackWorkspaceAck: Equatable, Sendable {
     }
 }
 
+/// One structurally valid mutation the channel server accepted in a batch.
+/// The server has already checked `mseq` against the wire sequence; the
+/// handler only persists it (W4 group commit).
+public struct VFSMutationAdmission: Equatable, Sendable {
+    public var body: VfsMutationBody
+    public var mseq: UInt64
+    public var seq: UInt64
+
+    public init(body: VfsMutationBody, mseq: UInt64, seq: UInt64) {
+        self.body = body
+        self.mseq = mseq
+        self.seq = seq
+    }
+}
+
+/// Optional capability for a channel handler that can persist consecutive
+/// VFS_MUT frames with one shared group-commit write (W4). The batch method
+/// must validate every mutation before persisting any of them, so a resource
+/// refusal can be replayed frame by frame with no partial append.
+public protocol VFSMutationBatching: Sendable {
+    func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws
+}
+
 /// The workspace-log operations the ordered channel needs (wal.md §5).
 ///
 /// `PhoneDSHLog.WorkspaceLogging` provides the same operations; W2
@@ -37,6 +60,10 @@ public protocol LoopbackWorkspaceLog: Sendable {
     /// Appends one structurally valid mutation and returns its host-allocated
     /// mseq. Returns only after the level-1 `write()` completed.
     func append(_ mutation: VfsMutationBody) async throws -> UInt64
+    /// Appends several mutations with one shared level-1 write (W4 group
+    /// commit). The default falls back to one append per mutation so a log
+    /// without batching keeps the sequential contract.
+    func appendBatch(_ mutations: [VfsMutationBody]) async throws -> [UInt64]
     /// Cumulative acknowledgements; level 2 only at an epoch close.
     func acks() -> AsyncStream<LoopbackWorkspaceAck>
     /// Closes the current epoch and returns the level-2 ack. The default is
@@ -53,6 +80,14 @@ public protocol LoopbackWorkspaceLog: Sendable {
 extension LoopbackWorkspaceLog {
     public func closeEpoch() async throws -> LoopbackWorkspaceAck? { nil }
     public func resyncs() -> AsyncStream<String> { AsyncStream { $0.finish() } }
+    public func appendBatch(_ mutations: [VfsMutationBody]) async throws -> [UInt64] {
+        var mseqs: [UInt64] = []
+        mseqs.reserveCapacity(mutations.count)
+        for mutation in mutations {
+            mseqs.append(try await append(mutation))
+        }
+        return mseqs
+    }
 }
 
 /// The journal append seam (tool-journal records, exec.md §4). The persistent
@@ -123,7 +158,7 @@ public actor InMemoryJournalLog: LoopbackJournalLog {
 
 /// Default ``ChannelHandling``: persists VFS mutations through a workspace log,
 /// journals records, and runs the read-only accelerators on an ExecProvider.
-public actor DefaultChannelHandling: ChannelHandling {
+public actor DefaultChannelHandling: ChannelHandling, VFSMutationBatching {
     private let outbound: any ChannelOutbound
     private let workspaceLog: (any LoopbackWorkspaceLog)?
     private let journalLog: (any LoopbackJournalLog)?
@@ -168,6 +203,28 @@ public actor DefaultChannelHandling: ChannelHandling {
             throw PhoneWireError(code: .badMseq,
                                  message: "the workspace log allocated mseq \(allocated), expected \(mseq)",
                                  refSeq: seq)
+        }
+    }
+
+    /// W4: consecutive VFS_MUT frames share one group-commit write. The log
+    /// validates every mutation before appending any of them, so a resource
+    /// refusal cannot leave a partial batch behind.
+    public func handleVFSMutationBatch(_ admissions: [VFSMutationAdmission]) async throws {
+        guard !admissions.isEmpty else { return }
+        guard let workspaceLog else { throw LoopbackError.channelUnavailable }
+        let allocated = try await workspaceLog.appendBatch(admissions.map(\.body))
+        guard allocated.count == admissions.count else {
+            throw PhoneWireError(code: .badMseq,
+                                 message: "the workspace log returned \(allocated.count) mseqs for \(admissions.count) mutations",
+                                 refSeq: admissions.first?.seq)
+        }
+        for (allocation, admission) in zip(allocated, admissions) {
+            if admission.mseq != 0, allocation != admission.mseq {
+                throw PhoneWireError(
+                    code: .badMseq,
+                    message: "the workspace log allocated mseq \(allocation), expected \(admission.mseq)",
+                    refSeq: admission.seq)
+            }
         }
     }
 
