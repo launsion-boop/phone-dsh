@@ -257,10 +257,19 @@ verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` �
 
 ### 2.9 模型用途策略的强制执行与验证器取证（W5）
 
-- **唯一执行点。** 每个发往模型 provider 的请求在构造请求、解析凭据、打开 socket **之前**，必须经过
-  `BotModelPurposePolicy.assertModelAllowed(purpose:model:)`。执行点是宿主唯一的模型请求入口
-  （`ModelGateway`/`ModelProvider` 的请求构造），不是各调用方的约定；没有 purpose 的请求 fail-closed，
-  不得以空 purpose 绕过。
+- **执行点（本輪 `target`，未接線）。** `BotModelPurposeGate`／`BotModelRequest`（`BotModelPurposePolicy`
+  的 enforcer）已经定义且可被外部呼叫；`model-purpose-enforcement.phone.json` 的 allowed／denied／
+  default／unknown 正反例仍然有效，它们描述 enforcer 语义，不是执行点。但「在宿主唯一的模型请求入口
+  （`ModelGateway`/`ModelProvider`）构造请求、解析凭据、打开 socket **之前**强制执行」本輪是 `target`，
+  尚无呼叫方（GAP-42）。落地该执行点还缺三个前提，缺一不可：
+  1. **依赖方向。** enforcer 在 `Sources/PhoneDSHBot/Ledger`，而 `Package.swift` 目前只让
+     `PhoneDSHGateway` 依赖 `PhoneDSHAgentCore`；Gateway 要呼叫它必须调整模块依赖（P12 契约面）。
+  2. **每个请求的 purpose 载体。** `GatewayRequest`／`HTTPEgressRequest` 只有 method／url／headers／
+     body；wire 上没有 purpose／session／turn，请求本身无法证明它服务哪个用途。
+  3. **上游保留 purpose。** pinned 模型适配器不保留上游的用途标记。
+- **前提不满足时的行为。** 不得 fail-closed（会拒绝所有模型请求），不得默认放行，不得按模型名推断
+  purpose，也不得把 policy 复制进 Gateway（第二个权威，AGENTS.md §2.1）。本輪维持与基线相同的行为：
+  enforcer 存在、可测、未被呼叫；这不是回归，也不新增 wire 字段、不改 `Package.swift`。
 - **用途映射。** 前台回合 `front-turn`、工作回合 `worker-turn` 允许大模型；`triage`（含标题生成）、
   `memory-extract`、`reflect`、`compact`、`watchdog`、`completion-check`（验证器）、`memory-maintenance`
   只允许小模型。标题不新增 purpose，沿用 `triage`；验证器沿用 `completion-check`。策略由 profile
