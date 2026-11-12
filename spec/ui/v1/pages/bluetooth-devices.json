@@ -7,13 +7,13 @@
   "sectionNote": null,
   "title": {
     "text": "蓝牙设备",
-    "provenance": "BluetoothDevicesPage.swift:65",
+    "provenance": "BluetoothDevicesPage.swift:75",
     "anchor": ".navigationTitle(\"蓝牙设备\")"
   },
   "source": {
     "file": "BluetoothDevicesPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/BluetoothDevicesPage.swift",
-    "lines": 156,
+    "lines": 176,
     "structLine": 6,
     "renderedFrom": [
       "body",
@@ -28,7 +28,7 @@
   },
   "sections": [
     {
-      "id": "section-33",
+      "id": "section-37",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -38,7 +38,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-34",
+          "id": "text-38",
           "label": null,
           "labelExpr": "store.status",
           "kind": "text",
@@ -48,7 +48,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:34",
+          "provenance": "BluetoothDevicesPage.swift:38",
           "anchor": "Text(store.status)",
           "extraction": "manual"
         },
@@ -63,8 +63,38 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:35",
+          "provenance": "BluetoothDevicesPage.swift:39",
           "anchor": "Button(store.scanning ? \"停止扫描\" : \"扫描附近 BLE 设备\") {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "显示设备面板-实验",
+          "label": "显示设备面板（实验）",
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "BluetoothDevicesPage.swift:42",
+          "anchor": "Toggle(\"显示设备面板（实验）\", isOn: $devicePanelsEnabled)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "仅为已连接并协商-pdsh-tools-v1-的设备显示面板入口-面板只在你点按时调用工具-开关不持久化-下次启动默认关闭",
+          "label": "仅为已连接并协商 PDSH Tools v1 的设备显示面板入口。面板只在你点按时调用工具；开关不持久化，下次启动默认关闭。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "devicePanelsEnabled",
+          "provenance": "BluetoothDevicesPage.swift:45",
+          "anchor": "Text(\"仅为已连接并协商 PDSH Tools v1 的设备显示面板入口。面板只在你点按时调用工具；开关不持久化，下次启动默认关闭。\")",
           "extraction": "syntax"
         },
         {
@@ -78,18 +108,18 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:38",
+          "provenance": "BluetoothDevicesPage.swift:48",
           "anchor": "Text(\"只在此页主动扫描。选择设备后发现标准服务；每次连接需单独授权 Agent 读取或提醒控制。设备名称和系统标识不代表已验证身份。\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "BluetoothDevicesPage.swift:33",
+      "provenance": "BluetoothDevicesPage.swift:37",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "first-row",
-        "label": "只在此页主动扫描。选择设备后发现标准服务；每次连接需单独授权 Agent 读取或提醒控制。设备名称和系统标识不代表已验证身份。",
-        "provenance": "BluetoothDevicesPage.swift:38"
+        "kind": "first-clickable-row",
+        "label": "显示设备面板（实验）",
+        "provenance": "BluetoothDevicesPage.swift:42"
       }
     },
     {
@@ -113,13 +143,13 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:46",
+          "provenance": "BluetoothDevicesPage.swift:56",
           "anchor": "Button(showOtherDevices ? \"收起其他设备\" : \"展开其他设备（\\(hidden.count) 个，未发现设备能力）\") {",
           "extraction": "syntax",
           "dynamicLabel": true
         }
       ],
-      "provenance": "BluetoothDevicesPage.swift:46",
+      "provenance": "BluetoothDevicesPage.swift:56",
       "anchor": "Button(showOtherDevices ? \"收起其他设备\" : \"展开其他设备（\\(hidden.count) 个，未发现设备能力）\") {",
       "extraction": "syntax"
     },
@@ -134,7 +164,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-56",
+          "id": "text-66",
           "label": null,
           "labelExpr": "message",
           "kind": "text",
@@ -144,12 +174,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:56",
+          "provenance": "BluetoothDevicesPage.swift:66",
           "anchor": "if !message.isEmpty { Section(\"结果\") { Text(message).textSelection(.enabled) } }",
           "extraction": "manual"
         }
       ],
-      "provenance": "BluetoothDevicesPage.swift:56",
+      "provenance": "BluetoothDevicesPage.swift:66",
       "anchor": "if !message.isEmpty { Section(\"结果\") { Text(message).textSelection(.enabled) } }",
       "extraction": "syntax"
     },
@@ -174,17 +204,17 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:62",
+          "provenance": "BluetoothDevicesPage.swift:72",
           "anchor": "Text(\"标准电量、环境温度 / 湿度、厂商 / 型号与 Immediate Alert；兼容 xiaozhi-link 握手的 PDSH Link 工具扩展",
           "extraction": "syntax"
         }
       ],
-      "provenance": "BluetoothDevicesPage.swift:61",
+      "provenance": "BluetoothDevicesPage.swift:71",
       "anchor": "Section(\"支持范围\") {",
       "extraction": "syntax"
     },
     {
-      "id": "section-71",
+      "id": "section-81",
       "title": null,
       "titleTemplate": null,
       "dynamicTitle": false,
@@ -194,7 +224,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-72",
+          "id": "text-82",
           "label": null,
           "labelExpr": "device.id.uuidString",
           "kind": "text",
@@ -204,12 +234,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "BluetoothDevicesPage.swift:72",
+          "provenance": "BluetoothDevicesPage.swift:82",
           "anchor": "Text(device.id.uuidString).font(.caption).textSelection(.enabled)",
           "extraction": "manual"
         },
         {
-          "id": "text-74",
+          "id": "text-84",
           "label": null,
           "labelExpr": "device.state",
           "kind": "text",
@@ -219,7 +249,7 @@
           "destination": null,
           "writes": false,
           "condition": "device.state == \"正在等待系统断开，暂不可重连\" || device.state == \"连接状态无法确认，暂不可用\"",
-          "provenance": "BluetoothDevicesPage.swift:74",
+          "provenance": "BluetoothDevicesPage.swift:84",
           "anchor": "Text(device.state)",
           "extraction": "manual"
         },
@@ -234,7 +264,7 @@
           "destination": null,
           "writes": false,
           "condition": "device.state == \"正在等待系统断开，暂不可重连\" || device.state == \"连接状态无法确认，暂不可用\"",
-          "provenance": "BluetoothDevicesPage.swift:76",
+          "provenance": "BluetoothDevicesPage.swift:86",
           "anchor": "Text(\"RSSI \\(device.rssi)\").font(.footnote)",
           "extraction": "manual",
           "dynamicLabel": true
@@ -250,7 +280,7 @@
           "destination": null,
           "writes": false,
           "condition": "device.state == \"未连接\"",
-          "provenance": "BluetoothDevicesPage.swift:78",
+          "provenance": "BluetoothDevicesPage.swift:88",
           "anchor": "Text(\"\\(device.state) · RSSI \\(device.rssi)\")",
           "extraction": "manual",
           "dynamicLabel": true
@@ -266,7 +296,7 @@
           "destination": null,
           "writes": false,
           "condition": "device.state == \"未连接\"",
-          "provenance": "BluetoothDevicesPage.swift:79",
+          "provenance": "BluetoothDevicesPage.swift:89",
           "anchor": "Button(\"连接并发现设备能力\") { store.connect(device.id) }",
           "extraction": "syntax"
         },
@@ -281,7 +311,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:82",
+          "provenance": "BluetoothDevicesPage.swift:92",
           "anchor": "Text(\"\\(device.state) · RSSI \\(device.rssi)\")",
           "extraction": "manual",
           "dynamicLabel": true
@@ -297,7 +327,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:83",
+          "provenance": "BluetoothDevicesPage.swift:93",
           "anchor": "Button(\"断开连接\", role: .destructive) { store.forgetAndDisconnect(device.id) }",
           "extraction": "syntax"
         },
@@ -312,7 +342,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:85",
+          "provenance": "BluetoothDevicesPage.swift:95",
           "anchor": "Text(\"你连接的设备默认允许 Agent 使用全部能力；关闭某个开关即撤销并记住，断开连接后不再自动重连。\")",
           "extraction": "syntax"
         },
@@ -327,7 +357,7 @@
           "destination": null,
           "writes": true,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:88",
+          "provenance": "BluetoothDevicesPage.swift:98",
           "anchor": "Toggle(\"允许读取标准数据\", isOn: Binding(get: {",
           "extraction": "syntax"
         },
@@ -342,7 +372,7 @@
           "destination": null,
           "writes": true,
           "condition": "device.profiles.contains(.alert)",
-          "provenance": "BluetoothDevicesPage.swift:93",
+          "provenance": "BluetoothDevicesPage.swift:103",
           "anchor": "Toggle(\"允许提醒控制（蜂鸣 / 震动）\", isOn: Binding(get: {",
           "extraction": "syntax"
         },
@@ -357,7 +387,7 @@
           "destination": null,
           "writes": true,
           "condition": "device.profiles.contains(.alert)",
-          "provenance": "BluetoothDevicesPage.swift:98",
+          "provenance": "BluetoothDevicesPage.swift:108",
           "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level]) {",
           "extraction": "syntax",
           "collection": "0...2, id: \\.self"
@@ -373,14 +403,14 @@
           "destination": null,
           "writes": true,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:105",
+          "provenance": "BluetoothDevicesPage.swift:115",
           "anchor": "Button(\"读取 \\(profile.rawValue)\") {",
           "extraction": "syntax",
           "dynamicLabel": true,
           "collection": "device.profiles.filter { $0 != .alert }, id: \\.self"
         },
         {
-          "id": "text-112",
+          "id": "text-122",
           "label": null,
           "labelExpr": "value",
           "kind": "text",
@@ -390,13 +420,13 @@
           "destination": null,
           "writes": false,
           "condition": "let value = device.readings[profile.rawValue]",
-          "provenance": "BluetoothDevicesPage.swift:112",
+          "provenance": "BluetoothDevicesPage.swift:122",
           "anchor": "if let value = device.readings[profile.rawValue] { Text(value).font(.caption) }",
           "extraction": "manual",
           "collection": "device.profiles.filter { $0 != .alert }, id: \\.self"
         },
         {
-          "id": "text-114",
+          "id": "text-124",
           "label": null,
           "labelExpr": "device.linkState",
           "kind": "text",
@@ -406,9 +436,24 @@
           "destination": null,
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:114",
+          "provenance": "BluetoothDevicesPage.swift:124",
           "anchor": "Text(device.linkState).font(.footnote)",
           "extraction": "manual"
+        },
+        {
+          "id": "打开设备面板",
+          "label": "打开设备面板",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "DevicePanelPage",
+          "writes": false,
+          "condition": "devicePanelsEnabled && !device.linkTools.isEmpty",
+          "provenance": "BluetoothDevicesPage.swift:131",
+          "anchor": "Label(\"打开设备面板\", systemImage: \"slider.horizontal.3\")",
+          "extraction": "syntax"
         },
         {
           "id": "设备-id-device-linkidentity",
@@ -421,7 +466,7 @@
           "destination": null,
           "writes": false,
           "condition": "!device.linkIdentity.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:136",
+          "provenance": "BluetoothDevicesPage.swift:156",
           "anchor": "if !device.linkIdentity.isEmpty { Text(\"设备 ID：\\(device.linkIdentity)\").font(.cap",
           "extraction": "manual",
           "dynamicLabel": true
@@ -437,7 +482,7 @@
           "destination": null,
           "writes": true,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:138",
+          "provenance": "BluetoothDevicesPage.swift:158",
           "anchor": "Toggle(\"允许工具：\\(name)\", isOn: Binding(get: {",
           "extraction": "manual",
           "dynamicLabel": true,
@@ -454,7 +499,7 @@
           "destination": null,
           "writes": true,
           "condition": "device.linkTools.contains(\"home.http\")",
-          "provenance": "BluetoothDevicesPage.swift:144",
+          "provenance": "BluetoothDevicesPage.swift:164",
           "anchor": "TextField(\"允许的家居地址：http://192.168.1.50:8123\", text: Binding(get: {",
           "extraction": "syntax"
         },
@@ -469,12 +514,12 @@
           "destination": null,
           "writes": false,
           "condition": "device.linkTools.contains(\"home.http\")",
-          "provenance": "BluetoothDevicesPage.swift:148",
+          "provenance": "BluetoothDevicesPage.swift:168",
           "anchor": "Text(\"只允许填写明确的私网 IP 与端口，多个地址用空格分隔。设备固件也必须允许该地址。HTTP 不跟随跳转。\")",
           "extraction": "syntax"
         },
         {
-          "id": "text-151",
+          "id": "text-171",
           "label": null,
           "labelExpr": "event",
           "kind": "text",
@@ -484,7 +529,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:151",
+          "provenance": "BluetoothDevicesPage.swift:171",
           "anchor": "ForEach(Array(device.events.enumerated()), id: \\.offset) { _, event in Text(even",
           "extraction": "manual",
           "collection": "Array(device.events.enumerated()), id: \\.offset"
@@ -500,18 +545,18 @@
           "destination": null,
           "writes": false,
           "condition": "device.profiles.isEmpty && device.linkTools.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:152",
+          "provenance": "BluetoothDevicesPage.swift:172",
           "anchor": "if device.profiles.isEmpty && device.linkTools.isEmpty { Text(\"尚未发现可用标准能力；厂商私有服务",
           "extraction": "syntax"
         }
       ],
-      "provenance": "BluetoothDevicesPage.swift:154",
+      "provenance": "BluetoothDevicesPage.swift:174",
       "anchor": "} header: { Text(device.name) }",
       "extraction": "syntax",
       "criterion": {
         "kind": "first-clickable-row",
         "label": "连接并发现设备能力",
-        "provenance": "BluetoothDevicesPage.swift:79"
+        "provenance": "BluetoothDevicesPage.swift:89"
       },
       "hasHeader": true
     }
@@ -527,12 +572,26 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:35",
+      "provenance": "BluetoothDevicesPage.swift:39",
       "anchor": "Button(store.scanning ? \"停止扫描\" : \"扫描附近 BLE 设备\") {",
       "extraction": "syntax",
       "labelAlternatives": [
         "停止扫描"
       ]
+    },
+    {
+      "id": "显示设备面板-实验",
+      "label": "显示设备面板（实验）",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": "binding:$devicePanelsEnabled",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "BluetoothDevicesPage.swift:42",
+      "anchor": "Toggle(\"显示设备面板（实验）\", isOn: $devicePanelsEnabled)",
+      "extraction": "syntax"
     },
     {
       "id": "展开其他设备-hidden-count-个-未发现设备能力",
@@ -544,7 +603,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:46",
+      "provenance": "BluetoothDevicesPage.swift:56",
       "anchor": "Button(showOtherDevices ? \"收起其他设备\" : \"展开其他设备（\\(hidden.count) 个，未发现设备能力）\") {",
       "extraction": "syntax",
       "labelAlternatives": [
@@ -562,7 +621,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:79",
+      "provenance": "BluetoothDevicesPage.swift:89",
       "anchor": "Button(\"连接并发现设备能力\") { store.connect(device.id) }",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -577,7 +636,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:83",
+      "provenance": "BluetoothDevicesPage.swift:93",
       "anchor": "Button(\"断开连接\", role: .destructive) { store.forgetAndDisconnect(device.id) }",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -592,7 +651,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:88",
+      "provenance": "BluetoothDevicesPage.swift:98",
       "anchor": "Toggle(\"允许读取标准数据\", isOn: Binding(get: {",
       "extraction": "syntax"
     },
@@ -606,7 +665,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:93",
+      "provenance": "BluetoothDevicesPage.swift:103",
       "anchor": "Toggle(\"允许提醒控制（蜂鸣 / 震动）\", isOn: Binding(get: {",
       "extraction": "syntax"
     },
@@ -620,7 +679,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:98",
+      "provenance": "BluetoothDevicesPage.swift:108",
       "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level]) {",
       "extraction": "syntax",
       "labelAlternatives": []
@@ -635,11 +694,25 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:105",
+      "provenance": "BluetoothDevicesPage.swift:115",
       "anchor": "Button(\"读取 \\(profile.rawValue)\") {",
       "extraction": "syntax",
       "labelAlternatives": [],
       "dynamicLabel": true
+    },
+    {
+      "id": "打开设备面板",
+      "label": "打开设备面板",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:DevicePanelPage",
+      "writes": false,
+      "destination": "DevicePanelPage",
+      "condition": null,
+      "provenance": "BluetoothDevicesPage.swift:131",
+      "anchor": "Label(\"打开设备面板\", systemImage: \"slider.horizontal.3\")",
+      "extraction": "syntax"
     },
     {
       "id": "允许工具-name",
@@ -651,7 +724,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:138",
+      "provenance": "BluetoothDevicesPage.swift:158",
       "anchor": "Toggle(\"允许工具：\\(name)\", isOn: Binding(get: {",
       "extraction": "manual",
       "dynamicLabel": true
@@ -666,7 +739,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:98",
+      "provenance": "BluetoothDevicesPage.swift:108",
       "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
       "extraction": "manual",
       "specRequired": false,
@@ -684,7 +757,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:98",
+      "provenance": "BluetoothDevicesPage.swift:108",
       "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
       "extraction": "manual",
       "specRequired": false,
@@ -695,16 +768,16 @@
   ],
   "presentations": [
     {
-      "id": "alert-99",
+      "id": "alert-109",
       "kind": "alert",
       "title": null,
       "destination": null,
       "triggerBindings": [],
       "span": [
-        99,
-        99
+        109,
+        109
       ],
-      "provenance": "BluetoothDevicesPage.swift:99",
+      "provenance": "BluetoothDevicesPage.swift:109",
       "anchor": "do { message = try store.alert(device.id, level: level) } catch { message = erro",
       "triggered": false,
       "deadUi": true,
@@ -718,7 +791,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 33 | 展开其他设备（N 个，未发现设备能力） | 结果 | 支持范围 | untitled section at 154",
+          "renders": "untitled section at 37 | 展开其他设备（N 个，未发现设备能力） | 结果 | 支持范围 | untitled section at 174",
           "when": null,
           "provenance": "BluetoothDevicesPage.swift:6",
           "anchor": "struct BluetoothDevicesPage: View {",
@@ -729,7 +802,7 @@
         {
           "renders": "连接状态无法确认，暂不可用",
           "when": null,
-          "provenance": "BluetoothDevicesPage.swift:73",
+          "provenance": "BluetoothDevicesPage.swift:83",
           "anchor": "if device.state == \"正在等待系统断开，暂不可重连\" || device.state == \"连接状态无法确认，暂不可用\" {"
         }
       ],
@@ -738,7 +811,7 @@
         {
           "renders": "正在等待系统断开，暂不可重连",
           "when": null,
-          "provenance": "BluetoothDevicesPage.swift:73",
+          "provenance": "BluetoothDevicesPage.swift:83",
           "anchor": "if device.state == \"正在等待系统断开，暂不可重连\" || device.state == \"连接状态无法确认，暂不可用\" {"
         }
       ]

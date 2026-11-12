@@ -27,7 +27,7 @@
       "label": "轻度提醒",
       "kind": "button",
       "writes": false,
-      "provenance": "BluetoothDevicesPage.swift:98",
+      "provenance": "BluetoothDevicesPage.swift:108",
       "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
       "baselineReachable": true,
       "reason": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."
@@ -37,7 +37,7 @@
       "label": "高度提醒",
       "kind": "button",
       "writes": false,
-      "provenance": "BluetoothDevicesPage.swift:98",
+      "provenance": "BluetoothDevicesPage.swift:108",
       "anchor": "Button([\"停止提醒\", \"轻度提醒\", \"高度提醒\"][level])",
       "baselineReachable": true,
       "reason": "One of the three Immediate Alert levels rendered by ForEach(0...2) from a literal array; the extractor records only its first element."

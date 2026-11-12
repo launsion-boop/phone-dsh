@@ -3,17 +3,21 @@
 ```yaml
 change: PC-20261112-device-panel
 contracts: [P05, P07, P09, P18]
-status: frozen
+status: implemented
 breaking: false
 version_decision: 不改任何现有版本。面板只消费现有 PDSH Link Tools v1；面板描述是新增的独立版本化文件（v 1）。
 base: 8f3de8b8375bc9c32add4517f6eaadc815b8d4b5
 contract_revision: spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec
 ```
 
-Protocol impact: P05; P07; P09; P18; P04: none — C 档只登记为保留项，不新增 handler、不改 bridge.md；
-P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变。
+Protocol impact: P05; P07; P08; P09; P18; P04: none — C 档只登记为保留项，不新增 handler、不改 bridge.md；
+P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变；
+P24: none — `project.yml` 只加入既有 `PhoneDSHBLE` product 与源文件，`Package.resolved` 与解析锁不变；
+P27: none — 新页面与采用 sheet 不涉及 Bot row、UserAction 或转录 schema。
 
-冻结的范围是 A 档（原生面板 + 声明式描述）的**契约**。没有任何一端的实现；owning spec 的状态是 `target`。
+冻结的范围是 A 档（原生面板 + 声明式描述）的**契约**。契约冻结时没有任何一端的实现；
+2026-11-12 的 Swift 实施（WP1–WP5）落地后，owning spec 的端状态为 iOS `implemented`（真机未验）、
+Android `target`（GAP-20），本文档状态为 `implemented`。
 
 ## 1. 识别与角色
 
@@ -93,7 +97,10 @@ P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变。
 - Android 普通 Link 通道仍是 `target`，没有工具 RPC、持久意图和用户授权；GAP-20 记录它没有可用的 GATT adapter。
   在 GAP-20 关闭并有两端 runtime 证据之前，Android 不渲染面板、不调用 Link 工具，也不放全部禁用的占位页。
 - P09：`DevicePanelPage` 在 README §1 登记为 `later`。`spec/ui/v1/pages/*.json` 不手写，iOS 页面落地后由提取器生成，
-  Android 一栏届时为 `missing`，与 `TonoLinkUSBOTAPage` 的登记方式相同。不新增 baseline 或 whitelist 记录。
+  Android 一栏为 `missing`，与 `TonoLinkUSBOTAPage` 的登记方式相同：由 `_whitelist.json` 的
+  `device-panel-ios-only` 引用 `platform.device-panel-ios` 登记为平台被迫差异（`os-forced`，GAP-20），
+  不新增 `_baseline.json` 记录，也不为了通过检查去写 Android 页面或占位页。蓝牙设备页新增的实验入口
+  （开关 + 打开面板）同属该平台差异，另有三个同 `platformRef` 的 ios-only 条目。
 - 代价：双端规则在没有 Android 实现检验的情况下冻结。Android 落地时发现某条做不到，走 CONTRACT CHANGE REQUEST。
 
 ### 2.5 B、C 档
@@ -154,21 +161,42 @@ P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变。
 - **共享 fixtures。** `spec/device/v1/golden/device-panel-mapping.jsonl`（36 行）、
   `spec/device/v1/golden/device-panel-descriptor-cases.jsonl`（59 行，十种结果各至少一例）。两份都含正例、反例、
   数值与大小边界、未知值和判定顺序。
-- **各端真实测试（均未开始）。** 分类器与求值器读上述两份文件；调用路径经真实 `BLEDeviceStore` 与 journal，
-  覆盖 `not_executed`、`outcome_unknown`、断线、撤销授权、并发准入，复用 `golden/pdsh-link.jsonl`。
-- **命令 → 结果**（macOS，contract revision 的工作树）：
-  - `python3 -m unittest discover -s spec/v1/tools -p 'test_device_panel_golden.py'` → PASS（6 tests；规范检查，不是 runtime 一致性）
+- **各端真实测试。** Swift：分类器与求值器读上述两份文件（`DevicePanelVectorTests`，10 tests，36+59 行逐行）；
+  已采用描述的存储 12 tests（WP1 合入后真实求值器 round-trip 用例由 skip 转 PASS）；并发准入 7 tests；
+  面板 model 10 tests（模拟器、fake source）。调用路径经真实 `BLEDeviceStore` 与 journal，覆盖 `not_executed`、
+  `outcome_unknown`、断线、撤销授权、并发准入。Kotlin：未实现（GAP-20）；C：不变。
+- **命令 → 结果**（2026-11-12，集成分支 `feat/device-panel` 的评审 head，macOS arm64，Xcode 27.2 / Swift 6.4.2）：
+  - `swift test --filter DevicePanelVectorTests` → PASS（10 tests）
+  - `swift test --filter DevicePanelStoreTests` → PASS（12 tests）
+  - `swift test --filter LinkAdmissionTests` → PASS（7 tests）
+  - `swift test --filter PhoneDSHBLETests` → FAIL：250 tests，12 failures / 10 unexpected，全部是既有的
+    firmware-C-build 环境失败（8× `BLESecureCrossRuntimeTests`、2× `BLETaskCrossRuntimeTests`：缺 cJSON / mbedTLS /
+    ESP-IDF reference build）；未改动的基线上同样失败
+  - `python3 -m unittest discover -s spec/v1/tools -p 'test_device_panel_golden.py'` → PASS（6 tests；规范检查）
   - `python3 spec/tools/registry_build.py --check` → PASS
-  - `bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-license` → PASS
-  - `python3 scripts/ci/protocol_impact.py --base main` → PASS（触发 P05、P07、P09）
-  - `bash scripts/ci/check.sh --only phone-p0-conformance` → FAIL：`page-structure` 报 3 条 baseline 外的分歧；
-    未改动的 base 上结果相同，与本单无关。其中 `spec/ui/v1/README.md` 的检查通过
-  - `bash scripts/ci/check.sh --only phone-hygiene` → FAIL：全部指向既有文件中的禁用词与域名，没有一条指向本单改动的文件
-  - `swift test`、`bash firmware/tests/run.sh`、Android 测试 → NOT_RUN（没有实现改动）
+  - `bash scripts/ci/check.sh --only phone-spec` → PASS
+  - `bash scripts/ci/check.sh --only phone-cross-tree` → PASS
+  - `bash scripts/ci/check.sh --only phone-p0-conformance` → FAIL：`page-structure` 3 条基线外分歧，与开工前逐条相同
+    （connectors extra-action、gmail-connector / git-hub-connector missing）；`DevicePanelPage` 与蓝牙设备页新增入口
+    经 `_whitelist.json`（`platform.device-panel-ios`）登记，无新增失败。其余子检查 PASS
+  - `bash scripts/ci/check.sh --only phone-hygiene` → FAIL：既有文件中的禁用词与域名；未改动的 base 上相同
+  - `bash scripts/ci/check.sh --only phone-modules` → FAIL：`Package.swift` 既有 PhoneDSHStandardError 依赖记录缺失；
+    未改动的 base 上逐字相同（不是本单引入）
+  - `bash scripts/ci/check.sh --only phone-license`、`phone-no-dsh-patch` → PASS
+  - `bash scripts/ci/check.sh --only phone-sdk` → FAIL：除上述 12 条 firmware-C 环境失败外，只有
+    `PhoneDSHTests.ProbeScenePhaseWiringTests` 一条既有失败（base 上相同）；没有一条指向本单改动
+  - `bash firmware/tests/run.sh` → FAIL：所有可运行 host 检查 PASS，停在缺 ESP-IDF reference build（cJSON）；
+    未改动的 base 上相同。`bash firmware/tests/run.sh --portable-only` → PASS
+  - probe-app：`xcodegen generate` → PASS；`xcodebuild … -destination 'generic/platform=iOS Simulator' build` → PASS
+  - `xcodebuild -scheme PhoneDSHSim -only-testing:PhoneDSHSimTests/DevicePanelModelTests test` → PASS（10 tests，
+    iOS 18.0 模拟器；这是 model/fake 级证据，不是设备结论）
+  - `python3 scripts/ci/protocol_impact.py --base main --body-file …` → PASS（触发 P05、P07、P09、P18）
   - 真机 iPhone + TonoLink M21-R4 → NOT_RUN
-- **未验证。** 任何实现、任何 runtime 行为、Android 上规则的可行性。
-- **剩余风险。** §2.4 的 Android 风险（GAP-20）；§2.3 的并发行为变化；参考实现与规范文本出自同一作者，
-  没有第二个独立实现交叉验证向量。
+- **未验证。** 真机 E2E（连接、发送、断电恢复、撤销授权、模型生成描述后采用）、断电/崩溃的持久性、
+  模拟器里真实 BLE 路径（仅 fake source）、Android 上规则的可行性。
+- **剩余风险。** §2.4 的 Android 风险（GAP-20）；§2.3 的并发行为变化（`ble_link_result` 忙文本由 store 级
+  "Link is busy" 变为准入级文本）；参考实现与规范文本出自同一作者，没有第二个独立实现交叉验证向量；
+  测试证明的是代码与共享向量一致，不是真机行为。
 
 ## 5. 审核边界（发布决定的依据，不是协议条款）
 

@@ -1,0 +1,464 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "DevicePanelPage",
+  "pageId": "device-panel",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "设备面板",
+    "provenance": "DevicePanelPage.swift:759",
+    "anchor": ".navigationTitle(Text(verbatim: model.descriptor?.title ?? \"设备面板\"))"
+  },
+  "source": {
+    "file": "DevicePanelPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/DevicePanelPage.swift",
+    "lines": 1226,
+    "structLine": 685,
+    "renderedFrom": [
+      "body",
+      "listContent",
+      "descriptorContent",
+      "toolListContent",
+      "adoptionSheet"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "DevicePanelPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "描述失效",
+      "title": "描述失效",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": "let reason = model.adoptedDescriptorResult",
+      "collection": null,
+      "rows": [
+        {
+          "id": "已采用的描述当前不生效-self-descriptorreason-reason",
+          "label": "已采用的描述当前不生效：{Self.descriptorReason(reason)}",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:725",
+          "anchor": "Text(\"已采用的描述当前不生效：\\(Self.descriptorReason(reason))\")",
+          "extraction": "manual",
+          "dynamicLabel": true
+        },
+        {
+          "id": "面板已回到设备自报的工具列表-描述副本仍保留-工具表恢复后重新打开或刷新会重新求值",
+          "label": "面板已回到设备自报的工具列表。描述副本仍保留；工具表恢复后重新打开或刷新会重新求值。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:728",
+          "anchor": "Text(\"面板已回到设备自报的工具列表。描述副本仍保留；工具表恢复后重新打开或刷新会重新求值。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:732",
+      "anchor": "Text(\"描述失效\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    },
+    {
+      "id": "提示",
+      "title": "提示",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "literal",
+      "condition": "let error = model.errorText",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-738",
+          "label": null,
+          "labelExpr": "verbatim: error",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:738",
+          "anchor": "Text(verbatim: error).font(.footnote).foregroundStyle(.red).lineLimit(4)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:737",
+      "anchor": "Section(\"提示\") {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "说明",
+      "title": "说明",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "面板只在你点按发送时调用工具-打开页面-下拉刷新都不调用任何工具",
+          "label": "面板只在你点按发送时调用工具；打开页面、下拉刷新都不调用任何工具。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:749",
+          "anchor": "Text(\"面板只在你点按发送时调用工具；打开页面、下拉刷新都不调用任何工具。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "编辑器是参数输入-不是设备当前状态-调用成功也不代表设备已改变",
+          "label": "编辑器是参数输入，不是设备当前状态；调用成功也不代表设备已改变。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:750",
+          "anchor": "Text(\"编辑器是参数输入，不是设备当前状态；调用成功也不代表设备已改变。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "工具名-说明-结果与描述文字都是设备或文件提供的纯文本",
+          "label": "工具名、说明、结果与描述文字都是设备或文件提供的纯文本。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:751",
+          "anchor": "Text(\"工具名、说明、结果与描述文字都是设备或文件提供的纯文本。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:753",
+      "anchor": "Text(\"说明\")",
+      "extraction": "syntax",
+      "hasHeader": true
+    },
+    {
+      "id": "section-768",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": "verbatim: title",
+      "titleSource": "expression",
+      "condition": null,
+      "collection": "Array(model.controlGroups.enumerated()), id: \\.offset",
+      "rows": [
+        {
+          "id": "custom-770",
+          "label": null,
+          "labelExpr": "DevicePanelControlRow",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:770",
+          "anchor": "DevicePanelControlRow(model: model, control: control)",
+          "extraction": "manual",
+          "template": "DevicePanelControlRow",
+          "collection": "Array(group.controls.enumerated()), id: \\.offset"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:774",
+      "anchor": "Text(verbatim: title).lineLimit(1)",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "DevicePanelControlRow",
+        "provenance": "DevicePanelPage.swift:770"
+      },
+      "hasHeader": true
+    },
+    {
+      "id": "section-779",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "descriptor.controls.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "描述没有控件",
+          "label": "描述没有控件。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:780",
+          "anchor": "Text(\"描述没有控件。\")",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:779",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row",
+        "label": "描述没有控件。",
+        "provenance": "DevicePanelPage.swift:780"
+      }
+    },
+    {
+      "id": "section-788",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "model.tools.isEmpty",
+      "collection": null,
+      "rows": [
+        {
+          "id": "设备没有自报可显示的工具",
+          "label": "设备没有自报可显示的工具。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:789",
+          "anchor": "Text(\"设备没有自报可显示的工具。\")",
+          "extraction": "syntax"
+        },
+        {
+          "id": "采用描述",
+          "label": "采用描述…",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:792",
+          "anchor": "Button(\"采用描述…\") { showingAdoption = true }",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:788",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "采用描述…",
+        "provenance": "DevicePanelPage.swift:792"
+      }
+    },
+    {
+      "id": "section-797",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": "verbatim: tool.name",
+      "titleSource": "expression",
+      "condition": null,
+      "collection": "model.tools",
+      "rows": [
+        {
+          "id": "custom-798",
+          "label": null,
+          "labelExpr": "DevicePanelToolRow",
+          "kind": "custom",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "DevicePanelPage.swift:798",
+          "anchor": "DevicePanelToolRow(model: model, tool: tool)",
+          "extraction": "manual",
+          "template": "DevicePanelToolRow"
+        }
+      ],
+      "provenance": "DevicePanelPage.swift:800",
+      "anchor": "Text(verbatim: tool.name).lineLimit(1)",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "DevicePanelToolRow",
+        "provenance": "DevicePanelPage.swift:798"
+      },
+      "hasHeader": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "采用描述",
+      "label": "采用描述…",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ showingAdoption = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DevicePanelPage.swift:792",
+      "anchor": "Button(\"采用描述…\") { showingAdoption = true }",
+      "extraction": "syntax",
+      "labelAlternatives": [],
+      "presents": "sheet-715"
+    },
+    {
+      "id": "gesture-761",
+      "label": null,
+      "labelExpr": null,
+      "kind": "gesture",
+      "trigger": "pull-to-refresh",
+      "semantic": "refresh",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DevicePanelPage.swift:761",
+      "anchor": ".refreshable { model.refresh() }",
+      "extraction": "syntax"
+    },
+    {
+      "id": "采用描述",
+      "label": "采用描述…",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingAdoption = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DevicePanelPage.swift:710",
+      "anchor": "Label(\"采用描述…\", systemImage: \"doc.badge.plus\")",
+      "extraction": "syntax"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ showingAdoption = false",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "DevicePanelPage.swift:814",
+      "anchor": "Button(\"完成\") { showingAdoption = false }",
+      "extraction": "syntax"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-715",
+      "kind": "sheet",
+      "title": null,
+      "destination": "adoptionSheet",
+      "triggerBindings": [
+        "showingAdoption"
+      ],
+      "span": [
+        715,
+        717
+      ],
+      "provenance": "DevicePanelPage.swift:715",
+      "anchor": ".sheet(isPresented: $showingAdoption) {",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "描述没有控件。",
+          "when": "descriptor.controls.isEmpty",
+          "provenance": "DevicePanelPage.swift:780",
+          "anchor": "Text(\"描述没有控件。\")"
+        },
+        {
+          "renders": "设备没有自报可显示的工具。",
+          "when": "model.tools.isEmpty",
+          "provenance": "DevicePanelPage.swift:789",
+          "anchor": "Text(\"设备没有自报可显示的工具。\")"
+        }
+      ],
+      "data": [
+        {
+          "renders": "描述失效 | 提示 | 说明 | untitled section at 774 | untitled section at 779 | untitled section at 788 | untitled section at 800",
+          "when": null,
+          "provenance": "DevicePanelPage.swift:685",
+          "anchor": "struct DevicePanelPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": []
+    },
+    "absent": [
+      "failure",
+      "unknown",
+      "loading"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 0
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 7,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 7,
+    "warnings": []
+  }
+}

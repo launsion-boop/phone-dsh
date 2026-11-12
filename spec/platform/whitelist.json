@@ -394,5 +394,17 @@
     "android_mechanism": "Modifier.clickable(onClickLabel=) + semantics.stateDescription",
     "evidence_level": "emulator-probe",
     "baseline": "examples/probe-app/PhoneDSHProbe/NativeMessageRows.swift"
+  },
+  {
+    "id": "platform.device-panel-ios",
+    "capability": "device.link-tools-panel",
+    "ios": "The iOS host owns a working PDSH Link tool channel (BLEDeviceStore linkClients, LinkToolJournal, per-tool grants). DevicePanelPage renders editors from tools/list inputSchema and sends only through LinkToolCaller's admission/journal/authorization path.",
+    "android": "Android's ordinary Link channel is still target: it has no tool RPC, no durable intent store and no per-tool user grants (GAP-20). Until GAP-20 closes Android must not render the panel, must not call Link tools, and must not show an all-disabled placeholder page.",
+    "divergence_class": "os-forced",
+    "rationale": "Same capability (a user-driven call to an advertised Link tool) needs a verifiable GATT write-attribution and encryption boundary on Android; API 26-35 cannot attribute a same-characteristic write to one request, so the Android screen is absent while GAP-20 is open. This entry does not relax any Link rule: an Android implementation must read the same vectors and obey the same admission, journal, authorization and outcome rules. It only records that the page does not exist on Android yet; when GAP-20 closes, delete this entry rather than keep it as a waiver.",
+    "spec_ref": "spec/device/v1/device-panel.md §5",
+    "android_mechanism": "BluetoothGatt onCharacteristicWrite (API 26-35, no per-write token; GAP-20)",
+    "evidence_level": "spec-only",
+    "baseline": "examples/probe-app/PhoneDSHProbe/DevicePanelPage.swift"
   }
 ]

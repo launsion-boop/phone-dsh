@@ -1,10 +1,13 @@
 # 设备面板 v1（device-panel-v1）
 
-Status: `target`。Owner: P07（面板与调用语义）；宿主私有的已采用描述属 P18。
+Status: `partial` — iOS `implemented`（未上真机），Android `target`（受 GAP-20 阻塞，未实现）。
+Owner: P07（面板与调用语义）；宿主私有的已采用描述属 P18。
 变更单：[PC-20261112-device-panel](../../../docs/protocol-changes/PC-20261112-device-panel.md)。
 
-没有任何一端实现了本文。在两端真实的分类器、描述求值器和调用路径读过 §7 的共享向量并留下 runtime 证据之前，
-不得把面板作为可用功能呈现（[基线](../../README.md) §2 状态词汇）。
+iOS 端已实现 §2 的分类器、§4.2 的求值器、§3 的调用路径与原生面板页：真实函数读 §7 的两份共享向量
+（`Tests/PhoneDSHBLETests/DevicePanelVectorTests.swift`），已采用描述的存储、并发准入与调用有各自的回归，
+面板页只经共用的 `LinkToolCaller` 调用设备。真机（iPhone + TonoLink M21-R4）E2E 尚未取得，所以是 `implemented`
+而不是「真机已验证」。Android 端未实现（GAP-20），不得把面板作为可用功能呈现（[基线](../../README.md) §2 状态词汇）。
 
 ## 1. 范围
 
@@ -148,7 +151,7 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 
 | 端 | 状态 |
 | --- | --- |
-| iOS（Swift） | `target`，未实现 |
+| iOS（Swift） | `implemented`：分类器、求值器、存储、准入与面板页；共享向量与模拟器 UI 测试通过，真机 E2E 未做 |
 | Android（Kotlin） | `target`，未实现，且受 GAP-20 阻塞：普通 Link 通道没有工具 RPC、持久意图与用户授权（[BLE Link](ble-link.md)「Android Link channel target」）。在该通道落地并有两端 runtime 证据之前，Android 不渲染面板，不调用 Link 工具，也不放置全部禁用的占位页 |
 | 固件（C） | 不变。本文不要求设备新增字段、工具或行为 |
 
