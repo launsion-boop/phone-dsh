@@ -56,6 +56,8 @@ import com.phonedsh.ui.page.EgressAllowListUiEvent
 import com.phonedsh.ui.page.ExportFacts
 import com.phonedsh.ui.page.ExportPage
 import com.phonedsh.ui.page.ExportScreenState
+import com.phonedsh.ui.page.GitHubAgentFacts
+import com.phonedsh.ui.page.GitHubAgentSettingsPage
 import com.phonedsh.ui.page.FilesLocalState
 import com.phonedsh.ui.page.FilesPage
 import com.phonedsh.ui.page.FilesScreenState
@@ -489,6 +491,14 @@ public fun PdshNavHost(
     onPcUnpair: () -> Unit = {},
     onPcDismissUnpairFailure: () -> Unit = {},
     onPcConnectionScreenOpened: () -> Unit = {},
+    /** 设置 › GitHub Agent's facts; default is no token and writes off. */
+    githubAgent: GitHubAgentFacts = GitHubAgentFacts(),
+    /** Saves the typed token; true only when the host stored it. */
+    onGitHubAgentSaveToken: (String) -> Boolean = { false },
+    /** Deletes the stored token; true only when the host removed it. */
+    onGitHubAgentDeleteToken: () -> Boolean = { false },
+    /** Persists the explicit write opt-in. */
+    onGitHubAgentAllowWrites: (Boolean) -> Unit = {},
 ) {
     val route = nav.current
     if (route == PdshRoute.Home) {
@@ -587,6 +597,14 @@ public fun PdshNavHost(
                 onOpenEditor = { id -> onNavigate(PdshRoute.SshEditor(id)) },
             )
             is PdshRoute.SshEditor -> SshEditorRoute(route, facts, onBack, onHostAction)
+            PdshRoute.GitHubAgent -> GitHubAgentSettingsPage(
+                facts = githubAgent,
+                onBack = onBack,
+                onSaveToken = onGitHubAgentSaveToken,
+                onDeleteToken = onGitHubAgentDeleteToken,
+                onAllowWritesChange = onGitHubAgentAllowWrites,
+                onRestartEngine = { onHostAction(PdshHostAction.RestartRuntime) },
+            )
             PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
             PdshRoute.AndroidAdb -> com.phonedsh.ui.page.AndroidADBSettingsPage(
                 facts = facts.androidAdb,

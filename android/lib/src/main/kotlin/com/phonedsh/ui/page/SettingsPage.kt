@@ -242,6 +242,9 @@ public enum class SettingsDestination {
     /** SSH 主机: saved native SSH connections (docs/native-ssh.md). */
     SSH,
 
+    /** GitHub Agent: the write-capable fine-grained token (`PC-20261112-github-agent-credential`). */
+    GITHUB_AGENT,
+
     /** 蓝牙设备: scan + standard GATT (`spec/device/v1/android-standard-gatt.md`). */
     BLUETOOTH,
 
@@ -1458,6 +1461,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
             SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
             SettingsIndexEntry("ssh", native("SSH 主机", "SSH hosts"), com.phonedsh.ui.icon.PdshIcon.TERMINAL, callback = { onNavigate(SettingsDestination.SSH) }),
+            SettingsIndexEntry("githubAgent", native("GitHub Agent", "GitHub agent"), com.phonedsh.ui.icon.PdshIcon.CODE, callback = { onNavigate(SettingsDestination.GITHUB_AGENT) }),
             SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
             SettingsIndexEntry("androidAdb", native("Android ADB", "Android ADB"), com.phonedsh.ui.icon.PdshIcon.DEVICE, callback = { onNavigate(SettingsDestination.ANDROID_ADB) }),
         )),

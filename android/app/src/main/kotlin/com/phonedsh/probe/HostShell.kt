@@ -433,6 +433,10 @@ internal fun HostShell(
     // SSH 主机: the process-wide saved connections (docs/native-ssh.md).
     val sshSettings = remember { SshSettingsStore.get(context) }
     val sshFacts by sshSettings.facts.collectAsState()
+    // GitHub Agent: the process-wide token record and write opt-in
+    // (`PC-20261112-github-agent-credential`). The page only receives facts.
+    val githubAgentSettings = remember { GitHubAgentSettingsStore.get(context) }
+    val githubAgentFacts by githubAgentSettings.facts.collectAsState()
     // Android ADB: the process-owned native android_* tool host (native-mcp.md).
     val androidAdb = remember { AndroidAdbHost.get(context) }
     val androidAdbFacts by androidAdb.facts.collectAsState()
@@ -1502,6 +1506,10 @@ internal fun HostShell(
                         onPcUnpair = pcWiring::onUnpairConfirmed,
                         onPcDismissUnpairFailure = pcWiring::onDismissUnpairFailure,
                         onPcConnectionScreenOpened = pcWiring::onConnectionScreenOpened,
+                        githubAgent = githubAgentFacts,
+                        onGitHubAgentSaveToken = { token -> githubAgentSettings.saveToken(token) },
+                        onGitHubAgentDeleteToken = { githubAgentSettings.deleteToken() },
+                        onGitHubAgentAllowWrites = { value -> githubAgentSettings.setAllowWrites(value) },
                         onOpenDrawer = { openHostDrawer() },
                         onOpenSubagentSession = engine::openSubagentSession,
                         onLoadEarlierChatTranscript = engine::loadEarlierSubagentTranscript,
@@ -2298,6 +2306,7 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     PdshRoute.Bluetooth -> null
     PdshRoute.Ssh, is PdshRoute.SshEditor -> null
+    PdshRoute.GitHubAgent -> null
     PdshRoute.AndroidAdb -> null
     PdshRoute.TonoAccount -> null
 

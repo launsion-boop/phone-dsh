@@ -2794,4 +2794,26 @@ public object UiStrings {
     public const val TURN_USAGE_TOTAL: String = "合计"
     public const val TURN_USAGE_TOKENS_SUFFIX: String = " tok"
     public const val TURN_USAGE_PERCENT_SUFFIX: String = "%"
+
+    // GitHub Agent credential (`spec/ui/v1/pages/git-hub-agent-settings.json`,
+    // iOS `GitHubAgentSettingsPage.swift`). The token itself is never a string in
+    // this table: only the page copy and its status lines are.
+    public const val GITHUB_AGENT_TITLE: String = "GitHub Agent"
+    public const val GITHUB_AGENT_TOKEN_SECTION: String = "Agent GitHub token"
+    public const val GITHUB_AGENT_TOKEN_PLACEHOLDER: String = "粘贴 fine-grained token"
+    public const val GITHUB_AGENT_TOKEN_SAVE: String = "保存 token"
+    public const val GITHUB_AGENT_TOKEN_DELETE: String = "删除 token"
+    public const val GITHUB_AGENT_TOKEN_FOOTER: String =
+        "读取与代码搜索需要 token；写入还需要打开下面的开关，且 token 要有 Contents: write 与 Pull requests: write。" +
+            "Discover 里的只读连接器不会授权写入。"
+    public const val GITHUB_AGENT_ALLOW_WRITES: String = "允许 Agent 写入 GitHub"
+    public const val GITHUB_AGENT_ALLOW_WRITES_FOOTER: String =
+        "关闭时 github 仍可读取和搜索，但 commit / branch / pr 会被拒绝。"
+    public const val GITHUB_AGENT_RESTART: String = "重启引擎使设置生效"
+    public const val GITHUB_AGENT_RESTART_REQUIRED: String = "重启引擎后生效"
+    public const val GITHUB_AGENT_SAVED: String = "已保存；重启引擎后生效"
+    public const val GITHUB_AGENT_DELETED: String = "已删除；重启引擎后生效"
+    public const val GITHUB_AGENT_INVALID_TOKEN: String = "token 不能为空，也不能跨行"
+    public const val GITHUB_AGENT_WRITE_FAILED: String = "无法写入钥匙串"
+    public const val GITHUB_AGENT_DELETE_FAILED: String = "无法删除钥匙串记录"
 }

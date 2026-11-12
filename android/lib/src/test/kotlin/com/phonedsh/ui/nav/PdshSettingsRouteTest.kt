@@ -88,6 +88,7 @@ class PdshSettingsRouteTest {
                 SettingsDestination.MODEL_PROVIDER,
                 SettingsDestination.MCP,
                 SettingsDestination.SSH, // PdshRoute.Ssh
+                SettingsDestination.GITHUB_AGENT, // PdshRoute.GitHubAgent
                 SettingsDestination.BLUETOOTH, // PdshRoute.Bluetooth
                 SettingsDestination.ANDROID_ADB, // PdshRoute.AndroidAdb
                 SettingsDestination.TONO_ACCOUNT, // PdshRoute.TonoAccount
