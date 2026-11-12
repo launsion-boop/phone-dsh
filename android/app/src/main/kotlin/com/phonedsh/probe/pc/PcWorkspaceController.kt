@@ -357,6 +357,13 @@ internal class PcWorkspaceController(
     private var closed = false
     private var pairingJob: Job? = null
     private var pairingCancelJob: Job? = null
+    /**
+     * The client state the last [applyStatus] saw. Unpaired only ends a busy
+     * pairing when the client moved out of Pairing: the collector also replays the
+     * client's initial Unpaired value, which can arrive after [startPairing] has
+     * already published JOINING and must not mark that attempt FAILED.
+     */
+    private var lastClientState: com.phonedsh.pclink.PclinkClientState? = null
     private var pairingCancelled = false
     private var hydratedMachineId: String? = null
     private var loggedPresenceKey: String? = null
@@ -850,6 +857,8 @@ internal class PcWorkspaceController(
         if (record == null) hydratedMachineId = null
         val stored = record?.let { hydrate(it.machineId) }
         val clientState = status.state
+        val previousClientState = lastClientState
+        lastClientState = clientState
         mutableState.update { current ->
             var next = current.copy(
                 presence = projected,
@@ -912,7 +921,10 @@ internal class PcWorkspaceController(
                     )
                 }
                 is com.phonedsh.pclink.PclinkClientState.Unpaired -> {
-                    if (next.pairing.isBusy && !pairingCancelled) {
+                    if (
+                        next.pairing.isBusy && !pairingCancelled &&
+                        previousClientState is com.phonedsh.pclink.PclinkClientState.Pairing
+                    ) {
                         val mapped = status.lastError?.toWorkspaceError()
                             ?: PcWorkspaceError("unpaired", "pairing did not complete")
                         next.copy(pairing = next.pairing.copy(phase = PcPairingPhase.FAILED, error = mapped))

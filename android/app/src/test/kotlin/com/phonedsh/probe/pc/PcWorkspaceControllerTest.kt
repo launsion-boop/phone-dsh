@@ -34,6 +34,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -171,6 +173,41 @@ class PcWorkspaceControllerTest {
             assertEquals(1, fixture.client.beginCount)
         } finally {
             fixture.close()
+        }
+    }
+
+    @Test
+    fun `the client's initial Unpaired replayed after JOINING does not fail the attempt`() {
+        // A hand-drained executor makes the race deterministic: the status
+        // collector (launched at construction) runs after startPairing has
+        // published JOINING and before the pairing job itself.
+        val queue = java.util.ArrayDeque<Runnable>()
+        val dispatcher = java.util.concurrent.Executor { queue.add(it) }.asCoroutineDispatcher()
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val directory = Files.createTempDirectory("pc-controller-race")
+        val client = FakePcLinkClient()
+        val transport = ScriptedDshCall()
+        val controller = PcWorkspaceController(
+            client = client,
+            transport = transport,
+            storage = PcWorkspaceStorage(MapPreferenceFile(), directory.resolve(PcWorkspaceStorage.ROSTER_DIRECTORY)),
+            diagnostics = PcDiagnosticsLog(directory.toFile()),
+            turnRunner = PcChatTurnRunner(transport),
+            scope = scope,
+        )
+        try {
+            controller.startPairingQr("pclink://pair?v=1")
+            assertEquals(PcPairingPhase.JOINING, controller.state.value.pairing.phase)
+            // Only the first queued task: the status collector replays Unpaired(NoRecord).
+            queue.removeFirst().run()
+            assertEquals(PcPairingPhase.JOINING, controller.state.value.pairing.phase)
+            assertNull(controller.state.value.pairing.error)
+            // Draining the rest completes the pairing with no stale error left behind.
+            repeat(200) { queue.pollFirst()?.run() }
+            assertEquals(PcPairingPhase.COMPLETED, controller.state.value.pairing.phase)
+            assertNull(controller.state.value.pairing.error)
+        } finally {
+            scope.cancel()
         }
     }
 
