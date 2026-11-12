@@ -116,8 +116,17 @@ public val SettingsCardMargin: Dp get() = SettingsMetrics.cardMargin
 /** The card's 26 pt continuous corner, measured by fitting the top-left arc. */
 public val SettingsCardRadius: Dp get() = SettingsMetrics.cardRadius
 
-/** The 38.67 pt gap between two cards (116 px at y=914→1030). */
+/** The measured 35 pt gap between two sub-page cards ([SettingsMetrics.SECTION_GAP_PT]). */
 public val SettingsCardGap: Dp get() = SettingsMetrics.SECTION_GAP_PT.dp
+
+/** The settings root's 62 pt row ([SettingsMetrics.ROOT_ROW_HEIGHT_PT]). */
+public val SettingsRootRowHeight: Dp get() = SettingsMetrics.ROOT_ROW_HEIGHT_PT.dp
+
+/** The settings root's 57 pt titled-section band ([SettingsMetrics.ROOT_TITLED_SECTION_GAP_PT]). */
+public val SettingsRootTitledSectionGap: Dp get() = SettingsMetrics.ROOT_TITLED_SECTION_GAP_PT.dp
+
+/** The settings root's first titled-section band ([SettingsMetrics.ROOT_FIRST_SECTION_HEIGHT_PT]). */
+public val SettingsRootFirstSectionHeight: Dp get() = SettingsMetrics.ROOT_FIRST_SECTION_HEIGHT_PT.dp
 
 /** The 34.67 pt from the list's top edge to the first card (y=502→606 px). */
 public val SettingsListTopInset: Dp get() = SettingsMetrics.FIRST_CARD_TOP_INSET_PT.dp
@@ -741,14 +750,22 @@ public fun SettingsFootnoteRow(
 }
 
 /**
- * The sub-pages' section label: 17 pt secondary ink at x 33 pt, optional
- * right-aligned trailing value (the baseline's `15 个地址`).
+ * A section label: 13 pt secondary ink at x 33 pt by default, and the settings
+ * root's measured bottom-aligned band when [bandHeight] is set.
+ *
+ * The root's band *is* the 57 pt gap between the previous group's last row and
+ * this group's first row ([SettingsRootTitledSectionGap]); the first section uses
+ * the measured 49.33 pt header block ([SettingsRootFirstSectionHeight]). Its
+ * text sits `cardInset` above the card, matching the iOS export's header ink
+ * 12.66 pt above the next row.
  *
  * @param trailing an optional right-aligned value in 13 pt secondary ink
  *   (`-network`'s `15 个地址` measures 35 px = 11.7 pt of ink, i.e. 13 pt).
  * @param indent the leading inset; the network page's `地址` sits at 32.7 pt and
  *   the plain-row pages at 33 pt, so the default is the measured 33.
  * @param tag an optional stable test tag.
+ * @param bandHeight the settings root's header-band height; `null` keeps the
+ *   sub-pages' padded inline label (the previous behaviour).
  */
 @Composable
 public fun SettingsSectionLabel(
@@ -757,8 +774,30 @@ public fun SettingsSectionLabel(
     trailing: String? = null,
     indent: Dp = SettingsSectionLabelIndent,
     tag: String? = null,
+    bandHeight: Dp? = null,
 ) {
     val tokens = LocalUiTokens.current
+    if (bandHeight != null) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(bandHeight)
+                .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+                .padding(
+                    start = indent,
+                    end = tokens.geometry.pageOuterMarginH,
+                    bottom = tokens.spacing.cardInset,
+                )
+                .semantics { heading() },
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            BasicText(
+                text = title,
+                style = settingsSectionLabelStyle().copy(color = tokens.colors.textSecondary),
+            )
+        }
+        return
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()

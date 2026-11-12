@@ -32,7 +32,8 @@ import com.phonedsh.ui.theme.generated.UiTokenData
  * Most rows are page-local measurements. The four token-backed rows
  * (`NAV_BAR_HEIGHT_PT`, `CARD_MARGIN_H_PT`, `ROW_HEIGHT_PT`,
  * `GROUPED_LIST_MIN_ROW_HEIGHT_PT`) read the reviewed `spec/ui/v1/tokens.json`
- * table directly; the remaining measured geometry has only PNG provenance.
+ * table directly; the remaining measured geometry carries PNG or iOS XCUITest
+ * export provenance (`docs/parity/bench.md` settings-root for the latter).
  */
 public object SettingsMetrics {
     /** 430pt PR22 workspace.png: 64pt text pill minus 32pt text => 16pt each side. Page-local, measured. */
@@ -105,7 +106,7 @@ public object SettingsMetrics {
     public const val CARD_RADIUS_PT: Int = 26
 
     /**
-     * Vertical gap between two cards: 35.0 pt.
+     * Vertical gap between two cards on the settings sub-pages: 35.0 pt.
      *
      * Source: `docs/receipts/ios-baseline-screens/ios-settings.png`, the PNG the
      * parity sheet lays beside the Android capture. Card 1's last white row is
@@ -118,11 +119,10 @@ public object SettingsMetrics {
      * the gap that file draws; the Android render then carried the 3.67 pt error
      * into every successive card. Page-local, measured (four bands).
      *
-     * Parity note (W3 settings root): the iOS fixture puts 57 pt between the last
-     * row of one group and the first row of the next. That band is the system
-     * section header plus the grouped list's section spacing; neither is declared
-     * in `SettingsPage.swift` or `tokens.json`, so the 57 pt is a contract gap.
-     * This 35 pt remains the measured card-to-card band used by the pixel suite.
+     * This 35 pt still separates the cards of the sub-page lists (through
+     * `SettingsCardGap` / `GeneralTabBody`). The settings root's titled groups use
+     * [ROOT_TITLED_SECTION_GAP_PT] instead: the iOS root measures 57 pt between
+     * the previous group's last row and the next group's first row.
      */
     public const val SECTION_GAP_PT: Float = 35f
 
@@ -180,7 +180,45 @@ public object SettingsMetrics {
     public const val PARITY_SAFE_AREA_TOP_PT: Float = 62f
 
     /**
-     * One grouped row's rendered height.
+     * One settings-root row's rendered height: 62 pt.
+     *
+     * Source: `SettingsPage.swift:459` (`SettingsRowLabel.frame(minHeight: 32)`)
+     * is the row content's minimum; the other 30 pt is the system inset-grouped
+     * `List` row's vertical padding. Measured, iOS XCUITest export,
+     * `docs/parity/bench.md` settings-root (`settings.row.modelProvider` …
+     * `settings.row.network`, h=62). Page-local: the sub-pages keep the
+     * token-backed [ROW_HEIGHT_PT] (48), which the export did not measure.
+     */
+    public const val ROOT_ROW_HEIGHT_PT: Float = 62f
+
+    /**
+     * The settings root's first titled-section header block: 49.33 pt.
+     *
+     * Source: the system `List` top inset plus the `Section` header
+     * (`SettingsPage.swift:81-102`); measured, iOS XCUITest export,
+     * `docs/parity/bench.md` settings-root: the export's
+     * `settings.row.modelProvider` absolute y is 155.33 and the 44 pt inline bar
+     * ends at 106.0. It is shorter than the following groups' band because the
+     * list's first section starts at the list's own top inset rather than at a
+     * section boundary. Page-local, measured.
+     */
+    public const val ROOT_FIRST_SECTION_HEIGHT_PT: Float = 49.33f
+
+    /**
+     * The settings root's titled-section band: 57 pt.
+     *
+     * Source: the system `Section(NativeText(…))` header plus the grouped list's
+     * section spacing (`SettingsPage.swift:81-102`); measured, iOS XCUITest
+     * export, `docs/parity/bench.md` settings-root (`305 − (186 + 62)`: the last
+     * `模型与智能体` row's bottom to the first `权限与隐私` row's top). The band
+     * carries the 13 pt header text, bottom-aligned above the next card. The
+     * settings root's rows use [ROOT_ROW_HEIGHT_PT]; the 35 pt [SECTION_GAP_PT]
+     * above belongs to the sub-page cards. Page-local, measured.
+     */
+    public const val ROOT_TITLED_SECTION_GAP_PT: Float = 57f
+
+    /**
+     * One grouped row's rendered height on the settings sub-pages: 48.
      *
      * Resolves `geometry.defaultMinListRowHeight` (48). PR22's
      * `HomeSpec.homeGroupedList()` sets
@@ -188,15 +226,41 @@ public object SettingsMetrics {
      * is the source-owned minimum. The old 402 pt capture measured 52.33 pt for
      * the pre-PR22 17 pt list; that render is superseded.
      *
-     * Parity note (W3 settings root): the iOS fixture measures these rows at
-     * 62 pt (`docs/parity/bench.md` § settings-root), not 48. `SettingsPage.swift:459`
-     * gives the row content a 32 pt minimum; the other 30 pt is the system
-     * `List` row's vertical padding, which no Swift literal or `tokens.json`
-     * entry declares. The 62 pt row and the 57 pt group gap (see
-     * [SECTION_GAP_PT]) are therefore a contract gap, not a value this page may
-     * hard-code; 48 stays the token-owned minimum until the contract carries them.
+     * The settings root draws [ROOT_ROW_HEIGHT_PT] (62) instead; the sub-page
+     * rows were not part of the iOS export and keep the token-backed minimum.
      */
     public val ROW_HEIGHT_PT: Float get() = UiTokenData.geometryDefaultMinListRowHeight.value
+
+    /**
+     * The settings sheet's 完成 button width: 58 pt.
+     *
+     * Source: `SettingsPage.swift:106-112`
+     * (`Button(NativeText("完成", "Done"))` in a `.toolbar` confirmationAction);
+     * measured, iOS XCUITest export, `docs/parity/bench.md` settings-root.
+     * Page-local: `tokens.json` has no toolbar-button size (`geometry.navButton`
+     * is the 44 pt bar/round-button role), so the toolbar button's frame is not
+     * a shared token.
+     */
+    public const val DONE_BUTTON_WIDTH_PT: Float = 58f
+
+    /**
+     * The settings sheet's 完成 button height: 36 pt.
+     *
+     * Source: `SettingsPage.swift:106-112`; measured, iOS XCUITest export,
+     * `docs/parity/bench.md` settings-root. Page-local, measured; see
+     * [DONE_BUTTON_WIDTH_PT].
+     */
+    public const val DONE_BUTTON_HEIGHT_PT: Float = 36f
+
+    /**
+     * The 完成 button's trailing inset from the screen edge: 20 pt.
+     *
+     * Source: measured, iOS XCUITest export, `docs/parity/bench.md`
+     * settings-root: `settings.done` sits at x=308..366 in origin space, i.e.
+     * 324..382 pt absolute on the 402 pt screen. The bar's own chrome inset is
+     * 16 pt, so the toolbar button carries the other 4 pt. Page-local, measured.
+     */
+    public const val DONE_TRAILING_INSET_PT: Float = 20f
 
     /** Row content leading inset inside the card. Source: PNG check label glyph starts x=98 px; card starts x=48 px → 16.7 pt (16 pt inset plus ~0.7 pt glyph bearing). Page-local: PNG-only provenance; tokenising it needs a provenance-tier change (`docs/parity/metrics-classification.md` §6 item 7). */
     public const val ROW_CONTENT_INSET_PT: Int = 16
