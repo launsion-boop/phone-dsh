@@ -32,7 +32,7 @@ public struct GitHubAgentConfiguration: Equatable, Sendable {
     public init(enabled: Bool = true,
                 service: String = GitHubAgentSettings.service,
                 account: String = GitHubAgentSettings.account,
-                allowWrites: Bool = true) {
+                allowWrites: Bool = false) {
         self.enabled = enabled
         self.service = service
         self.account = account
