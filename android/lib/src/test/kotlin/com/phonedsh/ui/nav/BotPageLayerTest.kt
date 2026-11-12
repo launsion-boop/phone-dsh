@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // The Bot tab's internal wiring: the default host opens the K5b drawer/info/
 // appearance surfaces, the host overrides still win, and no overlay survives the
 // Bot tab or the driver.

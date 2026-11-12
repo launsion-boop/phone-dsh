@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Bot information: the avatar/name header, the name editor, the appearance
 // entry, presence, disturbance and the four data destinations, plus the local
 // navigation into each sub-page.

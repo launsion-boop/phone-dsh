@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // The Bot drawer's two editable dialogs. They live in their own class because a
 // platform `Dialog` holding an editable `BasicTextField` starts a cursor/idle
 // loop once the drawer-animation tests have run in the same Robolectric

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // BotInfoPage: the three load states, the fixture-backed sub-pages, the
 // presence/disturbance sections and the emitted `BotInfoIntent` /
 // `BotAppearanceIntent` values.
