@@ -34,7 +34,17 @@ class AndroidBotSqlDriver private constructor(
                 }
             }
         } catch (error: Throwable) {
-            throw SqlDriverException(error.message ?: "SQLite execute failed", error)
+            // Android classifies some PRAGMAs (observed with
+            // `PRAGMA secure_delete=ON`) as queries and rejects them from
+            // execSQL even though they are setters. The JVM driver accepts
+            // them, and the P25 store contract calls them through execute, so
+            // fall back to rawQuery here rather than teaching every caller
+            // about an Android-only classification.
+            if (sql.trimStart().startsWith("PRAGMA", ignoreCase = true)) {
+                query(sql, bindings)
+            } else {
+                throw SqlDriverException("execute failed: $sql: ${error.message ?: "SQLite execute failed"}", error)
+            }
         }
     }
 
@@ -53,7 +63,7 @@ class AndroidBotSqlDriver private constructor(
         val cursor: Cursor = try {
             database.rawQuery(sql, args)
         } catch (error: Throwable) {
-            throw SqlDriverException(error.message ?: "SQLite query failed", error)
+            throw SqlDriverException("query failed: $sql: ${error.message ?: "SQLite query failed"}", error)
         }
         cursor.use {
             val columns = it.columnNames.toList()
@@ -99,6 +109,13 @@ class AndroidBotSqlDriver private constructor(
     }
 
     override fun close() {
+        // The store's `abort-*` crash point closes the driver from inside a
+        // transaction. SQLiteDatabase.close() does not end that transaction
+        // session on Android, so the WAL writer lock would survive the close
+        // and the next open would fail with SQLITE_BUSY. Roll the open
+        // transaction back first; the outer transaction wrapper then sees no
+        // transaction and its rollback becomes a no-op.
+        runCatching { if (database.inTransaction()) database.endTransaction() }
         restrictFiles()
         if (database.isOpen) database.close()
     }
