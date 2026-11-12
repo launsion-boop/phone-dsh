@@ -1263,67 +1263,87 @@ A real Worker E2E is `NOT_RUN` unless the packaged Worker + model are available.
 
 ### D14 — BotFish renderer contract and numeric trajectory (XL)
 
-**Target.** New `spec/bot/v1/fish-renderer.md`; new `fish-trajectory.schema.json` +
-`golden/fish-trajectory.json`; a new `fish-assets.json` manifest with SHA-256 per file; new
-`spec/bot/v1/tools/fish_trajectory_compare.py`.
+**Status: partial — iOS reference implemented, Android target.** Frozen by lane C5 at base
+`e477497b`. The target moved from the plan's `spec/bot/v1/*` to the P09-owned tree
+`spec/ui/v1/bot/fish/` because this is a UI-projection contract and `spec/bot/v1` is
+upstream-pinned (`spec/bot/v1/dshbot-pin.json`, `spec/README.md` §8.1); no pinned file was edited.
+Where the paths below disagree with the port plan §9 or the original D14 text, this section wins
+for paths only.
 
-**Why.** S17 is entirely `spec-missing`: the layer list, palette/LUT, crop/pivot, clip periods, spring
-constants, sprite order, quantisation and fps/pause exist only in Swift
-(`examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift:89-135`, `:203-260`, `:368-450`,
-`:1149-1210`; `BotFishModel.swift:31-170`, `:171-430`; `BotFishEngine.swift:61-100`, `:233-300`,
-`:519-541`; `BotFishView.swift:60-100`). The director/reaction part is already frozen; the pixels are
-not, and pixel parity is not a valid gate across two rasterisers.
+**Delivered.**
 
-**Section outline.**
+| Path | Contents |
+| --- | --- |
+| `spec/ui/v1/bot/fish/fish.md` | owning doc: inputs/outputs, clip table, per-state model + expressive overrides, springs/timers/reactions, pose/boost/alpha, frame clock/freeze, sprite/LUT/layer rules, asset-sharing PROPOSAL, CCRs, evidence map |
+| `spec/ui/v1/bot/fish/golden/trajectory.json` | 97 cases / 954 frames generated from the real Swift app code; 42 clips, 15 palettes (full 768-entry LUTs), 58 source anchors, per-source SHA-256 |
+| `spec/ui/v1/bot/fish/golden/assets.json` | 35 assets (33 PNG + 2 atlas JSON) with SHA-256, PNG headers, runtime layer map, expressive grid/rects, the exact 51 absent web pre-render references, and the iOS-only artwork grant |
+| `spec/ui/v1/bot/fish/schema/fish-trajectory.schema.json` | trajectory shape; params key set is closed |
+| `spec/ui/v1/bot/fish/tools/generate_trajectory.py` | the only generator; `--write` / `--check`; macOS + iOS simulator; `SKIP` (77) elsewhere |
+| `spec/ui/v1/bot/fish/tools/trajectory_harness.swift` | executable harness compiled with the original app fish files |
+| `spec/ui/v1/bot/fish/tools/check_fish.py` | dependency-free gate: schema, source hashes/anchors, clips/atlas, sprites, LUT, every frame's pose/alpha, assets, licence anchor |
+| `spec/ui/v1/bot/fish/tools/test_check_fish.py` | 20 mutation tests (schema, params, pose, alpha, time, order, clips, sprites, LUT, hashes, assets, grant, doc) |
 
-1. **Assets.** Inventory under `BotFish/` with dimensions, RGBA, SHA-256, license/provenance
-   (`SOURCES.md` moves under `spec/` or is linked normatively). `body.png` is greyscale; the LUT uses
-   the 15 color hexes from `bot-profile.json`; hair variants map `long→base/`, others→`hair/<style>/`;
-   crown variants map `crowned/<style>/` + `overlays/crown*.png`; `expressive/eyes.png` and `mouths.png`
-   are 3×4 cells of 256×128 with the exact name order (`BotFishModel.swift:31-60`;
-   `examples/probe-app/BotFish/SOURCES.md:8-60`).
-2. **Layers.** Base = body+fixed+crown+blush+eye whites; face = eyes/iris/brows/mouth/tears/
-   decoration; compositing order and the “crown is in the flat base, then head-sliced” rule
-   (`BotFishRenderer.swift:5-19`, `:368-450`).
-3. **Crop/pivot.** Normal crop 416 px at `(48,30)`, crowned 448 px at `(32,10)`; pivot source
-   `(256,350)`; design size 512; ink `#211919` (`BotFishRenderer.swift:89-135`; `BotFishView.swift:142-160`).
-4. **Model.** Per-state clip period/duration, phase/progress, and every parameter assignment for all
-   P0 states/one-shots (`BotFishModel.swift:118-430`). This is the part the trajectory freezes.
-5. **Controller.** Springs: gaze 23, head 8, body 5, morph 13, face 22; blink/poke/idle timers;
-   expression cross-fade/clip sampling; reaction overlay priority and TTL (`BotFishEngine.swift:61-100`,
-   `:233-300`; `BotFishReactions.swift:8-135`).
-6. **Pose.** Offset 0.25 output px, scale 0.5/target, roll 0.1°, alpha 1/64; the pivot and the
-   `size × displayScale` target (`BotFishEngine.swift:519-541`).
-7. **Frame policy.** 20 fps, 15 fps at ≤40 pt; pause on hidden/background/still/reduce-motion/low-power;
-   paint one frame when paused; head slicing only >40 pt with 0.1-unit quantum
-   (`BotFishView.swift:60-100`; `BotFishRenderer.swift:131-165`).
-8. **Trajectory format.** The schema in the plan §9.3: viewport, cases, frames, params, pose, alpha,
-   static, art names; tolerances 1e-6; ordering; seeded controller replays.
-9. **Comparison tool.** `fish_trajectory_compare.py --golden --android [--ios]`; a missing case/frame
-   or an out-of-tolerance number fails; prints the first JSON path. The iOS side is optional on
-   non-macOS CI and must be reported `NOT_RUN`, not skipped silently.
-10. **Screenshots.** A small set (idle/thinking/working/alerting/celebrate, light/dark, 32/96 pt) is a
-    regression gate only; state explicitly it is not cross-end pixel parity.
+**Frozen numbers.** The 42-case `BotFishLifecycle` (the brief's “41” was stale), the 42 clip
+periods/durations/static flags, `BotFishParams` defaults and every base/expressive/lively
+assignment, the 16 face keys and spring roots (gaze/head/body/morph 23/8/5/13, face 22, lively
+pose 18), 1/120 s substeps and 0–100 ms clamp, blink/idle/lively/poke/reaction TTL + static beat
+rules, motion boost 2.2→1 over 40–64 pt with ±20/±9 clamps, pose quanta 0.25 px / 0.5-per-target /
+0.1° / 1/64 alpha, the 15×768 tint LUT, sprite order/cel index and layer folder rule. Params/pose/
+time/alpha compare at absolute `1e-6`; enums/art names/bools are exact. Rasterisation, Bézier
+paths, antialiasing, crown shadow, cache keys and screenshots are explicitly not gated. Head-slice
+displacement is left out because two Swift paths disagree on the lively quantum — see the CCR in
+`fish.md` §11.1.
 
-**Fixtures.** `fish-trajectory.json` as described; `fish-assets.json` with one SHA-256 entry per asset file
-(33 PNGs + `atlas.json` + `expressive/atlas.json`; `SOURCES.md` is provenance, not an asset);
-`fish-director.json` stays unchanged. Add a mutation test that changes one parameter by 1e-3 and
-expects the comparator to fail.
+**Generation (real code, not a re-implementation).** `generate_trajectory.py` writes a throw-away
+SwiftPM package under the temp directory whose executable target symlinks the original
+`examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFish{Model,Engine,Renderer,Assets,ImageCache,LivelyMotion,MotionProfile}.swift`
+plus `tools/trajectory_harness.swift`, links the real `PhoneDSHBot` product, builds for
+`<arch>-apple-ios17.0-simulator`, and runs the binary with `xcrun simctl spawn`. The asset tree is
+copied next to the executable only because `Bundle.main` folder resources are how the app loads it;
+app source is never copied, moved or edited. Command:
 
-**Compatibility.** New target; no old data. Asset files are copied byte-identically from the pinned
-upstream commit; a missing/changed file fails the checksum gate. A future style/color addition is a new
-case, not a schema change.
-
-**Acceptance.**
 ```bash
-python3 spec/bot/v1/tools/validate_vectors.py
-swift test --filter PhoneDSHBotTests.BotFishDirectorTests    # reference, macOS
-bash android/tools/with-android-toolchain.sh ./gradlew \
-  :bot:testDebugUnitTest --tests 'com.phonedsh.bot.fish.*'
+python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --check   # regenerate + diff
+python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --write   # rewrite both goldens
 ```
-Cross-end: run the comparator with both JSON files; without a macOS run, record the iOS half `NOT_RUN`.
 
----
+**Fixtures.** 10 P0 states × 6 timestamps; 4 one-shots (`celebrate`, `waving`, `bowing` as action
+reactions, `poke` as the state) at first/mid/end/after-TTL; a `happy` expression overlay; 5
+sampling cases (32 pt, crowned, standby) and 4 still/reduced samples; 15 colours × 4 hairstyles at
+idle/t=0; 10 lively samples; 3 seeded
+replays at 16.666… ms (standard poke+celebrate, lively idle blink, lively thinking reading).
+`randomValues` is the consumed LCG prefix, so no end calls a system RNG. The atlas's 51
+`file`/`frames` members are web pre-renders that are not shipped; the golden freezes them as an
+exact exception list and requires every runtime layer to exist.
+
+**Compatibility.** Additive new phone-owned contract; no wire field, event type, stored byte or
+Swift behaviour changes. A future colour/style/keyframe addition is a new case/contract revision,
+not a schema change. The upstream dsh-bot pin is untouched. Android packaging is blocked on the
+iOS-only artwork grant (`examples/probe-app/BotFish/SOURCES.md:9`): the PROPOSAL is a read-only
+Gradle `Sync` from the single asset tree with a SHA-256 gate, not a moved/copied tree; the owner
+must extend the grant before shipping.
+
+**Acceptance (observed).**
+
+```bash
+python3 spec/ui/v1/bot/fish/tools/check_fish.py --root .
+python3 -m unittest discover -s spec/ui/v1/bot/fish/tools -p 'test_*.py'
+python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --check
+bash scripts/ci/check.sh --only phone-spec,phone-cross-tree
+```
+
+- `check_fish.py` → PASS (97 cases, 954 frames, 35 assets, 42 clips, 15 palettes).
+- unittest → PASS (20 tests).
+- generator `--check` → PASS on macOS 26.2 / Swift 6.2.3 / iOS Simulator 26.2 arm64.
+- `swift test` XCTest conformance → NOT_RUN: `examples/probe-app/**` is not in a SwiftPM target;
+  conformance is the generator run (real app code), not `PhoneDSHBotTests`.
+- Android comparator / Kotlin renderer → NOT_RUN; no Kotlin code exists in this round.
+
+**Remaining.** Kotlin renderer + `fish_trajectory_compare.py` (a D14 follow-up, after the Android
+renderer exists); the artwork-grant decision; the lively head-slice CCR; marking the atlas
+`file`/`frames` members `legacy` (outside this lane's ownership); a small screenshot regression set
+that is explicitly not cross-end pixel parity. The iOS end stays `partial` until the Android end
+passes the same vectors.
 
 ### D15 — P09 Bot page reconciliation (M)
 

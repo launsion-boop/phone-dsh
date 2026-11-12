@@ -1,0 +1,1726 @@
+{
+  "anchors": [
+    {
+      "contains": "来源仓库：`launsion-boop/dsh-bot`",
+      "line": 5,
+      "path": "examples/probe-app/BotFish/SOURCES.md"
+    },
+    {
+      "contains": "固定提交：`bf4075b0a2e8092b04b726c59a7b085d5a37e6f6`",
+      "line": 6,
+      "path": "examples/probe-app/BotFish/SOURCES.md"
+    },
+    {
+      "contains": "源目录：`src/renderer/public/assets/fish/`",
+      "line": 7,
+      "path": "examples/probe-app/BotFish/SOURCES.md"
+    },
+    {
+      "contains": "`body.png` 为灰度，运行时按颜色 LUT 着色",
+      "line": 13,
+      "path": "examples/probe-app/BotFish/SOURCES.md"
+    },
+    {
+      "contains": "`expressive/eyes.png`、`expressive/mouths.png`：768×512 表情 sprite（3×4，单元 256×128）",
+      "line": 16,
+      "path": "examples/probe-app/BotFish/SOURCES.md"
+    },
+    {
+      "contains": "- path: BotFish",
+      "line": 68,
+      "path": "examples/probe-app/project.yml"
+    },
+    {
+      "contains": "type: folder",
+      "line": 57,
+      "path": "examples/probe-app/project.yml"
+    },
+    {
+      "contains": "\"static\": true",
+      "line": 513,
+      "path": "examples/probe-app/BotFish/atlas.json"
+    },
+    {
+      "contains": "\"duration\": 420",
+      "line": 404,
+      "path": "examples/probe-app/BotFish/atlas.json"
+    },
+    {
+      "contains": "\"cell\": [",
+      "line": 8,
+      "path": "examples/probe-app/BotFish/expressive/atlas.json"
+    },
+    {
+      "contains": "Artwork: the mascot in docs/assets/logo.png",
+      "line": 84,
+      "path": "NOTICE"
+    },
+    {
+      "contains": "MIT License",
+      "line": 1,
+      "path": "LICENSE"
+    }
+  ],
+  "atlas": {
+    "auxEntries": [
+      "blink",
+      "look",
+      "gaze",
+      "morph"
+    ],
+    "missingFiles": [
+      "anim/blink/frame-000.png",
+      "anim/blink/frame-001.png",
+      "anim/poke/frame-000.png",
+      "anim/poke/frame-001.png",
+      "anim/poke/frame-002.png",
+      "anim/poke/frame-003.png",
+      "anim/speaking/frame-000.png",
+      "anim/speaking/frame-001.png",
+      "anim/speaking/frame-002.png",
+      "expressions/alerting.png",
+      "expressions/angry.png",
+      "expressions/bouncing.png",
+      "expressions/bowing.png",
+      "expressions/celebrate.png",
+      "expressions/cheering.png",
+      "expressions/clapping.png",
+      "expressions/confused.png",
+      "expressions/crying.png",
+      "expressions/dancing.png",
+      "expressions/done.png",
+      "expressions/happy.png",
+      "expressions/high-five.png",
+      "expressions/idle.png",
+      "expressions/kiss.png",
+      "expressions/laughing.png",
+      "expressions/listening.png",
+      "expressions/loading.png",
+      "expressions/love.png",
+      "expressions/nod.png",
+      "expressions/poke.png",
+      "expressions/powering-down.png",
+      "expressions/sad.png",
+      "expressions/shaking-head.png",
+      "expressions/shrug.png",
+      "expressions/shy.png",
+      "expressions/sighing.png",
+      "expressions/sleeping.png",
+      "expressions/smug.png",
+      "expressions/spawning.png",
+      "expressions/speaking.png",
+      "expressions/standby.png",
+      "expressions/streaming.png",
+      "expressions/stretching.png",
+      "expressions/surprised.png",
+      "expressions/thinking.png",
+      "expressions/waiting.png",
+      "expressions/waking.png",
+      "expressions/waving.png",
+      "expressions/wink.png",
+      "expressions/working.png",
+      "expressions/yawning.png"
+    ],
+    "note": "The top-level atlas `file`/`frames` members are web pre-render paths from dsh-bot. No native layer under examples/probe-app/BotFish is at those paths; BotFishRenderer never opens them and implements `animation.implementation` directly. They are kept here as an exact, frozen exception list, not as shipped assets.",
+    "presentFiles": [],
+    "referencedFiles": [
+      "anim/blink/frame-000.png",
+      "anim/blink/frame-001.png",
+      "anim/poke/frame-000.png",
+      "anim/poke/frame-001.png",
+      "anim/poke/frame-002.png",
+      "anim/poke/frame-003.png",
+      "anim/speaking/frame-000.png",
+      "anim/speaking/frame-001.png",
+      "anim/speaking/frame-002.png",
+      "expressions/alerting.png",
+      "expressions/angry.png",
+      "expressions/bouncing.png",
+      "expressions/bowing.png",
+      "expressions/celebrate.png",
+      "expressions/cheering.png",
+      "expressions/clapping.png",
+      "expressions/confused.png",
+      "expressions/crying.png",
+      "expressions/dancing.png",
+      "expressions/done.png",
+      "expressions/happy.png",
+      "expressions/high-five.png",
+      "expressions/idle.png",
+      "expressions/kiss.png",
+      "expressions/laughing.png",
+      "expressions/listening.png",
+      "expressions/loading.png",
+      "expressions/love.png",
+      "expressions/nod.png",
+      "expressions/poke.png",
+      "expressions/powering-down.png",
+      "expressions/sad.png",
+      "expressions/shaking-head.png",
+      "expressions/shrug.png",
+      "expressions/shy.png",
+      "expressions/sighing.png",
+      "expressions/sleeping.png",
+      "expressions/smug.png",
+      "expressions/spawning.png",
+      "expressions/speaking.png",
+      "expressions/standby.png",
+      "expressions/streaming.png",
+      "expressions/stretching.png",
+      "expressions/surprised.png",
+      "expressions/thinking.png",
+      "expressions/waiting.png",
+      "expressions/waking.png",
+      "expressions/waving.png",
+      "expressions/wink.png",
+      "expressions/working.png",
+      "expressions/yawning.png"
+    ],
+    "stateCount": 42,
+    "states": {
+      "alerting": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:alerting",
+          "period": 1100
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "angry": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:angry",
+          "period": 2400
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "blink": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "fps": 8,
+          "implementation": "controller.blink",
+          "loop": false
+        },
+        "fps": 8,
+        "group": null,
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "bouncing": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:bouncing",
+          "period": 1400
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "bowing": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:bowing",
+          "period": 2800
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "celebrate": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:celebrate",
+          "period": 1500
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "cheering": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:cheering",
+          "period": 1600
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "clapping": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:clapping",
+          "period": 1200
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "confused": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:confused",
+          "period": 3200
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "crying": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:crying",
+          "period": 2400
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "dancing": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:dancing",
+          "period": 1800
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "done": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "duration": 1200,
+          "implementation": "sample:done",
+          "loop": false
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "gaze": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "fps": 0,
+          "implementation": "controller.gaze",
+          "loop": false
+        },
+        "fps": 0,
+        "group": null,
+        "loop": false,
+        "size": null
+      },
+      "happy": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:happy",
+          "period": 2200
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "high-five": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:high-five",
+          "period": 2200
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "idle": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:idle",
+          "period": 2400
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "kiss": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:kiss",
+          "period": 2600
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "laughing": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:laughing",
+          "period": 900
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "listening": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:listening",
+          "period": 3200
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "loading": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:loading",
+          "period": 1600
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "look": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "fps": 0,
+          "implementation": "controller.look",
+          "loop": false
+        },
+        "fps": 0,
+        "group": null,
+        "loop": false,
+        "size": null
+      },
+      "love": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:love",
+          "period": 2400
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "morph": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "fps": 0,
+          "implementation": "controller.morph",
+          "loop": false
+        },
+        "fps": 0,
+        "group": null,
+        "loop": false,
+        "size": null
+      },
+      "nod": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:nod",
+          "period": 2000
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "poke": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "duration": 420,
+          "implementation": "sample:poke",
+          "loop": false
+        },
+        "fps": 10,
+        "group": "P1",
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "powering-down": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "duration": 1400,
+          "implementation": "sample:powering-down",
+          "loop": false
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "sad": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:sad",
+          "period": 3600
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "shaking-head": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:shaking-head",
+          "period": 2400
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "shrug": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:shrug",
+          "period": 2800
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "shy": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:shy",
+          "period": 3200
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "sighing": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:sighing",
+          "period": 3600
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "sleeping": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:sleeping",
+          "period": 4200
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "smug": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:smug",
+          "period": 2600
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "spawning": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "duration": 1000,
+          "implementation": "sample:spawning",
+          "loop": false
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "speaking": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:speaking",
+          "period": 900
+        },
+        "fps": 9,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "standby": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:standby",
+          "static": true
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "streaming": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:streaming",
+          "period": 1000
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "stretching": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:stretching",
+          "period": 4200
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "surprised": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:surprised",
+          "period": 2000
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "thinking": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:thinking",
+          "period": 2800
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "waiting": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:waiting",
+          "period": 4000
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "waking": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "duration": 1400,
+          "implementation": "sample:waking",
+          "loop": false
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": false,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "waving": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:waving",
+          "period": 1600
+        },
+        "fps": 0,
+        "group": "P2",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "wink": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:wink",
+          "period": 2200
+        },
+        "fps": 0,
+        "group": "P1",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "working": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:working",
+          "period": 1800
+        },
+        "fps": 0,
+        "group": "P0",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      },
+      "yawning": {
+        "anchor": [
+          0.5,
+          0.5
+        ],
+        "animation": {
+          "implementation": "sample:yawning",
+          "period": 4800
+        },
+        "fps": 0,
+        "group": "EXTRA",
+        "loop": true,
+        "size": [
+          512,
+          512
+        ]
+      }
+    }
+  },
+  "expressive": {
+    "cell": [
+      256,
+      128
+    ],
+    "eyes": [
+      "laughing",
+      "focused",
+      "surprised",
+      "sad",
+      "love",
+      "confused",
+      "angry",
+      "sleepy",
+      "wink",
+      "excited",
+      "deadpan",
+      "shy"
+    ],
+    "eyesEntries": [
+      {
+        "name": "laughing",
+        "rect": [
+          0,
+          0,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "focused",
+        "rect": [
+          256,
+          0,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "surprised",
+        "rect": [
+          512,
+          0,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "sad",
+        "rect": [
+          0,
+          128,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "love",
+        "rect": [
+          256,
+          128,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "confused",
+        "rect": [
+          512,
+          128,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "angry",
+        "rect": [
+          0,
+          256,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "sleepy",
+        "rect": [
+          256,
+          256,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "wink",
+        "rect": [
+          512,
+          256,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "excited",
+        "rect": [
+          0,
+          384,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "deadpan",
+        "rect": [
+          256,
+          384,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "shy",
+        "rect": [
+          512,
+          384,
+          256,
+          128
+        ]
+      }
+    ],
+    "grid": [
+      3,
+      4
+    ],
+    "mouths": [
+      "smile",
+      "smile-open",
+      "laugh",
+      "shocked",
+      "pout",
+      "sad",
+      "smug",
+      "small-o",
+      "vowel-a",
+      "vowel-e",
+      "kiss",
+      "yawn"
+    ],
+    "mouthsEntries": [
+      {
+        "name": "smile",
+        "rect": [
+          0,
+          0,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "smile-open",
+        "rect": [
+          256,
+          0,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "laugh",
+        "rect": [
+          512,
+          0,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "shocked",
+        "rect": [
+          0,
+          128,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "pout",
+        "rect": [
+          256,
+          128,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "sad",
+        "rect": [
+          512,
+          128,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "smug",
+        "rect": [
+          0,
+          256,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "small-o",
+        "rect": [
+          256,
+          256,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "vowel-a",
+        "rect": [
+          512,
+          256,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "vowel-e",
+        "rect": [
+          0,
+          384,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "kiss",
+        "rect": [
+          256,
+          384,
+          256,
+          128
+        ]
+      },
+      {
+        "name": "yawn",
+        "rect": [
+          512,
+          384,
+          256,
+          128
+        ]
+      }
+    ],
+    "sheet": {
+      "height": 512,
+      "width": 768
+    }
+  },
+  "files": [
+    {
+      "bytes": 17339,
+      "path": "atlas.json",
+      "sha256": "9af7724723286d352dcc4433b9176a0357fffbdc46d0f61473a221897d597095"
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 5849,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/blush.png",
+      "sha256": "d3137314e58ec937dee8696073628f5f5d5101bc51d50477aa4a0a5fe66447cc",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 134089,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/body.png",
+      "sha256": "113b7167b37077780154a8699ba8e080d5a876f29667e71fed55c13c7804b7e4",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 17546,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/eyes-open.png",
+      "sha256": "cfcf023a9454f7f07f5fcec53de8e9fcf816052d04262c283df870bd2bd76e8e",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 10348,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/eyes-white.png",
+      "sha256": "a005254d9efed5d0637cdf667eca6daf26c5453579a74c0fc9ca0ebd0b8f4b52",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 2457,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/face-mask.png",
+      "sha256": "61c16e4294300be109c039df4a58572595f92535a6fa2af04bfc6777c8723dca",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 91877,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/fixed.png",
+      "sha256": "a55bd8054e6cdae9b0559717db3ca5e16f84ba133b89595429a9c170a28f9615",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 5499,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/iris-left.png",
+      "sha256": "090798925df3ab329bd6d65d3af78c713e5612a30577fe72739702065f587c1c",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 5416,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "base/iris-right.png",
+      "sha256": "e37ae8027aa636e2809c63520620c36b62cba2bdeb20e4d1e08571fb76b01283",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 114994,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/bob/body.png",
+      "sha256": "451d99e4d00e1ed1b926bebb6f70a53c88fb67eb7a2d90c2000906d90a34bb5a",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 2691,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/bob/face-mask.png",
+      "sha256": "94c02131d087c2efb14642f3775a984b9b2d111c4c1e5fcf878e4b90b9026a35",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 64943,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/bob/fixed.png",
+      "sha256": "c0c9b22c02b951478dc9a5fa00eac2498ffe15f08453324f3ca2a45ebb1b5b5a",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 136808,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/long/body.png",
+      "sha256": "2aa3cb898c4da8f8b1d3e4ea2c5e7adc52ebdcb76093ea674a3403a9a6a5979e",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 2464,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/long/face-mask.png",
+      "sha256": "a634a230d135bbdb15b1d068f6d268e5aa2b615fb7626eed202df55ff2aed777",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 76870,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/long/fixed.png",
+      "sha256": "1e869d17054ea7afac487911ce194688d329ae680e2d70f73156b409a7c128a3",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 139252,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/side-braid/body.png",
+      "sha256": "380fa080e981f55533dd0533e4a0a0315e7dac4c99c157f4a614e532fa770c7f",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 2704,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/side-braid/face-mask.png",
+      "sha256": "4e6bfb973d19cd37c9e6815e7387f0c709cd5c13a8a5f0928882a7178869330a",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 65548,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/side-braid/fixed.png",
+      "sha256": "47a37ff454d2454926669e4c438d1b49aabf9f78d0bec214c7b137b915b82c90",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 196667,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/twin-tail/body.png",
+      "sha256": "6b9e42f41ed18e1fbcf4b9e592dcfa8df0f428a559b76a14ffa558af1a3250e9",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 3048,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/twin-tail/face-mask.png",
+      "sha256": "9f0d49abf608d8d7dfbac994a25e9da678743de405045ed15ad31bae5b2d48a3",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 71754,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "crowned/twin-tail/fixed.png",
+      "sha256": "027b65e11ea5a5486678b9626371b87d4d7dc9019a93bc4defa3c96f26df651c",
+      "width": 512
+    },
+    {
+      "bytes": 3365,
+      "path": "expressive/atlas.json",
+      "sha256": "5e0fb72ae6c3bb2f05f615a45be564abda85be70966c85ced45f58c63c30e386"
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 209302,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "expressive/eyes.png",
+      "sha256": "7bf78a3df733c1c05e7d7e45c200dcd99603385a3a58896ea3e1056594b29570",
+      "width": 768
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 125016,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "expressive/mouths.png",
+      "sha256": "d48136dab07652734b5cb89ec57597f63178d67a5f1e8a8578fc31b5e118d88a",
+      "width": 768
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 115915,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/bob/body.png",
+      "sha256": "e56a522de91b477b315dcf96b15cc19942ed5fdb037a759790975a3110123de3",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 2717,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/bob/face-mask.png",
+      "sha256": "c4fde3872345b70bf11aa92ce9493aaabd8803337652e0a3d54f7c0165803f4f",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 71168,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/bob/fixed.png",
+      "sha256": "6a88ac2bab268e6481fcc91c5d59c4d1d82a7133ad0845f705618dd64b5e241b",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 144001,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/side-braid/body.png",
+      "sha256": "8267a9814854c26370e174ccdeb07def8a6f58d8ec906815339838864c24178d",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 2463,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/side-braid/face-mask.png",
+      "sha256": "17eaf4fcf0824cdaa51cfc97ff7b441095ac1f67368c225c7aa1ea4f21fd445e",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 68180,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/side-braid/fixed.png",
+      "sha256": "964862abbbef9eeaac027c2bc5535666426e56e3e12dade1aabb286cd3a3cf43",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 205867,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/twin-tail/body.png",
+      "sha256": "a7a3b02ae2d6e5e312d3645bcc86f3e970a475ed8998a8cdd377c6fd429edc1e",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 3090,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/twin-tail/face-mask.png",
+      "sha256": "ec7b8aa082ba536661b44cda94f6e9fee254629dfacea00c61e9a4128cec2dbb",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 76717,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "hair/twin-tail/fixed.png",
+      "sha256": "129cf9ccd1cc5dcd68f6477799fafc97a4ac18f05f48ca84fb3861a2f684b345",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 115604,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "overlays/crown-crystal.png",
+      "sha256": "aace55af5a44389a6054beb567ceecc0d02322c604e516e6263de43214af4f01",
+      "width": 512
+    },
+    {
+      "bitDepth": 8,
+      "bytes": 130752,
+      "colorType": 6,
+      "compression": 0,
+      "filter": 0,
+      "height": 512,
+      "interlace": 0,
+      "path": "overlays/crown.png",
+      "sha256": "8cfd20ef2d43e395dd8c62b9e22fdff4d4ca7abc7f26e30901fd4f9fd8efa822",
+      "width": 512
+    }
+  ],
+  "root": "examples/probe-app/BotFish",
+  "runtimeLayers": {
+    "hairstyles": {
+      "bob": {
+        "crowned": [
+          "crowned/bob/body.png",
+          "crowned/bob/fixed.png",
+          "crowned/bob/face-mask.png"
+        ],
+        "plain": [
+          "hair/bob/body.png",
+          "hair/bob/fixed.png",
+          "hair/bob/face-mask.png"
+        ]
+      },
+      "long": {
+        "crowned": [
+          "crowned/long/body.png",
+          "crowned/long/fixed.png",
+          "crowned/long/face-mask.png"
+        ],
+        "plain": [
+          "base/body.png",
+          "base/fixed.png",
+          "base/face-mask.png"
+        ]
+      },
+      "side-braid": {
+        "crowned": [
+          "crowned/side-braid/body.png",
+          "crowned/side-braid/fixed.png",
+          "crowned/side-braid/face-mask.png"
+        ],
+        "plain": [
+          "hair/side-braid/body.png",
+          "hair/side-braid/fixed.png",
+          "hair/side-braid/face-mask.png"
+        ]
+      },
+      "twin-tail": {
+        "crowned": [
+          "crowned/twin-tail/body.png",
+          "crowned/twin-tail/fixed.png",
+          "crowned/twin-tail/face-mask.png"
+        ],
+        "plain": [
+          "hair/twin-tail/body.png",
+          "hair/twin-tail/fixed.png",
+          "hair/twin-tail/face-mask.png"
+        ]
+      }
+    },
+    "shared": [
+      "base/eyes-open.png",
+      "base/eyes-white.png",
+      "base/iris-left.png",
+      "base/iris-right.png",
+      "base/blush.png",
+      "expressive/eyes.png",
+      "expressive/mouths.png",
+      "overlays/crown.png",
+      "overlays/crown-crystal.png"
+    ]
+  },
+  "schemaVersion": 1,
+  "source": {
+    "contractBase": "e477497b",
+    "grant": {
+      "androidGranted": false,
+      "line": 9,
+      "scope": "ios-only",
+      "text": "用户已明确授权在 phoneDSH iOS 中使用大肥鱼形象素材。本目录供原生分层渲染器"
+    },
+    "provenance": "examples/probe-app/BotFish/SOURCES.md",
+    "provenanceSha256": "f9cadf2e85e7e8529be6a5c93186670d4a5d52d97be56c0e50dbc16faed9f9bb",
+    "revision": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "upstream": "launsion-boop/dsh-bot"
+  },
+  "summary": {
+    "auxiliaryEntries": [
+      "blink",
+      "look",
+      "gaze",
+      "morph"
+    ],
+    "expressiveCells": 12,
+    "files": 35,
+    "pngLayers": 33,
+    "topLevelAtlasStates": 42
+  },
+  "vector": "bot-fish-assets"
+}
