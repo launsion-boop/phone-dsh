@@ -32,6 +32,10 @@ tasks.test {
 dependencies {
     api(project(":core"))
     testImplementation(libs.junit)
+    // Approved test-only dependency: the P25 vectors carry raw DDL,
+    // PRAGMA user_version and migration steps, which need a real SQLite
+    // engine on the host JVM. It is not published or shipped.
+    testImplementation(libs.sqlite.jdbc)
 }
 
 // Published because `:lib` exposes the Bot value types (rows, fish lifecycle,
