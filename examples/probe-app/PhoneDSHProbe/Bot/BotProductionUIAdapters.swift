@@ -265,6 +265,7 @@ extension BotInfoSnapshot {
                         approval.decision == .allow ? "allow" : "deny",
                         scope: approval.scope,
                         status: approval.status),
+                    reason: approval.reason,
                     decidedAt: Date(timeIntervalSince1970: Double(approval.decidedAtMS) / 1_000))
             },
             grants: snapshot.grants.map { grant in

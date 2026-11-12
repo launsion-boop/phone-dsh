@@ -621,6 +621,7 @@ enum BotUIFixtures {
                            at: 1_760_000_600),
             approvalRecord(id: "record-7", summary: "执行命令 · 构建检查",
                            decision: "deny", status: "cancelled",
+                           reason: "worker_restarted",
                            at: 1_760_000_700),
         ], grants: [
             BotGrantInfo(id: "grant-1", tool: "write", operation: "write.file",
@@ -684,12 +685,14 @@ enum BotUIFixtures {
         decision: String,
         scope: String? = nil,
         status: String? = nil,
+        reason: String? = nil,
         at seconds: TimeInterval
     ) -> BotApprovalRecord {
         BotApprovalRecord(
             id: id,
             parameterSummary: summary,
             decision: BotUIFormat.approvalDecision(decision, scope: scope, status: status),
+            reason: reason,
             decidedAt: Date(timeIntervalSince1970: seconds))
     }
 

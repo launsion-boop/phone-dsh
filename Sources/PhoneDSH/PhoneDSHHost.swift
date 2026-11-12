@@ -4137,6 +4137,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             PhoneDSHWorkerEnvironment.gatewayURL: origin,
         ]
         environment.merge(overrides) { _, app in app }
+        // Bot finding #1: `just-bash`'s `date` reads `TZ` and otherwise falls
+        // back to UTC, while the runtime-context block promises the user's
+        // local zone. Publish the same zone the App uses; an explicit App
+        // override above still wins.
+        if environment[PhoneDSHWorkerEnvironment.timeZone] == nil {
+            environment[PhoneDSHWorkerEnvironment.timeZone] = TimeZone.current.identifier
+        }
         environment[PhoneDSHWorkerEnvironment.mcpEgressToken] = mcpEgressToken
         return environment
     }

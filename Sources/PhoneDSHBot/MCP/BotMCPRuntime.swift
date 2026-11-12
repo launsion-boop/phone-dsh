@@ -291,6 +291,17 @@ public actor BotMCPRuntime {
     private var sessionReclaimer: (@Sendable (String, String) async -> Bool)?
     /// Last failed identity registration, shown by the Bot status line.
     private var lastBridgeDiagnostic: BotBridgeDiagnostic?
+    /// Installed by the App composition. A `tools/call` that arrives while the
+    /// Bot runtime is reattaching a replacement Worker waits at most the
+    /// supplied budget and then fails with a human message instead of holding
+    /// the Worker's MCP client until its own 130 s timeout. `nil` keeps the
+    /// library/test behaviour: no extra wait.
+    private var runtimeReadinessProbe: (@Sendable (Int) async -> Bool)?
+    /// Default bounded wait for a `tools/call` while the App reattaches the
+    /// Worker. Long enough to cover the ready-gate fallback and the first
+    /// session/page, short enough to stay far below the 130 s Worker client
+    /// deadline.
+    public static let defaultRuntimeReadinessTimeoutMilliseconds = 10_000
 
     public init(
         store: SQLiteDomainStore,
@@ -345,6 +356,20 @@ public actor BotMCPRuntime {
                 guard !Task.isCancelled, let self else { return }
                 _ = await self.pruneExpiredRegistrations()
             }
+        }
+    }
+
+    /// Installs the App runtime's bounded-readiness seam. The App composition
+    /// passes a closure that returns `true` once the current Worker transport
+    /// is bound and its main session recovered, or `false` when the budget
+    /// expired / the runtime is terminally failed. Tests pass a short budget.
+    public func setRuntimeReadinessProbe(
+        timeoutMilliseconds: Int = BotMCPRuntime.defaultRuntimeReadinessTimeoutMilliseconds,
+        _ probe: (@Sendable (Int) async -> Bool)?
+    ) {
+        runtimeReadinessProbe = probe.map { closure in
+            let budget = max(0, timeoutMilliseconds)
+            return { _ in await closure(budget) }
         }
     }
 
@@ -1188,6 +1213,18 @@ public actor BotMCPRuntime {
         let registrationKey = key(scope, call.sessionId, call.callId)
         registrations.removeValue(forKey: registrationKey)
         registrationArguments.removeValue(forKey: registrationKey)
+        // A replaced Worker keeps its MCP client call open until the App
+        // answers. While the App is still reattaching the transport there is
+        // nothing that can complete Task/AwaitTask/StopSubagent or an
+        // approval/card call; the bounded probe turns that into a normal tool
+        // error instead of the Worker's 130 s `Request timed out`. Native
+        // tools were forwarded by `BotMCPHandler` before this method.
+        if let runtimeReadinessProbe {
+            let ready = await runtimeReadinessProbe(0)
+            guard ready else {
+                return .failure("unavailable", "与 App 的连接正在恢复，请稍后重试。")
+            }
+        }
         do {
             if bareName == BotToolCatalog.volatileContextName {
                 let read = BotToolEffect(

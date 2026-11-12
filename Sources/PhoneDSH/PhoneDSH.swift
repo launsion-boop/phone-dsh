@@ -108,6 +108,10 @@ public enum PhoneDSHWorkerEnvironment {
     /// Worker entry only states it in the capability manifest so the agent
     /// knows what `curl` can reach; the gateway enforces the list.
     public static let egressAllow = "PDSH_EGRESS_ALLOW"
+    /// IANA zone the Worker subprocesses inherit. `just-bash`'s `date` reads
+    /// `TZ` and otherwise defaults to UTC; the runtime-context block promises
+    /// the user's local time, so both ends must agree.
+    public static let timeZone = "TZ"
     // Search uses the existing PDSH_WEB_SEARCH_PROVIDER / PDSH_WEB_FETCH_PROVIDER
     // launch pair. The official Search/Fetch API also receives
     // DEEPSEEK_SEARCH_API_BASE_URL and a non-secret DEEPSEEK_SEARCH_API_KEY

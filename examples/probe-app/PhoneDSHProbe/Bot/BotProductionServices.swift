@@ -91,7 +91,11 @@ struct BotProductionComposition {
 actor BotProductionEnvironment {
     let botID: String
     private(set) var sessionID: String
-    let sessionLogURL: URL?
+    /// Cached log URL for `sessionID`. It is refreshed on `connect` and on an
+    /// S6 epoch switch; the row service still re-validates it against the
+    /// session id so a stale cache can never keep the chat on the archived
+    /// epoch.
+    private(set) var sessionLogURL: URL?
     let domain: SQLiteDomainStore
     let routineMachine: RoutineMachine
     let memory: BotMemory
@@ -125,6 +129,7 @@ actor BotProductionEnvironment {
             throw BotProductionError.invalidService("Bot 主会话 ID 不能为空")
         }
         sessionID = composition.sessionID
+        sessionLogURL = BotSessionLogLocator.latestFile(sessionID: composition.sessionID)
         planner = composition.planner
         turnStopping = composition.turnStopping
     }
@@ -138,10 +143,21 @@ actor BotProductionEnvironment {
     }
 
     /// Advances the durable main-session pointer after an epoch switch. The
-    /// planner and turn-stopping seams stay bound; only the session id the row
-    /// and record services read changes.
+    /// planner and turn-stopping seams stay bound; the session id and the log
+    /// URL the row/record services read both move to the new epoch. The row
+    /// service still re-validates the cached URL on every rebuild.
     func updateSessionID(_ sessionID: String) {
         self.sessionID = sessionID
+        sessionLogURL = BotSessionLogLocator.latestFile(sessionID: sessionID)
+    }
+
+    /// One read of the current epoch and its log. A cached URL that belongs to
+    /// the replaced session is ignored; the resolver falls back to the current
+    /// session's newest `session.v*.jsonl`.
+    func sessionSnapshot() -> (sessionID: String, logURL: URL?) {
+        (sessionID, BotSessionLogSelection.logURL(
+            sessionID: sessionID, explicit: sessionLogURL,
+            latest: BotSessionLogLocator.latestFile))
     }
 
     func currentPlanner() -> any BotUserActionPlanning { planner }
@@ -299,8 +315,9 @@ actor BotProductionRowService {
     }
 
     private func rebuild() async throws {
-        let sessionID = await environment.sessionID
-        let logURL = environment.sessionLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID)
+        let snapshot = await environment.sessionSnapshot()
+        let sessionID = snapshot.sessionID
+        let logURL = snapshot.logURL
         let logData = try logURL.map { try Data(contentsOf: $0) }
         let parsed = logData.map { BotDSHSessionEvent.parseJSONL($0) }
         let sessionEvents = parsed?.events ?? []
@@ -406,6 +423,10 @@ struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var scope: String?
     /// `allowed` / `denied` / `timed-out` / `expired` / `cancelled`.
     var status: String?
+    /// Durable cancellation/denial reason code (`worker_restarted`, …). The
+    /// UI maps it through `BotApprovalReceipt.cancellationReason`; the raw
+    /// value never reaches the page.
+    var reason: String?
     var decidedAtMS: Int64
 }
 
@@ -825,6 +846,7 @@ actor BotProductionInfoService {
                     decision: decision,
                     scope: scope,
                     status: status,
+                    reason: data["reason"]?.stringValue,
                     decidedAtMS: event.time))
             default:
                 continue

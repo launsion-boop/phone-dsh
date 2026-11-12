@@ -188,6 +188,9 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["审批记录"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["已超时（视为拒绝）"].exists)
         XCTAssertTrue(app.staticTexts["本次会话允许"].exists)
+        let cancellationReason = app.staticTexts["原因：App 重启时取消"]
+        scrollTo(cancellationReason)
+        XCTAssertTrue(cancellationReason.exists)
 
         launch("infoMemoryDocument")
         // The document detail's navigation title is the file name; the full
@@ -196,6 +199,20 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["路径：agent/notes/acceptance.md"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "验收记录")
+        ).firstMatch.exists)
+    }
+
+    /// F5: a memory row is a `NavigationLink(value: BotMemoryDocumentInfo)`.
+    /// The info page must use a type-erased path so the second value type is
+    /// pushed; a typed `[BotInfoSection]` path only highlights the row.
+    func testInfoMemoryDocumentRowPushesTheDetailPage() throws {
+        launch("infoMemory")
+        let row = app.descendants(matching: .any)["bot.memory.document.agent/profile.md"]
+        scrollToAndTap(row)
+        XCTAssertTrue(app.navigationBars["profile.md"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["路径：agent/profile.md"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "验收报告必须区分模拟器与真机证据")
         ).firstMatch.exists)
     }
 

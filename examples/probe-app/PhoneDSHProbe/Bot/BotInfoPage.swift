@@ -119,6 +119,9 @@ struct BotApprovalRecord: Identifiable, Equatable {
     let id: String
     var parameterSummary: String
     var decision: String
+    /// Durable reason code for a cancellation; mapped to one human sentence by
+    /// `BotApprovalReceipt.cancellationReason` in the row.
+    var reason: String? = nil
     var decidedAt: Date
 }
 
@@ -562,7 +565,11 @@ struct BotInfoPage: View {
     /// `BotProfile.description` through the model and leaves this nil.
     private let descriptionOverride: String?
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [BotInfoSection]
+    /// A type-erased path: the same stack pushes both `BotInfoSection` and the
+    /// memory document detail. A `[BotInfoSection]` path silently refuses the
+    /// second value type, which left a tapped memory row highlighted but never
+    /// pushed (F5).
+    @State private var path = NavigationPath()
     @State private var confirmDelete = false
     @State private var deleting = false
     @State private var deleteError: String?
@@ -577,7 +584,9 @@ struct BotInfoPage: View {
         self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
         self.descriptionOverride = description
-        _path = State(initialValue: initialSection.map { [$0] } ?? [])
+        var initialPath = NavigationPath()
+        if let initialSection { initialPath.append(initialSection) }
+        _path = State(initialValue: initialPath)
     }
 
     private var nameChanged: Bool {
@@ -1865,6 +1874,16 @@ private struct BotApprovalHistoryPage: View {
                                 Text(BotUIFormat.dateTime(record.decidedAt))
                                     .botCaptionFont()
                                     .foregroundStyle(HomeSpec.textTertiary)
+                            }
+                            // F7: a cancelled decision must say why in one
+                            // human sentence. Old events may have no reason;
+                            // they still get the generic sentence instead of
+                            // leaking a raw code or showing nothing.
+                            if record.decision.hasPrefix("已取消") {
+                                Text("原因：\(BotApprovalReceipt.cancellationReason(record.reason) ?? "审批已取消")")
+                                    .botCaptionFont()
+                                    .foregroundStyle(HomeSpec.textTertiary)
+                                    .accessibilityIdentifier("bot.approval.reason.\(record.id)")
                             }
                         }
                         .padding(.vertical, 4)

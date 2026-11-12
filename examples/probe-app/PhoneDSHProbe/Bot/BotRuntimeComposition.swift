@@ -6,6 +6,8 @@ import PhoneDSHAgentCore
 import PhoneDSHBot
 import PhoneDSHDeviceTasks
 import PhoneDSHShell
+
+
 #if canImport(PhoneDSHADB) && canImport(PhoneDSHLoopback)
 import PhoneDSHADB
 import PhoneDSHLoopback
@@ -16,6 +18,32 @@ import PhoneDSHBLE
 #if canImport(ProbeKit)
 import ProbeKit
 #endif
+
+/// Ordered-channel context is diagnostic-only and needs the PhoneDSH host
+/// types, so it stays beside the production composition.
+@MainActor
+extension BotRebindDiagnostics {
+    /// Bounded connection context for a step. The boot id is the Worker's
+    /// public identity; the connection ids are process-local UUIDs.
+    static func channelDetail(_ selection: PhoneDSHChannelSelection?) -> String {
+        guard let selection else { return "conn=none" }
+        var parts: [String] = []
+        parts.append("conn=" + short(selection.currentConnectionID))
+        if let boot = selection.currentWorkerBootID {
+            parts.append("boot=" + String(boot.prefix(8)))
+        }
+        parts.append("hello=" + short(selection.latestHelloConnectionID))
+        parts.append("hello_count=\(selection.latestHelloCount)")
+        parts.append("latest=" + (selection.isCurrentConnectionLatestHello ? "yes" : "no"))
+        parts.append("conns=\(selection.connectionCount)")
+        return parts.joined(separator: " ")
+    }
+
+    static func short(_ id: UUID?) -> String {
+        guard let id else { return "none" }
+        return String(id.uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
+    }
+}
 
 actor BotDeferredVolatileContextProvider: BotVolatileContextProviding {
     private var provider: (any BotVolatileContextProviding)?
@@ -45,107 +73,6 @@ actor BotRuntimeTurnStopper: BotProductionTurnStopping {
 /// other content. The connection fields let a hang be attributed to the wrong
 /// connection without a debugger: `conn` is what `makeTransport()` will use and
 /// `latest=yes` says it is the newest Worker HELLO.
-@MainActor
-enum BotRebindDiagnostics {
-    /// Test seam; production appends to the App's existing status log.
-    static var sink: ((String) -> Void)?
-
-    @MainActor
-    struct Step {
-        let name: String
-        let attempt: Int
-        let started: Date
-
-        func end(ok: Bool = true, error: Error? = nil) {
-            let milliseconds = Int(max(0, Date().timeIntervalSince(started)) * 1_000)
-            var line = "bot-rebind step=\(name) attempt=\(attempt) ms=\(milliseconds) event=end"
-            line += ok ? " ok" : " \(BotRebindDiagnostics.errorToken(error))"
-            BotRebindDiagnostics.emit(line)
-        }
-    }
-
-    static func start(_ name: String, attempt: Int, detail: String = "") -> Step {
-        var line = "bot-rebind step=\(name) attempt=\(attempt) event=start"
-        if !detail.isEmpty { line += " " + detail }
-        emit(line)
-        return Step(name: name, attempt: attempt, started: Date())
-    }
-
-    /// Runs one awaited stage with paired start/end lines, including the
-    /// failure token when it throws.
-    static func run<T>(_ name: String, attempt: Int, detail: String = "",
-                       _ body: () async throws -> T) async throws -> T {
-        let step = start(name, attempt: attempt, detail: detail)
-        do {
-            let value = try await body()
-            step.end()
-            return value
-        } catch {
-            step.end(ok: false, error: error)
-            throw error
-        }
-    }
-
-    static func emit(_ line: String) {
-        if let sink {
-            sink(line)
-            return
-        }
-        let stamp = ISO8601DateFormatter().string(from: Date())
-        guard let data = "\(stamp) \(line)\n".data(using: .utf8) else { return }
-        let url = FileManager.default
-            .urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("chat-status.log")
-        if let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: url)
-        }
-    }
-
-    /// Bounded connection context for a step. The boot id is the Worker's
-    /// public identity; the connection ids are process-local UUIDs.
-    static func channelDetail(_ selection: PhoneDSHChannelSelection?) -> String {
-        guard let selection else { return "conn=none" }
-        var parts: [String] = []
-        parts.append("conn=" + short(selection.currentConnectionID))
-        if let boot = selection.currentWorkerBootID {
-            parts.append("boot=" + String(boot.prefix(8)))
-        }
-        parts.append("hello=" + short(selection.latestHelloConnectionID))
-        parts.append("hello_count=\(selection.latestHelloCount)")
-        parts.append("latest=" + (selection.isCurrentConnectionLatestHello ? "yes" : "no"))
-        parts.append("conns=\(selection.connectionCount)")
-        return parts.joined(separator: " ")
-    }
-
-    static func short(_ id: UUID?) -> String {
-        guard let id else { return "none" }
-        return String(id.uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
-    }
-
-    /// A stable, content-free token for a failure. Remote errors keep their
-    /// code; anything else keeps only its type name.
-    static func errorToken(_ error: Error?) -> String {
-        guard let error else { return "error=unknown" }
-        if error is CancellationError { return "error=cancelled" }
-        if let remote = error as? DSHRemoteError {
-            return "error=" + sanitized(remote.code)
-        }
-        return "error=" + sanitized(String(describing: type(of: error)))
-    }
-
-    private static func sanitized(_ raw: String) -> String {
-        let allowed = CharacterSet(charactersIn:
-            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        let token = raw.unicodeScalars
-            .map { allowed.contains($0) ? Character($0) : "_" }
-            .prefix(48)
-        return token.isEmpty ? "unknown" : String(token)
-    }
-}
 
 /// Thread-safe snapshot of the roster's main-Bot pointer. The maintainer write
 /// rule and candidate selection are synchronous host checks, so they cannot
@@ -409,6 +336,14 @@ final class BotRuntimeComposition {
             "PDSH_PHONE_MCP_URL": url.absoluteString,
             "PDSH_PHONE_MCP_TOKEN": workerTokenPlaceholder,
         ]
+        // F1: a tool call from a Worker that was just replaced must not hold
+        // its MCP client open until the 130 s client deadline while this
+        // composition is still reattaching the transport. The probe resolves
+        // on the first `.ready` or gives up with a retryable human error.
+        await runtime.setRuntimeReadinessProbe { [weak composition] _ in
+            guard let composition else { return false }
+            return await composition.waitUntilRuntimeReady()
+        }
         composition.routineRouter = BotRoutineOutboxRouter(
             store: store, machine: machine, profileStore: profileStore,
             selectionStore: selectionStore)
@@ -616,6 +551,26 @@ final class BotRuntimeComposition {
         guard !started || state.isFailure || state == .recovering else { return }
         workerRecovery.forceRetry()
         await workerRecovery.waitUntilIdle()
+    }
+
+    /// Bounded wait used by `BotMCPRuntime` before a Bot/team tool executes.
+    /// Returns immediately when ready, and `false` for a terminal failure or
+    /// after the same budget the Worker-side client must not exceed. The
+    /// actual tool error is the human "连接正在恢复" sentence returned by the
+    /// runtime.
+    func waitUntilRuntimeReady() async -> Bool {
+        await BotRuntimeReadiness.wait(
+            timeoutMilliseconds: BotMCPRuntime.defaultRuntimeReadinessTimeoutMilliseconds,
+            isReady: { [weak self] in
+                guard let self else { return false }
+                let state = await self.state
+                return state == .ready
+            },
+            isTerminal: { [weak self] in
+                guard let self else { return true }
+                let state = await self.state
+                return state == .stopped || state.isFailure
+            })
     }
 
     private func bind(to newHost: PhoneDSHHost, recovering: Bool) async throws {
