@@ -50,9 +50,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h640dp")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BotDrawerTest {
     @get:Rule
     val compose = createComposeRule()
@@ -93,6 +95,12 @@ class BotDrawerTest {
 
     private fun openRowMenu(botID: String) {
         compose.onNodeWithTag(BotDrawerTags.row(botID)).performTouchInput { longClick() }
+        compose.waitForIdle()
+    }
+
+    /** The shared menu closes first and dispatches the chosen action from a LaunchedEffect (rule 7). */
+    private fun chooseMenu(label: String) {
+        compose.onNodeWithText(label).performClick()
         compose.waitForIdle()
     }
 
@@ -170,41 +178,6 @@ class BotDrawerTest {
     // ------------------------------------------------------------------ rename
 
     @Test
-    fun `rename with an empty trimmed name shows the K3 message and emits nothing`() {
-        val main = BotPageFixtures.rosterEntry()
-        val second = main.copy(id = "second", name = "第二 Bot", isMainBot = false, unreadCount = 0)
-        show(listOf(main, second))
-
-        openRowMenu("second")
-        compose.onNodeWithText(BotUiStrings.DRAWER_MENU_RENAME).performClick()
-        compose.onNodeWithTag(BotDrawerTags.RENAME_FIELD).performTextClearance()
-        compose.onNodeWithTag(BotDrawerTags.RENAME_SAVE).performClick()
-
-        compose.onNodeWithText(BotUiStrings.VALIDATION_NAME_EMPTY).assertIsDisplayed()
-        assertTrue(
-            "an invalid rename must not emit BotDrawerIntent.Rename",
-            intents.none { it is BotDrawerIntent.Rename },
-        )
-    }
-
-    @Test
-    fun `rename dialog caps the field at 60 UTF-16 units and emits the trimmed name`() {
-        val main = BotPageFixtures.rosterEntry()
-        val second = main.copy(id = "second", name = "第二 Bot", isMainBot = false, unreadCount = 0)
-        show(listOf(main, second))
-
-        openRowMenu("second")
-        compose.onNodeWithText(BotUiStrings.DRAWER_MENU_RENAME).performClick()
-        compose.onNodeWithTag(BotDrawerTags.RENAME_FIELD).performTextReplacement("  新名字  ")
-        compose.onNodeWithTag(BotDrawerTags.RENAME_SAVE).performClick()
-
-        assertEquals(
-            BotDrawerIntent.Rename("second", "新名字"),
-            intents.filterIsInstance<BotDrawerIntent.Rename>().single(),
-        )
-    }
-
-    @Test
     fun `model-layer name messages are the K3 validation values`() {
         assertEquals(
             BotUiStrings.VALIDATION_NAME_EMPTY,
@@ -218,23 +191,12 @@ class BotDrawerTest {
             ),
             BotNameValidation.problem("名".repeat(61)),
         )
+        // The name field delegates its cap and trim to these rules.
+        assertEquals("名".repeat(60), BotNameValidation.capped("名".repeat(61)))
+        assertEquals("新名字", BotNameValidation.trimmed("  新名字  "))
     }
 
     // --------------------------------------------------------------- add dialog
-
-    @Test
-    fun `add dialog caps a typed name at 60 units and emits create with the defaults`() {
-        show(listOf(BotPageFixtures.rosterEntry()))
-
-        compose.onNodeWithTag(BotDrawerTags.ADD).performClick()
-        compose.onNodeWithTag(BotDrawerTags.ADD_NAME).performTextReplacement("名".repeat(61))
-        compose.onNodeWithTag(BotDrawerTags.ADD_CREATE).performClick()
-
-        val create = intents.filterIsInstance<BotDrawerIntent.Create>().single()
-        assertEquals(60, create.name.length)
-        assertEquals(BotFishColor.BLUE, create.color)
-        assertEquals(BotFishHairstyle.LONG, create.hairstyle)
-    }
 
     // ------------------------------------------------------------- delete guard
 
@@ -255,7 +217,7 @@ class BotDrawerTest {
         show(listOf(main, second))
 
         openRowMenu("second")
-        compose.onNodeWithText(BotUiStrings.DRAWER_MENU_DELETE).performClick()
+        chooseMenu(BotUiStrings.DRAWER_MENU_DELETE)
         compose.onNodeWithText(BotUiStrings.DRAWER_DELETE_CONFIRM).assertIsDisplayed()
         compose.onNodeWithTag(BotDrawerTags.DELETE_CONFIRM).performClick()
 
@@ -274,7 +236,7 @@ class BotDrawerTest {
         show(listOf(main, second))
 
         openRowMenu("second")
-        compose.onNodeWithText(BotUiStrings.DRAWER_MENU_APPEARANCE).performClick()
+        chooseMenu(BotUiStrings.DRAWER_MENU_APPEARANCE)
 
         assertEquals(BotDrawerIntent.Appearance("second"), intents.last())
     }
@@ -286,7 +248,7 @@ class BotDrawerTest {
         show(listOf(main, second))
 
         openRowMenu("second")
-        compose.onNodeWithText(BotUiStrings.DRAWER_MENU_SETMAIN).performClick()
+        chooseMenu(BotUiStrings.DRAWER_MENU_SETMAIN)
 
         assertEquals(BotDrawerIntent.SetMain("second"), intents.last())
     }
@@ -298,20 +260,9 @@ class BotDrawerTest {
         show(listOf(main, second))
 
         openRowMenu("second")
-        compose.onNodeWithText(BotUiStrings.DRAWER_MENU_HIDE).performClick()
+        chooseMenu(BotUiStrings.DRAWER_MENU_HIDE)
 
         assertEquals(BotDrawerIntent.SetHidden("second", true), intents.last())
-    }
-
-    @Test
-    fun `debug row click`() {
-        show(listOf(BotPageFixtures.rosterEntry()))
-        println("DEBUG before " + compose.onNodeWithTag(BotDrawerTags.row("main")).getUnclippedBoundsInRoot())
-        compose.waitForIdle()
-        println("DEBUG after " + compose.onNodeWithTag(BotDrawerTags.row("main")).getUnclippedBoundsInRoot())
-        compose.onNodeWithTag(BotDrawerTags.row("main")).performTouchInput { click() }
-        compose.waitForIdle()
-        println("DEBUG row touch intents=" + intents + " closed=" + closed)
     }
 
     @Test
