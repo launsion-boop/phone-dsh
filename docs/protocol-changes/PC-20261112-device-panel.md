@@ -119,7 +119,10 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
    "Another Link call is running"；`ble_link_result` 在 MCP 自身有进行中的调用时仍是
    "Invalid result query or Link busy"，在 store 被面板／设备任务占用时仍是 "Link is busy"。
    面板自己把 `LinkBusy` 显示成本地化文案。除 §2.3 登记的「`ble_link_call` store 忙 → 忙且无记录」外，
-   MCP 的可观察文本逐字节不变。
+   **对有效记录且已授权的请求**，MCP 的可观察文本逐字节不变。准入先于 journal 查找与授权，所以「忙 **且**
+   request UUID 不在本机 journal」「忙 **且** 工具已撤销」「忙 **且** 工具未授权」这三类组合的错误优先级
+   从 lookup／授权错误变成忙；它们本身就是无效或未授权的调用，没有 journal 或设备副作用，也没有有效消费者
+   依赖旧文本，属于本条准入顺序的直接结果而非新增错误码。
 2. **采用入口与工作区约定。** 入口只在面板页（工具栏／空状态「采用描述…」），清单来自工作区
    `device-panels/*.json`；模型把描述写到工作区路径 `device-panels/<Link device ID>.json`。
    这是给模型的命名约定，不是协议面：内容仍由 §4.2 求值，文件名不参与判定。不改 `FilesPage`。
@@ -180,6 +183,8 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
   - `swift test --filter DevicePanelVectorTests` → PASS（10 tests）
   - `swift test --filter DevicePanelStoreTests` → PASS（12 tests）
   - `swift test --filter LinkAdmissionTests` → PASS（7 tests）
+  - `swift test --filter LinkAdmissionTests` 的 M2 回归断言的是 store 层文本 "Link is busy"；MCP 层
+    `activeLinkID` 的 "Invalid result query or Link busy" 没有新增测试（该分支未被本单修改，仍是既有行为）
   - `swift test --filter PhoneDSHBLETests` → FAIL：250 tests，12 failures / 10 unexpected，全部是既有的
     firmware-C-build 环境失败（8× `BLESecureCrossRuntimeTests`、2× `BLETaskCrossRuntimeTests`：缺 cJSON / mbedTLS /
     ESP-IDF reference build）；未改动的基线上同样失败

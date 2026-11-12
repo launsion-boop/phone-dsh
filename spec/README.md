@@ -232,7 +232,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
 | GAP-38／P09（Gmail 页面 parity，owner android-parity，open） | iPhone Gmail PR 新增原生页面。Android 仍显示示例卡片，因此页面结构检查多报两项：`connectors` 的「即将支持」和 `gmail-connector` 缺少 Android 页面。 | Android 独立 PR 接通 Gmail 后，在同一基线上验证从发现页进入、搜索、读正文和断开，并复跑页面结构检查。 |
 | GAP-39／P09（GitHub 页面 parity，owner android-parity，open） | GitHub 原生连接器先在 iPhone 接入，`git-hub-connector` 缺少 Android 页面。 | Android 跟进时从发现页验证连接、仓库列表和断开，再复跑页面结构检查。 |
-| GAP-40／P07（device-panel 求值：重复成员名与深度溢出同时出现，owner P07，open） | device-panel.md §4.2 的表第 2 行（`invalid_json`，含嵌套超过 16 层）与第 3 行（`duplicate_key`）在“容器深度超过 16 层 **且** 任意层有重复成员名”同时出现时，规范检查器的参考实现（`spec/v1/tools/test_device_panel_golden.py`，`json.loads` + `object_pairs_hook`）先报 `duplicate_key`，Swift 参考实现按表格顺序先检查深度、返回 `invalid_json`；共享向量不含该组合（规范只把“重复键 vs 语法错误”列为实现定义），所以两端都通过现有向量。 | 加一条共享向量把该组合钉死（需要新的 contract revision 与 59→60 行更新），然后按规范修正参考实现或 Swift 实现中的一方；在此之前任何一端不得声称该组合的优先级，也不得据此放宽检查。 |
+| GAP-40／P07（device-panel 求值：重复成员名与深度溢出同时出现，owner P07，open） | device-panel.md §4.2 的表第 2 行（`invalid_json`，含嵌套超过 16 层）与第 3 行（`duplicate_key`）在“容器深度超过 16 层 **且** 任意层有重复成员名”同时出现时，规范检查器的参考实现（`spec/v1/tools/test_device_panel_golden.py`，`json.loads` + `object_pairs_hook`）先报 `duplicate_key`，Swift 生产实现按表格顺序先检查深度、返回 `invalid_json`；共享向量不含该组合（规范只把“重复键 vs 语法错误”列为实现定义），所以两端都通过现有向量。 | 加一条共享向量把该组合钉死（需要新的 contract revision 与 59→60 行更新），然后按规范修正参考实现或 Swift 实现中的一方；在此之前任何一端不得声称该组合的优先级，也不得据此放宽检查。 |
 
 ## 8. 驗證矩陣：沿用現有工具
 
