@@ -3,11 +3,14 @@
 """Validate Bot v1 schemas and the exported positive/negative conformance vectors."""
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import json
 import posixpath
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -33,6 +36,8 @@ OBSERVATION_ENVELOPE_VECTOR = "observation-envelope.phone.json"
 RECORD_QUERY_VECTOR = "record-query.phone.json"
 ERASURE_EVENT_VECTOR = "erasure-event.phone.json"
 VERIFICATION_VECTOR = "verification.phone.json"
+SESSION_LIFECYCLE_VECTOR = "session-lifecycle.phone.json"
+PROJECTION_VECTOR = "projection.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
 PHONE_ONLY_VECTORS = frozenset({
@@ -40,6 +45,8 @@ PHONE_ONLY_VECTORS = frozenset({
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
     VERIFICATION_VECTOR,
+    SESSION_LIFECYCLE_VECTOR,
+    PROJECTION_VECTOR,
 })
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
@@ -1695,6 +1702,1058 @@ def content_card_final_mutations(catalog):
     return count
 
 
+# ---------------------------------------------------------------------------
+# P27 B7a: session lifecycle and row projection (phone-only vectors).
+#
+# These validators are reference oracles, not runtime conformance. They prove
+# that the shared fixtures are internally consistent with the normative text:
+# id/entrySeq arithmetic, the token-registry model, the JSONL decoder
+# diagnostics, watch/reset semantics and the 10 Hz limiter. The Swift tests in
+# Tests/PhoneDSHBotTests/{MCP,Rows} drive the real code over the same files.
+# ---------------------------------------------------------------------------
+
+SESSION_LIFECYCLE_VECTOR = "session-lifecycle.phone.json"
+PROJECTION_VECTOR = "projection.phone.json"
+
+_ROW_WIRE_KINDS = {"message", "send-message", "event"}
+_ROW_BODY_TYPES = {"text", "widget", "attachment", "approval", "automation", "notice", "deleted"}
+_ROW_CARD_TYPES = {"question", "steps", "task", "document", "progress", "checklist", "link",
+                   "table", "callout", "info", "payload", "library"}
+_ROW_TRUST = {"owner_direct", "model", "projector"}
+_TOKEN_RE = re.compile(r"^dshg_[A-Za-z0-9_-]{43}$")
+_INCARNATION_RE = re.compile(r"^[0-9a-f]{32}$")
+_BOT_REQUEST_ID_RE = re.compile(
+    r"^bot-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_REBUILT_ID_RE = re.compile(
+    r"^gb-main-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_FROZEN_REQUEST_PREFIXES = (
+    "user-action:", "card-answer:", "held:", "agent:", "routine:", "task-turn:",
+    "task-settled:", "task-interrupted:", "maintenance:",
+)
+_DEFAULT_BOT_ROOT = "/dsh/workspace/.dshbot/agents/main"
+
+
+def _family(fixture, group, name, label):
+    section = fixture.get(group)
+    if not isinstance(section, dict):
+        raise AssertionError(f"{label}: {group} must be an object")
+    value = section.get(name)
+    if not isinstance(value, list) or not value:
+        raise AssertionError(f"{label}: {group}.{name} must be a non-empty array")
+    return value
+
+
+def _expect_phone_vector(fixture, vector_name):
+    if fixture.get("vector") != vector_name:
+        raise AssertionError(f"{vector_name}: vector must be {vector_name!r}")
+    if fixture.get("upstream") != []:
+        raise AssertionError(f"{vector_name}: phone-only vector must declare upstream: []")
+    delta = fixture.get("delta")
+    if not isinstance(delta, list) or not delta:
+        raise AssertionError(f"{vector_name}: phone-only vector needs a non-empty delta")
+    if not isinstance(fixture.get("valid"), dict):
+        raise AssertionError(f"{vector_name}: valid must be an object")
+    if not isinstance(fixture.get("invalid"), (dict, list)):
+        raise AssertionError(f"{vector_name}: invalid must be an object or an array")
+    for group in ("valid", "invalid"):
+        section = fixture[group]
+        if isinstance(section, list):
+            if not section:
+                raise AssertionError(f"{vector_name}: {group} must not be empty")
+            continue
+        for key, value in section.items():
+            if not value:
+                raise AssertionError(f"{vector_name}: {group}.{key} must not be empty")
+
+
+def _graphemes(text):
+    """Approximate extended grapheme clusters for the frozen alphabet.
+
+    The contract keeps Unicode L*, M* and N* scalars. Only combining marks can
+    extend a cluster in this alphabet; the fixture's 65-cluster case is
+    e + combining acute, which this loop groups correctly.
+    """
+    clusters = []
+    for character in text:
+        if clusters and unicodedata.category(character).startswith("M"):
+            clusters[-1] += character
+        else:
+            clusters.append(character)
+    return clusters
+
+
+def _safe_path_component(raw):
+    allowed_extra = "._-"
+    output = []
+    for character in raw:
+        category = unicodedata.category(character)
+        if category[0] in ("L", "M", "N") or character in allowed_extra:
+            output.append(character)
+        else:
+            output.append("_")
+    value = "".join(output)
+    if value in ("", ".", ".."):
+        value = "bot"
+    return "".join(_graphemes(value)[:64])
+
+
+def _entry_seq(time_value, source_seq):
+    positive_source = max(0, int(source_seq)) % 1000
+    milliseconds = int(time_value) * 1000
+    if milliseconds < -(2 ** 63) or milliseconds > 2 ** 63 - 1:
+        return -(2 ** 63) if int(time_value) < 0 else 2 ** 63 - 1
+    result = milliseconds + positive_source
+    if result > 2 ** 63 - 1 or result < -(2 ** 63):
+        return 2 ** 63 - 1
+    return result
+
+
+def _parse_session_records(records):
+    events = []
+    skipped = []
+    first = True
+    for line_number, raw in enumerate(records, start=1):
+        line = raw.lstrip(" \t\r")
+        if not line.strip():
+            continue
+        if first:
+            first = False
+            try:
+                candidate = json.loads(line)
+            except ValueError:
+                candidate = None
+            if (isinstance(candidate, dict) and candidate.get("type") == "session"
+                    and candidate.get("version") == 4
+                    and all(key in candidate for key in
+                            ("id", "createdAt", "isSeeded", "delegationDepth"))):
+                continue
+        try:
+            event = json.loads(line)
+            _check_session_event(event)
+            events.append(event)
+        except (ValueError, AssertionError):
+            seq = None
+            try:
+                candidate = json.loads(line)
+                value = candidate.get("seq") if isinstance(candidate, dict) else None
+                if isinstance(value, int) and not isinstance(value, bool):
+                    seq = value
+            except ValueError:
+                seq = None
+            skipped.append({"lineNumber": line_number, "seq": seq})
+    return events, skipped
+
+
+def _check_session_event(event):
+    if not isinstance(event, dict):
+        raise AssertionError("session record must be an object")
+    if not isinstance(event.get("type"), str):
+        raise AssertionError("session record type")
+    for key in ("seq", "time"):
+        value = event.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise AssertionError(f"session record {key}")
+    if not isinstance(event.get("data"), dict):
+        raise AssertionError("session record data")
+    if "eventId" in event and not isinstance(event["eventId"], str):
+        raise AssertionError("session record eventId")
+    surface_op = event.get("surfaceOp")
+    if surface_op is None:
+        return
+    if surface_op == "append":
+        return
+    if not isinstance(surface_op, dict) or set(surface_op) != {"op", "startSeq", "endSeq"}:
+        raise AssertionError("surfaceOp shape")
+    if surface_op["op"] != "replace":
+        raise AssertionError("surfaceOp op")
+    start = surface_op["startSeq"]
+    end = surface_op["endSeq"]
+    for value in (start, end):
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise AssertionError("surfaceOp range")
+    if start < 0 or end < start:
+        raise AssertionError("surfaceOp range order")
+
+
+def _flatten_ui_payload(event):
+    data = event.get("data")
+    if not isinstance(data, dict):
+        return {}
+    payload = dict(data)
+    for key in ("row", "entry", "message", "body", "card", "task", "automation",
+                "routine", "run", "notice"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            payload.update(nested)
+    return payload
+
+
+def _validate_row(row, where):
+    check(row, "row.schema.json", where)
+    if row["body"]["type"] not in _ROW_BODY_TYPES:
+        raise AssertionError(f"{where}: body type")
+    if row["body"].get("cardType") is not None and row["body"]["cardType"] not in _ROW_CARD_TYPES:
+        raise AssertionError(f"{where}: cardType")
+    if row["provenance"]["trust"] not in _ROW_TRUST:
+        raise AssertionError(f"{where}: trust")
+    if row["updatedSeq"] < 1:
+        raise AssertionError(f"{where}: updatedSeq must be positive")
+
+
+def _find_record(case, origin):
+    if "epochs" in case:
+        for epoch in case["epochs"]:
+            if epoch["sessionID"] == origin.get("sessionID", "gb-main"):
+                for record in epoch["records"]:
+                    event, _ = _parse_session_records([record])
+                    if event and event[0]["seq"] == origin["seq"]:
+                        return event[0], epoch["sessionID"]
+        raise AssertionError(f"{case['name']}: epoch record {origin} not found")
+    for record in case["records"]:
+        event, _ = _parse_session_records([record])
+        if event and event[0]["seq"] == origin["seq"]:
+            return event[0], case.get("sessionID", "gb-main")
+    raise AssertionError(f"{case['name']}: record {origin} not found")
+
+
+def _validate_expected_rows(case, session_id, label):
+    expected = case["expected"]
+    rows = expected.get("rows")
+    tombstones = expected.get("tombstones")
+    if not isinstance(rows, list) or not isinstance(tombstones, list):
+        raise AssertionError(f"{label}: rows/tombstones must be arrays")
+    cursor = expected.get("cursor")
+    if not isinstance(cursor, int) or cursor < 0:
+        raise AssertionError(f"{label}: cursor")
+    ids = set()
+    updated = []
+    for side, values in (("row", rows), ("tombstone", tombstones)):
+        for index, row in enumerate(values):
+            where = f"{label}.{side}[{index}]"
+            _validate_row(row, where)
+            if row["id"] in ids:
+                raise AssertionError(f"{where}: duplicate id {row['id']}")
+            ids.add(row["id"])
+            updated.append(row["updatedSeq"])
+            if side == "tombstone" and row["body"]["type"] != "deleted":
+                raise AssertionError(f"{where}: tombstone body must be deleted")
+            origin = expected.get("origins", {}).get(row["id"])
+            if origin is None:
+                raise AssertionError(f"{where}: missing origin")
+            event, origin_session = _find_record(case, origin) if origin.get("kind") == "dsh" else (None, None)
+            if origin.get("kind") == "dsh":
+                wanted_id = f"e-{origin_session}-{origin['seq']}"
+                if event.get("type") == "tool/call" and row["id"].endswith("-approval"):
+                    wanted_id += "-approval"
+                if row["id"] != wanted_id:
+                    raise AssertionError(f"{where}: row id {row['id']} != {wanted_id}")
+                wanted_seq = _entry_seq(event["time"], event["seq"])
+                if row["seq"] != wanted_seq:
+                    raise AssertionError(f"{where}: entrySeq {row['seq']} != {wanted_seq}")
+                if row["createdAt"] != event["time"]:
+                    raise AssertionError(f"{where}: createdAt")
+            elif origin.get("kind") == "ui":
+                events = case.get("uiEvents", [])
+                event = next((item for item in events if item.get("eventId") == origin.get("eventId")), None)
+                if event is None:
+                    raise AssertionError(f"{where}: ui event not found")
+                wanted_seq = _entry_seq(event["time"], event.get("commitSeq") or 0)
+                if row["seq"] != wanted_seq:
+                    raise AssertionError(f"{where}: ui entrySeq {row['seq']} != {wanted_seq}")
+                payload = _flatten_ui_payload(event)
+                event_type = event.get("type", "")
+                if row["id"].startswith("e-ui-"):
+                    wanted_id = "e-ui-" + event["eventId"]
+                elif event_type in ("approval.requested", "approval.decided"):
+                    approval_id = (payload.get("approvalID") or payload.get("approvalId")
+                                   or payload.get("requestId") or payload.get("requestID"))
+                    wanted_id = payload.get("id") or f"e-main-approval-{approval_id}"
+                elif event_type == "verification.reported":
+                    task_id = payload.get("task_id") or payload.get("subjectId") or payload.get("subjectID")
+                    wanted_id = f"e-main-task-{task_id}"
+                elif event_type.startswith("task."):
+                    task_id = (payload.get("task_id") or payload.get("taskID") or payload.get("taskId")
+                               or payload.get("threadID"))
+                    wanted_id = (f"e-main-task-{task_id}" if payload.get("task_id")
+                                 else payload.get("id") or f"e-main-task-{task_id}")
+                elif event_type == "conversation.automation_run" or event_type.startswith("routine.run_"):
+                    run_id = payload.get("runID") or payload.get("runId") or event.get("runId")
+                    wanted_id = payload.get("id") or f"e-main-automation-{run_id}"
+                else:
+                    wanted_id = payload.get("id") or payload.get("rowID") or ("e-ui-" + event["eventId"])
+                if row["id"] != wanted_id:
+                    raise AssertionError(f"{where}: ui row id {row['id']} != {wanted_id}")
+            else:
+                raise AssertionError(f"{where}: origin kind")
+    if cursor < len(rows) + len(tombstones):
+        raise AssertionError(f"{label}: cursor smaller than applied rows")
+    if updated and cursor < max(updated):
+        raise AssertionError(f"{label}: cursor smaller than updatedSeq")
+    nonces = expected.get("chatActionNonces", {})
+    if not isinstance(nonces, dict):
+        raise AssertionError(f"{label}: chatActionNonces must be an object")
+    row_by_id = {row["id"]: row for row in rows}
+    for row_id, nonce in nonces.items():
+        if row_id not in row_by_id:
+            raise AssertionError(f"{label}: nonce for unknown row {row_id}")
+        if row_by_id[row_id].get("role") != "user":
+            raise AssertionError(f"{label}: nonce on non-user row {row_id}")
+        if not isinstance(nonce, str) or not nonce:
+            raise AssertionError(f"{label}: nonce must be a non-empty string")
+    displays = expected.get("display")
+    if not isinstance(displays, dict) or set(displays) != set(row_by_id):
+        raise AssertionError(f"{label}: display must cover exactly the live rows")
+    for row_id, display in displays.items():
+        if not isinstance(display, dict) or set(display) != {"surface", "renderable", "wire"}:
+            raise AssertionError(f"{label}: display shape for {row_id}")
+        if not isinstance(display["surface"], str) or not display["surface"]:
+            raise AssertionError(f"{label}: display surface for {row_id}")
+        if not isinstance(display["renderable"], bool):
+            raise AssertionError(f"{label}: display renderable for {row_id}")
+        wire = display["wire"]
+        if (not isinstance(wire, dict) or set(wire) != {"kind", "type"}
+                or wire["kind"] not in _ROW_WIRE_KINDS or not isinstance(wire["type"], str)):
+            raise AssertionError(f"{label}: display wire for {row_id}")
+
+
+def validate_projection_fixture(fixture):
+    _expect_phone_vector(fixture, "projection.phone")
+    valid_count = 0
+    invalid_count = 0
+    for case in _family(fixture, "valid", "dshMapping", "projection"):
+        name = case.get("name")
+        if not isinstance(name, str) or not name:
+            raise AssertionError("projection.dshMapping: name")
+        if not isinstance(case.get("source"), str):
+            raise AssertionError(f"projection {name}: missing source")
+        records = case.get("records") if "epochs" not in case else [
+            record for epoch in case["epochs"] for record in epoch["records"]]
+        if not isinstance(records, list):
+            raise AssertionError(f"projection {name}: records")
+        events, skipped = _parse_session_records(records)
+        if skipped:
+            raise AssertionError(f"projection {name}: valid case skipped records {skipped}")
+        _validate_expected_rows(case, case.get("sessionID", "gb-main"), f"projection.{name}")
+        valid_count += 1
+    for case in _family(fixture, "valid", "uiMapping", "projection"):
+        name = case.get("name")
+        if not isinstance(name, str) or not name:
+            raise AssertionError("projection.uiMapping: name")
+        if not isinstance(case.get("source"), str):
+            raise AssertionError(f"projection {name}: missing source")
+        _validate_expected_rows(case, case.get("sessionID", "gb-main"), f"projection.{name}")
+        valid_count += 1
+    invalid_records = fixture["invalid"]
+    if not isinstance(invalid_records, list) or not invalid_records:
+        raise AssertionError("projection: invalid must be a non-empty array")
+    for case in invalid_records:
+        name = case.get("name")
+        if not isinstance(name, str) or not name:
+            raise AssertionError("projection.invalid: name")
+        if not isinstance(case.get("source"), str):
+            raise AssertionError(f"projection invalid {name}: missing source")
+        events, skipped = _parse_session_records(case.get("records", []))
+        expected = case.get("expected")
+        if not isinstance(expected, dict):
+            raise AssertionError(f"projection invalid {name}: expected")
+        wanted_events = [int(item) for item in expected.get("eventSeqs", [])]
+        if [event["seq"] for event in events] != wanted_events:
+            raise AssertionError(f"projection invalid {name}: event seqs")
+        wanted_skipped = expected.get("skipped", [])
+        if len(skipped) != len(wanted_skipped):
+            raise AssertionError(f"projection invalid {name}: skipped count")
+        for actual, wanted in zip(skipped, wanted_skipped):
+            if actual["lineNumber"] != wanted.get("lineNumber") or actual["seq"] != wanted.get("seq"):
+                raise AssertionError(f"projection invalid {name}: skipped entry {actual} != {wanted}")
+        invalid_count += 1
+    head = 0
+    reset_state = None
+    history_count = 0
+    for case in _family(fixture, "valid", "history", "projection"):
+        name = case.get("name")
+        steps = case.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise AssertionError(f"projection.history {name}: steps")
+        head = 0
+        reset_state = None
+        for index, step in enumerate(steps):
+            where = f"projection.history.{name}[{index}]"
+            if "rebuild" in step:
+                expected = step.get("expectBatch")
+                if not isinstance(expected, dict) or expected.get("reset") is not True:
+                    raise AssertionError(f"{where}: rebuild must return a reset batch")
+                _validate_batch_rows(expected, where)
+                head = expected["cursor"]
+                if head < len(expected.get("rows", [])) + len(expected.get("tombstones", [])):
+                    raise AssertionError(f"{where}: cursor")
+                reset_state = copy.deepcopy(expected)
+            elif "watchAfter" in step:
+                cursor = step["watchAfter"]
+                expected = step.get("expectBatch")
+                if not isinstance(expected, dict):
+                    raise AssertionError(f"{where}: missing batch")
+                if cursor <= 0 or cursor > head:
+                    if expected.get("reset") is not True or reset_state is None:
+                        raise AssertionError(f"{where}: out-of-range cursor must reset")
+                    if expected != reset_state:
+                        raise AssertionError(f"{where}: reset batch must equal the last reset")
+                else:
+                    if expected.get("reset") is not False:
+                        raise AssertionError(f"{where}: in-range cursor must not reset")
+                    _validate_batch_rows(expected, where)
+                    for row in expected.get("rows", []):
+                        if row["updatedSeq"] <= cursor:
+                            raise AssertionError(f"{where}: row at or before cursor")
+                    if expected.get("cursor") != head:
+                        raise AssertionError(f"{where}: batch cursor must be the head")
+                history_count += 1
+            else:
+                raise AssertionError(f"{where}: unknown step")
+    streaming_count = 0
+    for case in _family(fixture, "valid", "streaming", "projection"):
+        streaming_count += 1
+        _run_streaming_case(case)
+    if valid_count == 0 or invalid_count == 0 or history_count == 0 or streaming_count == 0:
+        raise AssertionError("projection: missing a vector family")
+    # Mutation self-checks: the arithmetic must reject a shifted id/seq and a
+    # wrong streaming expectation instead of merely echoing the fixture.
+    def mutated_origin():
+        mutated = copy.deepcopy(fixture)
+        case = mutated["valid"]["dshMapping"][0]
+        row = case["expected"]["rows"][0]
+        row["seq"] += 1
+        _validate_projection_fixture_inner(mutated)
+
+    _expect_contract_failure("projection entrySeq", mutated_origin)
+
+    def mutated_stream():
+        mutated = copy.deepcopy(fixture)
+        step = mutated["valid"]["streaming"][0]["steps"][0]
+        step["expectEmitted"]["body"]["text"] = "wrong"
+        _run_streaming_case(mutated["valid"]["streaming"][0])
+
+    _expect_contract_failure("streaming coalescing", mutated_stream)
+    return valid_count, invalid_count, history_count, streaming_count
+
+
+def _validate_projection_fixture_inner(fixture):
+    for case in _family(fixture, "valid", "dshMapping", "projection"):
+        _validate_expected_rows(case, case.get("sessionID", "gb-main"), f"projection.{case.get('name')}")
+
+
+def _validate_batch_rows(batch, where):
+    rows = batch.get("rows")
+    deletes = batch.get("deletes")
+    if not isinstance(rows, list) or not isinstance(deletes, list):
+        raise AssertionError(f"{where}: batch rows/deletes")
+    ids = set()
+    for index, row in enumerate(rows):
+        _validate_row(row, f"{where}.rows[{index}]")
+        if row["id"] in ids:
+            raise AssertionError(f"{where}: duplicate batch row")
+        ids.add(row["id"])
+    if len(set(deletes)) != len(deletes):
+        raise AssertionError(f"{where}: duplicate deletes")
+    for index, row_id in enumerate(deletes):
+        if not isinstance(row_id, str) or not row_id:
+            raise AssertionError(f"{where}.deletes[{index}]")
+    cursor = batch.get("cursor")
+    if not isinstance(cursor, int) or cursor < 0:
+        raise AssertionError(f"{where}: batch cursor")
+    for row in rows:
+        if row["updatedSeq"] > cursor:
+            raise AssertionError(f"{where}: row updatedSeq beyond cursor")
+
+
+class _StreamingModel:
+    maximum = 10
+
+    def __init__(self):
+        self.visible = {}
+        self.pending = {}
+        self.order = {}
+        self.counter = 0
+        self.emissions = []
+        self.last_now = 0.0
+
+    def _clock(self, now):
+        self.last_now = max(self.last_now, float(now))
+        return self.last_now
+
+    def _prune(self, now):
+        self.emissions = [value for value in self.emissions if value > now - 1]
+
+    def _emit(self, row_id, now):
+        row = self.pending.pop(row_id)
+        self.order.pop(row_id, None)
+        self.visible[row_id] = row
+        self.emissions.append(now)
+        return row
+
+    def submit(self, row, now):
+        now = self._clock(now)
+        self._prune(now)
+        row = copy.deepcopy(row)
+        if row["id"] not in self.pending:
+            self.order[row["id"]] = self.counter
+            self.counter += 1
+        row["streaming"] = True
+        self.pending[row["id"]] = row
+        if len(self.emissions) < self.maximum:
+            return self._emit(row["id"], now)
+        return None
+
+    def flush(self, now):
+        now = self._clock(now)
+        self._prune(now)
+        output = []
+        while len(self.emissions) < self.maximum and self.pending:
+            row_id = min(self.pending, key=lambda key: self.order[key])
+            output.append(self._emit(row_id, now))
+        return output
+
+    def next_flush_at(self):
+        if not self.pending or not self.emissions:
+            return None
+        return min(self.emissions) + 1
+
+
+def _run_streaming_case(case):
+    model = _StreamingModel()
+    for index, step in enumerate(case["steps"]):
+        where = f"projection.streaming.{case['name']}[{index}]"
+        if "submit" in step:
+            row = step["submit"]["row"]
+            if row["body"]["type"] not in _ROW_BODY_TYPES:
+                raise AssertionError(f"{where}: row body")
+            emitted = model.submit(row, step["submit"]["now"])
+            wanted = step.get("expectEmitted")
+            if wanted is None:
+                if emitted is not None:
+                    raise AssertionError(f"{where}: expected no emission")
+            elif emitted != wanted:
+                raise AssertionError(f"{where}: emitted {emitted} != {wanted}")
+            if "expectFlush" in step:
+                if model.flush(step["submit"]["now"]) != step["expectFlush"]:
+                    raise AssertionError(f"{where}: inline flush")
+        elif "flush" in step:
+            flushed = model.flush(step["flush"]["now"])
+            if flushed != step.get("expectRows", []):
+                raise AssertionError(f"{where}: flush {flushed} != {step.get('expectRows')}")
+        elif "state" in step:
+            state = step["state"]
+            if state.get("pendingCount") != len(model.pending):
+                raise AssertionError(f"{where}: pendingCount")
+            if state.get("rowCount") != len(model.visible):
+                raise AssertionError(f"{where}: rowCount")
+            if state.get("nextFlushAt") != model.next_flush_at():
+                raise AssertionError(f"{where}: nextFlushAt")
+        else:
+            raise AssertionError(f"{where}: unknown streaming step")
+
+
+class _TokenModel:
+    def __init__(self, now=0, default_ttl=43200000, maximum=4096):
+        self.now = int(now)
+        self.default_ttl = int(default_ttl)
+        self.maximum = int(maximum)
+        self.records = {}
+        self.current = {}
+        self.counter = 0
+        self.tokens = []
+
+    @staticmethod
+    def _identifier(value, name):
+        if not isinstance(value, str):
+            raise AssertionError(f"invalidInput:{name}")
+        text = value.strip()
+        if not text or len(text) > 256:
+            raise AssertionError(f"invalidInput:{name}")
+        return text
+
+    @staticmethod
+    def _capabilities(values):
+        if not isinstance(values, list) or len(values) > 64:
+            raise AssertionError("invalidInput:capabilities")
+        result = []
+        for value in values:
+            if not isinstance(value, str):
+                raise AssertionError("invalidInput:capabilities")
+            text = value.strip()
+            if not text or len(text) > 128:
+                raise AssertionError("invalidInput:capabilities")
+            if text not in result:
+                result.append(text)
+        return result
+
+    def _remove(self, token):
+        principal = self.records.pop(token, None)
+        if principal is not None and self.current.get(principal["sessionId"]) == principal["incarnation"]:
+            self.current.pop(principal["sessionId"], None)
+
+    def _revoke_where(self, predicate):
+        removed = [token for token, principal in self.records.items() if predicate(principal)]
+        for token in removed:
+            self._remove(token)
+        return len(removed)
+
+    def prune(self):
+        return self._revoke_where(lambda principal: principal["expiresAt"] <= self.now)
+
+    def issue(self, bot_id, session_id, kind, capabilities=None, expires_at=None, ttl=None):
+        bot = self._identifier(bot_id, "botId")
+        session = self._identifier(session_id, "sessionId")
+        caps = self._capabilities(capabilities or [])
+        if expires_at is not None:
+            expiry = int(expires_at)
+        else:
+            ttl_value = self.default_ttl if ttl is None else int(ttl)
+            if ttl_value <= 0:
+                raise AssertionError("invalidInput:ttlMilliseconds")
+            expiry = self.now + ttl_value
+            if expiry > 2 ** 63 - 1 or expiry < -(2 ** 63):
+                raise AssertionError("invalidInput:expiresAt")
+        if expiry <= self.now:
+            raise AssertionError("invalidInput:expiresAt")
+        self.prune()
+        if len(self.records) >= self.maximum:
+            raise AssertionError("registryFull")
+        self.counter += 1
+        digest = hashlib.sha256(f"token-{self.counter}".encode()).digest()
+        token = "dshg_" + base64.urlsafe_b64encode(digest).decode().rstrip("=")[:43]
+        incarnation = hashlib.sha256(f"incarnation-{self.counter}".encode()).hexdigest()[:32]
+        principal = {"botId": bot, "sessionId": session, "kind": kind,
+                     "capabilities": caps, "expiresAt": expiry, "incarnation": incarnation}
+        self.records[token] = principal
+        self.current[session] = incarnation
+        issued = {"token": token, "principal": principal}
+        self.tokens.append(issued)
+        return issued
+
+    def issue_session(self, bot_id, session_id, kind, capabilities=None, expires_at=None, ttl=None):
+        session = self._identifier(session_id, "sessionId")
+        self.revoke_session(session)
+        return self.issue(bot_id, session, kind, capabilities, expires_at, ttl)
+
+    def lookup(self, token):
+        if not isinstance(token, str) or not token or len(token) > 512:
+            return None
+        principal = self.records.get(token)
+        if principal is None:
+            return None
+        if principal["expiresAt"] <= self.now:
+            self._remove(token)
+            return None
+        return principal
+
+    def lookup_session(self, session_id):
+        if not isinstance(session_id, str):
+            return None
+        target = session_id.strip()
+        incarnation = self.current.get(target)
+        if not incarnation:
+            return None
+        for token, principal in self.records.items():
+            if principal["sessionId"] == target and principal["incarnation"] == incarnation:
+                if principal["expiresAt"] <= self.now:
+                    self._remove(token)
+                    return None
+                return principal
+        self.current.pop(target, None)
+        return None
+
+    def lookup_bearer(self, header):
+        if not isinstance(header, str):
+            return None
+        parts = header.strip().split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return None
+        return self.lookup(parts[1])
+
+    def revoke(self, token):
+        if not isinstance(token, str) or not token or len(token) > 512:
+            return False
+        if token not in self.records:
+            return False
+        self._remove(token)
+        return True
+
+    def revoke_session(self, session_id):
+        target = session_id.strip()
+        return self._revoke_where(lambda principal: principal["sessionId"] == target)
+
+    def revoke_bot(self, bot_id):
+        target = bot_id.strip()
+        return self._revoke_where(lambda principal: principal["botId"] == target)
+
+    def rotate(self, token, capabilities=None, expires_at=None, ttl=None):
+        if not isinstance(token, str) or not token or len(token) > 512:
+            return None
+        principal = self.records.get(token)
+        if principal is None:
+            return None
+        if principal["expiresAt"] <= self.now:
+            self._remove(token)
+            return None
+        new_caps = principal["capabilities"] if capabilities is None else capabilities
+        if expires_at is not None:
+            new_expiry = int(expires_at)
+        elif ttl is not None:
+            new_expiry = self.now + int(ttl)
+        else:
+            new_expiry = principal["expiresAt"]
+        issued = self.issue(principal["botId"], principal["sessionId"], principal["kind"],
+                            new_caps, new_expiry, None)
+        self._remove(token)
+        return issued
+
+    def count(self):
+        self.prune()
+        return len(self.records)
+
+
+def _expect_contract_failure(label, operation):
+    try:
+        operation()
+    except AssertionError:
+        return
+    raise AssertionError(f"mutation {label!r} unexpectedly passed")
+
+
+def _check_token_expect(issued, expect, label):
+    principal = issued["principal"]
+    expect = expect or {}
+    if expect.get("tokenIndex") != _token_counter[0] - 1:
+        raise AssertionError(f"{label}: token index")
+    if "expiresAt" in expect and principal["expiresAt"] != expect["expiresAt"]:
+        raise AssertionError(f"{label}: expiresAt")
+    if "tokenPattern" in expect and not re.fullmatch(expect["tokenPattern"].removeprefix("re:"), issued["token"]):
+        raise AssertionError(f"{label}: token pattern")
+    if "incarnationPattern" in expect and not re.fullmatch(
+            expect["incarnationPattern"].removeprefix("re:"), principal["incarnation"]):
+        raise AssertionError(f"{label}: incarnation pattern")
+    wanted = expect.get("principal", {})
+    for key in ("botId", "sessionId", "kind", "capabilities"):
+        if key in wanted and principal[key] != wanted[key]:
+            raise AssertionError(f"{label}: principal {key}")
+
+
+_token_counter = [0]
+
+
+def _run_token_case(model, vector):
+    tokens = []
+    for index, step in enumerate(vector["steps"]):
+        label = f"token.{vector['name']}[{index}]"
+        operation = step.get("op")
+        expect = step.get("expect")
+        if expect is None:
+            expect = {}
+        if operation == "setClock":
+            model.now = int(step["clock"])
+        elif operation in ("issue", "issueSession"):
+            try:
+                if operation == "issueSession":
+                    issued = model.issue_session(
+                        step["botId"], step["sessionId"], step["kind"],
+                        step.get("capabilities"), step.get("expiresAt"), step.get("ttlMilliseconds"))
+                else:
+                    issued = model.issue(
+                        step["botId"], step["sessionId"], step["kind"],
+                        step.get("capabilities"), step.get("expiresAt"), step.get("ttlMilliseconds"))
+            except AssertionError as error:
+                if step.get("expectError") == str(error):
+                    continue
+                raise
+            _token_counter[0] = len(tokens) + 1
+            if expect.get("tokenIndex") != len(tokens):
+                raise AssertionError(f"{label}: token index")
+            _check_token_expect(issued, expect, label)
+            tokens.append(issued)
+        elif operation == "lookup":
+            resolved = model.lookup(tokens[step["tokenIndex"]]["token"])
+            if (resolved is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookup")
+        elif operation == "lookupRaw":
+            if (model.lookup(step["token"]) is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupRaw")
+        elif operation == "lookupSession":
+            resolved = model.lookup_session(step["sessionId"])
+            if (resolved is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupSession")
+            if "tokenIndex" in expect and resolved is not None:
+                wanted = tokens[expect["tokenIndex"]]["principal"]
+                if resolved["incarnation"] != wanted["incarnation"]:
+                    raise AssertionError(f"{label}: lookupSession incarnation")
+        elif operation == "lookupBearer":
+            header = f"{step.get('scheme', 'Bearer')} {tokens[step['tokenIndex']]['token']}"
+            if (model.lookup_bearer(header) is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupBearer")
+        elif operation == "lookupBearerRaw":
+            if (model.lookup_bearer(step.get("header")) is not None) != bool(expect.get("resolves")):
+                raise AssertionError(f"{label}: lookupBearerRaw")
+        elif operation in ("rotate", "rotateRaw"):
+            old = tokens[step["tokenIndex"]]["token"] if operation == "rotate" else step.get("token")
+            try:
+                issued = model.rotate(old, step.get("capabilities"), step.get("expiresAt"),
+                                      step.get("ttlMilliseconds"))
+            except AssertionError as error:
+                if step.get("expectError") == str(error):
+                    continue
+                raise
+            expected_resolves = bool(expect.get("resolves", True))
+            if (issued is not None) != expected_resolves:
+                raise AssertionError(f"{label}: rotate result")
+            if "tokenIndex" in expect:
+                if issued is None or expect["tokenIndex"] != len(tokens):
+                    raise AssertionError(f"{label}: rotate token index")
+                tokens.append(issued)
+                _token_counter[0] = len(tokens)
+                _check_token_expect(issued, expect, label)
+                if expect.get("sameSession") and issued["principal"]["sessionId"] != tokens[0]["principal"]["sessionId"]:
+                    raise AssertionError(f"{label}: rotate session")
+        elif operation == "revoke":
+            if model.revoke(tokens[step["tokenIndex"]]["token"]) != bool(expect.get("removed")):
+                raise AssertionError(f"{label}: revoke")
+        elif operation == "revokeRaw":
+            if model.revoke(step.get("token")) != bool(expect.get("removed")):
+                raise AssertionError(f"{label}: revokeRaw")
+        elif operation == "revokeSession":
+            if model.revoke_session(step["sessionId"]) != expect.get("removed"):
+                raise AssertionError(f"{label}: revokeSession")
+        elif operation == "revokeBot":
+            if model.revoke_bot(step["botId"]) != expect.get("removed"):
+                raise AssertionError(f"{label}: revokeBot")
+        elif operation == "count":
+            if model.count() != expect:
+                raise AssertionError(f"{label}: count {model.count()} != {expect}")
+        else:
+            raise AssertionError(f"{label}: unknown op {operation}")
+    return tokens
+
+
+def validate_session_lifecycle_fixture(fixture):
+    _expect_phone_vector(fixture, "session-lifecycle.phone")
+    workspace = _family(fixture, "valid", "workspace", "session-lifecycle")
+    for case in workspace:
+        if not isinstance(case.get("source"), str):
+            raise AssertionError("session-lifecycle.workspace: source")
+        safe = _safe_path_component(case["botId"])
+        if safe != case["safe"]:
+            raise AssertionError(f"workspace {case['name']}: safe {safe!r} != {case['safe']!r}")
+        directory = case.get("dataDirectory", "/dsh/workspace/.dshbot")
+        while len(directory) > 1 and directory.endswith("/"):
+            directory = directory[:-1]
+        root = f"{directory}/agents/{safe}"
+        if root != case["root"]:
+            raise AssertionError(f"workspace {case['name']}: root {root!r} != {case['root']!r}")
+    for case in _family(fixture, "invalid", "workspace", "session-lifecycle"):
+        if not isinstance(case.get("why"), str) or not case["why"]:
+            raise AssertionError("session-lifecycle.workspace invalid: why")
+        if _safe_path_component(case["botId"]) != case["safe"]:
+            raise AssertionError(f"workspace {case['name']}: fallback")
+    registry = (fixture["valid"].get("tokenRegistry") or {})
+    defaults = registry.get("defaults") or {}
+    if defaults.get("defaultTTLMilliseconds") != 43200000:
+        raise AssertionError("tokenRegistry: default TTL")
+    if defaults.get("defaultMaximumTokens") != 4096:
+        raise AssertionError("tokenRegistry: default maximum")
+    if defaults.get("chatTTLMilliseconds") != 30 * 24 * 60 * 60 * 1000:
+        raise AssertionError("tokenRegistry: chat TTL")
+    if defaults.get("ephemeralTTLMilliseconds") != 12 * 60 * 60 * 1000:
+        raise AssertionError("tokenRegistry: ephemeral TTL")
+    token_cases = registry.get("cases") or []
+    if not token_cases:
+        raise AssertionError("tokenRegistry: no cases")
+    for vector in token_cases:
+        if not isinstance(vector.get("source"), str):
+            raise AssertionError("tokenRegistry: source")
+        model = _TokenModel(vector.get("clock", 0),
+                            maximum=vector.get("maximumTokens", 4096))
+        _run_token_case(model, vector)
+    for vector in _family(fixture, "invalid", "tokenRegistry", "session-lifecycle"):
+        if not isinstance(vector.get("source"), str):
+            raise AssertionError("tokenRegistry invalid: source")
+        model = _TokenModel(vector.get("clock", 0))
+        operation = vector.get("op")
+        try:
+            if operation == "issue":
+                model.issue(vector.get("botId", ""), vector.get("sessionId", ""),
+                            vector.get("kind", "chat"), vector.get("capabilities"),
+                            vector.get("expiresAt"), vector.get("ttlMilliseconds"))
+            elif operation == "lookupRaw":
+                if (model.lookup(vector.get("token")) is not None) != bool(
+                        (vector.get("expect") or {}).get("resolves")):
+                    raise AssertionError("invalid lookup")
+                continue
+            elif operation == "revokeRaw":
+                if model.revoke(vector.get("token")) != bool(
+                        (vector.get("expect") or {}).get("removed")):
+                    raise AssertionError("invalid revoke")
+                continue
+            elif operation == "rotateRaw":
+                issued = model.rotate(vector.get("token"))
+                if (issued is not None) != bool((vector.get("expect") or {}).get("resolves")):
+                    raise AssertionError("invalid rotate")
+                continue
+            else:
+                raise AssertionError(f"unknown invalid token op {operation}")
+        except AssertionError as error:
+            if str(error) == vector.get("expectError"):
+                continue
+            raise
+        raise AssertionError(f"token invalid {vector['name']}: expected {vector.get('expectError')}")
+    sessions = _family(fixture, "valid", "sessions", "session-lifecycle")
+    coverage = {"create": 0, "recover": 0, "rebuild": 0, "erase": 0, "prompt": 0,
+                "cancel": 0, "claim": 0, "page": 0, "list": 0}
+    allowed_actions = {"startMainSession", "sendUserMessage", "sendHiddenInteraction",
+                       "sendTwoMessages", "switchMainSessionForErasure", "cancelDuringTurn"}
+    allowed_presets = {"phone-bot", "pdsh-verifier", "phone-bot-maintainer"}
+    for case in sessions:
+        label = f"session-lifecycle.{case.get('name')}"
+        if not isinstance(case.get("name"), str) or not isinstance(case.get("source"), str):
+            raise AssertionError(f"{label}: name/source")
+        if case.get("action") not in allowed_actions:
+            raise AssertionError(f"{label}: action")
+        expect = case.get("expect") or {}
+        if "errorContains" in expect:
+            raise AssertionError(f"{label}: valid case must not expect an error")
+        if "result" not in expect and "results" not in expect:
+            raise AssertionError(f"{label}: missing result")
+        for seed in case.get("seedEvents", []) or []:
+            if seed.get("type") != "runtime.started":
+                raise AssertionError(f"{label}: seed type")
+            principal = seed.get("principal") or {}
+            if principal.get("kind") != "chat" or principal.get("botId") != "main":
+                raise AssertionError(f"{label}: seed principal")
+            data = seed.get("data") or {}
+            if not set(data).issubset({"sessionId", "botId", "cwd"}):
+                raise AssertionError(f"{label}: seed data members")
+        for request in expect.get("createRequests", []):
+            if set(request) != {"request"}:
+                raise AssertionError(f"{label}: create request shape")
+            payload = request["request"]
+            if set(payload) != {"sessionId", "cwd", "agentPreset"}:
+                raise AssertionError(f"{label}: create request members")
+            if payload["agentPreset"] not in allowed_presets:
+                raise AssertionError(f"{label}: create preset")
+            if payload["cwd"] != _DEFAULT_BOT_ROOT:
+                raise AssertionError(f"{label}: create cwd")
+            session_id = payload["sessionId"]
+            if not (session_id == "gb-main" or _REBUILT_ID_RE.fullmatch(session_id)
+                    or (isinstance(session_id, str) and session_id.startswith("re:"))):
+                raise AssertionError(f"{label}: create session id")
+            coverage["create"] += 1
+        if not expect.get("createRequests"):
+            coverage["recover"] += 1
+        if expect.get("archive"):
+            coverage["rebuild"] += 1
+        if expect.get("pageRequests") or "pageRequestCount" in expect:
+            coverage["page"] += 1
+        if expect.get("listRequests"):
+            coverage["list"] += 1
+        for request in expect.get("claimRequests", []):
+            if set(request) != {"request"}:
+                raise AssertionError(f"{label}: claim shape")
+            payload = request["request"]
+            if not set(payload).issubset({"sessionId", "sessionToken"}):
+                raise AssertionError(f"{label}: claim members")
+            if not payload.get("sessionId"):
+                raise AssertionError(f"{label}: claim session")
+            if "sessionToken" in payload:
+                token = payload["sessionToken"]
+                if not (isinstance(token, str) and (token.startswith("re:") or _TOKEN_RE.fullmatch(token))):
+                    raise AssertionError(f"{label}: claim token")
+            coverage["claim"] += 1
+        for request in expect.get("promptRequests", []):
+            if set(request) != {"request"}:
+                raise AssertionError(f"{label}: prompt shape")
+            payload = request["request"]
+            if set(payload) != {"requestId", "sessionId", "mode", "content"}:
+                raise AssertionError(f"{label}: prompt members")
+            if payload["mode"] not in ("queue", "steer"):
+                raise AssertionError(f"{label}: prompt mode")
+            request_id = payload["requestId"]
+            if not (isinstance(request_id, str) and (
+                    _BOT_REQUEST_ID_RE.fullmatch(request_id)
+                    or (request_id.startswith("re:") and "bot-" in request_id)
+                    or request_id.startswith(_FROZEN_REQUEST_PREFIXES))):
+                raise AssertionError(f"{label}: prompt requestId {request_id}")
+            content = payload["content"]
+            if (not isinstance(content, list) or len(content) != 1
+                    or content[0].get("type") != "text" or not isinstance(content[0].get("text"), str)):
+                raise AssertionError(f"{label}: prompt content")
+            coverage["prompt"] += 1
+        for request in expect.get("cancelRequests", []):
+            payload = request["request"]
+            if set(payload) != {"sessionId", "cause"} or payload["cause"] != {"kind": "user"}:
+                raise AssertionError(f"{label}: cancel shape")
+            coverage["cancel"] += 1
+        for event in expect.get("events", []):
+            if event["type"] == "runtime.started":
+                if set(event["data"]) != {"sessionId", "botId", "cwd"}:
+                    raise AssertionError(f"{label}: started data members")
+                if event["data"]["botId"] != "main" or event["data"]["cwd"] != _DEFAULT_BOT_ROOT:
+                    raise AssertionError(f"{label}: started data")
+                if event["principal"].get("kind") != "chat":
+                    raise AssertionError(f"{label}: started principal")
+            elif event["type"] == "runtime.exited":
+                if set(event["data"]) != {"sessionId", "reason", "replacedBy", "erasureId", "erasedRecords"}:
+                    raise AssertionError(f"{label}: exited data members")
+                if event["data"]["reason"] != "session-erased":
+                    raise AssertionError(f"{label}: exited reason")
+                if not isinstance(event["data"]["erasedRecords"], list):
+                    raise AssertionError(f"{label}: erasedRecords")
+                coverage["erase"] += 1
+            else:
+                raise AssertionError(f"{label}: lifecycle event type")
+    for case in _family(fixture, "invalid", "sessions", "session-lifecycle"):
+        expect = case.get("expect") or {}
+        if not expect.get("errorContains"):
+            raise AssertionError(f"session-lifecycle invalid {case.get('name')}: errorContains")
+        if "result" in expect or "results" in expect:
+            raise AssertionError(f"session-lifecycle invalid {case.get('name')}: must not expect a result")
+    missing = [name for name, count in coverage.items() if count == 0]
+    if missing:
+        raise AssertionError(f"session-lifecycle: missing coverage {missing}")
+
+    def mutated_preset():
+        mutated = copy.deepcopy(fixture)
+        mutated["valid"]["sessions"][0]["expect"]["createRequests"][0]["request"]["agentPreset"] = "standard"
+        validate_session_lifecycle_fixture_inner(mutated)
+
+    _expect_contract_failure("session create preset", mutated_preset)
+
+    def mutated_started():
+        mutated = copy.deepcopy(fixture)
+        mutated["valid"]["sessions"][0]["expect"]["events"][0]["data"]["extra"] = True
+        validate_session_lifecycle_fixture_inner(mutated)
+
+    _expect_contract_failure("runtime.started members", mutated_started)
+
+    def mutated_token():
+        mutated = copy.deepcopy(fixture)
+        mutated["valid"]["tokenRegistry"]["cases"][0]["steps"][1]["expect"]["resolves"] = False
+        model = _TokenModel(mutated["valid"]["tokenRegistry"]["cases"][0].get("clock", 0))
+        _run_token_case(model, mutated["valid"]["tokenRegistry"]["cases"][0])
+
+    _expect_contract_failure("token lookup", mutated_token)
+    return (len(workspace) + len(_family(fixture, "invalid", "workspace", "session-lifecycle")),
+            len(token_cases) + len(_family(fixture, "invalid", "tokenRegistry", "session-lifecycle")),
+            len(sessions) + len(_family(fixture, "invalid", "sessions", "session-lifecycle")))
+
+
+def validate_session_lifecycle_fixture_inner(fixture):
+    allowed_presets = {"phone-bot", "pdsh-verifier", "phone-bot-maintainer"}
+    for case in fixture["valid"]["sessions"]:
+        for request in (case.get("expect") or {}).get("createRequests", []):
+            if request["request"]["agentPreset"] not in allowed_presets:
+                raise AssertionError("create preset")
+        for event in (case.get("expect") or {}).get("events", []):
+            if event["type"] == "runtime.started" and set(event["data"]) != {"sessionId", "botId", "cwd"}:
+                raise AssertionError("runtime.started members")
+
+
 def main() -> int:
     check_overlays()
     check_event(load("event-envelope.json")["valid"]["event"],
@@ -1845,6 +2904,10 @@ def main() -> int:
     valid_egress, invalid_egress, egress_mutations = validate_mcp_egress_fixture(load(MCP_EGRESS_VECTOR))
     valid_authority, authority_changes, authority_task, authority_mutations = (
         validate_authority_fixture(load(AUTHORITY_VECTOR)))
+    lifecycle_workspace, lifecycle_tokens, lifecycle_sessions = (
+        validate_session_lifecycle_fixture(load(SESSION_LIFECYCLE_VECTOR)))
+    projection_valid, projection_invalid, projection_history, projection_streaming = (
+        validate_projection_fixture(load(PROJECTION_VECTOR)))
     print("bot vectors: PASS (schemas, positive vectors, negative vectors; "
           f"turn-origin {valid_origins} valid / {invalid_origins} invalid, "
           f"{mutations} mutation checks; "
@@ -1852,6 +2915,10 @@ def main() -> int:
           f"{egress_mutations} mutation checks; "
           f"authority {valid_authority} creators / {authority_changes} changes / "
           f"{authority_task} task subsets, {authority_mutations} mutation checks; "
+          f"session-lifecycle {lifecycle_workspace} workspace / {lifecycle_tokens} token / "
+          f"{lifecycle_sessions} session vectors, "
+          f"projection {projection_valid} valid / {projection_invalid} invalid / "
+          f"{projection_history} history / {projection_streaming} streaming vectors, "
           f"record-reference {reference_valid} valid / {reference_invalid} invalid, "
           f"observation-envelope {envelope_valid} valid / {envelope_invalid} invalid / "
           f"{envelope_decode_errors} decode errors, "
