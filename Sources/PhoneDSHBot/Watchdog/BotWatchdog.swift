@@ -49,6 +49,88 @@ public struct BotWatchdogConfig: Codable, Sendable, Equatable {
 
     public static let `default` = Self()
 
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case heartbeatTimeoutMs
+        case turnDeadlineMs
+        case taskDeadlineMs
+        case routineDeadlineMs
+        case repeatedToolCalls
+        case repeatedToolErrors
+        case maxUnitTokens
+        case maxUnitCostUsd
+        case goalMaxTotalTokens
+        case goalMaxTotalCostUsd
+        case tickMs
+        case historyLimit
+        case maxUnits
+    }
+
+    private struct AnyCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init(stringValue: String) {
+            self.stringValue = stringValue
+            self.intValue = nil
+        }
+
+        init?(intValue: Int) {
+            self.stringValue = String(intValue)
+            self.intValue = intValue
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let raw = try decoder.container(keyedBy: AnyCodingKey.self)
+        let known = Set(CodingKeys.allCases.map(\.rawValue))
+        for key in raw.allKeys where !known.contains(key.stringValue) {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath + [key],
+                debugDescription: "unknown watchdog config member \(key.stringValue)"))
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        func failure(_ key: CodingKeys, _ message: String) -> DecodingError {
+            .dataCorrupted(.init(
+                codingPath: decoder.codingPath + [AnyCodingKey(stringValue: key.rawValue)],
+                debugDescription: message))
+        }
+
+        func integer<T: BinaryInteger>(_ key: CodingKeys, _ fallback: T) throws -> T {
+            let rawKey = AnyCodingKey(stringValue: key.rawValue)
+            guard raw.contains(rawKey) else { return fallback }
+            let value = try container.decode(Int64.self, forKey: key)
+            guard value >= 0, let converted = T(exactly: value) else {
+                throw failure(key, "watchdog config \(key.rawValue) must be a non-negative integer")
+            }
+            return converted
+        }
+
+        func number(_ key: CodingKeys, _ fallback: Double) throws -> Double {
+            let rawKey = AnyCodingKey(stringValue: key.rawValue)
+            guard raw.contains(rawKey) else { return fallback }
+            let value = try container.decode(Double.self, forKey: key)
+            guard value.isFinite, value >= 0 else {
+                throw failure(key, "watchdog config \(key.rawValue) must be a non-negative finite number")
+            }
+            return value
+        }
+
+        heartbeatTimeoutMs = try integer(.heartbeatTimeoutMs, 120_000)
+        turnDeadlineMs = try integer(.turnDeadlineMs, 900_000)
+        taskDeadlineMs = try integer(.taskDeadlineMs, 600_000)
+        routineDeadlineMs = try integer(.routineDeadlineMs, 660_000)
+        repeatedToolCalls = try integer(.repeatedToolCalls, 5)
+        repeatedToolErrors = try integer(.repeatedToolErrors, 3)
+        maxUnitTokens = try integer(.maxUnitTokens, 200_000)
+        maxUnitCostUsd = try number(.maxUnitCostUsd, 2)
+        goalMaxTotalTokens = try integer(.goalMaxTotalTokens, 0)
+        goalMaxTotalCostUsd = try number(.goalMaxTotalCostUsd, 0)
+        tickMs = try integer(.tickMs, 5_000)
+        historyLimit = try integer(.historyLimit, 200)
+        maxUnits = try integer(.maxUnits, 1_000)
+    }
+
     public func deadlineMs(for kind: BotWatchdogUnitKind, override: Int64? = nil) -> Int64 {
         if let override, override > 0 { return override }
         switch kind {
@@ -176,6 +258,7 @@ public struct BotWatchdogFlag: Sendable, Equatable {
     public let unitKind: BotWatchdogUnitKind
     public let unitId: String
     public let botId: String?
+    public let sessionId: String?
     public let check: BotWatchdogCheck
     public let evidence: BotJSONValue
     public let at: Int64

@@ -21,6 +21,7 @@ from spec.v1.tools.spec_golden import validate_json
 from spec.tools.bot.golden_overlay import (
     METADATA_KEYS,
     assert_append_only,
+    canonical,
     load_json,
     merged_fixture,
     overlay_name,
@@ -4992,6 +4993,690 @@ def task_fixture_mutations(fixture):
     return 9
 
 
+
+WATCHDOG_CONFIG_DEFAULTS = {
+    "heartbeatTimeoutMs": 120000,
+    "turnDeadlineMs": 900000,
+    "taskDeadlineMs": 600000,
+    "routineDeadlineMs": 660000,
+    "repeatedToolCalls": 5,
+    "repeatedToolErrors": 3,
+    "maxUnitTokens": 200000,
+    "maxUnitCostUsd": 2,
+    "goalMaxTotalTokens": 0,
+    "goalMaxTotalCostUsd": 0,
+    "tickMs": 5000,
+    "historyLimit": 200,
+    "maxUnits": 1000,
+}
+WATCHDOG_CONFIG_INT64_FIELDS = frozenset({
+    "heartbeatTimeoutMs", "turnDeadlineMs", "taskDeadlineMs", "routineDeadlineMs",
+    "tickMs",
+})
+WATCHDOG_CONFIG_INT_FIELDS = frozenset({
+    "repeatedToolCalls", "repeatedToolErrors", "maxUnitTokens",
+    "goalMaxTotalTokens", "historyLimit", "maxUnits",
+})
+WATCHDOG_CONFIG_NUMBER_FIELDS = frozenset({"maxUnitCostUsd", "goalMaxTotalCostUsd"})
+WATCHDOG_CONFIG_MAX = 9223372036854775807
+WATCHDOG_UNIT_KINDS = frozenset({"turn", "task", "routine", "goal"})
+WATCHDOG_CHECKS = (
+    "deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error",
+    "quota", "webcontent_terminated", "thermal_pressure", "battery_pressure",
+)
+WATCHDOG_MOBILE_CHECKS = frozenset({
+    "webcontent_terminated", "thermal_pressure", "battery_pressure",
+})
+WATCHDOG_FLAG_KEYS = frozenset({
+    "check", "unitKind", "unitId", "botId", "sessionId", "at", "evidence",
+})
+
+
+def _watchdog_config_schema():
+    return schema("watchdog.schema.json")["properties"]["config"]
+
+
+def _watchdog_flag_schema():
+    return schema("watchdog.schema.json")["$defs"]["flagData"]
+
+
+def _resolved_watchdog_config(value):
+    resolved = dict(WATCHDOG_CONFIG_DEFAULTS)
+    resolved.update(value)
+    return resolved
+
+
+def _watchdog_config_error(value):
+    """Return the frozen code/path for one invalid config object."""
+    for name in value:
+        if name not in WATCHDOG_CONFIG_DEFAULTS:
+            return "watchdog.config.unknown", f"/config/{name}"
+    for name, item in value.items():
+        if name in WATCHDOG_CONFIG_NUMBER_FIELDS:
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                return "watchdog.config.type", f"/config/{name}"
+            if item != item or item in (float("inf"), float("-inf")) or item < 0:
+                return "watchdog.config.range", f"/config/{name}"
+            continue
+        if isinstance(item, bool) or not isinstance(item, int):
+            return "watchdog.config.type", f"/config/{name}"
+        if item < 0 or item > WATCHDOG_CONFIG_MAX:
+            return "watchdog.config.range", f"/config/{name}"
+    return None
+
+
+def _watchdog_deadline(kind, config, override=None):
+    if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+        return override
+    if kind == "turn":
+        return config["turnDeadlineMs"]
+    if kind == "task":
+        return config["taskDeadlineMs"]
+    if kind == "routine":
+        return config["routineDeadlineMs"]
+    return 0
+
+
+def _watchdog_sha256(text):
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _watchdog_evaluate(unit, now, config):
+    findings = []
+    deadline_at = unit.get("deadlineAt")
+    if deadline_at is not None and deadline_at > 0 and now > deadline_at:
+        findings.append(("deadline", {
+            "deadlineAt": deadline_at,
+            "now": now,
+            "elapsedMs": max(0, now - unit["startedAt"]),
+        }))
+    if unit.get("pendingApproval", 0) <= 0 and config["heartbeatTimeoutMs"] > 0:
+        last = unit.get("lastEventAt")
+        if last is None:
+            last = unit["startedAt"]
+        silent = now - last
+        if silent > config["heartbeatTimeoutMs"]:
+            findings.append(("heartbeat", {
+                "lastEventAt": last,
+                "now": now,
+                "silentMs": silent,
+                "thresholdMs": config["heartbeatTimeoutMs"],
+            }))
+    if (config["repeatedToolCalls"] > 0
+            and unit.get("repeatedToolSignatureCount", 0) >= config["repeatedToolCalls"]):
+        findings.append(("repeated_tool_signature", {
+            "signature": unit.get("lastToolSignature"),
+            "count": unit["repeatedToolSignatureCount"],
+            "threshold": config["repeatedToolCalls"],
+        }))
+    if (config["repeatedToolErrors"] > 0
+            and unit.get("repeatedToolErrorCount", 0) >= config["repeatedToolErrors"]):
+        findings.append(("repeated_tool_error", {
+            "errorSignature": unit.get("lastToolErrorSignature"),
+            "count": unit["repeatedToolErrorCount"],
+            "threshold": config["repeatedToolErrors"],
+        }))
+    tokens = max(0, unit.get("tokens", 0))
+    cost = max(0.0, unit.get("costUsd", 0.0))
+    over_tokens = config["maxUnitTokens"] > 0 and tokens > config["maxUnitTokens"]
+    over_cost = config["maxUnitCostUsd"] > 0 and cost > config["maxUnitCostUsd"]
+    if over_tokens or over_cost:
+        reason = "tokens_and_cost" if over_tokens and over_cost else (
+            "tokens" if over_tokens else "cost")
+        findings.append(("quota", {
+            "tokens": tokens,
+            "maxTokens": config["maxUnitTokens"],
+            "costUsd": cost,
+            "maxCostUsd": config["maxUnitCostUsd"],
+            "reason": reason,
+        }))
+    return findings
+
+
+class _WatchdogReferenceMonitor:
+    """Small reference state machine used only to prove the shared vectors."""
+
+    def __init__(self, config):
+        self.config = config
+        self.units = {}
+        self.seen = set()
+        self.pending_calls = {}
+        self.payloads = {}
+
+    def _emit(self, kind, unit_id, bot_id, session_id, check, at, evidence):
+        key = (kind, unit_id, check)
+        if key in self.seen:
+            return None
+        event_id = f"watchdog.flagged:{kind}:{unit_id}:{check}"
+        if event_id in self.payloads:
+            # The real monitor consults the durable event id before appending,
+            # so finishing and restarting the same unit cannot re-emit a check.
+            self.seen.add(key)
+            return None
+        self.seen.add(key)
+        payload = {
+            "check": check,
+            "unitKind": kind,
+            "unitId": unit_id,
+            "botId": bot_id,
+            "sessionId": session_id,
+            "at": at,
+            "evidence": evidence,
+        }
+        self.payloads[event_id] = payload
+        return check
+
+    def _evaluate(self, key, now):
+        kind, unit_id = key
+        unit = self.units[key]
+        emitted = []
+        for check, evidence in _watchdog_evaluate(unit, now, self.config):
+            value = self._emit(kind, unit_id, unit.get("botId"), unit.get("sessionId"),
+                               check, now, evidence)
+            if value is not None:
+                emitted.append(value)
+        return emitted
+
+    def apply(self, step):
+        op = step["op"]
+        if op == "start":
+            unit_id = step["id"].strip()
+            if not unit_id:
+                return []
+            key = (step["kind"], unit_id)
+            now = step.get("at", step.get("startedAt", 0))
+            if key in self.units:
+                unit = self.units[key]
+                if unit.get("botId") is None:
+                    unit["botId"] = step.get("botId")
+                if unit.get("sessionId") is None:
+                    unit["sessionId"] = step.get("sessionId")
+                last = unit.get("lastEventAt")
+                unit["lastEventAt"] = now if last is None else max(last, now)
+                return self._evaluate(key, now)
+            started = step.get("startedAt", now)
+            deadline_ms = _watchdog_deadline(step["kind"], self.config,
+                                             step.get("deadlineOverrideMs"))
+            self.units[key] = {
+                "kind": step["kind"],
+                "id": unit_id,
+                "botId": step.get("botId"),
+                "sessionId": step.get("sessionId"),
+                "startedAt": started,
+                "lastEventAt": now,
+                "deadlineAt": started + deadline_ms if deadline_ms > 0 else None,
+                "repeatedToolSignatureCount": 0,
+                "lastToolSignature": None,
+                "repeatedToolErrorCount": 0,
+                "lastToolErrorSignature": None,
+                "pendingApproval": 0,
+                "tokens": 0,
+                "costUsd": 0.0,
+            }
+            return self._evaluate(key, now)
+        if op == "tick":
+            emitted = []
+            for key in sorted(self.units, key=lambda item: (item[0], item[1])):
+                emitted.extend(self._evaluate(key, step["at"]))
+            return emitted
+        if op == "finish":
+            key = (step["kind"], step["id"])
+            self.units.pop(key, None)
+            self.seen = {item for item in self.seen if item[:2] != key}
+            return []
+        if op == "mobile":
+            check = step["event"]
+            tool_key = (step["kind"], step["id"].strip())
+            unit = self.units.get(tool_key, {})
+            value = self._emit(step["kind"], step["id"].strip(),
+                               step.get("botId", unit.get("botId")),
+                               step.get("sessionId", unit.get("sessionId")),
+                               check, step["at"], step.get("evidence", {}))
+            return [value] if value is not None else []
+        key = (step["kind"], step["id"])
+        unit = self.units.get(key)
+        if unit is None:
+            return []
+        now = step["at"]
+        if op == "toolCall":
+            digest = step.get("digest")
+            signature = (f"{step['name']}|{digest}"
+                         if isinstance(digest, str) and digest else step["name"])
+            if signature == unit.get("lastToolSignature"):
+                unit["repeatedToolSignatureCount"] += 1
+            else:
+                unit["lastToolSignature"] = signature
+                unit["repeatedToolSignatureCount"] = 1
+            call_id = step.get("callId")
+            if isinstance(call_id, str) and call_id:
+                self.pending_calls[call_id] = step["name"]
+        elif op == "toolResult":
+            call_id = step.get("callId")
+            pending_name = self.pending_calls.pop(call_id, None) if call_id else None
+            tool_name = pending_name or step.get("name") or "unknown"
+            if step["status"].lower() == "error":
+                error_text = step.get("error") or step.get("resultDigest") or "error"
+                signature = f"{tool_name}|{_watchdog_sha256(error_text)}"
+                if signature == unit.get("lastToolErrorSignature"):
+                    unit["repeatedToolErrorCount"] += 1
+                else:
+                    unit["lastToolErrorSignature"] = signature
+                    unit["repeatedToolErrorCount"] = 1
+            else:
+                unit["lastToolErrorSignature"] = None
+                unit["repeatedToolErrorCount"] = 0
+        elif op == "usage":
+            if step.get("tokens", 0) > 0:
+                unit["tokens"] = unit.get("tokens", 0) + step["tokens"]
+            if step.get("costUsd", 0) > 0:
+                unit["costUsd"] = unit.get("costUsd", 0.0) + step["costUsd"]
+        else:
+            raise AssertionError(f"watchdog monitor step: unknown op {op!r}")
+        last = unit.get("lastEventAt")
+        unit["lastEventAt"] = now if last is None else max(last, now)
+        return self._evaluate(key, now)
+
+
+def validate_watchdog_phone_fixture(fixture, upstream):
+    """Validate D7 config/unit/monitor/flag vectors and their reference behavior."""
+    if fixture.get("schemaVersion") != 1:
+        raise AssertionError("watchdog.phone: schemaVersion must be 1")
+    if fixture.get("vector") != "watchdog.phone":
+        raise AssertionError("watchdog.phone: vector must be watchdog.phone")
+    if fixture.get("upstream") != ["watchdog.json"]:
+        raise AssertionError("watchdog.phone: upstream must be [watchdog.json]")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("watchdog.phone: delta must be non-empty")
+    if fixture["source"]["checkout"] != upstream["source"]["checkout"]:
+        raise AssertionError("watchdog.phone: source.checkout differs from watchdog.json")
+    config_schema = _watchdog_config_schema()
+    flag_schema = _watchdog_flag_schema()
+
+    config_cases = fixture.get("configCases", {})
+    valid_configs = config_cases.get("valid", [])
+    invalid_configs = config_cases.get("invalid", [])
+    if not valid_configs or not invalid_configs:
+        raise AssertionError("watchdog.phone.configCases needs valid and invalid cases")
+    valid_names = set()
+    for index, case in enumerate(valid_configs):
+        where = f"watchdog.phone.configCases.valid[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in valid_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        valid_names.add(name)
+        validate_json(case["input"], config_schema, where + ".input")
+        resolved = _resolved_watchdog_config(case["input"])
+        if resolved != case.get("expect"):
+            raise AssertionError(f"{where}: resolved config differs from expect")
+        validate_json(resolved, config_schema, where + ".expect")
+    invalid_names = set()
+    for index, case in enumerate(invalid_configs):
+        where = f"watchdog.phone.configCases.invalid[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in invalid_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        invalid_names.add(name)
+        try:
+            validate_json(case["input"], config_schema, where + ".input")
+        except Exception:
+            pass
+        else:
+            raise AssertionError(f"{where}: invalid config unexpectedly validates")
+        expected = _watchdog_config_error(case["input"])
+        if expected is None:
+            raise AssertionError(f"{where}: fixture does not name a frozen config error case")
+        if case.get("error") != {"code": expected[0], "path": expected[1]}:
+            raise AssertionError(f"{where}: error code/path differs from {expected}")
+
+    unit_cases = fixture.get("unitCases", {}).get("valid", [])
+    if not unit_cases:
+        raise AssertionError("watchdog.phone.unitCases.valid must be non-empty")
+    unit_names = set()
+    for index, case in enumerate(unit_cases):
+        where = f"watchdog.phone.unitCases.valid[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in unit_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        unit_names.add(name)
+        kind = case.get("kind")
+        if kind not in WATCHDOG_UNIT_KINDS:
+            raise AssertionError(f"{where}: unknown kind {kind!r}")
+        if not isinstance(case.get("id"), str) or not case["id"].strip():
+            raise AssertionError(f"{where}: id must be non-empty")
+        expected = case.get("expect")
+        if not isinstance(expected, dict):
+            raise AssertionError(f"{where}: expect must be an object")
+        if expected.get("kind") != kind or expected.get("id") != case["id"].strip():
+            raise AssertionError(f"{where}: expect kind/id differs")
+        deadline_ms = _watchdog_deadline(kind, WATCHDOG_CONFIG_DEFAULTS,
+                                         case.get("deadlineOverrideMs"))
+        started = case.get("startedAt", case["at"])
+        expected_deadline = started + deadline_ms if deadline_ms > 0 else None
+        if expected.get("deadlineAt") != expected_deadline:
+            raise AssertionError(f"{where}: deadlineAt must be {expected_deadline!r}")
+        if expected.get("startedAt") != started or expected.get("lastEventAt") != case["at"]:
+            raise AssertionError(f"{where}: startedAt/lastEventAt differ from the rule")
+
+    scenarios = fixture.get("monitorCases", [])
+    if not scenarios:
+        raise AssertionError("watchdog.phone.monitorCases must be non-empty")
+    scenario_names = set()
+    generated_payloads = {}
+    scenario_count = 0
+    step_count = 0
+    for index, scenario in enumerate(scenarios):
+        where = f"watchdog.phone.monitorCases[{index}]"
+        name = scenario.get("name")
+        if not isinstance(name, str) or not name or name in scenario_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        scenario_names.add(name)
+        scenario_count += 1
+        validate_json(scenario["config"], config_schema, where + ".config")
+        config = _resolved_watchdog_config(scenario["config"])
+        monitor = _WatchdogReferenceMonitor(config)
+        for step_index, step in enumerate(scenario.get("steps", [])):
+            step_where = f"{where}.steps[{step_index}]"
+            op = step.get("op")
+            if op not in {"start", "tick", "finish", "mobile", "toolCall",
+                          "toolResult", "usage"}:
+                raise AssertionError(f"{step_where}: unknown op {op!r}")
+            if op != "tick" and "kind" in step and step["kind"] not in WATCHDOG_UNIT_KINDS:
+                raise AssertionError(f"{step_where}: unknown unit kind")
+            if op != "finish" and "at" not in step:
+                raise AssertionError(f"{step_where}: at is required")
+            step_count += 1
+            emitted = monitor.apply(step)
+            if emitted != step.get("expectChecks"):
+                raise AssertionError(
+                    f"{step_where}: expected checks {step.get('expectChecks')!r}, got {emitted!r}")
+            if "expectUnit" in step:
+                expected_unit = step["expectUnit"]
+                key = (step["kind"], step["id"].strip())
+                actual = monitor.units.get(key)
+                if expected_unit is None:
+                    if actual is not None:
+                        raise AssertionError(f"{step_where}: expected no unit")
+                elif actual is None or any(
+                        actual.get(name) != value for name, value in expected_unit.items()):
+                    raise AssertionError(
+                        f"{step_where}: unit {actual!r} differs from {expected_unit!r}")
+        if monitor.payloads:
+            generated_payloads.update(monitor.payloads)
+
+    payload_cases = fixture.get("flagPayloadCases", [])
+    if not payload_cases:
+        raise AssertionError("watchdog.phone.flagPayloadCases must be non-empty")
+    payload_names = set()
+    for index, case in enumerate(payload_cases):
+        where = f"watchdog.phone.flagPayloadCases[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in payload_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        payload_names.add(name)
+        event_id = case.get("eventId")
+        if not isinstance(event_id, str) or not event_id.startswith("watchdog.flagged:"):
+            raise AssertionError(f"{where}: eventId must be a watchdog.flagged id")
+        expected = case.get("expect")
+        if not isinstance(expected, dict) or set(expected) != WATCHDOG_FLAG_KEYS:
+            raise AssertionError(f"{where}: expect must carry exactly {sorted(WATCHDOG_FLAG_KEYS)}")
+        validate_json(expected, flag_schema, where + ".expect")
+        if expected["check"] not in WATCHDOG_CHECKS:
+            raise AssertionError(f"{where}: unknown check")
+        if expected["check"] in WATCHDOG_MOBILE_CHECKS:
+            if expected["evidence"] == {} and expected["check"] != "webcontent_terminated":
+                raise AssertionError(f"{where}: a mobile reading may not be fabricated as empty")
+        if generated_payloads.get(event_id) != expected:
+            raise AssertionError(f"{where}: monitor payload differs for {event_id}")
+    if set(generated_payloads) != {case["eventId"] for case in payload_cases}:
+        raise AssertionError("watchdog.phone.flagPayloadCases do not cover every monitor flag")
+
+    profiles = fixture.get("contextProfiles")
+    if profiles != {
+        "source": "context-profiles.json",
+        "readOnly": True,
+        "botRuntimeCompaction": False,
+        "profiles": ["default", "conservative"],
+        "unknownResolution": "default",
+    }:
+        raise AssertionError("watchdog.phone.contextProfiles must remain read-only data")
+    profile_fixture = load("context-profiles.json")
+    if sorted(profile_fixture["valid"]["profiles"]) != sorted(profiles["profiles"]):
+        raise AssertionError("watchdog.phone.contextProfiles differ from context-profiles.json")
+    return (len(valid_configs), len(invalid_configs), len(unit_cases),
+            scenario_count, step_count, len(payload_cases))
+
+
+CONTEXT_LINT_THRESHOLD_DEFAULTS = {
+    "personaCharsWarn": 20000,
+    "personaCharsError": 32000,
+    "toolResultTokensWarn": 4096,
+    "toolResultTokensError": 12000,
+    "toolDefTokensWarn": 8000,
+    "toolDefTokensError": 16000,
+    "toolCountWarn": 40,
+    "maxRuntimeContextsPerTurn": 2,
+    "repeatedTextChars": 500,
+    "repeatedTextMaxFindings": 20,
+}
+CONTEXT_LINT_LOCATION_KEYS = {
+    "system-prompt-bloat": (
+        frozenset({"sessionId", "source", "chars"}),
+        frozenset({"sessionId", "source", "turn", "seq", "chars"}),
+    ),
+    "tool-result-bloat": (
+        frozenset({"sessionId", "turn", "step", "seq", "callId", "tool", "tokens"}),
+    ),
+    "duplicate-context": (
+        frozenset({"sessionId", "turn", "seq", "occurrences"}),
+        frozenset({"sessionId", "turn", "seq", "chars"}),
+        frozenset({"sessionId", "turn", "seq", "earlierSeq", "chars"}),
+        frozenset({"sessionId", "turn", "seq", "firstSeq", "occurrences", "chars"}),
+    ),
+    "orphan-tool-call": (
+        frozenset({"sessionId", "turn", "step", "seq", "callId", "tool"}),
+    ),
+    "orphan-tool-result": (
+        frozenset({"sessionId", "turn", "step", "seq", "callId"}),
+    ),
+    "tool-def-bloat": (
+        frozenset({"sessionId", "source", "count", "tokens", "chars"}),
+    ),
+}
+
+
+def _decode_lint_thresholds(value):
+    thresholds = dict(CONTEXT_LINT_THRESHOLD_DEFAULTS)
+    if not isinstance(value, dict):
+        raise AssertionError("context-lint thresholds must be an object")
+    for name, item in value.items():
+        if name not in thresholds:
+            continue
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise AssertionError(f"context-lint threshold {name} must be an integer")
+        thresholds[name] = item
+    return thresholds
+
+
+def _check_lint_finding(finding, where):
+    validate_json([finding], schema("context-lint.schema.json"), where)
+    rule = finding["rule"]
+    keys = frozenset(finding["location"])
+    if keys not in CONTEXT_LINT_LOCATION_KEYS[rule]:
+        raise AssertionError(f"{where}: location keys {sorted(keys)} are not frozen for {rule}")
+
+
+def _lint_finding_error(finding):
+    """Return the frozen code/path for one deliberately invalid finding."""
+    if not isinstance(finding, dict):
+        return "context_lint.finding_type", "/finding"
+    rule = finding.get("rule")
+    if rule not in CONTEXT_LINT_LOCATION_KEYS:
+        return "context_lint.unknown_rule", "/finding/rule"
+    if finding.get("severity") not in ("warn", "error"):
+        return "context_lint.unknown_severity", "/finding/severity"
+    if not isinstance(finding.get("evidence"), str) or not finding["evidence"]:
+        return "context_lint.finding_required", "/finding/evidence"
+    location = finding.get("location")
+    if not isinstance(location, dict):
+        return "context_lint.location_type", "/finding/location"
+    keys = frozenset(location)
+    variants = CONTEXT_LINT_LOCATION_KEYS[rule]
+    if keys in variants:
+        return None
+    for variant in variants:
+        extra = keys - variant
+        if extra:
+            key = sorted(extra)[0]
+            return "context_lint.location_keys", f"/finding/location/{key}"
+    missing = set(variants[0]) - keys
+    key = sorted(missing)[0]
+    return "context_lint.location_keys", f"/finding/location/{key}"
+
+
+def validate_context_lint_phone_fixture(fixture, upstream):
+    """Validate D7 lint cases, thresholds and the per-rule location keys."""
+    if fixture.get("schemaVersion") != 1:
+        raise AssertionError("context-lint.phone: schemaVersion must be 1")
+    if fixture.get("vector") != "context-lint.phone":
+        raise AssertionError("context-lint.phone: vector must be context-lint.phone")
+    if fixture.get("upstream") != ["context-lint.json"]:
+        raise AssertionError("context-lint.phone: upstream must be [context-lint.json]")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("context-lint.phone: delta must be non-empty")
+    if fixture["source"]["checkout"] != upstream["source"]["checkout"]:
+        raise AssertionError("context-lint.phone: source.checkout differs from context-lint.json")
+
+    thresholds = fixture.get("thresholds", {})
+    if thresholds.get("default") != CONTEXT_LINT_THRESHOLD_DEFAULTS:
+        raise AssertionError("context-lint.phone.thresholds.default differs from D7")
+    for index, case in enumerate(thresholds.get("invalid", [])):
+        where = f"context-lint.phone.thresholds.invalid[{index}]"
+        try:
+            _decode_lint_thresholds(case["input"])
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(f"{where}: invalid thresholds unexpectedly decode")
+        if not case.get("error", {}).get("code"):
+            raise AssertionError(f"{where}: error code is required")
+        if not case.get("error", {}).get("path"):
+            raise AssertionError(f"{where}: error path is required")
+
+    valid = fixture.get("valid", [])
+    if not valid:
+        raise AssertionError("context-lint.phone.valid must be non-empty")
+    for index, finding in enumerate(valid):
+        _check_lint_finding(finding, f"context-lint.phone.valid[{index}]")
+
+    invalid = fixture.get("invalid", [])
+    if not invalid:
+        raise AssertionError("context-lint.phone.invalid must be non-empty")
+    for index, case in enumerate(invalid):
+        where = f"context-lint.phone.invalid[{index}]"
+        try:
+            _check_lint_finding(case["finding"], where + ".finding")
+        except Exception:
+            pass
+        else:
+            raise AssertionError(f"{where}: invalid finding unexpectedly validates")
+        expected = _lint_finding_error(case["finding"])
+        if expected is None:
+            raise AssertionError(f"{where}: invalid fixture names no frozen error")
+        if case.get("error") != {"code": expected[0], "path": expected[1]}:
+            raise AssertionError(f"{where}: error code/path differs from {expected}")
+
+    cases = fixture.get("cases", [])
+    if not cases:
+        raise AssertionError("context-lint.phone.cases must be non-empty")
+    covered_rules = set()
+    expected_from_cases = []
+    case_names = set()
+    for index, case in enumerate(cases):
+        where = f"context-lint.phone.cases[{index}]"
+        name = case.get("name")
+        if not isinstance(name, str) or not name or name in case_names:
+            raise AssertionError(f"{where}: name must be unique and non-empty")
+        case_names.add(name)
+        _decode_lint_thresholds(case.get("thresholds", {}))
+        expected = case.get("expect")
+        if not isinstance(expected, list) or not expected:
+            raise AssertionError(f"{where}: expect must be a non-empty array")
+        for finding_index, finding in enumerate(expected):
+            _check_lint_finding(finding, f"{where}.expect[{finding_index}]")
+            covered_rules.add(finding["rule"])
+        expected_from_cases.extend(expected)
+    if covered_rules != set(CONTEXT_LINT_LOCATION_KEYS):
+        raise AssertionError(f"context-lint.phone.cases do not cover all six rules: {sorted(covered_rules)}")
+    if canonical(expected_from_cases) != canonical(valid):
+        raise AssertionError(
+            "context-lint.phone.valid must be exactly the findings named by cases[].expect")
+    return len(cases), len(valid), len(invalid)
+
+
+def watchdog_phone_mutations(fixture):
+    """Prove the D7 watchdog checker rejects altered vectors."""
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_watchdog_phone_fixture(copy, load("watchdog.json"))
+        except Exception:
+            return
+        raise AssertionError(f"watchdog mutation not detected: {label}")
+
+    def config_case(copy, name, group="valid"):
+        return next(case for case in copy["configCases"][group] if case["name"] == name)
+
+    def scenario(copy, name):
+        return next(case for case in copy["monitorCases"] if case["name"] == name)
+
+    def payload(copy, name):
+        return next(case for case in copy["flagPayloadCases"] if case["name"] == name)
+
+    expect_failure("config-default", lambda copy: config_case(
+        copy, "missing-all-uses-defaults")["expect"].update({"tickMs": 0}))
+    expect_failure("config-error-code", lambda copy: config_case(
+        copy, "unknown-field", "invalid")["error"].update({"code": "watchdog.config.type"}))
+    expect_failure("unit-deadline", lambda copy: next(
+        case for case in copy["unitCases"]["valid"]
+        if case["name"] == "turn-default-deadline")["expect"].update({"deadlineAt": 1}))
+    expect_failure("monitor-checks", lambda copy: scenario(
+        copy, "base-and-mobile-once")["steps"][1].update({"expectChecks": ["deadline"]}))
+    expect_failure("flag-at", lambda copy: payload(copy, "deadline")["expect"].update({"at": 0}))
+    expect_failure("mobile-empty", lambda copy: payload(
+        copy, "thermal-pressure")["expect"].update({"evidence": {}}))
+    expect_failure("read-only-profile", lambda copy: copy["contextProfiles"].update(
+        {"botRuntimeCompaction": True}))
+    return 7
+
+
+def context_lint_phone_mutations(fixture):
+    """Prove the D7 lint checker rejects altered thresholds and locations."""
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_context_lint_phone_fixture(copy, load("context-lint.json"))
+        except Exception:
+            return
+        raise AssertionError(f"context-lint mutation not detected: {label}")
+
+    def case(copy, name):
+        return next(item for item in copy["cases"] if item["name"] == name)
+
+    expect_failure("threshold", lambda copy: copy["thresholds"]["default"].update(
+        {"personaCharsWarn": 19999}))
+    expect_failure("location-key", lambda copy: case(
+        copy, "tool-def-error")["expect"][0]["location"].update({"extra": True}))
+    expect_failure("severity", lambda copy: case(
+        copy, "persona-warn-default")["expect"][0].update({"severity": "error"}))
+    expect_failure("invalid-error-code", lambda copy: copy["invalid"][0]["error"].update(
+        {"code": "context_lint.unknown_rule"}))
+    expect_failure("source", lambda copy: case(
+        copy, "tool-def-error")["expect"][0]["location"].update({"source": "request/header"}))
+    return 5
+
+
 def main() -> int:
     check_overlays()
     rpc_valid, rpc_invalid = validate_mcp_rpc_fixture(load(MCP_RPC_VECTOR))
@@ -5113,7 +5798,15 @@ def main() -> int:
     check(load("watchdog.json")["valid"], "watchdog.schema.json", "watchdog")
     check(load("fish-director.json")["valid"], "fish-director.schema.json", "fish-director")
     check(load("context-profiles.json")["valid"], "context-profiles.schema.json", "context-profiles")
-    check(load("context-lint.json")["valid"], "context-lint.schema.json", "context-lint")
+    check(load_merged("context-lint.json")["valid"], "context-lint.schema.json", "context-lint")
+    watchdog_valid_configs, watchdog_invalid_configs, watchdog_units, \
+        watchdog_scenarios, watchdog_steps, watchdog_payloads = (
+            validate_watchdog_phone_fixture(
+                load("watchdog.phone.json"), load("watchdog.json")))
+    watchdog_mutations = watchdog_phone_mutations(load("watchdog.phone.json"))
+    lint_cases, lint_valid, lint_invalid = validate_context_lint_phone_fixture(
+        load("context-lint.phone.json"), load("context-lint.json"))
+    lint_mutations = context_lint_phone_mutations(load("context-lint.phone.json"))
     effects = load_merged("tool-effects.json")
     check_many(effects["valid"], "tool-effects.schema.json", "tool-effects")
     check_many(effects["invalid"], "tool-effects.schema.json", "tool-effects.invalid")
@@ -5182,6 +5875,12 @@ def main() -> int:
     projection_valid, projection_invalid, projection_history, projection_streaming = (
         validate_projection_fixture(load(PROJECTION_VECTOR)))
     print("bot vectors: PASS (schemas, positive vectors, negative vectors; "
+          f"watchdog {watchdog_valid_configs} valid / {watchdog_invalid_configs} invalid configs, "
+          f"{watchdog_units} units / {watchdog_scenarios} monitor scenarios / "
+          f"{watchdog_steps} steps / {watchdog_payloads} payloads, "
+          f"{watchdog_mutations} mutation checks; "
+          f"context-lint {lint_cases} cases / {lint_valid} valid / {lint_invalid} invalid findings, "
+          f"{lint_mutations} mutation checks; "
           f"turn-origin {valid_origins} valid / {invalid_origins} invalid, "
           f"{mutations} mutation checks; "
           f"mcp-egress {valid_egress} valid / {invalid_egress} invalid, "

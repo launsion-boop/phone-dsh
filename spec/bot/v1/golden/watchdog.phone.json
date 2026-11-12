@@ -1,0 +1,773 @@
+{
+  "schemaVersion": 1,
+  "vector": "watchdog.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [
+    "watchdog.json"
+  ],
+  "delta": [
+    "D7 freezes the named watchdog config fields, unit lifecycle, once-per-unit evaluation, the full watchdog.flagged data payload and the mobile host-signal boundary. The upstream watchdog.json stays byte-identical; these cases live in the phone overlay.",
+    "Config defaults are exercised as values, not prose: an absent member takes the schema default; zero disables the corresponding check; negative, wrong-type and unknown members are rejected with the codes in watchdog.md §2.",
+    "The monitor scenarios drive the real BotWatchdogMonitor: start/finish idempotency, tick cadence, all five base checks, the three mobile descriptors and the once-per-unit set."
+  ],
+  "configCases": {
+    "valid": [
+      {
+        "name": "missing-all-uses-defaults",
+        "input": {},
+        "expect": {
+          "heartbeatTimeoutMs": 120000,
+          "turnDeadlineMs": 900000,
+          "taskDeadlineMs": 600000,
+          "routineDeadlineMs": 660000,
+          "repeatedToolCalls": 5,
+          "repeatedToolErrors": 3,
+          "maxUnitTokens": 200000,
+          "maxUnitCostUsd": 2,
+          "goalMaxTotalTokens": 0,
+          "goalMaxTotalCostUsd": 0,
+          "tickMs": 5000,
+          "historyLimit": 200,
+          "maxUnits": 1000
+        }
+      },
+      {
+        "name": "missing-some-uses-defaults",
+        "input": {
+          "tickMs": 2500,
+          "maxUnits": 10
+        },
+        "expect": {
+          "heartbeatTimeoutMs": 120000,
+          "turnDeadlineMs": 900000,
+          "taskDeadlineMs": 600000,
+          "routineDeadlineMs": 660000,
+          "repeatedToolCalls": 5,
+          "repeatedToolErrors": 3,
+          "maxUnitTokens": 200000,
+          "maxUnitCostUsd": 2,
+          "goalMaxTotalTokens": 0,
+          "goalMaxTotalCostUsd": 0,
+          "tickMs": 2500,
+          "historyLimit": 200,
+          "maxUnits": 10
+        }
+      },
+      {
+        "name": "zero-disables-active-thresholds",
+        "input": {
+          "heartbeatTimeoutMs": 0,
+          "turnDeadlineMs": 0,
+          "taskDeadlineMs": 0,
+          "routineDeadlineMs": 0,
+          "repeatedToolCalls": 0,
+          "repeatedToolErrors": 0,
+          "maxUnitTokens": 0,
+          "maxUnitCostUsd": 0,
+          "goalMaxTotalTokens": 0,
+          "goalMaxTotalCostUsd": 0,
+          "tickMs": 0,
+          "historyLimit": 0,
+          "maxUnits": 0
+        },
+        "expect": {
+          "heartbeatTimeoutMs": 0,
+          "turnDeadlineMs": 0,
+          "taskDeadlineMs": 0,
+          "routineDeadlineMs": 0,
+          "repeatedToolCalls": 0,
+          "repeatedToolErrors": 0,
+          "maxUnitTokens": 0,
+          "maxUnitCostUsd": 0,
+          "goalMaxTotalTokens": 0,
+          "goalMaxTotalCostUsd": 0,
+          "tickMs": 0,
+          "historyLimit": 0,
+          "maxUnits": 0
+        }
+      },
+      {
+        "name": "full-explicit",
+        "input": {
+          "heartbeatTimeoutMs": 1000,
+          "turnDeadlineMs": 2000,
+          "taskDeadlineMs": 3000,
+          "routineDeadlineMs": 4000,
+          "repeatedToolCalls": 7,
+          "repeatedToolErrors": 4,
+          "maxUnitTokens": 5000,
+          "maxUnitCostUsd": 1.5,
+          "goalMaxTotalTokens": 6000,
+          "goalMaxTotalCostUsd": 2.5,
+          "tickMs": 250,
+          "historyLimit": 25,
+          "maxUnits": 30
+        },
+        "expect": {
+          "heartbeatTimeoutMs": 1000,
+          "turnDeadlineMs": 2000,
+          "taskDeadlineMs": 3000,
+          "routineDeadlineMs": 4000,
+          "repeatedToolCalls": 7,
+          "repeatedToolErrors": 4,
+          "maxUnitTokens": 5000,
+          "maxUnitCostUsd": 1.5,
+          "goalMaxTotalTokens": 6000,
+          "goalMaxTotalCostUsd": 2.5,
+          "tickMs": 250,
+          "historyLimit": 25,
+          "maxUnits": 30
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "negative-deadline",
+        "input": {
+          "turnDeadlineMs": -1
+        },
+        "error": {
+          "code": "watchdog.config.range",
+          "path": "/config/turnDeadlineMs"
+        }
+      },
+      {
+        "name": "wrong-type",
+        "input": {
+          "tickMs": "5000"
+        },
+        "error": {
+          "code": "watchdog.config.type",
+          "path": "/config/tickMs"
+        }
+      },
+      {
+        "name": "null-is-not-absent",
+        "input": {
+          "heartbeatTimeoutMs": null
+        },
+        "error": {
+          "code": "watchdog.config.type",
+          "path": "/config/heartbeatTimeoutMs"
+        }
+      },
+      {
+        "name": "unknown-field",
+        "input": {
+          "tickMs": 5000,
+          "futureField": 1
+        },
+        "error": {
+          "code": "watchdog.config.unknown",
+          "path": "/config/futureField"
+        }
+      },
+      {
+        "name": "too-large",
+        "input": {
+          "maxUnitTokens": 9223372036854775808
+        },
+        "error": {
+          "code": "watchdog.config.range",
+          "path": "/config/maxUnitTokens"
+        }
+      }
+    ]
+  },
+  "unitCases": {
+    "valid": [
+      {
+        "name": "turn-default-deadline",
+        "kind": "turn",
+        "id": "turn-1",
+        "botId": "main",
+        "sessionId": "gb-main",
+        "startedAt": 1000,
+        "at": 1000,
+        "expect": {
+          "kind": "turn",
+          "id": "turn-1",
+          "botId": "main",
+          "sessionId": "gb-main",
+          "startedAt": 1000,
+          "lastEventAt": 1000,
+          "deadlineAt": 901000
+        }
+      },
+      {
+        "name": "task-default-deadline",
+        "kind": "task",
+        "id": "task-1",
+        "startedAt": 1000,
+        "at": 1000,
+        "expect": {
+          "kind": "task",
+          "id": "task-1",
+          "botId": null,
+          "sessionId": null,
+          "startedAt": 1000,
+          "lastEventAt": 1000,
+          "deadlineAt": 601000
+        }
+      },
+      {
+        "name": "routine-default-deadline",
+        "kind": "routine",
+        "id": "routine-1",
+        "startedAt": 1000,
+        "at": 1000,
+        "expect": {
+          "kind": "routine",
+          "id": "routine-1",
+          "botId": null,
+          "sessionId": null,
+          "startedAt": 1000,
+          "lastEventAt": 1000,
+          "deadlineAt": 661000
+        }
+      },
+      {
+        "name": "goal-has-no-default-deadline",
+        "kind": "goal",
+        "id": "goal-1",
+        "startedAt": 1000,
+        "at": 1000,
+        "expect": {
+          "kind": "goal",
+          "id": "goal-1",
+          "botId": null,
+          "sessionId": null,
+          "startedAt": 1000,
+          "lastEventAt": 1000,
+          "deadlineAt": null
+        }
+      },
+      {
+        "name": "positive-override-applies-to-goal",
+        "kind": "goal",
+        "id": "goal-override",
+        "startedAt": 1000,
+        "at": 1000,
+        "deadlineOverrideMs": 2500,
+        "expect": {
+          "kind": "goal",
+          "id": "goal-override",
+          "botId": null,
+          "sessionId": null,
+          "startedAt": 1000,
+          "lastEventAt": 1000,
+          "deadlineAt": 3500
+        }
+      },
+      {
+        "name": "explicit-started-at-does-not-move",
+        "kind": "turn",
+        "id": "turn-late",
+        "startedAt": 500,
+        "at": 900,
+        "expect": {
+          "kind": "turn",
+          "id": "turn-late",
+          "botId": null,
+          "sessionId": null,
+          "startedAt": 500,
+          "lastEventAt": 900,
+          "deadlineAt": 900500
+        }
+      }
+    ]
+  },
+  "monitorCases": [
+    {
+      "name": "base-and-mobile-once",
+      "config": {
+        "heartbeatTimeoutMs": 10,
+        "turnDeadlineMs": 10,
+        "taskDeadlineMs": 10,
+        "routineDeadlineMs": 10,
+        "repeatedToolCalls": 2,
+        "repeatedToolErrors": 2,
+        "maxUnitTokens": 10,
+        "maxUnitCostUsd": 1,
+        "goalMaxTotalTokens": 0,
+        "goalMaxTotalCostUsd": 0,
+        "tickMs": 5000,
+        "historyLimit": 200,
+        "maxUnits": 1000
+      },
+      "steps": [
+        {
+          "op": "start",
+          "kind": "turn",
+          "id": "unit-base",
+          "botId": "main",
+          "sessionId": "gb-main",
+          "startedAt": 100,
+          "at": 100,
+          "expectChecks": []
+        },
+        {
+          "op": "tick",
+          "at": 111,
+          "expectChecks": [
+            "deadline",
+            "heartbeat"
+          ]
+        },
+        {
+          "op": "tick",
+          "at": 112,
+          "expectChecks": []
+        },
+        {
+          "op": "mobile",
+          "event": "thermal_pressure",
+          "kind": "turn",
+          "id": "unit-base",
+          "evidence": {
+            "pressure": "serious"
+          },
+          "at": 113,
+          "expectChecks": [
+            "thermal_pressure"
+          ],
+          "botId": "main",
+          "sessionId": "gb-main"
+        },
+        {
+          "op": "mobile",
+          "event": "thermal_pressure",
+          "kind": "turn",
+          "id": "unit-base",
+          "evidence": {
+            "pressure": "serious"
+          },
+          "at": 114,
+          "expectChecks": [],
+          "botId": "main",
+          "sessionId": "gb-main"
+        },
+        {
+          "op": "mobile",
+          "event": "webcontent_terminated",
+          "kind": "turn",
+          "id": "unit-base",
+          "evidence": {},
+          "at": 115,
+          "expectChecks": [
+            "webcontent_terminated"
+          ],
+          "botId": "main",
+          "sessionId": "gb-main"
+        },
+        {
+          "op": "mobile",
+          "event": "battery_pressure",
+          "kind": "turn",
+          "id": "unit-base",
+          "evidence": {
+            "level": 0.05,
+            "state": "low"
+          },
+          "at": 116,
+          "expectChecks": [
+            "battery_pressure"
+          ],
+          "botId": "main",
+          "sessionId": "gb-main"
+        },
+        {
+          "op": "finish",
+          "kind": "turn",
+          "id": "unit-base",
+          "expectUnit": null,
+          "expectChecks": []
+        },
+        {
+          "op": "start",
+          "kind": "turn",
+          "id": "unit-base",
+          "botId": "main",
+          "sessionId": "gb-main",
+          "startedAt": 200,
+          "at": 200,
+          "expectChecks": []
+        },
+        {
+          "op": "tick",
+          "at": 211,
+          "expectChecks": [],
+          "note": "the durable event id for (turn,unit-base,deadline|heartbeat) already exists, so a restart does not emit a second event"
+        },
+        {
+          "op": "finish",
+          "kind": "turn",
+          "id": "unit-base",
+          "expectUnit": null,
+          "expectChecks": []
+        }
+      ]
+    },
+    {
+      "name": "repeated-and-quota",
+      "config": {
+        "heartbeatTimeoutMs": 0,
+        "turnDeadlineMs": 0,
+        "taskDeadlineMs": 0,
+        "routineDeadlineMs": 0,
+        "repeatedToolCalls": 2,
+        "repeatedToolErrors": 2,
+        "maxUnitTokens": 10,
+        "maxUnitCostUsd": 1,
+        "goalMaxTotalTokens": 0,
+        "goalMaxTotalCostUsd": 0,
+        "tickMs": 1000,
+        "historyLimit": 200,
+        "maxUnits": 1000
+      },
+      "steps": [
+        {
+          "op": "start",
+          "kind": "task",
+          "id": "unit-repeat",
+          "botId": "main",
+          "sessionId": "gb-task",
+          "startedAt": 100,
+          "at": 100,
+          "expectChecks": []
+        },
+        {
+          "op": "toolCall",
+          "kind": "task",
+          "id": "unit-repeat",
+          "name": "read",
+          "digest": "d",
+          "callId": "call-1",
+          "at": 101,
+          "expectChecks": []
+        },
+        {
+          "op": "toolCall",
+          "kind": "task",
+          "id": "unit-repeat",
+          "name": "read",
+          "digest": "d",
+          "callId": "call-2",
+          "at": 102,
+          "expectChecks": [
+            "repeated_tool_signature"
+          ]
+        },
+        {
+          "op": "toolResult",
+          "kind": "task",
+          "id": "unit-repeat",
+          "status": "error",
+          "error": "same",
+          "callId": "call-1",
+          "at": 103,
+          "expectChecks": []
+        },
+        {
+          "op": "toolResult",
+          "kind": "task",
+          "id": "unit-repeat",
+          "status": "error",
+          "error": "same",
+          "callId": "call-2",
+          "at": 104,
+          "expectChecks": [
+            "repeated_tool_error"
+          ]
+        },
+        {
+          "op": "usage",
+          "kind": "task",
+          "id": "unit-repeat",
+          "tokens": 11,
+          "costUsd": 0,
+          "at": 105,
+          "expectChecks": [
+            "quota"
+          ]
+        },
+        {
+          "op": "usage",
+          "kind": "task",
+          "id": "unit-repeat",
+          "tokens": 1,
+          "costUsd": 2,
+          "at": 106,
+          "expectChecks": []
+        },
+        {
+          "op": "tick",
+          "at": 107,
+          "expectChecks": []
+        },
+        {
+          "op": "finish",
+          "kind": "task",
+          "id": "unit-repeat",
+          "expectUnit": null,
+          "expectChecks": []
+        },
+        {
+          "op": "mobile",
+          "event": "webcontent_terminated",
+          "kind": "goal",
+          "id": "goal-anon",
+          "evidence": {
+            "reason": "oom"
+          },
+          "at": 108,
+          "expectChecks": [
+            "webcontent_terminated"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "start-is-idempotent-for-same-key",
+      "config": {
+        "heartbeatTimeoutMs": 100000,
+        "turnDeadlineMs": 900000,
+        "taskDeadlineMs": 600000,
+        "routineDeadlineMs": 660000,
+        "repeatedToolCalls": 5,
+        "repeatedToolErrors": 3,
+        "maxUnitTokens": 200000,
+        "maxUnitCostUsd": 2,
+        "goalMaxTotalTokens": 0,
+        "goalMaxTotalCostUsd": 0,
+        "tickMs": 5000,
+        "historyLimit": 200,
+        "maxUnits": 1000
+      },
+      "steps": [
+        {
+          "op": "start",
+          "kind": "task",
+          "id": "unit-idem",
+          "botId": "main",
+          "sessionId": "gb-main",
+          "startedAt": 100,
+          "at": 100,
+          "expectChecks": [],
+          "expectUnit": {
+            "kind": "task",
+            "id": "unit-idem",
+            "botId": "main",
+            "sessionId": "gb-main",
+            "startedAt": 100,
+            "lastEventAt": 100,
+            "deadlineAt": 600100
+          }
+        },
+        {
+          "op": "start",
+          "kind": "task",
+          "id": "unit-idem",
+          "botId": "other",
+          "sessionId": "gb-other",
+          "startedAt": 999,
+          "at": 150,
+          "expectChecks": [],
+          "expectUnit": {
+            "kind": "task",
+            "id": "unit-idem",
+            "botId": "main",
+            "sessionId": "gb-main",
+            "startedAt": 100,
+            "lastEventAt": 150,
+            "deadlineAt": 600100
+          }
+        },
+        {
+          "op": "finish",
+          "kind": "task",
+          "id": "unit-idem",
+          "expectUnit": null,
+          "expectChecks": []
+        },
+        {
+          "op": "finish",
+          "kind": "task",
+          "id": "unit-idem",
+          "expectUnit": null,
+          "expectChecks": []
+        },
+        {
+          "op": "start",
+          "kind": "task",
+          "id": "   ",
+          "startedAt": 200,
+          "at": 200,
+          "expectChecks": [],
+          "expectUnit": null
+        }
+      ]
+    }
+  ],
+  "flagPayloadCases": [
+    {
+      "name": "deadline",
+      "eventId": "watchdog.flagged:turn:unit-base:deadline",
+      "expect": {
+        "check": "deadline",
+        "unitKind": "turn",
+        "unitId": "unit-base",
+        "botId": "main",
+        "sessionId": "gb-main",
+        "at": 111,
+        "evidence": {
+          "deadlineAt": 110,
+          "now": 111,
+          "elapsedMs": 11
+        }
+      }
+    },
+    {
+      "name": "heartbeat",
+      "eventId": "watchdog.flagged:turn:unit-base:heartbeat",
+      "expect": {
+        "check": "heartbeat",
+        "unitKind": "turn",
+        "unitId": "unit-base",
+        "botId": "main",
+        "sessionId": "gb-main",
+        "at": 111,
+        "evidence": {
+          "lastEventAt": 100,
+          "now": 111,
+          "silentMs": 11,
+          "thresholdMs": 10
+        }
+      }
+    },
+    {
+      "name": "repeated-tool-signature",
+      "eventId": "watchdog.flagged:task:unit-repeat:repeated_tool_signature",
+      "expect": {
+        "check": "repeated_tool_signature",
+        "unitKind": "task",
+        "unitId": "unit-repeat",
+        "botId": "main",
+        "sessionId": "gb-task",
+        "at": 102,
+        "evidence": {
+          "signature": "read|d",
+          "count": 2,
+          "threshold": 2
+        }
+      }
+    },
+    {
+      "name": "repeated-tool-error",
+      "eventId": "watchdog.flagged:task:unit-repeat:repeated_tool_error",
+      "expect": {
+        "check": "repeated_tool_error",
+        "unitKind": "task",
+        "unitId": "unit-repeat",
+        "botId": "main",
+        "sessionId": "gb-task",
+        "at": 104,
+        "evidence": {
+          "errorSignature": "read|sha256:0967115f2813a3541eaef77de9d9d5773f1c0c04314b0bbfe4ff3b3b1c55b5d5",
+          "count": 2,
+          "threshold": 2
+        }
+      }
+    },
+    {
+      "name": "quota",
+      "eventId": "watchdog.flagged:task:unit-repeat:quota",
+      "expect": {
+        "check": "quota",
+        "unitKind": "task",
+        "unitId": "unit-repeat",
+        "botId": "main",
+        "sessionId": "gb-task",
+        "at": 105,
+        "evidence": {
+          "tokens": 11,
+          "maxTokens": 10,
+          "costUsd": 0,
+          "maxCostUsd": 1,
+          "reason": "tokens"
+        }
+      }
+    },
+    {
+      "name": "thermal-pressure",
+      "eventId": "watchdog.flagged:turn:unit-base:thermal_pressure",
+      "expect": {
+        "check": "thermal_pressure",
+        "unitKind": "turn",
+        "unitId": "unit-base",
+        "botId": "main",
+        "sessionId": "gb-main",
+        "at": 113,
+        "evidence": {
+          "pressure": "serious"
+        }
+      }
+    },
+    {
+      "name": "webcontent-terminated",
+      "eventId": "watchdog.flagged:turn:unit-base:webcontent_terminated",
+      "expect": {
+        "check": "webcontent_terminated",
+        "unitKind": "turn",
+        "unitId": "unit-base",
+        "botId": "main",
+        "sessionId": "gb-main",
+        "at": 115,
+        "evidence": {}
+      }
+    },
+    {
+      "name": "battery-pressure",
+      "eventId": "watchdog.flagged:turn:unit-base:battery_pressure",
+      "expect": {
+        "check": "battery_pressure",
+        "unitKind": "turn",
+        "unitId": "unit-base",
+        "botId": "main",
+        "sessionId": "gb-main",
+        "at": 116,
+        "evidence": {
+          "level": 0.05,
+          "state": "low"
+        }
+      }
+    },
+    {
+      "name": "mobile-without-identity",
+      "eventId": "watchdog.flagged:goal:goal-anon:webcontent_terminated",
+      "expect": {
+        "check": "webcontent_terminated",
+        "unitKind": "goal",
+        "unitId": "goal-anon",
+        "botId": null,
+        "sessionId": null,
+        "at": 108,
+        "evidence": {
+          "reason": "oom"
+        }
+      }
+    }
+  ],
+  "contextProfiles": {
+    "source": "context-profiles.json",
+    "readOnly": true,
+    "botRuntimeCompaction": false,
+    "profiles": [
+      "default",
+      "conservative"
+    ],
+    "unknownResolution": "default"
+  }
+}

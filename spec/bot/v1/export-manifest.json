@@ -14,6 +14,7 @@
     "card-payload.json",
     "card-payload.phone.json",
     "context-lint.json",
+    "context-lint.phone.json",
     "context-profiles.json",
     "erasure-event.phone.json",
     "event-envelope.json",
@@ -46,7 +47,8 @@
     "verification.phone.json",
     "volatile-context.json",
     "volatile-context.phone.json",
-    "watchdog.json"
+    "watchdog.json",
+    "watchdog.phone.json"
   ],
   "upstream": [
     "approval-patterns.json",
@@ -71,6 +73,7 @@
     "authority.phone.json",
     "bot-attachments.phone.json",
     "card-payload.phone.json",
+    "context-lint.phone.json",
     "erasure-event.phone.json",
     "event-envelope.phone.json",
     "identity-approval-cases.phone.json",
@@ -92,7 +95,8 @@
     "turn-origin.phone.json",
     "user-action-transaction.phone.json",
     "verification.phone.json",
-    "volatile-context.phone.json"
+    "volatile-context.phone.json",
+    "watchdog.phone.json"
   ],
   "sha256": {
     "approval-patterns.json": "8dbac06c60729e3042e210cf07dd085d592c61e8074c32d23b5631ba2debf8cb",
@@ -104,14 +108,17 @@
     "card-payload.json": "5e16774a4b08bbb68039b6d724b56e9eda6d5f09e3ee51523bb791ee4ef721c2",
     "card-payload.phone.json": "c96222c66c5dc4bbb80f09c3eaf51fc849320c1a85934c2031e764b4d4493284",
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
+    "context-lint.phone.json": "6ec67e197fc75b5a0261d038dca99483787bfe79952f22426a789eadcda2fd78",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "erasure-event.phone.json": "898dd47c2142cf858dcd98ae3876089e0e39348331ff8213ce67eb1ca243785e",
     "event-envelope.json": "fded336f2e2dddf4b9c474bac5e6cefcbb1baf7c99637a988ed22dbb244bcaf5",
     "event-envelope.phone.json": "76661e377ceca48b0838af8bde9d9c008d180832982fc30a340653151a50492a",
     "fish-director.json": "7216362cf4ff1c903ebce75cbf0d9d170dba9e233778caf3df1de1a36026cd85",
+    "identity-approval-cases.phone.json": "4e421e3efa3f5ebe8332cdf8e11a2c1545b7ee670e47e7eb3c37c2f25fc349f5",
     "llm-ledger.json": "16111b95d4dcbfd5861858539077b6b58fab563f3697d8d2c6e250ed15968315",
     "llm-ledger.phone.json": "86f85b32391cc8707de0443a2d3e67d30f1da65a6c9507be34295cc8378e71ce",
     "mcp-egress.phone.json": "62a4a0ec83484715916584c3a474dc2fa36e2d3e058e763c9ccfb11f856b0f34",
+    "mcp-rpc-cases.phone.json": "6898da2627811b036b93f8cc71e80a7715ca19239c26de9883a3db9410b0d685",
     "model-purpose-policy.json": "43beaa4bbbb1d1cbd973ee976f16e4995d7858b346d963bc4a246f8e4db509b9",
     "observation-envelope.phone.json": "d987ee6fadb63b7111e1fcac04f6bce8861eff4726cba541002b37611574ca18",
     "projection.phone.json": "f0412f1f88433e97b2dd95ee39c091d5703fe9bd9845c2c8f296c09e3fea8621",
@@ -122,6 +129,9 @@
     "row-protocol.phone.json": "bce0bb42d42e9f0ed9e3cbc63a8d21e06bfe96ab8a0cc0839827767e1e0a00a6",
     "session-lifecycle.phone.json": "736f70a040c5bc3dc638d5c1211eb788793d16f90c80bed043f2060abb0fc098",
     "store.phone.json": "91bb2e9a870c3760a61e239c1040911c5a485ad60f114c40b9ae0b68e383a081",
+    "task-cases.phone.json": "334d7b582b4db23e850d06710849f4b5797d2709754df4f54a21a76aa0f6a476",
+    "team-cases.phone.json": "c0120966c104203b16d4db26f56520881abb24382712f809df398a995db1db92",
+    "tool-call-cases.phone.json": "74860b405ce93a9b6d4950ce9ba43642c698c07b6f882639f0e007174095ec53",
     "tool-catalog.json": "3dc16f3c0c0c3d8cd1f94e2ff31ca289eaf668d2794f12d6f9fb55f6c5f5e8b0",
     "tool-catalog.phone.json": "9e3f07844df92722392310947ba92611e5421fe6786ca8176a4bfc067ebd58bc",
     "tool-effects.json": "084bcc8f28b057e83a056aea3f4757c7e2ffddf8153d01a31374a31a4dd3eeff",
@@ -130,12 +140,8 @@
     "user-action-transaction.phone.json": "3dbd9d6d73b87dd11516782be7831f0d3d2373ec4156500008a7a39a647fa420",
     "verification.phone.json": "104e79db5af9de8b8e691b94417721accd5e6a28630c37dbe58f2d4b59128c28",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
-    "mcp-rpc-cases.phone.json": "6898da2627811b036b93f8cc71e80a7715ca19239c26de9883a3db9410b0d685",
-    "identity-approval-cases.phone.json": "4e421e3efa3f5ebe8332cdf8e11a2c1545b7ee670e47e7eb3c37c2f25fc349f5",
-    "tool-call-cases.phone.json": "74860b405ce93a9b6d4950ce9ba43642c698c07b6f882639f0e007174095ec53",
     "volatile-context.phone.json": "30dccebb82399027990e4091e5e6fb10f4eff1b5338c9496ff20d1448f80d4f3",
-    "team-cases.phone.json": "c0120966c104203b16d4db26f56520881abb24382712f809df398a995db1db92",
-    "task-cases.phone.json": "334d7b582b4db23e850d06710849f4b5797d2709754df4f54a21a76aa0f6a476"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
+    "watchdog.phone.json": "bc2157a9d2272c0b15abe021104b2a03a0cbd1fa43fd4a9854f2f4abe0a93fd3"
   }
 }
