@@ -339,19 +339,26 @@ final class BotChatModel: ObservableObject {
         }.count
     }
 
-    /// What the fish shows now: a pending decision always raises `alerting`;
-    /// idle sleep only applies when nothing is running; otherwise the live
-    /// frames win over the last durable projection.
+    /// What the fish shows now: the shared fish-lifecycle projection
+    /// (`ui-state.md` §4.7). The page contributes its local live/durable
+    /// presentation and running signal; the priority itself lives in
+    /// `BotFishLifecycleProjection` so the header, empty state and roster
+    /// drawer cannot diverge.
     var fishState: BotFishLifecycle {
-        if pendingApprovalCount > 0 { return .alerting }
-        if idleSleeping, runningTurnID == nil, live == nil { return .sleeping }
-        if let presentation = livePresentation {
-            if live != nil { return presentation.fishState }
-            if let shot = presentation.oneShot, shot.endsAt > BotLiveFishProjection.now {
-                return shot.state
-            }
-        }
-        return runtimePresentation.fishState
+        let now = BotLiveFishProjection.now
+        return BotFishLifecycleProjection.resolve(
+            pendingApprovalCount: pendingApprovalCount,
+            running: runningTurnID != nil || live != nil,
+            idleSleeping: idleSleeping,
+            livePresentation: livePresentation.map {
+                BotFishLifecyclePresentation(fishState: $0.fishState,
+                                             oneShot: $0.oneShot)
+            },
+            durablePresentation: BotFishLifecyclePresentation(
+                fishState: runtimePresentation.fishState,
+                oneShot: runtimePresentation.oneShot),
+            liveTurn: live != nil,
+            now: now)
     }
 
     /// The durable drawer/header activity: the factory's own status/detail.
@@ -667,9 +674,19 @@ final class BotChatModel: ObservableObject {
             done: checklist.done, total: checklist.total)
     }
 
+    private static func retryState(_ state: BotUIActionState?) -> BotUIActionRetry.KeyState? {
+        switch state {
+        case .pending: return .pending
+        case .accepted: return .accepted
+        case .failed: return .failed
+        case nil: return nil
+        }
+    }
+
     func answer(row: BotUIRow, optionID: String) {
         let key = "card:\(row.id)"
-        guard actionStates[key] == nil || actionStates[key].map({ if case .failed = $0 { return true }; return false }) == true,
+        guard BotUIActionRetry.accepts(intent: .answer, cardKind: .question,
+                                       state: Self.retryState(actionStates[key])),
               !mutedCardIDs.contains(row.id), !optionID.isEmpty else { return }
         answeredOptionIDs[row.id] = optionID
         actionStates[key] = .pending
@@ -681,7 +698,8 @@ final class BotChatModel: ObservableObject {
     func dismiss(row: BotUIRow) {
         guard BotUICardContent.parse(row: row)?.kind == .question else { return }
         let key = "dismiss:\(row.id)"
-        guard actionStates[key] == nil else { return }
+        guard BotUIActionRetry.accepts(intent: .dismiss, cardKind: .question,
+                                       state: Self.retryState(actionStates[key])) else { return }
         actionStates[key] = .pending
         let action = BotUIUserAction.cardDismiss(nonce: UUID().uuidString, botID: row.botID, cardID: row.id)
         Task { await perform(action, key: key, localRowID: nil) }
@@ -694,7 +712,8 @@ final class BotChatModel: ObservableObject {
 
     private func beginApproval(row: BotUIRow, decision: BotUIApprovalDecision) -> BotUIUserAction? {
         let key = "approval:\(row.id)"
-        guard actionStates[key] == nil || actionStates[key].map({ if case .failed = $0 { return true }; return false }) == true else {
+        guard BotUIActionRetry.accepts(intent: .approval, cardKind: .question,
+                                       state: Self.retryState(actionStates[key])) else {
             return nil
         }
         guard let action = approvalAction(row: row, decision: decision) else { return nil }

@@ -197,23 +197,33 @@
     },
     {
       "contains": "static func motionBoost(for size: CGFloat) -> Double {",
-      "line": 193,
+      "line": 197,
       "path": "examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift"
     },
     {
       "contains": "private static func faceSignature(",
-      "line": 439,
+      "line": 444,
       "path": "examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift"
     },
     {
       "contains": "private func sliceImage(",
-      "line": 1197,
+      "line": 1202,
       "path": "examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift"
     },
     {
-      "contains": "static let livelyHeadSliceQuantum = 0.25",
+      "contains": "static let livelyHeadSliceQuantum = BotFishHeadSlice.livelyQuantum",
       "line": 142,
       "path": "examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift"
+    },
+    {
+      "contains": "public enum BotFishLifecycleProjection {",
+      "line": 37,
+      "path": "Sources/PhoneDSHBot/UI/BotUIProjection.swift"
+    },
+    {
+      "contains": "public enum BotFishHeadSlice {",
+      "line": 115,
+      "path": "Sources/PhoneDSHBot/UI/BotUIProjection.swift"
     },
     {
       "contains": "struct BotFishPalette {",
@@ -71838,6 +71848,156 @@
       ]
     }
   },
+  "headSlice": {
+    "cases": [
+      {
+        "displacement": {
+          "earFlutter": -0.3,
+          "hairSway": 1,
+          "headX": 0.4,
+          "headY": -0.4
+        },
+        "id": "standard-values",
+        "input": {
+          "earFlutter": -0.28,
+          "hairSway": 1.03,
+          "headX": 0.37,
+          "headY": -0.42
+        },
+        "levels": {
+          "earFlutter": -3,
+          "hairSway": 10,
+          "headX": 4,
+          "headY": -4
+        },
+        "profile": "standard",
+        "quantum": 0.1
+      },
+      {
+        "displacement": {
+          "earFlutter": -0.1,
+          "hairSway": 0.1,
+          "headX": 0.1,
+          "headY": -0.1
+        },
+        "id": "standard-half-away",
+        "input": {
+          "earFlutter": -0.15,
+          "hairSway": 0.15,
+          "headX": 0.05,
+          "headY": -0.05
+        },
+        "levels": {
+          "earFlutter": -1,
+          "hairSway": 1,
+          "headX": 1,
+          "headY": -1
+        },
+        "profile": "standard",
+        "quantum": 0.1
+      },
+      {
+        "displacement": {
+          "earFlutter": 0,
+          "hairSway": 0,
+          "headX": 0,
+          "headY": 0
+        },
+        "id": "standard-identity",
+        "input": {
+          "earFlutter": 0,
+          "hairSway": 0,
+          "headX": 0,
+          "headY": 0
+        },
+        "levels": {
+          "earFlutter": 0,
+          "hairSway": 0,
+          "headX": 0,
+          "headY": 0
+        },
+        "profile": "standard",
+        "quantum": 0.1
+      },
+      {
+        "displacement": {
+          "earFlutter": -0.25,
+          "hairSway": 1,
+          "headX": 0.25,
+          "headY": -0.5
+        },
+        "id": "lively-values",
+        "input": {
+          "earFlutter": -0.28,
+          "hairSway": 1.03,
+          "headX": 0.37,
+          "headY": -0.42
+        },
+        "levels": {
+          "earFlutter": -1,
+          "hairSway": 4,
+          "headX": 1,
+          "headY": -2
+        },
+        "profile": "lively",
+        "quantum": 0.25
+      },
+      {
+        "displacement": {
+          "earFlutter": -0.5,
+          "hairSway": 0.5,
+          "headX": 0.25,
+          "headY": -0.25
+        },
+        "id": "lively-half-away",
+        "input": {
+          "earFlutter": -0.375,
+          "hairSway": 0.375,
+          "headX": 0.125,
+          "headY": -0.125
+        },
+        "levels": {
+          "earFlutter": -2,
+          "hairSway": 2,
+          "headX": 1,
+          "headY": -1
+        },
+        "profile": "lively",
+        "quantum": 0.25
+      },
+      {
+        "displacement": {
+          "earFlutter": 0,
+          "hairSway": 0,
+          "headX": 0,
+          "headY": 0
+        },
+        "id": "lively-identity",
+        "input": {
+          "earFlutter": 0,
+          "hairSway": 0,
+          "headX": 0,
+          "headY": 0
+        },
+        "levels": {
+          "earFlutter": 0,
+          "hairSway": 0,
+          "headX": 0,
+          "headY": 0
+        },
+        "profile": "lively",
+        "quantum": 0.25
+      }
+    ],
+    "profiles": {
+      "lively": {
+        "quantum": 0.25
+      },
+      "standard": {
+        "quantum": 0.1
+      }
+    }
+  },
   "palettes": [
     {
       "hex": "#FFFFFF",
@@ -83696,9 +83856,14 @@
         "sha256": "d7f2eab9d445d9e0ad2ec140be5e1a15c209878353a1e6548e87edb5c8203556"
       },
       {
-        "bytes": 4542,
+        "bytes": 7008,
+        "path": "Sources/PhoneDSHBot/UI/BotUIProjection.swift",
+        "sha256": "d28bc794ff0251f507330d3fde34e0040625ed775a8b1b7a8d5541a46c4e7c1e"
+      },
+      {
+        "bytes": 4916,
         "path": "examples/probe-app/BotFish/SOURCES.md",
-        "sha256": "f9cadf2e85e7e8529be6a5c93186670d4a5d52d97be56c0e50dbc16faed9f9bb"
+        "sha256": "4f95d70d7916d9d3349c03d121280fb6a428fb6518d884c0386d23dd9f4da7b0"
       },
       {
         "bytes": 17339,
@@ -83741,9 +83906,9 @@
         "sha256": "c1740f0762292bd7e33b6fdb6d45f1495da74ab65ef0ba82e3cf10bb89e99a1b"
       },
       {
-        "bytes": 58904,
+        "bytes": 59661,
         "path": "examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift",
-        "sha256": "64cdda9858cde9d6ad930a0dbfc5ac140d797699c4aeaf37f6291e87039ff238"
+        "sha256": "0b8206f33877f3c6489e35f09e853cd5a367e02c0fcf815570f1d262d01496e0"
       },
       {
         "bytes": 9057,
@@ -83751,14 +83916,14 @@
         "sha256": "6947e8c042d7c7cfff39b1645a651f3aba4eb2f4e65b0a6dc0ac410a8d834443"
       },
       {
-        "bytes": 29771,
+        "bytes": 30045,
         "path": "spec/ui/v1/bot/fish/tools/generate_trajectory.py",
-        "sha256": "44e3161e98897154a080a9bb94cbb8c496294bc01e59fa8d1982246b0734742b"
+        "sha256": "f8b5387489186361137967176ce3fa658ccc7f203f37062fcee2d41aaeb11f88"
       },
       {
-        "bytes": 24778,
+        "bytes": 27006,
         "path": "spec/ui/v1/bot/fish/tools/trajectory_harness.swift",
-        "sha256": "355519919bd486bdc3120b5cefc62b57ab8bd91a7f3d3184365af989aa1f9263"
+        "sha256": "bafe23b5c18bfe4b70bade20837572a03fe8c99ac77035578baac4c8b7b4485e"
       }
     ],
     "generatedBy": "spec/ui/v1/bot/fish/tools/generate_trajectory.py",

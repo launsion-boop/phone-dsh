@@ -5,7 +5,7 @@
  "cases": [
   {
    "id": "question-idle",
-   "source": "BotChatModel.swift:306-315, BotChatModel.swift:425-459",
+   "source": "BotChatModel.swift:306-315, BotChatModel.swift:432-466",
    "note": "Unanswered question: no settlement, one attention item, idle header.",
    "input": {
     "context": {
@@ -77,14 +77,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -99,6 +100,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 1,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -122,11 +124,14 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.idle-default"
+   ]
   },
   {
    "id": "question-answered",
-   "source": "BotChatModel.swift:449-455",
+   "source": "BotChatModel.swift:456-462",
    "note": "An accepted answer plus the chosen option id settles to 已选择：<label>.",
    "input": {
     "context": {
@@ -202,14 +207,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -235,6 +241,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -262,7 +269,7 @@
   },
   {
    "id": "question-accepted-local",
-   "source": "BotChatModel.swift:449-455",
+   "source": "BotChatModel.swift:456-462",
    "note": "Accepted local action with no durable status settles from answeredOptionIDs.",
    "input": {
     "context": {
@@ -338,14 +345,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -371,6 +379,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -398,7 +407,7 @@
   },
   {
    "id": "question-unknown-option",
-   "source": "BotChatModel.swift:446-453",
+   "source": "BotChatModel.swift:453-460",
    "note": "Answered status with an unknown option id settles to 已送出, never the raw id.",
    "input": {
     "context": {
@@ -474,14 +483,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -507,6 +517,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -534,7 +545,7 @@
   },
   {
    "id": "question-dismissed",
-   "source": "BotChatModel.swift:444-447",
+   "source": "BotChatModel.swift:451-454",
    "note": "A locally dismissed question settles to 已关闭 with the prompt detail.",
    "input": {
     "context": {
@@ -608,14 +619,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -641,6 +653,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -668,7 +681,7 @@
   },
   {
    "id": "question-muted",
-   "source": "BotChatModel.swift:405-423, BotChatModel.swift:455-456",
+   "source": "BotChatModel.swift:412-430, BotChatModel.swift:462-463",
    "note": "A question before the latest user text that was never handled is muted and settles to 已略过.",
    "input": {
     "context": {
@@ -761,14 +774,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -798,6 +812,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -825,7 +840,7 @@
   },
   {
    "id": "steps-muted",
-   "source": "BotChatModel.swift:405-423, BotChatModel.swift:465",
+   "source": "BotChatModel.swift:412-430, BotChatModel.swift:472",
    "note": "Muted steps use 建议下一步 as the detail when the card has no prompt.",
    "input": {
     "context": {
@@ -916,14 +931,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -953,6 +969,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -980,7 +997,7 @@
   },
   {
    "id": "checklist-idle",
-   "source": "BotChatModel.swift:476-493",
+   "source": "BotChatModel.swift:483-500",
    "note": "Interactive checklist counts as attention; no settlement while untouched.",
    "input": {
     "context": {
@@ -1057,14 +1074,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1079,6 +1097,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 1,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -1106,7 +1125,7 @@
   },
   {
    "id": "checklist-sending",
-   "source": "BotChatModel.swift:476-493, BotChatModel.swift:306-315",
+   "source": "BotChatModel.swift:483-500, BotChatModel.swift:306-315",
    "note": "While the checklist result is in flight the card stays full and is not an attention item.",
    "input": {
     "context": {
@@ -1190,14 +1209,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1212,6 +1232,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -1239,7 +1260,7 @@
   },
   {
    "id": "checklist-sent",
-   "source": "BotChatModel.swift:483-490",
+   "source": "BotChatModel.swift:490-497",
    "note": "Accepted checklist result settles with the 已完成 x/y detail from local progress.",
    "input": {
     "context": {
@@ -1323,14 +1344,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1356,6 +1378,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -1383,7 +1406,7 @@
   },
   {
    "id": "checklist-noninteractive",
-   "source": "BotChatModel.swift:478-490",
+   "source": "BotChatModel.swift:485-497",
    "note": "interactive == false keeps the card full and out of attention.",
    "input": {
     "context": {
@@ -1461,14 +1484,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1483,6 +1507,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -1579,14 +1604,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 1,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1601,6 +1627,7 @@
     "pendingApprovalCount": 1,
     "needsAttentionCount": 1,
     "followingCount": 0,
+    "fishState": "alerting",
     "header": {
      "phase": "waitingForYou",
      "line": {
@@ -1609,7 +1636,7 @@
       "category": "waiting",
       "startedAt": 0
      },
-     "fishState": "idle",
+     "fishState": "alerting",
      "motion": "standard",
      "workStyle": "generic",
      "lineIsQuiet": true,
@@ -1629,11 +1656,14 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.pending"
+   ]
   },
   {
    "id": "approval-auto-declined",
-   "source": "BotChatModel.swift:505-513",
+   "source": "BotChatModel.swift:512-520",
    "note": "Auto-declined approval settles to 已略过，视为拒绝 with the monospaced command and leaves the attention count.",
    "input": {
     "context": {
@@ -1706,14 +1736,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1739,6 +1770,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -1766,7 +1798,7 @@
   },
   {
    "id": "approval-allowed",
-   "source": "BotChatModel.swift:514-527",
+   "source": "BotChatModel.swift:521-534",
    "note": "Durable allowed status settles to 已允许一次 in success tone.",
    "input": {
     "context": {
@@ -1835,14 +1867,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1868,6 +1901,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -1895,7 +1929,7 @@
   },
   {
    "id": "approval-always-session",
-   "source": "BotChatModel.swift:518-521",
+   "source": "BotChatModel.swift:525-528",
    "note": "always + session scope reads 本次对话允许.",
    "input": {
     "context": {
@@ -1964,14 +1998,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -1997,6 +2032,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -2024,7 +2060,7 @@
   },
   {
    "id": "approval-always-until",
-   "source": "BotChatModel.swift:518-521",
+   "source": "BotChatModel.swift:525-528",
    "note": "always + until scope reads 已总是允许.",
    "input": {
     "context": {
@@ -2093,14 +2129,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -2126,6 +2163,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -2153,7 +2191,7 @@
   },
   {
    "id": "approval-failed-retry",
-   "source": "BotChatModel.swift:510-512",
+   "source": "BotChatModel.swift:517-519",
    "note": "A failed approval action stays full and retryable; the approval still counts.",
    "input": {
     "context": {
@@ -2224,14 +2262,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 1,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -2246,6 +2285,7 @@
     "pendingApprovalCount": 1,
     "needsAttentionCount": 1,
     "followingCount": 0,
+    "fishState": "alerting",
     "header": {
      "phase": "waitingForYou",
      "line": {
@@ -2254,7 +2294,7 @@
       "category": "waiting",
       "startedAt": 0
      },
-     "fishState": "idle",
+     "fishState": "alerting",
      "motion": "standard",
      "workStyle": "generic",
      "lineIsQuiet": true,
@@ -2274,7 +2314,10 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.pending"
+   ]
   },
   {
    "id": "approval-missing-digest",
@@ -2333,14 +2376,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [],
@@ -2351,6 +2395,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -2476,14 +2521,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -2502,6 +2548,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 3,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -2583,14 +2630,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -2605,6 +2653,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 7,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -2704,14 +2753,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": "附件「周报.pdf」未附加：导入未连接\n历史加载失败：网络中断",
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -2726,6 +2776,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 1,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "problem",
      "line": {
@@ -2758,7 +2809,7 @@
   },
   {
    "id": "header-working-thinking",
-   "source": "BotChatModel.swift:379-403, BotHeaderPresence.swift:61-78",
+   "source": "BotChatModel.swift:386-410, BotHeaderPresence.swift:61-78",
    "note": "A running turn with a 61s-old thinking activity maps idle fish to thinking and appends the minute suffix.",
    "input": {
     "context": {
@@ -2795,14 +2846,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": true
    },
    "expected": {
     "visibleRowIDs": [],
@@ -2813,6 +2865,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "working",
     "header": {
      "phase": "working",
      "line": {
@@ -2821,7 +2874,7 @@
       "category": "thinking",
       "startedAt": 1759999939000
      },
-     "fishState": "thinking",
+     "fishState": "working",
      "motion": "lively",
      "workStyle": "generic",
      "lineIsQuiet": false,
@@ -2846,11 +2899,14 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.running-idle-to-working"
+   ]
   },
   {
    "id": "header-working-streaming",
-   "source": "BotChatModel.swift:362-403",
+   "source": "BotChatModel.swift:369-410",
    "note": "Live streaming wins the line as replying; a durable answer row of the live turn is hidden from display.",
    "input": {
     "context": {
@@ -2924,14 +2980,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "working",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": true
    },
    "expected": {
     "visibleRowIDs": [
@@ -2944,6 +3001,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "working",
     "header": {
      "phase": "working",
      "line": {
@@ -2977,11 +3035,14 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.live-over-durable"
+   ]
   },
   {
    "id": "line-suppressed-after-final",
-   "source": "BotChatModel.swift:379-386",
+   "source": "BotChatModel.swift:386-393",
    "note": "An ended live turn with the line suppressed hides the line and the header goes idle.",
    "input": {
     "context": {
@@ -3027,14 +3088,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "working",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [],
@@ -3045,6 +3107,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "working",
     "header": {
      "phase": "idle",
      "line": null,
@@ -3068,7 +3131,10 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.live-over-durable"
+   ]
   },
   {
    "id": "activity-line-detail-minute",
@@ -3109,14 +3175,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "working",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": true
    },
    "expected": {
     "visibleRowIDs": [],
@@ -3127,6 +3194,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "working",
     "header": {
      "phase": "working",
      "line": {
@@ -3160,7 +3228,10 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.running-keeps-non-idle"
+   ]
   },
   {
    "id": "activity-line-generic-rotation",
@@ -3201,14 +3272,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "working",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": true
    },
    "expected": {
     "visibleRowIDs": [],
@@ -3219,6 +3291,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "working",
     "header": {
      "phase": "working",
      "line": {
@@ -3252,7 +3325,10 @@
      "text": "",
      "accessibility": ""
     }
-   }
+   },
+   "covers": [
+    "priority.running-keeps-non-idle"
+   ]
   },
   {
    "id": "drawer-running-activity",
@@ -3328,7 +3404,6 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
@@ -3342,7 +3417,9 @@
       "startedAt": 0
      },
      "fishState": "working"
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -3357,6 +3434,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 1,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -3438,7 +3516,6 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
@@ -3447,7 +3524,9 @@
      "unreadCount": 0,
      "activity": null,
      "fishState": "streaming"
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -3462,6 +3541,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -3543,14 +3623,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": null,
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": 1759999875000,
      "unreadCount": 120
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -3565,6 +3646,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "idle",
      "line": null,
@@ -3667,14 +3749,15 @@
      "streamingText": null,
      "liveBuffer": ""
     },
-    "pageFishState": "idle",
     "problem": "生成报告失败：模拟器暂时不可用。",
     "now": 1760000000000,
     "drawer": {
      "isRunning": false,
      "lastMessageAt": null,
      "unreadCount": 0
-    }
+    },
+    "pendingApprovalCount": 0,
+    "running": false
    },
    "expected": {
     "visibleRowIDs": [
@@ -3689,6 +3772,7 @@
     "pendingApprovalCount": 0,
     "needsAttentionCount": 0,
     "followingCount": 0,
+    "fishState": "idle",
     "header": {
      "phase": "problem",
      "line": {
@@ -3718,6 +3802,1216 @@
      "accessibility": ""
     }
    }
+  },
+  {
+   "id": "priority-pending-beats-oneshot",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "A pending approval is alerting even with an unexpired one-shot and a working durable state.",
+   "covers": [
+    "priority.pending"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "pending",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "working",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "celebrate",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 1,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 1,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "alerting",
+    "header": {
+     "phase": "waitingForYou",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "waiting",
+      "startedAt": 0
+     },
+     "fishState": "alerting",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": true,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "等你确认",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "1 项待审批",
+     "color": "warning"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-oneshot-unexpired",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "An unexpired one-shot outranks running and the base lifecycle.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "happy",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "happy",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "happy",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-oneshot-expired",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Expired one-shots are ignored and the durable fishState is used.",
+   "covers": [
+    "priority.one-shot-expired"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "sad",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "celebrate",
+      "priority": 60,
+      "startedAt": 1759999998000,
+      "endsAt": 1759999999000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "sad",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "sad",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-live-over-durable",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "A live turn presentation wins over the durable presentation.",
+   "covers": [
+    "priority.live-over-durable"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "thinking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "speaking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "live": {
+     "turn": 7,
+     "ended": false
+    },
+    "runningTurnID": "turn-live",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "speaking",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "speaking",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-live-turn-oneshot",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "The live presentation one-shot is chosen before its fishState.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "speaking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "happy",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "live": {
+     "turn": 7,
+     "ended": false
+    },
+    "runningTurnID": "turn-live",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "happy",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "happy",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-live-oneshot-after-settle",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "The last live one-shot is still honoured after the live turn settles.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "happy",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "happy",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "happy",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-durable-oneshot",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "An unexpired durable one-shot is chosen over the durable fishState.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "celebrate",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "celebrate",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "celebrate",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-running-idle-to-working",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Running coerces an idle base to working.",
+   "covers": [
+    "priority.running-idle-to-working"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-running",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-running-keeps-non-idle",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Running leaves a non-idle base untouched.",
+   "covers": [
+    "priority.running-keeps-non-idle"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "thinking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-running",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "thinking",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "thinking",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-idle-sleeping",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Idle sleep applies when nothing is running, even over a non-idle durable state.",
+   "covers": [
+    "priority.idle-sleeping"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "thinking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": true,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "sleeping",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "sleeping",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-running-beats-idle-sleeping",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "A running Bot is never shown asleep.",
+   "covers": [
+    "priority.running-idle-to-working"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-running",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": true,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-idle-default",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "With no presentation state the projection defaults to idle.",
+   "covers": [
+    "priority.idle-default"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  }
+ ],
+ "intentCases": [
+  {
+   "id": "dismiss-absent-accepted",
+   "source": "BotChatModel.swift:698-707",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": null,
+   "accepted": true
+  },
+  {
+   "id": "dismiss-failed-retry",
+   "source": "BotChatModel.swift:698-707",
+   "note": "A failed dismiss is retryable, like answer and approval.",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": "failed",
+   "accepted": true
+  },
+  {
+   "id": "dismiss-pending-ignored",
+   "source": "BotChatModel.swift:698-707",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": "pending",
+   "accepted": false
+  },
+  {
+   "id": "dismiss-accepted-ignored",
+   "source": "BotChatModel.swift:698-707",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": "accepted",
+   "accepted": false
+  },
+  {
+   "id": "dismiss-steps-not-allowed",
+   "source": "BotChatModel.swift:698-699",
+   "note": "Only a question card has a dismiss intent.",
+   "action": "dismiss",
+   "cardKind": "steps",
+   "state": null,
+   "accepted": false
+  },
+  {
+   "id": "answer-failed-retry",
+   "source": "BotChatModel.swift:686-695",
+   "action": "answer",
+   "cardKind": "question",
+   "state": "failed",
+   "accepted": true
+  },
+  {
+   "id": "answer-pending-ignored",
+   "source": "BotChatModel.swift:686-695",
+   "action": "answer",
+   "cardKind": "question",
+   "state": "pending",
+   "accepted": false
+  },
+  {
+   "id": "approval-failed-retry",
+   "source": "BotChatModel.swift:713-722",
+   "action": "approval",
+   "cardKind": "question",
+   "state": "failed",
+   "accepted": true
+  },
+  {
+   "id": "approval-accepted-ignored",
+   "source": "BotChatModel.swift:713-722",
+   "action": "approval",
+   "cardKind": "question",
+   "state": "accepted",
+   "accepted": false
   }
  ]
 }

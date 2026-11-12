@@ -433,6 +433,50 @@
    "reason": "runtime_required",
    "source": "BotRosterModel.swift:24-42",
    "note": "A roster entry without its live runtime half cannot render status."
+  },
+  {
+   "id": "dismiss-steps-not-retryable",
+   "source": "BotChatModel.swift:698-699",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "dismiss",
+    "cardKind": "steps",
+    "state": null
+   },
+   "reason": "dismiss_steps_not_allowed"
+  },
+  {
+   "id": "dismiss-accepted-not-retryable",
+   "source": "BotChatModel.swift:698-707",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "dismiss",
+    "cardKind": "question",
+    "state": "accepted"
+   },
+   "reason": "accepted_is_not_retryable"
+  },
+  {
+   "id": "answer-pending-not-retryable",
+   "source": "BotChatModel.swift:686-695",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "answer",
+    "cardKind": "question",
+    "state": "pending"
+   },
+   "reason": "pending_is_not_retryable"
+  },
+  {
+   "id": "approval-accepted-not-retryable",
+   "source": "BotChatModel.swift:713-722",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "approval",
+    "cardKind": "question",
+    "state": "accepted"
+   },
+   "reason": "accepted_is_not_retryable"
   }
  ]
 }

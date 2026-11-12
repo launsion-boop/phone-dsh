@@ -688,8 +688,33 @@ pose from the frame's own params and boost and requires `<= 1e-6`.
 
 The view draws base then face in a `ZStack`, applies scale/rotation/offset
 around the pivot, then opacity (`BotFishView.swift:149-168`). Head slicing (for
-`size > 40`, or `>= 24` for lively) is a per-row displacement of both layers;
-its displacement numbers are **not** in this contract (see §11.1).
+`size > 40`, or `>= 24` for lively; `BotFishEngine.swift:587-590`) is a per-row
+displacement of both layers.
+
+### 7.4.1 Head-slice quantum (normative, FISH-1)
+
+The active profile selects one quantum for the whole head-slice path:
+
+| Profile | Quantum (source units) | Minimum size |
+| --- | --- | --- |
+| `standard` | 0.1 | `size > 40` pt |
+| `lively` | 0.25 | `size >= 24` pt |
+
+For each of `headX`, `headY`, `hairSway`, `earFlutter`:
+
+```
+levels      = round(value / quantum)      // Swift rounded(): half away from zero
+displacement = levels * quantum
+```
+
+The quantiser and the restore MUST use the same profile quantum; `SliceKey`
+carries the quantum, not a rounded tag. `standard` therefore restores
+`0.1 * levels` and `lively` restores `0.25 * levels`; a lively level of 1 is
+0.25 source units, not 0.1. The row weights (`headWeight`, `hairSway` and
+`earFlutter` falloff) stay renderer detail; the frozen numbers are the quantum,
+levels and displacement. `trajectory.json#headSlice` carries one case for each
+profile, a half-away-from-zero case, an identity case, and the same raw input
+under both profiles so the two quanta are directly comparable.
 
 ## 8. Expression cells, tint and layer choice
 
@@ -786,11 +811,12 @@ faithful port: `size <= 40` → 250/138, `size <= 64` → 244/134, else 240/132;
 shadow offset `(0,-1)` blur 2, colour `27,31,55 @ .24`
 (`BotFishRenderer.swift:1143-1162`).
 
-## 9. Assets and the Android sharing ruling (PROPOSAL)
+## 9. Assets and the Android sharing ruling (mechanism PROPOSAL)
 
-**This section is a proposal for the contract owner; it is not yet a shipping
-rule.** The current evidence says the artwork grant is iOS-only, so the
-Android build must not package the tree until the owner records a decision.
+**The artwork grant is decided; the sharing mechanism is still a proposal.**
+`PC-20261112-android-bot-w4` §7 records that the rights holder extended the
+grant to every phoneDSH platform. Android may package the tree under §9.3 once
+that mechanism is implemented; it must not make a hand-edited copy.
 
 ### 9.1 Inventory
 
@@ -817,25 +843,26 @@ expressive sheets) + 2 atlas JSON. `SOURCES.md` is provenance, not an asset.
 * `SOURCES.md:5-7` pins the upstream repository, commit
   `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6` and the source directory; the
   files are unmodified copies (its §“发型图层”, §“主 Bot 皇冠图层”).
-* `SOURCES.md:9` says: “用户已明确授权在 phoneDSH iOS 中使用大肥鱼形象素材” —
-  the user explicitly authorised use **in phoneDSH iOS**. It does not name
-  Android, an AAR, or redistribution in an APK.
-* `NOTICE:84` lists only the DeepSeek mascot/QR/app-icon as “fan artwork …
-  not covered by the MIT licence”. The BotFish art is absent from that list,
-  so the NOTICE does not independently license it.
+* `SOURCES.md:9` records the 2026-11-12 extension: the rights holder grants
+  use in phoneDSH on every platform (iOS App, Android `:lib` AAR / App APK,
+  HarmonyOS, screenshot/test projects) and redistribution with phoneDSH under
+  the MIT License. It no longer names iOS only.
+* `NOTICE:31-35` records the same all-platform grant and points at
+  `SOURCES.md`. `NOTICE:90` still lists only the DeepSeek mascot/QR/app-icon
+  as “fan artwork … not covered by the MIT licence”; the BotFish grant is the
+  separate paragraph above it.
 * `examples/probe-app/project.yml:68-70` packages the directory as an iOS
   folder resource; `BotFishAssets.swift:193-197` loads it from `Bundle.main`
   under `BotFish/...`. There is no Android packaging today.
 
-**Ruling required before an Android build ships the art:** the owner must
-obtain (and record in `SOURCES.md`, with a matching `NOTICE` entry) a grant for
-Android/derived-work redistribution, or decide that Android uses different
-artwork. Until then `golden/assets.json.source.grant` records
-`scope: "ios-only"`, `androidGranted: false`, and the Android asset task must
-not copy the tree. The MIT code licence cannot be stretched over third-party
-artwork.
+**Ruling (2026-11-12):** granted for every phoneDSH platform, recorded in
+`SOURCES.md` and `NOTICE`. `golden/assets.json.source.grant` records
+`scope: "ios+android"`, `androidGranted: true`; the grant text and
+`SOURCES.md`/`NOTICE` are the authority. The MIT code licence still does not
+re-license the art; the grant does. Until the §9.3 mechanism exists, Android
+has no packaged tree to ship.
 
-### 9.3 Proposed sharing mechanism (if the grant is extended)
+### 9.3 Proposed sharing mechanism (grant extended)
 
 Do **not** move or duplicate the files in git. Keep
 `examples/probe-app/BotFish/` as the single source and make the Android build
@@ -881,8 +908,9 @@ blocked by the iOS-only grant.
 
 * `source` — `contractBase: e477497b`, generator/harness paths, and
   `files[]` with the SHA-256 of every input source (the seven compiled fish
-  files, `BotFishView.swift`, the runtime types, both atlases, `SOURCES.md`,
-  the harness and the generator). A mismatch is a stale vector.
+  files, `BotFishView.swift`, the runtime types, the shared pure projection,
+  both atlases, `SOURCES.md`, the harness and the generator). A mismatch is a
+  stale vector.
 * `tolerances` — `1e-6` for params, pose, timeMs and alpha, plus the
   float-behaviour rationale below.
 * `frameClock` — the §3 constants.
@@ -892,7 +920,9 @@ blocked by the iOS-only grant.
 * `clips` — 42 entries from the real `BotFishClip.forState`.
 * `spriteOrder` — 12 eye names, 12 mouth names from the real arrays.
 * `palettes` — 15 × (`id`, `hex`, 768-entry `lut`, `ink`, `mid`, `light`).
-* `anchors` — 58 `path`/`line`/`contains` citations; the checker resolves each
+* `headSlice` — the §7.4.1 vectors: both profile quanta and six cases
+  (`input`, `levels`, `displacement`) generated by `BotFishHeadSlice`.
+* `anchors` — 60 `path`/`line`/`contains` citations; the checker resolves each
   against the checkout, so a moved or edited line fails rather than freezing a
   stale citation.
 * `cases[]` — 97 cases, each with the §2.2 inputs, `randomValues`, `reaction`,
@@ -951,6 +981,10 @@ expiry and the return to the `working` lifecycle.
   alpha. A tolerance of `1e-6` therefore cannot hide a one-quantum error and
   does not demand bit-identical libm behaviour. The checker's sharper pose
   audit recomputes the quantised values and requires `<= 1e-6`.
+* `headSlice` levels are integers and compare exactly; `displacement` must be
+  exactly `levels * quantum` (the checker uses `1e-12`, far below the 0.1/0.25
+  quanta). A shared raw input under both profiles must produce different
+  displacements, so a restored 0.1 for lively fails.
 * Ordering: cases are in the fixed group order of §10.2, frames in increasing
   `step`. A consumer may compare by name rather than by array position, but
   must reject missing/extra entries.
@@ -1003,33 +1037,35 @@ acceptance command is `--check` (or `--write` when intentionally regenerating).
 ### 10.5 Conformance status
 
 * **iOS:** the vectors are generated by running the real app code in the iOS
-  simulator (954 frames, 97 cases). This is generator evidence, not an XCTest
-  conformance suite: `examples/probe-app/**` is not part of any SwiftPM target,
-  so `swift test` cannot import the fish sources without moving app code. The
-  iOS half is therefore **PASS (generation)** and **NOT_RUN (XCTest
-  conformance)**.
+  simulator (954 frames, 97 cases, 6 head-slice cases). This is generator
+  evidence for the model and pose. The head-slice quantiser and restore are a
+  pure `PhoneDSHBot` type, so `Tests/PhoneDSHBotTests/UI/BotUIProjectionVectorTests.swift`
+  reads `trajectory.json#headSlice` and runs those vectors through the real
+  Swift function. The rasterising renderer (`BotFishRenderer`) remains app code
+  and is **NOT_RUN (XCTest conformance)**; it is compiled by the app build only.
 * **Android:** **NOT_RUN**; no Kotlin renderer exists in this round.
 * **Screenshots:** gallery captures are a regression aid, not cross-end pixel
   parity and not a substitute for this fixture.
 
 ## 11. Open items and contract change requests
 
-### 11.1 CONTRACT CHANGE REQUEST — lively head-slice quantum
+### 11.1 CONTRACT CHANGE REQUEST — lively head-slice quantum (DECIDED)
 
 ```
 CONTRACT CHANGE REQUEST
 Contract: P09/P26 BotFish renderer @ e477497b
 Clause: fish.md §7.4 / BotFishRenderer.swift head slicing
-Problem: `headSignature` quantises lively head-slice inputs with the caller's
-quantum (0.25 source units, `BotFishRenderer.swift:203-215`) but `sliceImage`
-converts the stored integer back with `Self.headSliceQuantum` (0.1,
-`BotFishRenderer.swift:1204-1207`). The lively displacement is therefore
+Status: DECIDED (PC-20261112-android-bot-w4 §7, FISH-1)
+Problem: `headSignature` quantised lively head-slice inputs with the caller's
+quantum (0.25 source units) but `sliceImage` converted the stored integer back
+with `Self.headSliceQuantum` (0.1). The lively displacement was therefore
 0.1*n, 2.5x smaller than the 0.25*n the 0.25 quantiser implies; the standard
-profile (0.1/0.1) is consistent. Two Swift paths disagree about the same
+profile (0.1/0.1) was consistent. Two Swift paths disagreed about the same
 number.
-Proposal: pass the active quantum (or the raw Double) through `SliceKey` and
-`sliceImage`, then add a renderer slice vector for both profiles; until then
-this contract leaves head-slice displacement out of the numeric trajectory.
+Decision: the active profile's quantum is used end to end (`standard` 0.1,
+`lively` 0.25); `SliceKey` carries the quantum. `BotFishHeadSlice` in
+`Sources/PhoneDSHBot/UI/BotUIProjection.swift` owns the quantise/restore pair,
+and `trajectory.json#headSlice` freezes both profiles (§7.4.1).
 Affects: iOS renderer (rasterisation), Android renderer when it ports slicing.
 ```
 
@@ -1079,6 +1115,7 @@ in `assets.json`.
 | Spring substep/settle | `BotFishModel.swift:702-728` |
 | Controller, timers, overlays, static sampling | `BotFishEngine.swift:61-486`, `:259-277`, `:291-463` |
 | Motion boost, pose, alpha | `BotFishEngine.swift:555-667`; `BotFishRenderer.swift:193-199`, `:126-130` |
+| Head-slice quantum and restore | `Sources/PhoneDSHBot/UI/BotUIProjection.swift:115-150`; `BotFishRenderer.swift:142`, `:177-181`, `:207-218`, `:1202-1216`; `golden/trajectory.json#headSlice`; `tools/check_fish.py` `check_head_slice` |
 | Frame clock, pause, pivot, gesture | `BotFishView.swift:68-92`, `:73-83`, `:96-137`, `:138-144`, `:177-202` |
 | Crop/pivot/layer order | `BotFishRenderer.swift:93-120`, `:219-280`, `:389-428`, `:480-512` |
 | Sprite grid/cells | `expressive/atlas.json:4-8`; `BotFishAssets.swift:199-211`, `:214-228`; `BotFishModel.swift:33-57` |
@@ -1087,7 +1124,7 @@ in `assets.json`.
 | Lively tracks | `BotFishLivelyMotion.swift:70-368` |
 | Atlas state data | `examples/probe-app/BotFish/atlas.json` (42 state keys + 4 controller keys) |
 | iOS packaging | `examples/probe-app/project.yml:64-70`; `BotFishAssets.swift:193-197` |
-| Licence/provenance | `examples/probe-app/BotFish/SOURCES.md:5-9`; `NOTICE:84`; `LICENSE:1` |
+| Licence/provenance | `examples/probe-app/BotFish/SOURCES.md:5-9`; `NOTICE:90`; `LICENSE:1` |
 
 Verification commands:
 
@@ -1095,6 +1132,7 @@ Verification commands:
 python3 spec/ui/v1/bot/fish/tools/check_fish.py --root .
 python3 -m unittest discover -s spec/ui/v1/bot/fish/tools -p 'test_*.py'
 python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --check
+swift test --filter BotUIProjectionVectorTests
 bash scripts/ci/check.sh --only phone-spec,phone-cross-tree
 ```
 

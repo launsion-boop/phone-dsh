@@ -52,7 +52,7 @@
     },
     {
       "contains": "Artwork: the mascot in docs/assets/logo.png",
-      "line": 84,
+      "line": 90,
       "path": "NOTICE"
     },
     {
@@ -1700,13 +1700,13 @@
   "source": {
     "contractBase": "e477497b",
     "grant": {
-      "androidGranted": false,
+      "androidGranted": true,
       "line": 9,
-      "scope": "ios-only",
-      "text": "用户已明确授权在 phoneDSH iOS 中使用大肥鱼形象素材。本目录供原生分层渲染器"
+      "scope": "ios+android",
+      "text": "用户已明确授权在 phoneDSH iOS 中使用大肥鱼形象素材。2026-11-12 起，权利人（素材作者，即上游 `launsion-boop/dsh-bot` 的所有者）将授权扩展到 phoneDSH 全部平台：iOS App、Android（`:lib` AAR 与 App APK）、HarmonyOS，以及截图/测试工程；随 phoneDSH 以 MIT 许可再分发，见仓库根 `NOTICE`。各平台只读取本目录（构建期复制或打包），不得另存手改副本。本目录供原生分层渲染器"
     },
     "provenance": "examples/probe-app/BotFish/SOURCES.md",
-    "provenanceSha256": "f9cadf2e85e7e8529be6a5c93186670d4a5d52d97be56c0e50dbc16faed9f9bb",
+    "provenanceSha256": "4f95d70d7916d9d3349c03d121280fb6a428fb6518d884c0386d23dd9f4da7b0",
     "revision": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
     "upstream": "launsion-boop/dsh-bot"
   },

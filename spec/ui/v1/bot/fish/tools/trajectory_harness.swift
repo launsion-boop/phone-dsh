@@ -342,6 +342,57 @@ func paletteJSON(_ color: BotFishColor) -> [String: Any] {
     ]
 }
 
+/// FISH-1: head-slice quantisation and restore must use the active profile's
+/// quantum end to end. The inputs are raw source-space values; levels and
+/// displacement come from the shared `BotFishHeadSlice` in PhoneDSHBot.
+func headSliceJSON() -> [String: Any] {
+    let specs: [(String, Bool, Double, Double, Double, Double)] = [
+        ("standard-values", false, 0.37, -0.42, 1.03, -0.28),
+        ("standard-half-away", false, 0.05, -0.05, 0.15, -0.15),
+        ("standard-identity", false, 0, 0, 0, 0),
+        ("lively-values", true, 0.37, -0.42, 1.03, -0.28),
+        ("lively-half-away", true, 0.125, -0.125, 0.375, -0.375),
+        ("lively-identity", true, 0, 0, 0, 0),
+    ]
+    let cases = specs.map { id, lively, headX, headY, hairSway, earFlutter -> [String: Any] in
+        let quantum = BotFishHeadSlice.quantum(lively: lively)
+        let levels = BotFishHeadSlice.levels(
+            headX: headX, headY: headY, hairSway: hairSway,
+            earFlutter: earFlutter, quantum: quantum)
+        let displacement = BotFishHeadSlice.displacement(levels, quantum: quantum)
+        return [
+            "id": id,
+            "profile": lively ? "lively" : "standard",
+            "quantum": num(quantum),
+            "input": [
+                "headX": num(headX),
+                "headY": num(headY),
+                "hairSway": num(hairSway),
+                "earFlutter": num(earFlutter),
+            ],
+            "levels": [
+                "headX": num(Double(levels.headX)),
+                "headY": num(Double(levels.headY)),
+                "hairSway": num(Double(levels.hairSway)),
+                "earFlutter": num(Double(levels.earFlutter)),
+            ],
+            "displacement": [
+                "headX": num(displacement.headX),
+                "headY": num(displacement.headY),
+                "hairSway": num(displacement.hairSway),
+                "earFlutter": num(displacement.earFlutter),
+            ],
+        ]
+    }
+    return [
+        "profiles": [
+            "standard": ["quantum": num(BotFishHeadSlice.standardQuantum)],
+            "lively": ["quantum": num(BotFishHeadSlice.livelyQuantum)],
+        ],
+        "cases": cases,
+    ]
+}
+
 // MARK: - Runner
 
 func runCase(_ spec: CaseSpec) -> [String: Any] {
@@ -579,6 +630,7 @@ func main() -> Never {
             "mouths": BotFishMouthCel.names,
         ],
         "palettes": palettes,
+        "headSlice": headSliceJSON(),
         "cases": cases.map(runCase),
     ]
 
