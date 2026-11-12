@@ -252,6 +252,15 @@ final class SQLiteDatabase: @unchecked Sendable {
             // normalise the version and recreate any missing child table.
             try execute("BEGIN IMMEDIATE")
             do {
+                let sequences = try query(
+                    "SELECT commit_seq FROM bot_event_headers ORDER BY commit_seq ASC"
+                ).map { row -> Int64 in
+                    guard let sequence = row["commit_seq"]?.integer else {
+                        throw SQLiteDomainStoreError.corrupted("v3 event row is incomplete")
+                    }
+                    return sequence
+                }
+                try Self.requireContiguousCommitSeq(sequences)
                 try execute(Self.schemaSQL)
                 _ = try query("PRAGMA user_version=3")
                 try execute("COMMIT")
@@ -276,6 +285,16 @@ final class SQLiteDatabase: @unchecked Sendable {
         _ = try query("PRAGMA foreign_keys=OFF")
         do {
             try execute("BEGIN IMMEDIATE")
+            // The contiguity check is part of the migration transaction: a
+            // gapped v1/v2 file MUST be refused before COMMIT so the rollback
+            // leaves `user_version` at its old value and the file untouched.
+            let sequences = try oldEvents.map { row -> Int64 in
+                guard let sequence = row["commit_seq"]?.integer else {
+                    throw SQLiteDomainStoreError.corrupted("v2 event row is incomplete")
+                }
+                return sequence
+            }
+            try Self.requireContiguousCommitSeq(sequences)
             try execute("DROP TRIGGER IF EXISTS bot_events_reject_update")
             try execute("DROP TRIGGER IF EXISTS bot_events_reject_delete")
             try execute("DROP TABLE IF EXISTS bot_user_action_nonces")
@@ -328,6 +347,19 @@ final class SQLiteDatabase: @unchecked Sendable {
         let foreignKeyErrors = try query("PRAGMA foreign_key_check")
         guard foreignKeyErrors.isEmpty else {
             throw SQLiteDomainStoreError.corrupted("v3 migration left a foreign key violation")
+        }
+    }
+
+    /// Migration-time sequence check. The first gap is reported with both
+    /// numbers so the open failure names it; the error type is the existing
+    /// `corrupted`, not a second code for the same invariant.
+    private static func requireContiguousCommitSeq(_ sequences: [Int64]) throws {
+        for (index, sequence) in sequences.enumerated() {
+            let expected = Int64(index + 1)
+            guard sequence == expected else {
+                throw SQLiteDomainStoreError.corrupted(
+                    "commit_seq gap: expected \(expected), found \(sequence)")
+            }
         }
     }
 

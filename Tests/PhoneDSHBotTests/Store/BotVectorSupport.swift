@@ -60,9 +60,37 @@ final class BotVectorRunner {
         } catch {
             if let expected = testCase["openError"] as? String {
                 XCTAssertEqual(VectorErrorCode.of(error), expected, "\(name) open error")
-                return
+                if let contains = testCase["openErrorContains"] as? String {
+                    let detail = VectorErrorDetail.of(error)
+                    XCTAssertTrue(detail.contains(contains),
+                                  "\(name) open error detail \(detail) does not contain \(contains)")
+                }
+            } else {
+                throw error
             }
-            throw error
+            // A failed open may still be inspected on disk. Only read-only
+            // inspection is meaningful after the store refused to open.
+            for (index, step) in steps.enumerated() {
+                let op = step["op"] as? String ?? "?"
+                let label = "\(name).afterOpenError.steps[\(index)].\(op)"
+                guard op == "raw" || op == "sql" else {
+                    XCTFail("\(label): only raw/sql steps may follow a failed open")
+                    continue
+                }
+                do {
+                    let observation = try await runStep(step, label: label)
+                    try assertObservation(step["expect"], observation, label: label)
+                } catch {
+                    let expect = step["expect"] as? [String: Any]
+                    if let expected = expect?["error"] as? String {
+                        XCTAssertEqual(VectorErrorCode.of(error), expected, "\(label) error")
+                    } else {
+                        XCTFail("\(label): unexpected error \(error)")
+                    }
+                }
+            }
+            await close()
+            return
         }
         if let expected = testCase["openError"] as? String {
             XCTFail("\(name): expected open error \(expected), open succeeded")
@@ -222,6 +250,18 @@ final class BotVectorRunner {
             try await requireStore().fail(
                 lease, errorClass: step["errorClass"] as? String ?? "",
                 reason: step["reason"] as? String ?? "")
+            let record = try await requireStore().effect(lease.effectKey)
+            return [
+                "state": record?.state.rawValue ?? NSNull(),
+                "head": try await requireStore().headCommitSeq(),
+                "attempt": record.map { $0.attempt as Any } ?? NSNull(),
+                "attempts": record.map { $0.attempts as Any } ?? NSNull(),
+                "notBefore": record?.effect.notBefore.map { $0 as Any } ?? NSNull(),
+            ]
+
+        case "effectRelease":
+            let lease = try leaseFor(step)
+            _ = try await requireStore().release(lease)
             let record = try await requireStore().effect(lease.effectKey)
             return [
                 "state": record?.state.rawValue ?? NSNull(),
@@ -510,6 +550,16 @@ enum VectorErrorCode {
         }
         if let error = error as? VectorError {
             return error.description
+        }
+        return String(describing: error)
+    }
+}
+
+enum VectorErrorDetail {
+    static func of(_ error: Error) -> String {
+        if let storeError = error as? SQLiteDomainStoreError,
+           case let .corrupted(detail) = storeError {
+            return detail
         }
         return String(describing: error)
     }

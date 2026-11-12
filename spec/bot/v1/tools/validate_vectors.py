@@ -1809,7 +1809,7 @@ class _StoreModelError(Exception):
 
 
 class _StoreModel:
-    def __init__(self, case):
+    def __init__(self, case, open_failed=False):
         self.clock = case.get("clock", 1000)
         self.lease_ttl = case.get("leaseTTLms", 30_000)
         self.ephemeral_capacity = case.get("ephemeralCapacity", 256)
@@ -1825,12 +1825,15 @@ class _StoreModel:
         self.closed = False
         self.version = 3
         self.migrated_from = 0
+        self.open_failed = open_failed
         self.ephemeral = []
         self.dropped = 0
         self.effect_event_ids = 0
         setup = case.get("setup")
+        user_version = 2
         if setup:
-            self.migrated_from = setup.get("userVersion", 2)
+            user_version = int(setup.get("userVersion", 2))
+            self.migrated_from = user_version
             for event in setup.get("events", []):
                 seq = event["commitSeq"]
                 self.events[seq] = event
@@ -1838,7 +1841,18 @@ class _StoreModel:
                 self.head = max(self.head, seq)
             for nonce in setup.get("nonces", []):
                 self.nonces[(nonce["botId"], nonce["nonce"])] = nonce["eventId"]
-        self.version = 3
+        # A refused migration rolls back: the file keeps its old version and
+        # the old rows. Successful cases (and fresh databases) are v3.
+        self.version = user_version if open_failed else 3
+
+    def open_failure_detail(self):
+        """The detail that names the first migration gap, or None."""
+        for index, seq in enumerate(sorted(self.events), start=1):
+            if seq != index:
+                return f"commit_seq gap: expected {index}, found {seq}"
+        if self.version > 3:
+            return f"schemaTooNew:{self.version}"
+        return None
 
     # -- helpers ---------------------------------------------------------
     def _append_event(self, event, effect_event=False):
@@ -1990,6 +2004,8 @@ class _StoreModel:
                 return {"rows": [["view"]]}
             return {"rows": [["table"]]}
         if query == "SELECT COUNT(*) FROM bot_event_headers":
+            return {"rows": [[str(len(self.events))]]}
+        if query == "SELECT COUNT(*) FROM bot_events":
             return {"rows": [[str(len(self.events))]]}
         if query == "SELECT COUNT(*) FROM bot_event_payloads":
             return {"rows": [[str(len(self.events))]]}
@@ -2215,6 +2231,30 @@ class _StoreModel:
         return {"state": effect["state"], "head": self.head, "attempt": effect["attempt"],
                 "attempts": effect["attempts"], "notBefore": effect["notBefore"]}
 
+    def _op_effectRelease(self, step):
+        """Known kind without a registered executor: back to pending, no event."""
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        if effect["state"] != "leased":
+            raise _StoreModelError("invalidTransition")
+        now = self.clock
+        effect.update({
+            "state": "pending",
+            "notBefore": now + _retry_delay(effect["retryPolicy"], lease["attempt"]),
+            "lastError": "no registered executor",
+            "leaseOwner": None,
+            "leaseExpiresAt": None,
+        })
+        lease["leaseExpiresAt"] = None
+        return {"state": effect["state"], "head": self.head, "attempt": effect["attempt"],
+                "attempts": effect["attempts"], "notBefore": effect["notBefore"]}
+
     def _op_effectMarkReconciliation(self, step):
         reason = step.get("reason")
         if reason not in RECONCILIATION_REASONS:
@@ -2386,6 +2426,22 @@ def _validate_action(action):
     return None
 
 
+def _run_store_step(model, step, where):
+    expect = step.get("expect")
+    try:
+        observation = model.step(step)
+    except _StoreModelError as error:
+        if not isinstance(expect, dict) or "error" not in expect:
+            raise AssertionError(f"{where}: unexpected model error {error.code}") from None
+        if expect["error"] != error.code:
+            raise AssertionError(
+                f"{where}: expected error {expect['error']!r}, got {error.code!r}") from None
+        return
+    if isinstance(expect, dict) and "error" in expect:
+        raise AssertionError(f"{where}: expected error {expect['error']!r}, got success")
+    _expect_store(expect, observation, where)
+
+
 def _walk_store_case(case, vector_name):
     name = case.get("name")
     if not isinstance(name, str) or not name:
@@ -2398,27 +2454,36 @@ def _walk_store_case(case, vector_name):
     if open_error is not None:
         if open_error not in STORE_ERRORS:
             raise AssertionError(f"{vector_name}.{name}: unknown openError {open_error!r}")
-        if steps:
-            raise AssertionError(f"{vector_name}.{name}: openError case must not have steps")
-        return 1
+        # A refused open may still be inspected on disk (for example
+        # `PRAGMA user_version` after a rolled-back migration). No other step
+        # makes sense because the model never opened.
+        model = _StoreModel(case, open_failed=True)
+        expected_detail = case.get("openErrorContains")
+        if expected_detail is not None:
+            if not isinstance(expected_detail, str) or not expected_detail:
+                raise AssertionError(
+                    f"{vector_name}.{name}: openErrorContains must be a non-empty string")
+            actual_detail = model.open_failure_detail()
+            if actual_detail is None:
+                raise AssertionError(
+                    f"{vector_name}.{name}: openError case models no failure detail")
+            if expected_detail not in actual_detail:
+                raise AssertionError(
+                    f"{vector_name}.{name}: openErrorContains {expected_detail!r} not in "
+                    f"{actual_detail!r}")
+        for index, step in enumerate(steps):
+            where = f"{vector_name}.{name}.steps[{index}]"
+            if step.get("op") not in ("raw", "sql"):
+                raise AssertionError(
+                    f"{where}: only raw/sql steps may follow a failed open")
+            _run_store_step(model, step, where)
+        return len(steps)
     if not steps:
         raise AssertionError(f"{vector_name}.{name}: case without steps")
     model = _StoreModel(case)
     for index, step in enumerate(steps):
         where = f"{vector_name}.{name}.steps[{index}]"
-        expect = step.get("expect")
-        try:
-            observation = model.step(step)
-        except _StoreModelError as error:
-            if not isinstance(expect, dict) or "error" not in expect:
-                raise AssertionError(f"{where}: unexpected model error {error.code}") from None
-            if expect["error"] != error.code:
-                raise AssertionError(
-                    f"{where}: expected error {expect['error']!r}, got {error.code!r}") from None
-            continue
-        if isinstance(expect, dict) and "error" in expect:
-            raise AssertionError(f"{where}: expected error {expect['error']!r}, got success")
-        _expect_store(expect, observation, where)
+        _run_store_step(model, step, where)
     return len(steps)
 
 
@@ -2466,6 +2531,41 @@ def validate_store_fixture(fixture):
                 "leaseOwner": "owner", "leaseExpiresAt": 31999}
             break
     expect_rule_violation("store-backoff", lambda: _walk_store_case(mutated, "store.phone"))
+    # A known kind without an executor MUST be released to `pending` with the
+    # store's retry delay, not failed or dead-lettered.
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-known-kind-without-executor-releases-to-pending"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectRelease":
+            step["expect"]["state"] = "failed"
+            break
+    expect_rule_violation("store-release-state", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-known-kind-without-executor-releases-to-pending"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectRelease":
+            step["expect"]["notBefore"] = 1001
+            break
+    expect_rule_violation("store-release-delay", lambda: _walk_store_case(mutated, "store.phone"))
+    # A migration gap MUST roll back, so the file still reports user_version 2.
+    mutated = copy.deepcopy(next(case for case in invalid if case["name"] ==
+                                 "v2-gap-rolls-back-and-stays-v2"))
+    for step in mutated["steps"]:
+        if step["op"] == "raw" and step.get("query") == "PRAGMA user_version":
+            step["expect"]["rows"] = [["3"]]
+            break
+    expect_rule_violation("store-migration-rollback",
+                          lambda: _walk_store_case(mutated, "store.phone"))
+    # The no-executor release is not the unknown-kind path: the latter is a
+    # permanent failure whose stored code is exactly `unknown_effect_kind`.
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "unknown-effect-kind-is-permanent"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectRecord":
+            step["expect"]["lastErrorContains"] = "not_the_code"
+            break
+    expect_rule_violation("store-unknown-effect-kind",
+                          lambda: _walk_store_case(mutated, "store.phone"))
     return count
 
 
