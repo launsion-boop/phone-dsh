@@ -276,6 +276,33 @@ export function parseCurlArguments(args: readonly string[]): CurlInvocation {
  * @param context - shell context.
  * @returns the final response.
  */
+/**
+ * The named cause in the host `/v1/http` failure envelope, if this is one.
+ * The `xl_error` member distinguishes the proxy's structured 403 from an
+ * arbitrary upstream body that happens to contain `error.code`.
+ */
+function egressDenial(body: Uint8Array): { code: string; message: string } | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(Buffer.from(body).toString('utf8'))
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const envelope = parsed as Record<string, unknown>
+  if (envelope.xl_error === undefined) return undefined
+  const error = envelope.error
+  if (typeof error !== 'object' || error === null) return undefined
+  const record = error as Record<string, unknown>
+  const code = record.code
+  if (typeof code !== 'string' || code.length === 0) return undefined
+  const message = record.message
+  return {
+    code,
+    message: typeof message === 'string' && message.length > 0 ? message : code,
+  }
+}
+
 async function performRequest(
   target: string,
   invocation: CurlInvocation,
@@ -347,6 +374,14 @@ async function performRequest(
     }
     const body = new Uint8Array(await response.arrayBuffer())
     if (response.status === 403) {
+      // The host `/v1/http` failure envelope carries the stable cause. Keep the
+      // generic allow-list sentence for a plain upstream 403, but surface the
+      // named Bot causes (`task_network_write_denied`, the pending egress
+      // approval, …) with the host's human message instead of swallowing them.
+      const denial = egressDenial(body)
+      if (denial !== undefined) {
+        throw new CurlError(22, `${denial.code}: ${denial.message}`)
+      }
       throw new CurlError(22, `the host allow-list rejected ${url}`)
     }
     const location = response.headers.get('location')

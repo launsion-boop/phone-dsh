@@ -78,8 +78,8 @@ Bot 会话经宿主 `/v1/http` 发出的网络写不再是 Worker 命令文本�
 - **归属跟随 `bash` 调用与后台 job。** 宿主把出口写归属到**当前存活的 `bash` identity registration**。普通调用在 `tools/execute` 返回时释放；DSH job registry 保留的命令（`run_in_background: true` 或前台超时转后台）在工具结果返回后继续持有同一登记，Worker 每 120 秒用同一 call/digest 重发 `/identity/register` 续期，宿主在原 id 上延长有效期（不超过会话 token 过期），直到 `job/settled`/`removed`、Worker 代次轮换或 24 小时硬上限。这样 job 后续发出的 `/v1/http` 写仍能归到发起它的 Bot/session。
 - **同一 Bot 的多个活动登记不是歧义。** 多个后台 job 或 chat/task 会话同时活动时，宿主按 Bot 归组；同一 Bot 只有一个 owner，选其中一条仍存活的登记送审。不同 Bot 之间才用外层命令是否含目标主机做唯一消歧；仍不唯一 → `bot_egress_ambiguous` 拒绝，不猜 principal。会话 token 已撤销/过期 → `bot_egress_unattributed`。
 - **失败关闭兜底（B）。** 完全没有存活登记时，宿主询问 App“是否有工作台会话正在运行回合”（由 `PhoneDSHHost` 的 journal turn state 回答，排除活动 Bot 会话）。有工作台回合 → `notBot`，工作台维持原 allow-list；没有工作台回合 → 该写只能是 Bot 的后台任务：恰好一个活动 Bot → 归该 Bot 送审；多个活动 Bot → `bot_egress_ambiguous` 拒绝；没有任何活动 Bot credential → `bot_egress_unattributed` 拒绝。兜底只在登记缺失时生效，已归属的 job 写不会被工作台活动改判给另一个 Bot。
-- **审批与 Grant。** 无对应 Grant 时复用现有 Bot 审批卡：`tool=egress`、`operation=egress.<method>`、`resource=host=<lowercased host>`（不含 scheme、端口、路径、query），`alwaysScope=until`。用户选「总是」写入 30 天 `until` Grant；交互出口审批的 `allow_once` 在放行后立即消费；持久待办 egress 的一次性 Grant 保留给恢复后的重试消费（§2.7）；同一「主机 + 方法」的后续写不再出卡。拒绝、超时（300 s）、取消、Worker 重启/Bot 删除取消都 fail-closed，返回 HTTP 403；`xl_error.code` 统一为 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 为具体原因（拒绝/超时/取消 `egress_approval_denied`，多活动调用 `bot_egress_ambiguous`，会话凭证失效 `bot_egress_unattributed`，Task 缺少网络写授权 `task_network_write_denied`），且不解析凭据、不开 socket、不写 response log。
-- **Task 子会话的网络写。** `approveEgress` 先完成归属，再检查被归属会话的授权子集：`kind=task` 且 capabilities 不含 `task.network-write` 时，直接以 403 `task_network_write_denied` 拒绝，不创建审批卡、不写 Grant，也不依赖任何 `curl-post`/`network-egress` 命令分类。带 `task.network-write` 的 Task 会话（夹具或兼容数据；本修订的 `Task` 工具不会生成）仍走与其他 Bot 会话相同的主机 + 方法审批卡。主对话没有这个子集检查，行为不变。
+- **审批与 Grant。** 无对应 Grant 时复用现有 Bot 审批卡：`tool=egress`、`operation=egress.<method>`、`resource=host=<lowercased host>`（不含 scheme、端口、路径、query），`alwaysScope=until`。用户选「总是」写入 30 天 `until` Grant；交互出口审批的 `allow_once` 在放行后消费。**出口写审批不阻塞 `/v1/http` 请求超过调用方可承受的窗口**：chat 会话最多等待 20 秒（present user 可让同一请求完成）；Task/routine 立即返回。窗口内没有决定时返回 HTTP 403 `egress_approval_denied`，message 为人话「已提交审批，批准后请重试；这次网络写入没有发出」，卡片保持 pending；用户批准后写出的 `once` Grant **保留给重试消费**，重试不再重复要审批。批准前重试复用同一会话 + 主机 + 方法的 pending 卡，不叠加第二张卡。拒绝、超时（300 s）、取消、Worker 重启/Bot 删除取消都 fail-closed，返回 HTTP 403；`xl_error.code` 统一为 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 为具体原因（拒绝/超时/取消 `egress_approval_denied`，多活动调用 `bot_egress_ambiguous`，会话凭证失效 `bot_egress_unattributed`，Task 缺少网络写授权 `task_network_write_denied`），且不解析凭据、不开 socket、不写 response log。
+- **Task 子会话的网络写。** `approveEgress` 先完成归属，再检查被归属会话的授权子集：`kind=task` 且 capabilities 不含 `task.network-write` 时，直接以 403 `task_network_write_denied` 拒绝，不创建审批卡、不写 Grant，也不依赖任何 `curl-post`/`network-egress` 命令分类。**这个 Task 子集判断先于宿主 allow-list**：Task 写即使目标主机不在 allow-list，也返回具名 `task_network_write_denied`；非 Task 的未列入主机仍返回普通 `host_not_allowed`，不出卡。带 `task.network-write` 的 Task 会话（夹具或兼容数据；本修订的 `Task` 工具不会生成）仍走与其他 Bot 会话相同的主机 + 方法审批卡。主对话没有这个子集检查，行为不变。
 - **取消传播。** Worker 的 `/v1/http` 消费者取消 → 宿主取消对应 pending 审批（写 `approval.decided`，`status=cancelled`，`reason=consumer_cancelled`）；`workerRestarted`/Bot 删除继续走既有 `cancelAll`。同一被批准写不跟随重定向：3xx 原样返回，调用方需对新目标另行审批。
 - **Bot 工作区根。** Bot 会话 cwd（及 DSH 文件沙箱的 `workspaceRoot`）是 `BotWorkspaceLayout.botRoot(botId:)`，即 `/dsh/workspace/.dshbot/agents/<safe botID>`；chat/task/routine 共享该 Bot 根，不同 Bot 不共享。根内 `write`/`edit` 不需要结构审批，DSH 文件沙箱是该层的执行边界；根外写是跨出口。
 - **文件 Grant 粒度。** 根外 `write`/`edit` 的效果为 `tool=write|edit`、`operation=file.write|file.edit`、`resource=dir=<标准化绝对父目录>`；文件名、内容和参数摘要不参与。同一目录的连续写复用同一 `until` Grant；`..` 在包含判断前解析，`file_path` 缺失/为空按 `tool.unclassified` fail-closed。显式 `sandbox_permissions` 仍需走既有 sandbox escalation，二者是独立的两层。
@@ -102,7 +102,7 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 - `allowed_write_directories` 接受绝对路径或相对于 Bot 工作区根的路径；`~` 展开，`.`/`..` 规范化，重复项合并，最多 32 项。省略或为空表示只允许 Bot 工作区根。任一项在根外时 `canWriteOutsideWorkspace` 才为 `true`。
 - 子会话的 DSH principal capabilities 由该子集派生：`task.workspace:<root>`、`task.write-dir:<abs>`、`task.write-outside-workspace`、`task.network-write`、`task.delegate`。
-- 结构审批门禁对 `write`/`edit` 的路径和可识别的 `bash` 写入目标按 `task.write-dir:*` 拒绝越界。网络写不再由命令文本效果判断：Task 子会话在宿主 `/v1/http` 出口按 `task.network-write` 处理，没有该 capability 时直接 403 `task_network_write_denied`（见 §2.4），不创建审批卡；有该 capability 的会话才进入与其他 Bot 会话相同的主机 + 方法审批卡。拒绝发生在向用户出审批卡之前，不执行。
+- 结构审批门禁对 `write`/`edit` 的路径和可识别的 `bash` 写入目标按 `task.write-dir:*` 拒绝越界。网络写不再由命令文本效果判断：Task 子会话在宿主 `/v1/http` 出口按 `task.network-write` 处理，没有该 capability 时直接 403 `task_network_write_denied`（见 §2.4），不创建审批卡；该判断先于 allow-list，所以不在白名单的主机也返回这个具名原因。有该 capability 的会话才进入与其他 Bot 会话相同的主机 + 方法审批卡。拒绝发生在向用户出审批卡之前，不执行。
 - 本修订没有提高子会话权限的 Task 参数：`canNetworkWrite` 与 `canDelegateTasks` 恒为 `false`。因此 `Task` 的子会话默认不能再派 `Task`，`startTask` 对缺少 `task.delegate` 的调用 fail-closed。
 - 结果与 `AwaitTask` 都带同一个 `authorization` 对象；durable `persistedTask` 保存它，Worker 重启后仍能对同一任务继续执行同一子集。
 
@@ -114,12 +114,12 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 ### 2.7 持久待办审批（S5 实现）
 
-审批按**会话 kind 是否有可挂起的宿主恢复点**分两类；分类只看宿主 principal，不看模型文本：
+审批按**是否存在可挂起的宿主恢复点，以及请求方是否还能等待**分两类；`structural` 只看宿主 principal，`egress` 一律按持久处理：
 
-- **持久待办**：`principal.kind` 为 `routine` 或 `task` 的回合。这两类会话由宿主拥有独立的 run/task 记录，可以在审批期间停在原地并由决定唤醒。宿主**立即**返回等待：`/approval` 响应 `{ok:true,allowed:false,pending:true,approvalID,expiresAt}`。审批事件的 pending 状态是 durable 事实，不依赖内存 continuation、Worker 进程或身份登记。
-- **交互审批**：`chat` 会话，包括主对话前台回合和 `task-settled`/held/`agent:` 等隐藏唤醒。它的回合仍在原 DSH session 内活着，宿主没有可回放的原 prompt；因此保持 300,000 ms 等待，超时写 `approval.decided{decision:"deny",status:"denied",timedOut:true}` 并返回拒绝。隐藏唤醒不会因为“用户不在场”被转成无法恢复的待办。`verifier`/`maintainer` 的受限工具面不发审批卡。
+- **持久待办**：`principal.kind` 为 `routine` 或 `task` 的 `structural` 回合，以及**所有 `origin=egress` 的出口写**（任何 kind）。前两类会话由宿主拥有独立的 run/task 记录，可以在审批期间停在原地并由决定唤醒。宿主**立即**返回等待：`/approval` 响应 `{ok:true,allowed:false,pending:true,approvalID,expiresAt}`。出口写的 `/v1/http` 请求同样不能为等用户而无限挂起：chat 会话最多等待 20 秒（用户在场时同一请求可以完成），之后以 403 pending 回答；Task/routine 立即回答。pending 状态是 durable 事实，不依赖内存 continuation、Worker 进程或身份登记。用户批准后 `once` Grant 保留给重试消费，批准前的重试复用同一张 pending 卡。
+- **交互审批**：`chat` 会话的 `structural` 审批，包括主对话前台回合和 `task-settled`/held/`agent:` 等隐藏唤醒。它的回合仍在原 DSH session 内活着，宿主没有可回放的原 prompt；因此保持 300,000 ms 等待，超时写 `approval.decided{decision:"deny",status:"denied",timedOut:true}` 并返回拒绝。隐藏唤醒不会因为“用户不在场”被转成无法恢复的待办。`verifier`/`maintainer` 的受限工具面不发审批卡。
 
-“用户在场”不改变上述分类：routine/task 无论用户是否正在看 App 都是持久待办；chat 回合无论前台还是隐藏唤醒都在本回合完成审批。这样只有存在 `waiting_approval`/`waiting-approval` 恢复点的会话才进入持久语义，不会出现审批通过后没有恢复对象的待办。
+“用户在场”不改变 `structural` 的分类：routine/task 无论用户是否正在看 App 都是持久待办；chat 回合无论前台还是隐藏唤醒都在本回合完成审批。出口写是例外，因为它的等待方是一个随时会被 Worker `curl --max-time`/fetch 超时中止的 HTTP 请求，所以一律持久化并返回 pending。这样只有存在 `waiting_approval`/`waiting-approval` 恢复点的会话才进入 `structural` 持久语义；egress 的重试方是模型/用户的下一次 `/v1/http` 写，不需要额外恢复点。
 
 **请求与等待。** 持久审批仍写既有 `approval.requested`，追加 `persistent:true`、`kind`、`requestedAt`、`expiresAt`、`origin`（`structural` 或 `egress`）。`approvalID + digest` 是唯一决定键。`origin` 决定 Worker 侧处置：
 

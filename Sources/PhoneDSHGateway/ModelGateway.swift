@@ -232,10 +232,16 @@ public protocol MCPEgressGating: EgressHostAuthorizing {
 public struct BotEgressWriteRequest: Equatable, Sendable {
     public var method: String
     public var url: URL
+    /// Whether the target is inside the gateway's allow-list. The approval
+    /// layer uses it to let the ordinary `host_not_allowed` answer through for
+    /// non-Task writes; a Task's missing `task.network-write` is still denied
+    /// first with its named cause.
+    public var hostAllowed: Bool
 
-    public init(method: String, url: URL) {
+    public init(method: String, url: URL, hostAllowed: Bool = true) {
         self.method = method
         self.url = url
+        self.hostAllowed = hostAllowed
     }
 
     /// Operation name of the Grant this write needs, for example `egress.post`.
@@ -263,10 +269,12 @@ public enum BotEgressWriteDecision: Equatable, Sendable {
 /// Host-composition seam that decides Bot network writes at the `/v1/http`
 /// exit (spec/v1/gateway-security.md §5, spec/bot/v1/README.md §2.4).
 ///
-/// The gateway calls this only for POST/PUT/PATCH/DELETE, after the allow-list
-/// and the exact-MCP egress gate, and before credential resolution, response
-/// logging, redirect following or any socket. An implementation that has no
-/// Bot runtime returns ``BotEgressWriteDecision/notBot``.
+/// The gateway calls this only for POST/PUT/PATCH/DELETE, before enforcing the
+/// allow-list and before credential resolution, response logging, redirect
+/// following or any socket. The request carries the allow-list decision so the
+/// Bot runtime can distinguish a Task subset denial (which must be the first,
+/// named answer) from ordinary not-allowed workbench traffic. An implementation
+/// that has no Bot runtime returns ``BotEgressWriteDecision/notBot``.
 public protocol BotEgressWriteApproving: Sendable {
     func approveBotEgressWrite(_ request: BotEgressWriteRequest) async -> BotEgressWriteDecision
 }
@@ -772,10 +780,12 @@ public actor ModelGateway {
             downstream.finish(throwing: ModelGatewayError.invalidRequest("upstream URL must be http(s)"))
             return
         }
-        guard coordinator.isAllowed(url) else {
-            downstream.finish(throwing: ModelGatewayError.hostNotAllowed(url.host ?? ""))
-            return
-        }
+        // The allow-list decision is computed before the Bot approval seam but
+        // enforced after it: a Task session without `task.network-write` must
+        // return its named denial even for a host outside the list. The Bot
+        // runtime returns `notBot` for every other not-allowed host, so the
+        // ordinary `host_not_allowed` answer (and no card) is preserved.
+        let hostAllowed = coordinator.isAllowed(url)
         // Before the response log, the resume path and any credential
         // resolution: an exact MCP route without the current host credential
         // is refused with no side effect at all.
@@ -797,24 +807,33 @@ public actor ModelGateway {
 
         // Bot egress write approval (spec/v1/gateway-security.md §5): only the
         // four network-write methods, never an exact MCP route, never a
-        // configured model-inference endpoint, and only after the allow-list
-        // and exact-MCP credential gate. The approval runs before the response
-        // log, any credential resolution, any redirect and any socket. A
-        // deployment without the Bot seam leaves this branch off.
+        // configured model-inference endpoint. The approval runs before the
+        // allow-list enforcement, the response log, any credential resolution,
+        // any redirect and any socket. A deployment without the Bot seam
+        // leaves this branch off.
         var refusesBotEgressRedirects = false
         if !admittedByMCPGrant,
            Self.isBotEgressWriteMethod(method),
            !Self.isReplaySafeRequest(method: method, url: url,
                                      replaySafeModelEndpoints: configuration.replaySafeModelEndpoints),
            let approver = botEgressApprover {
-            let request = BotEgressWriteRequest(method: method, url: url)
+            let request = BotEgressWriteRequest(
+                method: method, url: url, hostAllowed: hostAllowed)
             let approval = Task { await approver.approveBotEgressWrite(request) }
-            // A Worker disconnect cancels the pending card; the coordinator's
-            // 300 s deadline and workerRestarted/cancelAll remain the other
-            // terminal paths.
+            // A Worker disconnect cancels the pending card; workerRestarted
+            // and the durable expiry remain the other terminal paths.
             downstream.onCancellation { approval.cancel() }
             switch await approval.value {
             case .allow:
+                // The caller may have timed out while the user was deciding.
+                // Do not turn a dead request into a real upstream write: the
+                // durable egress card keeps its once Grant for the retry.
+                guard !downstream.isCancelled else {
+                    downstream.finish(throwing: ModelGatewayError.egressApprovalDenied(
+                        code: "egress_approval_denied",
+                        message: "已提交审批，批准后请重试；这次网络写入没有发出"))
+                    return
+                }
                 refusesBotEgressRedirects = true
             case .notBot:
                 break
@@ -823,6 +842,10 @@ public actor ModelGateway {
                     code: code, message: message))
                 return
             }
+        }
+        guard hostAllowed else {
+            downstream.finish(throwing: ModelGatewayError.hostNotAllowed(url.host ?? ""))
+            return
         }
 
         let webProvider = OfficialDeepSeekWebRoute.matchesScope(url)

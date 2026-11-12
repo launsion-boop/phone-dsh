@@ -701,15 +701,39 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         """
     }
 
+    /// Waits for the *record* to settle, never for the work task that also
+    /// delivers the parent wake. The doer turn, verification and the hidden
+    /// wake are one work task; waiting for its value made a completed task look
+    /// running until the wake turn finished, and made `timeout_ms` ineffective.
+    /// A settled record returns immediately (including when it settled before
+    /// this wait registered); a still-running task returns its running record
+    /// at the caller's deadline.
     public func await(taskId: String, timeoutMs: Int, parent: BotResolvedToolCall) async throws -> BotTaskRecord {
         guard let state = try await ownedTask(taskId: taskId, parent: parent) else {
             throw BotMCPError.invalidRequest("unknown task: \(taskId)")
         }
-        if state.live, let work = state.work {
-            let completed = await waitForTask(work, timeoutMs: timeoutMs)
-            if !completed { return taskStates[taskId]?.record ?? state.record }
+        let initial = taskStates[taskId]?.record ?? state.record
+        if Self.isTerminalTaskStatus(initial.status) { return initial }
+        let deadline = Date().addingTimeInterval(Double(max(0, timeoutMs)) / 1_000)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            if Task.isCancelled { break }
+            guard let current = taskStates[taskId]?.record else { return state.record }
+            if Self.isTerminalTaskStatus(current.status) { return current }
         }
         return taskStates[taskId]?.record ?? state.record
+    }
+
+    /// Statuses `AwaitTask` may return. `running`/`stopping` are still live;
+    /// `waiting_approval` is a terminal answer for this read because the task
+    /// is parked until the durable approval decision arrives.
+    private static func isTerminalTaskStatus(_ status: String) -> Bool {
+        switch status {
+        case "completed", "failed", "stopped", "interrupted", "denied", "waiting_approval":
+            return true
+        default:
+            return false
+        }
     }
 
     public func stop(taskId: String, parent: BotResolvedToolCall) async throws -> BotTaskRecord {
@@ -1709,22 +1733,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return try BotJSONValue.parse(encoder.encode(value))
-    }
-
-    private func waitForTask(_ work: Task<BotTaskRecord, Error>, timeoutMs: Int) async -> Bool {
-        await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                _ = try? await work.value
-                return true
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(max(0, timeoutMs)) * 1_000_000)
-                return false
-            }
-            let result = await group.next() ?? false
-            group.cancelAll()
-            return result
-        }
     }
 
     @discardableResult
