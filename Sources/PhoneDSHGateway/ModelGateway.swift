@@ -557,6 +557,15 @@ public actor ModelGateway {
     /// matrix's ordinary allow-list behaviour for every deployment without a
     /// Bot runtime (workbench, tests, native MCP).
     private nonisolated let botEgressApprover: (any BotEgressWriteApproving)?
+    /// P26 §2.10 model-purpose execution point (PC-20261113). `nil` provider
+    /// means no deployment-specific purpose source is installed, so every
+    /// exchange takes the frozen absent branch (one `purpose_absent`
+    /// diagnostic, no behaviour change). It never denies for absence.
+    private nonisolated let modelPurpose: ModelPurposeExecutionPoint
+    private nonisolated let upstreamDiagnostics: GatewayUpstreamDiagnostics
+    /// The `purpose_absent` diagnostic is a gateway-wide fact, recorded once
+    /// instead of once per egress request.
+    private nonisolated let purposeAbsentOnce = GatewayOnceFlag()
     /// spec/v1/tono-account.md §5: which origins get the 401/503 inspection.
     private nonisolated let cloudResponsePolicy: TonoCloudResponsePolicy
     private nonisolated let responseLog: (any ResponseLogging)?
@@ -586,6 +595,11 @@ public actor ModelGateway {
     ///   - botEgressApprover: Bot network-write approval seam. The App installs
     ///     the same live policy object it uses as `egressAuthorizer`; a
     ///     deployment without a Bot runtime leaves this `nil`.
+    ///   - modelPurposeProvider: Purpose evidence for the P26 §2.10 execution
+    ///     point. There is no wire carrier, so a purpose can only come from
+    ///     host composition; a deployment without a per-request purpose source
+    ///     leaves this `nil` and takes the frozen absent branch (one
+    ///     `purpose_absent` diagnostic, no behaviour change).
     ///   - officialDeepSeekWebCredentialProvider: Optional official web route.
     ///   - cloudResponsePolicy: The origins whose 401 `credential_expired` /
     ///     503 `identity_unavailable` answers are re-sent
@@ -597,6 +611,7 @@ public actor ModelGateway {
                 clock: any GatewayClock = SystemGatewayClock(),
                 egressAuthorizer: (any EgressHostAuthorizing)? = nil,
                 botEgressApprover: (any BotEgressWriteApproving)? = nil,
+                modelPurposeProvider: (any ModelPurposeProviding)? = nil,
                 officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil,
                 upstreamDiagnostics: GatewayUpstreamDiagnostics = .standardError,
                 cloudResponsePolicy: TonoCloudResponsePolicy = .production) {
@@ -609,6 +624,8 @@ public actor ModelGateway {
         self.clock = clock
         self.egressAuthorizer = egressAuthorizer
         self.botEgressApprover = botEgressApprover
+        self.modelPurpose = ModelPurposeExecutionPoint(provider: modelPurposeProvider)
+        self.upstreamDiagnostics = upstreamDiagnostics
         let rules = configuration.allowedUpstreamHosts.compactMap(GatewayHostRule.init(rawValue:))
         self.hostRules = rules
         let coordinator = GatewaySessionCoordinator(allowedHosts: rules,
@@ -798,6 +815,25 @@ public actor ModelGateway {
         }
         guard !coordinator.isShutDown else {
             downstream.finish(throwing: ModelGatewayError.shuttingDown)
+            return
+        }
+
+        // Model-purpose execution point (P26 §2.10, PC-20261113). Staged
+        // semantics: purpose present -> the one frozen enforcer decides, and a
+        // denial ends the exchange before the Bot approval seam, the
+        // allow-list answer, the response log, any credential resolution and
+        // any socket; purpose absent -> one host-internal `purpose_absent`
+        // diagnostic and the exchange is byte-for-byte the baseline. It never
+        // fails closed for absence and never invents a default purpose.
+        switch modelPurpose.decide(request) {
+        case .absent:
+            if purposeAbsentOnce.claim() {
+                upstreamDiagnostics.recordPurposeAbsent(host: url.host ?? "")
+            }
+        case .allowed:
+            break
+        case .denied(let denial):
+            downstream.finish(throwing: denial)
             return
         }
 
