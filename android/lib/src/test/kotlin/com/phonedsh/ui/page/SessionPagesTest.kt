@@ -38,6 +38,10 @@ import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.menu.ContextMenuModel
 import com.phonedsh.ui.menu.ContextMenuRowState
 import com.phonedsh.ui.menu.ContextMenuTags
+import com.phonedsh.ui.press.PressedAlphaSemantics
+import com.phonedsh.ui.press.PressedState
+import com.phonedsh.ui.press.PressedStyle
+import com.phonedsh.ui.press.PressedSurface
 import com.phonedsh.ui.state.GoalBarState
 import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.theme.PdshThemeValues
@@ -689,6 +693,34 @@ class SessionPagesTest {
     }
 
     @Test
+    fun `session row paints the shared pressed fill and clears it when the menu opens`() {
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
+        compose.setContent { PdshTheme { Drawer(state = state) } }
+        val tag = UiPageTags.SESSION_ROW
+        compose.onAllNodesWithTag(tag)[0].performTouchInput { down(center) }
+        compose.mainClock.advanceTimeBy(200)
+        assertEquals(
+            "the row must read the shared §6 pressed fill from the wrapper's interaction source",
+            PressedStyle.valuesFor(PressedSurface.DrawerRow, PressedState.Pressed).pressed,
+            alpha(tag),
+            0.001f,
+        )
+
+        compose.mainClock.advanceTimeBy(700)
+        compose.waitForIdle()
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertIsDisplayed()
+        assertEquals(
+            "opening the menu cancels the row press instead of leaving the fill stuck",
+            0f,
+            alpha(tag),
+            0f,
+        )
+
+        compose.onAllNodesWithTag(tag)[0].performTouchInput { up() }
+        compose.mainClock.advanceTimeByFrame()
+    }
+
+    @Test
     fun `a tap on a session still selects it and never opens the menu`() {
         val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
         var selected: String? = null
@@ -827,6 +859,9 @@ class SessionPagesTest {
             onRefresh = onRefresh,
         )
     }
+
+    private fun alpha(tag: String): Float =
+        compose.onNodeWithTag(tag).fetchSemanticsNode().config[PressedAlphaSemantics]
 
     /** The drawer's host facts; defaults are a host that reported every list as empty. */
     private fun drawer(

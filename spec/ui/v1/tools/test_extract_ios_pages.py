@@ -1045,7 +1045,7 @@ struct ModelProviderEditorPage: View {
 
 
 class ChromeContractTest(unittest.TestCase):
-    """HomeDrawer/HomeSpec are chrome, not `*Page`, but must not leave the gate."""
+    """HomeDrawer/NativeTurnUsageDetails/HomeSpec are chrome, not `*Page`, and stay pinned."""
 
     def _root(self, contract: bool = True) -> tuple:
         tmp = tempfile.TemporaryDirectory()
@@ -1056,11 +1056,18 @@ class ChromeContractTest(unittest.TestCase):
             "import SwiftUI\nstruct HomeDrawer: View { var body: some View { Text(\"x\") } }\n",
             encoding="utf-8")
         (probe / "HomeSpec.swift").write_text("enum HomeSpec {}\n", encoding="utf-8")
+        (probe / "NativeMessageActions.swift").write_text(
+            "import SwiftUI\nstruct NativeTurnUsageDetails: View { var body: some View { Text(\"x\") } }\n",
+            encoding="utf-8")
         if contract:
             pages = root / E.PAGES_REL
             pages.mkdir(parents=True)
             (pages / "home-drawer.json").write_text(json.dumps({
                 "page": "HomeDrawer", "pageId": "home-drawer", "handRegistered": {"reason": "x"},
+            }), encoding="utf-8")
+            (pages / "turn-usage.json").write_text(json.dumps({
+                "page": "NativeTurnUsageDetails", "pageId": "turn-usage",
+                "handRegistered": {"reason": "x"},
             }), encoding="utf-8")
         return tmp, root
 
@@ -1076,6 +1083,15 @@ class ChromeContractTest(unittest.TestCase):
         tmp, root = self._root()
         try:
             E.check_chrome_contracts(root)  # no raise
+        finally:
+            tmp.cleanup()
+
+    def test_the_turn_usage_chrome_contract_is_pinned(self) -> None:
+        tmp, root = self._root()
+        try:
+            (root / E.PAGES_REL / "turn-usage.json").unlink()
+            with self.assertRaises(E.ExtractError):
+                E.check_chrome_contracts(root)
         finally:
             tmp.cleanup()
 
@@ -1122,8 +1138,13 @@ class PageSourceCompletenessTests(unittest.TestCase):
                 shutil.copyfile(shared / "fixture.json", contract)
                 (probe / "HomeDrawer.swift").write_text("struct HomeDrawer {}\n", encoding="utf-8")
                 (probe / "HomeSpec.swift").write_text("struct HomeSpec {}\n", encoding="utf-8")
+                (probe / "NativeMessageActions.swift").write_text(
+                    "struct NativeTurnUsageDetails {}\n", encoding="utf-8")
                 chrome = pages / "home-drawer.json"
                 chrome.write_text(json.dumps({"page": "HomeDrawer", "handRegistered": {"reason": "fixture"}}), encoding="utf-8")
+                (pages / "turn-usage.json").write_text(
+                    json.dumps({"page": "NativeTurnUsageDetails",
+                                "handRegistered": {"reason": "fixture"}}), encoding="utf-8")
                 mutation = case["mutation"]
                 if mutation == "remove_contract":
                     contract.unlink()

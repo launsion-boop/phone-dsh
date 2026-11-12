@@ -58,6 +58,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail 示例连接器 | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；设备 push BluetoothDevicesPage | must |
 | SessionsPage | 抽屉会话列表（PR22 已不是产品首页） | **预览专用（`-uiPreview sessions`、`DrawerPreview`）；产品抽屉换 HomeDrawer** | 预览壳；选中会话即关闭 | later |
 | SessionActivityPage | 单会话的步骤/用量/上下文 | **触发点缺失（sheet 已接线但无人置位，基线不可达）** | sheet | later |
+| NativeTurnUsageDetails | 单个回合的 token 用量明细：缓存命中、未缓存输入、缓存读取、缓存写入、输出、其中推理、合计 | Chat 回合尾部「用量」动作 | sheet（medium detent，契约 `turn-usage.json`） | must |
 | FilesPage | 工作区文件树、导入 | Chat 工具写出路径；文件段内联 | 页面栈；文件行 push `PreviewSurface`（独立预览面，契约 `pages/preview-surface.json`） | must |
 | NativeWorkbenchPage | 会话内工作面板（文件 / 命令两段） | 对话里点工具写出的文件路径 | sheet，`完成` 关闭 | must |
 | PDSHShellPage | 只读加速器命令（argv 来自 caps） | 文件段旁的「命令」段 | 段内页面 | must |
@@ -83,7 +84,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | MCPSettingsPage | MCP 服务器列表与编辑 | 设置 › 权限与隐私 › MCP 与局域网设备 | push；编辑子页 MCPEditorPage | must |
 | NativeAutomationPage | 定时任务、计划详情与历史 | 设置 › 定时任务；`-uiPreview sessions.schedules` | sheet（`NavigationStack`，`SettingsPage.swift:115`）；子页 push：ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
 | EgressAllowListPage | 出网白名单 | 设置 › 网络访问 | push | must |
-| GitHubAgentSettingsPage | Agent GitHub 写入凭据：fine-grained token（Contents/Pull requests write）存 Keychain，写入开关存 UserDefaults；`github` 的 commit/branch/pr 只有开启后才可用 | 设置 › 权限与隐私 › GitHub Agent | push；保存/删除 token 与写入开关后需重启引擎；Android 页面待补 | later |
+| GitHubAgentSettingsPage | Agent GitHub 写入凭据：fine-grained token（Contents/Pull requests write）存 Keychain，写入开关存 UserDefaults；`github` 的 commit/branch/pr 只有开启后才可用 | 设置 › 权限与隐私 › GitHub Agent | push；保存/删除 token 与写入开关后需重启引擎；Android：`GitHubAgentSettingsPage.kt`（token 存 SecureStore，写入开关同键 `phone-dsh.github.agent.allow-writes`，`PDSH_GITHUB_AUTH`/`PDSH_GITHUB_WRITE` 由 `WorkerEnvironment` 最后写入） | must |
 | RuntimeDetailsPage | 运行时状态、停止与重启 | 设置 › 引擎 › 运行状态；Chat 页头运行状态 | sheet | must |
 | SettingsAboutPage | 版本、许可、开发者入口 | 设置 › 关于 Phone DSH | push；子页 LicensesPage | must |
 | WebSurfacePage | 完整 DSH 页面（WebView 宿主） | **iOS 已删除（495da9b5）；Android 侧是独立全屏宿主，见 `pages/_android-only.json`** | 全屏容器，不做返回栈 | later |
@@ -101,8 +102,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 
 产品抽屉是 `HomeDrawer`（`HomeDrawer.swift:12`，不是 `*Page`）：整宽「新会话」胶囊、「手机 | PC」分段（`pclink-pacing` 起位于「新会话」下方；选中态持久化 `phone-dsh.drawer.backend`，P18；PC 未配对/离线状态与能力隐藏不自动切回手机）、文件夹分组（默认「手机工作区 / Phone Workspace」；PC 分段按 DSH 工作区标题分组，`workspace/follow` 未登记会话按 cwd 最长路径归组，未归组的 PC 会话单列「未分组」，原「PC 工作区 · <电脑名>」聚合组取消）、长按会话重命名/归档；读列表时显示加载态，读取失败显示错误与「重试」而不是空状态，分组用 `LazyVStack` 以支撑 3,000+ 行。PC 后端的新会话/空会话在输入框工具栏显示「工作区」选择器（与模型胶囊同一行同样式，默认上次使用的工作区，P18 键 `phone-dsh.pc.last-workspace.<machineId>`；会话有第一轮后只显示不可改）；手机分段不显示该选择器、行为不变。PC 未配对空状态是一张小卡片（一句说明 +「连接电脑」），不再重复安装命令；安装命令只出现在配对页一次（`PCLinkInstallGuide`，与中继地址配置同文件；Windows/Android 不在 v1 范围）。命令在电脑终端运行，脚本会检查环境、安装插件、加载 `dsh web` 并显示配对二维码，扫码即完成配对。「文件夹」标题、新建文件夹、空文件夹提示与文件夹重命名/删除暂不开放（iOS `HomeDrawer.foldersEnabled`、Android `DRAWER_FOLDERS_ENABLED` 均为 false）；「定时任务」入口只在设置页保留，抽屉不再重复。它用手写契约 `pages/home-drawer.json` 进 gate，`extract_ios_pages.py` 的 `CHROME_CONTRACTS` 钉住文件与 struct。`HomeSpec.swift` 是 430×932 的页面/文字/间距/圆角值来源（#F7F7F7 page、#1A1A1A ink、16/24 body、16 chrome/20 content），不生成页面契约，由 `CHROME_VALUE_FILES` 钉住。`FilePreviewPage` 已删除（PR15），预览是独立面 `PreviewSurface`（`pages/preview-surface.json`）。
 
-页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。
-标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
+页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
 Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionView(_, title)` 与 `SessionTextAction`/`InfoRow(..., onClick=…)`；标题/标签含静态文案却无法解析记 `unresolved`，纯宿主数据记 data-labelled 不比较；标准控件（`Button`、`FilterChip`、`Switch`、`DropdownMenuItem`、`label:` 包装器）也算动作；判据是 gate 看不见正确实现时修 gate、实现藏信息时修实现。
 
 ### 1.1 已知基线观察（只记录，不改基线）
@@ -116,7 +116,6 @@ Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionV
 | 设置五分页外壳已移除 | `SettingsPage.swift:45` 起是分组 List；`NativeSettingsTab`（`:7`）只剩 `initialTab` 深链，仅 `-uiPreview settings.permissions.tab`（`NativeShell.swift:734`） | 按六个分组索引实现，不保留五 Tab 外壳 |
 | HomeSpec 是 PR22 的首页值来源 | `HomeSpec.swift:26` 起 page/ink/surface，#F7F7F7/#1A1A1A、16/24 body、16 chrome/20 content；`ChatPage.swift:1137-1144` 的 accent/surface/hairline 全部委托 HomeSpec/主题，旧的本地 #2F5BFF 调色板已不存在 | 用 HomeSpec 值做 430×932 基准；不再按旧 402pt 主题取色 |
 | DevelopmentToolsPage 已删除 | PR #13 删除该页；PR22 全仓无 `struct DevelopmentToolsPage` | memory/probes/background/task-screen 保持不可达，不恢复开发者页 |
-
 | HomeSpec 的 dark 是回退值 | `HomeSpec.swift:5` 明说浅色是参考录像的实测值，dark 用既有 parity 调色板 | 按 HomeSpec 给出的 light/dark 对镜像，不另造色 |
 | 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3940` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
 

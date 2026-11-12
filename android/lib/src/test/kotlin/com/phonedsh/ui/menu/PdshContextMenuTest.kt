@@ -7,14 +7,18 @@
 // routing, info inertness and the anchored per-row popup.
 package com.phonedsh.ui.menu
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -54,6 +58,69 @@ class PdshContextMenuTest {
             .forEach { token ->
                 compose.onNodeWithText(token.label).assertDoesNotExist()
             }
+    }
+
+    @Test
+    fun `a caller supplied interaction source receives press and release`() {
+        val source = MutableInteractionSource()
+        val events = mutableListOf<PressInteraction>()
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                LaunchedEffect(source) {
+                    source.interactions.collect { interaction ->
+                        if (interaction is PressInteraction) events += interaction
+                    }
+                }
+                PdshContextMenu(
+                    surfaceId = "drawerSession",
+                    state = allTrueState(),
+                    onAction = {},
+                    modifier = Modifier.testTag(ROW),
+                    onClick = {},
+                    interactionSource = source,
+                ) { Text("pressed row") }
+            }
+        }
+
+        compose.onNodeWithTag(ROW).performTouchInput { click() }
+        compose.waitForIdle()
+
+        assertEquals("the caller's source must receive the down", 2, events.size)
+        assertTrue("the first interaction is a press", events[0] is PressInteraction.Press)
+        assertTrue("the tap releases the press", events[1] is PressInteraction.Release)
+    }
+
+    @Test
+    fun `a caller supplied interaction source is cancelled when the menu opens`() {
+        val source = MutableInteractionSource()
+        val events = mutableListOf<PressInteraction>()
+        compose.setContent {
+            PdshTheme(darkTheme = false) {
+                LaunchedEffect(source) {
+                    source.interactions.collect { interaction ->
+                        if (interaction is PressInteraction) events += interaction
+                    }
+                }
+                PdshContextMenu(
+                    surfaceId = "drawerSession",
+                    state = allTrueState(),
+                    onAction = {},
+                    modifier = Modifier.testTag(ROW),
+                    onClick = {},
+                    interactionSource = source,
+                ) { Text("pressed row") }
+            }
+        }
+
+        longPressRow()
+
+        assertTrue("the long press still presses before opening", events.size >= 2)
+        assertTrue("the first interaction is a press", events[0] is PressInteraction.Press)
+        assertTrue(
+            "opening the menu cancels the press so the row's fill can clear",
+            events[1] is PressInteraction.Cancel,
+        )
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertIsDisplayed()
     }
 
     @Test

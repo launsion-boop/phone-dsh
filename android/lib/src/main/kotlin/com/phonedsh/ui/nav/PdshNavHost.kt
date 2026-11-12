@@ -56,6 +56,8 @@ import com.phonedsh.ui.page.EgressAllowListUiEvent
 import com.phonedsh.ui.page.ExportFacts
 import com.phonedsh.ui.page.ExportPage
 import com.phonedsh.ui.page.ExportScreenState
+import com.phonedsh.ui.page.GitHubAgentFacts
+import com.phonedsh.ui.page.GitHubAgentSettingsPage
 import com.phonedsh.ui.page.FilesLocalState
 import com.phonedsh.ui.page.FilesPage
 import com.phonedsh.ui.page.FilesScreenState
@@ -240,7 +242,6 @@ import com.phonedsh.ui.sheet.LocalSheetBackHost
 import com.phonedsh.ui.sheet.PdshSheet
 import com.phonedsh.ui.sheet.SheetBackHost
 import com.phonedsh.ui.sheet.SheetChrome
-import com.phonedsh.ui.theme.generated.UiTokenData
 
 /**
  * One level of back that lives inside the top route.
@@ -489,6 +490,14 @@ public fun PdshNavHost(
     onPcUnpair: () -> Unit = {},
     onPcDismissUnpairFailure: () -> Unit = {},
     onPcConnectionScreenOpened: () -> Unit = {},
+    /** 设置 › GitHub Agent's facts; default is no token and writes off. */
+    githubAgent: GitHubAgentFacts = GitHubAgentFacts(),
+    /** Saves the typed token; true only when the host stored it. */
+    onGitHubAgentSaveToken: (String) -> Boolean = { false },
+    /** Deletes the stored token; true only when the host removed it. */
+    onGitHubAgentDeleteToken: () -> Boolean = { false },
+    /** Persists the explicit write opt-in. */
+    onGitHubAgentAllowWrites: (Boolean) -> Unit = {},
 ) {
     val route = nav.current
     if (route == PdshRoute.Home) {
@@ -587,6 +596,14 @@ public fun PdshNavHost(
                 onOpenEditor = { id -> onNavigate(PdshRoute.SshEditor(id)) },
             )
             is PdshRoute.SshEditor -> SshEditorRoute(route, facts, onBack, onHostAction)
+            PdshRoute.GitHubAgent -> GitHubAgentSettingsPage(
+                facts = githubAgent,
+                onBack = onBack,
+                onSaveToken = onGitHubAgentSaveToken,
+                onDeleteToken = onGitHubAgentDeleteToken,
+                onAllowWritesChange = onGitHubAgentAllowWrites,
+                onRestartEngine = { onHostAction(PdshHostAction.RestartRuntime) },
+            )
             PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
             PdshRoute.AndroidAdb -> com.phonedsh.ui.page.AndroidADBSettingsPage(
                 facts = facts.androidAdb,
@@ -677,13 +694,16 @@ public fun PdshNavHost(
  * The frozen `interaction.sheet.pageDetents` id for a route iOS presents as a
  * modal sheet, or `null` for a route that is not one.
  *
- * The four ids the contract names explicitly (`chatJobs`, `chatSchedules`,
- * `chatArtifacts`, `workbench`) are read from `tokens.json` by `PdshSheet`; the
- * remaining `homeSheetChrome()` sites in the baseline write no
- * `.presentationDetents`, which rule 2 maps to the contract's `default` set. That
- * default is named here by its *generated* id
- * ([UiTokenData.sheet.defaultDetents]), never by a guessed detent, and the
- * contract change request asks the owner to enumerate those sites as page ids.
+ * The four ids the baseline names explicitly (`chatJobs`, `chatSchedules`,
+ * `chatArtifacts`, `workbench`) are read from `tokens.json` by `PdshSheet`. R1 of
+ * `PC-20261112-ui-round3` enumerates the seven `homeSheetChrome()` sites that
+ * write no `.presentationDetents` as page ids of their own, each mapped to the
+ * contract's `default` detent set (rule 2); every id here is declared by
+ * `interaction.sheet.pageDetents`, never guessed from a detent set.
+ *
+ * `chatSessions` is an iOS debug-only sheet (`PDSH_DEBUG_SHEET`) and is not a
+ * product route id (R2): the drawer's sessions list stays a push, so no route
+ * here maps to it.
  *
  * The routes that are `SHEET`-presented but have no iOS `.sheet` call site
  * ([PdshRoute.AgentPresets], [PdshRoute.PhonePermissions], [PdshRoute.ChatPreferences],
@@ -691,25 +711,19 @@ public fun PdshNavHost(
  * page frame until the contract says which sheet they are.
  */
 internal fun sheetPageIdOf(route: PdshRoute): String? = when (route) {
-    PdshRoute.Automation -> DEFAULT_SHEET_PAGE_ID
-    PdshRoute.Configuration -> DEFAULT_SHEET_PAGE_ID
-    PdshRoute.Settings -> DEFAULT_SHEET_PAGE_ID
-    PdshRoute.ModelProvider -> DEFAULT_SHEET_PAGE_ID
-    PdshRoute.Runtime -> DEFAULT_SHEET_PAGE_ID
+    PdshRoute.Automation -> "automation"
+    PdshRoute.Configuration -> "configuration"
+    PdshRoute.Settings -> "settings"
+    PdshRoute.ModelProvider -> "modelProvider"
+    PdshRoute.Runtime -> "runtime"
     is PdshRoute.Workbench -> "workbench"
-    PdshRoute.DeviceConnection -> DEFAULT_SHEET_PAGE_ID
+    PdshRoute.DeviceConnection -> "deviceConnection"
     is PdshRoute.SessionArtifacts -> "chatArtifacts"
-    PdshRoute.CommandResult -> DEFAULT_SHEET_PAGE_ID
+    PdshRoute.CommandResult -> "commandResult"
     PdshRoute.SessionJobs -> "chatJobs"
     PdshRoute.SessionSchedules -> "chatSchedules"
     else -> null
 }
-
-/**
- * The contract's id for "no explicit `.presentationDetents`": the generated
- * `defaultDetents` value (rule 2), never a hand-written set.
- */
-private val DEFAULT_SHEET_PAGE_ID: String = UiTokenData.sheet.defaultDetents.spec
 
 /**
  * The frame around a non-home route.

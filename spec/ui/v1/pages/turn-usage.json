@@ -1,0 +1,169 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "NativeTurnUsageDetails",
+  "pageId": "turn-usage",
+  "structure": "swiftui-view",
+  "sectionModel": "single-region",
+  "sectionNote": "one NavigationStack/List: the 本轮用量 navigation title and seven LabeledContent rows, no Section header. Rows are omitted when their bucket is nil (缓存命中/缓存读取/缓存写入/其中推理); 未缓存输入/输出/合计 are always rendered. Values use the Swift source's exact sheet formats: nativePercent for 缓存命中 and `\"\\(value) tok\"` for token counts. nativeCompactTokens is the turn-tail action's compact total (NativeMessageActions.swift:50), not this sheet.",
+  "title": {
+    "text": "本轮用量",
+    "provenance": "NativeMessageActions.swift:89",
+    "anchor": ".navigationTitle(\"本轮用量\")"
+  },
+  "source": {
+    "file": "NativeMessageActions.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/NativeMessageActions.swift",
+    "lines": 94,
+    "structLine": 73,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "body order"
+  },
+  "android": {
+    "screen": "TurnUsageSheet",
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/surface/TurnUsageSheet.kt",
+    "match": "composable",
+    "note": "hand-registered chrome contract for a non-*Page composable in the surface package; page_structure_check.py reads it like home-drawer.json. Android's row labels live in UiStrings and its value formats mirror the Swift sheet (nativePercent; plain `tok` counts)."
+  },
+  "handRegistered": {
+    "reason": "NativeTurnUsageDetails is a sheet struct, not a `*Page` struct, so extract_ios_pages.py does not generate a contract for it. The sheet is the product's turn-tail 用量 action (ChatPage.swift:913-918) and page contract chat.json#sheet-913 records only the destination and trigger, not the labels or value formats. Registering it here freezes the sheet's content without hand-editing the generated chat.json.",
+    "mechanism": "a whole contract file, like pages/home-drawer.json: the extractor never writes or deletes pages/turn-usage.json; CHROME_CONTRACTS pins the Swift file and struct, and page_structure_check.py compares the contract against the Android TurnUsageSheet composable, provenance included."
+  },
+  "sections": [
+    {
+      "id": "usage-rows",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "缓存命中",
+          "label": "缓存命中",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "nativePercent(usage.cacheHitPercent) + \"%\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "nativePercent(usage.cacheHitPercent) != nil",
+          "provenance": "NativeMessageActions.swift:80",
+          "anchor": "LabeledContent(\"缓存命中\"",
+          "extraction": "manual"
+        },
+        {
+          "id": "未缓存输入",
+          "label": "未缓存输入",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(usage.uncachedInputTokens) tok\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeMessageActions.swift:81",
+          "anchor": "LabeledContent(\"未缓存输入\"",
+          "extraction": "manual"
+        },
+        {
+          "id": "缓存读取",
+          "label": "缓存读取",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(value) tok\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "usage.cacheReadTokens != nil",
+          "provenance": "NativeMessageActions.swift:82",
+          "anchor": "LabeledContent(\"缓存读取\"",
+          "extraction": "manual"
+        },
+        {
+          "id": "缓存写入",
+          "label": "缓存写入",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(value) tok\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "usage.cacheWriteTokens != nil",
+          "provenance": "NativeMessageActions.swift:83",
+          "anchor": "LabeledContent(\"缓存写入\"",
+          "extraction": "manual"
+        },
+        {
+          "id": "输出",
+          "label": "输出",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(usage.outputTokens) tok\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeMessageActions.swift:84",
+          "anchor": "LabeledContent(\"输出\"",
+          "extraction": "manual"
+        },
+        {
+          "id": "其中推理",
+          "label": "其中推理",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(value) tok\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "usage.reasoningTokens != nil",
+          "provenance": "NativeMessageActions.swift:85",
+          "anchor": "LabeledContent(\"其中推理\"",
+          "extraction": "manual"
+        },
+        {
+          "id": "合计",
+          "label": "合计",
+          "labelExpr": null,
+          "kind": "info",
+          "value": null,
+          "valueExpr": "\"\\(usage.totalTokens) tok\"",
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "NativeMessageActions.swift:86",
+          "anchor": "LabeledContent(\"合计\"",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "NativeMessageActions.swift:79",
+      "anchor": "List {",
+      "extraction": "manual",
+      "criterion": {
+        "label": "缓存命中",
+        "kind": "info",
+        "provenance": "NativeMessageActions.swift:80",
+        "anchor": "LabeledContent(\"缓存命中\""
+      }
+    }
+  ],
+  "actions": [],
+  "presentations": [],
+  "states": {
+    "advisory": true
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": "manual"
+}

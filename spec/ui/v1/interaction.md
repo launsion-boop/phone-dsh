@@ -41,12 +41,15 @@
 ## 2. 底部 Sheet
 
 所有 modal sheet 的數值在 `tokens.json#interaction.sheet`，逐頁 detent 在 `golden/sheet-detents.golden.json`；
-`ui_check.py` 規則 12 會核對 13 個 `.presentationDetents` 站點與 `pageDetents` 一一對應，並重算黃金。
+`ui_check.py` 規則 12 會核對 13 個顯式 `.presentationDetents` 站點與非 default 的 `pageDetents` 一一對應，
+7 個沒有寫 `.presentationDetents` 的 `homeSheetChrome()` 頁面 id 各有一列 default，並重算黃金。
 
 1. sheet 是系統模态 bottom sheet：貼底、全寬、頂部圓角；下拉、點遮罩、系統返回都可關閉。源碼沒有任何
    `.interactiveDismissDisabled`，Android 不得禁用這些關閉路徑。
 2. detent 只有四種：`default`（沒寫 `.presentationDetents`，等於系統單檔 large）、`large`、`medium`、`medium+large`。
-   每頁用哪一組是契約的一部分，見下表與 `golden/sheet-detents.golden.json`；未列出的 sheet 一律 `default`。
+   每頁用哪一組是契約的一部分，見下表與 `golden/sheet-detents.golden.json`；`detents: default` 的列必須以
+   `.homeSheetChrome()` 為出處，且同一 `.sheet` body 內沒有 `.presentationDetents`；其他列必須以 `.presentationDetents(` 為出處。
+   未列出的 sheet 一律 `default`。
 3. `.medium` 的螢幕佔比由系統決定（`mediumFraction`，`needsDeviceMeasure: true`）；不得寫死高度或比例。
 4. grabber：`homeSheetChrome()`（`HomeSpec.swift:213`）與 ConnectorsPage（`ConnectorsPage.swift:105`）可見；
    子代理目錄顯式隱藏（`NativeSubagentCatalogSheet.swift:434`）；其餘跟系統默認（隱藏）。
@@ -59,18 +62,21 @@
 8. 鍵盤：sheet 內容由系統避讓（resize / 推擠），app 沒有自訂 keyboard avoidance，也沒有
    `presentationContentInteraction`；聚焦的輸入框必須始終在 IME 之上。inset 動畫由系統決定（`needsDeviceMeasure`）。
 9. 一次返回只關最上層 sheet；sheet 內的 `NavigationStack` 先出棧，再關 sheet（Android 加項，理由見 §4 規則 7）。
-10. 新增或刪除任何 `.presentationDetents` 站點，必須同步 `detentSets` / `pageDetents` 與黃金；站點數不符即失敗。
+10. 新增或刪除任何 `.presentationDetents` 站點，必須同步 `detentSets` / `pageDetents` 與黃金；顯式站點數必須等於非 default 列數。
+    新增 `homeSheetChrome()` 站點時，default 列必須落在該 `.sheet` body 內且 body 不得再寫 `.presentationDetents`；站點數或所屬 body 不符即失敗。
 
 | 鍵 | 值 | 出處 |
 |---|---|---|
 | `defaultDetents` | `default`（系統默認 large） | `ChatPage.swift:496` |
 | `mediumFraction` | 系統比例，`needsDeviceMeasure` | 系統 API，源碼不可讀 |
 | `detentSets` | `default` / `medium` / `medium+large` / `large` 四組 | 四個站點，見 tokens |
-| `pageDetents` | 13 個顯式站點 → detent 組 | 13 個 `.presentationDetents` 站點 |
+| `pageDetents` | 20 個頁面 id：13 個顯式 detent 頁面 + 7 個 default `homeSheetChrome()` 頁面 → detent 組 | 13 個 `.presentationDetents` 站點 |
 | `grabberVisible` / `grabberHidden` | 可見 / 隱藏 | `HomeSpec.swift:213` / `NativeSubagentCatalogSheet.swift:434` |
 | `background` / `backgroundClear` | `colors.page` / `Color.clear` | `HomeSpec.swift:214` / `NativeSubagentCatalogSheet.swift:435` |
 | `cornerRadiusConnector` / `cornerRadiusCatalog` / `cornerRadiusDefault` | 32 / 16 / 系統 | `ConnectorsPage.swift:107` / `NativeParityTokens.swift:114` / 系統 |
 | `presentMotion` / `dismissMotion` | 系統，`needsDeviceMeasure` | 系統 API |
+
+`chatSessions` 是 debug-only：只由 DEBUG 的 `PDSH_DEBUG_SHEET=sessions` 鉤子（`ChatPage.swift:805`）打開，產品沒有路由使用這個 id；Android 抽屜推送的 SessionsPage 不是這個 sheet。
 
 範圍外：sheet 內容、內部頁面結構、系統 share sheet 的內容（見 §3 `kind: share`）。
 
@@ -188,6 +194,10 @@
 5. 系統關閉動畫（Android animator duration scale 0、iOS `reduceMotion` 站點）時直接落位（`reducedMotion: snap`），
    不得留下中間態。
 6. 展開／收合不得讓被點的 row 跳位；下方內容平滑讓位，滾動位置以被點 row 為錨。
+7. 無障礙：iOS 的 `DisclosureGroup`／系統按鈕 trait 會自動播報展開／折疊；Android 的自訂 `clickable` 行預設不播報，
+   必須以 `onClickLabel` 提供「展開」／「折疊」動作、以 `stateDescription` 提供「已展開」／「已折疊」狀態。
+   平台差異登記為 `spec/platform/whitelist.json` 的 `platform.disclosure-state-announcement`（`os-forced`），
+   文案來自 Android UI strings；本節不改 token。
 
 | 鍵 | 值 | 出處 |
 |---|---|---|

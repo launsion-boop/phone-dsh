@@ -42,9 +42,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -86,6 +89,11 @@ public object PdshDisclosureTags {
  * height plus opacity, no per-row stagger, a platform-reduced-motion snap, and a
  * header outside the animated region. One tap invokes [onToggle] exactly once.
  *
+ * Rule 4 of `PC-20261112-ui-round3` (R4): the clickable header announces the
+ * expanded/collapsed [stateDescription] by itself, so a call site's own custom
+ * row cannot leave the state out. iOS's `DisclosureGroup` supplies this
+ * announcement; Android's custom clickable header must.
+ *
  * @param expanded whether [body] is shown.
  * @param onToggle the single toggle callback. It receives the header anchor
  *   captured at tap time so a scroll owner can keep that row fixed.
@@ -93,6 +101,11 @@ public object PdshDisclosureTags {
  * @param tag when non-null, [PdshDisclosureTags] tags are attached for tests and
  *   host diagnostics.
  * @param anchorKey a stable row identity reported in [DisclosureAnchor.key].
+ * @param stateDescription the header's announced state; defaults to the existing
+ *   `UiStrings.EXPANDED`/`COLLAPSED` copy. `null` suppresses the announcement.
+ * @param onClickLabel an optional action label for the header's click; the
+ *   default is `null` because the UI string table has no generic expand/collapse
+ *   action wording (the state description carries the announcement).
  * @param header the always-visible row content; it is not animated.
  * @param body the collapsible content; the whole lambda is one animation unit.
  */
@@ -103,6 +116,8 @@ public fun PdshDisclosure(
     modifier: Modifier = Modifier,
     tag: String? = null,
     anchorKey: Any? = null,
+    stateDescription: String? = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED,
+    onClickLabel: String? = null,
     header: @Composable () -> Unit,
     body: @Composable () -> Unit,
 ) {
@@ -115,6 +130,8 @@ public fun PdshDisclosure(
         anchorKey = anchorKey,
         onLongPress = null,
         interactionSource = null,
+        stateDescription = stateDescription,
+        onClickLabel = onClickLabel,
         header = header,
         body = body,
     )
@@ -139,6 +156,11 @@ public fun PdshDisclosure(
  *   Pass the same source to `rowPressed`/`pillPressed` so a page can paint the
  *   §6 press feedback without installing a second pointer observer; `null`
  *   keeps the component's own source.
+ * @param stateDescription the header's announced state; defaults to the existing
+ *   `UiStrings.EXPANDED`/`COLLAPSED` copy. `null` suppresses the announcement.
+ * @param onClickLabel an optional action label for the header's click; the
+ *   default is `null` because the UI string table has no generic expand/collapse
+ *   action wording.
  * @param header the folder row, including its [PdshChevron].
  * @param body the folder’s sessions/empty copy, animated as one unit.
  */
@@ -151,6 +173,8 @@ public fun PdshFolderGroup(
     anchorKey: Any? = null,
     onLongPress: (() -> Unit)? = null,
     interactionSource: MutableInteractionSource? = null,
+    stateDescription: String? = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED,
+    onClickLabel: String? = null,
     header: @Composable () -> Unit,
     body: @Composable () -> Unit,
 ) {
@@ -163,6 +187,8 @@ public fun PdshFolderGroup(
         anchorKey = anchorKey,
         onLongPress = onLongPress,
         interactionSource = interactionSource,
+        stateDescription = stateDescription,
+        onClickLabel = onClickLabel,
         header = header,
         body = body,
     )
@@ -174,7 +200,9 @@ public fun PdshFolderGroup(
  * The mark keeps one fixed layout box for every rotation; only its drawing
  * transform changes, so a row’s height is identical before, during and after the
  * toggle. The mark itself is not clickable: the enclosing header owns the one
- * toggle per tap.
+ * toggle per tap, and therefore the expanded/collapsed state announcement too
+ * (R4 of `PC-20261112-ui-round3`; a caller that only draws [PdshChevron] keeps
+ * its own row semantics, as `PageScaffold.SectionHeader` does).
  *
  * @param expanded target rotation; 90° when true, 0° when false.
  * @param modifier the caller’s modifier; it is applied before the fixed size.
@@ -242,6 +270,8 @@ private fun DisclosureLayout(
     anchorKey: Any?,
     onLongPress: (() -> Unit)?,
     interactionSource: MutableInteractionSource?,
+    stateDescription: String?,
+    onClickLabel: String?,
     header: @Composable () -> Unit,
     body: @Composable () -> Unit,
 ) {
@@ -256,14 +286,14 @@ private fun DisclosureLayout(
             interactionSource = interactionSource,
             indication = LocalIndication.current,
             role = Role.Button,
-            onClickLabel = null,
+            onClickLabel = onClickLabel,
             onLongClickLabel = null,
             onLongClick = onLongPress,
             onClick = onTap,
         )
         onLongPress != null -> Modifier.combinedClickable(
             role = Role.Button,
-            onClickLabel = null,
+            onClickLabel = onClickLabel,
             onLongClickLabel = null,
             onLongClick = onLongPress,
             onClick = onTap,
@@ -272,9 +302,10 @@ private fun DisclosureLayout(
             interactionSource = interactionSource,
             indication = LocalIndication.current,
             role = Role.Button,
+            onClickLabel = onClickLabel,
             onClick = onTap,
         )
-        else -> Modifier.clickable(role = Role.Button, onClick = onTap)
+        else -> Modifier.clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onTap)
     }
 
     Column(modifier = modifier) {
@@ -283,7 +314,13 @@ private fun DisclosureLayout(
                 .fillMaxWidth()
                 .then(if (tag != null) Modifier.testTag(PdshDisclosureTags.header(tag)) else Modifier)
                 .onGloballyPositioned { headerBounds = it.boundsInRoot() }
-                .then(headerGesture),
+                .then(headerGesture)
+                // R4: the header, not the chevron, is the clickable row iOS's
+                // DisclosureGroup announces; the default copy is the existing
+                // state pair, and a caller may override or suppress it.
+                .semantics {
+                    if (stateDescription != null) this.stateDescription = stateDescription
+                },
         ) {
             header()
         }

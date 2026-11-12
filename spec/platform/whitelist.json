@@ -382,5 +382,17 @@
     "android_mechanism": "PowerManager.isDeviceIdleMode + ConnectivityManager",
     "evidence_level": "not-verified",
     "baseline": "Sources/PhoneDSHPCLink/PCLinkRelayClient.swift"
+  },
+  {
+    "id": "platform.disclosure-state-announcement",
+    "capability": "ui.disclosure-state",
+    "ios": "SwiftUI `DisclosureGroup` and the system button traits announce the expanded/collapsed state without app-supplied labels; a custom baseline row adds `.accessibilityValue(\"已展开\"/\"已折叠\")` (NativeMessageRows.swift:72-73).",
+    "android": "A Compose row built from `clickable` + `Text`/`Icon` announces neither the toggle action nor the expanded state by default; `onClickLabel` supplies 展开/折叠 and `stateDescription` supplies 已展开/已折叠, with both strings coming from `UiStrings`.",
+    "divergence_class": "os-forced",
+    "rationale": "Same disclosure control and same state machine; only the announcement mechanism differs because Android has no built-in disclosure trait. The labels are the platform's spoken form of the existing visual state, not new behaviour: the toggle still flips once per tap, motion stays `motion.disclosure`, and no token value changes. Removing the labels would make the custom row silent for screen readers, which is not semantic equivalence.",
+    "spec_ref": "spec/ui/v1/interaction.md §7",
+    "android_mechanism": "Modifier.clickable(onClickLabel=) + semantics.stateDescription",
+    "evidence_level": "emulator-probe",
+    "baseline": "examples/probe-app/PhoneDSHProbe/NativeMessageRows.swift"
   }
 ]

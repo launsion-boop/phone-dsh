@@ -9,9 +9,12 @@
 // exposes it as `process.env`. That is how the resident phone surface receives
 // `PDSH_DSH_LAUNCH_TOKEN` (`plugins/surface-phone/src/index.js:365`).
 //
-// The token is the only value this module always adds. A host may supply more
-// keys through the ordinary `pageParams["env"]` entry; they are merged, and the
-// launch token always wins over a stale same-named key.
+// The launch token and the GitHub agent facts are the values this module always
+// adds. A host may supply more keys through the ordinary `pageParams["env"]`
+// entry; they are merged, and the engine-owned keys always win over a stale (or
+// forged) same-named host value. The token itself never enters the environment:
+// `PDSH_GITHUB_AUTH` / `PDSH_GITHUB_WRITE` are the host's "a token exists" /
+// "writes are enabled" decisions (`PC-20261112-github-agent-credential`).
 //
 // `DEEPSEEK_BASE_URL` is the second engine-owned key, and only when the host
 // mounted a model proxy on this start: the Worker must point at the loopback
@@ -23,6 +26,24 @@ package com.phonedsh.engine
 
 import org.json.JSONException
 import org.json.JSONObject
+
+/**
+ * The host's GitHub agent decision (P16 / P18).
+ *
+ * Mirror of the Swift `GitHubAgentConfiguration` facts that reach the Worker:
+ * `enabled` is false for a host/test without the feature, `tokenAvailable` is
+ * the stored-token fact, and `allowWrites` is the person's separate opt-in.
+ */
+data class GitHubAgentEnvironment(
+    val enabled: Boolean = false,
+    val tokenAvailable: Boolean = false,
+    val allowWrites: Boolean = false,
+) {
+    companion object {
+        /** A host that never reads the GitHub secret record (tests, embedded hosts). */
+        val disabled: GitHubAgentEnvironment = GitHubAgentEnvironment()
+    }
+}
 
 /** Builds the `env` page parameter the worker boot consumes. */
 object WorkerEnvironment {
@@ -47,6 +68,54 @@ object WorkerEnvironment {
     const val MODEL_BASE_URL: String = "DEEPSEEK_BASE_URL"
 
     /**
+     * `1` when the host holds a GitHub agent token. The Worker's `github`
+     * command uses it for authenticated reads and code search; the token itself
+     * never enters the Worker environment.
+     *
+     * Same name and value rule as the Swift P16 owner
+     * (`Sources/PhoneDSH/PhoneDSH.swift`, `PhoneDSHWorkerEnvironment.githubAuth`).
+     */
+    const val GITHUB_AUTH: String = "PDSH_GITHUB_AUTH"
+
+    /**
+     * `1` only when the host holds a GitHub agent token and the person enabled
+     * writes. [GITHUB_AUTH] can still be `1` for authenticated reads.
+     */
+    const val GITHUB_WRITE: String = "PDSH_GITHUB_WRITE"
+
+    /**
+     * The host's GitHub agent decision, read once per page load by
+     * [pageParam]. A host installs a live source through [installGitHubAgent]
+     * so a token saved from Settings applies on the next engine restart.
+     */
+    @Volatile
+    private var githubAgentSource: () -> GitHubAgentEnvironment = { GitHubAgentEnvironment.disabled }
+
+    /**
+     * Binds the live GitHub agent facts. The source is read on every
+     * [pageParam] call, never cached: an engine restart reloads the page and
+     * the new decision must be the one the store holds at that moment.
+     */
+    fun installGitHubAgent(source: () -> GitHubAgentEnvironment) {
+        githubAgentSource = source
+    }
+
+    /**
+     * `1` only when a token exists. The decision is host-owned, so an
+     * environment override cannot make the Worker believe it has a credential
+     * the host cannot inject.
+     */
+    fun githubAuthEnvironmentValue(agent: GitHubAgentEnvironment): String =
+        if (agent.enabled && agent.tokenAvailable) "1" else "0"
+
+    /**
+     * `1` only when a token exists and the person enabled writes. This is the
+     * fact behind [GITHUB_WRITE]; a token alone is not enough.
+     */
+    fun githubWriteEnvironmentValue(agent: GitHubAgentEnvironment): String =
+        if (agent.enabled && agent.tokenAvailable && agent.allowWrites) "1" else "0"
+
+    /**
      * The JSON object string for `?env=`.
      *
      * Shape: `{"PDSH_DSH_LAUNCH_TOKEN":"<per-start token>"}` plus every entry of
@@ -54,6 +123,9 @@ object WorkerEnvironment {
      * call also names [modelBaseUrl] (a mounted model proxy's loopback origin),
      * that one key is overwritten; every other host entry — `DEEPSEEK_API_KEY`'s
      * placeholder, `PDSH_MODEL_KEY_STATE`, ... — is kept byte for byte.
+     * [GITHUB_AUTH] and [GITHUB_WRITE] are always overwritten from
+     * [githubAgent] (or the installed live source), so a host-supplied "1"
+     * cannot forge a credential the host does not have.
      *
      * The value is never logged; callers only put it in the page URL, whose query
      * is stripped by [EngineLogText.baseUrl] on every log line.
@@ -66,8 +138,10 @@ object WorkerEnvironment {
         hostSupplied: String? = null,
         modelBaseUrl: String? = null,
         phoneMcpUrl: String? = null,
+        githubAgent: GitHubAgentEnvironment? = null,
     ): String {
         val env = parseObject(hostSupplied)
+        val resolvedGitHubAgent = githubAgent ?: githubAgentSource()
         if (modelBaseUrl != null) env.put(MODEL_BASE_URL, modelBaseUrl)
         // native-mcp.md: with a mounted `/mcp/native` the host points the official
         // `mcp-phone` plugin at it (iOS `PhoneDSHHost.swift`, same two keys). The
@@ -77,6 +151,10 @@ object WorkerEnvironment {
             env.put(PHONE_MCP_TOKEN, launchToken)
         }
         env.put(LAUNCH_TOKEN, launchToken)
+        // The host owns these two values. Writing them last is the P16 rule:
+        // an App environment override cannot forge "1".
+        env.put(GITHUB_AUTH, githubAuthEnvironmentValue(resolvedGitHubAgent))
+        env.put(GITHUB_WRITE, githubWriteEnvironmentValue(resolvedGitHubAgent))
         return env.toString()
     }
 

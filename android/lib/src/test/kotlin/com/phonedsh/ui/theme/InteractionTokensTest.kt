@@ -66,6 +66,7 @@ class InteractionTokensTest {
             TokenSheetPageDetent(
                 id = row.text("id"),
                 detents = TokenDetentSetId.entries.single { it.spec == row.text("detents") },
+                note = row.textOrNull("note"),
             )
         }
         assertEquals(pageDetents, UiTokenData.sheet.pageDetents)
@@ -182,6 +183,18 @@ class InteractionTokensTest {
         specMotion.members.values.forEach { raw ->
             motion.easing((raw as JsonObject).text("curve"))
         }
+    }
+
+    @Test
+    fun `page detents carry the optional debug-only note`() {
+        assertEquals(20, UiTokenData.sheet.pageDetents.size)
+        val sessions = UiTokenData.sheet.pageDetents.single { it.id == "chatSessions" }
+        val note = sessions.note
+        assertTrue("chatSessions must carry a note", note != null)
+        assertTrue(note!!.startsWith("debug-only:"))
+        assertTrue(note.contains("PDSH_DEBUG_SHEET=sessions"))
+        assertTrue(note.contains("ChatPage.swift:805"))
+        assertNull(UiTokenData.sheet.pageDetents.single { it.id == "settings" }.note)
     }
 
     @Test
