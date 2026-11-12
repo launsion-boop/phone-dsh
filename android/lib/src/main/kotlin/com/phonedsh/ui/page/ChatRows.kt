@@ -68,6 +68,7 @@ import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.disclosure.PdshChevron
 import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.icon.PdshIcon
+import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.menu.ContextMenuItem
 import com.phonedsh.ui.menu.ContextMenuRowState
 import com.phonedsh.ui.menu.PdshContextMenu
@@ -76,6 +77,7 @@ import com.phonedsh.ui.state.ChatTurnState
 import com.phonedsh.ui.state.ChatProcessCategory
 import com.phonedsh.ui.state.ContextEntry
 import com.phonedsh.ui.state.ToolEntry
+import com.phonedsh.ui.state.TurnUsage
 import com.phonedsh.ui.state.contextSourceName
 import com.phonedsh.ui.surface.BubbleBadge
 import com.phonedsh.ui.surface.BubbleRole
@@ -85,6 +87,8 @@ import com.phonedsh.ui.surface.MarkdownBody
 import com.phonedsh.ui.surface.ThinkingPill
 import com.phonedsh.ui.surface.ToolDetailCard
 import com.phonedsh.ui.surface.ToolRow
+import com.phonedsh.ui.surface.TurnUsageSheet
+import com.phonedsh.ui.surface.formatTurnUsageCompactTokens
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.generated.TokenContextMenuWhen
@@ -672,6 +676,7 @@ private fun TurnTailRow(row: ChatRow.TurnTail, modifier: Modifier = Modifier) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var copied by remember(row.turnID) { mutableStateOf(false) }
+    var showUsage by remember(row.turnID) { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) {
             kotlinx.coroutines.delay(1_000)
@@ -699,6 +704,9 @@ private fun TurnTailRow(row: ChatRow.TurnTail, modifier: Modifier = Modifier) {
             }
             context.startActivity(Intent.createChooser(intent, "分享回答"))
         }
+        row.usage?.let { usage ->
+            TurnTailUsageAction(usage = usage, onClick = { showUsage = true })
+        }
         Spacer(Modifier.weight(1f))
         row.timeMillis?.let { millis ->
             BasicText(
@@ -707,6 +715,44 @@ private fun TurnTailRow(row: ChatRow.TurnTail, modifier: Modifier = Modifier) {
                 maxLines = 1,
             )
         }
+    }
+    if (showUsage) {
+        row.usage?.let { usage ->
+            TurnUsageSheet(
+                usage = usage,
+                onDismissRequest = { showUsage = false },
+            )
+        }
+    }
+}
+
+/**
+ * The tail's usage control (iOS `NativeTurnTail.swift:117-119`): shown only when
+ * the turn has usage and opens the medium `turnUsage` sheet. The label carries
+ * the exact compact total from `NativeMessageActions.swift:48-52`.
+ */
+@Composable
+private fun TurnTailUsageAction(usage: TurnUsage, onClick: () -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    val total = usage.totalTokens
+    val text = if (total != null) {
+        "${UiStrings.TURN_USAGE_PREFIX} ${formatTurnUsageCompactTokens(total)}${UiStrings.TURN_USAGE_TOKENS_SUFFIX}"
+    } else {
+        UiStrings.TURN_USAGE_PREFIX
+    }
+    Row(
+        modifier = Modifier
+            .height(tokens.geometry.composerControlSize)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = UiStrings.TURN_USAGE_ACTION }
+            .testTag(UiTags.CHAT_TURN_USAGE)
+            .padding(start = tokens.spacing.iconText),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spacing.copyGap),
+    ) {
+        PdshIconView(PdshIcon.DATABASE, HomeMetrics.processIcon, tokens.colors.tertiary, null)
+        BasicText(text = text, style = type.caption.copy(color = tokens.colors.tertiary), maxLines = 1)
     }
 }
 

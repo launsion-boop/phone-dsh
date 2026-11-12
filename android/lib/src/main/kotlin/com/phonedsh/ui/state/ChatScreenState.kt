@@ -361,12 +361,53 @@ public sealed interface ChatRow {
 /** The outcomes the iOS turn-process control can display. */
 public enum class ChatTurnState { RUNNING, COMPLETED, STOPPED, FAILED }
 
-/** Only measured token counters are retained; missing counts are not zero-filled. */
+/**
+ * One turn's measured token counters, mirroring iOS `NativeTurnUsage`
+ * (`examples/probe-app/ProbeKit/Transcript/NativeConversationModels.swift:126-169`).
+ *
+ * Only measured counters are retained; missing counts are not zero-filled. A
+ * `null` cache/reasoning count means the producer did not report that bucket,
+ * and the sheet omits its row exactly like the iOS `if let` branches.
+ *
+ * @param inputTokens iOS's `uncachedInputTokens` (the provider's non-cache input).
+ * @param cacheReadTokens the cache-read bucket; `null` when unreported.
+ * @param cacheWriteTokens the cache-write bucket; `null` when unreported.
+ * @param reasoningTokens the reasoning subset of the output; `null` when unreported.
+ * @param reportedTotalTokens an explicitly reported total, preferred over the sum
+ *   just like iOS's `totalTokens` JSON field; `null` computes it from the buckets.
+ */
 public data class TurnUsage(
     public val inputTokens: Long? = null,
     public val outputTokens: Long? = null,
+    public val cacheReadTokens: Long? = null,
+    public val cacheWriteTokens: Long? = null,
+    public val reasoningTokens: Long? = null,
+    public val reportedTotalTokens: Long? = null,
 ) {
-    public val totalTokens: Long? get() = if (inputTokens != null && outputTokens != null) inputTokens + outputTokens else null
+    /**
+     * iOS totals the billed input (uncached + cache read + cache write) plus the
+     * output, unless the producer reported a total. A partially reported turn
+     * has no total rather than a zero-filled one.
+     */
+    public val totalTokens: Long?
+        get() = reportedTotalTokens ?: if (inputTokens != null && outputTokens != null) {
+            safeTokenSum(inputTokens, cacheReadTokens ?: 0L, cacheWriteTokens ?: 0L, outputTokens)
+        } else {
+            null
+        }
+
+    /**
+     * iOS `NativeTurnUsage.cacheHitPercent`: cache-read over all non-output input.
+     * `totalTokens > outputTokens` is the guard that makes a reported total usable.
+     */
+    public val cacheHitPercent: Double?
+        get() {
+            val read = cacheReadTokens ?: return null
+            val total = totalTokens ?: return null
+            val output = outputTokens ?: return null
+            if (total <= output) return null
+            return read * 100.0 / (total - output)
+        }
 }
 
 /** Activity categories and title rules mirrored from iOS `NativeProcessGroupModel`. */
@@ -1883,10 +1924,30 @@ private fun JsonObject.long(key: String): Long? =
 
 private fun JsonObject.usage(): TurnUsage? {
     val usage = this["usage"] as? JsonObject ?: return null
-    val input = usage.long("inputTokens") ?: usage.long("input_tokens")
+    // iOS `NativeTurnUsage(value:)` calls the provider's non-cache bucket
+    // `inputTokens`; the snake_case spelling is the host event's wire form.
+    val input = usage.long("inputTokens")
+        ?: usage.long("input_tokens")
+        ?: usage.long("uncachedInputTokens")
+        ?: usage.long("uncached_input_tokens")
     val output = usage.long("outputTokens") ?: usage.long("output_tokens")
-    if (input == null && output == null) return null
-    return TurnUsage(inputTokens = input, outputTokens = output)
+    val cacheRead = usage.long("cacheReadTokens") ?: usage.long("cache_read_tokens")
+    val cacheWrite = usage.long("cacheWriteTokens") ?: usage.long("cache_write_tokens")
+    val reasoning = usage.long("reasoningTokens") ?: usage.long("reasoning_tokens")
+    val total = usage.long("totalTokens") ?: usage.long("total_tokens")
+    // The iOS initializer requires the two primary counters. Keep the old
+    // partial-row tolerance only when some bucket is actually measured.
+    if (input == null && output == null && cacheRead == null && cacheWrite == null && reasoning == null && total == null) {
+        return null
+    }
+    return TurnUsage(
+        inputTokens = input,
+        outputTokens = output,
+        cacheReadTokens = cacheRead,
+        cacheWriteTokens = cacheWrite,
+        reasoningTokens = reasoning,
+        reportedTotalTokens = total,
+    )
 }
 
 private val TURN_SUFFIX = Regex("-turn-[0-9]{4}$")
