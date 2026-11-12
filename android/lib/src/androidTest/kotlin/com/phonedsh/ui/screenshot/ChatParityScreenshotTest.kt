@@ -202,7 +202,7 @@ class ChatParityScreenshotTest : ScreenshotTestBase() {
 
     private companion object {
         /** The page margin both baselines use for the transcript column (16 pt). */
-        const val PAGE_MARGIN_PT: Int = UiMetrics.COMPOSER_OUTER_MARGIN_PT
+        val PAGE_MARGIN_PT: Int = UiMetrics.COMPOSER_OUTER_MARGIN_PT
 
         /** The swatch frame's tag (the capture reads it back). */
         const val CODE_SWATCH_TAG: String = "pdsh.chat-parity.code-swatch"

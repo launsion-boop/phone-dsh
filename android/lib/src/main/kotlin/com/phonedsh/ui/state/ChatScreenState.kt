@@ -32,7 +32,7 @@ import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.projection.UiStateKind
 import com.phonedsh.ui.projection.UiStateNode
 import com.phonedsh.ui.surface.ChatFileChange
-import com.phonedsh.ui.surface.ComposerMode
+import com.phonedsh.ui.composer.ComposerSendRule
 import com.phonedsh.ui.surface.ToolRowState
 import com.phonedsh.ui.surface.lineDelta
 import androidx.compose.runtime.Immutable
@@ -812,8 +812,6 @@ public enum class EnterMode {
 /** The composer's view state. */
 public data class ComposerState(
     public val draft: String = "",
-    /** `STOP` when the main key is the stop key (a turn runs and cannot be submitted to). */
-    public val mode: ComposerMode = ComposerMode.SEND,
     public val enabled: Boolean = true,
     /** Queued messages behind the running turn (iOS `queuedMessages`). */
     public val queuedCount: Int = 0,
@@ -821,9 +819,12 @@ public data class ComposerState(
     public val queued: List<String> = emptyList(),
     /** The placeholder, already resolved from the three iOS cases. */
     public val placeholder: String = UiStrings.COMPOSER_PLACEHOLDER_IDLE,
-    /** The send key's accessibility label, already resolved. */
-    public val sendLabel: String = UiStrings.COMPOSER_SEND_LABEL,
-    /** iOS `canSubmit`: the send key is live. */
+    /**
+     * iOS `canSubmit`, resolved only through [ComposerSendRule.canSubmit].
+     *
+     * The send key's label and visibility are not stored: they are the same
+     * rule's output in the §5 component (`ComposerSendRule.sendLabel/layout`).
+     */
     public val canSubmit: Boolean = false,
     /** A turn is running (drives the running spinner and the stop key). */
     public val running: Boolean = false,
@@ -1492,21 +1493,19 @@ public data class ChatScreenState(
             val trimmed = uiLocal.draft.trim()
             val hasText = trimmed.isNotEmpty()
             val hasAttachments = uiLocal.attachments.isNotEmpty()
-            // iOS `canSubmit`: steering cannot carry attachments.
-            val canSubmit = enabled && when {
-                running && steering -> hasText && !hasAttachments
-                running -> hasText
-                else -> hasText || hasAttachments
-            }
+            // interaction.md §5 rule 2: one implementation, shared with the
+            // send-key component. Steering cannot carry attachments.
+            val canSubmit = ComposerSendRule.canSubmit(
+                composerEnabled = enabled,
+                steer = steering,
+                hasText = hasText,
+                hasAttachments = hasAttachments,
+                turnRunning = running,
+            )
             val placeholder = when {
                 !running -> UiStrings.COMPOSER_PLACEHOLDER_IDLE
                 steering -> UiStrings.COMPOSER_PLACEHOLDER_STEER
                 else -> UiStrings.COMPOSER_PLACEHOLDER_QUEUE
-            }
-            val sendLabel = when {
-                !running -> UiStrings.COMPOSER_SEND_LABEL
-                steering -> UiStrings.COMPOSER_SEND_LABEL_STEER
-                else -> UiStrings.COMPOSER_SEND_LABEL_QUEUE
             }
             val queued = closed.filterIsInstance<ChatRow.User>()
                 .filter { it.badge == UiStrings.QUEUED_TAG }
@@ -1530,15 +1529,11 @@ public data class ChatScreenState(
                 banners = banners,
                 composer = ComposerState(
                     draft = uiLocal.draft,
-                    // The main key is the stop key only while a turn runs and the
-                    // draft cannot be submitted to it (iOS `actionButton`).
-                    mode = if (running && !canSubmit) ComposerMode.STOP else ComposerMode.SEND,
                     // A pending ask keeps the dock visible but disabled (spec §2).
                     enabled = enabled,
                     queuedCount = queued.size,
                     queued = queued,
                     placeholder = placeholder,
-                    sendLabel = sendLabel,
                     canSubmit = canSubmit,
                     running = running,
                     steering = steering,

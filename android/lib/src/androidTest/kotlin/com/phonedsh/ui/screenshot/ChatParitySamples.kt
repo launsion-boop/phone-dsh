@@ -29,7 +29,6 @@ import com.phonedsh.ui.state.PendingSlot
 import com.phonedsh.ui.state.RunStatus
 import com.phonedsh.ui.state.ToolEntry
 import com.phonedsh.ui.surface.ChatFileChange
-import com.phonedsh.ui.surface.ComposerMode
 import com.phonedsh.ui.surface.ToolRowState
 
 /** The nine iOS Chat-family states, one builder each. */
@@ -249,7 +248,6 @@ object ChatParitySamples {
         rows = emptyList(),
         composer = ComposerState(
             draft = LONG_DRAFT,
-            mode = ComposerMode.SEND,
             enabled = true,
             // The shot's send key is the pale one: the host is not started, so a
             // draft alone cannot be sent (`ChatModel.canSend` is false).
@@ -267,7 +265,6 @@ object ChatParitySamples {
         ),
         composer = ComposerState(
             draft = LONG_DRAFT,
-            mode = ComposerMode.SEND,
             enabled = true,
             canSubmit = false,
         ),

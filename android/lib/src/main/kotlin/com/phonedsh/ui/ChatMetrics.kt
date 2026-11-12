@@ -198,9 +198,6 @@ public object ChatMetrics {
     /** Send/stop circle diameter. Source: `HomeSpec.sendButton = 36`. Confidence: exact. */
     public val SEND_DIAMETER_PT: Int get() = UiTokenData.geometrySendButton.value.toInt()
 
-    /** Android touch frame; paint stays at the source 36pt diameter, trailing-aligned to preserve its 8pt visual gaps. Confidence: platform adaptation. Android-only: Android touch frame (44dp) around the 36pt iOS paint; no §5 id covers touch-target size — platform adaptation, keep local. */
-    public const val SEND_HIT_PT: Int = 44
-
     /** "回到最新" pill horizontal padding. Source: `ChatPage.swift:1501` (`.padding(.horizontal, 12)`) Confidence: exact. */
     public const val BACK_TO_LATEST_PADDING_H_PT: Int = 12
 
@@ -573,14 +570,30 @@ public object ChatMetrics {
     public const val TODO_STATUS_GAP_PT: Int = 10
     // Native component metrics required by the scoped C/D/F consumers.
 
+    /**
+     * Composer port row floor.
+     *
+     * Source: `ChatPage.swift:2405` (`.frame(height: max(56, composerHeight))`).
+     * The editable surface inside the row measures its own content and floors at
+     * [COMPOSER_TEXT_MIN_HEIGHT_PT]. Confidence: exact.
+     */
+    public const val COMPOSER_PORT_MIN_HEIGHT_PT: Int = 56
+
+    /**
+     * Composer editable-surface floor.
+     *
+     * Source: `ChatPage.swift:85` ("editable surface (36…336)") and `:3893`
+     * (`min(max(ceil(content), 36), parent.maxHeight)`). The 56 pt frame above
+     * is the containing port, not the measured text surface. Confidence: exact.
+     * Page-local: the source has no token for this measured floor.
+     */
+    public const val COMPOSER_TEXT_MIN_HEIGHT_PT: Int = 36
+
     /** Category artwork inside the process icon box. Source: `NativeMessageRows.swift:36` (in-list glyph is 16 pt) Confidence: exact. */
     public const val DISCLOSURE_CATEGORY_ICON_PT: Int = 16
 
     /** Expanded disclosure chevron artwork. Source: `NativeMessageRows.swift:35` (chevron glyph is 14 pt) Confidence: exact. */
     public const val DISCLOSURE_CHEVRON_ICON_PT: Int = 14
-
-    /** Actual editable text-view floor inside the port. Source: `ChatPage.swift:2405` (`.frame(height: max(56, composerHeight))`) Confidence: exact. */
-    public const val COMPOSER_TEXT_MIN_HEIGHT_PT: Int = 56
 
     /** Placeholder leading inset inside the port. Source: `ChatPage.swift:2388` (`.padding(.leading, 5)`) Confidence: exact. */
     public const val COMPOSER_PLACEHOLDER_LEADING_PT: Int = 5

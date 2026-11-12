@@ -26,7 +26,8 @@ import com.phonedsh.ui.state.ComposerCommand
 import com.phonedsh.ui.state.EnterMode
 import com.phonedsh.ui.state.RunStatus
 import com.phonedsh.ui.state.SlashMenu
-import com.phonedsh.ui.surface.ComposerMode
+import com.phonedsh.ui.composer.ComposerSendLayout
+import com.phonedsh.ui.composer.ComposerSendRule
 import com.phonedsh.ui.surface.ToolRowState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -377,7 +378,8 @@ class ChatScreenStateTest {
         assertTrue(state.pending.isEmpty)
         assertTrue(state.banners.isEmpty())
         assertTrue("a closed turn leaves the composer usable", state.composer.enabled)
-        assertEquals(ComposerMode.SEND, state.composer.mode)
+        assertFalse(state.composer.running)
+        assertFalse(state.composer.canSubmit)
         // The completed turn-end node exists in UiState but is not a visible row.
         val nodes = SpecFixtures.projectCase("chat-basic")
         assertTrue(nodes.any { it.kind == UiStateKind.STATUS && it.text == "completed" })
@@ -530,7 +532,8 @@ class ChatScreenStateTest {
         )
         val state = ChatScreenState.from(nodes)
         assertEquals(ChatPhase.RUNNING, state.phase)
-        assertEquals(ComposerMode.STOP, state.composer.mode)
+        assertTrue(state.composer.running)
+        assertFalse(state.composer.canSubmit)
         assertEquals(ToolRowState.RUNNING, (visibleRows(state.rows).single() as ChatRow.ToolRun).state)
     }
 
@@ -632,11 +635,10 @@ class ChatScreenStateTest {
     }
 
     @Test
-    fun `the composer placeholder and send label follow the running turn`() {
-        // ChatPage.swift `composerPlaceholder` + `sendButtonLabel`.
+    fun `the composer placeholder follows the running turn`() {
+        // ChatPage.swift `composerPlaceholder`.
         val idle = ChatScreenState.from(SpecFixtures.projectCase("chat-basic"))
         assertEquals(UiStrings.COMPOSER_PLACEHOLDER_IDLE, idle.composer.placeholder)
-        assertEquals(UiStrings.COMPOSER_SEND_LABEL, idle.composer.sendLabel)
 
         val open = SpecFixtures.projectCase("chat-basic")
             .filterNot { it.kind == UiStateKind.STATUS }
@@ -647,10 +649,6 @@ class ChatScreenStateTest {
         )
         assertEquals(ChatPhase.RUNNING, queue.phase)
         assertEquals(UiStrings.COMPOSER_PLACEHOLDER_QUEUE, queue.composer.placeholder)
-        assertEquals(UiStrings.COMPOSER_SEND_LABEL_QUEUE, queue.composer.sendLabel)
-        // A running turn with a submittable draft keeps the send key.
-        assertEquals(ComposerMode.SEND, queue.composer.mode)
-        assertTrue(queue.composer.canSubmit)
 
         val steer = ChatScreenState.from(
             open,
@@ -661,10 +659,50 @@ class ChatScreenStateTest {
             host = ChatHostFacts(engineStarted = true, canSteer = true, enterMode = EnterMode.STEER),
         )
         assertEquals(UiStrings.COMPOSER_PLACEHOLDER_STEER, steer.composer.placeholder)
+    }
+
+    @Test
+    fun `canSubmit is the shared interaction rule and send labels derive from it`() {
+        // interaction.md §5 rule 2: the state keeps no second truth table and no
+        // stored mode/label; both are `ComposerSendRule` outputs.
+        val open = SpecFixtures.projectCase("chat-basic")
+            .filterNot { it.kind == UiStateKind.STATUS }
+        val idle = ChatScreenState.from(SpecFixtures.projectCase("chat-basic"))
+        assertEquals(
+            ComposerSendRule.canSubmit(
+                composerEnabled = idle.composer.enabled,
+                steer = idle.composer.steering,
+                hasText = idle.composer.draft.trim().isNotEmpty(),
+                hasAttachments = idle.composer.attachments.isNotEmpty(),
+                turnRunning = idle.composer.running,
+            ),
+            idle.composer.canSubmit,
+        )
+
+        val queue = ChatScreenState.from(
+            open,
+            local = ChatLocalState(draft = "下一句"),
+            host = ChatHostFacts(engineStarted = true, canSend = true),
+        )
+        assertTrue(queue.composer.running)
+        assertTrue(queue.composer.canSubmit)
+        assertEquals(UiStrings.COMPOSER_SEND_LABEL_QUEUE, ComposerSendRule.sendLabel(queue.composer.running, queue.composer.steering))
+
+        val steer = ChatScreenState.from(
+            open,
+            local = ChatLocalState(
+                draft = "补充",
+                attachments = listOf(ChatAttachment(name = "a.png", image = true)),
+            ),
+            host = ChatHostFacts(engineStarted = true, canSteer = true, enterMode = EnterMode.STEER),
+        )
         // Steering cannot carry an image, so the draft is not submittable and the
-        // main key becomes the stop key (iOS `canSubmit`).
+        // §5 layout puts the stop key in the send key's place.
         assertFalse(steer.composer.canSubmit)
-        assertEquals(ComposerMode.STOP, steer.composer.mode)
+        assertEquals(
+            ComposerSendLayout.STOP,
+            ComposerSendRule.layout(steer.composer.running, steer.composer.canSubmit),
+        )
     }
 
     @Test
