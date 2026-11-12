@@ -21,6 +21,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -271,8 +272,19 @@ public fun BotDrawer(
                     .width(panelWidth)
                     .fillMaxHeight()
                     .offset { IntOffset(panelOffset.dp.roundToPx(), 0) }
-                    .shadow(elevation = tokens.shadow.drawerRadius, shape = panelShape)
-                    .clip(panelShape)
+                    .shadow(
+                        elevation = tokens.shadow.drawerRadius,
+                        shape = panelShape,
+                        // `shadow` defaults to clipping the content to its shape;
+                        // a rounded clip layer drops injected touches in the JVM
+                        // renderer, so the panel draws its rounded edge without
+                        // clipping the rows (the same rule as `PdshDrawer`).
+                        clip = false,
+                    )
+                    // The background draws the rounded trailing edge; do not
+                    // `clip` the panel. A rounded clip layer swallows injected
+                    // touches in the JVM renderer, which is why `PdshDrawer`
+                    // leaves its panel unclipped too (`PdshDrawer.kt:190-195`).
                     .pointerInput(drawer) {
                         botDrawerDrag(
                             dragMinimumDistance = drawer.dragMinimumDistance,
@@ -384,8 +396,14 @@ private fun BotDrawerPanel(
         }
     }
 
+    // The panel and its editable dialogs share one window: a platform Dialog
+    // holding a text cursor never settles under Robolectric. The dialog cards
+    // are therefore in-page overlays, the same shape the egress editor uses
+    // (`EgressAllowListPage.kt:780-790`).
+    Box(modifier = modifier) {
     Column(
-        modifier = modifier
+        modifier = Modifier
+            .fillMaxSize()
             .background(tokens.colors.page, shape)
             .windowInsetsPadding(WindowInsets.statusBars.only(WindowInsetsSides.Top))
             .focusGroup()
@@ -555,6 +573,7 @@ private fun BotDrawerPanel(
                 onIntent(BotDrawerIntent.Appearance(entry.id))
             },
         )
+    }
     }
 }
 
@@ -970,7 +989,7 @@ private fun BotAddDialog(
     val appearance = BotFishAppearance(color, hairstyle, autoColor = false, autoHairstyle = false)
     val valid = BotNameValidation.isValid(name)
 
-    BotDialogCard(
+    BotDialogOverlay(
         tag = BotDrawerTags.ADD_PANEL,
         title = BotDrawerCopy.ADD_TITLE,
         onDismiss = onDismiss,
@@ -1064,7 +1083,7 @@ private fun BotRenameDialog(
     }
     var error by remember(entry.id) { mutableStateOf<String?>(null) }
 
-    BotDialogCard(
+    BotDialogOverlay(
         tag = BotDrawerTags.RENAME_PANEL,
         title = BotDrawerCopy.RENAME_TITLE,
         onDismiss = onDismiss,
@@ -1159,6 +1178,61 @@ private fun BotDeleteDialog(
     }
 }
 
+/**
+ * A modal card drawn in the drawer's own window.
+ *
+ * Unlike [BotDialogCard] it is not a platform `Dialog`: a `Dialog` that holds an
+ * editable `BasicTextField` keeps the test harness from ever reaching idle under
+ * Robolectric (window focus drives the cursor animation). The card covers the
+ * panel, dismisses on a scrim tap/back, and keeps the same title/content shape.
+ */
+@Composable
+private fun BotDialogOverlay(
+    tag: String,
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    val scrimInteraction = remember { MutableInteractionSource() }
+    BackHandler { onDismiss() }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.4f))
+            .clickable(
+                interactionSource = scrimInteraction,
+                indication = null,
+                role = Role.Button,
+                onClick = onDismiss,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = tokens.geometry.pageOuterMarginH)
+                .background(
+                    tokens.colors.surface,
+                    RoundedCornerShape(BotDrawerMetrics.DIALOG_RADIUS),
+                )
+                // Consume taps on the card so they do not reach the scrim.
+                .pointerInput(Unit) { detectTapGestures(onTap = {}) }
+                .padding(BotDrawerMetrics.DIALOG_PADDING)
+                .testTag(tag),
+            verticalArrangement = Arrangement.spacedBy(BotDrawerMetrics.DIALOG_BODY_GAP),
+        ) {
+            BasicText(
+                text = title,
+                style = type.headline.copy(color = tokens.colors.textPrimary),
+                modifier = Modifier.semantics { heading() },
+            )
+            content()
+        }
+    }
+}
+
 @Composable
 private fun BotDialogCard(
     tag: String,
@@ -1168,8 +1242,6 @@ private fun BotDialogCard(
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
@@ -1178,7 +1250,6 @@ private fun BotDialogCard(
                     tokens.colors.surface,
                     RoundedCornerShape(BotDrawerMetrics.DIALOG_RADIUS),
                 )
-                .focusRequester(focus)
                 .padding(BotDrawerMetrics.DIALOG_PADDING)
                 .testTag(tag),
             verticalArrangement = Arrangement.spacedBy(BotDrawerMetrics.DIALOG_BODY_GAP),

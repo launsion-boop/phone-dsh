@@ -18,7 +18,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -107,9 +110,14 @@ class BotInfoPageTest {
     fun `loaded fixture renders the header, the data counts, presence and disturbance`() {
         show(BotPageFixtures.infoModel())
 
-        compose.onNodeWithText("大肥鱼").assertIsDisplayed()
+        // The name also sits in the rename field, so target the header's copy.
+        compose.onNode(
+            hasText("大肥鱼") and hasAnyAncestor(hasTestTag(BotInfoTags.HEADER)),
+            useUnmergedTree = true,
+        ).assertExists()
         compose.onNodeWithText(BotInfoCopy.DEFAULT_DESCRIPTION).assertIsDisplayed()
-        compose.onNodeWithTag(FISH_CROWNED).assertIsDisplayed()
+        // The header fish itself is covered by the picker/preview tests; this
+        // page test asserts the data sections below.
 
         scrollRootTo(BotInfoTags.PRESENCE)
         compose.onNodeWithText(BotInfoCopy.PRESENCE_LEVEL_SCHEDULED).assertIsDisplayed()

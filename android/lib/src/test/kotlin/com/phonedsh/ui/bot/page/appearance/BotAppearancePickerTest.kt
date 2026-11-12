@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.bot.fish.BotFishLifecycle
 import com.phonedsh.bot.profile.BotFishAppearance
@@ -71,7 +73,11 @@ class BotAppearancePickerTest {
                 BotAppearanceTags.hair(BotAppearanceTags.INFO_PREFIX, hairstyle.wire),
             ).assertExists()
         }
-        BotFishColor.entries.forEach { color ->
+        // The colour row is a LazyRow: each swatch is asserted after scrolling
+        // it into the composed window (the hairstyle row is a plain Row).
+        val colours = compose.onNode(hasScrollAction())
+        BotFishColor.entries.forEachIndexed { index, color ->
+            colours.performScrollToIndex(index)
             compose.onNodeWithTag(
                 BotAppearanceTags.color(BotAppearanceTags.INFO_PREFIX, color.wire),
             ).assertExists()
@@ -82,13 +88,17 @@ class BotAppearancePickerTest {
                 appearance.hairstyle.wire,
             ),
         ).assertIsSelected()
+        colours.performScrollToIndex(BotFishColor.entries.indexOf(appearance.color))
         compose.onNodeWithTag(
             BotAppearanceTags.color(
                 BotAppearanceTags.INFO_PREFIX,
                 appearance.color.wire,
             ),
         ).assertIsSelected()
-        compose.onAllNodesWithTag(FISH).assertCountEquals(BotFishHairstyle.entries.size)
+        // Selectable thumbnails merge their descendants; the fish tag is only
+        // visible in the unmerged tree.
+        compose.onAllNodesWithTag(FISH, useUnmergedTree = true)
+            .assertCountEquals(BotFishHairstyle.entries.size)
     }
 
     @Test
@@ -125,7 +135,8 @@ class BotAppearancePickerTest {
         show(appearance, showsPreview = true)
 
         // Four still thumbnails plus the one preview.
-        compose.onAllNodesWithTag(FISH).assertCountEquals(BotFishHairstyle.entries.size + 1)
+        compose.onAllNodesWithTag(FISH, useUnmergedTree = true)
+            .assertCountEquals(BotFishHairstyle.entries.size + 1)
         compose.onNodeWithContentDescription(
             BotAppearanceCopy.previewLabel(
                 appearance.color.displayName,
