@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 // ConnectorsPage: the 发现 tab. A first-level page listing the outside
-// connections DSH has today — devices, web search and custom MCP servers —
-// plus Gmail as an example of a service connector. Phone data (calendar,
+// connections DSH has today. Phone data (calendar,
 // reminders, contacts…) is a permission, not a connector, and lives in
 // 我的 › 手机权限. Picking a connector opens its detail sheet, which rests at
 // half height and drags up to full; its action pushes the setup page.
@@ -10,7 +9,7 @@ import ProbeKit
 import SwiftUI
 
 enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
-    case gmail, devices, webSearch, mcp
+    case gmail, github, devices, webSearch, mcp
 
     var id: String { rawValue }
 
@@ -20,6 +19,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return "globe"
         case .mcp: return "server.rack"
         case .gmail: return "envelope.fill"
+        case .github: return "GitHubMark"
         }
     }
 
@@ -29,6 +29,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return Color(red: 0.20, green: 0.78, blue: 0.35)
         case .mcp: return HomeSpec.textPrimary
         case .gmail: return Color(red: 0.92, green: 0.26, blue: 0.21)
+        case .github: return Color(red: 0.13, green: 0.15, blue: 0.18)
         }
     }
 
@@ -38,6 +39,7 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .webSearch: return NativeText("网页搜索", "Web search")
         case .mcp: return NativeText("自定义 MCP 服务", "Custom MCP server")
         case .gmail: return "Gmail"
+        case .github: return "GitHub"
         }
     }
 
@@ -46,21 +48,21 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
         case .devices: return NativeText("通过蓝牙连接外设", "Peripherals over Bluetooth")
         case .webSearch: return NativeText("让 DSH 搜索和读取网页", "Let DSH search and read the web")
         case .mcp: return NativeText("添加你自己的服务地址", "Add your own server")
-        case .gmail: return NativeText("读取、撰写和发送邮件", "Read, write and send mail")
+        case .gmail: return NativeText("连接账号、搜索和阅读邮件", "Connect an account, search and read mail")
+        case .github: return NativeText("浏览已授权的仓库", "Browse authorized repositories")
         }
     }
 
     /// The gray pill on the row, naming what the sheet's action does.
     var pillTitle: String {
         switch self {
-        case .devices, .gmail: return NativeText("连接", "Connect")
+        case .devices: return NativeText("连接", "Connect")
+        case .gmail, .github: return NativeText("打开", "Open")
         case .webSearch: return NativeText("设置", "Set up")
         case .mcp: return NativeText("添加", "Add")
         }
     }
 
-    /// The example connector shows the pattern but cannot connect yet.
-    var isExample: Bool { self == .gmail }
 }
 
 struct ConnectorsPage: View {
@@ -117,7 +119,8 @@ struct ConnectorsPage: View {
         case .devices: BluetoothDevicesPage()
         case .webSearch: WebSearchSettingsPage()
         case .mcp: MCPSettingsPage()
-        case .gmail: EmptyView()
+        case .gmail: GmailConnectorPage()
+        case .github: GitHubConnectorPage()
         }
     }
 
@@ -131,7 +134,7 @@ struct ConnectorsPage: View {
     private func row(_ connector: DiscoverConnector) -> some View {
         Button { selected = connector } label: {
             HStack(spacing: 14) {
-                ConnectorTile(icon: connector.icon, tint: connector.tint, size: 44)
+                ConnectorTile(connector: connector, size: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(connector.title)
                         .font(.system(size: HomeSpec.bodySize))
@@ -152,20 +155,28 @@ struct ConnectorsPage: View {
     }
 }
 
-/// Rounded tile with a tinted glyph, the connector's icon.
-struct ConnectorTile: View {
-    let icon: String
-    let tint: Color
-    var size: CGFloat = 44
+private struct ConnectorTile: View {
+    let connector: DiscoverConnector
+    let size: CGFloat
 
     var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: size * 0.46, weight: .medium))
-            .foregroundStyle(tint)
-            .frame(width: size, height: size)
-            .background(Color(red: 0.95, green: 0.95, blue: 0.95),
-                        in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
-            .accessibilityHidden(true)
+        Group {
+            if connector == .github {
+                Image(connector.icon)
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: size * 0.46, height: size * 0.46)
+            } else {
+                Image(systemName: connector.icon)
+                    .font(.system(size: size * 0.46, weight: .medium))
+            }
+        }
+        .foregroundStyle(connector.tint)
+        .frame(width: size, height: size)
+        .background(Color(red: 0.95, green: 0.95, blue: 0.95),
+                    in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
+        .accessibilityHidden(true)
     }
 }
 
@@ -195,7 +206,7 @@ private struct ConnectorDetailSheet: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                ConnectorTile(icon: connector.icon, tint: connector.tint, size: 96)
+                ConnectorTile(connector: connector, size: 96)
                     .shadow(color: .black.opacity(0.08), radius: 12, y: 6)
                     .padding(.top, 28)
                 Text(connector.title)
@@ -226,16 +237,9 @@ private struct ConnectorDetailSheet: View {
         }
     }
 
-    @ViewBuilder
     private var primaryAction: some View {
-        if connector.isExample {
-            Button(NativeText("即将支持", "Coming soon")) {}
-                .buttonStyle(HomeSecondaryButtonStyle())
-                .disabled(true)
-        } else {
-            Button(actionTitle) { onOpen() }
-                .buttonStyle(HomePrimaryButtonStyle())
-        }
+        Button(actionTitle) { onOpen() }
+            .buttonStyle(HomePrimaryButtonStyle())
     }
 
     private var actionTitle: String {
@@ -244,7 +248,8 @@ private struct ConnectorDetailSheet: View {
             return NativeText("连接设备", "Connect a device")
         case .webSearch: return NativeText("设置网页搜索", "Set up web search")
         case .mcp: return NativeText("添加服务", "Add a server")
-        case .gmail: return NativeText("连接", "Connect")
+        case .gmail: return NativeText("打开 Gmail", "Open Gmail")
+        case .github: return NativeText("打开 GitHub", "Open GitHub")
         }
     }
 
@@ -260,8 +265,11 @@ private struct ConnectorDetailSheet: View {
             return NativeText("填入 MCP 服务的地址和密钥，DSH 就能调用这个服务提供的工具。",
                               "Enter an MCP server's address and key so DSH can use the tools it offers.")
         case .gmail:
-            return NativeText("让 DSH 读取和搜索你的邮件，帮你整理收件箱、撰写和发送邮件。暂时还不能连接。",
-                              "Let DSH read and search your mail, tidy your inbox, write and send mail. Not available yet.")
+            return NativeText("连接 Google 账号后，可以在手机上搜索和阅读 Gmail 邮件。",
+                              "Connect a Google account to search and read Gmail on this phone.")
+        case .github:
+            return NativeText("连接 GitHub 账号后，可以在手机上查看你选择的仓库。",
+                              "Connect a GitHub account to browse the repositories you choose on this phone.")
         }
     }
 
@@ -297,11 +305,19 @@ private struct ConnectorDetailSheet: View {
         case .gmail:
             return [
                 ("tray.full", NativeText("读取和搜索邮件", "Read and search mail"),
-                 NativeText("按发件人、主题或时间查找邮件，整理要点。",
-                            "Find mail by sender, subject or date and pull out what matters.")),
-                ("paperplane", NativeText("撰写和发送邮件", "Write and send mail"),
-                 NativeText("按你的意思写新邮件或回复，直接发送。",
-                            "Write new mail or replies the way you want and send them.")),
+                 NativeText("按发件人、主题或时间查找邮件，点开查看正文。",
+                            "Find mail by sender, subject or date and open the message to read it.")),
+                ("lock.shield", NativeText("只读授权", "Read-only access"),
+                 NativeText("你可以随时断开 Google 账号。", "You can disconnect your Google account at any time.")),
+            ]
+        case .github:
+            return [
+                ("book.closed", NativeText("只读仓库元数据", "Read-only repository metadata"),
+                 NativeText("只读取你选择的仓库名称和链接，不下载仓库内容。",
+                            "Reads only the names and links of repositories you choose; no repository content is downloaded.")),
+                ("lock.shield", NativeText("GitHub 授权", "GitHub authorization"),
+                 NativeText("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
+                            "Authorize on GitHub. You can disconnect here or manage access on GitHub.")),
             ]
         }
     }
