@@ -25,6 +25,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -33,8 +34,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.menu.ContextMenuModel
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.ContextMenuTags
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -280,6 +285,40 @@ class EgressAllowListPageTest {
             .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RULE))
         compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE)[0].performClick()
         compose.onNodeWithText(UiStrings.EGRESS_DELETE_ADDRESS).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_CONFIRM).performClick()
+        assertEquals(listOf("r1"), removed.map { it.id })
+    }
+
+    @Test
+    fun `long press opens the frozen hostAddress menu and confirms only after it closes`() {
+        val state = EgressAllowListScreenState.from(hostsFacts())
+        val removed = mutableListOf<EgressRuleView>()
+        show(state, onRemoveRule = { removed += it })
+
+        compose.onNodeWithTag(UiPageTags.EGRESS_LIST)
+            .performScrollToNode(hasTestTag(UiPageTags.EGRESS_RULE))
+        compose.onAllNodesWithTag(UiPageTags.EGRESS_RULE)[0].performTouchInput { longClick() }
+        compose.waitForIdle()
+
+        // The surface comes from the generated table, not a copy in this test or
+        // the page: one destructive 删除这个地址 row.
+        val expected = ContextMenuModel.items("hostAddress", ContextMenuRowState.unconditional)
+        assertEquals(listOf(UiStrings.EGRESS_DELETE_ADDRESS), expected.map { it.label })
+        assertTrue(expected.single().isDestructive)
+        expected.forEach { item ->
+            compose.onNodeWithTag(ContextMenuTags.itemTag(item.surfaceId, item.order))
+                .assertIsDisplayed()
+        }
+
+        compose.onNodeWithTag(ContextMenuTags.itemTag("hostAddress", expected.single().order))
+            .performClick()
+        compose.waitForIdle()
+
+        // Rule 7: the menu is gone before the action's confirmation appears, and
+        // the confirmation — not the menu item — is what performs the write.
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertDoesNotExist()
+        compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_DIALOG).assertIsDisplayed()
+        assertTrue(removed.isEmpty())
         compose.onNodeWithTag(UiPageTags.EGRESS_DELETE_CONFIRM).performClick()
         assertEquals(listOf("r1"), removed.map { it.id })
     }

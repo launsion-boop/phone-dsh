@@ -42,9 +42,7 @@
 package com.phonedsh.ui.page
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,6 +75,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.PdshContextMenu
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.surface.SettingsSubPageFrame
@@ -705,7 +705,6 @@ private fun AllowAllBlock(
  * first line already says and the row would stop matching the baseline, so it is
  * also exactly the case where the classification tells the user something new.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EgressRuleRow(
     rule: EgressRuleView,
@@ -713,40 +712,43 @@ private fun EgressRuleRow(
     onDeleteRequest: (EgressRuleView) -> Unit,
 ) {
     val tokens = LocalUiTokens.current
-    SettingsFormRow(
-        title = rule.form,
-        // The baseline's address row carries no visible control: deleting one
-        // address is the row's `contextMenu` (`NativeShell.swift:495`), i.e. a
-        // long press, and the confirmation dialog is what performs it. Android's
-        // extra `⋯` was the one control on this page iOS does not draw, so it is
-        // gone; the row itself is the target, and it opens the same confirmation
-        // the context menu does (a tap costs one 取消, never a write).
-        modifier = Modifier
-            .testTag(UiPageTags.EGRESS_RULE)
-            .combinedClickable(
-                // Not gated on `canWrite`: opening the confirmation is interaction,
-                // not a write. The confirm button is what the host's answer
-                // disables, and it says why inside the dialog.
-                role = Role.Button,
-                onLongClickLabel = UiStrings.EGRESS_DELETE_ADDRESS,
-                onLongClick = { onDeleteRequest(rule) },
-                onClick = { onDeleteRequest(rule) },
-            ),
-        subtitleContent = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.codeToolbar),
-            ) {
-                BasicText(
-                    text = rule.formLabel,
-                    style = settingsFootnoteStyle().copy(color = tokens.colors.tertiary),
-                )
-                BasicText(
-                    text = rule.detail,
-                    style = settingsFootnoteStyle().copy(color = tokens.colors.tertiary),
-                )
-            }
-        },
-    )
+    // The baseline's address row carries no visible control: deleting one
+    // address is the row's `contextMenu` (`NativeShell.swift:495`), i.e. a long
+    // press. The frozen `hostAddress` surface owns the item's label, order and
+    // destructive role; its one item opens the confirmation after the menu has
+    // closed. Android's extra `⋯` was the one control on this page iOS does not
+    // draw, so it is gone. A tap keeps the row's pre-existing Android action —
+    // the same confirmation, which costs one 取消 and never a write — and is not
+    // a second way to open the menu.
+    //
+    // Not gated on `canWrite`: opening the confirmation is interaction, not a
+    // write. The confirm button is what the host's answer disables, and it says
+    // why inside the dialog.
+    PdshContextMenu(
+        surfaceId = "hostAddress",
+        state = ContextMenuRowState.unconditional,
+        onAction = { onDeleteRequest(rule) },
+        modifier = Modifier.testTag(UiPageTags.EGRESS_RULE),
+        onClick = { onDeleteRequest(rule) },
+    ) {
+        SettingsFormRow(
+            title = rule.form,
+            subtitleContent = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spacing.codeToolbar),
+                ) {
+                    BasicText(
+                        text = rule.formLabel,
+                        style = settingsFootnoteStyle().copy(color = tokens.colors.tertiary),
+                    )
+                    BasicText(
+                        text = rule.detail,
+                        style = settingsFootnoteStyle().copy(color = tokens.colors.tertiary),
+                    )
+                }
+            },
+        )
+    }
 }
 
 /** One explanatory line; the tone is never a second colour source. */
