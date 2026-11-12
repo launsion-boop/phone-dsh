@@ -36,20 +36,26 @@
   (c) Android GATT adapter 的可驗證 callback 歸屬（GAP-20）。
 - 解除條件：上述三項完成並留下真機報告後，才可啟用與關閉 GAP-16。
 
-## B-4 Instrumented `BotStoreAndroidVectorTest`
+## B-4 Instrumented `BotStoreAndroidVectorTest`（已於 emulator 通過，2026-11-13）
 
-- 現況：`android/app/src/androidTest/kotlin/com/phonedsh/probe/bot/store/BotStoreAndroidVectorTest.kt`
-  存在，狀態 **NOT_RUN**。主機原本沒有 emulator／system image／AVD；
-  `android/tools/*` 只驗證 APK 與 JVM vectors。
-- 證據（2026-11-13 本機）：
-  - `ls $SDK/emulator/emulator` → 不存在
-  - `ls $SDK/system-images` → 不存在
-  - `adb devices` → 無裝置
-  - sdkmanager 的 `emulator` + `system-images;android-37.2;google_apis_ps16k;arm64-v8a` 安裝
-    正在進行（下載緩慢）；若在 goal 結束前完成，會建 AVD 並跑
-    `:app:connectedDebugAndroidTest`，以 XML 為證據。
-- 卡住原因（若下載／開機失敗）：此環境沒有可用的 Android 執行環境（模擬器或真機）。
-- 解除條件：可開機的 emulator/AVD 或實體裝置 + instrumented 測試 XML（不是 JVM 綠燈）。
+- 2026-11-13：Android SDK 安裝 emulator `37.2.13` 與
+  `system-images;android-37.2;google_apis_ps16k;arm64-v8a`，建 AVD `pdsh` 後以 headless
+  `-no-window -gpu swiftshader_indirect` 開機成功（`sys.boot_completed=1`，`emulator-5554`）。
+- 首次執行暴露兩個 **Android-only** driver bug（JVM 測試看不到），修於 `cf75caeb`：
+  1. `execSQL` 拒絕部分 `PRAGMA`（`PRAGMA secure_delete=ON`），改走 `rawQuery` fallback；
+  2. store 的 `abort-*` crash point 在 transaction 內 `close()`，Android 不會結束 transaction
+     session，WAL 寫鎖存活導致下一次 open `SQLITE_BUSY`，改在 `close()` 先 rollback。
+  錯誤訊息也改為帶上失敗 SQL。
+- 證據：
+  ```bash
+  adb push spec /data/local/tmp/pdsh
+  adb shell am instrument -w -r -e pdsh.repo.root /data/local/tmp/pdsh \
+    -e class com.phonedsh.probe.bot.store.BotStoreAndroidVectorTest \
+    com.phonedsh.app.test/androidx.test.runner.AndroidJUnitRunner
+  # => OK (3 tests)
+  ```
+- 仍未驗：真機（GAP-38 的關閉條件）、Bot tab 的實機 UI 流程（目前只有 JVM tests 與
+  emulator instrumented 證據）。
 
 ## B-5 Watchdog／context lint（S6）
 
