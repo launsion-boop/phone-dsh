@@ -218,7 +218,8 @@ enum BotRuntimePresentationFactory {
         }
         if lastStream != nil { return nil }
         let start = active.first(where: { $0.seq == turn.seq })
-        let startedAt = start.map { max(0, $0.time) > 0 ? $0.time : now } ?? now
+        let startedAt: Int64
+        if let start, start.time > 0 { startedAt = start.time } else { startedAt = now }
         return BotActivity(status: .thinking, category: .thinking, startedAt: startedAt)
     }
 
