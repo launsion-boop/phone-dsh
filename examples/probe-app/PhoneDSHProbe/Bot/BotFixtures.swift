@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #if DEBUG
+import Combine
 import Foundation
 import PhoneDSHAgentCore
 import PhoneDSHBot
@@ -13,6 +14,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case runningToolUnauthorized, runningToolReplay, agentComm
     case runningProgress
     case chatLayoutStress
+    case chatLayoutKeyboard
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -253,6 +255,8 @@ enum BotUIFixtures {
             ]), seq: 2)]
         case .chatLayoutStress:
             return layoutStressRows()
+        case .chatLayoutKeyboard:
+            return interactiveCardsRows()
         case .checklist:
             body = widget("checklist", [
                 "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
@@ -489,6 +493,118 @@ enum BotUIFixtures {
         finished.body.values["summary"] = .string("更新完成：同一个 cardKey 现在是 final 完成卡。")
         finished.body.values["eta"] = .string("已完成")
         return [middle, finished]
+    }
+
+    /// The keyboard-open card regression: one turn emits a question card, an
+    /// approval card, an interactive checklist, a progress card and a long
+    /// markdown answer. The capture page focuses the composer for this
+    /// fixture, so a layout loop that only appears while the keyboard changes
+    /// the viewport is reproducible without an XCUITest tap.
+    static func interactiveCardsRows() -> [BotUIRow] {
+        let progress = cardRow("interactive-progress", body: widget("progress", [
+            "title": .string("多卡压力检查：进度、长文本、审批、检查清单和问题卡在同一屏出现时，标题必须限制在两行以内并且展开控件不能反复触发布局"),
+            "state": .string("running"),
+            "percent": .number(35),
+            "summary": .string("键盘打开时，卡片仍然可以点击。"),
+            "cardKey": .string("interactive-progress"),
+            "eta": .string("约 2 分钟"),
+            "steps": .array((0..<6).map { index in
+                .object([
+                    "id": .string("interactive-step-\(index)"),
+                    "label": .string("第 \(index + 1) 步：核对键盘打开时的卡片布局"),
+                    "state": .string(index < 2 ? "done" : index == 2 ? "active" : "pending"),
+                ])
+            }),
+        ]), seq: 5)
+        let longAnswer = BotUIRow.text(
+            id: "interactive-long", seq: 6, role: "assistant",
+            text: """
+            密集卡片已经就位。
+
+            - 第一段：进度卡在同一个 cardKey 上原位更新，不能改变行身份。
+            - 第二段：长文本需要保持可滚动，不能撑开键盘上方的布局。
+            - 第三段：审批卡、检查清单和问题卡都必须保持可点击。
+
+            """ + String(repeating: "补充说明：键盘打开时主线程不能反复测量同一批卡片。\n\n", count: 5))
+        let approval = cardRow("interactive-approval", body: BotUIBody(type: "approval", values: [
+            "title": .string("允许执行这个操作吗？"),
+            "action": .string("写入验收记录"),
+            "command": .string("printf 'layout-ok' > /tmp/phone-dsh-layout-ok.txt"),
+            "detail": .string("这次操作只写入模拟器的工作区。"),
+            "status": .string("pending"),
+            "approvalID": .string("approval-interactive-1"),
+            "digest": .string("digest-interactive-1"),
+            "alwaysScope": .string("session"),
+        ]), seq: 3)
+        let checklist = cardRow("interactive-checklist", body: widget("checklist", [
+            "title": .string("提交前检查"),
+            "summary": .string("勾选后一起发回给 Bot。"),
+            "interactive": .bool(true),
+            "items": .array((0..<3).map { index in
+                .object([
+                    "id": .string("interactive-check-\(index)"),
+                    "text": .string("检查第 \(index + 1) 项：键盘打开时仍可点击"),
+                    "done": .bool(false),
+                ])
+            }),
+        ]), seq: 4)
+        let question = cardRow("interactive-question", body: widget("question", [
+            "question": .string("要选 A 还是 B？"),
+            "helpText": .string("选好后输入框仍然可用。"),
+            "options": .array([
+                .object(["id": .string("o0"), "label": .string("A"), "recommended": .bool(true)]),
+                .object(["id": .string("o1"), "label": .string("B")]),
+            ]),
+        ]), seq: 2)
+        let user = BotUIRow.text(
+            id: "interactive-user", seq: 1, role: "user",
+            text: "键盘保持打开：先出问题卡和审批卡，下面再放检查清单、进度卡和长文本。")
+        // Question and approval come first so the interaction test can tap
+        // them while the keyboard is up without first scrolling; the dense
+        // progress/long-text/checklist history stays below, where it still
+        // exercises the lazy stack's measurement on every viewport change.
+        return [user, question, approval, checklist, progress, longAnswer]
+    }
+
+    /// The same-cardKey progress updates for ``interactiveCardsRows``. The ids
+    /// differ on purpose so the model must keep the first row id.
+    static func interactiveCardsUpdates() -> [BotUIRow] {
+        let base = interactiveCardsRows().first { $0.body.cardType == "progress" }!
+        var middle = base
+        middle.id = "interactive-progress-update"
+        middle.updatedSeq = 7
+        middle.body.values["percent"] = .number(70)
+        middle.body.values["summary"] = .string("更新一次：仍在运行，卡片必须原位更新。")
+        var finished = middle
+        finished.id = "interactive-progress-final"
+        finished.updatedSeq = 8
+        finished.body.values["state"] = .string("done")
+        finished.body.values["percent"] = .number(100)
+        finished.body.values["summary"] = .string("更新完成：键盘仍然打开。")
+        finished.body.values["eta"] = .string("已完成")
+        return [middle, finished]
+    }
+
+    /// Mimics the production watch cadence for the keyboard fixture without a
+    /// Bot runtime: every 800ms the page receives an (unchanged) durable
+    /// presentation, exactly like `BotProductionPage`'s watch loop. This is
+    /// what kept re-rendering the dense transcript while a turn waited for
+    /// the user's choice.
+    static func keyboardPollingDriver() -> BotChatDriver {
+        BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { cursor in
+                BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false)
+            },
+            perform: { _ in .accepted(eventID: "evt-fixture-action") },
+            stopCurrentTurn: { _ in },
+            presentation: {
+                BotRuntimePresentation(
+                    fishState: .working,
+                    runningTurnID: "fixture-turn",
+                    activity: BotActivity(status: .toolRunning,
+                                          detail: "核对键盘打开时的卡片布局"))
+            })
     }
 
     static var composerAttachments: [BotDraftAttachment] {
@@ -781,6 +897,13 @@ struct BotUIFixtureRootView: View {
                 context: .fixture,
                 driver: BotUIFixtures.unauthorizedDriver(rows: rows, process: process),
                 fixtureActions: true)
+        } else if fixture == .chatLayoutKeyboard {
+            self.playback = nil
+            chat = BotChatModel(
+                rows: BotUIFixtures.interactiveCardsRows(),
+                context: .fixture,
+                driver: BotUIFixtures.keyboardPollingDriver(),
+                fixtureActions: true)
         } else {
             self.playback = nil
             chat = BotChatModel(
@@ -821,6 +944,16 @@ struct BotUIFixtureRootView: View {
             ])))
         case .runningProgress:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        case .chatLayoutKeyboard:
+            // The real incident's turn is still open while the question card
+            // waits for the user, so the live turn and its 800ms durable watch
+            // are part of the layout condition.
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                "callId": .string("interactive-call"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"sleep 1\",\"description\":\"核对键盘布局\"}"),
+            ])))
         case .runningToolPhone:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
@@ -921,6 +1054,7 @@ struct BotUIFixtureRootView: View {
                                 },
                                 peerAppearance: BotUIFixtures.peerAppearance,
                                 peerIsMainBot: { $0 == "main" },
+                                initialComposerFocus: fixture == .chatLayoutKeyboard,
                                 initialAttachments: fixture == .composerAttachments
                                     ? BotUIFixtures.composerAttachments : [],
                                 initialAttachmentNotice: fixture == .composerAttachments
@@ -935,7 +1069,7 @@ struct BotUIFixtureRootView: View {
                                 .accessibilityIdentifier("bot.fixture.visible")
                             Text("fish=\(chatModel.fishState.rawValue);activity=\(chatModel.activity?.status.rawValue ?? "none");detail=\(chatModel.activity?.detail ?? "")")
                                 .accessibilityIdentifier("bot.fixture.presentation")
-                            if fixture == .chatLayoutStress {
+                            if fixture == .chatLayoutStress || fixture == .chatLayoutKeyboard {
                                 Text("ids=\(chatModel.visibleRows.map(\.id).joined(separator: ","))")
                                     .accessibilityIdentifier("bot.fixture.ids")
                             }
@@ -953,12 +1087,20 @@ struct BotUIFixtureRootView: View {
             }
         }
         .task {
-            if fixture == .chatLayoutStress {
+            if fixture == .chatLayoutKeyboard {
+                // Keep the production 800ms durable watch alive while the
+                // keyboard is up (pageActive defaults true for the fixture).
+                Task { await chatModel.watchLoop() }
+            }
+            if fixture == .chatLayoutStress || fixture == .chatLayoutKeyboard {
                 // Same-cardKey updates in the same transcript: the second and
                 // third batches carry different row ids, so a ForEach keyed by
                 // the incoming id would rebuild the lazy item on every poll.
                 // Keeping the first id is part of the layout-loop fix.
-                for (index, update) in BotUIFixtures.layoutStressUpdates().enumerated() {
+                let updates = fixture == .chatLayoutKeyboard
+                    ? BotUIFixtures.interactiveCardsUpdates()
+                    : BotUIFixtures.layoutStressUpdates()
+                for (index, update) in updates.enumerated() {
                     try? await Task.sleep(for: .milliseconds(300))
                     chatModel.apply(BotUIRowBatch(rows: [update], deletes: [],
                                                   cursor: index + 1, reset: false))
@@ -1315,6 +1457,44 @@ enum BotUIFixtureChecks {
         try require(progressCards.first?.id == progressRows[0].id,
                     "progress cardKey changed the row id; the lazy ForEach would rebuild the item")
         passed.append("progress-cardKey-in-place")
+
+        // The keyboard regression fixture must actually carry the four
+        // interactive/dense card kinds; an unparseable card would silently
+        // change what the XCUITest is exercising.
+        let keyboardRows = BotUIFixtures.rows(for: .chatLayoutKeyboard)
+        let keyboardKinds = Set(keyboardRows.compactMap { BotUICardContent.parse(row: $0)?.kind })
+        try require(keyboardKinds.isSuperset(of: [.progress, .approval, .checklist, .question]),
+                    "keyboard fixture lost a card kind: \(keyboardKinds)")
+        passed.append("keyboard-card-fixture-shape")
+
+        // The production watch re-reads the same durable presentation every
+        // 800ms while a card waits for the user. A second, equal read must not
+        // publish, otherwise the whole dense transcript is re-laid out while
+        // the keyboard is up. Drive the real BotChatModel twice.
+        let dedupeModel = BotChatModel(
+            context: .fixture,
+            driver: BotChatDriver(
+                history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+                watch: { cursor in BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false) },
+                perform: { _ in .accepted(eventID: "evt-dedupe") },
+                stopCurrentTurn: { _ in },
+                presentation: {
+                    BotRuntimePresentation(fishState: .working,
+                                           runningTurnID: "fixture-turn",
+                                           activity: BotActivity(status: .toolRunning,
+                                                                 detail: "核对布局"))
+                }),
+            fixtureActions: true)
+        var publishes = 0
+        let cancellable = dedupeModel.objectWillChange.sink { _ in publishes += 1 }
+        await dedupeModel.refreshPresentation()
+        let afterFirst = publishes
+        await dedupeModel.refreshPresentation()
+        await dedupeModel.refreshPresentation()
+        cancellable.cancel()
+        try require(publishes == afterFirst,
+                    "an equal durable presentation was republished \(publishes - afterFirst) time(s)")
+        passed.append("durable-presentation-dedupe")
 
         // P26 §2.9 also has an App-side live projection. Once a final:true
         // card succeeds, later deltas and committed text must not be drawn;
