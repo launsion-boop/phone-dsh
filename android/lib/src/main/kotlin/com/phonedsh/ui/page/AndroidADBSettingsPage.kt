@@ -7,12 +7,19 @@
 //
 // The host (`:app` AndroidAdbHost) owns the saved target, the Keystore-wrapped
 // RSA identity and the one Android operation slot; this page only edits drafts
-// and sends 保存 / 测试连接 / 停止当前 Android 操作. The copy says 这台手机 where
-// iOS says iPhone, and states the one iOS capability this host does not have
-// (the Worker's `adb push/pull` file transfer).
+// and sends 保存 / 测试连接 / 停止当前 Android 操作. The discovery section only
+// names a gesture (扫描局域网 / 连接 / 取消) and renders the host's candidate
+// read; it never scans, connects or measures time itself.
+//
+// The copy says 这台手机 where iOS says iPhone, and states the one iOS
+// capability this host does not have (the Worker's `adb push/pull` file
+// transfer). Android's first discovery version has no Bonjour catalog; the
+// host comment in `:app` `AndroidTvDiscovery` records that difference, and this
+// page never claims a service name it was not handed.
 package com.phonedsh.ui.page
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,9 +50,57 @@ import com.phonedsh.ui.surface.SettingsBodyRow
 import com.phonedsh.ui.surface.SettingsFootnoteRow
 import com.phonedsh.ui.surface.SettingsSectionLabel
 import com.phonedsh.ui.surface.SettingsSubPageFrame
+import com.phonedsh.ui.surface.settingsFootnoteStyle
 import com.phonedsh.ui.surface.settingsValueStyle
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
+
+/** The TV families the host's port evidence can distinguish (iOS `TVCandidate.Kind`). */
+public enum class AndroidAdbCandidateKind(public val label: String) {
+    ANDROID_TV("Android TV"),
+    CAST("Google Cast"),
+    AIRPLAY("AirPlay"),
+    ROKU("Roku"),
+    SMART_TV("智能电视"),
+    UNKNOWN("未知类型"),
+}
+
+/**
+ * One TV-shaped endpoint the host's scan found, reduced to what the page shows.
+ *
+ * `controllable` is evidence, not permission: it is true only when the ADB port
+ * answered. An open media port on another port says "像电视", never "可控制".
+ */
+@Immutable
+public data class AndroidAdbCandidate(
+    /** Stable key; the host uses `host:port` like iOS `TVCandidate.id`. */
+    public val id: String,
+    public val host: String,
+    public val port: Int,
+    public val displayName: String,
+    public val kind: AndroidAdbCandidateKind = AndroidAdbCandidateKind.UNKNOWN,
+    public val controllable: Boolean = false,
+)
+
+/** Progress of one candidate connection, mirroring iOS `TVConnectPhase`. */
+@Immutable
+public sealed interface AndroidAdbConnectPhase {
+    /** A dial/ADB attempt is running; no authorization prompt has been observed yet. */
+    public data object Probing : AndroidAdbConnectPhase
+
+    /** The TV has not accepted this phone's key yet; the host retries until 90 s. */
+    public data class AwaitingAuthorization(public val elapsedSeconds: Int) : AndroidAdbConnectPhase
+
+    /** The TV answered with its model and the target was saved. */
+    public data class Connected(public val model: String) : AndroidAdbConnectPhase
+
+    /** A non-authorization failure, or the authorization deadline, with its cause. */
+    public data class Failed(public val message: String) : AndroidAdbConnectPhase
+}
+
+/** True while the row shows progress and 取消 instead of a fresh 连接. */
+public val AndroidAdbConnectPhase.inProgress: Boolean
+    get() = this is AndroidAdbConnectPhase.Probing || this is AndroidAdbConnectPhase.AwaitingAuthorization
 
 /** The host's saved target and the last operation's status line. */
 @Immutable
@@ -61,6 +116,12 @@ public data class AndroidAdbFacts(
     public val busy: Boolean = false,
     /** Bumped when the saved target changes, so the drafts re-read it. */
     public val revision: Int = 0,
+    /** 发现的电视: the last scan's candidates, in the host's display order. */
+    public val candidates: List<AndroidAdbCandidate> = emptyList(),
+    /** True while the host's foreground scan runs (iOS `scanning`). */
+    public val scanning: Boolean = false,
+    /** Per-candidate phase, keyed by [AndroidAdbCandidate.id]; an absent key is idle. */
+    public val connectionPhases: Map<String, AndroidAdbConnectPhase> = emptyMap(),
 ) {
     override fun toString(): String = "AndroidAdbFacts(available=$available, enabled=$enabled, busy=$busy)"
 }
@@ -76,18 +137,37 @@ public fun AndroidADBSettingsPage(
     onSave: (AndroidAdbDraft) -> Unit,
     onCheck: (AndroidAdbDraft) -> Unit,
     onCancel: () -> Unit,
+    onScan: () -> Unit,
+    onConnect: (AndroidAdbCandidate) -> Unit,
+    onCancelConnection: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var enabled by remember { mutableStateOf(facts.enabled) }
+    // A fresh install starts with control enabled (傻瓜式 / full access); a
+    // saved target that was explicitly turned off keeps that choice because
+    // `host` is then non-empty. The switch is only a draft until 保存 / 连接,
+    // so this never grants anything by itself.
+    val freshTarget = facts.available && facts.host.isBlank() && facts.revision == 0
+    var enabled by remember { mutableStateOf(facts.enabled || freshTarget) }
     var host by remember { mutableStateOf(facts.host) }
     var port by remember { mutableStateOf(facts.port.toString()) }
     LaunchedEffect(facts.revision) {
-        enabled = facts.enabled
+        enabled = facts.enabled || (facts.available && facts.host.isBlank() && facts.revision == 0)
         host = facts.host
         port = facts.port.toString()
     }
     val draft = AndroidAdbDraft(enabled, host, port)
     val busy = facts.busy || !facts.available
+    val connecting = facts.connectionPhases.values.any { it.inProgress }
+    // The host refuses a scan or a second connection while any ADB operation
+    // holds its one slot, so the verbs are disabled for exactly that window
+    // instead of looking live and silently doing nothing.
+    val discoveryEnabled = facts.available && !facts.busy && !facts.scanning && !connecting
+    // Foolproof default: opening the page starts one foreground scan. The
+    // button remains for a manual refresh; the host ignores a second start
+    // while it is already scanning, busy or connecting.
+    LaunchedEffect(facts.available) {
+        if (facts.available && !facts.busy && !facts.scanning && !connecting) onScan()
+    }
     SettingsSubPageFrame(
         backGlyph = SETTINGS_CLOSE_GLYPH,
         largeTitle = "Android ADB",
@@ -99,6 +179,55 @@ public fun AndroidADBSettingsPage(
             modifier = Modifier.fillMaxSize().testTag(UiPageTags.ANDROID_ADB_LIST),
             verticalArrangement = Arrangement.Top,
         ) {
+            item(key = "discover.header") {
+                SettingsSectionLabel("发现的电视", tag = UiPageTags.ANDROID_ADB_DISCOVERED_SECTION)
+            }
+            item(key = "discover.scan") {
+                InfoRow(
+                    title = "扫描局域网",
+                    value = null,
+                    enabled = discoveryEnabled,
+                    modifier = Modifier.testTag(UiPageTags.ANDROID_ADB_SCAN),
+                    onClick = onScan,
+                )
+            }
+            if (facts.scanning) {
+                item(key = "discover.scanning") {
+                    SettingsFootnoteRow(
+                        text = "正在查找局域网里的电视…",
+                        modifier = Modifier.testTag(UiPageTags.ANDROID_ADB_SCANNING),
+                    )
+                }
+            }
+            if (!facts.scanning && facts.candidates.isEmpty()) {
+                item(key = "discover.empty") {
+                    SettingsFootnoteRow(
+                        text = "尚未发现电视。确认电视和这台手机连接同一 Wi-Fi，并在电视上开启网络调试；也可以手动添加地址。",
+                        modifier = Modifier.testTag(UiPageTags.ANDROID_ADB_SCAN_EMPTY),
+                    )
+                }
+            }
+            facts.candidates.forEach { candidate ->
+                val phase = facts.connectionPhases[candidate.id]
+                item(key = "discover.candidate.${candidate.id}") {
+                    AdbCandidateRow(
+                        candidate = candidate,
+                        phase = phase,
+                        connectEnabled = discoveryEnabled,
+                        onConnect = onConnect,
+                        onCancelConnection = onCancelConnection,
+                    )
+                }
+            }
+            item(key = "discover.footer") {
+                SettingsFootnoteRow(
+                    text = "只扫描这台手机当前 Wi-Fi 的局域网。开放端口只说明“像电视”，不代表已授权；连接后需要在电视上确认调试授权，" +
+                        "等待授权时请保持此页打开。手动添加仍在下方可用。",
+                )
+            }
+            item(key = "manual.header") {
+                SettingsSectionLabel("手动添加（高级）", tag = UiPageTags.ANDROID_ADB_MANUAL_SECTION)
+            }
             item(key = "control") {
                 Row(
                     modifier = adbToggleModifier(enabled, facts.available) { enabled = it },
@@ -193,6 +322,95 @@ public fun AndroidADBSettingsPage(
         }
     }
 }
+
+/**
+ * One discovered candidate: name, endpoint evidence, the host's phase, and the
+ * two verbs. A row is never told a connection succeeded: 已连接 appears only
+ * when the host's phase says so.
+ */
+@Composable
+private fun AdbCandidateRow(
+    candidate: AndroidAdbCandidate,
+    phase: AndroidAdbConnectPhase?,
+    connectEnabled: Boolean,
+    onConnect: (AndroidAdbCandidate) -> Unit,
+    onCancelConnection: () -> Unit,
+) {
+    val tokens = LocalUiTokens.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(UiPageTags.ANDROID_ADB_CANDIDATE_PREFIX + candidate.id),
+        verticalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+    ) {
+        BasicText(
+            text = candidate.displayName,
+            style = adbLabelStyle(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = tokens.geometry.pageOuterMarginH),
+        )
+        BasicText(
+            text = "${candidate.host}:${candidate.port} · ${candidate.kind.label} · ${adbControlLabel(candidate)}",
+            style = settingsFootnoteStyle().copy(color = tokens.colors.textSecondary),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = tokens.geometry.pageOuterMarginH),
+        )
+        when (phase) {
+            AndroidAdbConnectPhase.Probing -> AdbPhaseText("正在连接…", candidate.id, tokens.colors.textSecondary)
+            is AndroidAdbConnectPhase.AwaitingAuthorization ->
+                AdbPhaseText(
+                    "请在电视上点“允许”…（已等待 ${phase.elapsedSeconds} 秒）",
+                    candidate.id,
+                    tokens.colors.textSecondary,
+                )
+            is AndroidAdbConnectPhase.Connected -> AdbPhaseText("已连接：${phase.model}", candidate.id, tokens.colors.textSecondary)
+            is AndroidAdbConnectPhase.Failed -> AdbPhaseText(phase.message, candidate.id, tokens.colors.danger)
+            null -> Unit
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = tokens.geometry.pageOuterMarginH),
+            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SessionTextAction(
+                label = "连接",
+                onClick = { onConnect(candidate) },
+                tone = SessionActionTone.ACCENT,
+                enabled = connectEnabled,
+                modifier = Modifier.testTag(UiPageTags.ANDROID_ADB_CONNECT_PREFIX + candidate.id),
+            )
+            if (phase != null && phase.inProgress) {
+                SessionTextAction(
+                    label = "取消",
+                    onClick = onCancelConnection,
+                    tone = SessionActionTone.DANGER,
+                    modifier = Modifier.testTag(UiPageTags.ANDROID_ADB_CANCEL_CONNECT_PREFIX + candidate.id),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdbPhaseText(text: String, candidateId: String, ink: androidx.compose.ui.graphics.Color) {
+    BasicText(
+        text = text,
+        style = settingsFootnoteStyle().copy(color = ink),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(UiPageTags.ANDROID_ADB_PHASE_PREFIX + candidateId)
+            .padding(horizontal = LocalUiTokens.current.geometry.pageOuterMarginH),
+    )
+}
+
+private fun adbControlLabel(candidate: AndroidAdbCandidate): String =
+    // An answered ADB port is evidence, not authorization; only a completed
+    // connection shows 可控制 (as the phase row). Matches the iOS label.
+    if (candidate.controllable) "可尝试连接" else "可能不是电视"
 
 @Composable
 private fun adbLabelStyle() = LocalUiType.current.body.copy(color = LocalUiTokens.current.colors.primary)

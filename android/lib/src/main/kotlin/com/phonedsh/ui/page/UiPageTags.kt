@@ -124,6 +124,15 @@ public object UiPageTags {
     public const val ANDROID_ADB_CHECK: String = "pdsh.androidadb.check"
     public const val ANDROID_ADB_CANCEL: String = "pdsh.androidadb.cancel"
     public const val ANDROID_ADB_STATUS: String = "pdsh.androidadb.status"
+    public const val ANDROID_ADB_SCAN: String = "pdsh.androidadb.scan"
+    public const val ANDROID_ADB_DISCOVERED_SECTION: String = "pdsh.androidadb.section.discovered"
+    public const val ANDROID_ADB_MANUAL_SECTION: String = "pdsh.androidadb.section.manual"
+    public const val ANDROID_ADB_SCANNING: String = "pdsh.androidadb.scanning"
+    public const val ANDROID_ADB_SCAN_EMPTY: String = "pdsh.androidadb.scan.empty"
+    public const val ANDROID_ADB_CANDIDATE_PREFIX: String = "pdsh.androidadb.candidate."
+    public const val ANDROID_ADB_CONNECT_PREFIX: String = "pdsh.androidadb.connect."
+    public const val ANDROID_ADB_CANCEL_CONNECT_PREFIX: String = "pdsh.androidadb.cancelconnect."
+    public const val ANDROID_ADB_PHASE_PREFIX: String = "pdsh.androidadb.phase."
 
     // TonoAccountPage
     public const val TONO_ACCOUNT_ROOT: String = "pdsh.tonoaccount.root"
