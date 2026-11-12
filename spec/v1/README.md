@@ -91,7 +91,6 @@ polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
 | [schema/scenario-assertion.schema.json](schema/scenario-assertion.schema.json) | The eight assertion kinds of a catalog entry. | landed |
 | [schema/trajectory.schema.json](schema/trajectory.schema.json) | One normalised behaviour-trace line. | landed |
 | [schema/ui-state-sequence.schema.json](schema/ui-state-sequence.schema.json) | One projected UiState node of a sequence. | landed |
-| [schema/plan-cases.schema.json](schema/plan-cases.schema.json) | Envelope for the W0/W2/W3/W4/W7 performance-plan contract cases. | landed |
 | [golden/README.md](golden/README.md) | Golden vector format and `*_hex` convention. | landed |
 | `golden/frames/<type-name>-<n>.json` | One frame each: `{type, type_byte, seq, fields, payload_hex, frame_hex}`. | landed |
 | `golden/wal/<name>.json` | Complete WAL segments: header, records, `file_hex`. | landed |
@@ -100,7 +99,6 @@ polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
 | `golden/trajectory/<case>/` | Per case: `ios.jsonl` and `android.jsonl` input, `expected.jsonl`, optional per-platform expected, notes. One case is a deliberate real difference. | landed |
 | `golden/perturbations/*.json` | Kill/recovery fixtures: verb, logical timeline, expected state, durability level, per-field evidence. | landed |
 | `golden/upstream/*.json` | Scripted upstream fixtures: SSE, 5xx retry, budget exhaustion, truncation, stall, malformed stream. | landed |
-| `golden/plan/*.json` | W0/W2/W3/W4/W7 contract cases: target rows, retention, storage levels, append records, response-log key, streaming bounds. | landed |
 | [tools/spec_golden.py](tools/spec_golden.py) | Independent encoder and conformance checker (Python standard library only). | landed |
 | [tools/test_spec_golden.py](tools/test_spec_golden.py) | Mutation tests for the checker. | landed |
 | [tools/test_handoff_budgets.py](tools/test_handoff_budgets.py) | Mutation tests for the handoff schemas, the caps and the D14–D16 references. | landed |
@@ -114,8 +112,6 @@ polynomial `0x82F63B78`, init and xorout `0xFFFFFFFF`; known answer
 | [tools/test_gateway_check.py](tools/test_gateway_check.py) | Mutation tests for the gateway checker. | landed |
 | [tools/test_trajectory_norm.py](tools/test_trajectory_norm.py) | Mutation tests for the normaliser. | landed |
 | [tools/test_fixture_check.py](tools/test_fixture_check.py) | Mutation tests for the fixture checker. | landed |
-| [tools/plan_cases_check.py](tools/plan_cases_check.py) | Judges the semantic laws of `golden/plan/` and is called by `spec_golden.py`. | landed |
-| [tools/test_plan_cases_check.py](tools/test_plan_cases_check.py) | Mutation tests for the plan-case checker. | landed |
 
 `--full` additionally requires `wal.md`, `exec.md`, `handoff.md`, `budgets.md`,
 `schema/manifest.schema.json` and the `golden/wal` vectors, and checks that the documents still
@@ -249,24 +245,3 @@ lives in the same commit as the change and names the rule it corrects.
   and removes the apparent conflict with "reconcile never uses the WAL alone": the mseq-1 invariant
   rebuild is that exception. These lines are new normative text, not prose; no other rule was
   deleted to make room.
-- **2026-11-12 — `budgets.md` 200 → 320.** W0 needs the target performance rows (metric, unit,
-  collection point and the `待基线` rule); W2 makes the §5 journal-prune sentence precise (which
-  entry and step line may be deleted, when, and that `JOURNAL_ACK` is unchanged) because the
-  implementation had no discardable set and could only refuse at 64 MiB; W3 adds the aggregate
-  `hostInternalBytes` view and the five silent-first levels. These are contract rules an
-  implementation cannot infer from a quota number.
-- **2026-11-12 — `wal.md` 416 → 510.** W1 registers the read-only projection of
-  `materialized/home/sessions` (reader, path, freshness and "never write"); W3 fixes the
-  epoch-close reclamation trigger (every successful close, not only the quota path) without
-  widening the droppable condition; W4 writes the watermark-at-close conclusion and the idle-epoch
-  skip condition. The alternatives were a second copy of the session log or a per-implementation
-  guess about when compaction runs.
-- **2026-11-12 — `exec.md` 232 → 300.** W2 needs the step/journal retention conditions that the
-  quota row already assumes; W4 changes three per-event rewrites to append-only formats and must
-  state the v1 read path and the one-copy result rule. The wire is unchanged; a shorter version
-  would leave the three ends free to disagree about which bytes are durable.
-- **2026-11-12 — `gateway-security.md` 240 → 330.** W3 needs the response-log deletion condition
-  and the cache-location rule; W7 needs the content-key recipe, the arrival-not-batch streaming
-  rule and the delta merge bound. The key recipe is a compatibility rule (an implementation that
-  changes it silently orphans every entry) and the timing rule is the difference between a 16 KiB
-  batch and an arrived event.
