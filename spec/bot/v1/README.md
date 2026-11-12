@@ -307,9 +307,12 @@ verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` �
 
 ### 2.10 模型用途策略的强制执行与验证器取证（W5）
 
-- **执行点（本輪 `target`，未接線）。** `BotModelPurposeGate`／`BotModelRequest`（`BotModelPurposePolicy`
-  的 enforcer）已经定义且可被外部呼叫；`model-purpose-enforcement.phone.json` 的 allowed／denied／
-  default／unknown 正反例仍然有效，它们描述 enforcer 语义，不是执行点。R3（2026-11-13）冻结下列三件事：
+- **执行点（2026-11-13 已接线；per-request purpose 来源仍缺，见 GAP-42）。** `BotModelPurposeGate`／
+  `BotModelRequest`（`BotModelPurposePolicy` 的 enforcer，类型声明在
+  `Sources/PhoneDSHAgentCore/BotModelPurposePolicy.swift`，`PhoneDSHBot` 以 public alias 保留原名，
+  不得出现两个类型名）已经定义且可被外部呼叫；`model-purpose-enforcement.phone.json` 的
+  allowed／denied／default／unknown 正反例仍然有效，它们描述 enforcer 语义，不是执行点。
+  R3（2026-11-13）冻结下列三件事：
   1. **不新增 wire 载体。** 不新增任何 purpose 标头或字段（`x-pdsh-model-purpose` 之类被否决：要四端
      同步、旧版要容忍，而 pinned 上游适配器不保留该值，加了也观察不到）；`GatewayRequest`／
      `HTTPEgressRequest` 的 method／url／headers／body 不变。
@@ -321,9 +324,16 @@ verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` �
   3. **分阶段执行语义。** purpose **缺席** → 执行点只记录一笔宿主内部诊断（`purpose_absent`，不是错误码、
      不上 wire），行为与今天完全相同（不 fail-closed、不放行新权限）；purpose **存在** → 执行点真的呼叫
      enforcer，allow／deny 生效（deny 即拒绝该请求）。只有这两个分支，不得按模型名或 prompt 内容推断 purpose。
-- **前提不满足时的行为。** 执行点仍未接线（GAP-42）：enforcer 存在、可测、未被 `ModelGateway` 呼叫。
-  不得 fail-closed，不得默认放行，不得把 policy 复制进 Gateway（第二个权威，AGENTS.md §2.1）。仍缺的
-  是可靠的 per-request purpose 来源：wire 上没有，pinned 模型适配器也不保留、不传递上游用途标记。
+- **接线状态与前提（2026-11-13）。** 执行点在 `ModelGateway` 的 `/v1/http` 入口实现
+  （`Sources/PhoneDSHGateway/ModelPurposeEnforcement.swift`），位置在 MCP egress gate／shutdown guard
+  之后，Bot 审批接缝、allow-list、response log、凭据解析与 socket 之前；deny 因此不解析凭据、不发上游
+  请求。purpose 证据只能来自宿主组合注入的 `ModelPurposeProviding`（缺省 `nil`）：**生产环境未安装任何
+  provider，所以每个交换都走缺席分支**，行为与基线相同。仍缺的是可靠的 per-request purpose 来源：
+  wire 上没有，pinned 模型适配器也不保留、不传递上游的用途标记；GAP-42 因此保持 open，只对「来源」开放。
+  - 来源落地前必须先解一个 P05 问题：deny 目前经既有的 `/v1/http` unknown-error 映射表示为
+    `upstream_failed`／502；在来源上线前需要 P05 的裁决，不得为此新增第二个错误码。
+  - 不得 fail-closed，不得默认放行，不得按模型名或 prompt 内容推断 purpose，不得把 policy 复制进
+    Gateway（第二个权威，AGENTS.md §2.1）。
 - **用途映射。** 前台回合 `front-turn`、工作回合 `worker-turn` 允许大模型；`triage`（含标题生成）、
   `memory-extract`、`reflect`、`compact`、`watchdog`、`completion-check`（验证器）、`memory-maintenance`
   只允许小模型。标题不新增 purpose，沿用 `triage`；验证器沿用 `completion-check`。策略由 profile
