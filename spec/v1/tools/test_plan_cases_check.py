@@ -168,6 +168,27 @@ class PlanCasesTests(unittest.TestCase):
         completed = run_checker(self.copy)
         self.assert_fails(completed, "action_order_changed")
 
+    def test_sampled_heap_as_production_input_is_rejected(self) -> None:
+        self.replace("golden/plan/memory-input.json",
+                     '"productionInputs": ["host-phys-footprint", "system-memory-warning"]',
+                     '"productionInputs": ["sampled-engine-heap"]')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "sampled_heap_not_available")
+
+    def test_old_single_input_set_is_rejected(self) -> None:
+        self.replace("golden/plan/memory-input.json",
+                     '"productionInputs": ["host-phys-footprint", "system-memory-warning"]',
+                     '"productionInputs": ["system-memory-warning"]')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "input_set_changed")
+
+    def test_host_footprint_double_count_is_rejected(self) -> None:
+        self.replace("golden/plan/memory-input.json",
+                     '"bookedAgainst": "app-process-row"',
+                     '"bookedAgainst": "engine-heap-row"')
+        completed = run_checker(self.copy)
+        self.assert_fails(completed, "footprint_double_counted")
+
     def test_missing_memory_input_vector_is_rejected(self) -> None:
         (self.copy / "golden" / "plan" / "memory-input.json").unlink()
         completed = run_checker(self.copy)
