@@ -64,8 +64,10 @@ public object PdshSheetTags {
  * @param innerNavigation the sheet's own navigation stack, or `null` for a
  *   single-level sheet.
  * @param backHost the host-wide sheet back layer. Pass the same instance to
- *   every sheet when a host can stack sheets; a sheet-local one is used by
- *   default so a single sheet still handles system back.
+ *   every sheet when a host can stack sheets. `null` resolves
+ *   [LocalSheetBackHost] (`PdshNavHost` provides the host's shared instance);
+ *   when neither exists a private host is remembered here so the sheet still
+ *   handles system back on its own.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,7 +81,7 @@ public fun PdshSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val tokens = LocalUiTokens.current
-    val host = backHost ?: remember { SheetBackHost() }
+    val host = backHost ?: LocalSheetBackHost.current ?: remember { SheetBackHost() }
     val detentSet: TokenDetentSetId = SheetDetents.forPage(pageId)
     val anchors = SheetDetents.detents(detentSet)
     val sheetState = rememberModalBottomSheetState(
