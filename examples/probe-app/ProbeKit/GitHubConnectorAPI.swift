@@ -44,9 +44,13 @@ public struct GitHubConnectorAPI: Sendable {
         self.session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
     }
 
+    /// GitHub App user access tokens issued by the broker: the `ghu_` prefix
+    /// plus 1 to 251 ASCII letters, digits or underscores. A legacy PAT or a
+    /// malformed value is rejected before it can be sent anywhere.
     public static func isValidToken(_ token: String) -> Bool {
-        guard token.hasPrefix("github_pat_"), (40...255).contains(token.utf8.count) else { return false }
-        return token.utf8.allSatisfy {
+        let bytes = Array(token.utf8)
+        guard (5...255).contains(bytes.count), token.hasPrefix("ghu_") else { return false }
+        return bytes.dropFirst(4).allSatisfy {
             (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 95
         }
     }

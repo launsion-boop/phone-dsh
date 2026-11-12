@@ -26,11 +26,26 @@ final class GitHubConnectorModel {
     private(set) var loading = false
     private(set) var needsDeleteRetry = false
     private(set) var canRetryRestore = false
+    private(set) var revocationFailed = false
 
+    var isConfigured: Bool { Self.configuration != nil }
+    var installationURL: URL? { Self.configuration?.installationURL }
+    var revocationSettingsURL: URL? {
+        revocationFailed ? GitHubOAuthConfiguration.authorizedAppSettingsURL : nil
+    }
+
+    private static let configuration = GitHubOAuthConfiguration(
+        infoDictionary: Bundle.main.infoDictionary
+    )
     private let api = GitHubConnectorAPI()
+    private let webAuthorization = GitHubWebAuthorization()
     private let secrets = KeychainModelProviderSecretStore(service: "dev.phone-dsh.probe.github")
     private static let tokenReference = "access-token"
     private var epoch = UUID()
+    private var activeToken: String?
+    private var expiresAt: Date?
+    private var connectTask: Task<Void, Never>?
+    private var failedRepositoryLoad: (page: Int, append: Bool)?
 
     func restore() async {
         guard case .disconnected = state, !needsDeleteRetry else { return }
@@ -43,27 +58,188 @@ final class GitHubConnectorModel {
             canRetryRestore = true
             return
         }
-        guard let token = stored, GitHubConnectorAPI.isValidToken(token) else {
-            if stored != nil { connectionNotice = Self.invalidStoredToken }
-            return
-        }
-        await authenticate(token: token, persist: false)
-    }
-
-    func connect(token: String) async {
-        guard case .disconnected = state, !needsDeleteRetry else { return }
+        guard let token = stored else { return }
         guard GitHubConnectorAPI.isValidToken(token) else {
-            connectionNotice = Self.invalidToken
+            // The previous build stored a fine-grained PAT in the same slot.
+            // It cannot be used with the app-token API path, so discard it and
+            // leave the page on the OAuth connect button.
+            do {
+                try secrets.deleteSecret(for: Self.tokenReference)
+                needsDeleteRetry = false
+                connectionNotice = Self.legacyTokenDiscarded
+            } catch {
+                needsDeleteRetry = true
+                connectionNotice = Self.deleteFailure
+            }
             return
         }
-        await authenticate(token: token, persist: true)
+        guard isConfigured else { return }
+        await authenticate(token: token, persist: false, expiresAt: nil)
     }
 
-    private func authenticate(token: String, persist: Bool) async {
+    func connect() {
+        guard case .disconnected = state, !needsDeleteRetry else { return }
+        guard let configuration = Self.configuration else {
+            connectionNotice = Self.unconfiguredNotice
+            return
+        }
+
+        connectTask?.cancel()
+        let id = UUID()
+        epoch = id
+        activeToken = nil
+        expiresAt = nil
+        connectionNotice = nil
+        canRetryRestore = false
+        revocationFailed = false
+        loading = false
+        state = .connecting
+
+        connectTask = Task { [weak self] in
+            guard let self else { return }
+            await self.authorize(configuration: configuration, id: id)
+        }
+    }
+
+    /// Stop a session and exchange that have not completed. Called when the
+    /// page goes away; it never changes an established connection.
+    func cancelAuthorization() {
+        guard case .connecting = state else { return }
+        epoch = UUID()
+        connectTask?.cancel()
+        connectTask = nil
+        webAuthorization.cancel()
+        activeToken = nil
+        expiresAt = nil
+        loading = false
+        canRetryRestore = false
+        connectionNotice = nil
+        state = .disconnected
+    }
+
+    func loadMore() async {
+        guard case .connected(_, _, let nextPage, let notice) = state,
+              notice == nil, let nextPage, !loading
+        else { return }
+        guard let token = storedToken() else { return }
+        let id = UUID()
+        epoch = id
+        await loadRepositories(page: nextPage, append: true, token: token, id: id)
+    }
+
+    /// Re-read the first repository page after the user adds or removes
+    /// repositories on GitHub's installation page.
+    func refresh() async {
+        guard case .connected(let login, let repos, let nextPage, _) = state, !loading
+        else { return }
+        guard let token = storedToken() else { return }
+        let id = UUID()
+        epoch = id
+        state = .connected(login: login, repos: repos, nextPage: nextPage, notice: nil)
+        await loadRepositories(page: 1, append: false, token: token, id: id)
+    }
+
+    func retry() async {
+        guard case .connected = state, let request = failedRepositoryLoad, !loading else { return }
+        guard let token = storedToken() else { return }
+        let id = UUID()
+        epoch = id
+        await loadRepositories(page: request.page, append: request.append, token: token, id: id)
+    }
+
+    /// Clear the local token and results immediately, then ask the broker to
+    /// revoke the token. A failed revoke leaves a GitHub app-settings link.
+    func disconnect() {
+        guard case .connected = state else { return }
+        let token = activeToken
+        let id = clearConnection(notice: nil)
+        revocationFailed = false
+
+        guard let token else { return }
+        guard let configuration = Self.configuration else {
+            revocationFailed = true
+            connectionNotice = Self.revocationFailure
+            return
+        }
+        let flow = GitHubOAuthFlow(configuration: configuration)
+        Task { [weak self] in
+            do {
+                try await flow.revoke(token: token)
+            } catch {
+                guard let self, self.epoch == id else { return }
+                self.revocationFailed = true
+                if self.connectionNotice == nil {
+                    self.connectionNotice = Self.revocationFailure
+                }
+            }
+        }
+    }
+
+    private func authorize(configuration: GitHubOAuthConfiguration, id: UUID) async {
+        do {
+            let attempt = try GitHubOAuthPKCE.makeAttempt()
+            guard epoch == id else { return }
+            guard let url = configuration.authorizationURL(
+                state: attempt.state, codeChallenge: attempt.challenge
+            ) else { throw GitHubOAuthError.invalidConfiguration }
+
+            let callbackURL = try await webAuthorization.start(
+                url: url, callbackScheme: GitHubOAuthConfiguration.callbackScheme
+            )
+            guard epoch == id else { return }
+
+            let callback = try GitHubOAuthCallbackValidator.validate(
+                callbackURL, expectedState: attempt.state
+            )
+            switch callback {
+            case .accessDenied:
+                state = .disconnected
+                loading = false
+                connectionNotice = Self.authorizationDenied
+            case .code(let code):
+                let token = try await GitHubOAuthFlow(configuration: configuration)
+                    .exchange(code: code, codeVerifier: attempt.verifier)
+                guard epoch == id else { return }
+                await authenticate(
+                    token: token.accessToken,
+                    persist: true,
+                    expiresAt: Date().addingTimeInterval(TimeInterval(token.expiresIn))
+                )
+            }
+        } catch let error as GitHubWebAuthorizationError {
+            guard epoch == id else { return }
+            state = .disconnected
+            loading = false
+            connectionNotice = error == .cancelled ? nil : Self.genericFailure
+        } catch let error as GitHubOAuthError {
+            guard epoch == id else { return }
+            state = .disconnected
+            loading = false
+            connectionNotice = error == .cancelled ? nil : Self.oauthNotice(for: error)
+        } catch is CancellationError {
+            guard epoch == id else { return }
+            state = .disconnected
+            loading = false
+        } catch {
+            guard epoch == id else { return }
+            state = .disconnected
+            loading = false
+            connectionNotice = Self.genericFailure
+        }
+    }
+
+    private func authenticate(token: String, persist: Bool, expiresAt: Date?) async {
+        guard GitHubConnectorAPI.isValidToken(token) else {
+            state = .disconnected
+            connectionNotice = Self.legacyTokenDiscarded
+            return
+        }
+
         let id = UUID()
         epoch = id
         connectionNotice = nil
         canRetryRestore = false
+        revocationFailed = false
         loading = false
         state = .connecting
         do {
@@ -85,47 +261,21 @@ final class GitHubConnectorModel {
             }
             guard epoch == id else { return }
             needsDeleteRetry = false
+            activeToken = token
+            self.expiresAt = expiresAt
             state = .connected(login: login, repos: [], nextPage: nil, notice: nil)
             await loadRepositories(page: 1, append: false, token: token, id: id)
         } catch {
             guard epoch == id else { return }
             state = .disconnected
             guard !Task.isCancelled, !(error is CancellationError) else { return }
-            if !persist, (error as? GitHubConnectorError) == .unauthorized {
+            if (error as? GitHubConnectorError) == .unauthorized {
                 clearConnection(notice: Self.reconnectNotice)
             } else {
-                connectionNotice = Self.notice(for: error)
+                connectionNotice = Self.connectorNotice(for: error)
                 canRetryRestore = !persist
             }
         }
-    }
-
-    func loadMore() async {
-        guard case .connected(_, _, let nextPage, let notice) = state,
-              notice == nil, let nextPage, !loading
-        else { return }
-        guard let token = storedToken() else { return }
-        let id = UUID()
-        epoch = id
-        await loadRepositories(page: nextPage, append: true, token: token, id: id)
-    }
-
-    func retry() async {
-        guard case .connected(_, let repos, let nextPage, let notice) = state,
-              notice != nil, !loading
-        else { return }
-        let page: Int
-        if repos.isEmpty {
-            page = 1
-        } else if let nextPage {
-            page = nextPage
-        } else {
-            return
-        }
-        guard let token = storedToken() else { return }
-        let id = UUID()
-        epoch = id
-        await loadRepositories(page: page, append: !repos.isEmpty, token: token, id: id)
     }
 
     private func loadRepositories(page: Int, append: Bool, token: String, id: UUID) async {
@@ -133,6 +283,7 @@ final class GitHubConnectorModel {
               case .connected(let login, let current, let nextPage, _) = state
         else { return }
         loading = true
+        failedRepositoryLoad = nil
         defer { if epoch == id { loading = false } }
         do {
             let result = try await api.repositories(page: page, token: token)
@@ -148,28 +299,31 @@ final class GitHubConnectorModel {
         } catch {
             guard epoch == id else { return }
             if Task.isCancelled || error is CancellationError {
+                activeToken = nil
+                expiresAt = nil
                 state = .disconnected
                 return
             }
             if (error as? GitHubConnectorError) == .unauthorized {
                 clearConnection(notice: Self.reconnectNotice)
             } else {
+                failedRepositoryLoad = (page, append)
                 state = .connected(
-                    login: login, repos: current, nextPage: nextPage, notice: Self.notice(for: error)
+                    login: login, repos: current, nextPage: nextPage,
+                    notice: Self.connectorNotice(for: error)
                 )
             }
         }
     }
 
-    func disconnect() {
-        guard case .connected = state else { return }
-        clearConnection(notice: nil)
-    }
-
-    private func clearConnection(notice: String?) {
-        epoch = UUID()
+    private func clearConnection(notice: String?) -> UUID {
+        let id = UUID()
+        epoch = id
         loading = false
+        failedRepositoryLoad = nil
         canRetryRestore = false
+        activeToken = nil
+        expiresAt = nil
         state = .disconnected
         connectionNotice = notice
         do {
@@ -179,6 +333,7 @@ final class GitHubConnectorModel {
             needsDeleteRetry = true
             connectionNotice = Self.deleteFailure
         }
+        return id
     }
 
     func retryDelete() {
@@ -186,13 +341,19 @@ final class GitHubConnectorModel {
         do {
             try secrets.deleteSecret(for: Self.tokenReference)
             needsDeleteRetry = false
-            if case .disconnected = state { connectionNotice = nil }
+            if case .disconnected = state, !revocationFailed {
+                connectionNotice = nil
+            }
         } catch {
             connectionNotice = Self.deleteFailure
         }
     }
 
     private func storedToken() -> String? {
+        if let expiresAt, expiresAt <= Date() {
+            clearConnection(notice: Self.reconnectNotice)
+            return nil
+        }
         do {
             if let token = try secrets.secret(for: Self.tokenReference),
                GitHubConnectorAPI.isValidToken(token) {
@@ -203,12 +364,14 @@ final class GitHubConnectorModel {
         }
         epoch = UUID()
         loading = false
+        activeToken = nil
+        expiresAt = nil
         state = .disconnected
         connectionNotice = Self.reconnectNotice
         return nil
     }
 
-    private static func notice(for error: Error) -> String {
+    private static func connectorNotice(for error: Error) -> String {
         guard let error = error as? GitHubConnectorError else { return genericFailure }
         switch error {
         case .unauthorized:
@@ -220,8 +383,8 @@ final class GitHubConnectorModel {
             )
         case .forbidden:
             return NativeText(
-                "GitHub 拒绝访问。请确认令牌已选择仓库，并授予 Metadata 只读权限。",
-                "GitHub denied access. Check that the token selects repositories and grants read-only Metadata."
+                "GitHub 拒绝访问。请确认 GitHub App 已获得仓库权限，然后重新连接。",
+                "GitHub denied access. Check that the GitHub App can read repositories, then reconnect."
             )
         case .invalidResponse:
             return NativeText(
@@ -233,52 +396,76 @@ final class GitHubConnectorModel {
         }
     }
 
+    private static func oauthNotice(for error: GitHubOAuthError) -> String {
+        switch error {
+        case .invalidConfiguration:
+            return unconfiguredNotice
+        case .invalidToken:
+            return invalidAuthorization
+        case .invalidState, .invalidCode, .invalidVerifier, .invalidCallback,
+             .stateMismatch, .invalidRequest, .authorizationFailed:
+            return authorizationFailure
+        case .invalidResponse, .serviceUnavailable, .randomUnavailable:
+            return genericFailure
+        case .cancelled:
+            return genericFailure
+        }
+    }
+
     private static let genericFailure = NativeText(
         "暂时无法连接 GitHub，请稍后重试。", "Could not reach GitHub. Try again later."
     )
     private static let reconnectNotice = NativeText(
         "GitHub 授权已失效，请重新连接。", "Reconnect GitHub to continue."
     )
-    private static let invalidToken = NativeText(
-        "请输入以 github_pat_ 开头、无空白的细粒度令牌。",
-        "Enter a fine-grained token beginning with github_pat_ with no whitespace."
+    private static let authorizationFailure = NativeText(
+        "GitHub 授权未能完成，请重试。", "GitHub authorization could not be completed. Try again."
     )
-    private static let invalidStoredToken = NativeText(
-        "本机保存的 GitHub 令牌格式无效，请重新连接。",
-        "The saved GitHub token is invalid. Reconnect GitHub."
+    private static let invalidAuthorization = NativeText(
+        "GitHub 返回了无效的授权，请重试。", "GitHub returned an invalid authorization. Try again."
+    )
+    private static let authorizationDenied = NativeText(
+        "你取消了 GitHub 授权。", "GitHub authorization was cancelled."
+    )
+    private static let unconfiguredNotice = NativeText(
+        "此构建未配置 GitHub OAuth 服务。", "This build is not configured for GitHub OAuth."
+    )
+    private static let legacyTokenDiscarded = NativeText(
+        "已清除旧的 GitHub 令牌，请重新连接。",
+        "The old GitHub token was cleared. Reconnect GitHub."
     )
     private static let readFailure = NativeText(
         "无法读取本机保存的 GitHub 令牌，请重试。",
         "Could not read the saved GitHub token on this phone. Try again."
     )
     private static let saveFailure = NativeText(
-        "已验证令牌，但无法保存到钥匙串。请重试。",
-        "The token was verified, but it could not be saved to the keychain. Try again."
+        "已验证授权，但无法保存到钥匙串。请重试。",
+        "The authorization was verified, but it could not be saved to the keychain. Try again."
     )
     private static let deleteFailure = NativeText(
         "已清除本机 GitHub 数据，但未能删除钥匙串里的令牌。请重试。",
         "GitHub data was cleared on this phone, but the keychain token could not be removed. Try again."
     )
+    private static let revocationFailure = NativeText(
+        "本机已断开 GitHub，但未能撤销服务器上的授权。可在 GitHub 应用设置中撤销。",
+        "GitHub was disconnected on this phone, but the server could not revoke the authorization. Revoke it in GitHub app settings."
+    )
 }
 
 struct GitHubConnectorPage: View {
     private let model = GitHubConnectorModel.shared
-    @State private var token = ""
     @State private var confirmDisconnect = false
-
-    private static let tokenPage = URL(
-        string: "https://github.com/settings/personal-access-tokens/new"
-    )!
 
     var body: some View {
         List {
             switch model.state {
             case .disconnected:
-                tokenSection
+                disconnectedSection
             case .connecting:
                 connectingSection
             case .connected(let login, let repos, let nextPage, let notice):
                 accountSection(login)
+                repositoryAccessSection
                 if let notice {
                     noticeSection(notice) { await model.retry() }
                 }
@@ -296,51 +483,54 @@ struct GitHubConnectorPage: View {
         .navigationTitle("GitHub")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.restore() }
-        .onDisappear { token = "" }
+        .onDisappear { model.cancelAuthorization() }
         .alert(NativeText("断开 GitHub？", "Disconnect GitHub?"), isPresented: $confirmDisconnect) {
             Button(NativeText("断开连接", "Disconnect"), role: .destructive) {
                 model.disconnect()
             }
             Button(NativeText("取消", "Cancel"), role: .cancel) {}
         } message: {
-            Text(NativeText("本机保存的 GitHub 令牌会被删除。",
-                            "The GitHub token saved on this phone will be deleted."))
+            Text(NativeText(
+                "Phone DSH 会清除本机连接，并请求 GitHub 撤销本次访问。",
+                "Phone DSH clears this connection and asks GitHub to revoke this session."
+            ))
         }
     }
 
-    private var tokenSection: some View {
+    private var disconnectedSection: some View {
         Section {
-            SecureField(
-                NativeText("github_pat_ 开头的细粒度令牌", "Fine-grained token starting with github_pat_"),
-                text: $token
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .accessibilityIdentifier("github.token")
+            if !model.isConfigured {
+                Text(NativeText(
+                    "此版本暂未启用 GitHub 连接。",
+                    "GitHub connection is unavailable in this build."
+                ))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("github.unconfigured")
+            }
 
             Button {
-                let candidate = token
-                Task {
-                    await model.connect(token: candidate)
-                    if case .connected = model.state { token = "" }
-                }
+                model.connect()
             } label: {
                 Label(NativeText("连接 GitHub", "Connect GitHub"),
                       systemImage: "person.crop.circle.badge.plus")
             }
-            .disabled(token.isEmpty || model.needsDeleteRetry)
-
-            Link(destination: Self.tokenPage) {
-                Label(NativeText("创建令牌", "Create token"), systemImage: "key")
-            }
-            .accessibilityIdentifier("github.createToken")
+            .accessibilityIdentifier("github.connect")
+            .disabled(!model.isConfigured || model.needsDeleteRetry)
         } header: {
-            Text(NativeText("GitHub 令牌", "GitHub token"))
+            Text(NativeText("GitHub 账号", "GitHub account"))
         } footer: {
-            Text(NativeText(
-                "在 GitHub 创建 fine-grained token 时选择要读取的仓库，并只授予 Metadata 只读权限。令牌只保存在本机钥匙串。",
-                "Create a fine-grained token on GitHub, select the repositories to read, and grant only read-only Metadata. The token stays in this phone's keychain."
-            ))
+            if model.isConfigured {
+                Text(NativeText(
+                    "连接后，在 GitHub 选择允许 Phone DSH 读取的仓库。",
+                    "Connect to GitHub, then choose the repositories Phone DSH can read."
+                ))
+            } else {
+                Text(NativeText(
+                    "请在此构建中配置 GitHub OAuth 后再连接。",
+                    "Set up GitHub OAuth in this build before connecting."
+                ))
+            }
         }
     }
 
@@ -348,12 +538,13 @@ struct GitHubConnectorPage: View {
         Section {
             HStack(spacing: 12) {
                 ProgressView()
-                Text(NativeText("正在验证 GitHub 令牌…", "Verifying the GitHub token…"))
+                Text(NativeText("正在等待 GitHub 授权…", "Waiting for GitHub authorization…"))
             }
         } header: {
-            Text(NativeText("GitHub 令牌", "GitHub token"))
+            Text(NativeText("GitHub 账号", "GitHub account"))
         } footer: {
-            Text(NativeText("正在读取账号和仓库。", "Reading the account and repositories."))
+            Text(NativeText("授权完成后会读取账号和你选择的仓库。",
+                            "The account and your selected repositories are read after authorization."))
         }
     }
 
@@ -367,11 +558,39 @@ struct GitHubConnectorPage: View {
                 Label(NativeText("断开连接", "Disconnect"),
                       systemImage: "rectangle.portrait.and.arrow.right")
             }
+            .accessibilityIdentifier("github.disconnect")
         } header: {
             Text(NativeText("GitHub 账号", "GitHub account"))
         } footer: {
-            Text(NativeText("只读取登录名和仓库元数据。",
-                            "Reads the login name and repository metadata only."))
+            Text(NativeText("只读取登录名和你选择的仓库元数据。",
+                            "Reads the login name and metadata of the repositories you selected."))
+        }
+    }
+
+    private var repositoryAccessSection: some View {
+        Section {
+            if let installationURL = model.installationURL {
+                Link(destination: installationURL) {
+                    Label(NativeText("在 GitHub 选择仓库", "Choose repositories on GitHub"),
+                          systemImage: "slider.horizontal.3")
+                }
+                .accessibilityIdentifier("github.install")
+            }
+            Button {
+                Task { await model.refresh() }
+            } label: {
+                Label(NativeText("刷新仓库", "Refresh repositories"),
+                      systemImage: "arrow.clockwise")
+            }
+            .disabled(model.loading)
+            .accessibilityIdentifier("github.refresh")
+        } header: {
+            Text(NativeText("仓库授权", "Repository access"))
+        } footer: {
+            Text(NativeText(
+                "在 GitHub 上安装或配置 GitHub App 并选择仓库，然后刷新这里。",
+                "Install or configure the GitHub App on GitHub, choose repositories, then refresh here."
+            ))
         }
     }
 
@@ -415,6 +634,7 @@ struct GitHubConnectorPage: View {
                 Button(NativeText("加载更多", "Load more")) {
                     Task { await model.loadMore() }
                 }
+                .accessibilityIdentifier("github.loadMore")
             }
         } header: {
             Text(NativeText("仓库", "Repositories"))
@@ -439,6 +659,13 @@ struct GitHubConnectorPage: View {
                 Button(NativeText("重试删除令牌", "Retry deleting token")) {
                     model.retryDelete()
                 }
+            }
+            if let settingsURL = model.revocationSettingsURL {
+                Link(destination: settingsURL) {
+                    Label(NativeText("打开 GitHub 应用设置", "Open GitHub app settings"),
+                          systemImage: "arrow.up.right.square")
+                }
+                .accessibilityIdentifier("github.appSettings")
             }
         }
     }

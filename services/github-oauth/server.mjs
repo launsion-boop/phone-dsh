@@ -121,7 +121,7 @@ export function createGitHubOAuthServer({ origin, clientID, clientSecret, fetchU
       return problem(response, 401);
     }
     if (!matches(tokenPattern, grant?.access_token)
-      || !Number.isInteger(grant.expires_in) || grant.expires_in <= 0
+      || !Number.isSafeInteger(grant.expires_in) || grant.expires_in <= 0
       || grant.token_type?.toLowerCase() !== 'bearer') return problem(response, 502);
 
     response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });

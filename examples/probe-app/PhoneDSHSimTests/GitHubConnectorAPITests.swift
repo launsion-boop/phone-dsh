@@ -4,9 +4,9 @@ import Foundation
 import ProbeKit
 import XCTest
 
-private let githubFixtureToken = "github_pat_fixture_1234567890_abcdefghijklmnop"
-private let githubExpiredToken = "github_pat_expired_1234567890_abcdefghijklmnop"
-private let githubRateLimitedToken = "github_pat_ratelimit_1234567890_abcdefghijklmnop"
+private let githubFixtureToken = "ghu_fixture_1234567890_abcdefghijklmnop"
+private let githubExpiredToken = "ghu_expired_1234567890_abcdefghijklmnop"
+private let githubRateLimitedToken = "ghu_ratelimit_1234567890_abcdefghijklmnop"
 
 final class GitHubConnectorAPITests: XCTestCase {
     func testAccountUsesAuthenticatedGet() async throws {

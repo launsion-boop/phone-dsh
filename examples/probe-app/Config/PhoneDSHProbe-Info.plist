@@ -164,5 +164,30 @@
 			</dict>
 		</dict>
 	</dict>
+	<!-- GitHub OAuth (spec/v1/github-oauth.md). The committed app intentionally
+	     ships these blank: set the three build settings to enable connection.
+	     $(...) is substituted by Xcode from the build setting of the same name;
+	     an unset value stays empty and the page reports an unconfigured build
+	     instead of contacting any service. -->
+	<key>PDSH_GITHUB_OAUTH_ORIGIN</key>
+	<string>$(PDSH_GITHUB_OAUTH_ORIGIN)</string>
+	<key>PDSH_GITHUB_OAUTH_CLIENT_ID</key>
+	<string>$(PDSH_GITHUB_OAUTH_CLIENT_ID)</string>
+	<key>PDSH_GITHUB_APP_SLUG</key>
+	<string>$(PDSH_GITHUB_APP_SLUG)</string>
+	<!-- The broker redirects to this fixed custom scheme after GitHub
+	     authorization. ASWebAuthenticationSession intercepts it and the
+	     connector validates scheme, host, path and state before exchange. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).github-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>phonedsh-github</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

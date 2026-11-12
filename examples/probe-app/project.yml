@@ -212,6 +212,10 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
+      # The frozen GitHub OAuth fixture is shared with the broker and the spec;
+      # copy the one contract-owned file instead of keeping a test-only clone.
+      - path: ../../spec/v1/golden/github-oauth/github-oauth-cases.json
+        buildPhase: resources
       # The production native MCP settings model is host-agnostic (the app
       # injects ChatModel) so the simulator suite can exercise the
       # unknown-registry settlement branches against a real settings document.

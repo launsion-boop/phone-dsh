@@ -26,7 +26,8 @@ final class GitHubConnectorUITests: XCTestCase {
         open.tap()
 
         XCTAssertTrue(app.navigationBars["GitHub"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.descendants(matching: .any)["github.createToken"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.secureTextFields["github.token"].exists)
+        XCTAssertTrue(app.buttons["github.connect"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["github.unconfigured"].exists)
+        XCTAssertFalse(app.secureTextFields["github.token"].exists)
     }
 }

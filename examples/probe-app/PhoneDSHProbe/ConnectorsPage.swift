@@ -325,9 +325,9 @@ private struct ConnectorDetailSheet: View {
                 ("book.closed", NativeText("只读仓库元数据", "Read-only repository metadata"),
                  NativeText("只读取你选择的仓库名称和链接，不下载仓库内容。",
                             "Reads only the names and links of repositories you choose; no repository content is downloaded.")),
-                ("lock.shield", NativeText("令牌只存在本机", "Token stays on this phone"),
-                 NativeText("细粒度令牌保存在设备钥匙串，你可以随时断开或到 GitHub 撤销。",
-                            "The fine-grained token stays in the device keychain; disconnect here or revoke it on GitHub at any time.")),
+                ("lock.shield", NativeText("GitHub 授权", "GitHub authorization"),
+                 NativeText("在 GitHub 授权。你可以随时断开连接，或到 GitHub 管理授权。",
+                            "Authorize on GitHub. You can disconnect here or manage access on GitHub.")),
             ]
         }
     }
