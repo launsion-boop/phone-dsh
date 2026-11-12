@@ -54,7 +54,8 @@ struct BotChatPage: View {
          handleExternalDeepLink: @escaping (URL) -> Bool = { _ in false },
          openDocument: ((BotUIRow) -> Void)? = nil,
          initialAttachments: [BotDraftAttachment] = [],
-         initialAttachmentNotice: String? = nil) {
+         initialAttachmentNotice: String? = nil,
+         initialDraft: String = "") {
         self.model = model
         self.cardActions = cardActions
         self.onOpenInfo = onOpenInfo
@@ -71,6 +72,7 @@ struct BotChatPage: View {
         self.openDrawer = openDrawer
         _pendingAttachments = State(initialValue: initialAttachments)
         _attachmentNotice = State(initialValue: initialAttachmentNotice)
+        _draft = State(initialValue: initialDraft)
     }
 
     var body: some View {
@@ -412,10 +414,12 @@ struct BotChatPage: View {
                 .padding(.horizontal, 4)
             }
             attachmentTray
-            // Grok-style capsule composer: one white r26 capsule with the
-            // 36pt attach button leading, the growing text field in the
-            // middle, and one 36pt send/stop button trailing. No microphone
-            // and no voice mode.
+            // Grok-style composer: one white r26 rounded card with the 36pt
+            // attach button leading, the growing text field in the middle,
+            // and one 36pt send/stop button trailing. Unlike a Capsule, the
+            // 26pt corner stays put when the field wraps to five lines, so
+            // the bottom-aligned buttons never land on the curved edge. No
+            // microphone and no voice mode.
             BotComposerLayout {
                 Menu {
                     Button {
@@ -452,8 +456,10 @@ struct BotChatPage: View {
                 composerActionButton
             }
             .frame(minHeight: 52)
-            .background(HomeSpec.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+            .background(HomeSpec.surface,
+                        in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
             .homeComposerShadow()
             .simultaneousGesture(TapGesture().onEnded { model.noteInteraction() })
         }

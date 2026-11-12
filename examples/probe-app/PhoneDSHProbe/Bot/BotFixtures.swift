@@ -12,7 +12,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
     case runningStreamingWithLine, runningAwaitingApproval, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
-    case composerAttachments, infoAppearance
+    case composerAttachments, composerLongDraft, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
     case infoPresence, infoApprovals, infoMemoryDocument
 
@@ -189,6 +189,11 @@ enum BotUIFixtures {
             ]
         case .empty:
             return []
+        case .composerLongDraft:
+            // A clean transcript keeps the whole screenshot on the five-line
+            // composer: the draft must grow the rounded card without moving
+            // the attach/send buttons off the bottom 8pt insets.
+            return []
         case .runningThinking, .runningTool, .runningToolDescribed,
              .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
@@ -279,6 +284,11 @@ enum BotUIFixtures {
             .fixture(name: "release-notes.md", size: 3_100, mimeType: "text/markdown", kind: "markdown"),
         ]
     }
+
+    /// Wraps to about five lines at the capture device width, so the composer
+    /// exercises the multi-line branch of `BotComposerLayout` (buttons bottom
+    /// 8pt) while the r26 corners stay fixed.
+    static let composerLongDraft = "最好配一个对比表。请用 UpdateMemory 把它写到 user/ 文档里，带 evidence (current-user-turn 或 record://)，写好后告诉我路径、版本和 evidence 的解析结果。"
 
     /// A visibly different peer identity for the agent-comm fixture, so the
     /// row avatar is proven to come from the other Bot's profile.
@@ -665,7 +675,9 @@ struct BotUIFixtureRootView: View {
                                 initialAttachments: fixture == .composerAttachments
                                     ? BotUIFixtures.composerAttachments : [],
                                 initialAttachmentNotice: fixture == .composerAttachments
-                                    ? "附件「录屏.mov」未附加：文件超过 25 MiB（48.2 MB）。" : nil)
+                                    ? "附件「录屏.mov」未附加：文件超过 25 MiB（48.2 MB）。" : nil,
+                                initialDraft: fixture == .composerLongDraft
+                                    ? BotUIFixtures.composerLongDraft : "")
                     if diagnostics {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("actions=\(chatModel.actionLog.joined(separator: ","));host=\(hostActions.joined(separator: ","))")
