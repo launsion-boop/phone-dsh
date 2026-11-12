@@ -50,10 +50,15 @@ No token or provider error description enters a callback URL.
 The client validates the callback against the current attempt before exchange.
 Cancel, stale responses, invalid token, and app disconnect cannot restore a
 superseded connection. The app stores only the expiring access token as UTF-8
-in the existing device-only Keychain slot. It discards an old PAT when the
-connector opens. It offers reauthorization after token expiry. Disconnect
-clears local results and the saved token immediately. If remote revocation
-fails, the UI points to GitHub's authorized app settings.
+in the device-only Keychain service `dev.phone-dsh.probe.github`, account
+`access-token`, added with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
+It discards an old PAT when the connector opens. The broker forwards only
+`access_token` and `expires_in`, so no refresh token reaches the device; after
+expiry the app asks for a new authorization. GitHub supports PKCE for OAuth
+and GitHub Apps since July 2025, so the verifier sent with the exchange is what
+binds the code to this attempt even though the callback uses a custom URL
+scheme. Disconnect clears local results and the saved token immediately. If
+remote revocation fails, the UI points to GitHub's authorized app settings.
 
 ## Compatibility and acceptance
 
