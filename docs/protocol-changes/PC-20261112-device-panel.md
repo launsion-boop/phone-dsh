@@ -235,3 +235,20 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
 | `spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec` | 协调者 | 冻结 A 档契约（用户指示执行冻结） | 无（没有实现方）；Swift implementer 待指定 |
 | 同 revision（实施） | 协调者 + WP1–WP4 | Swift 实施落地；P18 目录/命名登记、P09 页面与平台差异登记；owning spec 端状态推进到 iOS `implemented`（真机未验） | iOS implementer（WP1–WP4）、WP5 评审 |
 | 同 revision（评审后） | 协调者 + WP2/WP4 | WP5 评审：M2 恢复 `ble_link_result` 的两层既有忙文本；M1 面板观察工具表/授权变化；m3 `agent_only` 只显示名称与「仅 Agent 可用」；M3 修正 P18 状态；m2 登记 GAP-40；其余 MINOR 收窄声明或记为剩余风险 | WP2、WP4、WP5 |
+
+## 7. 实施交付（2026-11-12）
+
+| 项目 | 值 |
+| --- | --- |
+| Base | `8f3de8b8`（main 的 merge-base）；契约先以 `95124f59`／`5ed9d78d` 冻结 |
+| Head | `e35a653d`（`feat/device-panel`；代码 head 与 WP5 复评的 `34a7137b` 相同，之后仅文档） |
+| 分支 | `feat/device-panel`（集成）；`feat/device-panel-wp1-classifier` … `-wp4-ui`（各工作包） |
+| 契约修订 | `spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec`（条款未破坏性修改；P18/P09 按实施登记） |
+| 端状态 | Swift/iOS `implemented`；Kotlin/Android `target`（GAP-20，未实现）；C 固件不变 |
+| 评审 | WP5 独立评审两轮：`e323e3a3` 发现 3 MAJOR + 8 MINOR，`34a7137b` 复评确认 M1/M2/M3/m3 解决、m2 由 GAP-40 跟踪、无新 BLOCKER/MAJOR |
+| 未验证 | 真机 iPhone + TonoLink M21-R4、断电/崩溃持久性、模型生成描述 E2E、Android、采用 sheet 真实 UI、真实断线、`.onChange` 的 UI 级观察 |
+| 结论 | 可作为 `implemented` 交付 head；不得作为 `verified`／发布签收，真机证据齐了才推进 |
+
+命令与逐条结果见 §4；两份共享向量、存储、准入与面板 model 的真实测试均通过，CI 只保留开工前已存在的失败
+（`phone-p0-conformance` 的 3 条页面分歧由 GAP-38/GAP-39 跟踪、`phone-hygiene`、`phone-modules`、firmware-C
+环境、`ProbeScenePhaseWiringTests`）。
