@@ -27,8 +27,8 @@
   },
   "android": {
     "screen": "ConnectedComputerPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/ConnectedComputerPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
