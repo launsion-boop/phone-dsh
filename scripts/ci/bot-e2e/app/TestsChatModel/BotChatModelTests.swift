@@ -157,6 +157,40 @@ final class BotChatModelTests: XCTestCase {
         XCTAssertNil(model.lineActivity)
     }
 
+    /// Stopping hides only the status line: the partial reply already on
+    /// screen must stay until the durable rows take it over.
+    func testStopKeepsStreamedTextVisible() async throws {
+        let model = BotChatModel(context: context)
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.receive(.textDelta("已经流出的半段文字"))
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertTrue(model.showsActivityLine)
+
+        model.stop()
+        XCTAssertFalse(model.showsActivityLine)
+        XCTAssertNil(model.lineActivity)
+        let live = try XCTUnwrap(model.live, "stop must keep the live turn")
+        XCTAssertTrue(live.buffer.contains("已经流出的半段文字")
+                      || live.segments.contains { segment in
+                          if case .text(let text) = segment {
+                              return text.contains("已经流出的半段文字")
+                          }
+                          return false
+                      })
+    }
+
+    func testNextSendAfterStopShowsLineAgain() {
+        let model = BotChatModel(context: context, driver: driver())
+        model.receive(liveEvent("turn/start", turn: 1, seq: 1))
+        model.stop()
+        XCTAssertFalse(model.showsActivityLine)
+
+        model.send(text: "继续")
+        XCTAssertTrue(model.awaitingTurn)
+        XCTAssertTrue(model.showsActivityLine)
+        XCTAssertNotNil(model.lineActivity)
+    }
+
     // MARK: - Helpers
 
     private var context: BotRuntimeContext {
