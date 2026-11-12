@@ -9,7 +9,8 @@ import SwiftUI
 enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, automation, error, denial, overflow, failClosed
-    case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone, agentComm
+    case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
+    case runningStreamingWithLine, runningAwaitingApproval, agentComm
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -192,6 +193,23 @@ enum BotUIFixtures {
              .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .runningStreamingWithLine:
+            return [BotUIRow.text(id: "running-streaming-user", seq: 1, role: "user",
+                                  text: "帮我检查一下构建结果。")]
+        case .runningAwaitingApproval:
+            return [
+                BotUIRow.text(id: "running-approval-user", seq: 1, role: "user",
+                              text: "帮我删掉旧的临时报告。"),
+                BotUIRow.fixture(id: "running-approval", seq: 2,
+                                 body: BotUIBody(type: "approval", values: [
+                                    "approvalID": "approval-running",
+                                    "digest": "sha256:running",
+                                    "status": "pending",
+                                    "action": "删除旧的临时报告",
+                                    "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+                                    "alwaysScope": "none",
+                                 ])),
+            ]
         case .agentComm:
             let outbound = BotUIRow.fixture(
                 id: "comm-outbound", seq: 2, kind: "sendMessage", role: "assistant",
@@ -548,6 +566,15 @@ struct BotUIFixtureRootView: View {
                 "name": .string("mcp__phone__ReadMemory"),
                 "arguments": .string("{\"path\":\"user/diary.md\"}"),
             ])))
+        case .runningStreamingWithLine:
+            // The body is streaming while the status line stays visible as
+            // replying (the old rule hid it as soon as text arrived).
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.textDelta("我已经读到构建日志，正在把失败项整理出来…"))
+        case .runningAwaitingApproval:
+            // A running turn with a pending approval: the line must say
+            // 「等你确认」 and the fish must be alerting.
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
         default:
             break
         }
