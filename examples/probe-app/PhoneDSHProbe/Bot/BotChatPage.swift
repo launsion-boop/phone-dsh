@@ -153,41 +153,23 @@ struct BotChatPage: View {
                 onOpenInfo()
             } label: {
                 HStack(spacing: 8) {
-                    // While a turn runs the header fish is the only avatar
-                    // on screen, so it takes the status line's `.lively`
-                    // clip set and the activity category's work style.
-                    BotFishView(state: model.fishState, size: 32, appearance: model.appearance,
+                    // The only avatar on screen: its state, motion profile
+                    // and work style come from the same header lifecycle as
+                    // the status line under it.
+                    BotFishView(state: presence.fishState, size: 32, appearance: model.appearance,
                                 crowned: isMainBot, reaction: model.reaction,
-                                motionProfile: headerFishLively ? .lively : .standard,
-                                workStyle: headerFishWorkStyle)
+                                motionProfile: presence.motion,
+                                workStyle: presence.workStyle)
                     Text(model.botName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(HomeSpec.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if model.pendingApprovalCount > 0 {
-                        Text("!")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(NativeParityTokens.error)
-                            .frame(width: 14, height: 14)
-                            .transition(.opacity.combined(with: .scale(scale: 0.6)))
-                            .accessibilityHidden(true)
-                    }
                 }
-                .animation(.easeInOut(duration: 0.25), value: model.pendingApprovalCount > 0)
                 .padding(.leading, 6)
                 .padding(.trailing, 14)
                 .frame(height: HomeSpec.navButton)
                 .background(HomeSpec.surface, in: Capsule())
-                .overlay(alignment: .topTrailing) {
-                    if model.needsAttentionCount > 0 {
-                        Circle()
-                            .fill(NativeParityTokens.error)
-                            .frame(width: 6, height: 6)
-                            .padding(.top, 4)
-                            .padding(.trailing, 6)
-                    }
-                }
                 .homeFloatingShadow()
                 .contentShape(Capsule())
             }
@@ -199,7 +181,7 @@ struct BotChatPage: View {
             HeaderActionPill(hasOnlineDevices: hasOnlineDevices,
                              connectIdentifier: "bot.connect-device",
                              menuIdentifier: "bot.header.menu",
-                             showsMenuActivityDot: model.runningTurnID != nil,
+                             showsMenuActivityDot: false,
                              onConnect: {
                                  model.noteInteraction()
                                  onConnectDevice()
@@ -214,17 +196,13 @@ struct BotChatPage: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// The status text under the header is visible exactly when the header
-    /// fish should be lively.
-    private var showsHeaderStatus: Bool {
-        model.showsActivityLine && model.lineActivity != nil
-    }
-
-    private var headerFishLively: Bool { showsHeaderStatus }
-
-    private var headerFishWorkStyle: BotFishWorkStyle {
-        guard showsHeaderStatus, let activity = model.lineActivity else { return .generic }
-        return BotActivityPhrases.workStyle(for: activity.category)
+    /// One lifecycle for the whole header: fish state, motion and the status
+    /// line all read this value, so they always change together.
+    private var presence: BotHeaderPresence {
+        BotHeaderPresence.resolve(turnActive: model.showsActivityLine,
+                                  lineActivity: model.lineActivity,
+                                  pendingApprovals: model.pendingApprovalCount,
+                                  fishState: model.fishState)
     }
 
     /// One centered status line right under the header capsule. It floats
@@ -232,8 +210,8 @@ struct BotChatPage: View {
     /// taking layout space, so showing or hiding it never moves a message.
     private var headerStatus: some View {
         ZStack(alignment: .top) {
-            if showsHeaderStatus, let activity = model.lineActivity {
-                BotActivityLine(activity: activity)
+            if let activity = presence.line {
+                BotActivityLine(activity: activity, quiet: presence.lineIsQuiet)
                     .padding(.top, 4)
                     .padding(.bottom, 14)
                     .background(alignment: .top) {
@@ -249,7 +227,7 @@ struct BotChatPage: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.25), value: showsHeaderStatus)
+        .animation(.easeInOut(duration: 0.25), value: presence.line != nil)
         .allowsHitTesting(false)
     }
 
@@ -309,7 +287,8 @@ struct BotChatPage: View {
                         if let live = model.live {
                             BotLiveTurnView(live: live)
                         }
-                        if let streaming = model.streamingText {
+                        if let streaming = model.streamingText,
+                           BotAnswerBubbleContent.hasContent(streaming) {
                             BotStreamingRow(text: streaming)
                                 .id("bot-live-stream")
                         }
@@ -963,6 +942,12 @@ private struct BotAnswerBubbleContent: View {
     let text: String
     let streaming: Bool
 
+    /// An empty or whitespace-only chunk (the first delta is often just a
+    /// newline) must not flash an empty bubble under the transcript.
+    static func hasContent(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         BotContentWidth {
             NativeMarkdownBody(markdown: text, streaming: streaming, onOpenFile: { _ in })
@@ -987,13 +972,13 @@ private struct BotLiveTurnView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(live.segments.enumerated()), id: \.offset) { _, segment in
-                if case .text(let text) = segment {
+                if case .text(let text) = segment, BotAnswerBubbleContent.hasContent(text) {
                     BotAnswerBubbleContent(text: text, streaming: false)
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 }
             }
-            if !live.buffer.isEmpty {
+            if BotAnswerBubbleContent.hasContent(live.buffer) {
                 BotAnswerBubbleContent(text: live.buffer, streaming: true)
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.vertical, HomeSpec.blockGap / 2)

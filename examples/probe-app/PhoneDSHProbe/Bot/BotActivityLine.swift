@@ -10,6 +10,8 @@ import PhoneDSHBot
 /// sweep. It never captures touches.
 struct BotActivityLine: View {
     let activity: BotActivity
+    /// Waiting for the user: keep the words still (no shimmer, no breath).
+    var quiet = false
 
     @Environment(\.botPageActive) private var pageActive
     @State private var line = BotActivityLineState()
@@ -18,7 +20,7 @@ struct BotActivityLine: View {
     private var text: String { line.text }
 
     var body: some View {
-        BotActivityShimmerText(text: text)
+        BotActivityShimmerText(text: text, quiet: quiet)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
             .allowsHitTesting(false)
@@ -69,6 +71,7 @@ struct BotActivityLine: View {
 /// the DSH running-row shimmer sweep.
 private struct BotActivityShimmerText: View {
     let text: String
+    let quiet: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
@@ -82,6 +85,8 @@ private struct BotActivityShimmerText: View {
         dark: 0xFFFFFF, darkAlpha: 0.45)
 
     private var animated: Bool { !reduceMotion && pageActive }
+    /// Shimmer and breathing only while the Bot is doing something.
+    private var ambient: Bool { animated && !quiet }
 
     var body: some View {
         ZStack {
@@ -97,10 +102,11 @@ private struct BotActivityShimmerText: View {
         .frame(maxWidth: .infinity, minHeight: Self.height, maxHeight: Self.height)
         .clipped()
         .animation(animated ? .spring(response: 0.42, dampingFraction: 0.9) : nil, value: text)
-        .opacity(animated ? (dim ? 0.7 : 1) : 1)
+        .opacity(ambient ? (dim ? 0.7 : 1) : 1)
         .onAppear { restart() }
         .onChange(of: reduceMotion) { _, _ in restart() }
         .onChange(of: pageActive) { _, _ in restart() }
+        .onChange(of: quiet) { _, _ in restart() }
     }
 
     private func line(_ value: String) -> some View {
@@ -110,7 +116,7 @@ private struct BotActivityShimmerText: View {
             .truncationMode(.tail)
             .foregroundStyle(HomeSpec.textSecondary)
             .overlay {
-                if animated {
+                if ambient {
                     Text(value)
                         .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
@@ -147,7 +153,7 @@ private struct BotActivityShimmerText: View {
             phase = -1
             dim = false
         }
-        guard animated else { return }
+        guard ambient else { return }
         withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
             phase = 1
         }
