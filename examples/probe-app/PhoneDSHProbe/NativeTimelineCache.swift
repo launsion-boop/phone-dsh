@@ -5,6 +5,10 @@
 // state lookups) on every body pass. The cache key is the items revision plus
 // the UI inputs that can change grouping: folded Turns and the durable turn
 // facts. Rows keep exactly the old grouping/ordering semantics.
+//
+// A streaming delta changes only the last visible item. When every earlier
+// item is unchanged the previous rows/turn facts are reused and only the tail
+// row is replaced, so a delta does not regroup the transcript.
 
 import Foundation
 import ProbeKit
@@ -28,6 +32,9 @@ struct NativeTimelineSnapshot {
     let turnFacts: [Int: NativeTimelineTurnFacts]
     let scrollSignature: String
     let inputRowSignature: String
+    /// Everything in `scrollSignature` before the last visible item's text.
+    /// Reused verbatim by the tail fast path.
+    let scrollSignaturePrefix: String
 }
 
 enum NativeTurnStateResolver {
@@ -55,7 +62,12 @@ final class NativeTimelineCache {
     private let changesCache: NativeChangesCache
     private var cachedKey: Key?
     private var cachedSnapshot: NativeTimelineSnapshot?
+    private var cachedItems: [ChatItem] = []
     private(set) var rebuildCount = 0
+    /// Number of snapshots produced by the last-row fast path.
+    private(set) var tailUpdateCount = 0
+    /// Number of snapshots that had to run the full grouping pass.
+    private(set) var fullRebuildCount = 0
 
     init(changesCache: NativeChangesCache = .shared) {
         self.changesCache = changesCache
@@ -72,11 +84,24 @@ final class NativeTimelineCache {
         if key == cachedKey, let cachedSnapshot {
             return cachedSnapshot
         }
-        let snapshot = build(items: items, foldedTurns: foldedTurns,
+        MainThreadHangMonitor.mark("timelineSnapshot.start")
+        let snapshot: NativeTimelineSnapshot
+        let tailOnly = tailSnapshot(items: items, key: key,
+                                    endReasons: endReasons,
+                                    startTimes: startTimes, endTimes: endTimes)
+        if let tailOnly {
+            snapshot = tailOnly
+            tailUpdateCount += 1
+        } else {
+            snapshot = build(items: items, foldedTurns: foldedTurns,
                              endReasons: endReasons,
                              startTimes: startTimes, endTimes: endTimes)
+            fullRebuildCount += 1
+        }
+        MainThreadHangMonitor.mark("timelineSnapshot.end")
         cachedKey = key
         cachedSnapshot = snapshot
+        cachedItems = items
         rebuildCount += 1
         NativePerfCounters.shared.timelineRebuilt()
         return snapshot
@@ -85,7 +110,59 @@ final class NativeTimelineCache {
     func resetForTesting() {
         cachedKey = nil
         cachedSnapshot = nil
+        cachedItems = []
         rebuildCount = 0
+        tailUpdateCount = 0
+        fullRebuildCount = 0
+    }
+
+    /// Reuses every row and turn fact when the only change is the text of the
+    /// last streaming assistant/reasoning item. Any other shape falls back to
+    /// `build` (correctness first).
+    private func tailSnapshot(items: [ChatItem], key: Key,
+                              endReasons: [Int: String], startTimes: [Int: Date],
+                              endTimes: [Int: Date]) -> NativeTimelineSnapshot? {
+        guard let cachedSnapshot, let cachedKey,
+              sameDisplayInputs(cachedKey, key),
+              cachedItems.count == items.count,
+              let previous = cachedItems.last, let last = items.last,
+              previous != last,
+              previous.streaming, last.streaming,
+              previous.kind == last.kind, previous.turn == last.turn,
+              last.kind == .assistant || last.kind == .reasoning,
+              items.indices.dropLast().allSatisfy({ items[$0] == cachedItems[$0] }),
+              cachedSnapshot.visibleItems.last?.id == last.id,
+              let lastRow = cachedSnapshot.rows.last else { return nil }
+
+        var rows = cachedSnapshot.rows
+        switch lastRow {
+        case .item(let rowItem):
+            guard rowItem.id == last.id, !Self.isProcessKind(last.kind) else { return nil }
+            rows[rows.count - 1] = .item(last)
+        case .tools(let group):
+            guard Self.isProcessKind(last.kind), group.last?.id == last.id else { return nil }
+            var next = group
+            next[next.count - 1] = last
+            rows[rows.count - 1] = .tools(next)
+        default:
+            return nil
+        }
+        var visible = cachedSnapshot.visibleItems
+        visible[visible.count - 1] = last
+        let signature = cachedSnapshot.scrollSignaturePrefix + last.text
+        return NativeTimelineSnapshot(rows: rows,
+                                      visibleItems: visible,
+                                      turnFacts: cachedSnapshot.turnFacts,
+                                      scrollSignature: signature,
+                                      inputRowSignature: cachedSnapshot.inputRowSignature,
+                                      scrollSignaturePrefix: cachedSnapshot.scrollSignaturePrefix)
+    }
+
+    private func sameDisplayInputs(_ lhs: Key, _ rhs: Key) -> Bool {
+        lhs.foldedTurns == rhs.foldedTurns
+            && lhs.endReasons == rhs.endReasons
+            && lhs.startTimes == rhs.startTimes
+            && lhs.endTimes == rhs.endTimes
     }
 
     private func build(items: [ChatItem], foldedTurns: Set<Int>,
@@ -195,8 +272,8 @@ final class NativeTimelineCache {
             turnFacts[turn] = facts
         }
 
-        let scrollSignature = visibleItems.map(\.id).joined(separator: ",")
-            + "|" + (visibleItems.last?.text ?? "")
+        let signaturePrefix = visibleItems.map(\.id).joined(separator: ",") + "|"
+        let scrollSignature = signaturePrefix + (visibleItems.last?.text ?? "")
         let inputs = visibleItems.filter { $0.kind == .user || $0.kind == .context }
         let inputRowSignature = "\(inputs.count)|\(inputs.last?.id ?? "-")"
 
@@ -204,7 +281,8 @@ final class NativeTimelineCache {
                                       visibleItems: visibleItems,
                                       turnFacts: turnFacts,
                                       scrollSignature: scrollSignature,
-                                      inputRowSignature: inputRowSignature)
+                                      inputRowSignature: inputRowSignature,
+                                      scrollSignaturePrefix: signaturePrefix)
     }
 
     private static func isProcessKind(_ kind: ChatItem.Kind) -> Bool {
