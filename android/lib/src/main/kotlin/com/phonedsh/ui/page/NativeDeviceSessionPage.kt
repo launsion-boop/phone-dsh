@@ -74,6 +74,8 @@ import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiMetrics
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.surface.MarkdownBody
@@ -369,6 +371,7 @@ private fun DeviceReadOnlyRow(
             trailing = if (item.streaming) STREAMING_GLYPH else null,
             expanded = expanded,
             onToggle = onToggle,
+            tag = foldTag(item.id),
             body = {
                 BasicText(
                     text = item.text.ifEmpty { DeviceTranscriptProjector.PLACEHOLDER },
@@ -476,7 +479,16 @@ private fun AttachmentLabels(attachments: List<DeviceAttachment>) {
     }
 }
 
-/** A foldable row: 思考 and the tool rows both use it. */
+/**
+ * A foldable row: 思考 and the tool rows both use it.
+ *
+ * The iOS source is a SwiftUI `DisclosureGroup` for both row kinds
+ * (`NativeDeviceSessionRows.swift:38` for 思考, `:104` for a tool call/result), so
+ * it is a real disclosure. `interaction.md` §7 rule 1 assigns its body
+ * `motion.disclosure` and rule 3 assigns its chevron `motion.chevron`; the
+ * shared [PdshDisclosure] / [PdshChevron] own both, including the reduced-motion
+ * snap. iOS names no duration of its own, so the contract token is the value.
+ */
 @Composable
 private fun FoldableRow(
     title: String,
@@ -484,44 +496,48 @@ private fun FoldableRow(
     expanded: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
+    tag: String? = null,
     tone: InformationTone = InformationTone.SECONDARY,
     body: @Composable () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    Column(
+    PdshDisclosure(
+        expanded = expanded,
+        onToggle = { onToggle() },
         modifier = modifier.fillMaxWidth().padding(vertical = tokens.spacing.badgeInsetV),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
-                .clickable(role = Role.Button, onClick = onToggle)
-                .semantics(mergeDescendants = true) { contentDescription = title },
-            verticalAlignment = Alignment.CenterVertically,
-            // unverified geometry: the disclosure icon gap is declared for a
-            // signature surface and reused here as the fold marker's gap.
-            horizontalArrangement = Arrangement.spacedBy(tokens.geometry.disclosureIconGap),
-        ) {
-            BasicText(
-                text = if (expanded) FOLD_OPEN_GLYPH else FOLD_CLOSED_GLYPH,
-                style = type.listItem.copy(color = tokens.colors.textTertiary),
-            )
-            BasicText(
-                text = title,
-                style = type.listItem.copy(color = tone.ink(tokens)),
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (trailing != null) {
-                BasicText(
-                    text = trailing,
-                    style = type.listItem.copy(color = tone.ink(tokens)),
+        tag = tag,
+        header = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = HomeMetrics.defaultMinListRowHeight)
+                    .semantics(mergeDescendants = true) { contentDescription = title },
+                verticalAlignment = Alignment.CenterVertically,
+                // unverified geometry: the disclosure icon gap is declared for a
+                // signature surface and reused here as the fold marker's gap.
+                horizontalArrangement = Arrangement.spacedBy(tokens.geometry.disclosureIconGap),
+            ) {
+                PdshChevron(
+                    expanded = expanded,
+                    tint = tokens.colors.textTertiary,
                 )
+                BasicText(
+                    text = title,
+                    style = type.listItem.copy(color = tone.ink(tokens)),
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (trailing != null) {
+                    BasicText(
+                        text = trailing,
+                        style = type.listItem.copy(color = tone.ink(tokens)),
+                    )
+                }
             }
-        }
-        if (expanded) {
+        },
+        body = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -532,9 +548,12 @@ private fun FoldableRow(
             ) {
                 body()
             }
-        }
-    }
+        },
+    )
 }
+
+/** The stable tag of one fold row's header/body pair; the row keeps its page tag. */
+private fun foldTag(rowId: String): String = "${UiPageTags.DEVICE_SESSION_ROW}.$rowId"
 
 /** A tool call or tool result: its name, its state, and its input/output on demand. */
 @Composable
@@ -557,6 +576,7 @@ private fun ToolRow(
         trailing = status,
         expanded = expanded,
         onToggle = onToggle,
+        tag = foldTag(item.id),
         tone = if (state == DeviceToolState.ERROR) InformationTone.DANGER else InformationTone.SECONDARY,
     ) {
         val arguments = item.argumentsJson
@@ -717,10 +737,6 @@ internal object NativeDeviceSessionPageTokens {
         "geometry.terminalCardMaxHeight",
     )
 }
-
-/** The fold markers, in the same two-glyph form the other page rows use. */
-private const val FOLD_CLOSED_GLYPH: String = "›"
-private const val FOLD_OPEN_GLYPH: String = "⌄"
 
 /** The still-streaming marker. */
 private const val STREAMING_GLYPH: String = "…"

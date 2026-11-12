@@ -550,6 +550,12 @@ private fun ChatPreferencesBarAction(
  * 折叠时机 / 转录密度 are the contract's three picker actions. The option rows
  * take their text from [options], so they are data rows rather than named
  * actions.
+ *
+ * Disclosure provenance: the iOS source is a SwiftUI `Picker`
+ * (`ChatPreferencesPage.swift:14`, `:48`, `:62`), whose options are a system
+ * menu. It is not a `DisclosureGroup` and the source has no `withAnimation` /
+ * `motion.disclosure`; the inline list below is Android's rendering of that menu,
+ * so it deliberately stays static instead of inventing §7 body motion.
  */
 @Composable
 private fun ChatPreferencesMenuRow(
