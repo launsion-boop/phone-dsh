@@ -14,7 +14,7 @@ import com.phonedsh.ui.theme.generated.UiTokenData
  * Maps a modal bottom sheet page id to the frozen detent table in
  * `tokens.json#interaction.sheet` (`interaction.md` §2 rules 2-3).
  *
- * The 13 explicit page ids come from `pageDetents`; an unlisted sheet uses
+ * The 20 explicit page ids come from `pageDetents`; an unlisted sheet uses
  * `defaultDetents`, which rule 2 defines as the system single large detent. No
  * page id or detent set is repeated in this file.
  */

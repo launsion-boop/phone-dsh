@@ -212,6 +212,11 @@ internal fun PageFrame(
  * A collapsible group header: the one local event the settings, memory and about
  * pages own.
  *
+ * R4 of `PC-20261112-ui-round3` leaves this row's hand-built semantics in place:
+ * it is a plain `Row` around [PdshChevron], not a `PdshDisclosure` call, so it
+ * cannot inherit the component's default expanded/collapsed announcement and
+ * keeps supplying `stateDescription` (and its copy) itself.
+ *
  * @param title the group's title.
  * @param expanded whether the rows below are visible.
  * @param onToggle flip the fold.
