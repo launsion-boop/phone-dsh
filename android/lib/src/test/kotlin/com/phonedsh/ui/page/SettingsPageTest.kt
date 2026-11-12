@@ -289,6 +289,9 @@ class SettingsPageTest {
         )
         scrollTo("重新启动引擎")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "engineRestart").performClick()
+        // The root rows are the measured 62 pt, so the footer is below the fold
+        // on this viewport; scroll to it before asserting its copy.
+        scrollTo(UiStrings.SETTINGS_ENGINE_RESET_FOOTER)
         compose.onNodeWithText(UiStrings.SETTINGS_ENGINE_RESET_FOOTER).assertIsDisplayed()
         assertEquals(1, restartCount)
     }
