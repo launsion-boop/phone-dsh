@@ -18,8 +18,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -112,6 +114,7 @@ public fun PdshDisclosure(
         tag = tag,
         anchorKey = anchorKey,
         onLongPress = null,
+        interactionSource = null,
         header = header,
         body = body,
     )
@@ -132,6 +135,10 @@ public fun PdshDisclosure(
  * @param tag when non-null, [PdshDisclosureTags] tags are attached.
  * @param anchorKey a stable folder identity reported in [DisclosureAnchor.key].
  * @param onLongPress an optional folder context-menu gesture; it never toggles.
+ * @param interactionSource an optional source for the header's one clickable.
+ *   Pass the same source to `rowPressed`/`pillPressed` so a page can paint the
+ *   §6 press feedback without installing a second pointer observer; `null`
+ *   keeps the component's own source.
  * @param header the folder row, including its [PdshChevron].
  * @param body the folder’s sessions/empty copy, animated as one unit.
  */
@@ -143,6 +150,7 @@ public fun PdshFolderGroup(
     tag: String? = null,
     anchorKey: Any? = null,
     onLongPress: (() -> Unit)? = null,
+    interactionSource: MutableInteractionSource? = null,
     header: @Composable () -> Unit,
     body: @Composable () -> Unit,
 ) {
@@ -154,6 +162,7 @@ public fun PdshFolderGroup(
         tag = tag,
         anchorKey = anchorKey,
         onLongPress = onLongPress,
+        interactionSource = interactionSource,
         header = header,
         body = body,
     )
@@ -232,6 +241,7 @@ private fun DisclosureLayout(
     tag: String?,
     anchorKey: Any?,
     onLongPress: (() -> Unit)?,
+    interactionSource: MutableInteractionSource?,
     header: @Composable () -> Unit,
     body: @Composable () -> Unit,
 ) {
@@ -241,16 +251,30 @@ private fun DisclosureLayout(
     val fadeSpec = finiteSpec<Float>(spec, tokens.motion)
     var headerBounds by remember { mutableStateOf(Rect.Zero) }
     val onTap = { onToggle(DisclosureAnchor(anchorKey, headerBounds)) }
-    val headerGesture = if (onLongPress != null) {
-        Modifier.combinedClickable(
+    val headerGesture = when {
+        onLongPress != null && interactionSource != null -> Modifier.combinedClickable(
+            interactionSource = interactionSource,
+            indication = LocalIndication.current,
             role = Role.Button,
             onClickLabel = null,
             onLongClickLabel = null,
             onLongClick = onLongPress,
             onClick = onTap,
         )
-    } else {
-        Modifier.clickable(role = Role.Button, onClick = onTap)
+        onLongPress != null -> Modifier.combinedClickable(
+            role = Role.Button,
+            onClickLabel = null,
+            onLongClickLabel = null,
+            onLongClick = onLongPress,
+            onClick = onTap,
+        )
+        interactionSource != null -> Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = LocalIndication.current,
+            role = Role.Button,
+            onClick = onTap,
+        )
+        else -> Modifier.clickable(role = Role.Button, onClick = onTap)
     }
 
     Column(modifier = modifier) {

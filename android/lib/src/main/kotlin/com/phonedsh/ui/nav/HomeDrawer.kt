@@ -860,10 +860,11 @@ private fun homeDrawerSessionMenuAction(item: ContextMenuItem): HomeDrawerSessio
 }
 
 /**
- * `PdshFolderGroup` owns the header's combinedClickable but does not expose its
- * interaction source. The drawer's §6 pressed fill still needs that press
- * stream, so observe the same pointer without consuming it; the component keeps
- * the tap/long-press gesture.
+ * `PdshFolderGroup` exposes an `interactionSource` seam, but the drawer folder
+ * header's press is owned by the nested `PdshContextMenu`, which does not. The
+ * drawer's §6 pressed fill still needs that press stream, so observe the same
+ * pointer without consuming it; the component keeps the tap/long-press gesture.
+ * Session rows use the same observer for their nested menu.
  */
 private fun Modifier.pressTracking(source: MutableInteractionSource): Modifier = pointerInput(source) {
     awaitEachGesture {
