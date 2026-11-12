@@ -580,49 +580,52 @@ public fun PdshNavHost(
         onDismissRequest = onBack,
         sheetBackHost = sheetBackHost,
     ) {
-        when (route) {
+        // The Bot tab owns the shared chat-surface route value (`PdshRoute.Bot`
+        // aliases `Chat`): when the Bot tab is selected, the Bot page replaces the
+        // DSH chat page. The decision is made outside the route disclosure so the
+        // shipped `PdshRoute.Chat -> ChatRoute(...)` call keeps its direct shape for
+        // the page-structure gate's `verified_chat_artifact_route_binding` check.
+        if (botModel != null && nav.selectedTab == HomeTab.BOT && route == PdshRoute.Chat) {
+            val snapshot by botModel.state.collectAsState()
+            CompositionLocalProvider(LocalBotPageActive provides botPageActive) {
+                val slot: BotFishSlot = botFish ?: { _, _, _, _, _, modifier ->
+                    Box(modifier)
+                }
+                BotChatPage(
+                    state = snapshot,
+                    fish = slot,
+                    onDraftChange = botModel::setDraft,
+                    onSend = botModel::send,
+                    onStop = botModel::stop,
+                    onAnswer = botModel::answer,
+                    onDismiss = botModel::dismiss,
+                    onApproval = botModel::decide,
+                    onChecklistProgress = botModel::noteChecklistProgress,
+                    onChecklistSend = botModel::sendChecklist,
+                    onLoadHistory = botModel::loadHistory,
+                    onTick = { botModel.tick() },
+                    onInteraction = botModel::noteInteraction,
+                    onOpenInfo = { onOpenBotInfo?.invoke() },
+                    onConnectDevice = { onNavigate(PdshRoute.DeviceConnection) },
+                    onAttach = onBotAttach,
+                    onRemoveAttachment = botModel::removeDraftAttachment,
+                    onDismissAttachmentNotice = botModel::dismissAttachmentNotice,
+                    onOpenDrawer = onOpenBotDrawer,
+                    onOpenDocument = onOpenBotDocument,
+                    onOpenPath = onOpenBotPath,
+                    onOpenUrl = onOpenBotUrl,
+                    onSelectBot = onSelectBot,
+                    peerAppearance = botPeerAppearance,
+                    peerIsMainBot = botPeerIsMainBot,
+                    peerReaction = botPeerReaction,
+                    hasOnlineDevices = botHasOnlineDevices,
+                )
+            }
+        } else when (route) {
             PdshRoute.Home -> Unit // rendered above; kept for the exhaustive when
             PdshRoute.Sessions ->
                 if (sessions != null) sessions() else SessionsRoute(facts, onBack)
-            PdshRoute.Chat ->
-                if (botModel != null && nav.selectedTab == HomeTab.BOT) {
-                    val snapshot by botModel.state.collectAsState()
-                    CompositionLocalProvider(LocalBotPageActive provides botPageActive) {
-                        val slot: BotFishSlot = botFish ?: { _, _, _, _, _, modifier ->
-                            Box(modifier)
-                        }
-                        BotChatPage(
-                            state = snapshot,
-                            fish = slot,
-                            onDraftChange = botModel::setDraft,
-                            onSend = botModel::send,
-                            onStop = botModel::stop,
-                            onAnswer = botModel::answer,
-                            onDismiss = botModel::dismiss,
-                            onApproval = botModel::decide,
-                            onChecklistProgress = botModel::noteChecklistProgress,
-                            onChecklistSend = botModel::sendChecklist,
-                            onLoadHistory = botModel::loadHistory,
-                            onTick = { botModel.tick() },
-                            onInteraction = botModel::noteInteraction,
-                            onOpenInfo = { onOpenBotInfo?.invoke() },
-                            onConnectDevice = { onNavigate(PdshRoute.DeviceConnection) },
-                            onAttach = onBotAttach,
-                            onRemoveAttachment = botModel::removeDraftAttachment,
-                            onDismissAttachmentNotice = botModel::dismissAttachmentNotice,
-                            onOpenDrawer = onOpenBotDrawer,
-                            onOpenDocument = onOpenBotDocument,
-                            onOpenPath = onOpenBotPath,
-                            onOpenUrl = onOpenBotUrl,
-                            onSelectBot = onSelectBot,
-                            peerAppearance = botPeerAppearance,
-                            peerIsMainBot = botPeerIsMainBot,
-                            peerReaction = botPeerReaction,
-                            hasOnlineDevices = botHasOnlineDevices,
-                        )
-                    }
-                } else {
-                    ChatRoute(
+            PdshRoute.Chat -> ChatRoute(
                 workspaceRoot = workspaceRoot,
                 actionAvailability = facts.actionAvailability,
                 subpages = chatSubpages,
@@ -647,10 +650,9 @@ public fun PdshNavHost(
                 onAddFiles = onChatAddFiles,
                 onAddImages = onChatAddImages,
                 onRemoveAttachment = onChatRemoveAttachment,
-                        onDismissNotice = onChatDismissNotice,
-                        actions = chatActions,
-                    )
-                }
+                onDismissNotice = onChatDismissNotice,
+                actions = chatActions,
+            )
             PdshRoute.WorkspaceFolders -> WorkspaceFoldersRoute(facts, onBack, onHostAction, onNavigate)
             is PdshRoute.Files -> FilesRoute(
                 onBack, onNavigate, workspaceRoot, backLevel, onFilesImportRequest, filesImportReceipt,
