@@ -767,7 +767,11 @@ struct BotInfoPage: View {
                     model.highlightedRoutineID = highlightRoutineID
                 }
                 model.setMainBot(isMainBot)
-                if model.memoryState == .loading { await model.refresh() }
+                // The sheet can be reopened long after the first load (for
+                // example after the Bot created a routine in chat). Re-read the
+                // host authority every time it appears; a cached snapshot must
+                // not turn a real routine into "还没有例行任务".
+                await model.refresh()
             }
             .onChange(of: isMainBot) { _, newValue in
                 model.setMainBot(newValue)
@@ -928,6 +932,11 @@ private struct BotMemoryPage: View {
         }
         .homeGroupedList()
         .navigationTitle("记忆")
+        .task {
+            // Each data entry re-reads the host authority when it appears; a
+            // snapshot cached by the sheet must not hide a newer record.
+            if model.memoryState != .loading { await model.refresh() }
+        }
         .navigationDestination(for: BotMemoryDocumentInfo.self) { document in
             BotMemoryDocumentView(
                 document: document,
@@ -1389,6 +1398,12 @@ private struct BotRoutinesPage: View {
         .homeGroupedList()
         .navigationTitle("例行任务")
         .task {
+            // Entering the data entry re-reads the host authority even when the
+            // sheet's shared model is already loaded. The first open is owned
+            // by the sheet's root task (state is `.loading`), so this avoids a
+            // duplicate initial load while still catching a routine created
+            // after the last snapshot.
+            if model.routinesState != .loading { await model.refresh() }
             guard let id = model.highlightedRoutineID else { return }
             try? await Task.sleep(for: .milliseconds(150))
             withAnimation { proxy.scrollTo("bot.routine.row.\(id)", anchor: .center) }
@@ -1742,6 +1757,11 @@ private struct BotGrantsPage: View {
         }
         .homeGroupedList()
         .navigationTitle("常设授权")
+        .task {
+            // Each data entry re-reads the host authority when it appears; a
+            // snapshot cached by the sheet must not hide a newer record.
+            if model.grantsState != .loading { await model.refresh() }
+        }
     }
 
     @ViewBuilder
@@ -1824,10 +1844,13 @@ struct BotPresenceSection: View {
                 LabeledContent("桥状态", value: bridgeStatus)
                     .accessibilityIdentifier("bot.info.presence.bridge")
             }
-            if model.presence.level == .scheduledNotification {
-                LabeledContent("已登记提醒", value: "\(model.presence.scheduledNotificationCount) 条")
-                    .accessibilityIdentifier("bot.info.presence.notifications")
-            }
+            // The count is host authority, not a level decoration: a foreground
+            // App can still have routine-due notifications registered, and the
+            // matrix checks this line in the foreground. Show the actual count
+            // even when it is zero (permission denied / DND) instead of hiding
+            // the row; add the earliest registered fire time when one exists.
+            LabeledContent("已登记提醒", value: notificationSummary)
+                .accessibilityIdentifier("bot.info.presence.notifications")
             if model.presence.deferred.isEmpty {
                 Text("没有因安静时段延后的例行任务。")
                     .botCaptionFont()
@@ -1847,6 +1870,16 @@ struct BotPresenceSection: View {
             }
         }
         .accessibilityIdentifier("bot.info.presence")
+    }
+
+    /// Host-registered count plus the earliest registered time. The time is
+    /// shown only when the host has one; the count is never inferred from the
+    /// routine list.
+    private var notificationSummary: String {
+        let count = "\(model.presence.scheduledNotificationCount) 条"
+        guard let at = model.presence.nextNotificationAt else { return count }
+        let date = Date(timeIntervalSince1970: Double(at) / 1_000)
+        return "\(count) · 下次 \(BotUIFormat.dateTime(date))"
     }
 }
 
@@ -1936,6 +1969,11 @@ private struct BotApprovalHistoryPage: View {
         }
         .homeGroupedList()
         .navigationTitle("审批记录")
+        .task {
+            // Each data entry re-reads the host authority when it appears; a
+            // snapshot cached by the sheet must not hide a newer record.
+            if model.approvalsState != .loading { await model.refresh() }
+        }
     }
 }
 

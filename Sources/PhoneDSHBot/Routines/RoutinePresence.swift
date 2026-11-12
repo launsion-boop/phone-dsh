@@ -31,13 +31,20 @@ public struct RoutinePresence: Sendable, Equatable {
     public var level: RoutinePresenceLevel
     public var deferred: [RoutinePresenceDelay]
     public var scheduledNotificationCount: Int
+    /// Earliest fire time among the routine-due notifications the host actually
+    /// registered with the system, when one exists. The UI shows it next to the
+    /// count; it is nil when nothing is registered (permission denied, DND, or
+    /// no future routine) and must never be inferred from routine text.
+    public var nextNotificationAt: Int64?
 
     public init(level: RoutinePresenceLevel,
                 deferred: [RoutinePresenceDelay] = [],
-                scheduledNotificationCount: Int = 0) {
+                scheduledNotificationCount: Int = 0,
+                nextNotificationAt: Int64? = nil) {
         self.level = level
         self.deferred = deferred
         self.scheduledNotificationCount = max(0, scheduledNotificationCount)
+        self.nextNotificationAt = nextNotificationAt
     }
 }
 

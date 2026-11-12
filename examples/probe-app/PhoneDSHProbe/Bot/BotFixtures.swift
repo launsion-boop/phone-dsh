@@ -685,7 +685,8 @@ enum BotUIFixtures {
                 deferred: [RoutinePresenceDelay(
                     routineId: "long-routine", title: String(repeating: "很长的例行任务名称", count: 3),
                     scheduledFor: 1_760_003_600_000, deferredUntil: 1_760_006_800_000)],
-                scheduledNotificationCount: 2),
+                scheduledNotificationCount: 2,
+                nextNotificationAt: 1_760_006_800_000),
                proactiveSettings: ProactiveSettings(
                     mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
                     timeZone: "Asia/Shanghai"))
@@ -763,11 +764,12 @@ enum BotUIFixtures {
                 effectSummary: "已尝试发送提醒，送达结果未确认。",
                 effectDetail: "routine.deliver · routine-2:3 · unknown-outcome"),
         ], presence: RoutinePresence(
-            level: .scheduledNotification,
+            level: .foreground,
             deferred: [RoutinePresenceDelay(
                 routineId: "routine-1", title: "晨间简报",
                 scheduledFor: 1_760_018_400_000, deferredUntil: 1_760_021_600_000)],
-            scheduledNotificationCount: 1),
+            scheduledNotificationCount: 1,
+            nextNotificationAt: 1_760_021_600_000),
            proactiveSettings: ProactiveSettings(
                 mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
                 timeZone: "Asia/Shanghai"),

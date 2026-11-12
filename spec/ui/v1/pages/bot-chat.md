@@ -39,11 +39,11 @@
 
 document 卡只显示一个用户可读的类型名（文档、Markdown、PDF、表格、代码或文件库），不得拼成「文档 · Document」这类中英重复；标题与文件名保持真实值。所有卡片高度由实际内容决定，不设置大面积固定高度或用空白撑开。标题最多 2 行、摘要最多 2 行，超过时提供「展开/收起」；超过 4 个步骤/条目默认折叠，长文档在卡片内局部展开；预览是用户主动打开后的独立行为，不能在 transcript 中直接弹出大窗口。notice 使用行内紧凑提示，Task/routine、审批、progress、checklist、link、attachment、document 与 question/steps 都受同一 86% Bot 内容宽度约束。
 
-会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
+会话纪元切换时追加一条 info notice（单个紧凑行）：说明被抹除的内容已从旧会话日志移除、对话已接续到新会话。`tone` 只是视觉提示，不是可见性开关：error/denial 用危险色，info 用中性色，任何非空 notice 文本都必须渲染；不得因 `tone=info` 把接续 notice 丢弃。notice 不得包含被抹除的文本或旧 session id；旧纪元中未命中的行仍按时间与新纪元拼接显示，墓碑行不显示。
 
 ## 3. 卡片清单
 
-P0 第一版必须实现：question、steps（含 recommended）、task、attachment、document、progress（cardKey 就地更新）、checklist、link、approval、automation routine 运行卡、error/denial notice。
+P0 第一版必须实现：question、steps（含 recommended）、task、attachment、document、progress（cardKey 就地更新）、checklist、link、approval、automation routine 运行卡、error/denial/info notice。
 
 P1 仅登记为 target：table、callout、info、payload、library。第一版不渲染、不注册工具、不进 persona。canvas、product、gift、Bot 间通讯行不实现。
 

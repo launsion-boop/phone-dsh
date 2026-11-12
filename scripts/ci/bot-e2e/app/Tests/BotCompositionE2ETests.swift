@@ -339,9 +339,192 @@ final class BotCompositionE2ETests: XCTestCase {
     func testProductionServicesChecks() async throws {
         let passed = try await BotProductionChecks.run()
         XCTAssertTrue(passed.contains("session-jsonl-row-rebuild"))
+        XCTAssertTrue(passed.contains("info-refresh-reads-new-routine"))
         XCTAssertTrue(passed.contains("plan-commit-accepted-duplicate-reopen"))
         XCTAssertTrue(passed.contains("fish-production-presentation-activity-ttl"))
     }
+
+    /// F3/F4 end to end: the real `BotSessionEpochEraser` parks the host,
+    /// rewrites the closed session, switches the main session and appends the
+    /// continuation notice. The row service must rebuild to the new epoch and
+    /// the notice must be visible; a cold start that rebuilds the composition
+    /// from the same durable store must land on the same projection. The old
+    /// session log and the projection cache must no longer carry the erased
+    /// text (including the `agent/inbox/spliced` copy).
+    func testSessionEpochErasureProjectsContinuationNoticeAndColdStart() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bot-erasure-ui-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspaceRoot = root.appendingPathComponent("workspace", isDirectory: true)
+        let store = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
+        let profileStore = BotProfileStore(directory: root.appendingPathComponent("profiles"))
+        let schedulerNow = Self.deterministicNoon()
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore,
+            workspaceRoot: workspaceRoot, now: { schedulerNow })
+        let composition = launch.composition
+        let mock = MockModelUpstream()
+        mock.script = .generic(command: "printf ERASE_TOOL", toolText: "ERASE_TOOL",
+                               finalText: "ERASE_DONE")
+        let mockURL = try mock.start()
+        defer { mock.stop() }
+        guard let worker = Bundle.main.url(forResource: "worker", withExtension: nil) else {
+            return XCTFail("the real packed Worker is absent")
+        }
+        let bundle = PhoneDSHBundleLocation(staticDirectory: worker)
+        let app = try XCTUnwrap(UIApplication.shared.delegate as? AppDelegate)
+        let engineHolder = BotCompositionEngineHolder()
+
+        func makeHost(_ composition: BotRuntimeComposition) throws -> PhoneDSHHost {
+            let mcpPolicy = MCPEgressPolicy()
+            try mcpPolicy.grantBotRuntimeEndpoint(
+                try XCTUnwrap(composition.server.url), token: composition.server.token)
+            let baseCredentials = StaticCredentialProvider([
+                CredentialScope(service: "127.0.0.1"): Credential(
+                    kind: .apiKey(header: "x-api-key"), value: "erasure-test-fixture"),
+            ])
+            let configuration = ChatHostConfiguration.makeProduction(
+                workspaceRoot: workspaceRoot,
+                bundle: bundle,
+                allowedModelHosts: [mockURL.absoluteString],
+                egressAllowHosts: [],
+                replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
+                    baseURL: mockURL),
+                credentialProvider: PhoneMCPCredentialProvider(
+                    policy: mcpPolicy, base: baseCredentials),
+                egressAuthorizer: mcpPolicy,
+                workerEnvironment: composition.workerEnvironment.merging([
+                    "DEEPSEEK_BASE_URL": mockURL.absoluteString,
+                    "DEEPSEEK_API_KEY": "erasure-test-placeholder",
+                    "DSH_TELEMETRY_DISABLED": "1",
+                    "PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS": "5000",
+                ]) { _, new in new },
+                nativeMCP: ADBMCPServer.shared,
+                drainDeadline: 2, helloTimeout: 60)
+            return PhoneDSHHost(configuration: configuration) { configuration in
+                await engineHolder.attach(configuration, to: app.anchor)
+            }
+        }
+
+        let host = try makeHost(composition)
+        try await composition.start(host: host)
+        let oldSessionValue = await composition.remote.mainSessionIdentifier()
+        let oldSession = try XCTUnwrap(oldSessionValue)
+        let kept = try await composition.remote.sendUserMessage("请保留 KEEP_ERASE_UI 这一句")
+        XCTAssertEqual(kept.status, "completed", kept.error ?? "no error")
+        let erasedTurn = try await composition.remote.sendUserMessage("请移除 ERASE_ME_UI 这一句")
+        XCTAssertEqual(erasedTurn.status, "completed", erasedTurn.error ?? "no error")
+
+        let oldLog = try XCTUnwrap(BotSessionLogLocator.latestFile(sessionID: oldSession))
+        let lines = BotSessionLogReader.lines(from: try Data(contentsOf: oldLog))
+        let erasedLine = try XCTUnwrap(lines.last {
+            $0.type == "user/message" && $0.allText.contains("ERASE_ME_UI")
+        })
+        XCTAssertTrue(lines.contains {
+            $0.type == "agent/inbox/spliced" && $0.allText.contains("ERASE_ME_UI")
+        }, "fixture precondition: the turn must have an inbox splice copy")
+
+        // The projection cache is a derived copy; seed it with the erased text
+        // so the erasure proof has to remove it.
+        let projectionCache = workspaceRoot.appendingPathComponent(
+            "materialized/home/storages/session_projcache/sessions/\(oldSession).json")
+        try FileManager.default.createDirectory(
+            at: projectionCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"marker\":\"ERASE_ME_UI\"}".utf8).write(to: projectionCache)
+
+        let memory = await composition.runtime.memory(for: "main")
+        let write = try await memory.write(
+            BotMemoryWriteRequest(
+                path: "user/preferences/erase-ui.md",
+                content: "ERASE_ME_UI preference",
+                expectedVersion: 0,
+                evidence: ["record://session/\(oldSession)#\(erasedLine.seq)"]),
+            context: BotMemoryWriteContext(
+                botID: "main", sessionID: oldSession, authorKind: .chat,
+                source: BotMemorySource(kind: .userTurn, sessionID: oldSession),
+                trust: .user))
+        XCTAssertTrue(write.ok, write.error ?? "memory write failed")
+
+        let unit = try await composition.ensureUnit(for: "main")
+        try await unit.info.eraseMemory(path: "user/preferences/erase-ui.md")
+
+        let newSessionValue = await composition.remote.mainSessionIdentifier()
+        let newSession = try XCTUnwrap(newSessionValue)
+        XCTAssertNotEqual(newSession, oldSession)
+        try await unit.rows.start()
+        let batch = try await unit.rows.watch(after: 0)
+        try assertErasureProjection(
+            rows: batch.rows, newSession: newSession,
+            checksNewEpoch: true,
+            oldSessionLog: oldLog, projectionCache: projectionCache)
+
+        // Cold start: a fresh composition reads the durable main-session
+        // pointer and the same row authority.
+        await composition.stop()
+        try await host.stop()
+        let cold = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore,
+            workspaceRoot: workspaceRoot, now: { schedulerNow })
+        let coldHost = try makeHost(cold.composition)
+        try await cold.composition.start(host: coldHost)
+        let coldSessionValue = await cold.composition.remote.mainSessionIdentifier()
+        XCTAssertEqual(coldSessionValue, newSession)
+        let coldUnit = try await cold.composition.ensureUnit(for: "main")
+        try await coldUnit.rows.start()
+        let coldBatch = try await coldUnit.rows.watch(after: 0)
+        try assertErasureProjection(
+            rows: coldBatch.rows, newSession: newSession,
+            checksNewEpoch: false,
+            oldSessionLog: nil, projectionCache: nil)
+        // The cold projection still carries the unerased old-epoch line.
+        XCTAssertTrue(coldBatch.rows.contains {
+            $0.body["text"]?.stringValue?.contains("KEEP_ERASE_UI") == true
+        }, "the non-erased old epoch line disappeared after cold start")
+        await cold.composition.stop()
+        try await coldHost.stop()
+        try await store.close()
+    }
+
+    private func assertErasureProjection(
+        rows: [BotRow], newSession: String, checksNewEpoch: Bool,
+        oldSessionLog: URL?, projectionCache: URL?
+    ) throws {
+        let texts = rows.compactMap { $0.body["text"]?.stringValue }
+        XCTAssertTrue(texts.contains {
+            $0.contains("对话已接续到新会话")
+        }, "the durable ui.notice was not projected into the new epoch rows")
+        XCTAssertFalse(texts.contains {
+            $0.contains("ERASE_ME_UI")
+        }, "erased text was projected back into the rows")
+        XCTAssertTrue(texts.contains {
+            $0.contains("KEEP_ERASE_UI")
+        }, "the non-erased old epoch row is missing")
+        if checksNewEpoch {
+            XCTAssertTrue(rows.contains {
+                $0.id.hasPrefix("e-\(newSession)-")
+            }, "no row belongs to the new session epoch")
+        }
+        if let oldSessionLog {
+            let data = try Data(contentsOf: oldSessionLog)
+            let text = String(decoding: data, as: UTF8.self)
+            XCTAssertFalse(text.contains("ERASE_ME_UI"),
+                           "the rewritten session log still contains the erased text")
+            XCTAssertTrue(text.contains("KEEP_ERASE_UI"),
+                          "the rewrite removed a non-erased line")
+            let rewritten = BotSessionLogReader.lines(from: data)
+            XCTAssertFalse(rewritten.contains {
+                $0.type == "agent/inbox/spliced" && $0.allText.contains("ERASE_ME_UI")
+            }, "the agent/inbox/spliced copy survived the rewrite")
+            XCTAssertGreaterThanOrEqual(
+                rewritten.filter { $0.type == BotSessionErasureTombstone.type }.count, 2,
+                "the canonical line and its splice copy must both be tombstones")
+        }
+        if let projectionCache {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: projectionCache.path),
+                           "the derived session projection cache survived the rewrite")
+        }
+    }
+
 
     private func post(url: URL, token: String, body: Data) async throws -> (status: Int, json: PhoneDSHBot.BotJSONValue) {
         var request = URLRequest(url: url)

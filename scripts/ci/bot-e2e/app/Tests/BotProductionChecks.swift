@@ -164,6 +164,16 @@ enum BotProductionChecks {
                     && snapshot.approvals[0].status == "allowed"
                     && snapshot.approvals[0].parameterSummary == "删除文件",
                     "approval request projection/redaction failed")
+        // The information page re-reads the host authority on appearance. A
+        // routine created after the previous snapshot must appear on the next
+        // load instead of leaving the entry at its cached empty state.
+        _ = try await environment.routineMachine.create(
+            botId: "main", title: "刷新后的 Routine", prompt: "再次读取",
+            schedule: .interval(everyMinutes: 5, timezone: "UTC"), now: 5_100,
+            id: "routine-refresh")
+        let refreshed = try await infoDriver.load()
+        try require(refreshed.routines.contains { $0.id == "routine-refresh" },
+                    "info service refresh did not read the newly created routine")
         try await domain.close()
 
         let reopened = try SQLiteDomainStore(fileURL: databaseURL, now: { 7_000 })
@@ -304,6 +314,7 @@ enum BotProductionChecks {
 
         return [
             "session-jsonl-row-rebuild",
+            "info-refresh-reads-new-routine",
             "sqlite-watch-and-row-history",
             "plan-commit-accepted-duplicate-reopen",
             "planner-rejection-retry-and-unavailable-fail-closed",

@@ -495,18 +495,25 @@ private struct BotAutomationCardView: View {
 /// red for a failure, gray for a denial.
 private struct BotNoticeCardView: View {
     let row: BotUIRow
-    private var denial: Bool { ["denied", "denial"].contains(row.body["tone"]?.string ?? "") }
+
+    /// `tone` is a presentation hint, not a visibility gate: info notices (for
+    /// example the session-continuation line) stay neutral, while error and
+    /// denial notices use the danger/secondary treatments.
+    private var tone: String { row.body["tone"]?.string ?? "error" }
+    private var denial: Bool { ["denied", "denial"].contains(tone) }
+    private var info: Bool { ["info", "success", "warning", "neutral"].contains(tone) }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: denial ? "hand.raised" : "exclamationmark.circle")
+            Image(systemName: denial ? "hand.raised" : (info ? "info.circle" : "exclamationmark.circle"))
                 .font(.system(size: 14, weight: .medium))
             Text(row.body["text"]?.string ?? "")
                 .botCardRow()
-                .foregroundStyle(denial ? HomeSpec.textSecondary : NativeParityTokens.error)
+                .foregroundStyle(denial || info ? HomeSpec.textSecondary : NativeParityTokens.error)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(denial ? HomeSpec.textPlaceholder : NativeParityTokens.error)
+        .foregroundStyle(denial ? HomeSpec.textPlaceholder
+                         : (info ? HomeSpec.textSecondary : NativeParityTokens.error))
         .accessibilityIdentifier("bot.card.notice")
     }
 }

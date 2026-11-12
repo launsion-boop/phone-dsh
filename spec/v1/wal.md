@@ -183,16 +183,16 @@ Worker never issues it. The rewrite runs in this order:
    older generation is an ordinary `op = 3` remove. A file larger than one mutation is one
    complete write plus §3 appended suffixes; the host never writes the erased bytes. A
    tombstone is a `phone-dsh/session-erasure` event with `ignorable: true`, its original
-   `seq` and `time`, and no original content.
+   `seq` and `time`, and no original content. A line carrying a copy of an erased user/assistant message (DSH `agent/inbox/spliced`) is also an erased line and becomes a tombstone; line-for-line replacement and order are unchanged.
 4. **Durability and compaction.** Close the epoch in the §5.2 order, then compact every
    segment older than the rewrite segment under §9. Those segments are droppable: their
    mutations are at or below the watermark, their epochs are durable and listed, and they
    are neither the open epoch nor the newest epoch-close segment.
 5. **Proof.** Before returning success the host rescans `wal/` and requires that no older
    segment remains; it also requires the rewritten files to match the materialized copy and
-   removes every derived copy: `overlay-cache.tar`, `overlay-*.tar`,
-   `materialized.staging/` and `recovery-backup/`. A pending `reconcile.inprogress` refuses
-   the rewrite.
+   removes every derived copy: `overlay-cache.tar`, `overlay-*.tar`, `materialized.staging/`,
+   `recovery-backup/` and `materialized/home/storages/session_projcache/sessions/<sessionId>.json`
+   (rebuilt on demand). A pending `reconcile.inprogress` refuses the rewrite.
 
 Crash windows preserve one of two states. Before step 3 the old session is intact (the
 operation has not happened). After the first tombstone record is durable, recovery replays
