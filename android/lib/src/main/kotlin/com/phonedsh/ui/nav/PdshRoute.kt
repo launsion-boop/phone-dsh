@@ -476,15 +476,47 @@ public sealed interface PdshRoute {
 }
 
 /**
- * The page stack: a list of routes plus push/pop.
+ * The navigation state: one route stack per home tab plus the selected tab.
  *
- * The top of [stack] is the visible route. [Home] is the floor, so [pop] on the
- * root is a no-op and the back gesture can never empty the stack.
+ * `interaction.md` §4 rule 1 gives every tab an independent `NavigationStack`;
+ * switching tabs swaps which stack is visible and never clears the target's
+ * depth. [stack] is still the selected tab's stack, so a caller that renders or
+ * mutates the visible route keeps the pre-per-tab API; [selectHomeTab] restores
+ * the target tab's own stack, and re-selecting the current tab returns this value
+ * (rule 2, never pop-to-root).
+ *
+ * The top of [stack] is the visible route. A stack's floor is its tab root
+ * ([HomeTab.root]) or, on the diagnostic face, [PdshRoute.Home]; [pop] on a root
+ * is a no-op and the back gesture can never empty a stack.
  */
-public data class PdshNavState(public val stack: List<PdshRoute> = listOf(PdshRoute.Home)) {
+public data class PdshNavState(
+    public val stacks: Map<HomeTab, List<PdshRoute>> = mapOf(
+        HomeTab.TASKS to listOf(PdshRoute.Home),
+    ),
+    public val selectedTab: HomeTab = HomeTab.TASKS,
+) {
+    /**
+     * The pre-per-tab source shape: one visible stack.
+     *
+     * The tab is inferred from the stack's floor, so `PdshNavState(listOf(Chat,
+     * Settings))` still means "the tasks tab, two levels down" and
+     * `PdshNavState(listOf(Chat, Discover))` means "the discover tab at its
+     * root". A stack whose pushed page repeats a tab root does not move the tab:
+     * the first occurrence of the root is the floor, later ones are pages.
+     */
+    public constructor(stack: List<PdshRoute>) : this(
+        stacks = mapOf(inferredTab(stack) to stack),
+        selectedTab = inferredTab(stack),
+    )
+
     init {
-        require(stack.isNotEmpty()) { "the navigation stack needs at least the Home route" }
+        require(stacks.isNotEmpty()) { "the navigation state needs the selected tab's stack" }
+        require(stacks.values.all { it.isNotEmpty() }) { "a navigation stack needs at least its floor route" }
+        require(selectedTab in stacks) { "the selected tab has no stack: $selectedTab" }
     }
+
+    /** The selected tab's route stack; its top is the visible route (rule 1). */
+    public val stack: List<PdshRoute> get() = stacks.getValue(selectedTab)
 
     /** The visible route. */
     public val current: PdshRoute get() = stack.last()
@@ -492,21 +524,88 @@ public data class PdshNavState(public val stack: List<PdshRoute> = listOf(PdshRo
     /** True when a back gesture pops a page instead of leaving the app. */
     public val canGoBack: Boolean get() = stack.size > 1
 
-    /** Opens [route] on top of the current page. */
-    public fun push(route: PdshRoute): PdshNavState = copy(stack = stack + route)
+    /**
+     * How many pages sit above [tab]'s root (rules 1 and 3); a tab never opened
+     * is at its root. The first occurrence of the tab's root is its floor — a
+     * later route that repeats the root is a pushed page, not a new floor.
+     */
+    public fun depthOf(tab: HomeTab): Int {
+        val tabStack = stacks[tab] ?: return 0
+        val rootIndex = tabStack.indexOfFirst { it == tab.root }
+        val floorIndex = if (rootIndex >= 0) rootIndex else 0
+        return (tabStack.lastIndex - floorIndex).coerceAtLeast(0)
+    }
 
-    /** Pops one level; the root is a fixed point. */
-    public fun pop(): PdshNavState = if (canGoBack) copy(stack = stack.dropLast(1)) else this
+    /** Opens [route] on top of the selected tab's current page. */
+    public fun push(route: PdshRoute): PdshNavState {
+        val target = HomeTab.entries.firstOrNull { it != selectedTab && it.root == route }
+        // A tab root pushed from another tab's floor shows that tab, it is not a
+        // page over the current one. Once a page is pushed, a tab root is just a
+        // page: 会话 → 对话 pushes Chat one level above its floor.
+        if (target != null && depthOf(selectedTab) == 0) return selectHomeTab(target)
+        val next = stacks.toMutableMap()
+        next[selectedTab] = stack + route
+        return PdshNavState(next.toMap(), selectedTab)
+    }
+
+    /** Pops one level of the selected tab; the root is a fixed point. */
+    public fun pop(): PdshNavState {
+        if (!canGoBack) return this
+        val nextStack = stack.dropLast(1)
+        val nextTab = inferredTab(nextStack)
+        val next = stacks.toMutableMap()
+        if (nextTab != selectedTab) next.remove(selectedTab)
+        next[nextTab] = nextStack
+        return PdshNavState(next.toMap(), nextTab)
+    }
 
     /** Returns to the root page (the Web surface's 原生恢复 path). */
     public fun popToHome(): PdshNavState = PdshNavState()
 
-    /** Replaces the top route, keeping its depth (used by the opt-in Web face). */
-    public fun replaceTop(route: PdshRoute): PdshNavState =
-        copy(stack = stack.dropLast(1) + route)
+    /** Replaces the top route of the selected tab, keeping its depth. */
+    public fun replaceTop(route: PdshRoute): PdshNavState {
+        val nextStack = stack.dropLast(1) + route
+        val nextTab = inferredTab(nextStack)
+        val next = stacks.toMutableMap()
+        if (nextTab != selectedTab) next.remove(selectedTab)
+        next[nextTab] = nextStack
+        return PdshNavState(next.toMap(), nextTab)
+    }
 
-    /** True when [route] is already somewhere on the stack. */
+    /** True when [route] is already somewhere on the selected tab's stack. */
     public fun contains(route: PdshRoute): Boolean = stack.any { it == route }
+
+    /**
+     * `interaction.md` §4 rules 1-2: show [tab]'s own stack. A tab that has not
+     * been opened starts at its root on the current home floor; a tab that has
+     * keeps every pushed page. Re-tapping the selected tab returns this value, so
+     * it can never pop to root.
+     */
+    public fun selectHomeTab(tab: HomeTab): PdshNavState {
+        if (tab == selectedTab) return this
+        val target = stacks[tab] ?: chatFloor().let { floor ->
+            if (tab == HomeTab.TASKS) floor else floor + tab.root
+        }
+        return PdshNavState(stacks + (tab to target), tab)
+    }
+
+    /** The leading Home/Chat floor every tab root sits on (`HomeTabBar.kt`). */
+    private fun chatFloor(): List<PdshRoute> {
+        val floor = stack.takeWhile { it == PdshRoute.Home || it == PdshRoute.Chat }
+        val chatIndex = floor.indexOfFirst { it == PdshRoute.Chat }
+        return if (chatIndex >= 0) floor.take(chatIndex + 1) else floor + PdshRoute.Chat
+    }
+}
+
+/**
+ * The tab a visible stack belongs to: the route just above the Home/Chat floor
+ * when it is a non-tasks tab root, otherwise tasks. A pushed page never changes
+ * the tab.
+ */
+private fun inferredTab(stack: List<PdshRoute>): HomeTab {
+    val floorEnd = stack.takeWhile { it == PdshRoute.Home || it == PdshRoute.Chat }.size
+    val root = stack.getOrNull(floorEnd)
+    return HomeTab.entries.firstOrNull { it != HomeTab.TASKS && it.root == root } ?: HomeTab.TASKS
 }
 
 /**
