@@ -49,6 +49,12 @@ class P0CompletenessTests(unittest.TestCase):
         (pages / "home-drawer.json").write_text(
             json.dumps({"page": "HomeDrawer", "handRegistered": {"reason": "fixture"}}), encoding="utf-8"
         )
+        # The extractor's chrome gate also pins the hand-registered
+        # `NativeTurnUsageDetails` contract, so the isolated fixture carries the
+        # same real source and contract. Without them the extractor stops in
+        # check_chrome_contracts before the page comparison under test.
+        self.copy("examples/probe-app/PhoneDSHProbe/NativeMessageActions.swift")
+        self.copy("spec/ui/v1/pages/turn-usage.json")
 
         # Fake only the unrelated prerequisite and parity checkers. Each logs
         # its call and can fail independently, so the real stage must retain it.
