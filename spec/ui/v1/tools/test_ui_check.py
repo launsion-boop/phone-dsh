@@ -94,6 +94,15 @@ class UiCheckTests(unittest.TestCase):
             json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
 
+    def drawer_golden(self) -> tuple:
+        path = self.ui / "golden" / "drawer-gesture.golden.json"
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def write_drawer_golden(self, path: Path, document: dict) -> None:
+        path.write_text(
+            json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
     def read_readme(self) -> str:
         return (self.ui / "README.md").read_text(encoding="utf-8")
 
@@ -493,6 +502,47 @@ class UiCheckTests(unittest.TestCase):
         row["tokens"] = ["radius.card"]
         self.write_projection(path, document)
         self.assert_passes(run_checker(self.root))
+
+    # -- 12. drawer interaction tokens and the shared gesture golden ------
+
+    def test_drawer_scrim_opacity_value_drift_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["drawer"]["scrimMaxOpacity"]["value"] = 0.30
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.drawer.scrimMaxOpacity")
+
+    def test_drawer_token_reference_must_exist(self) -> None:
+        document = self.tokens()
+        document["interaction"]["drawer"]["width"]["token"] = "geometry.drawerWidht"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "references unknown token 'geometry.drawerWidht'")
+
+    def test_drawer_stale_expect_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["drawer"]["scrimMaxOpacity"]["expect"] = (
+            ".opacity(0.30 * drawerProgress)"
+        )
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "stale source 'NativeShell.swift:144'")
+
+    def test_drawer_golden_flipped_release_result_fails(self) -> None:
+        path, document = self.drawer_golden()
+        case = next(entry for entry in document["release"] if entry["id"] == "release-t-170-v0")
+        case["result"] = "settle"
+        self.write_drawer_golden(path, document)
+        self.assert_fails(run_checker(self.root), "drawer golden release case 'release-t-170-v0'")
+
+    def test_drawer_value_literal_must_occur_in_expect(self) -> None:
+        document = self.tokens()
+        document["interaction"]["drawer"]["closeThreshold"]["valueLiteral"] = "drawerWidth / 3"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "valueLiteral 'drawerWidth / 3' does not occur")
+
+    def test_real_files_with_drawer_interaction_pass(self) -> None:
+        result = run_checker(ROOT)
+        self.assert_passes(result)
+        self.assertIn("drawer-gesture.golden.json", result.stdout)
+        self.assertIn("22 cases recomputed", result.stdout)
 
     # -- 11. the WCAG maths itself (no subprocess) -------------------------
 

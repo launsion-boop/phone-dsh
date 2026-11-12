@@ -6,7 +6,9 @@
 //   * active component compatibility geometry, declared by the surface source
 //     inventory (and mirrored in `componentCompatibility`);
 //   * HomeSpec page geometry owned by `HomeMetrics` (its explicit CGFloat table
-//     plus the three source-anchored structural/action values).
+//     plus the three source-anchored structural/action values);
+//   * geometry referenced by a contract table such as `interaction.drawer`
+//     (the drawer width is owned by the interaction, not by a page or surface).
 //
 // A geometry token with none of those owners is an orphan: a page-private length
 // that leaked into the spec, or a surface token whose surface forgot it.
@@ -42,6 +44,7 @@ class PageGeometryTokenTest {
         val surfaceGeometry = (signatureTokens.values.flatten() + activeSurfaceReads.values.flatten())
             .filter { it.startsWith("geometry.") }
             .toSet()
+        val interactionGeometry = drawerInteractionGeometry()
         assertEquals(
             "a signature surface declares geometry that tokens.json does not define",
             emptySet<String>(),
@@ -64,10 +67,10 @@ class PageGeometryTokenTest {
             assertTrue(
                 "$token is an orphan geometry token: no signature/compatibility surface owns it and " +
                     "only ${users.size} page(s) $users read it. Every geometry token must be " +
-                    "surface-owned, used by at least 2 pages, or a PR22 HomeSpec length owned by " +
+                    "surface-owned, contract-owned, used by at least 2 pages, or a PR22 HomeSpec length owned by " +
                     "`HomeMetrics`; a one-page length keeps reusing a declared token with the " +
                     "`unverified geometry` marker instead of entering the spec.",
-                token in surfaceGeometry || users.size >= 2 || homeLength,
+                token in surfaceGeometry || token in interactionGeometry || users.size >= 2 || homeLength,
             )
         }
         // Every page-level length is a fixed point value; only a signature
@@ -80,6 +83,15 @@ class PageGeometryTokenTest {
                 entry["scalesWith"] is JsonNull,
             )
         }
+    }
+
+    /** Geometry referenced by `interaction.drawer`, the contract that owns it. */
+    private fun drawerInteractionGeometry(): Set<String> {
+        val interaction = SpecFixtures.tokens["interaction"] as? JsonObject ?: return emptySet()
+        val drawer = interaction["drawer"] as? JsonObject ?: return emptySet()
+        return drawer.members.values.mapNotNull { raw ->
+            ((raw as? JsonObject)?.get("token") as? JsonString)?.value
+        }.filter { it.startsWith("geometry.") }.toSet()
     }
 
     @Test

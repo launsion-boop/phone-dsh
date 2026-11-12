@@ -591,7 +591,7 @@ public actor RoutineScheduler {
         if successful {
             body = RoutineScheduleMath.summarize(original.text)
         } else {
-            body = "例行任務「\(original.routineTitle)」執行失敗：\(RoutineScheduleMath.summarize(original.error ?? "未知錯誤", max: 80))"
+            body = "例行任务「\(original.routineTitle)」执行失败：\(RoutineScheduleMath.summarize(original.error ?? "未知错误", max: 80))"
         }
         let rowId = RoutineDelivery.rowId(routineId: original.routineId, attempt: original.attempt)
         let key = "routine-result:\(original.routineId):\(original.runId):\(original.attempt)"

@@ -118,7 +118,7 @@ final class BotDeviceToolProviderTests: XCTestCase {
             XCTAssertEqual(effect.mutability, .externalSend, tool)
             XCTAssertEqual(effect.policy, .ask, tool)
             XCTAssertEqual(effect.resource, "device_id=device-a", tool)
-            XCTAssertTrue(effect.detail.contains("結果未知時不自動重試"), tool)
+            XCTAssertTrue(effect.detail.contains("结果未知时不自动重试"), tool)
         }
         let noDevice = BotToolEffectClassifier.effect(
             for: "mcp__phone__ble_alert", arguments: .object([:]))

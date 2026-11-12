@@ -50,7 +50,7 @@ struct BotFishGalleryView: View {
                     ForEach(Self.states, id: \.rawValue) { state in
                         VStack(spacing: 4) {
                             BotFishView(state: state, size: 96, still: true)
-                            Text(state.rawValue)
+                            Text(state.galleryDisplayName)
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(HomeSpec.textSecondary)
                                 .lineLimit(1)
@@ -72,7 +72,7 @@ struct BotFishGalleryView: View {
     private var reactionsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("reactions")
+                Text("动作与表情")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(HomeSpec.textPrimary)
                 Text("FishAction · 一次性动作 / 表情")
@@ -83,7 +83,7 @@ struct BotFishGalleryView: View {
                 ForEach(Self.reactions) { reaction in
                     VStack(spacing: 2) {
                         BotFishView(state: .idle, size: 64, still: true, reaction: reaction)
-                        Text(reaction.name)
+                        Text(reaction.galleryDisplayName)
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(HomeSpec.textSecondary)
                             .lineLimit(1)
@@ -104,10 +104,10 @@ struct BotFishGalleryView: View {
     private var crownedSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("crowned")
+                Text("主 Bot")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(HomeSpec.textPrimary)
-                Text("主 Bot · 皇冠行")
+                Text("皇冠行")
                     .font(.system(size: 11))
                     .foregroundStyle(HomeSpec.textSecondary)
             }
@@ -115,7 +115,7 @@ struct BotFishGalleryView: View {
                 ForEach(Self.crownedStates, id: \.rawValue) { state in
                     VStack(spacing: 4) {
                         BotFishView(state: state, size: 96, crowned: true, still: true)
-                        Text(state.rawValue)
+                        Text(state.galleryDisplayName)
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(HomeSpec.textSecondary)
                             .lineLimit(1)
@@ -133,7 +133,7 @@ struct BotFishGalleryView: View {
         VStack(spacing: 4) {
             BotFishView(state: .idle, size: size, crowned: true, still: true)
                 .frame(width: 96, height: 96)
-            Text("idle \(Int(size))pt")
+            Text("空闲 \(Int(size))pt")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(HomeSpec.textSecondary)
                 .lineLimit(1)
@@ -176,10 +176,15 @@ struct BotFishDynamicGalleryView: View {
                             tile(state: state, size: 28, profile: .lively,
                                  style: .generic, caption: "lively", width: 58)
                         }
-                        Text(state.rawValue)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(HomeSpec.textPrimary)
-                            .padding(.top, 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(state.galleryDisplayName)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(HomeSpec.textPrimary)
+                            Text("动画")
+                                .font(.system(size: 12))
+                                .foregroundStyle(HomeSpec.textSecondary)
+                        }
+                        .padding(.top, 8)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 20)
@@ -277,9 +282,6 @@ struct BotFishAppearanceGalleryView: View {
                             Text(hairstyle.displayName)
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(HomeSpec.textPrimary)
-                            Text(hairstyle.rawValue)
-                                .font(.system(size: 10))
-                                .foregroundStyle(HomeSpec.textSecondary)
                         }
                         LazyVGrid(columns: columns, spacing: 4) {
                             ForEach(Self.colors, id: \.rawValue) { color in
@@ -288,7 +290,7 @@ struct BotFishAppearanceGalleryView: View {
                                                 appearance: Self.appearance(color: color,
                                                                             hairstyle: hairstyle),
                                                 still: true)
-                                    Text(color.rawValue)
+                                    Text(color.displayName)
                                         .font(.system(size: 8))
                                         .foregroundStyle(HomeSpec.textSecondary)
                                         .lineLimit(1)
@@ -314,6 +316,90 @@ struct BotFishAppearanceGalleryView: View {
                                    hairstyle: BotFishHairstyle) -> BotFishAppearance {
         BotFishAppearance(color: color, hairstyle: hairstyle,
                           autoColor: false, autoHairstyle: false)
+    }
+}
+
+/// Capture-only Chinese labels. The raw enum stays in accessibility
+/// identifiers, so the acceptance screenshots show product-language labels
+/// instead of English enum values.
+private extension BotFishLifecycle {
+    var galleryDisplayName: String {
+        switch self {
+        case .idle: return "空闲"
+        case .thinking: return "思考"
+        case .streaming: return "输出中"
+        case .working: return "工作中"
+        case .sleeping: return "睡眠"
+        case .alerting: return "提醒"
+        case .listening: return "聆听"
+        case .speaking: return "说话"
+        case .happy: return "开心"
+        case .sad: return "难过"
+        case .surprised: return "惊讶"
+        case .confused: return "困惑"
+        case .laughing: return "大笑"
+        case .love: return "喜爱"
+        case .angry: return "生气"
+        case .wink: return "眨眼"
+        case .nod: return "点头"
+        case .shrug: return "耸肩"
+        case .celebrate: return "庆祝"
+        case .poke: return "戳一下"
+        case .waking: return "醒来"
+        case .waiting: return "等待"
+        case .loading: return "加载中"
+        case .done: return "完成"
+        case .standby: return "待机"
+        case .spawning: return "出现"
+        case .bouncing: return "弹跳"
+        case .dancing: return "跳舞"
+        case .waving: return "挥手"
+        case .shy: return "害羞"
+        case .smug: return "得意"
+        case .crying: return "哭泣"
+        case .sighing: return "叹气"
+        case .cheering: return "欢呼"
+        case .bowing: return "鞠躬"
+        case .clapping: return "鼓掌"
+        case .stretching: return "伸展"
+        case .yawning: return "打哈欠"
+        case .kiss: return "飞吻"
+        case .shakingHead: return "摇头"
+        case .highFive: return "击掌"
+        case .poweringDown: return "关机"
+        }
+    }
+}
+
+private extension BotFishReaction {
+    var galleryDisplayName: String {
+        switch name {
+        case "waving": return "挥手"
+        case "bowing": return "鞠躬"
+        case "clapping": return "鼓掌"
+        case "kiss": return "飞吻"
+        case "cheering": return "欢呼"
+        case "shy": return "害羞"
+        case "smug": return "得意"
+        case "crying": return "哭泣"
+        case "sighing": return "叹气"
+        case "shaking-head": return "摇头"
+        case "stretching": return "伸展"
+        case "yawning": return "打哈欠"
+        case "high-five": return "击掌"
+        case "nod": return "点头"
+        case "celebrate": return "庆祝"
+        case "dancing": return "跳舞"
+        case "happy": return "开心"
+        case "sad": return "难过"
+        case "surprised": return "惊讶"
+        case "confused": return "困惑"
+        case "laughing": return "大笑"
+        case "love": return "喜爱"
+        case "angry": return "生气"
+        case "wink": return "眨眼"
+        default: return name
+        }
     }
 }
 

@@ -318,11 +318,8 @@ private struct BotApprovalCardView: View {
                     .botCardBody()
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if scope == "none" {
-                Text("这个操作只能允许一次，不能设为总是允许。").botCardMeta()
-            }
             if row.body["persistent"]?.bool == true {
-                Text("用户不在场，已转为待办；回来后处理即可，任务会停在原地等你。")
+                Text("用户不在场，已转为待办。")
                     .botCardMeta()
                     .accessibilityIdentifier("bot.approval.persistent")
             }
@@ -428,7 +425,28 @@ private struct BotAutomationCardView: View {
         row.body.string("title", "name", "automationId") ?? automation.string("name", "automationId") ?? ""
     }
     private var schedule: String? { row.body["schedule"]?.string ?? automation["schedule"]?.string }
+    private var timezone: String? { row.body["timezone"]?.string ?? automation["timezone"]?.string }
     private var context: String? { row.body["context"]?.string ?? automation["context"]?.string }
+    private var quiet: Bool {
+        row.body["quiet"]?.bool ?? automation["quiet"]?.bool ?? false
+    }
+    private var urgent: Bool {
+        row.body["urgent"]?.bool ?? automation["urgent"]?.bool ?? false
+    }
+    /// Schedule and the human time-zone label stay on one meta line. The raw
+    /// delivery mode never appears here.
+    private var meta: String? {
+        var parts: [String] = []
+        if let schedule, !schedule.isEmpty { parts.append(schedule) }
+        if let timezone, !timezone.isEmpty {
+            parts.append(BotUIFormat.routineTimeZone(timezone))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+    private var contextText: String? {
+        guard let context else { return nil }
+        return BotUIFormat.routineAutomationContext(context)
+    }
     private var result: String? { row.body.string("text", "result") ?? automation["message"]?.string }
     private var duration: String? {
         guard let milliseconds = row.body["durationMs"]?.number ?? automation["durationMs"]?.number,
@@ -440,8 +458,21 @@ private struct BotAutomationCardView: View {
         BotCardSurface {
             VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
                 BotCardHeading(icon: "repeat", eyebrow: "例行任务", title: name,
-                               detail: [schedule, context].compactMap { $0 }.joined(separator: " · ")) {
-                    BotCardTag(text: stateTag.text, tone: stateTag.tone)
+                               detail: meta) {
+                    HStack(spacing: 4) {
+                        if urgent {
+                            BotCardTag(text: "紧急", tone: .warning)
+                        }
+                        if quiet {
+                            BotCardTag(text: "安静时段")
+                        }
+                        BotCardTag(text: stateTag.text, tone: stateTag.tone)
+                    }
+                }
+                if let contextText {
+                    Text(contextText)
+                        .botCardMeta()
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if result != nil || duration != nil {
                     BotCardDivider()

@@ -242,17 +242,17 @@ public actor ProactiveEngine: ProactiveConsidering {
         let body: String
         switch candidate.kind {
         case .taskDone:
-            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 背景任務"
+            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 后台任务"
             body = explicitBody?.isEmpty == false ? explicitBody!
-                : candidate.summary ?? candidate.taskTitle ?? "任務 \(candidate.taskId ?? "") \(statusLabel(candidate.status))"
+                : candidate.summary ?? candidate.taskTitle ?? "任务 \(candidate.taskId ?? "") \(statusLabel(candidate.status))"
         case .routineResult:
-            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 排程執行"
+            title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 定时执行"
             body = explicitBody?.isEmpty == false ? explicitBody!
                 : candidate.resultExcerpt.map { RoutineScheduleMath.summarize($0) }
-                    ?? "排程 \(candidate.routineId ?? "") \(statusLabel(candidate.status))"
+                    ?? "例行任务 \(candidate.routineId ?? "") \(statusLabel(candidate.status))"
         case .reminder:
             title = explicitTitle?.isEmpty == false ? explicitTitle! : "DSH Bot · 提醒"
-            body = explicitBody?.isEmpty == false ? explicitBody! : "提醒時間到了"
+            body = explicitBody?.isEmpty == false ? explicitBody! : "提醒时间到了"
         }
         return ProactiveNotification(title: title, body: body, kind: candidate.kind,
                                      botId: candidate.botId, dedupeKey: dedupeKey,
@@ -263,9 +263,9 @@ public actor ProactiveEngine: ProactiveConsidering {
         switch status?.lowercased() {
         case "completed", "succeeded", "ok", "sent": return "已完成"
         case "stopped", "canceled", "cancelled": return "已停止"
-        case "timed_out", "timeout", "timed-out": return "逾時"
-        case "error", "failed", "failure": return "失敗"
-        default: return status ?? "已結束"
+        case "timed_out", "timeout", "timed-out": return "超时"
+        case "error", "failed", "failure": return "失败"
+        default: return status ?? "已结束"
         }
     }
 

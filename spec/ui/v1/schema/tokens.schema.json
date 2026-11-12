@@ -289,6 +289,64 @@
             }
           }
         },
+        "interaction": {
+            "type": "object",
+            "required": ["drawer"],
+            "additionalProperties": false,
+            "properties": {
+                "drawer": {
+                    "type": "object",
+                    "required": ["width", "panelTrailingRadius", "shadow", "openMotion", "closeMotion", "settleMotion", "closedOverhang", "scrimMaxOpacity", "dragMinimumDistance", "closeThreshold", "velocityProjection"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "width": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "panelTrailingRadius": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "shadow": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "openMotion": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "closeMotion": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "settleMotion": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "closedOverhang": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "scrimMaxOpacity": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "dragMinimumDistance": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "closeThreshold": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]},
+                        "velocityProjection": {"oneOf": [
+                            {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^(geometry|radius|shadows|motion)\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 240}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}}},
+                            {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
+                        ]}
+                    }
+                }
+            }
+        },
         "signatureSurfaces": {
           "type": "object",
           "required": [
@@ -825,6 +883,12 @@
                 "type": "number",
                 "minimum": -100,
                 "maximum": 100
+              },
+              "x": {
+                "type": "number",
+                "minimum": -100,
+                "maximum": 100,
+                "description": "Horizontal shadow offset in pt. Optional; defaults to 0 when absent, matching SwiftUI's shadow y-only default. The drawer shadow sets x: 6, y: 0."
               },
               "source": {
                 "type": "string",
