@@ -187,6 +187,9 @@ public actor BotApprovalCoordinator {
 
     private struct Pending {
         let principal: BotGatewayPrincipal
+        /// The call whose registration produced this card. `/identity/cancel`
+        /// uses it to cancel exactly that call's interactive approvals.
+        let callId: String
         let effects: [BotToolEffect]
         let digest: String
         let action: String
@@ -301,7 +304,7 @@ public actor BotApprovalCoordinator {
             // Return immediately; the user decision later wakes the parked
             // task/routine through `setResolutionHandler`.
             pending[approvalId] = Pending(
-                principal: principal, effects: effects, digest: digest,
+                principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
                 alwaysScope: alwaysScope, deferConsumption: deferConsumption,
                 persistent: true, origin: origin, requestedAt: requestedAt,
@@ -314,7 +317,7 @@ public actor BotApprovalCoordinator {
         }
         return await withCheckedContinuation { continuation in
             pending[approvalId] = Pending(
-                principal: principal, effects: effects, digest: digest,
+                principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
                 alwaysScope: alwaysScope, deferConsumption: deferConsumption,
                 persistent: false, origin: origin, requestedAt: requestedAt,
@@ -481,6 +484,25 @@ public actor BotApprovalCoordinator {
         await cancelAll(
             matching: { !$0.persistent }, reason: reason,
             noticeText: "The app restarted and cancelled the pending approval.")
+    }
+
+    /// Ends the interactive approvals that belong to one cancelled
+    /// registration (`/identity/cancel`, mcp-endpoint.md §3). Every match is
+    /// closed through ``cancel(approvalId:)``: one `approval.decided` with
+    /// `deny`/`cancelled`/`consumer_cancelled`, and the waiting request gets
+    /// `approval cancelled`. Durable todos are never cancelled this way.
+    @discardableResult
+    public func cancelInteractive(sessionId: String, callId: String) async -> Int {
+        await ensureRestored()
+        let matches = pending.filter {
+            !$0.value.persistent && $0.value.principal.sessionId == sessionId
+                && $0.value.callId == callId
+        }.keys
+        var cancelled = 0
+        for id in matches {
+            if await cancel(approvalId: id) { cancelled += 1 }
+        }
+        return cancelled
     }
 
     /// Cancels only the pending cards owned by one Bot. The Bot deletion
@@ -717,6 +739,9 @@ public actor BotApprovalCoordinator {
             ?? (requestedAt + defaultDurableExpiryMilliseconds)
         return Pending(
             principal: principal(from: event),
+            // Durable todos are never cancelled by `/identity/cancel`, so the
+            // event log does not need to persist a call id for them.
+            callId: "",
             effects: effects,
             digest: data["digest"]?.stringValue ?? "",
             action: data["action"]?.stringValue ?? "",

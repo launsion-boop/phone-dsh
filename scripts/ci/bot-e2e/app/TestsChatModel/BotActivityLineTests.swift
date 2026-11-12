@@ -58,6 +58,8 @@ final class BotActivityLineTests: XCTestCase {
             .thinking: .generic,
             .reviewing: .generic,
             .messaging: .generic,
+            .waiting: .generic,
+            .replying: .generic,
             .generic: .generic,
         ]
         XCTAssertEqual(expected.count, BotActivityCategory.allCases.count)
@@ -221,6 +223,36 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(generic.text, "正在处理…")
     }
 
+    func testWaitingAndReplyingUseTheirOwnPhrasePools() {
+        let waiting = activity("", category: .waiting, startedAt: 0)
+        XCTAssertEqual(BotActivityPhrases.rotationPhrases(for: waiting), ["等你确认"])
+        XCTAssertEqual(BotActivityPhrases.primaryPhrase(for: .waiting), "等你确认")
+
+        let replying = activity("", category: .replying, startedAt: 0)
+        XCTAssertEqual(BotActivityPhrases.rotationPhrases(for: replying),
+                       ["正在回复…", "组织语言…", "写回复中…"])
+        XCTAssertEqual(BotActivityPhrases.primaryPhrase(for: .replying), "正在回复")
+    }
+
+    func testReplyingRotatesButWaitingDoesNot() {
+        var replying = BotActivityLineState()
+        replying.receive(activity("", category: .replying, startedAt: 0), at: 0,
+                         randomStart: { _ in 0 })
+        XCTAssertEqual(replying.text, "正在回复…")
+        XCTAssertEqual(replying.nextDeadline, 2_400)
+        replying.tick(at: 2_400)
+        XCTAssertEqual(replying.text, "组织语言…")
+        replying.tick(at: 4_800)
+        XCTAssertEqual(replying.text, "写回复中…")
+
+        var waiting = BotActivityLineState()
+        waiting.receive(activity("", category: .waiting, startedAt: 0), at: 0)
+        XCTAssertEqual(waiting.text, "等你确认")
+        XCTAssertNil(waiting.nextDeadline)
+        waiting.tick(at: 10_000)
+        XCTAssertEqual(waiting.text, "等你确认")
+    }
+
     func testConcreteToolTextAndModelDescriptionNeverRotate() {
         var tool = BotActivityLineState()
         tool.receive(activity("在翻文件 · report.md", category: .reading, startedAt: 0), at: 0)
@@ -304,6 +336,88 @@ final class BotActivityLineTests: XCTestCase {
                               now: Int64) -> BotRuntimePresentation {
         BotRuntimePresentationFactory.make(botID: "main", sessionID: "main",
                                            sessionEvents: events, uiEvents: [], now: now)
+    }
+
+    // MARK: - Header lifecycle
+
+    func testHeaderWorkingUsesLivelyFishAndTurnActivity() {
+        let reading = BotActivity(status: .toolRunning, detail: "在翻文件 · a.md", category: .reading)
+        let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: reading,
+                                                 pendingApprovals: 0, fishState: .working)
+        XCTAssertEqual(presence.phase, .working)
+        XCTAssertEqual(presence.line, reading)
+        XCTAssertEqual(presence.motion, .lively)
+        XCTAssertEqual(presence.workStyle, .reading)
+        XCTAssertEqual(presence.fishState, .working)
+        XCTAssertFalse(presence.lineIsQuiet)
+    }
+
+    func testHeaderWorkingBeforeFirstEventLooksBusy() {
+        let thinking = BotActivity(status: .thinking, detail: "", category: .thinking)
+        for idle in [BotFishLifecycle.idle, .sleeping, .standby] {
+            let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: thinking,
+                                                     pendingApprovals: 0, fishState: idle)
+            XCTAssertEqual(presence.fishState, .thinking, "\(idle)")
+        }
+    }
+
+    func testHeaderApprovalInsideTurnIsQuietAndAlerting() {
+        let waiting = BotActivity(status: .thinking, detail: "", category: .waiting)
+        let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: waiting,
+                                                 pendingApprovals: 1, fishState: .alerting)
+        XCTAssertEqual(presence.phase, .working)
+        XCTAssertEqual(presence.fishState, .alerting)
+        XCTAssertTrue(presence.lineIsQuiet)
+        XCTAssertEqual(presence.workStyle, .generic)
+    }
+
+    func testHeaderPendingApprovalAfterTurnKeepsStaticLine() {
+        let one = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                            pendingApprovals: 1, fishState: .alerting)
+        XCTAssertEqual(one.phase, .waitingForYou)
+        XCTAssertEqual(one.motion, .standard)
+        XCTAssertTrue(one.lineIsQuiet)
+        var line = BotActivityLineState()
+        line.receive(one.line, at: 0)
+        XCTAssertEqual(line.text, "等你确认")
+        XCTAssertNil(line.nextDeadline)
+
+        let two = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                            pendingApprovals: 2, fishState: .alerting)
+        line = BotActivityLineState()
+        line.receive(two.line, at: 0)
+        XCTAssertEqual(line.text, "2 项等你确认")
+    }
+
+    func testHeaderIdleHasNoLineAndStandardFish() {
+        let presence = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                 pendingApprovals: 0, fishState: .sleeping)
+        XCTAssertEqual(presence.phase, .idle)
+        XCTAssertNil(presence.line)
+        XCTAssertEqual(presence.motion, .standard)
+        XCTAssertEqual(presence.fishState, .sleeping)
+    }
+
+    func testHeaderProblemWinsAndJoinsLinesQuietly() {
+        let thinking = BotActivity(status: .thinking, category: .thinking)
+        let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: thinking,
+                                                 pendingApprovals: 1, fishState: .sad,
+                                                 problem: "附件「a」未附加：超限\n 附件「b」未附加：超限 \n")
+        XCTAssertEqual(presence.phase, .problem)
+        XCTAssertEqual(presence.line?.detail, "附件「a」未附加：超限；附件「b」未附加：超限")
+        XCTAssertTrue(presence.lineIsQuiet)
+        XCTAssertTrue(presence.lineIsProblem)
+        XCTAssertEqual(presence.motion, .standard)
+        XCTAssertEqual(presence.fishState, .sad)
+    }
+
+    func testHeaderBlankProblemIsIgnored() {
+        let presence = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                 pendingApprovals: 0, fishState: .idle,
+                                                 problem: " \n ")
+        XCTAssertEqual(presence.phase, .idle)
+        XCTAssertNil(presence.line)
+        XCTAssertFalse(presence.lineIsProblem)
     }
 
     private func activity(_ detail: String, category: BotActivityCategory,

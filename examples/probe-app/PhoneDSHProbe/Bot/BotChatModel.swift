@@ -67,11 +67,52 @@ enum BotUIActionState: Equatable {
     case failed(String)
 }
 
+enum BotCardSettlementTone: Equatable {
+    case neutral
+    case success
+}
+
+/// The one-line summary that replaces an interactive card once it no longer
+/// needs the user: the same shape as the approval's decided row.
+struct BotCardSettlement: Equatable {
+    var glyph: String
+    var title: String
+    var detail: String?
+    var tone: BotCardSettlementTone = .neutral
+    /// The approval detail is a command, so it keeps the monospaced style.
+    var monospacedDetail = false
+}
+
+/// Local checklist progress and the result of sending it back to the Bot.
+/// `sending` keeps the full card until the chat action is accepted; `sent`
+/// switches to the one-line summary.
+struct BotChecklistProgress: Equatable {
+    var done: Int
+    var total: Int
+    var sending = false
+    var sent = false
+}
+
+/// The checklist state a card carries into `send`.
+private struct BotChecklistSend {
+    var rowID: String
+    var done: Int
+    var total: Int
+}
+
 @MainActor
 final class BotChatModel: ObservableObject {
     @Published private(set) var rows: [BotUIRow]
     @Published private(set) var streamingText: String?
     @Published private(set) var runningTurnID: String?
+    /// A send was appended locally but the host has not started the turn yet.
+    /// The status line covers that gap too; the flag is cleared when the turn
+    /// starts, the action fails, the user stops, or the 120s fallback expires.
+    @Published private(set) var awaitingTurn = false
+    /// The user stopped this turn or its final reply arrived and the host's
+    /// `turn/end` has not arrived yet. The status line stays hidden while the
+    /// live text remains visible until the durable rows take over.
+    @Published private(set) var lineSuppressed = false
     /// The durable runtime projection: fish lifecycle and current action.
     @Published private(set) var runtimePresentation = BotRuntimePresentation()
     /// The same projection rebuilt from the live turn frames, which are the
@@ -84,8 +125,25 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var idleSleeping = false
     @Published private(set) var actionStates: [String: BotUIActionState] = [:]
     @Published private(set) var dismissedCardIDs: Set<String> = []
+    /// Approvals this local send declined automatically ("发消息时自动拒绝").
+    /// They still went through the existing approval `deny` action; the set
+    /// only changes the settled summary.
+    @Published private(set) var autoDeclinedApprovalIDs: Set<String> = []
+    @Published private(set) var checklistProgress: [String: BotChecklistProgress] = [:]
     @Published private(set) var actionLog: [String] = []
-    @Published var runtimeNotice: String?
+    /// The option picked on a choice card, kept locally so an accepted answer
+    /// can still show its label before the durable row round-trips.
+    private var answeredOptionIDs: [String: String] = [:]
+    /// The latest failure (live update, history, an action, an attachment, or
+    /// a newly arrived host error notice). It is shown only on the header
+    /// status line, clears itself after `runtimeNoticeLifetime`, and is
+    /// cleared at once by the next send. A failure that keeps repeating (the
+    /// watch loop) keeps re-arming the timer, so it stays while it lasts.
+    @Published var runtimeNotice: String? {
+        didSet { armRuntimeNoticeExpiry() }
+    }
+    static let runtimeNoticeLifetime: UInt64 = 6_000_000_000
+    private var runtimeNoticeExpiry: Task<Void, Never>?
     @Published var deepLinkError: String?
     /// The current Bot's profile appearance, mirrored from `BotProfileCenter`.
     @Published private(set) var appearance: BotFishAppearance = .classic
@@ -111,6 +169,7 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var turnProcesses: [Int: BotTurnProcess] = [:]
     private var pendingDelta = ""
     private var deltaFlush: Task<Void, Never>?
+    private var awaitingTurnTimeout: Task<Void, Never>?
     /// Live frames of the open turn, replayed through the one director mapper.
     private var liveFish: BotLiveFishProjection
     private var fishExpiryTask: Task<Void, Never>?
@@ -178,7 +237,27 @@ final class BotChatModel: ObservableObject {
     }
 
     var visibleRows: [BotUIRow] {
-        rows.filter { BotUIRendering.isRenderable($0) && !dismissedCardIDs.contains($0.id) }
+        // A dismissed question is not hidden: it settles into its one-line
+        // 「已关闭」 summary like every other handled interactive card.
+        rows.filter { BotUIRendering.isRenderable($0) && !Self.isNotice($0) }
+    }
+
+    /// Error and denial notices never enter the Bot transcript: a failure is
+    /// reported on the header status line (`runtimeNotice`), and a denial is
+    /// already the approval card's settled 「已拒绝」 line.
+    static func isNotice(_ row: BotUIRow) -> Bool {
+        row.body.type == "notice"
+    }
+
+    private func armRuntimeNoticeExpiry() {
+        runtimeNoticeExpiry?.cancel()
+        runtimeNoticeExpiry = nil
+        guard runtimeNotice != nil else { return }
+        runtimeNoticeExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.runtimeNoticeLifetime)
+            guard !Task.isCancelled else { return }
+            self?.runtimeNotice = nil
+        }
     }
 
     /// The transcript: while a turn is live its answer text is drawn from the
@@ -188,28 +267,57 @@ final class BotChatModel: ObservableObject {
         return visibleRows.filter { !(Self.isAnswer($0) && Self.turn(of: $0) == turn) }
     }
 
+    /// IDs of the interactive cards currently drawn as one-line settled
+    /// summaries. The transcript watches this set: when a card collapses the
+    /// content gets shorter while the scroll offset stays at the old bottom,
+    /// so it scrolls to the bottom once more after the collapse animation.
+    var settledRowIDs: Set<String> {
+        Set(displayRows.compactMap { row in
+            settlement(for: row) == nil ? nil : row.id
+        })
+    }
+
     static func turn(of row: BotUIRow) -> Int? { row.body["turn"]?.int }
 
     static func isAnswer(_ row: BotUIRow) -> Bool {
         row.role == "assistant" && row.body.type == "text"
     }
 
-    var pendingApprovalCount: Int {
+    /// An approval is still awaiting the user until a local decision is in
+    /// flight (`.pending`) or accepted. Excluding `.pending` makes the header
+    /// leave「等你确认」the moment the user sends the next message, before the
+    /// asynchronous deny round-trip completes.
+    private var approvalsAwaitingDecision: [BotUIRow] {
         visibleRows.filter { row in
             guard row.body.type == "approval" else { return false }
             let status = row.body["status"]?.string ?? row.body["ask"]?.object?["status"]?.string ?? "pending"
-            return status == "pending" && actionStates["approval:\(row.id)"] != .accepted
-        }.count
+            guard status == "pending" else { return false }
+            switch actionStates["approval:\(row.id)"] {
+            case .pending, .accepted: return false
+            default: return true
+            }
+        }
+    }
+
+    var pendingApprovalCount: Int {
+        approvalsAwaitingDecision.count
     }
 
     var needsAttentionCount: Int {
-        let choices = visibleRows.filter { row in
-            guard let card = BotUICardContent.parse(row: row), card.kind == .question || card.kind == .steps else {
+        let cards = visibleRows.filter { row in
+            guard let card = BotUICardContent.parse(row: row) else { return false }
+            switch card.kind {
+            case .question, .steps:
+                return !isActionPending("card:\(row.id)") && settlement(for: row) == nil
+            case .checklist:
+                guard card.body["interactive"]?.bool != false else { return false }
+                if checklistProgress[row.id]?.sending == true { return false }
+                return settlement(for: row) == nil
+            default:
                 return false
             }
-            return !mutedCardIDs.contains(row.id) && actionStates["card:\(row.id)"] != .accepted
         }.count
-        return pendingApprovalCount + choices
+        return pendingApprovalCount + cards
     }
 
     var followingCount: Int {
@@ -246,50 +354,221 @@ final class BotChatModel: ObservableObject {
         return runtimePresentation.fishState
     }
 
-    /// The single composer activity line. `BotActivity` is the factory's own
-    /// status/detail; no separate mapping lives here.
+    /// The durable drawer/header activity: the factory's own status/detail.
+    /// The status line uses `lineActivity` instead; this property keeps the
+    /// previous "running turn, no pending approval" behavior for other callers.
     var activity: BotActivity? {
         guard runningTurnID != nil, pendingApprovalCount == 0 else { return nil }
         if live != nil { return livePresentation?.activity }
         return runtimePresentation.activity
     }
 
-    /// Hide the activity line once the reply body is visible, as the DSH page
-    /// and upstream `liveActivityFor` do.
-    var isReplyStreaming: Bool {
-        if !pendingDelta.isEmpty || streamingText?.isEmpty == false { return true }
+    /// Whether reply text is arriving right now. Committed `.text` segments do
+    /// not count: once a paragraph is committed the line returns to the tool
+    /// phrase if the turn goes on to call one.
+    var isStreamingNow: Bool {
+        if !pendingDelta.isEmpty { return true }
+        if streamingText?.isEmpty == false { return true }
         guard let live else { return false }
-        if !live.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        return live.segments.contains { segment in
-            if case .text(let text) = segment {
-                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            return false
-        }
+        return !live.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// The status line spans the whole turn: from the local send (before the
+    /// host starts the turn) until final/turn end. Streaming and approvals do
+    /// not hide it; stop/final suppress it while the live text stays.
     var showsActivityLine: Bool {
-        activity != nil && !isReplyStreaming
+        if awaitingTurn { return true }
+        if runningTurnID != nil { return true }
+        if let live, !live.ended, !lineSuppressed { return true }
+        return false
     }
 
+    /// What the single status line shows, in priority order:
+    /// pending approval → waiting; streaming text → replying; the factory's
+    /// current phase; thinking fallback while waiting for the first event.
+    var lineActivity: BotActivity? {
+        guard showsActivityLine else { return nil }
+        if pendingApprovalCount > 0 {
+            return BotActivity(status: .thinking, detail: "", category: .waiting)
+        }
+        if isStreamingNow {
+            return BotActivity(status: .streaming, detail: "", category: .replying)
+        }
+        let factoryActivity = live != nil ? livePresentation?.activity : runtimePresentation.activity
+        return factoryActivity
+            ?? BotActivity(status: .thinking, detail: "", category: .thinking)
+    }
+
+    /// Interactive cards that were already on screen before the latest user
+    /// text and were never handled. Question, steps and the sendable checklist
+    /// all follow this one rule; approvals are auto-denied on send instead.
     var mutedCardIDs: Set<String> {
         guard let lastUserIndex = visibleRows.lastIndex(where: { $0.role == "user" && $0.body.type == "text" }) else {
             return []
         }
         let ordered = visibleRows
         return Set(ordered[..<lastUserIndex].compactMap { row in
-            guard let card = BotUICardContent.parse(row: row), card.kind == .question || card.kind == .steps,
+            guard let card = BotUICardContent.parse(row: row),
+                  [.question, .steps, .checklist].contains(card.kind),
                   actionStates["card:\(row.id)"] == nil else { return nil }
+            if card.kind == .checklist {
+                if let state = checklistProgress[row.id], state.sending || state.sent { return nil }
+                if card.body["interactive"]?.bool == false { return nil }
+            }
             return row.id
         })
     }
 
+    /// The single settlement rule for every interactive card kind. `nil` keeps
+    /// the full card: untouched, still sending (`.pending`), or failed and
+    /// therefore retryable.
+    func settlement(for row: BotUIRow) -> BotCardSettlement? {
+        guard let card = BotUICardContent.parse(row: row) else { return nil }
+        switch card.kind {
+        case .question, .steps:
+            return choiceSettlement(row: row, card: card)
+        case .checklist:
+            return checklistSettlement(row: row, card: card)
+        case .approval:
+            return approvalSettlement(row: row, card: card)
+        default:
+            return nil
+        }
+    }
+
+    private func choiceSettlement(row: BotUIRow, card: BotUICardContent) -> BotCardSettlement? {
+        let key = "card:\(row.id)"
+        if actionBlocksSettlement(key) { return nil }
+
+        let status = card.body["status"]?.string
+        let detail = choiceDetail(card)
+        if dismissedCardIDs.contains(row.id) || status == "dismissed" {
+            return BotCardSettlement(glyph: "xmark.circle", title: "已关闭", detail: detail)
+        }
+        if actionStates[key] == .accepted || status == "answered" {
+            let label = chosenChoiceLabel(row: row, card: card)
+            return BotCardSettlement(
+                glyph: "checkmark.circle",
+                title: label.map { "已选择：\($0)" } ?? "已送出",
+                detail: detail)
+        }
+        if mutedCardIDs.contains(row.id) {
+            return BotCardSettlement(glyph: "minus.circle", title: "已略过", detail: detail)
+        }
+        return nil
+    }
+
+    private func choiceDetail(_ card: BotUICardContent) -> String? {
+        let prompt = card.body.string("question", "prompt")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let prompt, !prompt.isEmpty { return prompt }
+        return card.kind == .steps ? "建议下一步" : nil
+    }
+
+    private func chosenChoiceLabel(row: BotUIRow, card: BotUICardContent) -> String? {
+        guard let optionID = row.body["answeredOptionID"]?.string ?? answeredOptionIDs[row.id] else {
+            return nil
+        }
+        let key = card.kind == .steps ? "steps" : "options"
+        return BotUIChoice.parseList(card.body[key]).first(where: { $0.id == optionID })?.label
+    }
+
+    private func checklistSettlement(row: BotUIRow, card: BotUICardContent) -> BotCardSettlement? {
+        guard card.body["interactive"]?.bool != false else { return nil }
+        let state = checklistProgress[row.id]
+        if state?.sending == true { return nil }
+
+        let items = BotUIChecklistItem.parseList(card.body["items"])
+        let done = state?.done ?? items.filter(\.done).count
+        let total = state?.total ?? items.count
+        let title = card.body["title"]?.string ?? ""
+        let detail = "\(title) · 已完成 \(done)/\(total)"
+        if state?.sent == true {
+            return BotCardSettlement(glyph: "checkmark.circle", title: "已发送勾选结果", detail: detail)
+        }
+        if mutedCardIDs.contains(row.id) {
+            return BotCardSettlement(glyph: "minus.circle", title: "已略过", detail: detail)
+        }
+        return nil
+    }
+
+    private func approvalSettlement(row: BotUIRow, card: BotUICardContent) -> BotCardSettlement? {
+        let key = "approval:\(row.id)"
+        if actionBlocksSettlement(key) { return nil }
+
+        let ask = card.body["ask"]?.object ?? [:]
+        let status = card.body["status"]?.string ?? ask["status"]?.string ?? "pending"
+        let action = card.body.string("action", "title", "text") ?? ask["action"]?.string ?? "操作"
+        let command = card.body.string("command", "target") ?? ask["target"]?.string ?? ""
+        let detail = command.isEmpty ? action : command
+        let autoDeclined = autoDeclinedApprovalIDs.contains(row.id)
+
+        if status == "pending" {
+            guard autoDeclined else { return nil }
+            return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
+                                     detail: detail, monospacedDetail: !command.isEmpty)
+        }
+        if autoDeclined {
+            return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
+                                     detail: detail, monospacedDetail: !command.isEmpty)
+        }
+        let allowed = status == "allowed" || status == "always"
+        let scope = card.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until"
+        let label: String
+        switch status {
+        case "allowed": label = "已允许一次"
+        case "always": label = scope == "session" ? "本次对话允许" : "已总是允许"
+        case "denied", "never": label = "已拒绝"
+        case "timed-out": label = "已超时，视为拒绝"
+        case "expired": label = "已过期，视为拒绝"
+        default: label = "已处理"
+        }
+        return BotCardSettlement(glyph: allowed ? "checkmark.circle.fill" : "xmark.circle",
+                                 title: label, detail: detail,
+                                 tone: allowed ? .success : .neutral,
+                                 monospacedDetail: !command.isEmpty)
+    }
+
     func isActionPending(_ key: String) -> Bool { actionStates[key] == .pending }
 
+    /// A card stays full while its action is in flight (existing loading) and
+    /// after a failure (the user can retry).
+    private func actionBlocksSettlement(_ key: String) -> Bool {
+        switch actionStates[key] {
+        case .pending, .failed: return true
+        default: return false
+        }
+    }
+
     func send(text: String, files: [URL] = []) {
+        send(text: text, files: files, checklist: nil)
+    }
+
+    /// The checklist view reports its local toggles so a skipped card can
+    /// still show how many items were checked at that moment.
+    func noteChecklistProgress(rowID: String, done: Int, total: Int) {
+        guard checklistProgress[rowID]?.sent != true,
+              checklistProgress[rowID]?.sending != true else { return }
+        checklistProgress[rowID] = BotChecklistProgress(done: done, total: total)
+    }
+
+    /// Sends the checklist result as a normal chat message. The card keeps its
+    /// full form while the action is in flight, then settles only when the
+    /// action is accepted; a failure re-enables the button for a retry.
+    func sendChecklist(row: BotUIRow, done: Int, total: Int, message: String) {
+        guard checklistProgress[row.id]?.sent != true,
+              checklistProgress[row.id]?.sending != true,
+              !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        checklistProgress[row.id] = BotChecklistProgress(done: done, total: total, sending: true)
+        send(text: message, files: [],
+             checklist: BotChecklistSend(rowID: row.id, done: done, total: total))
+    }
+
+    private func send(text: String, files: [URL], checklist: BotChecklistSend?) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty else { return }
         noteInteraction()
+        runtimeNotice = nil
         let nonce = UUID().uuidString
         let localID = "local-\(nonce)"
         let messageID = "att-\(Int(Date().timeIntervalSince1970 * 1_000))-\(nonce.prefix(8).lowercased())"
@@ -305,12 +584,31 @@ final class BotChatModel: ObservableObject {
                                      eventID: "local:\(nonce)")
         local.provenance.trust = "owner_direct"
         rows.append(local)
+
+        // A send is also the user's answer to every approval still awaiting a
+        // decision: mark them pending synchronously so the header and
+        // pendingApprovalCount leave「等你确认」at once, then deny them in order
+        // before the chat action below. No new protocol action is involved;
+        // this is the existing approval deny path.
+        let autoDeclines = approvalsAwaitingDecision.filter { row in
+            approvalAction(row: row, decision: .deny) != nil
+        }
+        for row in autoDeclines { actionStates["approval:\(row.id)"] = .pending }
+
+        // The line starts on the local echo and only spans a new turn; steering
+        // into an already running turn keeps the existing line. A stopped or
+        // finalized turn keeps its live text, so `live != nil` alone does not
+        // mean this send is steering.
+        if runningTurnID == nil { markAwaitingTurn() }
         if files.isEmpty, driver == nil, fixtureActions, runningTurnID == nil {
             beginTurn(turnID: "fixture-turn")
         }
         Task {
+            // One Task on the MainActor awaits each deny to completion before
+            // the chat action starts, so the driver observes deny → chat.
+            for row in autoDeclines { await autoDeclineApproval(row) }
             await importAndSend(text: trimmed, files: files, messageID: messageID,
-                                nonce: nonce, localID: localID)
+                                nonce: nonce, localID: localID, checklist: checklist)
         }
     }
 
@@ -318,7 +616,8 @@ final class BotChatModel: ObservableObject {
     /// `chat` action with the readable paths. A failed file is skipped with a
     /// notice; it never blocks the other files or the text.
     private func importAndSend(text: String, files: [URL], messageID: String,
-                               nonce: String, localID: String) async {
+                               nonce: String, localID: String,
+                               checklist: BotChecklistSend?) async {
         var imported: [BotAttachment] = []
         var notices: [String] = []
         if !files.isEmpty {
@@ -341,6 +640,8 @@ final class BotChatModel: ObservableObject {
         }
         guard !text.isEmpty || !imported.isEmpty else {
             rows.removeAll { $0.id == localID }
+            clearAwaitingTurn()
+            if let checklist { invalidateChecklistSend(checklist) }
             return
         }
         if driver == nil && fixtureActions && runningTurnID == nil {
@@ -348,13 +649,29 @@ final class BotChatModel: ObservableObject {
         }
         let action = BotUIUserAction.chat(nonce: nonce, botID: context.botID, text: text,
                                           attachments: imported.isEmpty ? nil : imported)
-        await perform(action, key: "chat:\(localID)", localRowID: localID)
+        let key = "chat:\(localID)"
+        await perform(action, key: key, localRowID: localID)
+        if let checklist {
+            if actionStates[key] == .accepted {
+                checklistProgress[checklist.rowID] = BotChecklistProgress(
+                    done: checklist.done, total: checklist.total, sent: true)
+            } else {
+                invalidateChecklistSend(checklist)
+            }
+        }
+    }
+
+    private func invalidateChecklistSend(_ checklist: BotChecklistSend) {
+        guard checklistProgress[checklist.rowID]?.sent != true else { return }
+        checklistProgress[checklist.rowID] = BotChecklistProgress(
+            done: checklist.done, total: checklist.total)
     }
 
     func answer(row: BotUIRow, optionID: String) {
         let key = "card:\(row.id)"
         guard actionStates[key] == nil || actionStates[key].map({ if case .failed = $0 { return true }; return false }) == true,
               !mutedCardIDs.contains(row.id), !optionID.isEmpty else { return }
+        answeredOptionIDs[row.id] = optionID
         actionStates[key] = .pending
         let action = BotUIUserAction.cardAnswer(nonce: UUID().uuidString, botID: row.botID,
                                                 cardID: row.id, optionID: optionID)
@@ -371,18 +688,45 @@ final class BotChatModel: ObservableObject {
     }
 
     func decide(row: BotUIRow, decision: BotUIApprovalDecision) {
+        guard let action = beginApproval(row: row, decision: decision) else { return }
+        Task { await perform(action, key: "approval:\(row.id)", localRowID: nil) }
+    }
+
+    private func beginApproval(row: BotUIRow, decision: BotUIApprovalDecision) -> BotUIUserAction? {
         let key = "approval:\(row.id)"
-        guard actionStates[key] == nil || actionStates[key].map({ if case .failed = $0 { return true }; return false }) == true,
-              let approvalID = row.body.string("approvalID", "requestId", "id")
-                ?? row.body["ask"]?.object?["requestId"]?.string,
-              let digest = row.body["digest"]?.string else { return }
+        guard actionStates[key] == nil || actionStates[key].map({ if case .failed = $0 { return true }; return false }) == true else {
+            return nil
+        }
+        guard let action = approvalAction(row: row, decision: decision) else { return nil }
         actionStates[key] = .pending
-        let action = BotUIUserAction.approval(nonce: UUID().uuidString, botID: row.botID,
-                                              approvalID: approvalID, decision: decision, digest: digest)
-        Task { await perform(action, key: key, localRowID: nil) }
+        return action
+    }
+
+    private func approvalAction(row: BotUIRow, decision: BotUIApprovalDecision) -> BotUIUserAction? {
+        guard let approvalID = row.body.string("approvalID", "requestId", "id")
+                ?? row.body["ask"]?.object?["requestId"]?.string,
+              let digest = row.body["digest"]?.string else { return nil }
+        return BotUIUserAction.approval(nonce: UUID().uuidString, botID: row.botID,
+                                        approvalID: approvalID, decision: decision, digest: digest)
+    }
+
+    /// Runs the existing deny action for an approval the user implicitly
+    /// rejected by sending the next message. The caller marked it `.pending`
+    /// synchronously; the marker for the settled text is only recorded after
+    /// the driver accepted the action.
+    private func autoDeclineApproval(_ row: BotUIRow) async {
+        let key = "approval:\(row.id)"
+        guard actionStates[key] == .pending,
+              let action = approvalAction(row: row, decision: .deny) else { return }
+        await perform(action, key: key, localRowID: nil)
+        if actionStates[key] == .accepted {
+            autoDeclinedApprovalIDs.insert(row.id)
+        }
     }
 
     func stop() {
+        clearAwaitingTurn()
+        lineSuppressed = true
         guard let turnID = runningTurnID else { return }
         cancelledTurnIDs.insert(turnID)
         runningTurnID = nil
@@ -394,12 +738,35 @@ final class BotChatModel: ObservableObject {
     }
 
     func beginTurn(turnID: String) {
+        clearAwaitingTurn()
+        lineSuppressed = false
         cancelledTurnIDs.remove(turnID)
         runningTurnID = turnID
         streamingText = nil
         sleepTask?.cancel()
         sleepTask = nil
         idleSleeping = false
+    }
+
+    /// Start the "sent, waiting for the host to open the turn" window. If no
+    /// turn starts within 120s the fallback clears it so the line cannot hang.
+    private func markAwaitingTurn() {
+        lineSuppressed = false
+        awaitingTurn = true
+        awaitingTurnTimeout?.cancel()
+        awaitingTurnTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000_000)
+            guard !Task.isCancelled, let self, self.awaitingTurn else { return }
+            self.awaitingTurnTimeout = nil
+            self.awaitingTurn = false
+        }
+    }
+
+    /// The turn started, the send failed, was dropped, or the user stopped it.
+    private func clearAwaitingTurn() {
+        awaitingTurnTimeout?.cancel()
+        awaitingTurnTimeout = nil
+        if awaitingTurn { awaitingTurn = false }
     }
 
     /// Any touch, keystroke or send wakes an idle fish and restarts the
@@ -428,7 +795,10 @@ final class BotChatModel: ObservableObject {
         if live == nil { reaction = presentation.reaction }
         guard live == nil else { return }
         if let turn = presentation.runningTurnID {
-            if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
+            if runningTurnID == nil, !cancelledTurnIDs.contains(turn) {
+                runningTurnID = turn
+            }
+            clearAwaitingTurn()
         } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
             runningTurnID = nil
             streamingText = nil
@@ -467,6 +837,7 @@ final class BotChatModel: ObservableObject {
             stream.cancel()
             streamingText = nil
             runningTurnID = nil
+            lineSuppressed = true
             guard !text.isEmpty else { return }
             upsert(BotUIRow.text(id: "stream-\(turnID)", botID: context.botID,
                                  seq: (rows.map(\.seq).max() ?? 0) + 1,
@@ -493,6 +864,18 @@ final class BotChatModel: ObservableObject {
         if !batch.deletes.isEmpty {
             let deleted = Set(batch.deletes)
             rows.removeAll { deleted.contains($0.id) }
+        }
+        // A host error notice that arrives while the page is open is reported
+        // once on the header line; history (a reset batch) never replays one.
+        if !batch.reset {
+            let known = Set(rows.map(\.id))
+            if let fresh = incoming.last(where: {
+                !known.contains($0.id) && Self.isNotice($0)
+                    && BotUIRendering.isRenderable($0)
+                    && ($0.body["tone"]?.string ?? "error") == "error"
+            }) {
+                runtimeNotice = fresh.body["text"]?.string
+            }
         }
         incoming.forEach(upsert)
         watchCursor = batch.cursor
@@ -590,11 +973,15 @@ final class BotChatModel: ObservableObject {
         switch frame {
         case .streamStart:
             pendingDelta = ""
+            if live == nil { lineSuppressed = false }
             var turn = live ?? BotLiveTurn()
             turn.buffer = ""
             live = turn
         case .textDelta(let text):
-            if live == nil { live = BotLiveTurn() }
+            if live == nil {
+                lineSuppressed = false
+                live = BotLiveTurn()
+            }
             pendingDelta += text
             guard deltaFlush == nil else { return }
             deltaFlush = Task { [weak self] in
@@ -608,12 +995,14 @@ final class BotChatModel: ObservableObject {
                 pendingDelta = ""
                 deltaFlush?.cancel()
                 deltaFlush = nil
+                lineSuppressed = false
                 live = BotLiveTurn()
                 sleepTask?.cancel()
                 sleepTask = nil
                 idleSleeping = false
             } else {
                 flushDelta()
+                if live == nil { lineSuppressed = false }
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
@@ -626,6 +1015,8 @@ final class BotChatModel: ObservableObject {
                 scheduleIdleSleep(reset: true)
             }
         }
+        // Any live frame means the host has picked up the turn.
+        if runningTurnID != nil || live != nil { clearAwaitingTurn() }
         refreshLiveFishPresentation()
     }
 
@@ -749,6 +1140,7 @@ final class BotChatModel: ObservableObject {
             let reason = result.reason ?? "动作未完成"
             actionStates[key] = .failed(reason)
             if let localRowID { rows.removeAll { $0.id == localRowID } }
+            clearAwaitingTurn()
             runtimeNotice = reason
         }
     }

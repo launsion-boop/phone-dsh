@@ -290,6 +290,50 @@ function sensitiveRead(exec: { name: string; arguments?: unknown }): boolean {
   return false
 }
 
+/**
+ * Parses the SSE answer form of `/approval` (spec/bot/v1/mcp-endpoint.md §2
+ * "Long approvals"). The stream must carry exactly one `message` event with
+ * exactly one `data:` line holding a JSON object. Every other shape is a
+ * transport failure (`undefined`), so `postApproval` fails closed.
+ */
+export function parseApprovalEventStream(text: string): ApprovalOutcome | undefined {
+  const events: { event: string; data: string[] }[] = []
+  let event = ''
+  let data: string[] = []
+  const dispatch = (): void => {
+    // An event without a `data:` field is not dispatched (SSE rules), and a
+    // comment-only block is skipped.
+    if (data.length > 0) events.push({ event: event === '' ? 'message' : event, data })
+    event = ''
+    data = []
+  }
+  // SSE lines end in CRLF, LF or CR. A line starting with `:` is a comment.
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (line === '') {
+      dispatch()
+      continue
+    }
+    if (line.startsWith(':')) continue
+    const colon = line.indexOf(':')
+    const field = colon < 0 ? line : line.slice(0, colon)
+    let value = colon < 0 ? '' : line.slice(colon + 1)
+    if (value.startsWith(' ')) value = value.slice(1)
+    if (field === 'event') event = value
+    else if (field === 'data') data.push(value)
+  }
+  if (events.length !== 1) return undefined
+  const message = events[0]!
+  if (message.event !== 'message' || message.data.length !== 1) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(message.data[0]!)
+  } catch {
+    return undefined
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  return parsed as ApprovalOutcome
+}
+
 export async function postApproval(url: string, token: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<ApprovalOutcome> {
   if (!url || !token) return { ok: false, message: 'approval gate is not configured' }
   // One host-issued egress credential per host run. Absent/empty omits the
@@ -305,11 +349,26 @@ export async function postApproval(url: string, token: string, payload: Record<s
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...egress },
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        // The listener answers a wait longer than 5 s in the SSE form; a fast
+        // outcome, or an older listener, is still JSON (mcp-endpoint.md §2).
+        accept: 'application/json, text/event-stream',
+        ...egress,
+      },
       body: JSON.stringify(payload),
       signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })
     if (!response.ok) return { ok: false, message: `approval transport failed (HTTP ${response.status})` }
+    const mediaType = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+    if (mediaType === 'text/event-stream') {
+      const outcome = parseApprovalEventStream(await response.text())
+      if (outcome === undefined) {
+        return { ok: false, message: 'approval transport failed (malformed event stream)' }
+      }
+      return outcome
+    }
     return await response.json() as ApprovalOutcome
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }

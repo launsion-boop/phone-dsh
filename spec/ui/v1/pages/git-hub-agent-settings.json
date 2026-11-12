@@ -1,0 +1,325 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "GitHubAgentSettingsPage",
+  "pageId": "git-hub-agent-settings",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "GitHub Agent",
+    "provenance": "GitHubAgentSettingsPage.swift:82",
+    "anchor": ".navigationTitle(NativeText(\"GitHub Agent\", \"GitHub agent\"))"
+  },
+  "source": {
+    "file": "GitHubAgentSettingsPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/GitHubAgentSettingsPage.swift",
+    "lines": 125,
+    "structLine": 11,
+    "renderedFrom": [
+      "body"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "GitHubAgentSettingsPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "agent-github-token",
+      "title": "Agent GitHub token",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "粘贴-fine-grained-token",
+          "label": "粘贴 fine-grained token",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubAgentSettingsPage.swift:26",
+          "anchor": "NativeText(\"粘贴 fine-grained token\", \"Paste a fine-grained token\"),",
+          "extraction": "syntax"
+        },
+        {
+          "id": "保存-token",
+          "label": "保存 token",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubAgentSettingsPage.swift:35",
+          "anchor": "Text(NativeText(\"保存 token\", \"Save token\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "删除-token",
+          "label": "删除 token",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "hasToken",
+          "provenance": "GitHubAgentSettingsPage.swift:41",
+          "anchor": "Button(NativeText(\"删除 token\", \"Delete token\"), role: .destructive) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GitHubAgentSettingsPage.swift:46",
+      "anchor": "Text(NativeText(\"Agent GitHub token\", \"Agent GitHub token\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "读取与代码搜索需要 token；写入还需要打开下面的开关，且 token 要有 Contents: write 与 Pull requests: write。Discover 里的只读连接器不会授权写入。",
+        "labelExpr": null,
+        "provenance": "GitHubAgentSettingsPage.swift:49",
+        "anchor": "\"读取与代码搜索需要 token；写入还需要打开下面的开关，且 token 要有 Contents: write 与 Pull requests: write。"
+      }
+    },
+    {
+      "id": "section-53",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "允许-agent-写入-github",
+          "label": "允许 Agent 写入 GitHub",
+          "labelExpr": null,
+          "kind": "control",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubAgentSettingsPage.swift:54",
+          "anchor": "Toggle(NativeText(\"允许 Agent 写入 GitHub\", \"Allow the agent to write to GitHub\"),",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GitHubAgentSettingsPage.swift:53",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "允许 Agent 写入 GitHub",
+        "provenance": "GitHubAgentSettingsPage.swift:54"
+      },
+      "footer": {
+        "text": "关闭时 github 仍可读取和搜索，但 commit / branch / pr 会被拒绝。",
+        "labelExpr": null,
+        "provenance": "GitHubAgentSettingsPage.swift:62",
+        "anchor": "\"关闭时 github 仍可读取和搜索，但 commit / branch / pr 会被拒绝。\","
+      }
+    },
+    {
+      "id": "section-66",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "重启引擎使设置生效",
+          "label": "重启引擎使设置生效",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GitHubAgentSettingsPage.swift:70",
+          "anchor": "Text(NativeText(\"重启引擎使设置生效\", \"Restart the engine to apply\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-74",
+          "label": null,
+          "labelExpr": "message",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let message",
+          "provenance": "GitHubAgentSettingsPage.swift:74",
+          "anchor": "Text(message).font(.footnote).foregroundStyle(SessionsPage.ink)",
+          "extraction": "manual"
+        },
+        {
+          "id": "text-77",
+          "label": null,
+          "labelExpr": "errorText",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "let errorText",
+          "provenance": "GitHubAgentSettingsPage.swift:77",
+          "anchor": "Text(errorText).font(.footnote).foregroundStyle(.red)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "GitHubAgentSettingsPage.swift:66",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-clickable-row",
+        "label": "重启引擎使设置生效",
+        "provenance": "GitHubAgentSettingsPage.swift:70"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "id": "保存-token",
+      "label": "保存 token",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ save()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubAgentSettingsPage.swift:35",
+      "anchor": "Text(NativeText(\"保存 token\", \"Save token\"))",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "删除-token",
+      "label": "删除 token",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ delete()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubAgentSettingsPage.swift:41",
+      "anchor": "Button(NativeText(\"删除 token\", \"Delete token\"), role: .destructive) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "允许-agent-写入-github",
+      "label": "允许 Agent 写入 GitHub",
+      "labelExpr": null,
+      "kind": "toggle",
+      "trigger": "tap",
+      "semantic": "binding:$allowWrites",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubAgentSettingsPage.swift:54",
+      "anchor": "Toggle(NativeText(\"允许 Agent 写入 GitHub\", \"Allow the agent to write to GitHub\"),",
+      "extraction": "syntax"
+    },
+    {
+      "id": "重启引擎使设置生效",
+      "label": "重启引擎使设置生效",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await ChatModel.shared.restartEngine() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GitHubAgentSettingsPage.swift:70",
+      "anchor": "Text(NativeText(\"重启引擎使设置生效\", \"Restart the engine to apply\"))",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    }
+  ],
+  "presentations": [],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [],
+      "data": [
+        {
+          "renders": "Agent GitHub token | untitled section at 53 | untitled section at 66",
+          "when": null,
+          "provenance": "GitHubAgentSettingsPage.swift:11",
+          "anchor": "struct GitHubAgentSettingsPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [
+        {
+          "renders": "无法写入钥匙串",
+          "when": null,
+          "provenance": "GitHubAgentSettingsPage.swift:111",
+          "anchor": "errorText = NativeText(\"无法写入钥匙串\", \"Could not write to the Keychain\")"
+        },
+        {
+          "renders": "无法删除钥匙串记录",
+          "when": null,
+          "provenance": "GitHubAgentSettingsPage.swift:122",
+          "anchor": "errorText = NativeText(\"无法删除钥匙串记录\", \"Could not delete the Keychain record\")"
+        }
+      ],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "ProgressView",
+          "when": "saving",
+          "provenance": "GitHubAgentSettingsPage.swift:36",
+          "anchor": "if saving { Spacer(); ProgressView() }"
+        }
+      ]
+    },
+    "absent": [
+      "empty",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 0,
+      "data": 1,
+      "failure": 2,
+      "unknown": 0,
+      "loading": 1
+    }
+  },
+  "subpages": [],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": []
+  }
+}

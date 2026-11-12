@@ -90,8 +90,20 @@ targets:
     deploymentTarget: '17.0'
     sources:
       - path: TestsChatModel/BotChatModelTests.swift
+      - path: TestsChatModel/BotChatModelTestShims.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProfileCenter.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotAppWiringLogic.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
@@ -110,6 +122,7 @@ targets:
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotHeaderPresence.swift
     dependencies:
       - package: PhoneDSH
         product: PhoneDSHBot
@@ -127,6 +140,7 @@ schemes:
         BotE2EApp: all
         BotE2ETests: all
         BotActivityLineTests: all
+        BotChatModelTests: all
     run:
       config: Debug
     test:
@@ -134,3 +148,17 @@ schemes:
       targets:
         - BotE2ETests
         - BotActivityLineTests
+        - BotChatModelTests
+  # Logic-only scheme for the two BotChatModel/ActivityLine suites. The full
+  # BotE2EApp scheme also pulls the production host composition (BLE/ADB
+  # packages), which is not needed to run these model-visibility tests.
+  BotChatModelUnit:
+    build:
+      targets:
+        BotActivityLineTests: all
+        BotChatModelTests: all
+    test:
+      config: Debug
+      targets:
+        - BotActivityLineTests
+        - BotChatModelTests

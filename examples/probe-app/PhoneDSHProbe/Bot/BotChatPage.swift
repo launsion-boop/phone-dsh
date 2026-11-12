@@ -26,8 +26,14 @@ struct BotChatPage: View {
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
     @State private var preservingHistoryPosition = false
-    /// Finished turns whose process row the user opened.
-    @State private var openTurns: Set<Int> = []
+    /// Height of the composer dock (notices + attachments + capsule), used to
+    /// keep the newest transcript row above it on iOS 17.
+    @State private var composerDockHeight: CGFloat = 0
+    /// Bumped by the send button so the transcript can scroll after layout.
+    @State private var sendScrollTick = 0
+    /// Pending scroll after the settled-card set changes. A newer change
+    /// cancels the older work, so a burst of collapses scrolls only once.
+    @State private var settledScrollWork: DispatchWorkItem?
     /// Files chosen but not sent yet. The optimistic user row is built from
     /// the same `BotUIAttachment` shape the durable projection returns.
     @State private var pendingAttachments: [BotDraftAttachment] = []
@@ -36,6 +42,7 @@ struct BotChatPage: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @FocusState private var composerFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(model: BotChatModel, isMainBot: Bool = false,
          cardActions: BotCardActions = BotCardActions(),
@@ -51,7 +58,8 @@ struct BotChatPage: View {
          handleExternalDeepLink: @escaping (URL) -> Bool = { _ in false },
          openDocument: ((BotUIRow) -> Void)? = nil,
          initialAttachments: [BotDraftAttachment] = [],
-         initialAttachmentNotice: String? = nil) {
+         initialAttachmentNotice: String? = nil,
+         initialDraft: String = "") {
         self.model = model
         self.cardActions = cardActions
         self.onOpenInfo = onOpenInfo
@@ -68,15 +76,20 @@ struct BotChatPage: View {
         self.openDrawer = openDrawer
         _pendingAttachments = State(initialValue: initialAttachments)
         _attachmentNotice = State(initialValue: initialAttachmentNotice)
+        _draft = State(initialValue: initialDraft)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             transcript
+                .overlay(alignment: .top) { headerStatus }
             composerDock
         }
         .background(HomeSpec.page.ignoresSafeArea())
+        .onPreferenceChange(BotComposerDockHeightKey.self) { height in
+            composerDockHeight = height
+        }
         .sheet(item: $sourceRow) { row in
             BotSourceSheet(row: row)
         }
@@ -144,30 +157,23 @@ struct BotChatPage: View {
                 onOpenInfo()
             } label: {
                 HStack(spacing: 8) {
-                    BotFishView(state: model.fishState, size: 32, appearance: model.appearance,
-                                crowned: isMainBot, reaction: model.reaction)
+                    // The only avatar on screen: its state, motion profile
+                    // and work style come from the same header lifecycle as
+                    // the status line under it.
+                    BotFishView(state: presence.fishState, size: 32, appearance: model.appearance,
+                                crowned: isMainBot, reaction: model.reaction,
+                                motionProfile: presence.motion,
+                                workStyle: presence.workStyle)
                     Text(model.botName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(HomeSpec.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if let style = headerActivityStyle {
-                        BotHeaderActivityIcon(style: style)
-                    }
                 }
                 .padding(.leading, 6)
                 .padding(.trailing, 14)
                 .frame(height: HomeSpec.navButton)
                 .background(HomeSpec.surface, in: Capsule())
-                .overlay(alignment: .topTrailing) {
-                    if model.needsAttentionCount > 0 {
-                        Circle()
-                            .fill(NativeParityTokens.error)
-                            .frame(width: 6, height: 6)
-                            .padding(.top, 4)
-                            .padding(.trailing, 6)
-                    }
-                }
                 .homeFloatingShadow()
                 .contentShape(Capsule())
             }
@@ -179,7 +185,7 @@ struct BotChatPage: View {
             HeaderActionPill(hasOnlineDevices: hasOnlineDevices,
                              connectIdentifier: "bot.connect-device",
                              menuIdentifier: "bot.header.menu",
-                             showsMenuActivityDot: model.runningTurnID != nil,
+                             showsMenuActivityDot: false,
                              onConnect: {
                                  model.noteInteraction()
                                  onConnectDevice()
@@ -194,17 +200,41 @@ struct BotChatPage: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Pending approval outranks the running status; a running turn with no
-    /// body yet shows the three-dot mark, a tool step shows the pencil.
-    private var headerActivityStyle: BotHeaderActivityIcon.Style? {
-        if model.pendingApprovalCount > 0 { return .alert }
-        guard let activity = model.activity else { return nil }
-        switch activity.status {
-        case .thinking, .streaming:
-            return .dots
-        case .toolRunning:
-            return .pencil
+    /// One lifecycle for the whole header: fish state, motion and the status
+    /// line all read this value, so they always change together.
+    private var presence: BotHeaderPresence {
+        BotHeaderPresence.resolve(turnActive: model.showsActivityLine,
+                                  lineActivity: model.lineActivity,
+                                  pendingApprovals: model.pendingApprovalCount,
+                                  fishState: model.fishState,
+                                  problem: model.runtimeNotice)
+    }
+
+    /// One centered status line right under the header capsule. It floats
+    /// over the top of the transcript on a page-colored fade instead of
+    /// taking layout space, so showing or hiding it never moves a message.
+    private var headerStatus: some View {
+        ZStack(alignment: .top) {
+            if let activity = presence.line {
+                BotActivityLine(activity: activity, quiet: presence.lineIsQuiet,
+                                problem: presence.lineIsProblem)
+                    .padding(.top, 4)
+                    .padding(.bottom, 14)
+                    .background(alignment: .top) {
+                        LinearGradient(
+                            stops: [
+                                .init(color: HomeSpec.page, location: 0),
+                                .init(color: HomeSpec.page, location: 0.55),
+                                .init(color: HomeSpec.page.opacity(0), location: 1),
+                            ],
+                            startPoint: .top, endPoint: .bottom)
+                    }
+                    .transition(.opacity.combined(with: .offset(y: -6)))
+            }
         }
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.25), value: presence.line != nil)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -252,45 +282,58 @@ struct BotChatPage: View {
                         }
                         if isEmpty {
                             emptyState
-                                .frame(minHeight: max(0, geometry.size.height - HomeSpec.blockGap - 16),
+                                .frame(minHeight: max(0, geometry.size.height - HomeSpec.blockGap - 14 - 16),
                                        alignment: .center)
                                 .accessibilityIdentifier("bot.chat.empty")
                         }
-                        let anchors = processAnchors
                         ForEach(model.displayRows) { row in
-                            if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
-                                BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
-                                    withAnimation(.easeOut(duration: 0.16)) {
-                                        if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
-                                    }
-                                }
-                                .id("process-\(turn)")
-                            }
                             transcriptRow(row)
                                 .id(row.id)
                         }
                         if let live = model.live {
                             BotLiveTurnView(live: live)
-                            Color.clear.frame(height: 1).id("bot-live-tail")
                         }
-                        if let streaming = model.streamingText {
+                        if let streaming = model.streamingText,
+                           BotAnswerBubbleContent.hasContent(streaming) {
                             BotStreamingRow(text: streaming)
                                 .id("bot-live-stream")
                         }
+                        // Scroll target shared by every "keep the newest row
+                        // above the composer" trigger below.
+                        Color.clear.frame(height: 1).id("bot-transcript-bottom")
                     }
-                    .padding(.top, HomeSpec.blockGap)
+                    // Room for the header status line, reserved at all
+                    // times so it never shifts the transcript when it shows.
+                    .padding(.top, HomeSpec.blockGap + 14)
                     .padding(.bottom, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: model.visibleRows.map(\.id)) { _, _ in
-                    guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
-                    if let last = model.visibleRows.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    scrollToBottom(proxy)
                 }
                 .onChange(of: liveScrollKey) { _, key in
-                    if key != nil { proxy.scrollTo("bot-live-tail", anchor: .bottom) }
+                    if key != nil { scrollToBottom(proxy) }
                 }
                 .onChange(of: model.streamingText) { _, value in
-                    if value != nil { proxy.scrollTo("bot-live-stream", anchor: .bottom) }
+                    if value != nil { scrollToBottom(proxy) }
+                }
+                .onChange(of: composerDockHeight) { _, _ in
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: geometry.size.height) { _, _ in
+                    // The keyboard moves the composer up and shortens the
+                    // transcript; keep the newest row above the input dock.
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: sendScrollTick) { _, _ in
+                    // Let the local echo lay out first.
+                    DispatchQueue.main.async { scrollToBottom(proxy) }
+                }
+                .onChange(of: model.settledRowIDs) { _, _ in
+                    // Cards collapsing into one-line summaries shrink the
+                    // content; the send-scroll above ran against the old
+                    // height, so run once more after the 0.25s animation.
+                    scheduleSettledScroll(proxy)
                 }
                 .onChange(of: model.scrollRequestID) { _, rowID in
                     guard let rowID else { return }
@@ -340,37 +383,15 @@ struct BotChatPage: View {
 
     private var composerDock: some View {
         VStack(spacing: 8) {
-            if model.showsActivityLine, let activity = model.activity {
-                BotActivityLine(activity: activity, fishState: model.fishState,
-                                appearance: model.appearance, reaction: model.reaction)
-                    .transition(.opacity.combined(with: .offset(y: 6)))
-            }
-            if let notice = model.runtimeNotice {
-                // DSH composer notice: one 13pt line above the card, dismissible.
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "exclamationmark.circle")
-                        .font(.system(size: 13))
-                    Text(notice)
-                        .font(.system(size: 13))
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button { model.runtimeNotice = nil } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭提示")
-                }
-                .foregroundStyle(BotUIPalette.danger)
-                .padding(.horizontal, 4)
-            }
+            // Failures are reported once, on the header status line; the
+            // composer carries no notice of its own.
             attachmentTray
-            // Grok-style capsule composer: one white r26 capsule with the
-            // 36pt attach button leading, the growing text field in the
-            // middle, and one 36pt send/stop button trailing. No microphone
-            // and no voice mode.
+            // Grok-style composer: one white r26 rounded card with the 36pt
+            // attach button leading, the growing text field in the middle,
+            // and one 36pt send/stop button trailing. Unlike a Capsule, the
+            // 26pt corner stays put when the field wraps to five lines, so
+            // the bottom-aligned buttons never land on the curved edge. No
+            // microphone and no voice mode.
             BotComposerLayout {
                 Menu {
                     Button {
@@ -407,16 +428,21 @@ struct BotChatPage: View {
                 composerActionButton
             }
             .frame(minHeight: 52)
-            .background(HomeSpec.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
+            .background(HomeSpec.surface,
+                        in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .strokeBorder(HomeSpec.borderList, lineWidth: 0.5))
             .homeComposerShadow()
             .simultaneousGesture(TapGesture().onEnded { model.noteInteraction() })
         }
-        .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.activity != nil)
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, 8)
         .padding(.bottom, 8)
         .background(HomeSpec.page)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: BotComposerDockHeightKey.self,
+                                   value: proxy.size.height)
+        })
         .accessibilityElement(children: .contain)
     }
 
@@ -578,22 +604,35 @@ struct BotChatPage: View {
         return nil
     }
 
-    /// The first answer row of each turn that has tool steps carries that
-    /// turn's process row above it, as on the DSH page.
-    private var processAnchors: [String: Int] {
-        var anchors: [String: Int] = [:]
-        var seen: Set<Int> = []
-        for row in model.displayRows where BotChatModel.isAnswer(row) {
-            guard let turn = BotChatModel.turn(of: row), model.turnProcesses[turn] != nil,
-                  seen.insert(turn).inserted else { continue }
-            anchors[row.id] = turn
-        }
-        return anchors
-    }
-
     private var liveScrollKey: String? {
         model.live.map { live in
-            "\(live.segments.count):\(live.buffer.count):\(live.tools.count):\(live.ended)"
+            "\(live.segments.count):\(live.buffer.count):\(live.ended)"
+        }
+    }
+
+    /// Keep the newest content (live text, local echo) above
+    /// the composer, except while the user is loading older history or a deep
+    /// link is centering a specific row.
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
+        proxy.scrollTo("bot-transcript-bottom", anchor: .bottom)
+    }
+
+    /// A settled card collapses with a 0.25s animation; wait for it to finish
+    /// (no wait under reduce motion) before giving the shorter transcript one
+    /// more scroll. A newer change replaces the pending one.
+    private func scheduleSettledScroll(_ proxy: ScrollViewProxy) {
+        settledScrollWork?.cancel()
+        guard !preservingHistoryPosition, model.scrollRequestID == nil else {
+            settledScrollWork = nil
+            return
+        }
+        let work = DispatchWorkItem { scrollToBottom(proxy) }
+        settledScrollWork = work
+        if reduceMotion {
+            DispatchQueue.main.async(execute: work)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
         }
     }
 
@@ -632,6 +671,7 @@ struct BotChatPage: View {
         pendingAttachments = []
         attachmentNotice = nil
         model.send(text: text, files: files)
+        sendScrollTick &+= 1
         composerFocused = true
     }
 
@@ -652,6 +692,17 @@ struct BotChatPage: View {
             if let anchor { proxy.scrollTo(anchor, anchor: .top) }
             preservingHistoryPosition = false
         }
+    }
+}
+
+/// The composer dock's rendered height (notices and attachments included), so the
+/// transcript can scroll when it grows or shrinks. Measured with
+/// GeometryReader + PreferenceKey to stay on iOS 17.
+private struct BotComposerDockHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -902,6 +953,12 @@ private struct BotAnswerBubbleContent: View {
     let text: String
     let streaming: Bool
 
+    /// An empty or whitespace-only chunk (the first delta is often just a
+    /// newline) must not flash an empty bubble under the transcript.
+    static func hasContent(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         BotContentWidth {
             NativeMarkdownBody(markdown: text, streaming: streaming, onOpenFile: { _ in })
@@ -917,45 +974,22 @@ private struct BotAnswerBubbleContent: View {
     }
 }
 
-/// A finished turn's process row ("已完成，用时 …"); open, it lists the
-/// turn's tool calls as DSH tool rows.
-private struct BotTurnProcessBlock: View {
-    let process: BotTurnProcess
-    let isOpen: Bool
-    let onToggle: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NativeTurnProcessRow(state: process.state, isOpen: isOpen, isFoldable: true, onToggle: onToggle)
-            if isOpen {
-                ToolRunRow(items: process.items)
-            }
-        }
-        .padding(.horizontal, HomeSpec.contentInset)
-        .padding(.vertical, HomeSpec.blockGap / 2)
-    }
-}
-
-/// The running turn in arrival order: committed text bubbles, tool groups,
-/// the text still streaming, then DSH's running clock.
+/// The running turn in arrival order: committed text bubbles, then the text
+/// still streaming. Tool calls are not rendered in the Bot transcript; they
+/// exist only as the activity line's category/phrase.
 private struct BotLiveTurnView: View {
     let live: BotLiveTurn
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(live.segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .text(let text):
+                if case .text(let text) = segment, BotAnswerBubbleContent.hasContent(text) {
                     BotAnswerBubbleContent(text: text, streaming: false)
-                        .padding(.horizontal, HomeSpec.contentInset)
-                        .padding(.vertical, HomeSpec.blockGap / 2)
-                case .tools(let ids):
-                    ToolRunRow(items: live.tools(for: ids))
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 }
             }
-            if !live.buffer.isEmpty {
+            if BotAnswerBubbleContent.hasContent(live.buffer) {
                 BotAnswerBubbleContent(text: live.buffer, streaming: true)
                     .padding(.horizontal, HomeSpec.contentInset)
                     .padding(.vertical, HomeSpec.blockGap / 2)

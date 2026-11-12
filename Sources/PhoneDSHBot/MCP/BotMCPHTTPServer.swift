@@ -81,7 +81,19 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
 
     /// The §2 decision: only a single `tools/call` from a client that explicitly accepts SSE.
     public static func streamsLongCall(method: String, batch: Bool, accept: String?) -> Bool {
-        guard method == "tools/call", !batch, let accept else { return false }
+        guard method == "tools/call", !batch else { return false }
+        return acceptsEventStream(accept)
+    }
+
+    /// The §2 decision for a long approval: a request that explicitly lists
+    /// `text/event-stream` is answered with the SSE framing once its outcome is
+    /// not ready within `streamAfter`. `*/*` is not an explicit accept.
+    public static func streamsLongApproval(accept: String?) -> Bool {
+        acceptsEventStream(accept)
+    }
+
+    private static func acceptsEventStream(_ accept: String?) -> Bool {
+        guard let accept else { return false }
         return accept.split(separator: ",").contains { range in
             let mediaType = range.split(separator: ";").first.map(String.init) ?? ""
             return mediaType.trimmingCharacters(in: .whitespaces).lowercased() == "text/event-stream"
@@ -452,14 +464,24 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
             let reply = await handler.cancelIdentity(value)
             send(.json(200, reply), on: connection)
         case "/approval":
+            // A long approval answers in the SSE form only when the Worker
+            // explicitly accepts it; a fast outcome keeps the unchanged JSON.
+            if Self.streamsLongApproval(accept: request.headers["accept"]) {
+                await respondAllowingStream(session: false, on: connection) {
+                    await self.handler.approval(value)
+                }
+                return
+            }
             let reply = await handler.approval(value)
             send(.json(200, reply), on: connection)
         case "/mcp":
             if value.arrayValue == nil, case .object(let object) = value,
                case .string(let method)? = object["method"], let id = object["id"],
                Self.streamsLongCall(method: method, batch: false, accept: request.headers["accept"]) {
-                await respondAllowingStream(method: method, params: object["params"] ?? .object([:]), id: id,
-                                            headers: request.headers, on: connection)
+                await respondAllowingStream(session: true, on: connection) {
+                    await self.handler.rpc(method: method, params: object["params"] ?? .object([:]),
+                                           id: id, headers: request.headers)
+                }
                 return
             }
             let messages = value.arrayValue ?? [value]
@@ -488,19 +510,26 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
 
     /// A reply ready within `streamAfter` is the usual JSON; a later one is an SSE stream:
     /// head now, `: keepalive` every `keepaliveInterval`, then one `event: message` (§2).
-    private func respondAllowingStream(method: String, params: BotJSONValue, id: BotJSONValue,
-                                       headers: [String: String], on connection: NWConnection) async {
+    ///
+    /// One loop serves a long `tools/call` (which carries the MCP session
+    /// header) and a waiting `/approval` (which never does); only `session`
+    /// changes the head bytes. `produce` owns the handler call, so the approval
+    /// continuation keeps waiting after the peer goes away: a dropped
+    /// connection is not a cancellation signal (§3).
+    private func respondAllowingStream(session: Bool, on connection: NWConnection,
+                                       produce: @escaping @Sendable () async -> BotJSONValue) async {
         let reply = BotReplyBox()
-        let handler = self.handler
-        Task { reply.finish(await handler.rpc(method: method, params: params, id: id, headers: headers)) }
+        Task { reply.finish(await produce()) }
         if let ready = await reply.wait(upTo: longCallTiming.streamAfter) {
-            send(.json(200, ready, session: true), on: connection)
+            send(.json(200, ready, session: session), on: connection)
             return
         }
         var head = "HTTP/1.1 200 OK\r\n"
         head += "Content-Type: text/event-stream\r\n"
         head += "Cache-Control: no-cache\r\n"
-        head += "Mcp-Session-Id: \(handler.mcpSessionId)\r\n"
+        if session {
+            head += "Mcp-Session-Id: \(handler.mcpSessionId)\r\n"
+        }
         head += "Connection: close\r\n\r\n"
         let peer = BotStreamPeer()
         connection.send(content: Data(head.utf8), completion: .contentProcessed { error in if error != nil { peer.lost() } })
@@ -513,7 +542,9 @@ public final class BotMCPHTTPServer: @unchecked Sendable {
                 connection.send(content: event, completion: .contentProcessed { _ in connection.cancel() })
                 return
             }
-            // The peer went away: the call keeps running and its receipt stays the authority.
+            // The peer went away: a call keeps running with its receipt as the
+            // authority, and an approval keeps waiting for the user. Only the
+            // keepalive writes stop; neither is cancelled from here.
             if peer.isLost { connection.cancel(); return }
             connection.send(content: Self.keepaliveBytes, completion: .contentProcessed { error in if error != nil { peer.lost() } })
         }

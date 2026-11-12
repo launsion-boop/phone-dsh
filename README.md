@@ -6,6 +6,8 @@
 
 **[在 App Store 下载 iPhone 版](https://apps.apple.com/app/phone-dsh/id6828310755)**
 
+**[下载 Android APK 和 HarmonyOS HAP](https://github.com/launsion-boop/phone-dsh/releases/latest)**
+
 [English](README.en.md) · [Bot 功能](#bot-功能) · [Android 版本](#android-版本) · [架构说明](docs/architecture.md) · [协议基线与协作](spec/README.md) · [协议规范](spec/v1/README.md)
 
 <p align="center">

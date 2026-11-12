@@ -127,6 +127,27 @@ the existing Bot JSON-RPC messages and the existing BotEvent log.
   progress or a result; a connection that drops mid-stream leaves the call's
   receipt as the authority (native tools: [native-mcp.md](../../v1/native-mcp.md)).
   Shared cases: [golden/mcp-long-call/cases.json](../../v1/golden/mcp-long-call/cases.json).
+- **Long approvals.** An interactive `/approval` waits for the user for up to
+  the 300 s approval timeout, far longer than either 60 s idle limit. A
+  `/approval` request whose `Accept` lists `text/event-stream` (the same
+  explicit-media-type rule as long tool calls; `*/*` is not an SSE accept) and
+  whose outcome is not ready after 5 s is answered with the same framing as a
+  long tool call: `200` `Content-Type: text/event-stream` at that moment (no
+  `Content-Length`, no `Mcp-Session-Id`), `: keepalive` every 15 s, then exactly
+  one `event: message` whose single `data:` line is the unchanged approval
+  outcome JSON object (`ok`, `allowed`, `approvalId`, `message`, `pending`,
+  `expiresAt` as before), then the connection closes. An outcome ready within
+  5 s (standing grants, durable `pending:true`, invalid requests) and a request
+  without an explicit SSE accept keep the unchanged `application/json` answer.
+  The Worker's approval client (`postApproval`, shared by `approval-gate` and
+  `sandbox-approval`) sends `Accept: application/json, text/event-stream` and
+  reads either form. In the stream form it accepts exactly one `event: message`
+  with one `data:` line holding a JSON object; anything else (no message event
+  before close, two message events, a non-JSON or non-object `data:`, another
+  event name) is a transport failure and fails closed (`ok:false`, the tool call
+  is not executed). The overall bound is unchanged: the App's 300 s approval
+  timeout and the Worker's 330 s client timer. Shared cases: the `approval`
+  block of [golden/mcp-long-call/cases.json](../../v1/golden/mcp-long-call/cases.json).
 - `initialize` advertises the Bot server as `phone`; when a native forwarder is
   attached, native `instructions` are merged. `tools/list` returns the Bot
   catalog plus the native tools (Bot names win on collision). `tools/call`
@@ -186,6 +207,21 @@ the existing Bot JSON-RPC messages and the existing BotEvent log.
   aborted call or an engine restart cancels the registration. A registration
   also expires after the approval window; it may not expire while its approval
   card is pending, so registration lifetime ≥ 300 s approval timeout.
+- A cancelled registration ends its call's interactive approvals. When
+  `/identity/cancel` removes a registration, the App cancels every
+  **interactive** (non-durable) approval still pending for that registration's
+  principal session and `callId` — structural and egress origin alike — exactly
+  as `BotApprovalCoordinator.cancel(approvalId:)` already does: one
+  `approval.decided` with `decision:"deny"`, `status:"cancelled"`,
+  `reason:"consumer_cancelled"` (no new status or reason value), the card leaves
+  the pending state, and any request still waiting on it is answered
+  `{ok:false, allowed:false, message:"approval cancelled"}`. Durable approvals
+  (`pending:true` todos) are never cancelled this way: their first attempt ends
+  with a denied gate and a cancelled registration by design
+  ([README §2.7](README.md)). The host
+  egress keeps an upstream `/approval` request running after its Worker consumer
+  went away (P05 response-log rule), so a dropped connection is not a
+  cancellation signal; the Worker's paired `/identity/cancel` is.
 - The App accepts registrations only for Bot tools, `bash`, `write`, `edit`,
   `phone` and the registered device tools. An unknown tool is answered
   `unknown_tool` and the Worker must not block unrelated built-ins on it.
@@ -270,6 +306,17 @@ allowed only when the caller has no durable identity. `mode` remains
   `text/event-stream`, and every call answered within 5 s, keep the unchanged
   `application/json` answer; an older listener answers JSON as before, so a
   long call there still meets the 60 s idle limits.
+- **Long approvals (§2) and cancel cascade (§3)**
+  (PC-20261112-bot-approval-keepalive). New App + old Worker: the old
+  `postApproval` sends no SSE accept, gets JSON, and a card left longer than 60 s
+  still fails the call with `PDSH_DELIVERY_TIMEOUT`; the cascade still closes
+  that card when the old Worker's paired `/identity/cancel` arrives. Old App +
+  new Worker: the old listener ignores `Accept` and answers JSON, which the new
+  client still reads; no cascade, so the zombie card remains until the 300 s
+  timeout as before. New + new: the wait is bounded only by the approval
+  timeout, and a call that ends early closes its card. No route, field, header,
+  status, reason or error code is added; no persisted data changes and rollback
+  needs no migration.
 - Native-only configurations keep the pre-existing `/mcp/native` environment.
   An older App that still writes `/mcp/native` into the Worker environment is not
   affected by this contract; a newer App paired with this Worker forwards native

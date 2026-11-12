@@ -120,6 +120,15 @@ error, never the default format printed as if the request had succeeded.
 
 ## Shallow and single-branch clones
 
+A bare `git clone <url>` (optional `-b <branch>` and `-q`) is the phone
+default: `--depth 1 --single-branch --no-tags`. stderr names that default.
+`--single-branch`, `--no-tags`, `--filter=blob:none` and `--sparse` do not
+disable it; they refine the same one-commit shape. Only `--full` or an explicit
+`--depth` chooses a different history shape. `--full` keeps every branch, the
+whole history and tags, and may be combined with `--single-branch`,
+`--no-tags`, `--filter=blob:none` and `--sparse`. `--full` combined with
+`--depth` is an error and writes nothing.
+
 `clone`, `fetch` and `pull` implement git's smart-HTTP v0 shallow
 negotiation; the server must advertise the `shallow` capability (otherwise the
 command fails and says so).
@@ -133,6 +142,8 @@ command fails and says so).
   Without `-b` the remote HEAD symref chooses the branch. Reachable tags still
   follow through `include-tag`, exactly like git.
 - `--no-tags` skips tag wants and writes `remote.origin.tagOpt = --no-tags`.
+  The phone default already has it; combine it with `--full` for a full clone
+  without tags.
 - `fetch --depth <n>` deepens an existing shallow clone. Without `--depth`, a
   shallow repository sends its current boundaries as `shallow <oid>` lines so
   the server can compute the correct incremental pack; both forms update
@@ -330,12 +341,23 @@ file here imports `node:zlib` again. The adapter boundaries stay `GitFs` and
   is consumed by at most one deletion, and a pathspec restricts both snapshots
   before rename pairing, so selecting only one side of a rename produces that
   side's deletion or addition, as git does.
-- Smart-HTTP v0 only: protocol v2, dumb HTTP, file remotes, `--bare`,
-  `--mirror`, partial clones (`--filter`), `--shallow-since`/`--shallow-exclude`
-  and `--unshallow` are not implemented. A received pack is stored whole with a
-  freshly built index that the system git can read.
+- Smart HTTP is v0 for an ordinary clone/fetch. `clone --filter=blob:none`
+  uses protocol v2 when the server advertises `fetch` `filter` (git needs
+  `uploadpack.allowFilter`). The commit/tree pack is still stored whole, with
+  an empty `pack-*.promisor` sidecar; missing blobs are fetched on demand for
+  checkout, show and diff. Other `--filter` values, `fetch --filter`,
+  `--shallow-since`/`--shallow-exclude` and `--unshallow` are not implemented.
+  Dumb HTTP, file remotes, `--bare` and `--mirror` are not implemented.
+- `git sparse-checkout` cone mode (`init --cone`, `set`, `add`, `list`,
+  `disable`) checks out root files plus the named directories and marks the
+  rest skip-worktree. Non-cone patterns and `git worktree` are not implemented.
+  `--sparse` on clone starts in the root-only cone. A path whose work-tree
+  file or index entry differs from HEAD is left in place and named in a
+  warning; it is never overwritten or deleted.
+- A received pack is stored whole with a freshly built index that the system
+  git can read. The delta-base cache is 32 MiB (`PACK_DELTA_CACHE_BYTES`).
 - No hooks, `.gitattributes` filters, autocrlf, commit signing, replace
-  objects, sparse checkout or multi-pack-index.
+  objects or multi-pack-index.
 - Nothing in this package has run on an iPhone. iOS/WebKit behaviour is
   **NOT_VERIFIED**; the Phase 0 probe package owns that measurement. The
   package is exercised by `node --test` on the build host (macOS, Node 24) and
