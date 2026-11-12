@@ -113,6 +113,8 @@ import com.phonedsh.platform.android.AndroidDurability
 import com.phonedsh.platform.android.AndroidLifecycleSignals
 import com.phonedsh.platform.android.ProotRuntime
 import com.phonedsh.platform.android.UbuntuRootfsStore
+import com.phonedsh.probe.pc.PcLinkWorkspace
+import com.phonedsh.probe.pc.PcWorkspaceController
 import com.phonedsh.shell.AcceleratorMount
 import com.phonedsh.shell.AcceleratorLimits
 import com.phonedsh.ui.page.ShellLimits
@@ -1103,6 +1105,23 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     /** The per-start token source; also authenticates the App's egress probe. */
     private val launchToken = SecureLaunchToken()
+
+    /**
+     * The App's one PC workspace seam (C5): the real `PclinkClient`, its RPC,
+     * the DSH transport and the P18 store. The controller is built here and
+     * released in [onCleared]; no page in `:lib` sees a `:pclink` type.
+     *
+     * Construction performs no network dial and no Keystore read: the client
+     * loads/generates its identity and starts a connection job only after
+     * [start]. A failure to build the workspace (for example a device whose
+     * Keystore cannot create the store) leaves the phone backend usable and
+     * the PC page reporting unavailable.
+     */
+    internal val pcWorkspace: PcWorkspaceController? = runCatching {
+        PcLinkWorkspace.create(application).controller()
+    }.onFailure { error ->
+        Log.w(TAG_TURN, "PC workspace unavailable: ${error.javaClass.simpleName}")
+    }.getOrNull()
 
     // ---- construction order: engine first, then the host --------------------
     // The host needs the engine, and the engine needs the host's frame consumer.
@@ -2245,6 +2264,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
         // run on the host's scope. Observe engine.state for the outcome.
         host.start()
+        // C5: observe the PC client and load the identity/record in the
+        // background. With no record this only creates the first-run identity;
+        // it never dials the relay.
+        pcWorkspace?.start()
         // The runtime page's uptime is the length of the current Running spell,
         // measured on the monotonic clock so a wall-clock change cannot move it.
         // A host that could not recover its WAL advertises no `wal/1`; the worker
@@ -4358,6 +4381,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     override fun onCleared() {
         turnScope.cancel()
+        pcWorkspace?.close()
         chatIo.cancel()
         host.stop()
         // The App's process scope normally makes this unreachable (the view
