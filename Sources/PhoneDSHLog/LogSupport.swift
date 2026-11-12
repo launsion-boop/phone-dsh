@@ -588,12 +588,17 @@ enum LogFile {
                     if errno == EINTR { continue }
                     throw LogError.posix(operation: "write", code: errno)
                 }
+                // budgets.md §7 `bytes_written_per_turn`: count what the
+                // kernel accepted, after the existing write returns.
+                WorkspaceLogIOCounters.recordBytesWritten(written)
                 offset += written
             }
         }
     }
 
     static func fsync(fd: Int32) throws {
+        // budgets.md §7 `fsync_calls_per_turn`: one count per syscall issued.
+        WorkspaceLogIOCounters.recordFsyncCalls()
         guard Darwin.fsync(fd) == 0 else {
             throw LogError.posix(operation: "fsync", code: errno)
         }
@@ -601,6 +606,7 @@ enum LogFile {
 
     /// `F_FULLFSYNC`: the level-2 durability primitive of D7/D18.
     static func fullFsync(fd: Int32) throws {
+        WorkspaceLogIOCounters.recordFsyncCalls()
         guard fcntl(fd, F_FULLFSYNC) == 0 else {
             throw LogError.posix(operation: "F_FULLFSYNC", code: errno)
         }
@@ -621,6 +627,7 @@ enum LogFile {
             throw LogError.posix(operation: "open directory", code: errno)
         }
         defer { Darwin.close(descriptor) }
+        WorkspaceLogIOCounters.recordFsyncCalls()
         guard Darwin.fsync(descriptor) == 0 else {
             throw LogError.posix(operation: "fsync directory", code: errno)
         }
