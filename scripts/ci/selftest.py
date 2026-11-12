@@ -88,6 +88,7 @@ PIN = json.dumps(
 
 MODULES = [
     "PhoneDSHWire",
+    "PhoneDSHStandardError",
     "PhoneDSHLog",
     "PhoneDSHLoopback",
     "PhoneDSHGateway",
@@ -107,7 +108,7 @@ def line_of(text, needle):
 
 
 def package_text(
-    gateway_dependencies='"PhoneDSHAgentCore"',
+    gateway_dependencies='"PhoneDSHAgentCore", "PhoneDSHStandardError"',
     wire_dependencies="",
     engine_has_tests=True,
     include_xz_shell=True,
@@ -131,14 +132,15 @@ def package_text(
         "let modules: [Module] = [\n"
         f'    Module(name: "PhoneDSHAgentCore"{agent_core_extra}),\n'
         f'    Module(name: "PhoneDSHWire"{wire_extra}),\n'
-        '    Module(name: "PhoneDSHLog", dependencies: ["PhoneDSHWire"]),\n'
+        '    Module(name: "PhoneDSHStandardError"),\n'
+        '    Module(name: "PhoneDSHLog", dependencies: ["PhoneDSHWire", "PhoneDSHStandardError"]),\n'
         '    Module(name: "PhoneDSHLoopback",\n'
-        f'           dependencies: ["PhoneDSHWire", "PhoneDSHAgentCore"]'
+        f'           dependencies: ["PhoneDSHWire", "PhoneDSHAgentCore", "PhoneDSHStandardError"]'
         f"{loopback_test_extra}),\n"
         '    Module(name: "PhoneDSHGateway",\n'
         f"           dependencies: [{gateway_dependencies}]),\n"
         '    Module(name: "PhoneDSHController",\n'
-        '           dependencies: ["PhoneDSHWire", "PhoneDSHLog"]),\n'
+        '           dependencies: ["PhoneDSHWire", "PhoneDSHLog", "PhoneDSHStandardError"]),\n'
         f'    Module(name: "PhoneDSHEngine", dependencies: ["PhoneDSHLoopback"]{engine_extra}),\n'
         f"{pdsh_entry}"
         '    Module(name: "PhoneDSH",\n'

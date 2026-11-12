@@ -12,7 +12,7 @@ XiaozhiLinkProviders / XiaozhiLinkAgent / XiaozhiLinkExecBridge again.  That
 also holds for the phone test targets, which build the exec-bridge seam from
 in-test doubles instead of linking the real modules.  The checker also requires
 a test target per module, forbids PhoneDSH / XiaozhiLinkToolbox edges, and
-rejects ``@MainActor`` in the eight new module directories.
+rejects ``@MainActor`` in the phone module directories.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import common
 
 PHONE_MODULES = [
     "PhoneDSHWire",
+    "PhoneDSHStandardError",
     "PhoneDSHLog",
     "PhoneDSHLoopback",
     "PhoneDSHGateway",
@@ -38,6 +39,7 @@ PHONE_MODULES = [
 
 SHORT_NAMES = {
     "PhoneDSHWire": "PhoneWire",
+    "PhoneDSHStandardError": "StandardError",
     "PhoneDSHLog": "PhoneLog",
     "PhoneDSHLoopback": "PhoneLoopback",
     "PhoneDSHGateway": "PhoneGateway",
@@ -66,10 +68,11 @@ SHORT_NAMES = {
 
 EXPECTED = {
     "PhoneDSHWire": set(),
-    "PhoneDSHLog": {"PhoneWire"},
-    "PhoneDSHLoopback": {"PhoneWire", "AgentCore"},
-    "PhoneDSHGateway": {"AgentCore"},
-    "PhoneDSHController": {"PhoneWire", "PhoneLog"},
+    "PhoneDSHStandardError": set(),
+    "PhoneDSHLog": {"PhoneWire", "StandardError"},
+    "PhoneDSHLoopback": {"PhoneWire", "AgentCore", "StandardError"},
+    "PhoneDSHGateway": {"AgentCore", "StandardError"},
+    "PhoneDSHController": {"PhoneWire", "PhoneLog", "StandardError"},
     "PhoneDSHEngine": {"PhoneLoopback"},
     "PhoneDSHShell": {"AgentCore"},
     "PhoneDSHBot": {"AgentCore"},
