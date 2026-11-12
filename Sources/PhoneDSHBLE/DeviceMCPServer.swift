@@ -12,11 +12,25 @@ public actor DeviceMCPServer: NativeMCPServing {
     private var activeLinkID: JSONValue?
     private var activeReadID: JSONValue?
     private let receiptDirectory: URL
+    /// Isolated store for tests. nil means the process-wide `BLEDeviceStore.shared`,
+    /// which is also what the panel's shared Link entry uses.
+    private let store: BLEDeviceStore?
     /// The Android server whose tools, errors and receipts are served unchanged on `/mcp/native`.
     private let adb: ADBMCPServer
     public init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared) {
         self.adb = adb
-        self.receiptDirectory = receiptDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("ble-alert-receipts", isDirectory: true)
+        self.store = nil
+        self.receiptDirectory = receiptDirectory ?? LinkToolStorage.defaultReceiptDirectory
+    }
+    /// Test seam: serve the BLE tools against an isolated store and receipt root.
+    init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared, store: BLEDeviceStore) {
+        self.adb = adb
+        self.store = store
+        self.receiptDirectory = receiptDirectory ?? LinkToolStorage.defaultReceiptDirectory
+    }
+    private func targetStore() async -> BLEDeviceStore {
+        if let store { return store }
+        return await MainActor.run { BLEDeviceStore.shared }
     }
     private var linkJournal: LinkToolJournal { LinkToolJournal(directory: receiptDirectory.appendingPathComponent("link-intents")) }
     static let descriptors: [JSONValue] = [
@@ -33,8 +47,9 @@ public actor DeviceMCPServer: NativeMCPServing {
     }
     public func cancelPendingOperations() async {
         await adb.cancelPendingOperations()
-        await BLEDeviceStore.shared.cancelRead()
-        await BLEDeviceStore.shared.cancelLinkOperations()
+        let deviceStore = await targetStore()
+        await deviceStore.cancelRead()
+        await deviceStore.cancelLinkOperations()
     }
     public func handle(_ request: LoopbackRequest) async -> NativeMCPResponse {
         guard request.method == "POST", request.body.count <= 16 * 1024,
@@ -46,7 +61,8 @@ public actor DeviceMCPServer: NativeMCPServing {
         let name = string(params["name"]) ?? ""
         if method == "notifications/cancelled", fields["id"] == nil,
            let activeLinkID, params["requestId"] == activeLinkID {
-            await BLEDeviceStore.shared.cancelLinkOperations()
+            let deviceStore = await targetStore()
+            await deviceStore.cancelLinkOperations()
             return NativeMCPResponse(status: 202)
         }
         if method == "notifications/cancelled", fields["id"] == nil,
@@ -87,48 +103,77 @@ public actor DeviceMCPServer: NativeMCPServing {
             switch name {
             case "ble_devices":
                 guard args.isEmpty else { throw BLEFailure("Unexpected arguments") }
+                let deviceStore = await targetStore()
                 output = await MainActor.run {
-                    let devices = BLEDeviceStore.shared.devices.map { device in
+                    let devices = deviceStore.devices.map { device in
                         "\(device.id.uuidString) \(device.name) state=\(device.state) profiles=\(device.profiles.map(\.rawValue).joined(separator: ",")) read=\(device.allowRead) alert=\(device.allowAlert) link=\(device.linkState) tools=\(device.linkTools.joined(separator: ",")) granted=\(device.grantedTools.sorted().joined(separator: ","))"
                     }
                     return devices.isEmpty ? "No devices. Open Settings → Bluetooth devices to scan and connect." : devices.joined(separator: "\n")
                 }
             case "ble_link_tools":
                 guard Set(args.keys) == ["device_id"], let raw = string(args["device_id"]), let deviceID = UUID(uuidString: raw) else { throw BLEFailure("Invalid Link device ID") }
-                let tools = await MainActor.run { BLEDeviceStore.shared.devices.first(where: { $0.id == deviceID })?.linkToolDescriptors ?? [] }
+                let deviceStore = await targetStore()
+                let tools = await MainActor.run { deviceStore.devices.first(where: { $0.id == deviceID })?.linkToolDescriptors ?? [] }
                 output = String(decoding: try JSONValue.object(["tools": .array(tools)]).encoded(), as: UTF8.self)
             case "ble_link_call":
                 guard Set(args.keys) == ["device_id", "name", "args"], let raw = string(args["device_id"]), let deviceID = UUID(uuidString: raw),
                       let toolName = string(args["name"]), case .object = args["args"], let arguments = args["args"] else { throw BLEFailure("Invalid Link call arguments") }
                 guard activeLinkID == nil else { throw BLEFailure("Another Link call is running") }
-                try await BLEDeviceStore.shared.authorizeLink(deviceID, name: toolName, arguments: arguments)
                 let key = request.headers.first(where: { $0.key.lowercased() == "x-pdsh-idempotency-key" })?.value ?? ""
-                let (intent, fresh) = try linkJournal.prepare(key: key, deviceID: deviceID, name: toolName, arguments: arguments)
                 activeLinkID = id; defer { activeLinkID = nil }
+                let deviceStore = await targetStore()
+                let outcome: LinkCallOutcome
                 do {
-                    let reply: JSONValue?
-                    if fresh {
-                        let wireKey = SHA256.hash(data: Data(key.utf8)).map { String(format: "%02x", $0) }.joined()
-                        reply = try await BLEDeviceStore.shared.invokeLink(deviceID, requestID: intent.requestID, name: toolName, arguments: arguments, key: wireKey)
-                    } else { reply = try await BLEDeviceStore.shared.queryLink(deviceID, requestID: intent.requestID, name: toolName) }
-                    output = String(decoding: try (reply ?? .object(["request_id": .string(intent.requestID.uuidString.lowercased()), "status": .string("running")])).encoded(), as: UTF8.self)
-                } catch let refused as LinkNotExecuted {
-                    throw BLEFailure("request_id=\(intent.requestID.uuidString.lowercased()) not_executed: the board refused the \(refused.stage) (\(refused.statusName)) before running it. Nothing ran; a new call may be made.")
-                } catch { throw BLEFailure("request_id=\(intent.requestID.uuidString.lowercased()) outcome_unknown: \(error.localizedDescription). Query this request; do not replay.") }
+                    // Admission → authorization → durable intent → invoke/query.
+                    // A busy device is rejected before any journal record exists.
+                    outcome = try await callLinkTool(deviceID: deviceID, name: toolName, arguments: arguments,
+                                                     idempotencyKey: key, origin: .agent,
+                                                     store: deviceStore, journal: linkJournal)
+                } catch is LinkBusy {
+                    throw BLEFailure("Another Link call is running")
+                }
+                switch outcome {
+                case .completed(_, let reply):
+                    output = String(decoding: try reply.encoded(), as: UTF8.self)
+                case .running(let requestID):
+                    output = String(decoding: try JSONValue.object(["request_id": .string(requestID.uuidString.lowercased()), "status": .string("running")]).encoded(), as: UTF8.self)
+                case .notExecuted(let requestID, let stage, let status):
+                    throw BLEFailure("request_id=\(requestID.uuidString.lowercased()) not_executed: the board refused the \(stage) (\(status)) before running it. Nothing ran; a new call may be made.")
+                case .outcomeUnknown(let requestID, let message):
+                    throw BLEFailure("request_id=\(requestID.uuidString.lowercased()) outcome_unknown: \(message). Query this request; do not replay.")
+                }
             case "ble_link_result":
                 guard Set(args.keys) == ["device_id", "request_id"], let raw = string(args["device_id"]), let deviceID = UUID(uuidString: raw),
-                      let value = string(args["request_id"]), let requestID = UUID(uuidString: value), activeLinkID == nil else { throw BLEFailure("Invalid result query or Link busy") }
-                let intent = try linkJournal.find(deviceID: deviceID, requestID: requestID)
+                      let value = string(args["request_id"]), let requestID = UUID(uuidString: value) else { throw BLEFailure("Invalid result query or Link busy") }
+                guard activeLinkID == nil else { throw BLEFailure("Invalid result query or Link busy") }
                 activeLinkID = id; defer { activeLinkID = nil }
-                let reply = try await BLEDeviceStore.shared.queryLink(deviceID, requestID: requestID, name: intent.name)
-                output = String(decoding: try (reply ?? .object(["request_id": .string(value.lowercased()), "status": .string("running")])).encoded(), as: UTF8.self)
+                let deviceStore = await targetStore()
+                let outcome: LinkCallOutcome
+                do {
+                    outcome = try await queryLinkTool(deviceID: deviceID, requestID: requestID, origin: .agent,
+                                                      store: deviceStore, journal: linkJournal)
+                } catch is LinkBusy {
+                    throw BLEFailure("Invalid result query or Link busy")
+                }
+                switch outcome {
+                case .completed(_, let reply):
+                    output = String(decoding: try reply.encoded(), as: UTF8.self)
+                case .running:
+                    output = String(decoding: try JSONValue.object(["request_id": .string(value.lowercased()), "status": .string("running")]).encoded(), as: UTF8.self)
+                case .notExecuted:
+                    throw BLEFailure("Invalid result query or Link busy")
+                case .outcomeUnknown(_, let message):
+                    // A query has no new request to report; keep the historical raw error text.
+                    throw BLEFailure(message)
+                }
             case "ble_read":
                 guard Set(args.keys) == ["device_id", "profile"], let raw = string(args["device_id"]), let uuid = UUID(uuidString: raw),
                       let value = string(args["profile"]), let profile = StandardBLEProfile(rawValue: value), profile != .alert else { throw BLEFailure("Invalid read arguments") }
                 guard activeReadID == nil else { throw BLEFailure("Another Bluetooth read is running") }
                 activeReadID = id
                 defer { activeReadID = nil }
-                output = try await BLEDeviceStore.shared.read(uuid, profile: profile)
+                let deviceStore = await targetStore()
+                output = try await deviceStore.read(uuid, profile: profile)
             case "ble_alert":
                 guard Set(args.keys) == ["device_id", "level"], let raw = string(args["device_id"]), let uuid = UUID(uuidString: raw),
                       case .number(let level) = args["level"], level.isFinite, level.rounded() == level, (0...2).contains(level) else { throw BLEFailure("Invalid alert arguments") }
@@ -153,7 +198,8 @@ public actor DeviceMCPServer: NativeMCPServing {
                         let synced = Darwin.fsync(descriptor); Darwin.close(descriptor)
                         guard synced == 0 else { throw BLEFailure("Cannot synchronize alert receipt directory") }
                     }
-                    output = try await BLEDeviceStore.shared.alert(uuid, level: Int(level))
+                    let deviceStore = await targetStore()
+                    output = try await deviceStore.alert(uuid, level: Int(level))
                 }
             default: throw BLEFailure("Unknown Bluetooth tool")
             }
