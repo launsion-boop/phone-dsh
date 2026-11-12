@@ -2,10 +2,10 @@
 // phone-dsh phone DSH — device panel model tests (device-panel.md §2–§4).
 //
 // These drive the production `DevicePanelModel` through the scripted
-// `FakeDevicePanelSource`. WP1–WP3 are placeholders on this base commit, so the
-// fake supplies tools, descriptor evaluations and call outcomes; the suite
-// never touches BLE, `callLinkTool`, `DevicePanelStore` or Application Support.
-// This is simulator/fake evidence, not device evidence.
+// `FakeDevicePanelSource`. The fake supplies tools, descriptor evaluations and
+// call outcomes; the suite never touches BLE, `callLinkTool`,
+// `DevicePanelStore` or Application Support, and never calls the real
+// evaluator. This is simulator/fake evidence, not device evidence.
 
 import Foundation
 import XCTest
@@ -129,6 +129,63 @@ final class DevicePanelModelTests: XCTestCase {
         XCTAssertFalse(model.hasAdoptedDescriptor)
         XCTAssertEqual(model.tools.map(\.name), ["light.set", "light.get", "home.http"])
         XCTAssertTrue(fake.invocations.isEmpty)
+    }
+
+    // MARK: - Refresh follows the observable device record
+
+    func testRefreshReevaluatesAdoptedDescriptorAfterToolsTableChange() async {
+        let fake = source()
+        let model = DevicePanelModel(source: fake)
+        model.refresh()
+
+        let bytes = Data(#"{"v":1,"device_id":"fake-device-id","controls":[]}"#.utf8)
+        let descriptor = DevicePanelDescriptor(title: "书房", controls: [
+            DevicePanelControl(tool: "light.set", label: "开灯",
+                               preset: .object(["on": .bool(true)])),
+        ])
+        fake.registerDescriptor(bytes, result: .ok, descriptor: descriptor)
+        let adopted = await model.adoptDescriptor(bytes)
+        XCTAssertEqual(adopted, .ok)
+        XCTAssertNotNil(model.descriptor)
+
+        // The device's next tools/list drops light.set. The fake's active
+        // evaluation depends on the tools it is handed, so refresh must pass
+        // the *new* tool table and the descriptor must stop being in effect.
+        fake.activeDescriptorProvider = { _, tools in
+            if tools.contains(where: { $0.name == "light.set" }) {
+                return DevicePanelDescriptorReview(result: .ok, descriptor: descriptor)
+            }
+            return DevicePanelDescriptorReview(result: .tool_not_advertised, descriptor: nil)
+        }
+        fake.tools = fake.tools.filter { $0.name != "light.set" }
+        model.refresh()
+
+        XCTAssertNil(model.descriptor, "a rejected re-evaluation must not keep rendering controls")
+        XCTAssertEqual(model.adoptedDescriptorResult, .tool_not_advertised)
+        XCTAssertTrue(model.hasAdoptedDescriptor, "the host copy is kept across tools/list changes")
+        XCTAssertEqual(model.tools.map(\.name), ["light.get", "home.http"],
+                       "the §2 tool list is the new tools/list order")
+        XCTAssertTrue(fake.invocations.isEmpty, "re-evaluation is local and must not call a tool")
+        XCTAssertTrue(fake.queryCalls.isEmpty)
+    }
+
+    func testRefreshDisablesSendAfterGrantRevocation() async {
+        let fake = source()
+        let model = DevicePanelModel(source: fake)
+        model.refresh()
+        let preset = JSONValue.object(["on": .bool(true)])
+        XCTAssertTrue(model.canSend(toolName: "light.set", preset: preset))
+
+        fake.grantedTools.remove("light.set")
+        model.refresh()
+
+        XCTAssertFalse(model.isAuthorized("light.set"),
+                       "refresh must pick up the store's current grants")
+        XCTAssertFalse(model.canSend(toolName: "light.set", preset: preset),
+                       "a revoked tool's control must be disabled")
+        await model.send(toolName: "light.set", preset: preset)
+        XCTAssertTrue(fake.invocations.isEmpty, "a revoked tool must not be called")
+        XCTAssertNotNil(model.errorText)
     }
 
     // MARK: - Call outcomes

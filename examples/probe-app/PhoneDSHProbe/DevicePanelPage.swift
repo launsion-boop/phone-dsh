@@ -458,8 +458,9 @@ final class DevicePanelModel {
 
 /// Fake for `PhoneDSHSimTests`. It provides the advertised tools, registered
 /// descriptor bytes/evaluations and queued call outcomes; it never imports
-/// BLE, `DevicePanelStore`, Application Support or the real evaluator (which
-/// are placeholders on this base commit and would `fatalError`).
+/// BLE, `DevicePanelStore` or Application Support and deliberately does not
+/// call the real evaluator, so a test can script a deterministic result for
+/// the exact bytes and tools it passes.
 @MainActor
 final class FakeDevicePanelSource: DevicePanelSource {
     struct Invocation: Equatable {
@@ -492,6 +493,12 @@ final class FakeDevicePanelSource: DevicePanelSource {
 
     private var evaluations: [Data: DevicePanelDescriptorReview] = [:]
 
+    /// Optional scripted re-evaluation used by `activeDescriptor`. The
+    /// refresh/observation test makes the fake's answer depend on the tools it
+    /// receives, so a tools-table change deterministically flips an adopted
+    /// descriptor back to a failure. The real evaluator is never called here.
+    var activeDescriptorProvider: ((Data, [DevicePanelTool]) -> DevicePanelDescriptorReview?)?
+
     init(linkDeviceID: String = "fake-device-id", tools: [DevicePanelTool] = [],
          grantedTools: Set<String> = []) {
         self.linkDeviceID = linkDeviceID
@@ -510,6 +517,7 @@ final class FakeDevicePanelSource: DevicePanelSource {
 
     func activeDescriptor(tools: [DevicePanelTool]) -> DevicePanelDescriptorReview? {
         guard let activeBytes else { return nil }
+        if let activeDescriptorProvider { return activeDescriptorProvider(activeBytes, tools) }
         return evaluation(for: activeBytes)
     }
 
@@ -685,16 +693,49 @@ enum DevicePanelJSONText {
 struct DevicePanelPage: View {
     @State private var model: DevicePanelModel
     @State private var showingAdoption = false
+    /// The observable device record this page follows. `nil` only on the
+    /// injected-model initializer used by tests.
+    private let store: BLEDeviceStore?
+    private let peripheralID: UUID?
 
     init(model: DevicePanelModel) {
+        self.store = nil
+        self.peripheralID = nil
         _model = State(initialValue: model)
     }
 
     init(device: BLEDeviceStore.Device, store: BLEDeviceStore? = nil) {
-        _model = State(initialValue: DevicePanelModel(source: LiveDevicePanelSource(device: device, store: store)))
+        let resolvedStore = store ?? .shared
+        self.store = resolvedStore
+        self.peripheralID = device.id
+        _model = State(initialValue: DevicePanelModel(
+            source: LiveDevicePanelSource(device: device, store: resolvedStore)))
     }
 
     var body: some View {
+        // Read the observed record inside `body`: this registers the page as a
+        // dependent of `BLEDeviceStore.devices`, so a new `tools/list` or grant
+        // re-renders the page. The `onChange` hooks then re-read the adopted
+        // descriptor and the current tool table through the live source. This
+        // is local state only; no hook calls a device tool.
+        let device = currentDevice
+        observedStoreContent
+            .onChange(of: device?.linkTools) { _, _ in model.refresh() }
+            .onChange(of: device?.linkToolDescriptors) { _, _ in model.refresh() }
+            .onChange(of: device?.grantedTools) { _, _ in model.refresh() }
+            .onChange(of: device?.linkDeviceID) { _, _ in model.refresh() }
+    }
+
+    /// Current record for the peripheral this page was opened for. A missing
+    /// record (disconnect/forget) yields nil instead of crashing; the live
+    /// source then keeps serving the snapshot the panel was opened with.
+    private var currentDevice: BLEDeviceStore.Device? {
+        guard let store, let peripheralID else { return nil }
+        return store.devices.first(where: { $0.id == peripheralID })
+    }
+
+    @ViewBuilder
+    private var observedStoreContent: some View {
         #if PDSH_PROBE_HOSTLESS_TESTS
         // Test-only compilation: the app-only adoption sheet is ChatModel-bound
         // and this module does not compile ChatModel.swift. The panel model and
@@ -846,18 +887,21 @@ private struct DevicePanelToolRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let description = tool.description, !description.isEmpty {
-                Text(verbatim: description)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
             switch tool.render {
             case .agentOnly:
+                // device-panel.md §2: an agent_only tool shows only its name
+                // (already the Section header) and this line. Its device
+                // description is not rendered.
                 Text("仅 Agent 可用")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             case .editors(let editors):
+                if let description = tool.description, !description.isEmpty {
+                    Text(verbatim: description)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
                 DevicePanelEditorFields(model: model, toolName: tool.name, editors: editors)
                 sendButton
             }
