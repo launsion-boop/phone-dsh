@@ -1,0 +1,3911 @@
+{
+  "schemaVersion": 1,
+  "license": "MIT",
+  "vector": "projection.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-only P27 projection vector; no dsh-bot upstream file exists. source.checkout records the pinned upstream batch this contract sits beside, not the origin of these cases."
+  },
+  "upstream": [],
+  "delta": [
+    "P27 B7a: freeze the DSH session-log record decoder, DSH/durable-event to BotRow mapping, rowID and entrySeq formula, surfaceOp append/replace handling, tombstone and cursor semantics, watch(after:), epoch chains and the 10/s streaming limiter (PC-20261112-android-bot-w4).",
+    "Input cases carry raw DSH JSONL records (including v4 headers when relevant) and durable BotEvent objects; expected rows are the exact JSON the Swift BotRow encodes, with origins/display/chatActionNonces kept beside the row so the Python validator can re-check ids, entrySeq and the display composition.",
+    "history.cases freeze rebuild/reset/watch/reconcile batches, late appends and the no-resurrection rule; streaming.cases freeze immediate emission, coalescing, the rolling one-second window and nextFlushAt.",
+    "invalidRecords freeze skipped-record diagnostics: non-canonical surfaceOp, missing data, broken JSON, a v3 header and a misplaced header. Unknown types are skipped without diagnostics."
+  ],
+  "valid": {
+    "dshMapping": [
+      {
+        "expected": {
+          "chatActionNonces": {
+            "e-gb-main-1": "nonce-1"
+          },
+          "cursor": 2,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            },
+            "e-gb-main-2": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "send-message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1
+            },
+            "e-gb-main-2": {
+              "kind": "dsh",
+              "seq": 2
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "你好",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1000,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1000001,
+              "streaming": false,
+              "updatedSeq": 1
+            },
+            {
+              "body": {
+                "step": 1,
+                "text": "可见回复",
+                "turn": 1,
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 2000,
+              "id": "e-gb-main-2",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 2000002,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "user-assistant",
+        "records": [
+          "{\"data\":{\"content\":[{\"text\":\"你好\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\",\"rpcId\":\"user-action:nonce-1\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"可见回复\",\"type\":\"text\"}],\"role\":\"assistant\"},\"step\":1,\"turn\":1},\"seq\":2,\"surfaceOp\":\"append\",\"time\":2000,\"type\":\"assistant/message\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:377-442"
+      },
+      {
+        "expected": {
+          "chatActionNonces": {
+            "e-gb-main-5": "nonce-5"
+          },
+          "cursor": 1,
+          "display": {
+            "e-gb-main-5": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-5": {
+              "kind": "dsh",
+              "seq": 5
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "真实用户",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1300,
+              "id": "e-gb-main-5",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1300005,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "hidden-and-injected",
+        "records": [
+          "{\"data\":{\"turn\":1},\"seq\":1,\"time\":900,\"type\":\"turn/start\"}",
+          "{\"data\":{\"content\":[{\"text\":\"[SAND_HIDDEN_PROMPT] wake\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\",\"rpcId\":\"routine:run-1\"},\"turn\":1},\"seq\":2,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"隐藏散文\",\"type\":\"text\"}],\"role\":\"assistant\"},\"turn\":1},\"seq\":3,\"surfaceOp\":\"append\",\"time\":1100,\"type\":\"assistant/message\"}",
+          "{\"data\":{\"content\":[{\"text\":\"Current runtime context. snapshot\",\"type\":\"text\"}],\"role\":\"user\"},\"seq\":4,\"surfaceOp\":\"append\",\"time\":1200,\"type\":\"user/message\"}",
+          "{\"data\":{\"content\":[{\"text\":\"真实用户\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\",\"rpcId\":\"user-action:nonce-5\"}},\"seq\":5,\"surfaceOp\":\"append\",\"time\":1300,\"type\":\"user/message\"}",
+          "{\"type\":\"user/message\",\"seq\":6,\"time\":1400,\"surfaceOp\":\"append\",\"data\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"<system-reminder> hidden\"}]}}",
+          "{\"type\":\"user/message\",\"seq\":7,\"time\":1500,\"surfaceOp\":\"append\",\"data\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Check the [exit code: N] marker and continue\"}]}}"
+        ],
+        "source": "BotSessionLogProjection.swift:377-442,933-936"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-11": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-11": {
+              "kind": "dsh",
+              "seq": 11
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "显示",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 44,
+              "id": "e-gb-main-11",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 44011,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "surfaceop-replace",
+        "records": [
+          "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"cwd\":\"/dsh/workspace\",\"isSeeded\":false,\"delegationDepth\":0}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"旧提示\",\"type\":\"text\"}],\"role\":\"system\"}},\"seq\":8,\"surfaceOp\":\"append\",\"time\":41,\"type\":\"system/message\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"新提示\",\"type\":\"text\"}],\"role\":\"system\"}},\"seq\":9,\"surfaceOp\":{\"endSeq\":8,\"op\":\"replace\",\"startSeq\":8},\"time\":42,\"type\":\"system/message\"}",
+          "{\"data\":{\"content\":[{\"text\":\"不应显示\",\"type\":\"text\"}],\"role\":\"user\"},\"seq\":10,\"surfaceOp\":{\"endSeq\":9,\"op\":\"replace\",\"startSeq\":9},\"time\":43,\"type\":\"user/message\"}",
+          "{\"data\":{\"content\":[{\"text\":\"显示\",\"type\":\"text\"}],\"role\":\"user\"},\"seq\":11,\"surfaceOp\":\"append\",\"time\":44,\"type\":\"user/message\"}",
+          "{\"type\":\"user/message\",\"seq\":12,\"time\":45,\"data\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"no surfaceOp\"}]}}"
+        ],
+        "source": "BotSessionLogProjection.swift:18-53,377-397"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "and my question",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1000,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1000001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "held-block-strip",
+        "records": [
+          "{\"data\":{\"content\":[{\"text\":\"<held_agent_messages>\\n- [routine] report: done\\n</held_agent_messages>\\nand my question\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\",\"rpcId\":\"held:digest-1\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:401,938-949"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "attachments": [
+                  {
+                    "kind": "pdf",
+                    "mimeType": "application/pdf",
+                    "name": "周报.pdf",
+                    "path": "/dsh/workspace/imports/attachments-att-1/周报.pdf",
+                    "size": 2048
+                  }
+                ],
+                "content": [
+                  {
+                    "text": "帮我看看这个文件",
+                    "type": "text"
+                  }
+                ],
+                "text": "帮我看看这个文件",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1000,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1000001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "attachment-block",
+        "records": [
+          "{\"data\":{\"content\":[{\"text\":\"帮我看看这个文件\\n\\n[dshbot-attachments]\\nThe user attached these files. They are saved in your workspace; read them with your file tools when the task needs their contents.\\n- {\\\"name\\\":\\\"周报.pdf\\\",\\\"path\\\":\\\"/dsh/workspace/imports/attachments-att-1/周报.pdf\\\",\\\"size\\\":2048,\\\"mimeType\\\":\\\"application/pdf\\\",\\\"kind\\\":\\\"pdf\\\"}\\n[/dshbot-attachments]\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:402-418"
+      },
+      {
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-gb-main-1-approval": {
+              "renderable": true,
+              "surface": "approval-card",
+              "wire": {
+                "kind": "send-message",
+                "type": "local-tool-permission"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1-approval": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "action": "test approval",
+                "approvalID": "gb-main:1:approval-call",
+                "ask": {
+                  "action": "command-execution",
+                  "requestId": "gb-main:1:approval-call",
+                  "status": "allowed",
+                  "target": "rm -rf /tmp/x"
+                },
+                "callId": "approval-call",
+                "command": "rm -rf /tmp/x",
+                "requestId": "gb-main:1:approval-call",
+                "resultText": "{\"allowed\":true,\"approvalId\":\"approval-1\",\"message\":\"ok\"}",
+                "status": "allowed",
+                "text": "已允许一次：test approval",
+                "title": "允许执行「test approval」吗？",
+                "type": "approval"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-gb-main-1-approval",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "approval-allowed",
+        "records": [
+          "{\"data\":{\"arguments\":\"{\\\"action\\\":\\\"test approval\\\",\\\"command\\\":\\\"rm -rf /tmp/x\\\"}\",\"callId\":\"approval-call\",\"name\":\"mcp__phone__RequestApproval\"},\"seq\":1,\"time\":1,\"type\":\"tool/call\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"{\\\"allowed\\\":true,\\\"approvalId\\\":\\\"approval-1\\\",\\\"message\\\":\\\"ok\\\"}\",\"type\":\"text\"}],\"toolCallId\":\"approval-call\"}},\"seq\":2,\"time\":2,\"type\":\"tool/result\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:443-496"
+      },
+      {
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-gb-main-1-approval": {
+              "renderable": true,
+              "surface": "approval-card",
+              "wire": {
+                "kind": "send-message",
+                "type": "local-tool-permission"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1-approval": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "action": "test approval",
+                "approvalID": "gb-main:1:approval-call",
+                "ask": {
+                  "action": "other",
+                  "requestId": "gb-main:1:approval-call",
+                  "status": "denied",
+                  "target": "test approval"
+                },
+                "callId": "approval-call",
+                "command": "",
+                "requestId": "gb-main:1:approval-call",
+                "resultText": "{\"allowed\":false,\"approvalId\":\"approval-1\",\"decision\":\"denied\",\"message\":\"approval denied\"}",
+                "status": "denied",
+                "text": "已拒绝：test approval",
+                "title": "允许执行「test approval」吗？",
+                "type": "approval"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-gb-main-1-approval",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "approval-denied",
+        "records": [
+          "{\"data\":{\"arguments\":\"{\\\"action\\\":\\\"test approval\\\"}\",\"callId\":\"approval-call\",\"name\":\"mcp__phone__RequestApproval\"},\"seq\":1,\"time\":1,\"type\":\"tool/call\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"{\\\"allowed\\\":false,\\\"approvalId\\\":\\\"approval-1\\\",\\\"decision\\\":\\\"denied\\\",\\\"message\\\":\\\"approval denied\\\"}\",\"type\":\"text\"}],\"toolCallId\":\"approval-call\"}},\"seq\":2,\"time\":2,\"type\":\"tool/result\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:474-496,974-1008"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-5": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "send-message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-5": {
+              "kind": "dsh",
+              "seq": 5
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "下一回合",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 5,
+              "id": "e-gb-main-5",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 5005,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "question-suppresses-wrapup",
+        "records": [
+          "{\"data\":{\"arguments\":\"{}\",\"callId\":\"question-1\",\"name\":\"mcp__bot__ask_user\"},\"seq\":1,\"time\":1,\"type\":\"tool/call\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"已顯示問題卡片\",\"type\":\"text\"}],\"toolCallId\":\"question-1\"}},\"seq\":2,\"time\":2,\"type\":\"tool/result\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"不应显示的收尾\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":3,\"time\":3,\"type\":\"assistant/message\"}",
+          "{\"data\":{\"reason\":{\"kind\":\"completed\"}},\"seq\":4,\"time\":4,\"type\":\"turn/end\"}",
+          "{\"data\":{\"message\":{\"content\":[{\"text\":\"下一回合\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":5,\"time\":5,\"type\":\"assistant/message\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:492-496,428-442"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-2": {
+              "renderable": true,
+              "surface": "notice",
+              "wire": {
+                "kind": "event",
+                "type": "notice"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-2": {
+              "kind": "dsh",
+              "seq": 2
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "回合失败：boom（API Key 无效或已被覆盖，请到设置重新粘贴）",
+                "tone": "error",
+                "type": "notice"
+              },
+              "botID": "main",
+              "createdAt": 2,
+              "id": "e-gb-main-2",
+              "kind": "event",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "seq": 2002,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "turn-end-failure",
+        "records": [
+          "{\"data\":{\"turn\":7},\"seq\":1,\"time\":1,\"type\":\"turn/start\"}",
+          "{\"data\":{\"reason\":{\"error\":{\"message\":\"boom\",\"status\":401},\"kind\":\"failed\"}},\"seq\":2,\"time\":2,\"type\":\"turn/end\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:497-512"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "automation-row",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "automation": {
+                  "automationId": "auto-1",
+                  "name": "晨报",
+                  "status": "running"
+                },
+                "automationId": "auto-1",
+                "name": "晨报",
+                "status": "running",
+                "title": "晨报",
+                "type": "automation"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "automation-run",
+        "records": [
+          "{\"data\":{\"automation\":{\"automationId\":\"auto-1\",\"name\":\"晨报\",\"status\":\"running\"}},\"seq\":1,\"time\":1,\"type\":\"automation/run\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:513-533"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "只出现一次",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1000,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [
+                  "evt-dup"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1000001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "duplicate-event-id",
+        "records": [
+          "{\"data\":{\"content\":[{\"text\":\"只出现一次\",\"type\":\"text\"}],\"role\":\"user\"},\"eventId\":\"evt-dup\",\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}",
+          "{\"data\":{\"content\":[{\"text\":\"必须忽略\",\"type\":\"text\"}],\"role\":\"user\"},\"eventId\":\"evt-dup\",\"seq\":2,\"surfaceOp\":\"append\",\"time\":2000,\"type\":\"user/message\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:370"
+      },
+      {
+        "epochs": [
+          {
+            "records": [
+              "{\"data\":{\"message\":{\"content\":[{\"text\":\"old but unerased\",\"type\":\"text\"}],\"role\":\"user\"},\"source\":{\"kind\":\"user\",\"rpcId\":\"bot-1\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1760000001000,\"type\":\"user/message\"}",
+              "{\"data\":{\"erased\":true},\"seq\":2,\"time\":1760000002000,\"type\":\"phone-dsh/session-erasure\"}"
+            ],
+            "sessionID": "gb-main"
+          },
+          {
+            "records": [
+              "{\"data\":{\"message\":{\"content\":[{\"text\":\"new epoch message\",\"type\":\"text\"}],\"role\":\"user\"},\"source\":{\"kind\":\"user\",\"rpcId\":\"bot-2\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1760000010000,\"type\":\"user/message\"}"
+            ],
+            "sessionID": "gb-new"
+          }
+        ],
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            },
+            "e-gb-new-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1,
+              "sessionID": "gb-main"
+            },
+            "e-gb-new-1": {
+              "kind": "dsh",
+              "seq": 1,
+              "sessionID": "gb-new"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "content": [
+                  {
+                    "text": "old but unerased",
+                    "type": "text"
+                  }
+                ],
+                "role": "user",
+                "text": "old but unerased",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1760000001000,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1760000001000001,
+              "streaming": false,
+              "updatedSeq": 1
+            },
+            {
+              "body": {
+                "content": [
+                  {
+                    "text": "new epoch message",
+                    "type": "text"
+                  }
+                ],
+                "role": "user",
+                "text": "new epoch message",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1760000010000,
+              "id": "e-gb-new-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1760000010000001,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "epoch-chain",
+        "source": "BotSessionLogProjection.swift:309-326"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-1": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-1": {
+              "kind": "dsh",
+              "seq": 1
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "hello",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1000,
+              "id": "e-gb-main-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1000001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "continuation-block",
+        "records": [
+          "{\"data\":{\"content\":[{\"text\":\"<session_continuation>\\nPrevious context\\n</session_continuation>\\n\\nhello\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}"
+        ],
+        "source": "BotSessionErasure.swift:315-324"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-4": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-4": {
+              "kind": "dsh",
+              "seq": 4
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "唯一",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 4,
+              "id": "e-gb-main-4",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 4004,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "ignored-records",
+        "records": [
+          "{\"data\":{},\"seq\":1,\"time\":1,\"type\":\"step/start\"}",
+          "{\"data\":{\"title\":\"x\"},\"seq\":2,\"time\":2,\"type\":\"session/title\"}",
+          "{\"data\":{\"x\":true},\"seq\":3,\"time\":3,\"type\":\"unknown/record\"}",
+          "{\"data\":{\"content\":[{\"text\":\"唯一\",\"type\":\"text\"}],\"role\":\"user\"},\"seq\":4,\"surfaceOp\":\"append\",\"time\":4,\"type\":\"user/message\"}"
+        ],
+        "source": "BotSessionLogProjection.swift:352-376,513-534"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-gb-main-4": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "send-message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-gb-main-4": {
+              "kind": "dsh",
+              "seq": 4
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "after",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 4,
+              "id": "e-gb-main-4",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 4004,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "records": [
+          "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"surfaceOp\":\"append\",\"data\":{\"role\":\"user\",\"source\":{\"kind\":\"user\",\"rpcId\":\"routine:run-fallback\"},\"content\":[{\"type\":\"text\",\"text\":\"hidden\"}]}}",
+          "{\"type\":\"assistant/message\",\"seq\":2,\"time\":2,\"data\":{\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"must hide\"}]}}}",
+          "{\"type\":\"turn/end\",\"seq\":3,\"time\":3,\"data\":{\"reason\":{\"kind\":\"completed\"}}}",
+          "{\"type\":\"assistant/message\",\"seq\":4,\"time\":4,\"data\":{\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"after\"}]}}}"
+        ],
+        "name": "hidden-fallback",
+        "source": "BotSessionLogProjection.swift:387-391,497-500"
+      }
+    ],
+    "uiMapping": [
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "card-answered": {
+              "renderable": true,
+              "surface": "widget-card",
+              "wire": {
+                "kind": "send-message",
+                "type": "widget"
+              }
+            }
+          },
+          "origins": {
+            "card-answered": {
+              "eventId": "evt-card-answered",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "answeredOptionID": "o1",
+                "cardType": "question",
+                "options": [
+                  {
+                    "id": "o0",
+                    "label": "文档库"
+                  },
+                  {
+                    "id": "o1",
+                    "label": "PDF"
+                  }
+                ],
+                "question": "保存到哪里？",
+                "status": "answered",
+                "type": "widget"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "card-answered",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [
+                  "evt-card-answered"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "card-answer-and-dismiss",
+        "source": "BotSessionLogProjection.swift:550-695",
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "cardType": "question",
+              "id": "card-answered",
+              "options": [
+                {
+                  "id": "o0",
+                  "label": "文档库"
+                },
+                {
+                  "id": "o1",
+                  "label": "PDF"
+                }
+              ],
+              "question": "保存到哪里？"
+            },
+            "eventId": "evt-card-answered",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-evt-card-answered",
+            "type": "card.presented"
+          },
+          {
+            "commitSeq": 2,
+            "data": {
+              "cardID": "card-answered",
+              "optionID": "o1"
+            },
+            "eventId": "evt-card-answer",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 2,
+            "traceId": "trace-evt-card-answer",
+            "type": "card.answered"
+          },
+          {
+            "commitSeq": 3,
+            "data": {
+              "cardType": "question",
+              "id": "card-dismissed",
+              "options": [
+                {
+                  "id": "o0",
+                  "label": "继续"
+                },
+                {
+                  "id": "o1",
+                  "label": "停止"
+                }
+              ],
+              "question": "继续吗？"
+            },
+            "eventId": "evt-card-dismissed",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 3,
+            "traceId": "trace-evt-card-dismissed",
+            "type": "card.presented"
+          },
+          {
+            "commitSeq": 4,
+            "data": {
+              "cardID": "card-dismissed"
+            },
+            "eventId": "evt-card-dismiss",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 4,
+            "traceId": "trace-evt-card-dismiss",
+            "type": "card.dismissed"
+          }
+        ]
+      },
+      {
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-main-task-task-1": {
+              "renderable": true,
+              "surface": "agent-thread-row",
+              "wire": {
+                "kind": "send-message",
+                "type": "widget"
+              }
+            }
+          },
+          "origins": {
+            "e-main-task-task-1": {
+              "eventId": "event-verification",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "cardKey": "task:task-1",
+                "cardType": "task",
+                "createdAt": 3,
+                "status": "completed",
+                "steps": [
+                  {
+                    "id": "write",
+                    "label": "Write it",
+                    "state": "done"
+                  }
+                ],
+                "subjectId": "task-1",
+                "subjectKind": "task",
+                "subjectSessionId": "gb-task-1",
+                "task_id": "task-1",
+                "title": "Write REPORT.md",
+                "type": "widget",
+                "verification": {
+                  "budget": {
+                    "exceeded": false,
+                    "limitMs": 3000,
+                    "ratio": 0.3,
+                    "usedMs": 900
+                  },
+                  "output": "valid",
+                  "refs": [
+                    "record://session/gb-task-1#2"
+                  ],
+                  "summary": "REPORT.md is missing.",
+                  "unverified": [],
+                  "verdict": "failed"
+                },
+                "verificationId": "verification-1"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-main-task-task-1",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [
+                  "event-verification",
+                  "event-task"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "task-with-verification",
+        "source": "BotSessionLogProjection.swift:611-635,746-753",
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "createdAt": 3,
+              "status": "completed",
+              "subjectId": "task-1",
+              "subjectKind": "task",
+              "subjectSessionId": "gb-task-1",
+              "task_id": "task-1",
+              "title": "Write REPORT.md",
+              "verification": {
+                "budget": {
+                  "exceeded": false,
+                  "limitMs": 3000,
+                  "ratio": 0.3,
+                  "usedMs": 900
+                },
+                "output": "valid",
+                "refs": [
+                  "record://session/gb-task-1#2"
+                ],
+                "summary": "REPORT.md is missing.",
+                "unverified": [],
+                "verdict": "failed"
+              },
+              "verificationId": "verification-1"
+            },
+            "eventId": "event-verification",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-event-verification",
+            "type": "verification.reported"
+          },
+          {
+            "commitSeq": 2,
+            "data": {
+              "status": "completed",
+              "steps": [
+                {
+                  "id": "write",
+                  "label": "Write it",
+                  "state": "done"
+                }
+              ],
+              "task_id": "task-1",
+              "title": "Write REPORT.md"
+            },
+            "eventId": "event-task",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 2,
+            "traceId": "trace-event-task",
+            "type": "task.settled"
+          }
+        ]
+      },
+      {
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-main-approval-approval-1": {
+              "renderable": true,
+              "surface": "approval-card",
+              "wire": {
+                "kind": "send-message",
+                "type": "local-tool-permission"
+              }
+            }
+          },
+          "origins": {
+            "e-main-approval-approval-1": {
+              "eventId": "evt-ask",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "action": "删除文件",
+                "approvalID": "approval-1",
+                "decision": "deny",
+                "requestId": "approval-1",
+                "status": "denied",
+                "type": "approval"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-main-approval-approval-1",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [
+                  "evt-ask",
+                  "evt-decision"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "approval-decided",
+        "source": "BotSessionLogProjection.swift:592-610",
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "action": "删除文件",
+              "requestId": "approval-1"
+            },
+            "eventId": "evt-ask",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-evt-ask",
+            "type": "approval.requested"
+          },
+          {
+            "commitSeq": 2,
+            "data": {
+              "action": "删除文件",
+              "decision": "deny",
+              "requestId": "approval-1"
+            },
+            "eventId": "evt-decision",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 2,
+            "traceId": "trace-evt-decision",
+            "type": "approval.decided"
+          }
+        ]
+      },
+      {
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-ui-evt-notice": {
+              "renderable": true,
+              "surface": "notice",
+              "wire": {
+                "kind": "event",
+                "type": "notice"
+              }
+            },
+            "e-ui-evt-system": {
+              "renderable": true,
+              "surface": "system-event",
+              "wire": {
+                "kind": "event",
+                "type": "renamed"
+              }
+            }
+          },
+          "origins": {
+            "e-ui-evt-notice": {
+              "eventId": "evt-notice",
+              "kind": "ui"
+            },
+            "e-ui-evt-system": {
+              "eventId": "evt-system",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "失败",
+                "tone": "error",
+                "type": "notice"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-ui-evt-notice",
+              "kind": "event",
+              "provenance": {
+                "eventIDs": [
+                  "evt-notice"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 1
+            },
+            {
+              "body": {
+                "botName": "新名字",
+                "event": "renamed",
+                "type": "notice"
+              },
+              "botID": "main",
+              "createdAt": 2,
+              "id": "e-ui-evt-system",
+              "kind": "event",
+              "provenance": {
+                "eventIDs": [
+                  "evt-system"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "seq": 2002,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "notice-system-erased",
+        "source": "BotSessionLogProjection.swift:539-568,697-719",
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "text": "失败",
+              "tone": "error"
+            },
+            "eventId": "evt-notice",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-evt-notice",
+            "type": "ui.notice"
+          },
+          {
+            "commitSeq": 2,
+            "data": {
+              "botName": "新名字",
+              "event": "renamed"
+            },
+            "eventId": "evt-system",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 2,
+            "traceId": "trace-evt-system",
+            "type": "ui.system_event"
+          },
+          {
+            "commitSeq": 3,
+            "data": {
+              "$erased": true,
+              "$erasureCommitSeq": 4
+            },
+            "eventId": "evt-erased",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 3,
+            "traceId": "trace-evt-erased",
+            "type": "ui.notice"
+          }
+        ]
+      },
+      {
+        "expected": {
+          "cursor": 2,
+          "display": {
+            "e-ui-evt-progress-1": {
+              "renderable": true,
+              "surface": "progress-card",
+              "wire": {
+                "kind": "send-message",
+                "type": "widget"
+              }
+            }
+          },
+          "origins": {
+            "e-ui-evt-progress-1": {
+              "eventId": "evt-progress-1",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "card": {
+                  "cardKey": "report-1",
+                  "cardType": "progress",
+                  "percent": 100,
+                  "state": "done",
+                  "title": "生成报告"
+                },
+                "cardKey": "report-1",
+                "cardType": "progress",
+                "percent": 100,
+                "state": "done",
+                "title": "生成报告",
+                "type": "widget"
+              },
+              "botID": "main",
+              "createdAt": 1000,
+              "id": "e-ui-evt-progress-1",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [
+                  "evt-progress-1",
+                  "evt-progress-2"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "seq": 1000001,
+              "streaming": false,
+              "updatedSeq": 2
+            }
+          ],
+          "tombstones": []
+        },
+        "name": "progress-collapse",
+        "source": "BotSessionLogProjection.swift:721-790",
+        "uiEvents": [
+          {
+            "commitSeq": 2,
+            "data": {
+              "card": {
+                "cardKey": "report-1",
+                "cardType": "progress",
+                "percent": 100,
+                "state": "done",
+                "title": "生成报告"
+              }
+            },
+            "eventId": "evt-progress-2",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 2000,
+            "traceId": "trace-evt-progress-2",
+            "type": "card.presented"
+          },
+          {
+            "commitSeq": 1,
+            "data": {
+              "card": {
+                "cardKey": "report-1",
+                "cardType": "progress",
+                "percent": 50,
+                "state": "running",
+                "title": "生成报告"
+              }
+            },
+            "eventId": "evt-progress-1",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1000,
+            "traceId": "trace-evt-progress-1",
+            "type": "card.presented"
+          }
+        ]
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {},
+          "origins": {
+            "ghost": {
+              "eventId": "evt-delete-ghost",
+              "kind": "ui"
+            }
+          },
+          "rows": [],
+          "tombstones": [
+            {
+              "body": {
+                "deletedAt": 1,
+                "type": "deleted"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "ghost",
+              "kind": "event",
+              "provenance": {
+                "eventIDs": [
+                  "evt-delete-ghost"
+                ],
+                "tainted": false,
+                "trust": "projector"
+              },
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ]
+        },
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "rowID": "ghost"
+            },
+            "eventId": "evt-delete-ghost",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-evt-delete-ghost",
+            "type": "transcript.row_deleted"
+          }
+        ],
+        "name": "delete-unknown-row",
+        "source": "BotSessionLogProjection.swift:550-560,764-785"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "e-ui-evt-greeting": {
+              "renderable": true,
+              "surface": "bubble",
+              "wire": {
+                "kind": "send-message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "e-ui-evt-greeting": {
+              "eventId": "evt-greeting",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "text": "你好",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "e-ui-evt-greeting",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [
+                  "evt-greeting"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "assistant",
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "text": "你好"
+            },
+            "eventId": "evt-greeting",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-evt-greeting",
+            "type": "bot.greeting_seeded"
+          }
+        ],
+        "name": "greeting-seeded",
+        "source": "BotSessionLogProjection.swift:655-670"
+      },
+      {
+        "expected": {
+          "cursor": 1,
+          "display": {
+            "comm-1": {
+              "renderable": true,
+              "surface": "agent-comm",
+              "wire": {
+                "kind": "message",
+                "type": "text"
+              }
+            }
+          },
+          "origins": {
+            "comm-1": {
+              "eventId": "evt-comm",
+              "kind": "ui"
+            }
+          },
+          "rows": [
+            {
+              "body": {
+                "agentComm": {
+                  "direction": "inbound",
+                  "message": "hello from Bee"
+                },
+                "role": "user",
+                "text": "hello from Bee",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "comm-1",
+              "kind": "message",
+              "provenance": {
+                "eventIDs": [
+                  "evt-comm"
+                ],
+                "tainted": false,
+                "trust": "owner_direct"
+              },
+              "role": "user",
+              "seq": 1001,
+              "streaming": false,
+              "updatedSeq": 1
+            }
+          ],
+          "tombstones": []
+        },
+        "uiEvents": [
+          {
+            "commitSeq": 1,
+            "data": {
+              "agentComm": {
+                "direction": "inbound",
+                "message": "hello from Bee"
+              },
+              "id": "comm-1",
+              "role": "user"
+            },
+            "eventId": "evt-comm",
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "principal": {
+              "botId": "main",
+              "capabilities": [],
+              "kind": "chat",
+              "sessionId": "gb-main"
+            },
+            "schemaVersion": 1,
+            "time": 1,
+            "traceId": "trace-evt-comm",
+            "type": "agent.comm"
+          }
+        ],
+        "name": "agent-comm-inbound",
+        "source": "BotSessionLogProjection.swift:641-654"
+      }
+    ],
+    "history": [
+      {
+        "name": "reconnect-converge",
+        "source": "BotSessionLogProjection.swift:800-898",
+        "steps": [
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "开始",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-1",
+                  "kind": "message",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "role": "user",
+                  "seq": 1000001,
+                  "streaming": false,
+                  "updatedSeq": 1
+                },
+                {
+                  "body": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 25,
+                      "state": "running",
+                      "title": "生成报告"
+                    },
+                    "cardKey": "report-1",
+                    "cardType": "progress",
+                    "percent": 25,
+                    "state": "running",
+                    "title": "生成报告",
+                    "type": "widget"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-ui-evt-progress-1",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [
+                      "evt-progress-1"
+                    ],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 2
+                }
+              ]
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"content\":[{\"text\":\"开始\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}"
+              ],
+              "uiEvents": [
+                {
+                  "commitSeq": 1,
+                  "data": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 25,
+                      "state": "running",
+                      "title": "生成报告"
+                    }
+                  },
+                  "eventId": "evt-progress-1",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 2000,
+                  "traceId": "trace-evt-progress-1",
+                  "type": "card.presented"
+                }
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "开始",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-1",
+                  "kind": "message",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "role": "user",
+                  "seq": 1000001,
+                  "streaming": false,
+                  "updatedSeq": 1
+                },
+                {
+                  "body": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 25,
+                      "state": "running",
+                      "title": "生成报告"
+                    },
+                    "cardKey": "report-1",
+                    "cardType": "progress",
+                    "percent": 25,
+                    "state": "running",
+                    "title": "生成报告",
+                    "type": "widget"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-ui-evt-progress-1",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [
+                      "evt-progress-1"
+                    ],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 2
+                }
+              ]
+            },
+            "watchAfter": 0
+          },
+          {
+            "expectBatch": {
+              "cursor": 4,
+              "deletes": [
+                "e-gb-main-2"
+              ],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "开始",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-1",
+                  "kind": "message",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "role": "user",
+                  "seq": 1000001,
+                  "streaming": false,
+                  "updatedSeq": 1
+                },
+                {
+                  "body": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 100,
+                      "state": "done",
+                      "title": "生成报告"
+                    },
+                    "cardKey": "report-1",
+                    "cardType": "progress",
+                    "percent": 100,
+                    "state": "done",
+                    "title": "生成报告",
+                    "type": "widget"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-ui-evt-progress-1",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [
+                      "evt-progress-1",
+                      "evt-progress-2"
+                    ],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 3
+                }
+              ]
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"content\":[{\"text\":\"开始\",\"type\":\"text\"}],\"role\":\"user\",\"source\":{\"kind\":\"user\"}},\"seq\":1,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"user/message\"}",
+                "{\"data\":{\"message\":{\"content\":[{\"text\":\"中间结果\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":2,\"surfaceOp\":\"append\",\"time\":3000,\"type\":\"assistant/message\"}"
+              ],
+              "uiEvents": [
+                {
+                  "commitSeq": 1,
+                  "data": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 25,
+                      "state": "running",
+                      "title": "生成报告"
+                    }
+                  },
+                  "eventId": "evt-progress-1",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 2000,
+                  "traceId": "trace-evt-progress-1",
+                  "type": "card.presented"
+                },
+                {
+                  "commitSeq": 2,
+                  "data": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 100,
+                      "state": "done",
+                      "title": "生成报告"
+                    }
+                  },
+                  "eventId": "evt-progress-2",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 4000,
+                  "traceId": "trace-evt-progress-2",
+                  "type": "card.presented"
+                },
+                {
+                  "commitSeq": 3,
+                  "data": {
+                    "rowID": "e-gb-main-2"
+                  },
+                  "eventId": "evt-delete",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 5000,
+                  "traceId": "trace-evt-delete",
+                  "type": "transcript.row_deleted"
+                }
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 4,
+              "deletes": [
+                "e-gb-main-2"
+              ],
+              "reset": false,
+              "rows": [
+                {
+                  "body": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 100,
+                      "state": "done",
+                      "title": "生成报告"
+                    },
+                    "cardKey": "report-1",
+                    "cardType": "progress",
+                    "percent": 100,
+                    "state": "done",
+                    "title": "生成报告",
+                    "type": "widget"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-ui-evt-progress-1",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [
+                      "evt-progress-1",
+                      "evt-progress-2"
+                    ],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 3
+                }
+              ]
+            },
+            "watchAfter": 2
+          },
+          {
+            "expectBatch": {
+              "cursor": 4,
+              "deletes": [],
+              "reset": false,
+              "rows": []
+            },
+            "watchAfter": 4
+          },
+          {
+            "expectBatch": {
+              "cursor": 4,
+              "deletes": [
+                "e-gb-main-2"
+              ],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "开始",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-1",
+                  "kind": "message",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "role": "user",
+                  "seq": 1000001,
+                  "streaming": false,
+                  "updatedSeq": 1
+                },
+                {
+                  "body": {
+                    "card": {
+                      "cardKey": "report-1",
+                      "cardType": "progress",
+                      "percent": 100,
+                      "state": "done",
+                      "title": "生成报告"
+                    },
+                    "cardKey": "report-1",
+                    "cardType": "progress",
+                    "percent": 100,
+                    "state": "done",
+                    "title": "生成报告",
+                    "type": "widget"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-ui-evt-progress-1",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [
+                      "evt-progress-1",
+                      "evt-progress-2"
+                    ],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 3
+                }
+              ]
+            },
+            "watchAfter": 104
+          }
+        ]
+      },
+      {
+        "name": "late-source-append",
+        "source": "BotSessionLogProjection.swift:236-248,849-891",
+        "steps": [
+          {
+            "expectBatch": {
+              "cursor": 1,
+              "deletes": [],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "后发生",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-gb-main-1",
+                  "kind": "message",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "role": "user",
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 1
+                }
+              ]
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"content\":[{\"text\":\"后发生\",\"type\":\"text\"}],\"role\":\"user\"},\"seq\":1,\"surfaceOp\":\"append\",\"time\":2000,\"type\":\"user/message\"}"
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "迟到",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-2",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "model"
+                  },
+                  "role": "assistant",
+                  "seq": 1000002,
+                  "streaming": false,
+                  "updatedSeq": 2
+                },
+                {
+                  "body": {
+                    "text": "后发生",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 2000,
+                  "id": "e-gb-main-1",
+                  "kind": "message",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "owner_direct"
+                  },
+                  "role": "user",
+                  "seq": 2000001,
+                  "streaming": false,
+                  "updatedSeq": 1
+                }
+              ]
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"content\":[{\"text\":\"后发生\",\"type\":\"text\"}],\"role\":\"user\"},\"seq\":1,\"surfaceOp\":\"append\",\"time\":2000,\"type\":\"user/message\"}",
+                "{\"data\":{\"message\":{\"content\":[{\"text\":\"迟到\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":2,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"assistant/message\"}"
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [],
+              "reset": false,
+              "rows": [
+                {
+                  "body": {
+                    "text": "迟到",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-2",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "model"
+                  },
+                  "role": "assistant",
+                  "seq": 1000002,
+                  "streaming": false,
+                  "updatedSeq": 2
+                }
+              ]
+            },
+            "watchAfter": 1
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [],
+              "reset": false,
+              "rows": []
+            },
+            "watchAfter": 2
+          }
+        ]
+      },
+      {
+        "name": "late-delete-no-resurrection",
+        "source": "BotSessionLogProjection.swift:764-785,849-891",
+        "steps": [
+          {
+            "expectBatch": {
+              "cursor": 1,
+              "deletes": [],
+              "reset": true,
+              "rows": [
+                {
+                  "body": {
+                    "text": "待删除",
+                    "type": "text"
+                  },
+                  "botID": "main",
+                  "createdAt": 1000,
+                  "id": "e-gb-main-9",
+                  "kind": "sendMessage",
+                  "provenance": {
+                    "eventIDs": [],
+                    "tainted": false,
+                    "trust": "model"
+                  },
+                  "role": "assistant",
+                  "seq": 1000009,
+                  "streaming": false,
+                  "updatedSeq": 1
+                }
+              ]
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"message\":{\"content\":[{\"text\":\"待删除\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":9,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"assistant/message\"}"
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [
+                "e-gb-main-9"
+              ],
+              "reset": true,
+              "rows": []
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"message\":{\"content\":[{\"text\":\"待删除\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":9,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"assistant/message\"}"
+              ],
+              "uiEvents": [
+                {
+                  "commitSeq": 2,
+                  "data": {
+                    "rowID": "e-gb-main-9"
+                  },
+                  "eventId": "evt-delete-9",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 100,
+                  "traceId": "trace-evt-delete-9",
+                  "type": "transcript.row_deleted"
+                }
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [
+                "e-gb-main-9"
+              ],
+              "reset": false,
+              "rows": []
+            },
+            "watchAfter": 1
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [
+                "e-gb-main-9"
+              ],
+              "reset": true,
+              "rows": []
+            },
+            "rebuild": {
+              "records": [
+                "{\"data\":{\"message\":{\"content\":[{\"text\":\"待删除\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"seq\":9,\"surfaceOp\":\"append\",\"time\":1000,\"type\":\"assistant/message\"}",
+                "{\"data\":{\"message\":{\"content\":[{\"text\":\"待删除\",\"type\":\"text\"}],\"role\":\"assistant\"}},\"eventId\":\"evt-late-duplicate\",\"seq\":9,\"surfaceOp\":\"append\",\"time\":2000,\"type\":\"assistant/message\"}"
+              ],
+              "uiEvents": [
+                {
+                  "commitSeq": 2,
+                  "data": {
+                    "rowID": "e-gb-main-9"
+                  },
+                  "eventId": "evt-delete-9",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 100,
+                  "traceId": "trace-evt-delete-9",
+                  "type": "transcript.row_deleted"
+                },
+                {
+                  "commitSeq": 2,
+                  "data": {
+                    "rowID": "e-gb-main-9"
+                  },
+                  "eventId": "evt-delete-9",
+                  "origin": {
+                    "kind": "local",
+                    "source": "user"
+                  },
+                  "principal": {
+                    "botId": "main",
+                    "capabilities": [],
+                    "kind": "chat",
+                    "sessionId": "gb-main"
+                  },
+                  "schemaVersion": 1,
+                  "time": 100,
+                  "traceId": "trace-evt-delete-9",
+                  "type": "transcript.row_deleted"
+                }
+              ]
+            }
+          },
+          {
+            "expectBatch": {
+              "cursor": 2,
+              "deletes": [
+                "e-gb-main-9"
+              ],
+              "reset": false,
+              "rows": []
+            },
+            "watchAfter": 1
+          }
+        ]
+      }
+    ],
+    "streaming": [
+      {
+        "name": "ten-per-second-coalesce",
+        "source": "BotStreamingRowLimiter.swift:6-90",
+        "steps": [
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-0",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 0,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-0",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 0,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-1",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-1",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-2",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 2,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-2",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 2,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-3",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 3,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-3",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 3,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-4",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 4,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-4",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 4,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-5",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 5,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-5",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 5,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-6",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 6,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-6",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 6,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-7",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 7,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-7",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 7,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-8",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 8,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-8",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 8,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row-9",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 9,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "submit": {
+              "now": 10,
+              "row": {
+                "body": {
+                  "text": "delta",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row-9",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 9,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "submit": {
+              "now": 10.1,
+              "row": {
+                "body": {
+                  "text": "first",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "overflow",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 99,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "submit": {
+              "now": 10.2,
+              "row": {
+                "body": {
+                  "text": "latest",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "overflow",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 99,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectRows": [],
+            "flush": {
+              "now": 10.99
+            }
+          },
+          {
+            "expectRows": [
+              {
+                "body": {
+                  "text": "latest",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "overflow",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 99,
+                "streaming": true,
+                "updatedSeq": 0
+              }
+            ],
+            "flush": {
+              "now": 11
+            }
+          },
+          {
+            "state": {
+              "nextFlushAt": null,
+              "pendingCount": 0,
+              "rowCount": 11
+            }
+          }
+        ]
+      },
+      {
+        "name": "rolling-window",
+        "source": "BotStreamingRowLimiter.swift:18-39,73-89",
+        "steps": [
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-0",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100,
+              "row": {
+                "body": {
+                  "text": "delta-0",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-1",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.05,
+              "row": {
+                "body": {
+                  "text": "delta-1",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-2",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.1,
+              "row": {
+                "body": {
+                  "text": "delta-2",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-3",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.15,
+              "row": {
+                "body": {
+                  "text": "delta-3",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-4",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.2,
+              "row": {
+                "body": {
+                  "text": "delta-4",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-5",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.25,
+              "row": {
+                "body": {
+                  "text": "delta-5",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-6",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.3,
+              "row": {
+                "body": {
+                  "text": "delta-6",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-7",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.35,
+              "row": {
+                "body": {
+                  "text": "delta-7",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-8",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.4,
+              "row": {
+                "body": {
+                  "text": "delta-8",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": {
+              "body": {
+                "text": "delta-9",
+                "type": "text"
+              },
+              "botID": "main",
+              "createdAt": 1,
+              "id": "row",
+              "kind": "sendMessage",
+              "provenance": {
+                "eventIDs": [],
+                "tainted": false,
+                "trust": "model"
+              },
+              "role": "assistant",
+              "seq": 1,
+              "streaming": true,
+              "updatedSeq": 0
+            },
+            "expectFlush": [],
+            "submit": {
+              "now": 100.45,
+              "row": {
+                "body": {
+                  "text": "delta-9",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.5,
+              "row": {
+                "body": {
+                  "text": "delta-10",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.55,
+              "row": {
+                "body": {
+                  "text": "delta-11",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.6,
+              "row": {
+                "body": {
+                  "text": "delta-12",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.65,
+              "row": {
+                "body": {
+                  "text": "delta-13",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.7,
+              "row": {
+                "body": {
+                  "text": "delta-14",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.75,
+              "row": {
+                "body": {
+                  "text": "delta-15",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.8,
+              "row": {
+                "body": {
+                  "text": "delta-16",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.85,
+              "row": {
+                "body": {
+                  "text": "delta-17",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.9,
+              "row": {
+                "body": {
+                  "text": "delta-18",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectEmitted": null,
+            "expectFlush": [],
+            "submit": {
+              "now": 100.95,
+              "row": {
+                "body": {
+                  "text": "delta-19",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": false,
+                "updatedSeq": 0
+              }
+            }
+          },
+          {
+            "expectRows": [
+              {
+                "body": {
+                  "text": "delta-19",
+                  "type": "text"
+                },
+                "botID": "main",
+                "createdAt": 1,
+                "id": "row",
+                "kind": "sendMessage",
+                "provenance": {
+                  "eventIDs": [],
+                  "tainted": false,
+                  "trust": "model"
+                },
+                "role": "assistant",
+                "seq": 1,
+                "streaming": true,
+                "updatedSeq": 0
+              }
+            ],
+            "flush": {
+              "now": 102
+            }
+          },
+          {
+            "state": {
+              "emissions": 10,
+              "pendingCount": 0,
+              "rowCount": 1
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "invalid": [
+    {
+      "expected": {
+        "eventSeqs": [],
+        "skipped": [
+          {
+            "lineNumber": 2,
+            "seq": 9
+          }
+        ]
+      },
+      "name": "surfaceop-start-end-keys",
+      "records": [
+        "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}",
+        "{\"type\":\"user/message\",\"seq\":9,\"time\":42,\"surfaceOp\":{\"op\":\"replace\",\"start\":8,\"end\":8},\"data\":{\"role\":\"user\",\"content\":[]}}"
+      ],
+      "source": "BotSessionLogProjection.swift:38-53"
+    },
+    {
+      "expected": {
+        "eventSeqs": [],
+        "skipped": [
+          {
+            "lineNumber": 2,
+            "seq": 9
+          }
+        ]
+      },
+      "name": "surfaceop-negative-start",
+      "records": [
+        "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}",
+        "{\"type\":\"user/message\",\"seq\":9,\"time\":42,\"surfaceOp\":{\"op\":\"replace\",\"startSeq\":-1,\"endSeq\":8},\"data\":{\"role\":\"user\",\"content\":[]}}"
+      ],
+      "source": "BotSessionLogProjection.swift:38-53"
+    },
+    {
+      "expected": {
+        "eventSeqs": [],
+        "skipped": [
+          {
+            "lineNumber": 2,
+            "seq": 9
+          }
+        ]
+      },
+      "name": "surfaceop-end-before-start",
+      "records": [
+        "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}",
+        "{\"type\":\"user/message\",\"seq\":9,\"time\":42,\"surfaceOp\":{\"op\":\"replace\",\"startSeq\":8,\"endSeq\":7},\"data\":{\"role\":\"user\",\"content\":[]}}"
+      ],
+      "source": "BotSessionLogProjection.swift:38-53"
+    },
+    {
+      "expected": {
+        "eventSeqs": [],
+        "skipped": [
+          {
+            "lineNumber": 2,
+            "seq": 7
+          }
+        ]
+      },
+      "name": "missing-data",
+      "records": [
+        "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}",
+        "{\"type\":\"user/message\",\"seq\":7,\"time\":7}"
+      ],
+      "source": "BotSessionLogProjection.swift:180-185"
+    },
+    {
+      "expected": {
+        "eventSeqs": [],
+        "skipped": [
+          {
+            "lineNumber": 2,
+            "seq": null
+          }
+        ]
+      },
+      "name": "broken-json",
+      "records": [
+        "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}",
+        "{\"type\":\"assistant/message\",\"seq\":3,\"time\":3,\"data\":{\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"坏\"}"
+      ],
+      "source": "BotSessionLogProjection.swift:180-197"
+    },
+    {
+      "expected": {
+        "eventSeqs": [
+          1
+        ],
+        "skipped": [
+          {
+            "lineNumber": 1,
+            "seq": null
+          }
+        ]
+      },
+      "name": "v3-header",
+      "records": [
+        "{\"type\":\"session\",\"version\":3,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}",
+        "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"surfaceOp\":\"append\",\"data\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]}}"
+      ],
+      "source": "BotSessionLogProjection.swift:173-185"
+    },
+    {
+      "expected": {
+        "eventSeqs": [
+          1
+        ],
+        "skipped": [
+          {
+            "lineNumber": 2,
+            "seq": null
+          }
+        ]
+      },
+      "name": "header-not-first",
+      "records": [
+        "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"surfaceOp\":\"append\",\"data\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"x\"}]}}",
+        "{\"type\":\"session\",\"version\":4,\"id\":\"gb-main\",\"createdAt\":40,\"isSeeded\":false,\"delegationDepth\":0}"
+      ],
+      "source": "BotSessionLogProjection.swift:169-186"
+    }
+  ]
+}

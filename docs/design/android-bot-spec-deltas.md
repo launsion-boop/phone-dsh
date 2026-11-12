@@ -986,86 +986,88 @@ the recall test asserts the score within `1e-6`.
 
 ### D11 — Rows, projection, display contract, user actions (XL)
 
-**Target.** New `spec/bot/v1/projection.md` and `spec/bot/v1/display-contract.md`; tighten
-`row.schema.json`/`row-batch.schema.json` descriptions; add `golden/row-display-cases.json`.
+**Status after B7a (PC-20261112-android-bot-w4).** The session-lifecycle and log→row halves are
+**frozen** as phone-owned P27 contracts with shared vectors. The row JSON shapes remain the upstream
+exports; `row-projection.json`, `row-protocol.json` and `row-protocol.phone.json` are byte-identical.
+The display table, card expiry/answer, user-action validation and the user-action transaction are
+**not yet frozen** and stay in this delta for a later checkpoint.
 
-**Why.** The JSON shapes are frozen, but the DSH→row mapping, ids, entrySeq, surfaceOp, tombstones,
-cursor, progress collapse and streaming limiter are code-only
-(`Rows/BotSessionLogProjection.swift:280-530`, `:664-830`, `:847-865`;
-`Rows/BotStreamingRowLimiter.swift:6-90`). The display table is code-only
-(`Rows/BotDisplayContract.swift:78-230`). Card expiry/answer/close and action validation are partly
-prose but not vectorized (`Rows/BotRemoteActionPlanner.swift:73-200`;
-`Rows/BotUserAction.swift:231-268`).
+**Frozen in B7a** (worktree base `e477497b`; contract files are normative and are not dsh-bot
+exports):
 
-**Section outline.**
+- [session-lifecycle.md](../../spec/bot/v1/session-lifecycle.md): `gb-<safeBotID>` minting and the exact
+  `safePathComponent` alphabet (Unicode `L*`, `M*`, `N*` plus `._-`, fallback `bot`, 64 grapheme
+  clusters), the Bot root, `session/create` (`agentPreset`, cwd, response checks), `runtime.started` /
+  `runtime.exited`, the recovery decision table (reuse vs archive+rebuild vs create-conflict legacy
+  path), erasure epoch switch ordering, `session/prompt` (`requestId` `bot-<uuid>`, queue/steer),
+  `session/follow` snapshot/live-frame semantics, cancel, `phone/botClaimSession` and the
+  `BotTokenRegistry` issue/rotate/revoke/expiry rules. The session-log file path is recorded as a
+  host detail; the normative input is the ordered DSH record list, and §7 states the
+  `session/follow` + `session/page` fallback for a host without the materialized file.
+- [projection.md](../../spec/bot/v1/projection.md): JSONL decoding and skipped diagnostics, the DSH and
+  durable-event→row tables, `rowID` / `entrySeq`, `surfaceOp` append/replace handling, progress
+  collapse, tombstones, `watch(after:)`, cursor/reset, reconciliation, epoch chains, the 10 updates/s
+  limiter and its `nextFlushAt`, the display-contract bridge, and App history paging (P09 consumer,
+  iOS conformance NOT_RUN because `examples/probe-app/**` is outside the SwiftPM targets).
+- [golden/session-lifecycle.phone.json](../../spec/bot/v1/golden/session-lifecycle.phone.json): 23
+  workspace (17 valid + 6 fallback), 20 token-registry (7 valid + 13 invalid) and 19 session
+  request/response (12 valid + 7 fail-closed) vectors. Each case carries a `source` (`file:line`);
+  invalid cases freeze composed-preset mismatch, missing `sessionId`/`agentPreset`, non-conflict
+  create errors, unacknowledged legacy claims, claim errors and a follow stream without a snapshot.
+- [golden/projection.phone.json](../../spec/bot/v1/golden/projection.phone.json): 15 DSH mapping, 8 UI
+  mapping, 7 invalid-record, 3 history cases (8 rebuild/watch steps) and 2 streaming cases. `origins` lets the Python
+  validator re-check `rowID`/`entrySeq`; `display` freezes the `BotDisplayContract` composition for
+  the projected rows; `chatActionNonces` freezes the in-memory-only nonce.
+- Swift conformance: `Tests/PhoneDSHBotTests/MCP/BotSessionLifecycleGoldenTests.swift` and
+  `Tests/PhoneDSHBotTests/Rows/BotProjectionGoldenTests.swift` read the JSON from disk and drive the
+  real `BotWorkspaceLayout`, `BotDSHRemoteRuntime`, `BotTokenRegistry`, `BotDSHSessionEvent.parseJSONL`,
+  `BotSessionLogProjector`, `BotRowHistory` and `BotStreamingRowLimiter`.
+- `validate_vectors.py` / `check_golden.py` / `export-manifest.json`: both files are registered as
+  explicit phone-only vectors (`upstream: []`) and validated by the same `phone-spec` stage. The
+  Python side is an oracle for the arithmetic and invariants, not runtime conformance.
 
-1. **Sources.** Rows project (a) the Bot’s DSH session JSONL and live frames and (b) durable Bot events
-   of types `ui.*`, `card.*`, `approval.*`, `agent.comm`, `task.*`, `conversation.automation_run`.
-   The projection is pure and order-stable; no row is durable (`BotSessionLogProjection.swift:280-330`,
-   `:500-530`).
-2. **IDs and order.** `rowID = "e-<sessionID>-<seq>"` and `"-approval"` for the approval row;
-   `entrySeq = time*1000 + (seq % 1000)` with overflow clamps; order by `(seq,id)`; a progress row keeps
-   the first id for its `cardKey`. State the exact formula (`:676-690`, `:847-865`).
-3. **DSH mapping table.** `user/message` → message/user text; `assistant/message` → send-message/assistant;
-   `tool/call` → approval row or process row; `tool/result` → update the call row; `turn/end` → event
-   row/terminal; `assistant/stream` → in-memory streaming overlay (not durable); unknown record →
-   skipped with diagnostics (`:313-500`). Include the role/body/trust mapping and the `isInjected`
-   fallback (`Current runtime context.`, `<system-reminder>`, `Check the [exit code: N]`).
-4. **surfaceOp.** `"append"` keeps the position; `{"op":"replace","startSeq","endSeq"}` replaces the
-   inclusive range and must be canonical v3/v4 (no `start`/`end`) (`:18-85`, `:313-330`).
-5. **Tombstones/cursor.** A delete removes the live row and keeps a tombstone with `deletedKind`;
-   `history()` returns live rows; `watch(after:)` uses `updatedSeq`; cursor ≤0 or >head returns a reset
-   batch; a tombstone is not resurrected (`:664-830`).
-6. **Progress.** A `progress` widget with `cardKey` updates the same row in place; the latest payload
-   wins; a delete removes the progress mapping (`:676-720`).
-7. **Streaming.** Only text deltas use the overlay; max 10 updates/s, coalesce pending by row id, flush
-   oldest first, `nextFlushAt` = oldest emission + 1 s; never durable (`BotStreamingRowLimiter.swift:6-90`;
-   `spec/bot/v1/README.md:117`).
-8. **Durable UI mapping.** `card.presented` → widget/attachment; `card.answered|dismissed` → update the
-   row; `ui.notice` → notice; `ui.send_to_user` → text row; `ui.system_event` → system event;
-   `approval.*` → approval row; `agent.comm` → agent-comm projection (`:500-660`).
-9. **Display contract.** A table of `input kind → surface`, `renderable`, `wire{kind,type,role}` and
-   hidden rules: message bubble, agent-comm, card kinds, approval, routine/automation, system event,
-   notice (only error/denied/denial, not context-only), tool-call hidden, deleted hidden, separator
-   upstream-only; P1 cards protocol-visible but not phone-renderable; unknown kind hidden
-   (`BotDisplayContract.swift:78-230`). Add the “hidden tool names” rule (`FishAction`).
-10. **Card expiry/answer.** A `question`/`steps` card has stable `optionID o0…o3`; a newer open card
-    expires older ones; an answered/closed/expired card returns `stale` with reason
-    `already_answered|unknown_card|expired|answer_in_flight`; `cardAnswer` only `cardID+optionID`; a
-    dismissed question does not create a model turn; steps has no dismiss (`BotRemoteActionPlanner.swift:73-200`;
-    `spec/bot/v1/README.md:120`).
-11. **Action validation.** The 11 reason codes and the nonce/botID/kind rules; `chat` needs text or
-    attachments; `cardAnswer` rejects `text`/`customText`; `approval` needs id/decision/digest;
-    `stopTask` needs threadID (`BotUserAction.swift:231-268`; `user-action.schema.json`).
-12. **Transaction.** `performAndRecord` in one `BEGIN IMMEDIATE`: duplicate nonce → duplicate event id;
-    stale/rejected do not consume the nonce; event must be durable and belong to the action Bot;
-    effects are unique by key; a crash before commit leaves nothing, after commit replays as duplicate
-    (`SQLiteDomainStore+UserAction.swift:11-60`).
-13. **Agent-comm.** `toAgent`/`fromAgent`/`agentComm{direction,…}`; sender outbound/inbound collapse to
-    one row, target incoming/reply stay normal bubbles; `threadId = <rowID>@<seq>:agent-comm`;
-    `summarizeCommRows` → `single|fanout|thread` (`BotAgentComm.swift:1-260`;
-    `BotDisplayContract.swift:82-120`).
-14. **Attachments.** A user message with attachments projects as a text bubble plus attachment cards;
-    attachment-only text is empty but the row is renderable (`BotDisplayContract.swift:120-140`;
-    D3).
+**Remaining in D11 (not frozen; do not implement from Swift alone):**
 
-**Fixtures.** `row-display-cases.json` with one case per surface/hidden rule; projection cases for each
-DSH event type; surfaceOp replace; tombstone/resurrect; cursor reset; progress same-key; streaming
-10/s; card stale/expired/answered/closed; action reason codes; agent-comm direction/summary;
-attachment-only row. Keep `row-protocol.phone.json` and `row-projection.json` byte-identical upstream
-(phone additions go in overlays).
+1. `spec/bot/v1/display-contract.md` (or an equivalent normative table). `row-projection.json` still
+   freezes input kind → surface; the phone-P0 hidden rules, `hiddenToolNames`, agent-comm
+   summarisation and the card-data requirements are only code. `projection.phone.json` freezes the
+   display composition for the rows it produces, not the whole table.
+2. Card expiry/answer/close semantics: stable `o0…o3` option ids, newer-card expiry, the `stale`
+   reasons, "a dismissed question creates no model turn" and "steps has no dismiss"
+   (`BotRemoteActionPlanner.swift`, `card-payload.phone.json` only covers ids).
+3. User-action validation (the 11 reason codes, nonce/botID/kind rules, `chat` text-or-attachments,
+   `cardAnswer` field restrictions, approval id/digest, `stopTask` threadID) and the
+   `BEGIN IMMEDIATE` nonce/event transaction (`BotUserAction.swift`,
+   `SQLiteDomainStore+UserAction.swift`). These remain code-only; no new vectors in B7a.
+4. Agent-comm rows and `summarizeCommRows` (`BotAgentComm.swift`) beyond the generic `agent.comm`
+   mapping frozen in projection.md §6.
+5. A `row-display-cases.json` golden with one case per surface/hidden rule. `projection.phone.json`
+   covers the rows produced by the log and durable-event tables; it is not a replacement for the
+   full display table.
+6. History paging conformance. The rule is frozen in projection.md §12, but it lives in
+   `examples/probe-app/**`; no SwiftPM test target can reach it, so its iOS conformance is NOT_RUN.
 
-**Compatibility.** Old DSH session logs replay through the same table; an unknown event type/record is
-skipped, not fatal. The projection cursor is in memory, so an app restart rebuilds from the log and the
-durable events; no migration. The display contract is a UI contract; changing a surface is a breaking
-UI change even if JSON is unchanged.
+**Fixtures.** The new vectors are listed above. The earlier plan for `row-display-cases.json` stays
+open (remaining item 5). Card stale/expired/answered/closed, action reason codes and agent-comm
+summary vectors are still missing; `row-protocol.phone.json` and `row-projection.json` remain
+untouched and byte-identical.
 
-**Acceptance.**
+**Compatibility.** Old DSH session logs replay through the same table; an invalid `surfaceOp`
+(`start`/`end` spelling), unknown record type or damaged JSON line is skipped with diagnostics, not
+fatal. The projection cursor is in memory, so an app restart rebuilds from the log and the durable
+events; no migration. A tombstone is reconstructed from the durable delete event after a cold
+rebuild. Changing a display surface remains a breaking P09 UI change even when the row JSON is
+unchanged.
+
+**Acceptance (B7a).**
 ```bash
 python3 spec/bot/v1/tools/validate_vectors.py
+python3 spec/tools/bot/check_golden.py --root .
+swift test --filter 'BotSessionLifecycleGoldenTests|BotProjectionGoldenTests'
 ```
-Kotlin: `:bot:testDebugUnitTest --tests '*Row*' --tests '*Projection*' --tests '*UserAction*'`; the
-golden test must assert `BotRow` fields directly, including `updatedSeq` and tombstones.
+Kotlin (round 2): `:bot:testDebugUnitTest --tests '*Row*' --tests '*Projection*' --tests '*UserAction*'`;
+the golden test must assert `BotRow` fields directly, including `updatedSeq`, tombstones and
+`chatActionNonce` (in-memory only).
 
 ---
 

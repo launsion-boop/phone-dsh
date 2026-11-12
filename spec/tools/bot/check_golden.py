@@ -12,7 +12,8 @@ Offline mode (used by CI) checks that
     ``authority.phone.json``, ``record-reference.phone.json``,
     ``observation-envelope.phone.json``, ``record-query.phone.json``,
     ``erasure-event.phone.json``, ``verification.phone.json``,
-    ``store.phone.json`` and ``user-action-transaction.phone.json``) that have no
+    ``store.phone.json``, ``user-action-transaction.phone.json``,
+    ``session-lifecycle.phone.json`` and ``projection.phone.json``) that have no
     dsh-bot counterpart.
 
 With ``--checkout`` it also runs the real exporter into a temporary directory
@@ -61,6 +62,8 @@ PHONE_ONLY_VECTORS = frozenset({
     "verification.phone.json",
     "store.phone.json",
     "user-action-transaction.phone.json",
+    "session-lifecycle.phone.json",
+    "projection.phone.json",
 })
 
 
