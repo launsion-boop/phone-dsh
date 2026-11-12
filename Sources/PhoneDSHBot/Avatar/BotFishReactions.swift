@@ -193,11 +193,11 @@ public struct BotFishActionTool: BotTeamToolHandling {
         guard let kind = BotFishReactionVocabulary.kind(for: action),
               let duration = BotFishReactionVocabulary.durationMs(for: action) else {
             return .failure("invalid_arguments",
-                            "FishAction: 不支援的動作「\(action)」。可用：\(BotFishReactionVocabulary.reactions.joined(separator: ", ")).")
+                            "FishAction: 不支持的动作「\(action)」。可用：\(BotFishReactionVocabulary.reactions.joined(separator: ", ")).")
         }
         // Upstream local-tool wording. This is cosmetic: neither durable task
         // state nor the model's understanding of what happened changes.
-        let text = "FishAction: 已在介面播放「\(action)」；這只是外觀動作，沒有改變任何工作狀態。"
+        let text = "FishAction: 已在界面播放「\(action)」；这只是外观动作，没有改变任何工作状态。"
         return .success(.object([
             "ok": .bool(true),
             "action": .string(action),

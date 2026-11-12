@@ -66,8 +66,8 @@ final class BotFishActionTests: XCTestCase {
         XCTAssertEqual(result.structuredContent?["kind"], .string("action"))
         XCTAssertEqual(result.structuredContent?["durationMs"], .number(1_600))
         let text = result.content.first?["text"]?.stringValue ?? ""
-        XCTAssertTrue(text.contains("已在介面播放「waving」"))
-        XCTAssertTrue(text.contains("沒有改變任何工作狀態"))
+        XCTAssertTrue(text.contains("已在界面播放「waving」"))
+        XCTAssertTrue(text.contains("没有改变任何工作状态"))
         let events = try await botEvents(fixture.store)
         XCTAssertFalse(events.contains { $0.type == "approval.requested" },
                        "FishAction is auto-policy and must not ask for approval")
@@ -85,7 +85,7 @@ final class BotFishActionTests: XCTestCase {
         XCTAssertEqual(invalid.isError, true)
         XCTAssertEqual(invalid.structuredContent?["error"]?["code"], .string("invalid_arguments"))
         let invalidText = invalid.content.first?["text"]?.stringValue ?? ""
-        XCTAssertTrue(invalidText.contains("不支援的動作「moonwalk」"))
+        XCTAssertTrue(invalidText.contains("不支持的动作「moonwalk」"))
         XCTAssertTrue(invalidText.contains("happy"))
 
         let missing = try await registerAndExecute(

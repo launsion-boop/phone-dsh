@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-// The Bot page's view of a turn's work, drawn the way the DSH session page
-// draws it: tool calls as DSH tool rows under a "已完成，用时 …" process row,
-// and a running turn as streamed text, live tool rows and the running clock.
+// The Bot page's view of a turn's work. The transcript no longer renders a
+// finished process row or live tool rows; the running turn is drawn as
+// streamed text only, while the activity line carries the tool category and
+// phrase. The tool-step data is still kept here for the shared row projection.
 // Both come from the Bot's own DSH session: finished turns from its session
 // log, the running turn from the live frames the Bot runtime forwards.
 
@@ -12,7 +13,8 @@ import Foundation
 import PhoneDSHAgentCore
 import PhoneDSHBot
 
-/// The tool steps of one finished turn, for the folded process row.
+/// The tool steps of one finished turn. Retained for the durable row/data
+/// chain even though the Bot transcript no longer renders a process row.
 struct BotTurnProcess: Equatable {
     var turn: Int
     var items: [ChatItem]

@@ -458,8 +458,8 @@ public struct BotSessionLogProjector: Sendable {
                 fields["requestId"] = .string(requestID)
                 fields["approvalID"] = .string(requestID)
                 fields["callId"] = .string(callID)
-                fields["title"] = .string("允許執行「\(action)」嗎？")
-                fields["text"] = .string("待審批：\(action)")
+                fields["title"] = .string("允许执行「\(action)」吗？")
+                fields["text"] = .string("待审批：\(action)")
                 fields["ask"] = .object([
                     "requestId": .string(requestID),
                     "action": .string(classifyApproval(command: command)),
@@ -503,8 +503,8 @@ public struct BotSessionLogProjector: Sendable {
                 guard let reasonKind, reasonKind != "completed", reasonKind != "aborted" else { continue }
                 let error = reason.flatMap { objectValue($0["error"]) } ?? [:]
                 let detail = stringValue(error["message"]).map { "：\(String($0.prefix(200)))" } ?? ""
-                let hint = intValue(error["status"]) == 401 ? "（API Key 無效或已被覆蓋，請到設定重新貼上）" : ""
-                let text = String("回合失敗\(detail)\(hint)".prefix(400))
+                let hint = intValue(error["status"]) == 401 ? "（API Key 无效或已被覆盖，请到设置重新粘贴）" : ""
+                let text = String("回合失败\(detail)\(hint)".prefix(400))
                 let draft = draft(id: rowID(sessionID, event.seq), event: event, kind: .event, role: nil,
                                   body: BotRowBody(type: .notice, additionalProperties: [
                                     "tone": .string("error"), "text": .string(text)
@@ -519,11 +519,11 @@ public struct BotSessionLogProjector: Sendable {
                     guard automationID != nil || name != nil else { continue }
                     let status = automationStatus(run, event: event)
                     var fields = fieldsFrom(run)
-                    fields["title"] = .string(name ?? "例行工作")
+                    fields["title"] = .string(name ?? "例行任务")
                     fields["status"] = .string(status)
                     fields["automation"] = .object(run.merging([
                         "automationId": automationID.map(BotJSONValue.string) ?? .null,
-                        "name": .string(name ?? "例行工作"),
+                        "name": .string(name ?? "例行任务"),
                         "status": .string(status)
                     ]) { _, new in new })
                     let draft = draft(id: rowID(sessionID, event.seq), event: event, kind: .message, role: nil,
@@ -978,23 +978,23 @@ private func approvalStatus(_ text: String) -> String {
     }
     if fields["allowed"]?.boolValue == true { return "allowed" }
     let lower = text.lowercased()
-    if text.contains("永不允許") || lower.contains("never allow") { return "never" }
-    if text.contains("總是允許") || lower.contains("always allow") { return "always" }
-    if text.contains("逾時") || lower.contains("timed out") || lower.contains("timeout") { return "timed-out" }
-    if text.contains("拒絕") || lower.contains("denied") || lower.contains("rejected")
+    if text.contains("永不允许") || text.contains("永不允許") || lower.contains("never allow") { return "never" }
+    if text.contains("总是允许") || text.contains("總是允許") || lower.contains("always allow") { return "always" }
+    if text.contains("超时") || text.contains("逾時") || lower.contains("timed out") || lower.contains("timeout") { return "timed-out" }
+    if text.contains("拒绝") || text.contains("拒絕") || lower.contains("denied") || lower.contains("rejected")
         || lower.contains("not allowed") { return "denied" }
-    if text.contains("允許") || lower.contains("allowed") { return "allowed" }
+    if text.contains("允许") || text.contains("允許") || lower.contains("allowed") { return "allowed" }
     return "unknown"
 }
 
 private func approvalLabel(_ status: String) -> String {
     switch status {
-    case "allowed": return "已允許一次"
-    case "always": return "已總是允許"
-    case "denied": return "已拒絕"
-    case "never": return "已設為永不允許"
-    case "timed-out": return "逾時未回應（視為拒絕）"
-    default: return "已處理"
+    case "allowed": return "已允许一次"
+    case "always": return "已总是允许"
+    case "denied": return "已拒绝"
+    case "never": return "已设为永不允许"
+    case "timed-out": return "超时未回应（视为拒绝）"
+    default: return "已处理"
     }
 }
 

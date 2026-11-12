@@ -43,11 +43,15 @@ final class BotGoldenVectorTests: XCTestCase {
     }
 
     func testToolEffectsSharedGolden() throws {
-        let vector = try JSONDecoder().decode(ToolVector.self, from: golden("tool-effects"))
+        // The upstream export keeps its Traditional Chinese labels; the
+        // `.phone.json` overlay replaces only the localized display strings.
+        // The classifier is a phone consumer, so it must match the merged view.
+        let vector = try JSONDecoder().decode(
+            ToolVector.self, from: BotGoldenFixture.mergedData("tool-effects"))
         XCTAssertEqual(vector.schemaVersion, 1)
         XCTAssertEqual(vector.vector, "tool-effects")
         XCTAssertEqual(vector.source.checkout, "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6")
-        XCTAssertEqual(vector.valid.count + vector.invalid.count, 23)
+        XCTAssertEqual(vector.valid.count + vector.invalid.count, 27)
         for call in vector.valid + vector.invalid {
             let actual = BotToolEffectClassifier.effect(for: call.name, arguments: call.args, language: .zh)
             XCTAssertEqual(BotToolEffectClassifier.policy(for: call.name, arguments: call.args),
