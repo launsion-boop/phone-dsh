@@ -53,4 +53,98 @@ final class ChatTranscriptTailPolicyTests: XCTestCase {
         XCTAssertFalse(ChatTranscriptTailPolicy.shouldScrollToTail(
             contentHeight: 900, viewportHeight: 600, hasRows: false))
     }
+
+    func testShortTranscriptAtTheTopIsVisible() {
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 200, contentOffsetY: 0, viewportHeight: 600, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 200, contentOffsetY: 0, viewportHeight: 600, hasRows: true), .none)
+    }
+
+    func testShortTranscriptPushedAwayFromItsTopIsBlankAndReturnsToTop() {
+        XCTAssertTrue(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 200, contentOffsetY: 12, viewportHeight: 600, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 200, contentOffsetY: 12, viewportHeight: 600, hasRows: true),
+            .scrollToTop)
+    }
+
+    func testLongTranscriptAtItsRealBottomIsVisible() {
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_200, contentOffsetY: 600, viewportHeight: 600, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 1_200, contentOffsetY: 600, viewportHeight: 600, hasRows: true),
+            .none)
+    }
+
+    func testOffsetPastEstimatedContentIsBlankAndReturnsToLastRow() {
+        XCTAssertTrue(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_200, contentOffsetY: 1_201, viewportHeight: 600, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 1_200, contentOffsetY: 1_201, viewportHeight: 600, hasRows: true),
+            .scrollToLastRow)
+        XCTAssertTrue(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_200, contentOffsetY: 1_800, viewportHeight: 600, hasRows: true))
+    }
+
+    func testNegativeOffsetIsTopOverscrollNotABlankViewport() {
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_200, contentOffsetY: -40, viewportHeight: 600, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 1_200, contentOffsetY: -40, viewportHeight: 600, hasRows: true),
+            .none)
+    }
+
+    func testTopInsetIsRemovedBeforeJudgingVisibility() {
+        // At the top the raw offset is -topInset; it normalizes to content 0.
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 900, contentOffsetY: -59, viewportHeight: 600,
+            contentInsetTop: 59, contentInsetBottom: 34, hasRows: true))
+    }
+
+    func testKeyboardInsetsShrinkTheUsableViewport() {
+        // 600 − 100 top − 300 bottom = 200 usable points. The normalized
+        // bottom offset is 900 − 200 = 700 (raw 600 after the top inset).
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 900, contentOffsetY: 600, viewportHeight: 600,
+            contentInsetTop: 100, contentInsetBottom: 300, hasRows: true))
+        // Raw 840 normalizes to 940, past the 900-point content bottom.
+        XCTAssertTrue(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 900, contentOffsetY: 840, viewportHeight: 600,
+            contentInsetTop: 100, contentInsetBottom: 300, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 900, contentOffsetY: 840, viewportHeight: 600,
+            contentInsetTop: 100, contentInsetBottom: 300, hasRows: true),
+            .scrollToLastRow)
+    }
+
+    func testNoRowsOrUnmeasuredGeometryNeverCorrects() {
+        for (height, viewport, rows) in [(CGFloat(1_200), CGFloat(600), false),
+                                         (CGFloat(0), CGFloat(600), true),
+                                         (CGFloat(1_200), CGFloat(0), true)] {
+            XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+                contentHeight: height, contentOffsetY: 2_000, viewportHeight: viewport,
+                hasRows: rows))
+            XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+                contentHeight: height, contentOffsetY: 2_000, viewportHeight: viewport,
+                hasRows: rows), .none)
+        }
+    }
+
+    func testNonFiniteGeometryNeverCorrects() {
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: .nan, contentOffsetY: 2_000, viewportHeight: 600, hasRows: true))
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_200, contentOffsetY: .infinity, viewportHeight: 600, hasRows: true))
+        XCTAssertEqual(ChatTranscriptTailPolicy.correction(
+            contentHeight: 1_200, contentOffsetY: .infinity, viewportHeight: 600, hasRows: true),
+            .none)
+    }
+
+    func testToleranceKeepsTheLastPointOfContentVisible() {
+        XCTAssertFalse(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_000, contentOffsetY: 999, viewportHeight: 600, hasRows: true))
+        XCTAssertTrue(ChatTranscriptTailPolicy.viewportIsBlank(
+            contentHeight: 1_000, contentOffsetY: 999.5, viewportHeight: 600, hasRows: true))
+    }
 }
