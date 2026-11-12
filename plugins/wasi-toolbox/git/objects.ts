@@ -62,6 +62,9 @@ export class ObjectDatabase {
   private readonly packIndexes = new Map<string, PackIndex[]>()
   private readonly objectCache = new Map<string, PackedObject>()
   private readonly packObjectCache = new Map<string, PackedObject>()
+  private missingHook: ((oid: string) => Promise<void>) | undefined
+  /** Set while a promisor fetch or pack import is already resolving objects. */
+  private busy = false
 
   constructor(fs: GitFs, directories: ObjectDirectories) {
     this.fs = fs
@@ -83,8 +86,34 @@ export class ObjectDatabase {
     return false
   }
 
-  /** Read one object by id. */
+  /** Install the one promisor fetch used when `read` misses. */
+  setMissingHook(hook: ((oid: string) => Promise<void>) | undefined): void {
+    this.missingHook = hook
+  }
+
+  /** Hold the missing hook off, so pack import cannot re-enter a fetch. */
+  suppressMissingHook(suppress: boolean): void {
+    this.busy = suppress
+  }
+
+  /** Read one object by id. A promisor repository may fetch one missing object. */
   async read(oid: string): Promise<GitObject> {
+    try {
+      return await this.readStored(oid)
+    } catch (error) {
+      if (this.busy || this.missingHook === undefined) throw error
+      this.busy = true
+      try {
+        await this.missingHook(oid)
+      } finally {
+        this.busy = false
+      }
+      return await this.readStored(oid)
+    }
+  }
+
+  /** Read one object that is already local. */
+  private async readStored(oid: string): Promise<GitObject> {
     const cached = this.objectCache.get(oid)
     if (cached !== undefined) return cached
     for (const directory of this.readDirectories) {

@@ -364,6 +364,54 @@ struct BotCardGlyph: View {
     }
 }
 
+/// The one grey line an interactive card settles into: a small tinted glyph,
+/// the outcome, and its context after a dot, with no surface, border or
+/// button, so handled cards recede behind the conversation. The model owns
+/// all text and precedence; this view only draws it.
+struct BotCardSettledLine: View {
+    let settlement: BotCardSettlement
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: settlement.glyph)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(settlement.tone.ink.opacity(0.8))
+                .accessibilityHidden(true)
+            (Text(settlement.title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(HomeSpec.textSecondary)
+             + detailText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 4)
+        .frame(minHeight: 28)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("bot.card.settled")
+    }
+
+    private var detailText: Text {
+        guard let detail = settlement.detail, !detail.isEmpty else { return Text("") }
+        let body = Text(detail)
+        return Text(" · ")
+            .font(.system(size: 13))
+            .foregroundColor(HomeSpec.textTertiary)
+            + (settlement.monospacedDetail ? body.font(.system(size: 12, design: .monospaced))
+                                           : body.font(.system(size: 13)))
+            .foregroundColor(HomeSpec.textTertiary)
+    }
+}
+
+extension BotCardSettlementTone {
+    var ink: Color {
+        switch self {
+        case .neutral: HomeSpec.textSecondary
+        case .success: HomeSpec.success
+        }
+    }
+}
+
 /// A 32pt gray tile with an 17pt glyph, for files, links and routines.
 struct BotCardTile: View {
     let systemImage: String

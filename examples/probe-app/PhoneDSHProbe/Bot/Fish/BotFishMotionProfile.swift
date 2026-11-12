@@ -5,12 +5,12 @@ import Foundation
 /// Animation budget for one `BotFishView`.
 ///
 /// `.standard` is the upstream-compatible profile every existing avatar uses
-/// (header, drawer, profile, empty state, gallery). It is not allowed to
+/// (idle header, drawer, profile, empty state, gallery). It is not allowed to
 /// change its output when `.lively` is added.
 ///
-/// `.lively` is the app-only status-line profile: a 30 fps ceiling and a
+/// `.lively` is the app-only running profile: a 30 fps ceiling and a
 /// louder, hand-tuned clip set that still runs on the same renderer. Only the
-/// `bot.activity.line` fish opts in.
+/// Bot header fish opts in, and only while a turn is running.
 enum BotFishMotionProfile: String, CaseIterable {
     case standard
     case lively

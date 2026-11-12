@@ -26,6 +26,7 @@ import type { RemoteTransport } from './http.ts'
 // This is a dependency-free leaf module, so importing it here does not pull
 // the shell command table into the git program.
 import { byteStringOutput, byteStringToBytes, bytesToByteString } from '../../shell-ext/src/encoding.ts'
+import { GIT_PHONE_NOTE } from './phone.ts'
 
 /** Options shared by the command wrappers. */
 export interface GitCommandOptions {
@@ -104,7 +105,8 @@ export async function runGitForShell(
 export function createGitCommand(options: GitCommandOptions = {}): GitShellCommand {
   return {
     name: 'git',
-    description: 'Git porcelain over the in-memory VFS (isomorphic-git surface: the eight DSH workspace-changes subcommands plus status/log/diff/add/commit/checkout/branch/init/clone/fetch/push)',
+    description: 'Git porcelain over the in-memory VFS (isomorphic-git surface: the eight DSH workspace-changes subcommands plus status/log/diff/add/commit/checkout/branch/init/clone/fetch/push). '
+      + GIT_PHONE_NOTE,
     async execute(args, context) {
       return await runGitForShell(args, context, options)
     },
@@ -138,7 +140,7 @@ export function createGitToolboxProgram(options: GitCommandOptions = {}): GitToo
   return {
     program: 'git',
     aliases: [],
-    description: 'Git porcelain over the in-memory VFS',
+    description: `Git porcelain over the in-memory VFS. ${GIT_PHONE_NOTE}`,
     async run(request) {
       const result = await runGit(request.argv ?? [], {
         fs: options.fs ?? new NodeGitFs(),

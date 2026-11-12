@@ -7,8 +7,9 @@ reach 2098. The minor and patch components can each reach 999.
 
 The Mac runner builds both apps with the tag as their version name. Both apps
 use `1000000 + major * 1000000 + minor * 1000 + patch` as their version code.
-GitHub Actions publishes the signed APK, signed HAP, and SHA-256 checksums
-together at `ghcr.io/launsion-boop/phone-dsh:<tag>` after both builds pass.
+After both signed builds pass, the release workflow attaches the Android APK,
+the HarmonyOS HAP, and the SHA-256 checksums to the tag's GitHub Release for
+browser download.
 
 ## Set up the runner
 
@@ -41,17 +42,22 @@ Add the signing secrets to the repository's `mobile-release` environment.
 | `HARMONY_PROFILE_BASE64` | Base64 of the HarmonyOS distribution `.p7b` profile for `com.phonedsh.app` |
 | `HARMONY_STORE_PASSWORD`, `HARMONY_KEY_ALIAS`, `HARMONY_KEY_PASSWORD` | HarmonyOS keystore password, key alias, and key password |
 
-The publish job uses the repository's `GITHUB_TOKEN` with `packages: write`.
-After the first release, set the package visibility if you want anonymous
-downloads.
+The publish job uses the repository's `GITHUB_TOKEN` with `contents: write` to
+create the GitHub Release and upload the assets.
 
 ## Download and verify a release
 
+Open the repository's [Releases page](https://github.com/launsion-boop/phone-dsh/releases),
+select the release for the tag, and use its **Assets** picker: download
+`phonedsh-android-<tag>.apk` for Android or `phonedsh-harmony-<tag>.hap` for
+HarmonyOS. The APK and HAP are separate files under the same release.
+
+Downloading the checksums is optional. To verify the packages, download
+`SHA256SUMS` next to them and run:
+
 ```sh
-oras pull ghcr.io/launsion-boop/phone-dsh:1.2.3 --output release-bundle
-(cd release-bundle && shasum -a 256 -c SHA256SUMS)
+shasum -a 256 -c SHA256SUMS
 ```
 
-For a private package, authenticate to `ghcr.io` with package read access before
-pulling. To retry a failed build or publish, rerun the failed job from the tag's
+To retry a failed build or asset upload, rerun the failed job from the tag's
 workflow run. Push a new version tag when the source changes.

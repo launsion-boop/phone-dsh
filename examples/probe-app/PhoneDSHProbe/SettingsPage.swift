@@ -165,6 +165,8 @@ struct SettingsPage: View {
             link(NativeText("MCP 与局域网设备", "MCP and LAN devices"), icon: "server.rack") { MCPSettingsPage() }
             link(NativeText("SSH 主机", "SSH hosts"), icon: "terminal",
                  value: "\(SSHSettingsStore.shared.connections.count)") { SSHSettingsPage() }
+            link(NativeText("GitHub Agent", "GitHub agent"),
+                 icon: "chevron.left.forwardslash.chevron.right") { GitHubAgentSettingsPage() }
             link(NativeText("蓝牙设备", "Bluetooth devices"), icon: "dot.radiowaves.left.and.right") {
                 BluetoothDevicesPage()
             }

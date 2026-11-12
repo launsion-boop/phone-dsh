@@ -44,6 +44,8 @@ import { createDuCommand } from './du.ts'
 import { GNU_CONVENTION_PROGRAMS, applyGnuConventions } from './gnu-conventions.ts'
 import { createCurlCommand } from './curl.ts'
 import type { CurlOptions } from './curl.ts'
+import { createGithubCommand } from './github.ts'
+import type { GithubOptions } from './github.ts'
 import { createWhichCommand } from './corpus.ts'
 import { createFindCommand } from './find.ts'
 import { createGrepCommand } from './grep.ts'
@@ -70,6 +72,11 @@ export interface WorkerCommandOptions {
   readonly accelerators?: AcceleratorHost | undefined
   /** `/v1/http` coordinates; pass `false` to omit `curl`. */
   readonly curl?: CurlOptions | false | undefined
+  /**
+   * `github` options (the loopback route only; there is no GitHub token).
+   * `false` omits the command.
+   */
+  readonly github?: GithubOptions | false | undefined
   /** Extra names `which` should report as available. */
   readonly whichExtra?: readonly string[] | undefined
   /**
@@ -160,7 +167,7 @@ export interface WorkerCommandOptions {
  * `input_line_number` cannot disagree with the `bash -c` form (G2-FIX-130).
  */
 export const WORKER_SHELL_PROGRAMS: readonly string[] = Object.freeze([
-  'git', 'rg', 'find', 'grep', 'stat', 'ls', 'rmdir', 'gzip', 'gunzip', 'zcat',
+  'git', 'github', 'rg', 'find', 'grep', 'stat', 'ls', 'rmdir', 'gzip', 'gunzip', 'zcat',
   'tar', 'realpath', 'readlink', 'awk', 'cmp', 'cp', 'sort', 'du', 'od', 'jq', 'scp', 'ssh', 'adb',
 ])
 
@@ -263,6 +270,7 @@ export function createWorkerCommands(options: WorkerCommandOptions = {}): Custom
     if (acceleratorNames.includes('scp')) commands.push(createScpCommand(options.accelerators))
   }
   if (options.curl !== false) commands.push(createCurlCommand(options.curl ?? {}))
+  if (options.github !== false) commands.push(createGithubCommand(options.github ?? {}))
   // The local environment is a host tool, not an accelerator: it is registered
   // only when the host answered the boot probe, and it needs the same
   // dispatcher the phone tools ride. An absent answer therefore leaves the name
@@ -282,6 +290,7 @@ export function createWorkerCommands(options: WorkerCommandOptions = {}): Custom
     ...ubuntuHost ? ['ubuntu'] : [],
     ...options.whichExtra ?? [],
     ...options.curl === false ? [] : ['curl'],
+    ...options.github === false ? [] : ['github'],
   ]
   commands.push(createWhichCommand(names))
   return applyGnuConventions(commands)
