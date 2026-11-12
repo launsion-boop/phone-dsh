@@ -1,6 +1,6 @@
 # Android 對齊 iOS 路線圖
 
-狀態日期：2026-11-12。iOS 是基線，Android 照 spec 實作；兩端都原生，共用的是規範、golden 和驗收。
+狀態日期：2026-11-12（wave 4 round 2 後更新）。iOS 是基線，Android 照 spec 實作；兩端都原生，共用的是規範、golden 和驗收。
 規則見 [AGENTS.md](../../AGENTS.md)：先凍結契約，再實作；每個檢查點都要附交接證據。
 執行者每次開工前，先讀 [lessons.md](lessons.md)。
 
@@ -46,23 +46,39 @@
 | Page chrome：shared pressed 與 disclosure | `8fc77192` |
 | Changed-files card：iOS row order 與 180° toggle chevron | `605bf417`（merge `cb5401ae`） |
 
-### 第 2 回合：進行中
+### 第 2 回合：完成（已併入 `feat/android-parity`，#129／#134）
 
-- Per-tab nav。
-- Sheet host seam + sheet routes。
-- Turn usage。
-- Bench host。
-- PCLink C5（收掉 GAP-35 剩下的 page-structure 差異）。
-- Settings geometry contract（62 pt row / 57 pt group gap）。
-- 清理與文件刷新：dead press constants、legacy session params、disclosure pressed seam、docs（本輪）。
+Per-tab nav、sheet host seam + sheet routes、turn usage、bench host、PCLink C5（GAP-35 收尾）、
+settings geometry contract（62 pt row / 57 pt group gap）、dead press constants / legacy session
+params / disclosure pressed seam / docs 全部落地；第 3 波最終以 `0a748a8f` 併入
+`feat/android-parity`，並隨 PR #129、#134 合入。
 
-## 能力差距（2026-11-12）
+## 第 4 波進度（2026-11-12）
+
+base `2153df10`，整合分支 `feat/android-bot-w4`（PR #137，base `feat/android-parity`）。
+
+| 回合 | 內容 | 狀態 |
+| --- | --- | --- |
+| R1 | 契約凍結（store、session/projection、UI-state seam、BotFish 數值軌跡）＋ `:bot` 模組（rows、user action、card payload、display projection、attachments、profile/roster、fish director）＋五條 CCR 裁決＋素材授權擴到全平台 | 完成（`bd87bd24`，PR #137） |
+| R2 | Kotlin store（sqlite vectors）、session runtime／projection（K2b §6.2）、UI 狀態接縫、BotFish 渲染完整移植（K4b）、Bot 聊天頁／model／driver／Bot tab（K5a）、抽屜／資訊頁／外觀（K5b）、`:lib` 頁面接線（K5c） | 完成（`a81d751b`，PR #137） |
+
+尚未移植的 wave 4 範圍（依 port plan B2–B6）：
+
+- B2 memory（`user/`＋`agent/` 文件樹、write/read/recall/injection、legacy 遷移、maintenance、erasure）。
+- B3 routines／wake／held inbox。
+- B4 proactive／watchdog／context lint／ledger。
+- B5 MCP endpoint／tool catalog／authz／gateway session credentials。
+- B6 team／SendToAgent／CreateTeammate。
+- UI-Venus；`:app` Bot runtime 接線；真機驗證（GAP-38 關閉條件）。
+
+## 能力差距（2026-11-12，wave 4 R2 後）
 
 | 能力 | Android | 規範是否足以移植 |
 | --- | --- | --- |
-| Bot runtime 及其上層（多 Bot、Team、SendToAgent、persona、MCP 保活、大肥魚） | 無 | 不夠：bot/v1 只有 schema 和 golden，bot/v2 仍是 target |
-| PCLink | 無（GAP-35） | 線上協議完整；spec 仍寫著「Android out of scope」 |
-| TonoLink 語音、UI-Venus | 無 | 有 spec，但寫明 Android 沒有接收端 |
-| BLE 信任/重連/安全會話、設備任務、LAN MCP 連接 | 部分（只有 codec） | 有 spec（GAP-20） |
-| 3D/HTML 預覽 | 依單 WebView 不變式顯示「不支援」卡片 | 要先改不變式，並通過安全評審 |
+| Bot runtime 及其上層 | **部分**：store/session/projection/rows/cards/attachments/profile/fish + Bot 聊天頁／抽屜／資訊頁／Bot tab／BotFish 渲染（PR #137）；memory/routines/wake/proactive/MCP/team 未移植 | memory v2 已足夠；其餘子系統仍 `spec-partial`／`spec-missing`（見 port plan §2） |
+| PCLink | **C0–C5 已落地**（PR #122、#129、#134；GAP-35 關閉） | 線上協議完整 |
+| TonoLink 語音 | 只有 JVM codec／cloud voice client（`0bc7233c`，2B.1/2B.2）；App/UI 接線未做 | 有 spec；接收端未接 |
+| UI-Venus | 無 | 有 spec，但 Android 沒有接收端 |
+| BLE 信任/重連/安全會話、設備任務、LAN MCP 連接 | 部分（只有 scan/GATT codec）；secure-session 契約 `target`、未啟用 | 有 spec（GAP-20） |
+| 3D/HTML 預覽 | 依單 WebView 不變式顯示「不支援」卡片 | 要先改不變式，並通過安全審評 |
 | Tono 帳號、ADB、SSH | 已有 | — |
