@@ -198,8 +198,11 @@ public struct HostStorageScanner: Sendable {
             forKeys: [.volumeAvailableCapacityForImportantUsageKey,
                       .volumeAvailableCapacityKey,
                       .volumeTotalCapacityKey])
+        // `volumeAvailableCapacityForImportantUsage` is `Int64?` and
+        // `volumeAvailableCapacity` is `Int?`, so widen the fallback before
+        // the two capacities meet in one `??`.
         let important = values?.volumeAvailableCapacityForImportantUsage
-            ?? values?.volumeAvailableCapacity
+            ?? values?.volumeAvailableCapacity.map(Int64.init)
         let available = important.map { Int($0) } ?? Int.max
         let total: Int? = values?.volumeTotalCapacity
         return (max(0, available), total.map { max(0, $0) })
