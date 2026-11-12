@@ -246,8 +246,67 @@ class HostBackChainTest {
         assertEquals("the re-tap does not pop the stack", deep.nav, reTap.nav)
 
         val backToTasks = deep.selectTab(HomeTab.TASKS)
-        assertEquals("TASKS is the floor", PdshNavState(listOf(PdshRoute.Chat)), backToTasks.nav)
+        assertEquals("TASKS is the floor", listOf(PdshRoute.Chat), backToTasks.nav.stack)
         assertEquals("the target tab starts at its root", 0, backToTasks.depth)
+        assertEquals(
+            "the hidden tab's depth survives the switch",
+            2,
+            backToTasks.pushBack.depthOf(HomeTab.DISCOVER),
+        )
+    }
+
+    @Test
+    fun `the mirror carries every tab's depth, not only the selected tab`() {
+        val chain = HostBackChain()
+            .selectTab(HomeTab.DISCOVER)
+            .push(PdshRoute.Bluetooth)
+            .push(PdshRoute.AndroidAdb)
+            .selectTab(HomeTab.TASKS)
+            .push(PdshRoute.Settings)
+
+        assertEquals(HomeTab.TASKS, chain.pushBack.selectedTab)
+        assertEquals(
+            "both stacks are mirrored while only tasks is visible",
+            mapOf(HomeTab.TASKS to 1, HomeTab.DISCOVER to 2),
+            chain.pushBack.stackDepths,
+        )
+
+        val restored = chain.selectTab(HomeTab.DISCOVER)
+        assertEquals(HomeTab.DISCOVER, restored.pushBack.selectedTab)
+        assertEquals("the restored tab's depth is its own", 2, restored.depth)
+        assertEquals(PdshRoute.AndroidAdb, restored.nav.current)
+        assertEquals(
+            "the tasks depth is still mirrored after the switch",
+            1,
+            restored.pushBack.depthOf(HomeTab.TASKS),
+        )
+    }
+
+    @Test
+    fun `back pops the selected tab's stack only`() {
+        var chain = HostBackChain()
+            .selectTab(HomeTab.DISCOVER)
+            .push(PdshRoute.Bluetooth)
+            .push(PdshRoute.AndroidAdb)
+            .selectTab(HomeTab.TASKS)
+            .push(PdshRoute.Settings)
+            .push(PdshRoute.Runtime)
+
+        val result = dispatchBack(chain.pushBack)
+        chain = chain.applyPushState(result.state)
+
+        assertEquals("the selected tab pops one page", 1, chain.pushBack.depthOf(HomeTab.TASKS))
+        assertEquals(PdshRoute.Settings, chain.nav.current)
+        assertEquals(HomeTab.TASKS, chain.pushBack.selectedTab)
+        assertEquals(
+            "the other tab's depth is untouched by the back",
+            2,
+            chain.pushBack.depthOf(HomeTab.DISCOVER),
+        )
+
+        val other = chain.selectTab(HomeTab.DISCOVER)
+        assertEquals(2, other.depth)
+        assertEquals(PdshRoute.AndroidAdb, other.nav.current)
     }
 
     @Test

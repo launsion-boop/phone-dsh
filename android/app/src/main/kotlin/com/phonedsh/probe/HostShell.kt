@@ -132,36 +132,28 @@ internal fun initialHostNavState(probeFaceOnLaunch: Boolean): PdshNavState =
 /**
  * How many pages sit above [tab]'s root in [nav].
  *
- * The host keeps one route stack, so the selected tab's depth is the only one
- * the stack can truthfully carry; a tab whose root is not on the stack (the
- * diagnostic [PdshRoute.Home] face) counts every route above the stack floor.
- * The probe pushes pages over `Home`, so its floor is index 0, not the last
- * index.
+ * Each tab owns its route stack (`interaction.md` §4 rule 1), so the depth comes
+ * from that tab's stack even while another tab is showing. A tab whose root is
+ * not on its stack (the diagnostic [PdshRoute.Home] face) counts every route
+ * above the stack floor.
  */
-internal fun PdshNavState.hostPushDepth(tab: HomeTab): Int {
-    // The *first* occurrence is the tab's root; a later route may name the same
-    // page (Sessions → Chat pushes Chat again), and that push is a level above
-    // the root rather than a new floor.
-    val rootIndex = stack.indexOfFirst { it == tab.root }
-    val floorIndex = if (rootIndex >= 0) rootIndex else 0
-    return (stack.lastIndex - floorIndex).coerceAtLeast(0)
-}
+internal fun PdshNavState.hostPushDepth(tab: HomeTab): Int = depthOf(tab)
 
 /**
- * Mirrors [nav]'s selected-tab depth into the contract's push state.
+ * Mirrors every tab's depth into the contract's push state.
  *
- * `interaction.md` §4 rule 1 wants one stack per tab, but [PdshNavState] is a
- * single stack: storing a depth for a tab the host is not showing would be a
- * number no route can reach. The mirror therefore records the selected tab
- * only; every depth is recomputed from the route stack at the moment it moves.
- * Overlays and the keyboard flag are not depth and are preserved untouched.
+ * `interaction.md` §4 rule 1 needs a depth for each tab, not only the one on
+ * screen: the hidden tabs keep their pages while another tab is selected, so
+ * storing only the selected tab would lose them at the next switch. Zero depths
+ * are omitted (they read as zero through [PushBackState.depthOf]); overlays and
+ * the keyboard flag are not depth and are preserved untouched.
  */
 internal fun PushBackState.mirroredTo(nav: PdshNavState, tab: HomeTab = selectedTab): PushBackState {
-    val depth = nav.hostPushDepth(tab)
-    return copy(
-        selectedTab = tab,
-        stackDepths = if (depth == 0) emptyMap() else mapOf(tab to depth),
-    )
+    val depths = HomeTab.entries.mapNotNull { candidate ->
+        val depth = nav.hostPushDepth(candidate)
+        if (depth == 0) null else candidate to depth
+    }.toMap()
+    return copy(selectedTab = tab, stackDepths = depths)
 }
 
 /**
@@ -206,9 +198,8 @@ internal data class HostBackChain(
     /**
      * `interaction.md` §4 rules 1-2: select a tab. A re-tap of the current tab
      * returns this value, so it can never pop to root. `nav.selectHomeTab`
-     * remains the route half of the same transition; because that stack is
-     * single, the target tab's depth is recomputed from its root (the `:lib`
-     * `PdshNavState` can carry only one tab's pages — see the handoff gap).
+     * restores the target tab's own route stack (rule 1), and the mirror then
+     * carries every tab's depth.
      */
     fun selectTab(tab: HomeTab): HostBackChain {
         val selected = pushBack.selectTab(tab)
@@ -233,7 +224,7 @@ internal data class HostBackChain(
      * turns false here; the host clears `drawerMounted` only in `onClose`.
      */
     fun resetTo(route: PdshRoute, tab: HomeTab = HomeTab.TASKS): HostBackChain = copy(
-        nav = PdshNavState(listOf(route)),
+        nav = PdshNavState(stacks = mapOf(tab to listOf(route)), selectedTab = tab),
         pushBack = pushBack.copy(selectedTab = tab, stackDepths = emptyMap(), overlays = emptyList()),
     )
 
@@ -257,7 +248,7 @@ internal data class HostBackChain(
 
     /** Move the route stack and keep `selectedTab` on the tab root under it. */
     private fun withNav(next: PdshNavState): HostBackChain {
-        val tab = next.selectedHomeTab() ?: pushBack.selectedTab
+        val tab = next.selectedHomeTab() ?: next.selectedTab
         return copy(nav = next, pushBack = pushBack.mirroredTo(next, tab))
     }
 }

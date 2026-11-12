@@ -81,6 +81,24 @@ class HostBackCoordinatorTest {
     }
 
     @Test
+    fun `a committed gesture pops only the selected tab's mirrored depth`() {
+        state = PushBackState(
+            selectedTab = HomeTab.DISCOVER,
+            stackDepths = mapOf(HomeTab.TASKS to 2, HomeTab.DISCOVER to 1),
+        )
+        mount()
+
+        systemBack()
+        assertEquals("the selected tab loses one page", 0, state.depth)
+        assertEquals(
+            "the hidden tab's depth is not touched by the gesture",
+            2,
+            state.depthOf(HomeTab.TASKS),
+        )
+        assertEquals(HomeTab.DISCOVER, state.selectedTab)
+    }
+
+    @Test
     fun `the root registers no behaviour of its own, so the platform finishes`() {
         state = PushBackState()
         mount()
