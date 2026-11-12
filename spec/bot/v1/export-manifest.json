@@ -34,6 +34,8 @@
     "row-protocol.phone.json",
     "session-lifecycle.phone.json",
     "store.phone.json",
+    "task-cases.phone.json",
+    "team-cases.phone.json",
     "tool-call-cases.phone.json",
     "tool-catalog.json",
     "tool-catalog.phone.json",
@@ -82,6 +84,8 @@
     "row-protocol.phone.json",
     "session-lifecycle.phone.json",
     "store.phone.json",
+    "task-cases.phone.json",
+    "team-cases.phone.json",
     "tool-call-cases.phone.json",
     "tool-catalog.phone.json",
     "tool-effects.phone.json",
@@ -130,6 +134,8 @@
     "mcp-rpc-cases.phone.json": "6898da2627811b036b93f8cc71e80a7715ca19239c26de9883a3db9410b0d685",
     "identity-approval-cases.phone.json": "4e421e3efa3f5ebe8332cdf8e11a2c1545b7ee670e47e7eb3c37c2f25fc349f5",
     "tool-call-cases.phone.json": "74860b405ce93a9b6d4950ce9ba43642c698c07b6f882639f0e007174095ec53",
-    "volatile-context.phone.json": "30dccebb82399027990e4091e5e6fb10f4eff1b5338c9496ff20d1448f80d4f3"
+    "volatile-context.phone.json": "30dccebb82399027990e4091e5e6fb10f4eff1b5338c9496ff20d1448f80d4f3",
+    "team-cases.phone.json": "c0120966c104203b16d4db26f56520881abb24382712f809df398a995db1db92",
+    "task-cases.phone.json": "334d7b582b4db23e850d06710849f4b5797d2709754df4f54a21a76aa0f6a476"
   }
 }

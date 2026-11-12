@@ -46,6 +46,8 @@ PHONE_ONLY_VECTORS = frozenset({
     "tool-call-cases.phone.json",
     "identity-approval-cases.phone.json",
     "mcp-rpc-cases.phone.json",
+    "team-cases.phone.json",
+    "task-cases.phone.json",
     TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR,
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
@@ -3831,6 +3833,8 @@ MCP_RPC_VECTOR = "mcp-rpc-cases.phone.json"
 IDENTITY_APPROVAL_VECTOR = "identity-approval-cases.phone.json"
 TOOL_CALL_VECTOR = "tool-call-cases.phone.json"
 VOLATILE_PHONE_VECTOR = "volatile-context.phone.json"
+TEAM_CASES_VECTOR = "team-cases.phone.json"
+TASK_CASES_VECTOR = "task-cases.phone.json"
 
 MCP_RPC_TRANSPORTS = frozenset({"single", "batch", "notification"})
 MCP_RPC_INVALID_TRANSPORTS = frozenset({"single", "batch", "http"})
@@ -4272,6 +4276,722 @@ def volatile_phone_mutations(upstream, fixture):
     return 4
 
 
+TEAM_ERROR_CODES = frozenset({
+    "invalid_arguments", "permission_denied", "timeout", "execution_failed",
+})
+TEAM_DIRECTIONS = frozenset({"outbound", "inbound", "incoming", "reply"})
+TEAM_HELD_ID_PATTERN = r"^held-[0-9a-z]+-[0-9a-f]{8}$"
+TEAM_REQUIRED_VALID = frozenset({
+    "send-now-with-title", "send-queued-with-title", "send-priority-false-string",
+    "send-target-and-text-aliases", "send-hidden-target-by-name",
+    "send-depth-two-allowed", "send-duplicate-call-id", "send-pre-wp4-bare-call-id",
+    "send-held-reply-cap", "create-teammate-success", "create-teammate-minimal",
+})
+TEAM_REQUIRED_INVALID = frozenset({
+    "send-missing-agent", "send-missing-message", "send-missing-priority",
+    "send-priority-conflict", "send-priority-invalid", "send-delivery-invalid",
+    "send-target-not-found", "send-self", "send-depth-three", "send-cycle",
+    "send-timeout", "send-queued-enqueue-failure", "send-arguments-not-object",
+    "create-not-main", "create-missing-name", "create-name-too-long",
+    "create-color-invalid", "create-hairstyle-invalid",
+})
+TEAM_CONTRACT_SEND = {
+    "maximumHops": 2,
+    "defaultTimeoutMilliseconds": 300_000,
+    "heldTextLimit": 1_200,
+    "requestIdTemplate": "agent:<callId>",
+    "legacyRequestIdTemplate": "<callId>",
+    "rowIdPrefix": "agent-outbound-",
+    "threadIdTemplate": "<rowID>@<seq>:agent-comm",
+    "inboundRowTemplate": "t<turn>u[<n>]",
+    "promptTemplate": "[agent] <name> (id: <id>)[ — <title>]: <message>",
+    "queuedText": "已扣住给 <name>：消息会在对方下一个回合开头交付，不会唤醒对方。",
+    "nowText": "已发送给 <name>，回复稍后以 agent-comm 消息送达。",
+}
+
+
+def _team_row_identity(case):
+    identity = case.get("expect", {}).get("rowIdentity")
+    if not isinstance(identity, dict):
+        return None
+    raw = "\u0000".join([
+        identity["sender"], identity["target"], identity["requestId"],
+        str(identity["seq"]),
+    ]).encode("utf-8")
+    expected = "agent-outbound-" + hashlib.sha256(raw).hexdigest()
+    _require(identity["rowID"] == expected,
+             f"{case['name']}: rowID must be sha256(sender NUL target NUL requestId NUL seq)")
+    _require(identity["threadId"] == f"{expected}@{identity['seq']}:agent-comm",
+             f"{case['name']}: threadId must be <rowID>@<seq>:agent-comm")
+    return identity
+
+
+def _team_derive_comm(record):
+    direction = record["direction"]
+    comm = {"direction": direction}
+    if direction == "outbound":
+        peer = record.get("toAgent") or {}
+        comm.update({
+            "targetId": peer.get("id"), "targetName": peer.get("name"),
+            "message": record.get("text"),
+        })
+    elif direction == "inbound":
+        peer = record.get("fromAgent") or {}
+        comm.update({
+            "fromAgentId": peer.get("id"), "fromAgentName": peer.get("name"),
+            "replyText": record.get("text"),
+        })
+    elif direction == "incoming":
+        peer = record.get("fromAgent") or {}
+        comm.update({
+            "fromAgentId": peer.get("id"), "fromAgentName": peer.get("name"),
+            "message": record.get("text"),
+        })
+    else:
+        peer = record.get("toAgent") or {}
+        comm.update({
+            "targetId": peer.get("id"), "targetName": peer.get("name"),
+            "message": record.get("text"),
+        })
+    for record_key, comm_key in (
+        ("requestID", "requestId"), ("threadID", "threadId"),
+        ("delivery", "delivery"), ("status", "status"), ("title", "title"),
+        ("hop", "hop"), ("callID", "callId"),
+        ("replyEntryID", "replyEntryId"), ("error", "error"),
+    ):
+        if record_key in record:
+            comm[comm_key] = record[record_key]
+    return {key: value for key, value in comm.items() if value is not None}
+
+
+def _team_derive_event_data(record):
+    data = {
+        "id": record["rowID"], "rowID": record["rowID"], "role": record["role"],
+        "text": record["text"], "direction": record["direction"],
+        "threadId": record["threadID"], "requestId": record["requestID"],
+        "agentComm": _team_derive_comm(record),
+    }
+    for record_key, data_key in (
+        ("fromAgent", "fromAgent"), ("toAgent", "toAgent"),
+        ("delivery", "delivery"), ("status", "status"), ("title", "title"),
+        ("hop", "hop"), ("turn", "turn"), ("callID", "callId"),
+        ("replyEntryID", "replyEntryId"), ("error", "error"),
+    ):
+        if record_key in record:
+            data[data_key] = record[record_key]
+    return data
+
+
+def _team_validate_held(entry, where):
+    _require(isinstance(entry, dict) and isinstance(entry.get("botID"), str),
+             f"{where}: botID")
+    _require("handOff" in entry, f"{where}: handOff must be present (null for a reply)")
+    item = entry.get("item")
+    _require(isinstance(item, dict), f"{where}: item")
+    _require(entry.get("idPattern") == TEAM_HELD_ID_PATTERN, f"{where}: idPattern")
+    _require(re.fullmatch(TEAM_HELD_ID_PATTERN, item.get("id", "")) is not None,
+             f"{where}: placeholder id must match the frozen pattern")
+    _require(item.get("id") == "held-0-00000000",
+             f"{where}: item.id is the frozen placeholder")
+    _require(item.get("kind") == "agent-held", f"{where}: item.kind")
+    _require(isinstance(item.get("text"), str) and item["text"], f"{where}: item.text")
+    _require(len(item["text"]) <= 1_200, f"{where}: held text exceeds 1200 characters")
+    _require(isinstance(item.get("requestId"), str) and item["requestId"],
+             f"{where}: item.requestId")
+    _require(isinstance(item.get("threadId"), str) and item["threadId"],
+             f"{where}: item.threadId")
+    check(item, "held-inbox-item.schema.json", where)
+    handoff = entry["handOff"]
+    if handoff is not None:
+        _require(isinstance(handoff, dict)
+                 and isinstance(handoff.get("depth"), int)
+                 and handoff["depth"] >= 1
+                 and isinstance(handoff.get("chain"), list)
+                 and handoff["chain"], f"{where}: handOff")
+
+
+def _team_prompt(case, roster):
+    arguments = case["arguments"]
+    caller = case["callerBotId"]
+    sender = next(bot for bot in roster["bots"] if bot["id"] == caller)
+    target = _team_first_string(arguments, ["agent_id", "target_id", "bot_name", "agentId"])
+    message = _team_first_string(arguments, ["message", "text"])
+    title = (arguments.get("title") or "").strip() or None
+    suffix = f" — {title}" if title else ""
+    return f"[agent] {sender['name']} (id: {caller}){suffix}: {message}"
+
+
+def _team_first_string(arguments, keys):
+    for key in keys:
+        value = arguments.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def validate_team_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "team-cases.phone: schemaVersion must be 1")
+    _require(fixture.get("vector") == "team-cases.phone", "team-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "team-cases.phone: upstream must be []")
+    _require(isinstance(fixture.get("delta"), list) and fixture["delta"],
+             "team-cases.phone: delta")
+    contract = fixture.get("contract")
+    _require(isinstance(contract, dict), "team-cases.phone: contract")
+    send = contract.get("sendToAgent")
+    _require(isinstance(send, dict), "team-cases.phone: contract.sendToAgent")
+    for key, value in TEAM_CONTRACT_SEND.items():
+        _require(send.get(key) == value,
+                 f"team-cases.phone: contract.sendToAgent.{key} must be {value!r}")
+    errors = contract.get("errors")
+    _require(isinstance(errors, dict) and errors, "team-cases.phone: contract.errors")
+    for key in ("missingPriority", "targetNotFound", "self", "depth", "cycle",
+                "timeout", "sendFailed", "queuedHeldFailed", "replyHeldFailed"):
+        _require(isinstance(errors.get(key), str) and errors[key],
+                 f"team-cases.phone: contract.errors.{key}")
+    _require("cancelled" not in errors, "team-cases.phone: unexpected error key")
+    create = contract.get("createTeammate")
+    _require(create.get("nameLengthRange") == [1, 60],
+             "team-cases.phone: create name range")
+    _require(create.get("descriptionLimit") == 300,
+             "team-cases.phone: create description limit")
+    _require(create.get("colors") == [
+        "white", "brown", "red", "orange", "amber", "green", "teal", "blue",
+        "purple", "magenta", "gray", "black", "silver", "peach", "sky",
+    ], "team-cases.phone: create colors")
+    _require(create.get("hairstyles") == ["long", "twin-tail", "bob", "side-braid"],
+             "team-cases.phone: create hairstyles")
+    _require(contract.get("sendToUser", {}).get("event") == "ui.send_to_user",
+             "team-cases.phone: SendToUser event")
+
+    roster = fixture.get("roster")
+    _require(isinstance(roster, dict) and isinstance(roster.get("bots"), list),
+             "team-cases.phone: roster")
+    bot_ids = [bot.get("id") for bot in roster["bots"]]
+    _require(all(isinstance(bot_id, str) and bot_id for bot_id in bot_ids),
+             "team-cases.phone: roster ids")
+    _require(len(bot_ids) == len(set(bot_ids)), "team-cases.phone: duplicate roster id")
+    _require(roster.get("mainBotId") in bot_ids, "team-cases.phone: mainBotId")
+    _require(fixture.get("nowMilliseconds") == 1_700_000_000_000,
+             "team-cases.phone: nowMilliseconds")
+
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "team-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "team-cases.phone: invalid")
+    all_cases = valid + invalid
+    _unique_names(all_cases, "team-cases.phone")
+    names = set(_cases_by_name(all_cases))
+    _require(TEAM_REQUIRED_VALID <= names, "team-cases.phone: missing frozen valid case")
+    _require(TEAM_REQUIRED_INVALID <= names, "team-cases.phone: missing frozen invalid case")
+
+    for case in valid:
+        _require(case["expect"]["isError"] is False,
+                 f"{case['name']}: a valid case must succeed")
+    for case in invalid:
+        _require(case["expect"]["isError"] is True,
+                 f"{case['name']}: an invalid case must fail")
+    for case in all_cases:
+        name = case["name"]
+        caller = case.get("callerBotId")
+        _require(caller in bot_ids, f"{name}: callerBotId")
+        arguments = case.get("arguments")
+        _require(isinstance(arguments, dict) or case.get("argumentsNotObject") is True,
+                 f"{name}: arguments")
+        context = case.get("context")
+        if context is not None:
+            _require(isinstance(context, dict)
+                     and isinstance(context.get("depth"), int)
+                     and isinstance(context.get("chain"), list)
+                     and isinstance(context.get("turn"), int)
+                     and isinstance(context.get("existingRowIDs"), list),
+                     f"{name}: context")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict), f"{name}: expect")
+        _require(isinstance(expect.get("isError"), bool), f"{name}: expect.isError")
+        if expect["isError"]:
+            _require(expect.get("structured", {}).get("ok") is False, f"{name}: failed ok")
+            error = expect["structured"].get("error")
+            _require(isinstance(error, dict), f"{name}: structured.error")
+            _require(error.get("code") in TEAM_ERROR_CODES, f"{name}: error code")
+            _require(isinstance(error.get("message"), str) and error["message"],
+                     f"{name}: error message")
+            _require(expect.get("text") == error["message"], f"{name}: failure text")
+        else:
+            structured = expect.get("structured")
+            _require(isinstance(structured, dict) and structured.get("ok") is True,
+                     f"{name}: success structured")
+            patterns = expect.get("structuredPatterns", {})
+            _require(isinstance(patterns, dict), f"{name}: structuredPatterns")
+            for key, pattern in patterns.items():
+                _require(key in structured, f"{name}: pattern key {key} missing")
+                _require(re.fullmatch(pattern, structured[key]) is not None,
+                         f"{name}: structured pattern {key}")
+            identity = _team_row_identity(case)
+            if identity is not None:
+                records = expect.get("records")
+                _require(isinstance(records, list) and records, f"{name}: records")
+                outbound = records[0]
+                _require(outbound.get("direction") == "outbound",
+                         f"{name}: first record must be outbound")
+                _require(outbound.get("rowID") == identity["rowID"],
+                         f"{name}: outbound rowID")
+                _require(outbound.get("threadID") == identity["threadId"],
+                         f"{name}: outbound threadID")
+                _require(outbound.get("requestID") == identity["requestId"],
+                         f"{name}: outbound requestID")
+                deliveries = expect.get("deliveries")
+                if deliveries:
+                    _require(isinstance(deliveries, list), f"{name}: deliveries")
+                    for delivery in deliveries:
+                        _require(delivery.get("promptText") == _team_prompt(case, roster),
+                                 f"{name}: promptText")
+                        _require(delivery.get("requestId") == identity["requestId"],
+                                 f"{name}: delivery requestId")
+                        _require(delivery.get("threadId") == identity["threadId"],
+                                 f"{name}: delivery threadId")
+        records = expect.get("records", [])
+        _require(isinstance(records, list), f"{name}: records")
+        for record in records:
+            _require(record.get("direction") in TEAM_DIRECTIONS,
+                     f"{name}: record direction")
+            _require(isinstance(record.get("rowID"), str) and record["rowID"],
+                     f"{name}: record rowID")
+            _require(isinstance(record.get("threadID"), str) and record["threadID"],
+                     f"{name}: record threadID")
+            _require(isinstance(record.get("requestID"), str) and record["requestID"],
+                     f"{name}: record requestID")
+            _require(record.get("role") in {"user", "assistant"},
+                     f"{name}: record role")
+            if record["direction"] == "outbound":
+                _require(record.get("toAgent", {}).get("kind") == "agent",
+                         f"{name}: outbound toAgent.kind")
+                _require(isinstance(record.get("delivery"), str), f"{name}: outbound delivery")
+            if record["direction"] == "inbound":
+                match = re.fullmatch(r"t(\d+)u(\d*)", record["rowID"])
+                _require(match is not None, f"{name}: inbound row id")
+                _require(int(match.group(1)) == record.get("turn"),
+                         f"{name}: inbound turn")
+                _require("fromAgent" in record, f"{name}: inbound fromAgent")
+        if "created" in expect:
+            created = expect["created"]
+            _require(isinstance(created, dict), f"{name}: created")
+            arguments = case["arguments"]
+            _require(created.get("name") ==
+                     (arguments.get("name") or "").strip(), f"{name}: created name")
+            description = arguments.get("description") or ""
+            _require(created.get("descriptionLength") == min(len(description), 300),
+                     f"{name}: created description length")
+            _require(created.get("color") == arguments.get("color"),
+                     f"{name}: created color")
+            _require(created.get("hairstyle") == arguments.get("hairstyle"),
+                     f"{name}: created hairstyle")
+        held = expect.get("held", [])
+        _require(isinstance(held, list), f"{name}: held")
+        for index, entry in enumerate(held):
+            _team_validate_held(entry, f"{name}.held[{index}]")
+
+    rows = fixture.get("rowCases")
+    _require(isinstance(rows, list) and len(rows) == 4, "team-cases.phone: rowCases")
+    _require({case["record"]["direction"] for case in rows} == TEAM_DIRECTIONS,
+             "team-cases.phone: rowCases must cover all four directions")
+    _unique_names(rows, "team-cases.phone.rowCases")
+    for case in rows:
+        record = case.get("record")
+        event = case.get("eventData")
+        _require(isinstance(record, dict) and isinstance(event, dict),
+                 f"{case['name']}: row record/eventData")
+        _require(record.get("direction") in TEAM_DIRECTIONS,
+                 f"{case['name']}: row direction")
+        _require(event == _team_derive_event_data(record),
+                 f"{case['name']}: eventData must be derived from the row record")
+        _require(event.get("agentComm", {}).get("direction") == record["direction"],
+                 f"{case['name']}: agentComm direction")
+
+    send_to_user = fixture.get("sendToUserCases")
+    _require(isinstance(send_to_user, dict), "team-cases.phone: sendToUserCases")
+    for group in ("valid", "invalid"):
+        cases = send_to_user.get(group)
+        _require(isinstance(cases, list) and cases, f"team-cases.phone: sendToUser.{group}")
+        _unique_names(cases, f"team-cases.phone.sendToUser.{group}")
+        for case in cases:
+            session = case.get("session")
+            _require(isinstance(session, dict)
+                     and session.get("kind") in {"chat", "task", "routine"}
+                     and isinstance(session.get("hidden"), bool)
+                     and isinstance(session.get("suppressed"), bool),
+                     f"{case['name']}: sendToUser session")
+            _require(isinstance(case.get("arguments"), dict),
+                     f"{case['name']}: sendToUser arguments")
+            expect = case.get("expect")
+            _require(isinstance(expect, dict) and isinstance(expect.get("isError"), bool),
+                     f"{case['name']}: sendToUser expect")
+            if group == "valid":
+                _require(expect["isError"] is False
+                         and expect.get("event") == "ui.send_to_user",
+                         f"{case['name']}: sendToUser success")
+            else:
+                _require(expect["isError"] is True, f"{case['name']}: sendToUser failure")
+                error = expect.get("structured", {}).get("error", {})
+                _require(error.get("code") in TEAM_ERROR_CODES,
+                         f"{case['name']}: sendToUser code")
+                _require(isinstance(error.get("message"), str) and error["message"],
+                         f"{case['name']}: sendToUser message")
+                _require(expect.get("text") == error["message"],
+                         f"{case['name']}: sendToUser text")
+    return len(valid), len(invalid), len(rows)
+
+
+def team_fixture_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_team_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"team-cases mutation not detected: {label}")
+
+    def by_name(fixture_copy, name):
+        return next(case for case in fixture_copy["valid"] + fixture_copy["invalid"]
+                    if case["name"] == name)
+
+    expect_failure("hop-limit", lambda f: f["contract"]["sendToAgent"]
+                   .update({"maximumHops": 3}))
+    expect_failure("row-hash", lambda f: by_name(f, "send-now-with-title")
+                   ["expect"]["rowIdentity"].update({"rowID": "agent-outbound-" + "0" * 64}))
+    expect_failure("prompt", lambda f: by_name(f, "send-now-with-title")
+                   ["expect"]["deliveries"][0].update({"promptText": "wrong"}))
+    expect_failure("error-code", lambda f: by_name(f, "send-target-not-found")
+                   ["expect"]["structured"]["error"].update({"code": "nope"}))
+    expect_failure("held-text", lambda f: by_name(f, "send-held-reply-cap")
+                   ["expect"]["held"][0]["item"].update({"text": "长" * 1201}))
+    expect_failure("event-data", lambda f: next(
+        case for case in f["rowCases"] if case["name"] == "outbound-event"
+    )["eventData"].update({"rowID": "wrong"}))
+    expect_failure("duplicate", lambda f: f["valid"].append(
+        json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("missing-case", lambda f: f.update({
+        "valid": [case for case in f["valid"] if case["name"] != "send-now-with-title"]}))
+    expect_failure("send-to-user-message", lambda f: next(
+        case for case in f["sendToUserCases"]["invalid"]
+        if case["name"] == "hidden-wake")["expect"]["structured"]["error"]
+        .update({"message": "wrong"}))
+    return 9
+
+
+TASK_ERROR_CODES = frozenset({
+    "invalid_arguments", "permission_denied", "unauthorized", "timeout",
+    "execution_failed", "unavailable",
+})
+TASK_STATUS_ORDER = [
+    "running", "stopping", "waiting_approval", "completed", "failed", "stopped",
+    "interrupted", "denied",
+]
+TASK_STATUSES = frozenset(TASK_STATUS_ORDER)
+TASK_TERMINAL = frozenset({
+    "completed", "failed", "stopped", "interrupted", "denied", "waiting_approval",
+})
+TASK_REQUIRED_VALID = frozenset({
+    "task-start-sync-completed", "task-start-async-running", "task-await-completed",
+    "task-await-timeout-running", "task-stop-running", "task-stop-alias-id",
+})
+TASK_REQUIRED_INVALID = frozenset({
+    "task-missing-prompt", "task-timeout-out-of-range", "task-completion-too-long",
+    "task-constraints-too-many", "task-budget-unknown-key", "task-history-resume",
+    "task-routine-principal", "task-child-without-delegate", "await-missing-task-id",
+    "await-timeout-out-of-range", "stop-missing-task-id", "stop-unknown-task",
+    "await-unknown-task",
+})
+TASK_REQUIRED_RESTORE = frozenset({
+    "restore-interrupted-wake-once", "restore-settled-record-wins",
+    "restore-waiting-approval-survives", "restore-legacy-record-ignored",
+})
+TASK_REQUIRED_REQUEST_IDS = frozenset({
+    "task-turn", "task-settled", "task-interrupted", "task-turn-approval-resume",
+    "task-settled-approval-denied",
+})
+TASK_CONTRACT = {
+    "defaultTaskTimeoutMs": 180_000,
+    "taskTimeoutRangeMs": [1_000, 300_000],
+    "defaultAwaitTimeoutMs": 180_000,
+    "awaitTimeoutRangeMs": [1_000, 600_000],
+    "maximumCompletionCharacters": 4_000,
+    "maximumPurposeCharacters": 2_000,
+    "maximumConstraints": 8,
+    "maximumConstraintCharacters": 500,
+    "maximumWriteDirectories": 32,
+    "budgetRangeMs": [1_000, 300_000],
+}
+
+
+def _task_latest_snapshot(seed_events):
+    latest = None
+    settled = None
+    for event in seed_events:
+        data = event.get("data") or {}
+        snapshot = data.get("persistedTask")
+        if isinstance(snapshot, dict):
+            latest = snapshot
+        if event.get("type") == "task.settled" and isinstance(data.get("task_id"), str):
+            settled = data
+    return latest, settled
+
+
+def validate_task_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "task-cases.phone: schemaVersion must be 1")
+    _require(fixture.get("vector") == "task-cases.phone", "task-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "task-cases.phone: upstream must be []")
+    _require(isinstance(fixture.get("delta"), list) and fixture["delta"],
+             "task-cases.phone: delta")
+    contract = fixture.get("contract")
+    _require(isinstance(contract, dict), "task-cases.phone: contract")
+    for key, value in TASK_CONTRACT.items():
+        _require(contract.get(key) == value,
+                 f"task-cases.phone: contract.{key} must be {value!r}")
+    _require(contract.get("statuses") == TASK_STATUS_ORDER,
+             "task-cases.phone: statuses must be the frozen ordered set")
+    _require("cancelled" not in contract["statuses"],
+             "task-cases.phone: a task is stopped, never cancelled")
+    _require(set(contract.get("awaitTerminalStatuses", [])) == TASK_TERMINAL,
+             "task-cases.phone: awaitTerminalStatuses")
+    _require(set(contract.get("lifecycleTerminalStatuses", [])) ==
+             TASK_TERMINAL - {"waiting_approval"},
+             "task-cases.phone: lifecycleTerminalStatuses")
+    persisted = contract.get("persistedTask")
+    _require(isinstance(persisted, dict), "task-cases.phone: persistedTask")
+    required_keys = persisted.get("requiredKeys")
+    optional_keys = persisted.get("optionalKeys")
+    _require(isinstance(required_keys, list) and required_keys,
+             "task-cases.phone: persistedTask.requiredKeys")
+    _require(isinstance(optional_keys, list), "task-cases.phone: persistedTask.optionalKeys")
+    _require(not set(required_keys) & set(optional_keys),
+             "task-cases.phone: required/optional snapshot keys overlap")
+    _require(set(persisted.get("parentKinds", [])) == {"chat", "task", "routine"},
+             "task-cases.phone: parentKinds")
+    request_ids = contract.get("requestIds")
+    _require(request_ids == {
+        "taskTurn": "task-turn:<taskId>",
+        "taskSettled": "task-settled:<taskId>",
+        "taskInterrupted": "task-interrupted:<taskId>",
+        "taskTurnApprovalResume": "task-turn:<taskId>:approval:<approvalID>",
+        "taskSettledApprovalDenied": "task-settled:<taskId>:approval:<approvalID>",
+    }, "task-cases.phone: requestIds")
+    errors = contract.get("errors")
+    _require(isinstance(errors, dict), "task-cases.phone: errors")
+    for key in ("onlyChatOrTask", "childCannotDelegate", "missingPrompt", "taskTimeout",
+                "completionTooLong", "purposeTooLong", "constraints", "budgetKey",
+                "budgetRange", "writeDirectories", "historyResume", "awaitMissingId",
+                "awaitTimeout", "stopMissingId"):
+        _require(isinstance(errors.get(key), str) and errors[key],
+                 f"task-cases.phone: errors.{key}")
+
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "task-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "task-cases.phone: invalid")
+    all_cases = valid + invalid
+    _unique_names(all_cases, "task-cases.phone")
+    names = set(_cases_by_name(all_cases))
+    _require(TASK_REQUIRED_VALID <= names, "task-cases.phone: missing frozen valid case")
+    _require(TASK_REQUIRED_INVALID <= names, "task-cases.phone: missing frozen invalid case")
+
+    for case in valid:
+        _require(case["expect"]["isError"] is False,
+                 f"{case['name']}: a valid case must succeed")
+    for case in invalid:
+        _require(case["expect"]["isError"] is True,
+                 f"{case['name']}: an invalid case must fail")
+    for case in all_cases:
+        name = case["name"]
+        _require(case.get("kind") in {"start", "await", "stop"},
+                 f"{name}: kind")
+        _require(isinstance(case.get("arguments"), dict), f"{name}: arguments")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict) and isinstance(expect.get("isError"), bool),
+                 f"{name}: expect")
+        if expect["isError"]:
+            error = expect.get("structured", {}).get("error")
+            _require(isinstance(error, dict), f"{name}: error")
+            _require(error.get("code") in TASK_ERROR_CODES, f"{name}: error code")
+            _require(isinstance(error.get("message"), str) and error["message"],
+                     f"{name}: error message")
+            _require(expect.get("text") == error["message"], f"{name}: failure text")
+            _require("status" not in expect or expect["status"] is None,
+                     f"{name}: a failure has no terminal status")
+        else:
+            _require(expect.get("status") in TASK_STATUSES, f"{name}: status")
+            record = expect.get("record")
+            _require(isinstance(record, dict), f"{name}: record")
+            _require(record.get("status") == expect["status"], f"{name}: record status")
+            _require(record.get("task_id") == "<taskId>", f"{name}: record task token")
+            _require(record.get("sessionId") == "<sessionId>",
+                     f"{name}: record session token")
+            event_order = expect.get("eventOrder")
+            _require(isinstance(event_order, list) and event_order, f"{name}: eventOrder")
+            _require(all(event_type.startswith("task.") for event_type in event_order),
+                     f"{name}: eventOrder types")
+            _require(event_order[0] == "task.created", f"{name}: created must be first")
+            _require(isinstance(expect.get("authorization"), dict) or
+                     case["kind"] == "stop", f"{name}: authorization")
+            if expect.get("authorization"):
+                _require(expect["authorization"].get("canNetworkWrite") is False
+                         and expect["authorization"].get("canDelegateTasks") is False,
+                         f"{name}: task authorization must not widen")
+            if "persistedTask" in expect:
+                snapshot = expect["persistedTask"]
+                _require(isinstance(snapshot, dict), f"{name}: persistedTask expectation")
+                _require(snapshot.get("status") == expect["status"],
+                         f"{name}: persistedTask.status")
+                _require(set(snapshot) <= set(required_keys) | set(optional_keys),
+                         f"{name}: persistedTask expectation keys")
+                _require(isinstance(snapshot.get("createdAt"), int),
+                         f"{name}: persistedTask.createdAt")
+        setup = case.get("setup")
+        if setup is not None:
+            _require(isinstance(setup, dict)
+                     and isinstance(setup.get("parentSessionId"), str),
+                     f"{name}: setup.parentSessionId")
+            if "parentTurn" in setup:
+                _require(isinstance(setup["parentTurn"], list) and setup["parentTurn"],
+                         f"{name}: setup.parentTurn")
+            if "parentKind" in setup:
+                _require(setup["parentKind"] in {"chat", "task", "routine"},
+                         f"{name}: setup.parentKind")
+
+    restores = fixture.get("restoreCases")
+    _require(isinstance(restores, list) and restores, "task-cases.phone: restoreCases")
+    _unique_names(restores, "task-cases.phone.restoreCases")
+    _require(TASK_REQUIRED_RESTORE <= set(_cases_by_name(restores)),
+             "task-cases.phone: missing frozen restore case")
+    for case in restores:
+        name = case["name"]
+        seeds = case.get("seedEvents")
+        _require(isinstance(seeds, list) and seeds, f"{name}: seedEvents")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict), f"{name}: expect")
+        latest, settled = _task_latest_snapshot(seeds)
+        if latest is None:
+            _require(expect.get("errorCode") == "invalid_arguments",
+                     f"{name}: legacy record must be ignored as an unknown task")
+            _require(expect.get("wake", {}).get("delivered") == 0,
+                     f"{name}: legacy record must not wake")
+            continue
+        snapshot_keys = set(latest)
+        _require(set(required_keys) <= snapshot_keys,
+                 f"{name}: persistedTask missing required keys")
+        _require(snapshot_keys <= set(required_keys) | set(optional_keys),
+                 f"{name}: persistedTask unknown keys")
+        for key in required_keys:
+            _require(latest[key] is not None, f"{name}: persistedTask.{key} is null")
+        _require(latest["parentKind"] in persisted["parentKinds"],
+                 f"{name}: parentKind")
+        _require(latest["status"] in TASK_STATUSES, f"{name}: snapshot status")
+        _require(isinstance(latest["createdAt"], int) and latest["createdAt"] >= 0,
+                 f"{name}: createdAt")
+        _require(isinstance(latest["asynchronous"], bool), f"{name}: asynchronous")
+        _require(isinstance(latest["wakeDelivered"], bool), f"{name}: wakeDelivered")
+        expected_status = latest["status"]
+        expected_error = latest.get("error")
+        if settled is not None:
+            expected_status = settled["status"]
+            expected_error = settled.get("error")
+        elif expected_status in {"running", "stopping"}:
+            expected_status = "interrupted"
+            expected_error = "worker_restarted"
+        _require(expect.get("status") == expected_status,
+                 f"{name}: restore status must be {expected_status}")
+        record = expect.get("record")
+        _require(isinstance(record, dict), f"{name}: record")
+        _require(record.get("status") == expected_status, f"{name}: record status")
+        if expected_error is not None:
+            _require(record.get("error") == expected_error, f"{name}: record error")
+        should_wake = (
+            expected_status == "interrupted"
+            and latest["asynchronous"] is True
+            and latest["parentKind"] == "chat"
+            and latest["wakeDelivered"] is False
+        )
+        wake = expect.get("wake")
+        _require(isinstance(wake, dict), f"{name}: wake")
+        _require(wake.get("delivered") == (1 if should_wake else 0),
+                 f"{name}: wake.delivered")
+        if should_wake:
+            _require(wake.get("requestId") ==
+                     f"task-interrupted:{latest['taskId']}", f"{name}: wake requestId")
+            _require(wake.get("sessionId") == latest["parentSessionId"],
+                     f"{name}: wake session")
+            _require(isinstance(wake.get("promptContains"), list)
+                     and latest["taskId"] in wake["promptContains"],
+                     f"{name}: wake prompt")
+        _require(expect.get("secondWake") == 0, f"{name}: second wake must be 0")
+
+    request_cases = fixture.get("requestIdCases")
+    _require(isinstance(request_cases, list) and request_cases,
+             "task-cases.phone: requestIdCases")
+    _unique_names(request_cases, "task-cases.phone.requestIdCases")
+    _require(TASK_REQUIRED_REQUEST_IDS <= set(_cases_by_name(request_cases)),
+             "task-cases.phone: missing frozen request-id case")
+    for case in request_cases:
+        name = case["name"]
+        expected = case.get("expected")
+        _require(isinstance(expected, str) and expected, f"{name}: expected")
+        _require(expected.startswith(case.get("prefix", "")), f"{name}: prefix")
+        task_id = case.get("taskId")
+        approval = case.get("approvalId")
+        if approval is None:
+            _require(expected in {f"task-turn:{task_id}", f"task-settled:{task_id}",
+                                  f"task-interrupted:{task_id}"},
+                     f"{name}: request id")
+        else:
+            _require(expected.endswith(f":approval:{approval}"), f"{name}: approval suffix")
+        origin, hidden, _held, memory_source = resolve_turn_origin(expected)
+        _require(origin == case.get("origin"), f"{name}: origin")
+        _require(hidden == case.get("hidden"), f"{name}: hidden")
+        _require(memory_source == case.get("memorySource"),
+                 f"{name}: memorySource")
+    return len(valid), len(invalid), len(restores), len(request_cases)
+
+
+def task_fixture_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_task_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"task-cases mutation not detected: {label}")
+
+    def by_name(fixture_copy, name, group="valid"):
+        return next(case for case in fixture_copy[group] if case["name"] == name)
+
+    def by_restore(fixture_copy, name):
+        return next(case for case in fixture_copy["restoreCases"] if case["name"] == name)
+
+    expect_failure("default-timeout", lambda f: f["contract"]
+                   .update({"defaultTaskTimeoutMs": 180_001}))
+    expect_failure("cancelled-status", lambda f: f["contract"]["statuses"].append("cancelled"))
+    expect_failure("snapshot-key", lambda f: by_restore(
+        f, "restore-interrupted-wake-once")["seedEvents"][0]["data"]
+        ["persistedTask"].pop("wakeDelivered"))
+    expect_failure("restore-status", lambda f: by_restore(
+        f, "restore-interrupted-wake-once")["expect"].update({"status": "completed"}))
+    expect_failure("request-id", lambda f: next(
+        case for case in f["requestIdCases"] if case["name"] == "task-turn"
+    ).update({"expected": "task-turn:task-other"}))
+    expect_failure("error-message", lambda f: by_name(
+        f, "task-missing-prompt", "invalid")["expect"].update({"text": "wrong"}))
+    expect_failure("duplicate-restore", lambda f: f["restoreCases"].append(
+        json.loads(json.dumps(f["restoreCases"][0]))))
+    expect_failure("drop-valid", lambda f: f.update({
+        "valid": [case for case in f["valid"]
+                  if case["name"] != "task-start-sync-completed"]}))
+    expect_failure("snapshot-expect-status", lambda f: by_name(
+        f, "task-start-sync-completed")["expect"]["persistedTask"]
+        .update({"status": "running"}))
+    return 9
+
+
 def main() -> int:
     check_overlays()
     rpc_valid, rpc_invalid = validate_mcp_rpc_fixture(load(MCP_RPC_VECTOR))
@@ -4284,6 +5004,11 @@ def main() -> int:
         load("volatile-context.json"), load(VOLATILE_PHONE_VECTOR))
     volatile_mutations = volatile_phone_mutations(
         load("volatile-context.json"), load(VOLATILE_PHONE_VECTOR))
+    team_valid, team_invalid, team_rows = validate_team_fixture(load(TEAM_CASES_VECTOR))
+    team_mutations = team_fixture_mutations(load(TEAM_CASES_VECTOR))
+    task_valid, task_invalid, task_restores, task_request_ids = validate_task_fixture(
+        load(TASK_CASES_VECTOR))
+    task_mutations = task_fixture_mutations(load(TASK_CASES_VECTOR))
     check_event(load("event-envelope.json")["valid"]["event"],
                 "event-envelope.schema.json", "event")
     for index, case in enumerate(load("event-envelope.json")["invalid"]):
@@ -4485,6 +5210,11 @@ def main() -> int:
           f"{tool_unknowns} unknown, {tool_mutations} mutation checks; "
           f"volatile-phone {volatile_assembly} assembly / {volatile_producer} producer, "
           f"{volatile_mutations} mutation checks; "
+          f"team-phone {team_valid} valid / {team_invalid} invalid / {team_rows} row cases, "
+          f"{team_mutations} mutation checks; "
+          f"task-phone {task_valid} valid / {task_invalid} invalid / "
+          f"{task_restores} restore / {task_request_ids} request-id cases, "
+          f"{task_mutations} mutation checks; "
           f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks; "
           f"store {store_steps} steps, user-action {action_steps} steps)")
     return 0

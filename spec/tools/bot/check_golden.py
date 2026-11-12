@@ -14,8 +14,9 @@ Offline mode (used by CI) checks that
     ``erasure-event.phone.json``, ``verification.phone.json``,
     ``store.phone.json``, ``user-action-transaction.phone.json``,
     ``session-lifecycle.phone.json``, ``projection.phone.json``,
-    ``mcp-rpc-cases.phone.json``, ``identity-approval-cases.phone.json`` and
-    ``tool-call-cases.phone.json``) that have no dsh-bot counterpart.
+    ``mcp-rpc-cases.phone.json``, ``identity-approval-cases.phone.json``,
+    ``tool-call-cases.phone.json``, ``team-cases.phone.json`` and
+    ``task-cases.phone.json``) that have no dsh-bot counterpart.
 
 With ``--checkout`` it also runs the real exporter into a temporary directory
 and requires every upstream golden file to be byte-identical to the export.
@@ -60,6 +61,8 @@ PHONE_ONLY_VECTORS = frozenset({
     "tool-call-cases.phone.json",
     "identity-approval-cases.phone.json",
     "mcp-rpc-cases.phone.json",
+    "team-cases.phone.json",
+    "task-cases.phone.json",
     "turn-origin.phone.json", "mcp-egress.phone.json", "authority.phone.json",
     "record-reference.phone.json", "observation-envelope.phone.json", "record-query.phone.json",
     "erasure-event.phone.json",

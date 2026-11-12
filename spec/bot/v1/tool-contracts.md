@@ -117,6 +117,10 @@ shapes.
 
 ## 4. Task tools
 
+The durable lifecycle, `persistedTask` snapshot, restore and wake rules are owned by
+[tasks.md](tasks.md). This section only freezes the tool arguments/results; where the two differ,
+`tasks.md` and its shared fixture win.
+
 ### 4.1 `Task`
 
 - **Arguments.** Optional `description`/`task_title` (title; default `委派的任务`) and
@@ -164,18 +168,22 @@ shapes.
   with `停止任务需要提供任务编号`. The adapter passes the parent call; a task from another Bot is
   refused by the executor.
 - **Result.** The stopped record (status `stopped`, partial retained). The runtime appends
-  `task.stop_requested` and `task.settled` with `eventId:"stop:<taskId>"` and
-  `"settled:<taskId>"` (`BotMCPRuntime.swift:1829-1845`).
+  `task.stop_requested` with a generated event id and `task.settled` with
+  `eventId:"settled:<taskId>"` (`BotMCPRuntime.swift:1829-1845`; the generated id is frozen in
+  [tasks.md](tasks.md) §4).
 - **Late results.** A result that arrives after the stop is dropped; the settled record is
   authoritative (`mcp-endpoint.md` §4; `BotDSHRemoteRuntime`).
 
 ### 4.4 Task record
 
 `{"task_id","sessionId","status","title","result"?,"partial"?,"error"?,"completion"?,"purpose"?,"constraints"?,"budget"?,"verification"?}`
-(`BotMCPTypes.swift:170-220`). `status` is one of `running|stopping|completed|failed|cancelled|
-interrupted`; `interrupted` is the replacement-Worker state with `error:"worker_restarted"`
-(`mcp-endpoint.md` §4). `budget` is `{"max_duration_ms"?}`; `verification` is the P26 verifier
-output. The mobile runtime MUST NOT invent a second field name for an existing member.
+(`BotMCPTypes.swift:170-220`). `status` is one of `running|stopping|waiting_approval|completed|
+failed|stopped|interrupted|denied`; there is no `cancelled` task status (a stop writes `stopped`).
+`interrupted` is the replacement-Worker state with `error:"worker_restarted"`
+(`mcp-endpoint.md` §4); `waiting_approval` is terminal for reads but survives a restart
+([tasks.md](tasks.md) §1/§9). `budget` is `{"max_duration_ms"?}`; `verification` is the P26
+verifier output. The mobile runtime MUST NOT invent a second field name or a second status
+spelling for an existing member.
 
 ## 5. Routine tools
 
