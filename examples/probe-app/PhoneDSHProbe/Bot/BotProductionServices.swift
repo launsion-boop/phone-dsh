@@ -91,11 +91,20 @@ struct BotProductionComposition {
 actor BotProductionEnvironment {
     let botID: String
     private(set) var sessionID: String
-    let sessionLogURL: URL?
+    /// Cached log URL for `sessionID`. It is refreshed on `connect` and on an
+    /// S6 epoch switch; the row service still re-validates it against the
+    /// session id so a stale cache can never keep the chat on the archived
+    /// epoch.
+    private(set) var sessionLogURL: URL?
     let domain: SQLiteDomainStore
     let routineMachine: RoutineMachine
     let memory: BotMemory
     let grants: BotGrantStore
+    /// The workspace root this runtime actually uses. The session-log locator
+    /// must scan this tree, never the process-global App Documents default:
+    /// the BotE2E composition injects a temporary root and a global scan would
+    /// silently miss every log written there.
+    let workspaceRoot: URL
     let runtimeContext: BotProductionRuntimeContext
     private var planner: any BotUserActionPlanning
     private var turnStopping: (any BotProductionTurnStopping)?
@@ -107,10 +116,12 @@ actor BotProductionEnvironment {
          planner: (any BotUserActionPlanning)? = nil,
          turnStopping: (any BotProductionTurnStopping)? = nil,
          sessionLogURL: URL? = nil,
+         workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
          fallbackName: String = "大肥鱼") {
         self.botID = botID
         self.sessionID = sessionID
         self.sessionLogURL = sessionLogURL
+        self.workspaceRoot = workspaceRoot
         self.domain = domain
         self.routineMachine = routineMachine
         self.memory = memory
@@ -125,6 +136,8 @@ actor BotProductionEnvironment {
             throw BotProductionError.invalidService("Bot 主会话 ID 不能为空")
         }
         sessionID = composition.sessionID
+        sessionLogURL = BotSessionLogLocator.latestFile(
+            sessionID: composition.sessionID, workspaceRoot: workspaceRoot)
         planner = composition.planner
         turnStopping = composition.turnStopping
     }
@@ -138,10 +151,22 @@ actor BotProductionEnvironment {
     }
 
     /// Advances the durable main-session pointer after an epoch switch. The
-    /// planner and turn-stopping seams stay bound; only the session id the row
-    /// and record services read changes.
+    /// planner and turn-stopping seams stay bound; the session id and the log
+    /// URL the row/record services read both move to the new epoch. The row
+    /// service still re-validates the cached URL on every rebuild.
     func updateSessionID(_ sessionID: String) {
         self.sessionID = sessionID
+        sessionLogURL = BotSessionLogLocator.latestFile(
+            sessionID: sessionID, workspaceRoot: workspaceRoot)
+    }
+
+    /// One read of the current epoch and its log. A cached URL that belongs to
+    /// the replaced session is ignored; the resolver falls back to the current
+    /// session's newest `session.v*.jsonl`.
+    func sessionSnapshot() -> (sessionID: String, logURL: URL?) {
+        (sessionID, BotSessionLogSelection.logURL(
+            sessionID: sessionID, explicit: sessionLogURL,
+            latest: { BotSessionLogLocator.latestFile(sessionID: $0, workspaceRoot: workspaceRoot) }))
     }
 
     func currentPlanner() -> any BotUserActionPlanning { planner }
@@ -187,8 +212,11 @@ enum BotProductionPaths {
 }
 
 enum BotSessionLogLocator {
-    static func latestFile(sessionID: String) -> URL? {
-        let root = BotProductionPaths.workspaceRoot()
+    /// Newest `session.v*.jsonl` for `sessionID` under the **owning**
+    /// workspace root. Callers pass the same root their composition was built
+    /// with; there is deliberately no process-global fallback.
+    static func latestFile(sessionID: String, workspaceRoot: URL) -> URL? {
+        let root = workspaceRoot
             .appendingPathComponent("materialized/home/sessions", isDirectory: true)
         let manager = FileManager.default
         guard let enumerator = manager.enumerator(
@@ -206,8 +234,8 @@ enum BotSessionLogLocator {
         return candidates.sorted { $0.modified > $1.modified }.first?.url
     }
 
-    static func events(sessionID: String) throws -> [BotDSHSessionEvent] {
-        guard let url = latestFile(sessionID: sessionID) else { return [] }
+    static func events(sessionID: String, workspaceRoot: URL) throws -> [BotDSHSessionEvent] {
+        guard let url = latestFile(sessionID: sessionID, workspaceRoot: workspaceRoot) else { return [] }
         return BotDSHSessionEvent.parseJSONL(try Data(contentsOf: url)).events
     }
 }
@@ -225,6 +253,7 @@ struct BotProductionHistoryPage: Sendable, Equatable {
 enum BotProductionSessionEpochs {
     static func load(botID: String, currentSessionID: String,
                      currentLogURL: URL?,
+                     workspaceRoot: URL,
                      domain: SQLiteDomainStore) async throws -> [BotSessionEpochProjection] {
         var ordered: [String] = []
         var seen = Set<String>()
@@ -240,8 +269,10 @@ enum BotProductionSessionEpochs {
         var epochs: [BotSessionEpochProjection] = []
         for sessionID in ordered {
             let url = sessionID == currentSessionID
-                ? (currentLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID))
-                : BotSessionLogLocator.latestFile(sessionID: sessionID)
+                ? (currentLogURL ?? BotSessionLogLocator.latestFile(
+                    sessionID: sessionID, workspaceRoot: workspaceRoot))
+                : BotSessionLogLocator.latestFile(
+                    sessionID: sessionID, workspaceRoot: workspaceRoot)
             let events: [BotDSHSessionEvent]
             if let url, let data = try? Data(contentsOf: url) {
                 events = BotDSHSessionEvent.parseJSONL(data).events
@@ -299,8 +330,9 @@ actor BotProductionRowService {
     }
 
     private func rebuild() async throws {
-        let sessionID = await environment.sessionID
-        let logURL = environment.sessionLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID)
+        let snapshot = await environment.sessionSnapshot()
+        let sessionID = snapshot.sessionID
+        let logURL = snapshot.logURL
         let logData = try logURL.map { try Data(contentsOf: $0) }
         let parsed = logData.map { BotDSHSessionEvent.parseJSONL($0) }
         let sessionEvents = parsed?.events ?? []
@@ -310,7 +342,8 @@ actor BotProductionRowService {
         let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
         let epochs = try await BotProductionSessionEpochs.load(
             botID: environment.botID, currentSessionID: sessionID,
-            currentLogURL: logURL, domain: environment.domain)
+            currentLogURL: logURL, workspaceRoot: environment.workspaceRoot,
+            domain: environment.domain)
         _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
                                       uiEvents: uiEvents,
                                       heldRequestNonces: heldRequestNonces)
@@ -406,6 +439,10 @@ struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var scope: String?
     /// `allowed` / `denied` / `timed-out` / `expired` / `cancelled`.
     var status: String?
+    /// Durable cancellation/denial reason code (`worker_restarted`, …). The
+    /// UI maps it through `BotApprovalReceipt.cancellationReason`; the raw
+    /// value never reaches the page.
+    var reason: String?
     var decidedAtMS: Int64
 }
 
@@ -455,6 +492,16 @@ struct BotProductionInfoSnapshot: Sendable {
     var maintenanceEnabled: Bool
     var maintenanceDailyTokens: Int
     var maintenanceDailyBudget: Int
+    /// Last failed App identity registration for this runtime, if any. Read
+    /// only; the info page renders it as one status line.
+    var bridgeStatus: PhoneDSHBot.BotBridgeDiagnostic?
+    /// Per-entry failure messages. Each data entry loads independently so a
+    /// broken projection only fails its own page. The raw error goes to the
+    /// diagnostic log; this string is the human-facing copy.
+    var memoryError: String?
+    var routinesError: String?
+    var approvalsError: String?
+    var grantsError: String?
 }
 
 /// Read/write view over the same `BotMemory` and `RoutineMachine` the
@@ -464,16 +511,19 @@ actor BotProductionInfoService {
     private let scheduler: RoutineScheduler?
     private let settingsStore: ProactiveSettingsStore
     private let maintenance: BotMemoryMaintenanceController?
+    private let bridgeDiagnostic: (@Sendable () async -> BotBridgeDiagnostic?)?
     private var sessionEraser: BotSessionEraser?
 
     init(environment: BotProductionEnvironment,
          scheduler: RoutineScheduler? = nil,
          settingsStore: ProactiveSettingsStore = .shared,
-         maintenance: BotMemoryMaintenanceController? = nil) {
+         maintenance: BotMemoryMaintenanceController? = nil,
+         bridgeDiagnostic: (@Sendable () async -> BotBridgeDiagnostic?)? = nil) {
         self.environment = environment
         self.scheduler = scheduler
         self.settingsStore = settingsStore
         self.maintenance = maintenance
+        self.bridgeDiagnostic = bridgeDiagnostic
     }
 
     /// Installs the session-epoch eraser for this Bot unit. The composition
@@ -487,16 +537,52 @@ actor BotProductionInfoService {
     func load() async throws -> BotProductionInfoSnapshot {
         let memory = environment.memory
         let machine = environment.routineMachine
-        let botName = try await environment.context().botName
-        let documents = try await memory.documents(scope: nil)
+        // The page title is profile-driven; a missing runtime context must
+        // not take the four data entries down with it.
+        let botName = (try? await environment.context().botName) ?? ""
+        let humanFailure = "暂时读不出来，请稍后重试。"
+
         var memories: [BotProductionMemoryDocument] = []
-        for document in documents {
-            memories.append(BotProductionMemoryDocument(
-                document: document,
-                versions: try await memory.versions(path: document.path)))
+        var memoryError: String?
+        do {
+            let documents = try await memory.documents(scope: nil)
+            for document in documents {
+                memories.append(BotProductionMemoryDocument(
+                    document: document,
+                    versions: try await memory.versions(path: document.path)))
+            }
+        } catch {
+            await logInfoProjectionFailure("memory", error)
+            memoryError = humanFailure
         }
-        async let routines = machine.list(botId: environment.botID)
-        async let approvals = approvalRecords()
+
+        var routines: [Routine] = []
+        var routinesError: String?
+        do {
+            routines = try await machine.list(botId: environment.botID)
+        } catch {
+            await logInfoProjectionFailure("routines", error)
+            routinesError = humanFailure
+        }
+
+        var approvals: [BotProductionApproval] = []
+        var approvalsError: String?
+        do {
+            approvals = try await approvalRecords()
+        } catch {
+            await logInfoProjectionFailure("approvals", error)
+            approvalsError = humanFailure
+        }
+
+        var grants: [BotProductionGrant] = []
+        var grantsError: String?
+        do {
+            grants = try await standingGrants()
+        } catch {
+            await logInfoProjectionFailure("grants", error)
+            grantsError = humanFailure
+        }
+
         let context = await BotPresenceCenter.shared.context()
         let presence: RoutinePresence
         if let scheduler {
@@ -508,20 +594,54 @@ actor BotProductionInfoService {
                     appActive: context.appActive, keepingAlive: context.keepingAlive,
                     scheduledNotificationCount: 0))
         }
-        let grants = await standingGrants()
-        let reconciliations = try await reconciliationRecords(provided: routines)
+        var reconciliations: [BotProductionReconciliation] = []
+        if routinesError == nil {
+            do {
+                reconciliations = try await reconciliationRecords(provided: routines)
+            } catch {
+                await logInfoProjectionFailure("reconciliations", error)
+            }
+        }
         let maintenanceBatch = try? await maintenance?.lastBatch()
         let maintenanceSettings = await maintenance?.settings()
         let maintenanceEnabled = maintenanceSettings?.enabled ?? false
         let maintenanceBudget = await maintenance?.budgetStatus()
-        return try await BotProductionInfoSnapshot(
+        let bridgeStatus: BotBridgeDiagnostic?
+        if let bridgeDiagnostic {
+            bridgeStatus = await bridgeDiagnostic()
+        } else {
+            bridgeStatus = nil
+        }
+        if let diagnostic = bridgeStatus {
+            // The raw failure code belongs to the diagnostic log; the presence
+            // line is built from the timestamp only (P09 bot-info §在场状态).
+            await MainActor.run {
+                BotRebindDiagnostics.emit(
+                    "bot-info bridge-failure code=\(diagnostic.code)")
+            }
+        }
+        return BotProductionInfoSnapshot(
             botName: botName, memories: memories, routines: routines, approvals: approvals,
             grants: grants, reconciliations: reconciliations,
             presence: presence, proactiveSettings: settingsStore.settings(),
             maintenance: maintenanceBatch,
             maintenanceEnabled: maintenanceEnabled,
             maintenanceDailyTokens: maintenanceBudget?.dailyTokensUsed ?? 0,
-            maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0)
+            maintenanceDailyBudget: maintenanceBudget?.dailyTokenLimit ?? 0,
+            bridgeStatus: bridgeStatus,
+            memoryError: memoryError,
+            routinesError: routinesError,
+            approvalsError: approvalsError,
+            grantsError: grantsError)
+    }
+
+    /// The raw projection error belongs in the App diagnostic log. The page
+    /// only ever receives the human message above.
+    private func logInfoProjectionFailure(_ section: String, _ error: Error) async {
+        await MainActor.run {
+            BotRebindDiagnostics.emit(
+                "bot-info projection=\(section) error=\(String(reflecting: error))")
+        }
     }
 
     /// S3: enable/disable the background maintainer (default off). The switch
@@ -750,6 +870,7 @@ actor BotProductionInfoService {
                     decision: decision,
                     scope: scope,
                     status: status,
+                    reason: data["reason"]?.stringValue,
                     decidedAtMS: event.time))
             default:
                 continue
@@ -951,17 +1072,27 @@ final class BotSessionEpochEraser: Sendable {
     private let recordService: BotRecordService
     private let hostReference: BotHostReference
     private let workspaceRoot: URL
+    /// The composition owns the automatic Worker-boot recovery. This eraser
+    /// parks/resumes the host itself and then reattaches the Bot remote, so it
+    /// suppresses that automatic path for the duration and releases it (with
+    /// the new boot id recorded) before returning.
+    private let beginManualWorkerRebind: (@Sendable () async -> Void)?
+    private let endManualWorkerRebind: (@Sendable (Bool) async -> Void)?
 
     init(remote: BotDSHRemoteRuntime,
          environment: BotProductionEnvironment,
          recordService: BotRecordService,
          hostReference: BotHostReference,
-         workspaceRoot: URL) {
+         workspaceRoot: URL,
+         beginManualWorkerRebind: (@Sendable () async -> Void)? = nil,
+         endManualWorkerRebind: (@Sendable (Bool) async -> Void)? = nil) {
         self.remote = remote
         self.environment = environment
         self.recordService = recordService
         self.hostReference = hostReference
         self.workspaceRoot = workspaceRoot
+        self.beginManualWorkerRebind = beginManualWorkerRebind
+        self.endManualWorkerRebind = endManualWorkerRebind
     }
 
     func erase(_ request: BotSessionErasureRequest) async throws -> BotSessionErasureReport {
@@ -1002,6 +1133,11 @@ final class BotSessionEpochEraser: Sendable {
             throw BotProductionError.invalidService("会话宿主尚未连接，无法改写已关闭会话日志。")
         }
         var erased: [BotErasureEventData.ErasedSessionRecord] = []
+        await beginManualWorkerRebind?()
+        // The follow streams of running tasks are about to be cut by the
+        // deliberate park. Mark the window so the runtime reports an
+        // interruption instead of a transport failure.
+        await remote.beginHostPark()
         do {
             try await host.park()
             for target in scan.targets {
@@ -1032,16 +1168,27 @@ final class BotSessionEpochEraser: Sendable {
             await remote.attachTransport(transport)
             _ = try await remote.startMainSession()
             await environment.updateSessionID(switched.new)
+            await remote.endHostPark()
+            // The manual path bypasses `BotRuntimeUnit.start`, so deliver the
+            // interrupted Task wakes here, after the replacement Worker and
+            // the new main session are ready.
+            _ = await remote.deliverInterruptedTaskWakes()
+            await endManualWorkerRebind?(true)
         } catch {
             // Never leave the App parked: the session switch is already
             // durable, so a resume failure is reported separately from the
             // rewrite failure.
+            var transportRecovered = false
             if (try? await host.start()) != nil {
                 if let transport = try? await host.makeTransport() {
                     await remote.attachTransport(transport)
-                    _ = try? await remote.startMainSession()
+                    if (try? await remote.startMainSession()) != nil {
+                        transportRecovered = true
+                    }
                 }
             }
+            await remote.endHostPark()
+            await endManualWorkerRebind?(transportRecovered)
             throw error
         }
 

@@ -1,0 +1,128 @@
+{
+  "kind": "push-back",
+  "version": 1,
+  "source": "tokens.json#interaction.push",
+  "cases": [
+    {
+      "id": "push-root",
+      "depth": 0,
+      "overlay": "none",
+      "keyboard": false,
+      "action": "push",
+      "depthAfter": 1,
+      "overlayAfter": "none",
+      "barVisible": false,
+      "exited": false
+    },
+    {
+      "id": "push-second",
+      "depth": 1,
+      "overlay": "none",
+      "keyboard": false,
+      "action": "push",
+      "depthAfter": 2,
+      "overlayAfter": "none",
+      "barVisible": false,
+      "exited": false
+    },
+    {
+      "id": "back-depth-2",
+      "depth": 2,
+      "overlay": "none",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 1,
+      "overlayAfter": "none",
+      "barVisible": false,
+      "exited": false
+    },
+    {
+      "id": "back-depth-1",
+      "depth": 1,
+      "overlay": "none",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 0,
+      "overlayAfter": "none",
+      "barVisible": true,
+      "exited": false
+    },
+    {
+      "id": "back-root",
+      "depth": 0,
+      "overlay": "none",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 0,
+      "overlayAfter": "none",
+      "barVisible": true,
+      "exited": true
+    },
+    {
+      "id": "back-sheet",
+      "depth": 1,
+      "overlay": "sheet",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 1,
+      "overlayAfter": "none",
+      "barVisible": false,
+      "exited": false
+    },
+    {
+      "id": "back-drawer",
+      "depth": 0,
+      "overlay": "drawer",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 0,
+      "overlayAfter": "none",
+      "barVisible": true,
+      "exited": false
+    },
+    {
+      "id": "back-sheet-over-drawer",
+      "depth": 1,
+      "overlay": "sheet,drawer",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 1,
+      "overlayAfter": "drawer",
+      "barVisible": false,
+      "exited": false
+    },
+    {
+      "id": "back-drawer-over-stack",
+      "depth": 1,
+      "overlay": "drawer",
+      "keyboard": false,
+      "action": "back",
+      "depthAfter": 1,
+      "overlayAfter": "none",
+      "barVisible": false,
+      "exited": false
+    },
+    {
+      "id": "back-root-with-keyboard",
+      "depth": 0,
+      "overlay": "none",
+      "keyboard": true,
+      "action": "back",
+      "depthAfter": 0,
+      "overlayAfter": "none",
+      "barVisible": false,
+      "exited": true
+    },
+    {
+      "id": "predictive-cancel-sheet",
+      "depth": 1,
+      "overlay": "sheet",
+      "keyboard": false,
+      "action": "predictive-cancel",
+      "depthAfter": 1,
+      "overlayAfter": "sheet",
+      "barVisible": false,
+      "exited": false
+    }
+  ]
+}

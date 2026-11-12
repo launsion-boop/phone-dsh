@@ -84,18 +84,6 @@ public fun PdshNavState.selectedHomeTab(): HomeTab? {
 }
 
 /**
- * The stack after picking [tab]: the home floor (the leading [PdshRoute.Home] /
- * [PdshRoute.Chat] routes), with [PdshRoute.Chat] as its top, then the tab's root
- * unless it is DSH itself.
- */
-public fun PdshNavState.selectHomeTab(tab: HomeTab): PdshNavState {
-    val floor = stack.takeWhile { it == PdshRoute.Home || it == PdshRoute.Chat }
-    val chatFloor = floor.indexOfFirst { it == PdshRoute.Chat }
-        .let { if (it >= 0) floor.take(it + 1) else floor + PdshRoute.Chat }
-    return PdshNavState(if (tab == HomeTab.TASKS) chatFloor else chatFloor + tab.root)
-}
-
-/**
  * The bar: equal columns, an icon over a 10.5 pt medium label; the selected tab in
  * the primary ink, the others in the placeholder ink. It shares the page colour and
  * draws no top divider (`HomeTabBar.swift:1-5`), and paints the navigation-bar inset

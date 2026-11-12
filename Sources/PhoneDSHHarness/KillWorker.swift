@@ -35,6 +35,18 @@ public actor KillWorker {
     private var outbound: [Data] = []
     private var draining = false
 
+    /// Simulates the real Worker entry: HELLO is sent as soon as the socket
+    /// opens, but `serveApiRequests` is installed only near the end of the
+    /// boot. While `apiHeld` a received API_REQ is recorded and dropped, exactly
+    /// like the entry did before it had an API frame listener.
+    private var apiHeld = false
+    private var holdAPINextConnection = false
+    private var readyDelayMilliseconds: Int?
+    private var readyAnnounced = false
+    private var servedConnectionNumbers: [Int] = []
+    private var receivedAPIConnectionNumbers: [Int] = []
+    private var receivedAPIPaths: [String] = []
+
     private var pending: [UInt64] = []
     private var sentBodies: [UInt64: VfsMutationBody] = [:]
     private var journalSequences: [String: UInt64] = [:]
@@ -68,10 +80,44 @@ public actor KillWorker {
         self.decoder = FrameDecoder()
         self.sendSeq = 0
         self.workerHelloSent = false
+        self.readyAnnounced = false
+        self.apiHeld = self.holdAPINextConnection
+        self.holdAPINextConnection = false
+        if !self.apiHeld { self.readyDelayMilliseconds = nil }
         self.connectionCount += 1
         let token = UUID()
         self.connectionToken = token
         receiveTask = Task { await self.receiveLoop(task, token: token) }
+    }
+
+    /// Arms the next Worker connection to mimic a real boot: its API bridge
+    /// does not answer until the test Worker announces `ready` after
+    /// `readyDelayMilliseconds`.
+    public func holdAPIRequestsOnNextConnect(readyDelayMilliseconds: Int = 0) {
+        holdAPINextConnection = true
+        self.readyDelayMilliseconds = max(0, readyDelayMilliseconds)
+    }
+
+    /// Frees a held connection immediately (the test Worker announced its API
+    /// bridge itself).
+    public func releaseAPIRequests() {
+        apiHeld = false
+    }
+
+    /// The 1-based connection number that served each API_REQ, in order.
+    public func servedAPIConnectionNumbers() -> [Int] {
+        servedConnectionNumbers
+    }
+
+    /// The 1-based connection number that received each API_REQ, including
+    /// requests dropped before `ready`.
+    public func receivedAPIConnectionNumbersSnapshot() -> [Int] {
+        receivedAPIConnectionNumbers
+    }
+
+    /// Paths of every API_REQ this process received, in order.
+    public func receivedAPIPathsSnapshot() -> [String] {
+        receivedAPIPaths
     }
 
     private var connectionToken = UUID()
@@ -172,6 +218,14 @@ public actor KillWorker {
     }
 
     private func respond(to request: ApiRequestFrame) async throws {
+        receivedAPIConnectionNumbers.append(connectionCount)
+        receivedAPIPaths.append(request.head.path)
+        if apiHeld {
+            // No API listener is installed yet in the real entry; the frame is
+            // dropped with no response and the host has to time it out.
+            return
+        }
+        servedConnectionNumbers.append(connectionCount)
         if request.head.path == PhoneDSHRecoveryProtocol.path {
             try await respondRecovery(request)
             return
@@ -295,12 +349,42 @@ public actor KillWorker {
         helloCount += 1
         workerHelloSent = true
         try enqueueJSON(.hello, hello)
+        scheduleReadyAnnouncementIfNeeded()
         // D3: re-deliver every mutation the host did not acknowledge, with the
         // original mseq. The new connection numbers its own seq from 2.
         for mseq in pending.sorted() {
             guard let body = sentBodies[mseq] else { continue }
             let payload = try VfsMutationPayload.encode(mseq: mseq, body: body)
             try enqueueFrame(.vfsMutation, payload: payload)
+        }
+    }
+
+    /// The real Worker entry logs `pdsh-boot-phase scope=worker phase=ready`
+    /// (over the ordered channel) immediately after installing its API bridge.
+    /// The mock sends the same reserved line so the host-level test can use the
+    /// production readiness signal instead of a private seam.
+    private func scheduleReadyAnnouncementIfNeeded() {
+        guard apiHeld, !readyAnnounced else { return }
+        let delay = readyDelayMilliseconds ?? 0
+        readyDelayMilliseconds = nil
+        let token = connectionToken
+        Task { [weak self] in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            }
+            await self?.announceReady(token: token)
+        }
+    }
+
+    private func announceReady(token: UUID) {
+        guard token == connectionToken, !readyAnnounced, workerHelloSent else { return }
+        readyAnnounced = true
+        apiHeld = false
+        let payload = ConsolePayload(
+            level: .info,
+            text: "pdsh-boot-phase scope=worker phase=ready active_ms=1")
+        if let data = try? CanonicalJSON.encode(payload) {
+            try? enqueueFrame(.console, payload: data)
         }
     }
 

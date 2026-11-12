@@ -75,10 +75,18 @@ public struct BotAgentDeliveryReply: Sendable, Equatable {
 public struct BotTeamHeldRequest: Sendable, Equatable {
     public var botID: String
     public var item: WakeInboxItem
+    /// The in-progress hand-off this held message opens, or `nil` when the
+    /// item is a reply/notification rather than a new hop. A reply must not
+    /// extend the chain: otherwise the sender of the original message would
+    /// look like it is already inside the chain and its next send would be
+    /// rejected as a cycle.
+    public var handOff: BotAgentCommContext?
 
-    public init(botID: String, item: WakeInboxItem) {
+    public init(botID: String, item: WakeInboxItem,
+                handOff: BotAgentCommContext? = nil) {
         self.botID = botID
         self.item = item
+        self.handOff = handOff
     }
 }
 

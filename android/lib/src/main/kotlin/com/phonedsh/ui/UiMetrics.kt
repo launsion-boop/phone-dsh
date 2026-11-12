@@ -27,6 +27,7 @@ package com.phonedsh.ui
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.phonedsh.ui.theme.generated.UiTokenData
 
 /**
  * The shared PR22 430 x 932 pt metrics and the viewport they are measured in.
@@ -35,105 +36,58 @@ import androidx.compose.ui.unit.dp
  * `1 pt == 3 px` and the 430 pt frame is 1290 px wide). The pixel numbers are
  * derived from the point numbers, never typed twice.
  *
- * Nothing here is a drawing value: a composable that reads [headerHeight] or
- * [contentColumnWidth] is either implementing a parity gap or measuring one, and
+ * Nothing here is a drawing value: a composable that reads [contentColumnWidth]
+ * or [composerWidth] is either implementing a parity gap or measuring one, and
  * must say which in its own comment.
  */
 public object UiMetrics {
     // ----------------------------------------------------------------- viewport
 
-    /** Design/capture width of the PR22 reference, in points. */
+    /** Design/capture width of the PR22 reference, in points. Android-only: Capture-harness frame only (Android screenshot contract), no iOS source; not UI geometry. */
     public const val BASELINE_WIDTH_PT: Int = 430
 
-    /** Design/capture height of the PR22 reference, in points. */
+    /** Design/capture height of the PR22 reference, in points. Android-only: Capture-harness frame only (Android screenshot contract), no iOS source; not UI geometry. */
     public const val BASELINE_HEIGHT_PT: Int = 932
 
-    /** Device pixel ratio of the reference (`@3x`). */
+    /** Device pixel ratio of the reference (`@3x`). Android-only: Capture-harness density only (`@3x` reference), no iOS source; not UI geometry. */
     public const val BASELINE_DPR: Int = 3
 
-    /** Reference PNG width: `430 pt x 3`. */
+    /** Reference PNG width: `430 pt x 3`. Android-only: Derived Android capture pixel width; no iOS source. */
     public const val BASELINE_WIDTH_PX: Int = BASELINE_WIDTH_PT * BASELINE_DPR
 
-    /** Reference PNG height: `932 pt x 3`. */
+    /** Reference PNG height: `932 pt x 3`. Android-only: Derived Android capture pixel height; no iOS source. */
     public const val BASELINE_HEIGHT_PX: Int = BASELINE_HEIGHT_PT * BASELINE_DPR
 
-    /** Android `wm density` that makes 1 dp equal 1 pt: `160 x 3`. */
+    /** Android `wm density` that makes 1 dp equal 1 pt: `160 x 3`. Android-only: Android `wm density` for the capture harness; no iOS source. */
     public const val BASELINE_DENSITY_DPI: Int = 160 * BASELINE_DPR
 
     // ------------------------------------------------- shared metrics (PR #13)
 
-    /**
-     * Floating nav row height: 44 pt (`HomeSpec.navButton`, `.nav { height: 44 }`).
-     * It starts 8 pt below the top safe area; the safe area itself is
-     * platform-owned and is not part of this content-frame number.
-     */
-    public const val HEADER_HEIGHT_PT: Int = 44
-
-    /** The nav row is a single 44 pt row: title (22) + subtitle (20) fit inside it. */
-    public const val HEADER_TITLE_ROW_PT: Int = 44
-
-    /** No extra vertical padding inside the 44 pt nav row (the 8 pt is [HomeMetrics.NAV_TOP_PT]). */
-    public const val HEADER_VERTICAL_PAD_PT: Int = 0
-
-    /** Composer card width at 430 pt: `430 - 2 x 16`. */
+    /** Composer card width at 430 pt: `430 - 2 x 16`. Page-local: one page/surface layout value; no token fit. */
     public const val COMPOSER_WIDTH_PT: Int = 398
 
-    /** Open composer minimum height (`HomeSpec.composerOpenMinHeight = 104`). */
-    public const val COMPOSER_HEIGHT_PT: Int = 104
-
-    /** Closed composer height (`.composer.closed { height: 56 }`). */
+    /** Closed composer height (`.composer.closed { height: 56 }`). Page-local: one page/surface layout value; no token fit. */
     public const val COMPOSER_CLOSED_HEIGHT_PT: Int = 56
-
-    /** Open composer radius (`HomeSpec.composerOpenRadius = 24`). */
-    public const val COMPOSER_RADIUS_PT: Int = 24
-
-    /** Closed composer radius (`.composer.closed { border-radius: 28px }`). */
-    public const val COMPOSER_CLOSED_RADIUS_PT: Int = 28
 
     /**
      * Reading content column at 430 pt: `430 - 2 x 20` (`HomeSpec.contentInset`).
+     * Page-local: one page/surface layout value; no token fit.
      */
     public const val CONTENT_COLUMN_WIDTH_PT: Int = 390
 
     /** Composer-to-screen inset, both sides: `(430 - 398) / 2`. */
-    public const val COMPOSER_OUTER_MARGIN_PT: Int =
-        (BASELINE_WIDTH_PT - COMPOSER_WIDTH_PT) / 2
-
-    /** Content-column inset, both sides: `(430 - 390) / 2`. */
-    public const val CONTENT_COLUMN_INSET_PT: Int =
-        (BASELINE_WIDTH_PT - CONTENT_COLUMN_WIDTH_PT) / 2
+    public val COMPOSER_OUTER_MARGIN_PT: Int get() = UiTokenData.geometryChromeInset.value.toInt()
 
     /** Collapsed process row height (`HomeSpec.processRowHeight = 24`). */
-    public const val TOOL_ROW_HEIGHT_PT: Int = 24
-
-    /** Block gap between transcript blocks (`HomeSpec.blockGap = 20`). */
-    public const val FLOW_GAP_PT: Int = 20
+    public val TOOL_ROW_HEIGHT_PT: Int get() = UiTokenData.geometryProcessRowHeight.value.toInt()
 
     /** Gap after a response row (`HomeSpec.blockGap = 20`; the old 12 is gone). */
-    public const val FLOW_GAP_RESPONSE_PT: Int = 20
-
-    /** Gap after a turn-process control row (`HomeSpec.blockGap = 20`). */
-    public const val FLOW_GAP_TURN_PROCESS_PT: Int = 20
-
-    /** Paragraph gap after a user bubble / between paragraphs (`16`). */
-    public const val PARAGRAPH_GAP_PT: Int = 16
-
-    /** Process row to its opened card (`HomeSpec.disclosureGap = 8`). */
-    public const val DISCLOSURE_GAP_PT: Int = 8
-
-    /** Tab bar content height above the bottom safe area (`HomeSpec.tabBarHeight = 50`). */
-    public const val TAB_BAR_HEIGHT_PT: Int = 50
+    public val FLOW_GAP_RESPONSE_PT: Int get() = UiTokenData.spacingBlockGap.value.toInt()
 
     // ------------------------------------------------------------ dp accessors
 
-    /** [HEADER_HEIGHT_PT] as a Compose length. */
-    public val headerHeight: Dp get() = HEADER_HEIGHT_PT.dp
-
     /** [COMPOSER_WIDTH_PT] as a Compose length. */
     public val composerWidth: Dp get() = COMPOSER_WIDTH_PT.dp
-
-    /** [COMPOSER_HEIGHT_PT] as a Compose length. */
-    public val composerHeight: Dp get() = COMPOSER_HEIGHT_PT.dp
 
     /** [COMPOSER_CLOSED_HEIGHT_PT] as a Compose length. */
     public val composerClosedHeight: Dp get() = COMPOSER_CLOSED_HEIGHT_PT.dp
@@ -143,9 +97,6 @@ public object UiMetrics {
 
     /** [TOOL_ROW_HEIGHT_PT] as a Compose length. */
     public val toolRowHeight: Dp get() = TOOL_ROW_HEIGHT_PT.dp
-
-    /** [FLOW_GAP_PT] as a Compose length. */
-    public val flowGap: Dp get() = FLOW_GAP_PT.dp
 
     /** [FLOW_GAP_RESPONSE_PT] as a Compose length. */
     public val flowGapResponse: Dp get() = FLOW_GAP_RESPONSE_PT.dp

@@ -38,6 +38,15 @@ export const DEFAULT_BACKGROUND_JOB_HEARTBEAT_MS = 120_000
 export const DEFAULT_BACKGROUND_JOB_MAX_LIFETIME_MS = 24 * 60 * 60 * 1_000
 export const BOT_RUNTIME_UNAVAILABLE_REASON =
   '[bot runtime] The App Bot MCP endpoint is unavailable; the tool call was NOT executed. Do not retry or work around it.'
+/**
+ * The one human answer after the single credential-reclaim retry also fails.
+ * The App never accepted a token for this session, so the tool call did not
+ * execute. This exact sentence is also the Chat tool row's summary
+ * (`BotActivityPhrases.toolRowSummary`), so the model and the person see the
+ * same short explanation instead of a bare `unauthorized` or an internal tag.
+ */
+export const IDENTITY_RECLAIM_FAILED_REASON =
+  '与 App 的连接已失效，已尝试恢复，请稍后重试。'
 
 export interface ToolExecution {
   readonly name: string
@@ -349,6 +358,29 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
     await postJson(cancelUrl, bridgeToken, { id }, options.timeoutMs, options.signal)
   })
   const cancelQueue = createTailCancelQueue(cancel, timeoutMs)
+  /**
+   * Send one registration, re-reading the Worker's owned-session map on every
+   * attempt. The App re-claims the session's current token when a token no
+   * longer resolves (for example after the Worker was rebuilt on foreground
+   * resume); that claim lands in this map while the first request is still in
+   * flight. The second attempt therefore carries the recovered token. Exactly
+   * one retry: a permanently lost session must fail closed instead of
+   * decaying into a retry storm.
+   */
+  const sendRegistration = async (
+    payload: Record<string, unknown> & { readonly sessionId: string },
+    options: { timeoutMs: number; signal?: AbortSignal },
+  ): Promise<IdentityRegistration> => {
+    const withToken = (): Record<string, unknown> => {
+      const sessionToken = ownedSessions.tokenFor(payload.sessionId)
+      return { ...payload, ...(sessionToken === undefined ? {} : { sessionToken }) }
+    }
+    let registration = await send(withToken(), options)
+    if (registration.ok !== true && registration.error === 'unauthorized') {
+      registration = await send(withToken(), options)
+    }
+    return registration
+  }
   const mutex = createKeyedMutex()
   const dispatchChain = new AsyncLocalStorage<string>()
   const calls = new Map<string, BotIdentityCall>()
@@ -407,11 +439,9 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
     const entry = pending.get(binding.key)
     if (entry === undefined) return
     try {
-      const sessionToken = ownedSessions.tokenFor(binding.sessionId)
-      const registration = await send({
+      const registration = await sendRegistration({
         runtimeId, sessionId: binding.sessionId, callId: binding.callId,
         name: binding.name, arguments: binding.arguments, argsDigest: binding.argsDigest,
-        ...(sessionToken === undefined ? {} : { sessionToken }),
       }, { timeoutMs })
       if (registration.ok === true
         && typeof registration.id === 'string' && registration.id !== '') {
@@ -522,10 +552,10 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
       // registration. Before the App claims the session (or after a Worker
       // restart until the next claim) there is no token: omit the field, do
       // not fabricate one, and let the host reject the registration closed.
-      const sessionToken = ownedSessions.tokenFor(sessionId)
-      const registration = await send({
+      // `sendRegistration` retries once after the host has re-claimed the
+      // session's current token into this Worker.
+      const registration = await sendRegistration({
         runtimeId, sessionId, callId, name: exec.name, arguments: args, argsDigest: digest,
-        ...(sessionToken === undefined ? {} : { sessionToken }),
       }, { timeoutMs, signal: exec.signal })
       if (registration.ok !== true || typeof registration.id !== 'string' || registration.id === '') {
         // Fail closed. Every tool that reaches this point needs App identity
@@ -534,6 +564,9 @@ export default function dshbotIdentityBridge(ctx: Context, config: IdentityBridg
         // gets to run the tool body in that case.
         if (registration.error === 'unknown_tool') {
           throw new Error('[identity-bridge] App MCP does not recognize the tool; the call was NOT executed')
+        }
+        if (registration.error === 'unauthorized') {
+          throw new Error(IDENTITY_RECLAIM_FAILED_REASON)
         }
         throw new Error(`[identity-bridge] App MCP did not accept the call registration: ${registration.error ?? 'unknown error'}`)
       }

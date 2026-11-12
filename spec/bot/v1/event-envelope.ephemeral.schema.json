@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotEventEnvelope v1 (ephemeral)",
+  "description": "P25 ephemeral envelope. An ephemeral event is never stored and never joins a durable batch: it has no commitSeq and this schema forbids one. Durable events use event-envelope.schema.json. For principal.botId, principal.sessionId, causationId and correlationId, absent is equivalent to null; writers omit a nil member. See spec/bot/v1/README.md §1.2.",
+  "type": "object",
+  "required": ["schemaVersion", "type", "eventId", "time", "origin", "traceId", "principal", "data"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "type": {"enum": ["model.delta", "model.started", "model.settled", "tool.progress", "agent.status", "fish.action", "runtime.stderr", "runtime.notification", "projection.invalidated", "journal.backpressure", "approval.card_available"]},
+    "eventId": {"type": "string", "minLength": 1},
+    "time": {"type": "number", "minimum": 0},
+    "origin": {
+      "oneOf": [
+        {"type": "object", "required": ["kind", "sessionId", "seq"], "properties": {"kind": {"const": "dsh"}, "sessionId": {"type": "string", "minLength": 1}, "seq": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
+        {"type": "object", "required": ["kind", "source"], "properties": {"kind": {"const": "local"}, "source": {"enum": ["ipc", "card-bridge", "mcp", "scheduler", "task-manager", "memory-service", "comm-service", "projector", "effect-runner", "runtime", "user", "watchdog", "background-supervisor"]}}, "additionalProperties": false}
+      ]
+    },
+    "traceId": {"type": "string", "minLength": 1},
+    "principal": {
+      "type": "object",
+      "required": ["kind", "capabilities"],
+      "properties": {
+        "botId": {"type": ["string", "null"]},
+        "sessionId": {"type": ["string", "null"]},
+        "kind": {"enum": ["chat", "task", "routine", "team", "proactive", "watchdog", "ipc"]},
+        "capabilities": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "causationId": {"type": ["string", "null"]},
+    "correlationId": {"type": ["string", "null"]},
+    "turnId": {"type": "string", "minLength": 1},
+    "runId": {"type": "string", "minLength": 1},
+    "attempt": {"type": "integer", "minimum": 1},
+    "batch": {"type": "object", "required": ["id", "index", "total"], "properties": {"id": {"type": "string", "minLength": 1}, "index": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
+    "ignorable": {"const": true},
+    "data": {"type": "object"}
+  },
+  "additionalProperties": false
+}

@@ -124,6 +124,15 @@ public object UiPageTags {
     public const val ANDROID_ADB_CHECK: String = "pdsh.androidadb.check"
     public const val ANDROID_ADB_CANCEL: String = "pdsh.androidadb.cancel"
     public const val ANDROID_ADB_STATUS: String = "pdsh.androidadb.status"
+    public const val ANDROID_ADB_SCAN: String = "pdsh.androidadb.scan"
+    public const val ANDROID_ADB_DISCOVERED_SECTION: String = "pdsh.androidadb.section.discovered"
+    public const val ANDROID_ADB_MANUAL_SECTION: String = "pdsh.androidadb.section.manual"
+    public const val ANDROID_ADB_SCANNING: String = "pdsh.androidadb.scanning"
+    public const val ANDROID_ADB_SCAN_EMPTY: String = "pdsh.androidadb.scan.empty"
+    public const val ANDROID_ADB_CANDIDATE_PREFIX: String = "pdsh.androidadb.candidate."
+    public const val ANDROID_ADB_CONNECT_PREFIX: String = "pdsh.androidadb.connect."
+    public const val ANDROID_ADB_CANCEL_CONNECT_PREFIX: String = "pdsh.androidadb.cancelconnect."
+    public const val ANDROID_ADB_PHASE_PREFIX: String = "pdsh.androidadb.phase."
 
     // TonoAccountPage
     public const val TONO_ACCOUNT_ROOT: String = "pdsh.tonoaccount.root"
@@ -1046,4 +1055,15 @@ public object UiPageTags {
     public const val RUNTIME_MODEL_REQUESTS: String = "pdsh.runtime.model-requests"
     public const val ABOUT_APP: String = "pdsh.about.app"
     public const val ABOUT_LICENSES_ROW: String = "pdsh.about.licenses"
+
+    // GitHub Agent credential (`spec/ui/v1/pages/git-hub-agent-settings.json`)
+    public const val GITHUB_AGENT_ROOT: String = "pdsh.github-agent.root"
+    public const val GITHUB_AGENT_LIST: String = "pdsh.github-agent.list"
+    public const val GITHUB_AGENT_TOKEN_FIELD: String = "pdsh.github-agent.token"
+    public const val GITHUB_AGENT_SAVE: String = "pdsh.github-agent.save"
+    public const val GITHUB_AGENT_DELETE: String = "pdsh.github-agent.delete"
+    public const val GITHUB_AGENT_ALLOW_WRITES: String = "pdsh.github-agent.allow-writes"
+    public const val GITHUB_AGENT_RESTART: String = "pdsh.github-agent.restart"
+    public const val GITHUB_AGENT_MESSAGE: String = "pdsh.github-agent.message"
+    public const val GITHUB_AGENT_ERROR: String = "pdsh.github-agent.error"
 }

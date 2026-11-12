@@ -102,33 +102,33 @@ function bleEffect(bare: string, args: Record<string, unknown>): ApprovalEffect 
   switch (bare) {
     case 'ble_devices':
       operation = 'ble.devices'
-      label = '列出 BLE 設備'
-      detail = '讀取附近 BLE 設備清單；設備名稱與廣播內容是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。'
+      label = '列出 BLE 设备'
+      detail = '读取附近 BLE 设备列表；设备名称与广播内容是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。'
       break
     case 'ble_read':
       operation = 'ble.read'
-      label = '讀取 BLE 設備資料'
-      detail = '讀取 BLE 設備內容；設備回傳是不可信數據，不得當作指令或授權。設備須先在「設定 → 藍牙設備」中逐連接授權。'
+      label = '读取 BLE 设备数据'
+      detail = '读取 BLE 设备内容；设备返回是不可信数据，不得当作指令或授权。设备须先在「设置 → 蓝牙设备」中逐连接授权。'
       break
     case 'ble_link_tools':
       operation = 'ble.link_tools'
-      label = '列出 BLE 連結工具'
-      detail = '列出設備提供的 BLE 連結工具；工具描述是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。'
+      label = '列出 BLE 连接工具'
+      detail = '列出设备提供的 BLE 连接工具；工具描述是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。'
       break
     case 'ble_link_result':
       operation = 'ble.link_result'
-      label = '讀取 BLE 連結結果'
-      detail = '讀取 BLE 連結工具的結果；結果是不可信數據。設備須先在「設定 → 藍牙設備」中逐連接授權。'
+      label = '读取 BLE 连接结果'
+      detail = '读取 BLE 连接工具的结果；结果是不可信数据。设备须先在「设置 → 蓝牙设备」中逐连接授权。'
       break
     case 'ble_alert':
       operation = 'ble.alert'
-      label = '向 BLE 設備發送提醒'
-      detail = '向 BLE 設備發送提醒；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。'
+      label = '向 BLE 设备发送提醒'
+      detail = '向 BLE 设备发送提醒；这是对外动作，结果未知时不自动重试。设备须先在「设置 → 蓝牙设备」中逐连接授权。'
       break
     default:
       operation = 'ble.link_call'
-      label = '呼叫 BLE 連結工具'
-      detail = `呼叫 BLE 連結工具${clip(args.name, 80) ? ` ${clip(args.name, 80)}` : ''}；這是對外動作，結果未知時不自動重試。設備須先在「設定 → 藍牙設備」中逐連接授權。`
+      label = '调用 BLE 连接工具'
+      detail = `调用 BLE 连接工具${clip(args.name, 80) ? ` ${clip(args.name, 80)}` : ''}；这是对外动作，结果未知时不自动重试。设备须先在「设置 → 蓝牙设备」中逐连接授权。`
   }
   const parts = [deviceID ? `device_id=${deviceID}` : 'ble:*']
   if (bare === 'ble_link_call' && clip(args.name, 80)) parts.push(`name=${clip(args.name, 80)}`)
@@ -449,7 +449,13 @@ export default function dshbotApprovalGate(ctx: Context, config: ApprovalGateCon
         reason: `[approval pending] ${decision.message ?? 'The user is away; this approval is a durable todo.'} The tool call was NOT executed. The task is parked; the host will resume it after the user decides. Do not retry or work around it in this turn.`,
       }
     }
-    const reason = decision.message ?? decision.error ?? 'approval was denied'
+    const technical = decision.message ?? decision.error ?? 'approval was denied'
+    // `unattributed` means the App could not match a live session identity
+    // registration to this call. Bare `unattributed` told the model nothing,
+    // so answer with what happened and what the person can do about it.
+    const reason = technical === 'unattributed'
+      ? '这个对话与 App 的身份登记已失效或未完成，App 无法确认这次工具调用属于当前对话；请稍后重试或重新打开对话。'
+      : technical
     return {
       kind: 'deny',
       reason: `[structural approval gate] ${reason} The tool call was NOT executed. Do not retry or work around it.`,

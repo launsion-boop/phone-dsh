@@ -75,7 +75,7 @@ struct BotFishGalleryView: View {
                 Text("动作与表情")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(HomeSpec.textPrimary)
-                Text("FishAction · 一次性动作 / 表情")
+                Text("一次性动作 / 表情")
                     .font(.system(size: 11))
                     .foregroundStyle(HomeSpec.textSecondary)
             }

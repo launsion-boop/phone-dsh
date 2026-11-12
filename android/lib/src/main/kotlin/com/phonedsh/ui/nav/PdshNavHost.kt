@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,8 @@ import com.phonedsh.ui.page.EgressAllowListUiEvent
 import com.phonedsh.ui.page.ExportFacts
 import com.phonedsh.ui.page.ExportPage
 import com.phonedsh.ui.page.ExportScreenState
+import com.phonedsh.ui.page.GitHubAgentFacts
+import com.phonedsh.ui.page.GitHubAgentSettingsPage
 import com.phonedsh.ui.page.FilesLocalState
 import com.phonedsh.ui.page.FilesPage
 import com.phonedsh.ui.page.FilesScreenState
@@ -83,6 +86,10 @@ import com.phonedsh.ui.page.NativeConfigurationPage
 import com.phonedsh.ui.page.NativePluginInventoryPage
 import com.phonedsh.ui.page.NativeWorkbenchPage
 import com.phonedsh.ui.page.PDSHShellPage
+import com.phonedsh.ui.page.PCPairingPage
+import com.phonedsh.ui.page.PCPairingUiState
+import com.phonedsh.ui.page.ConnectedComputerPage
+import com.phonedsh.ui.page.ConnectedComputerUiState
 import com.phonedsh.ui.page.PhoneCapability
 import com.phonedsh.ui.page.PhoneCapabilityAction
 import com.phonedsh.ui.page.PhoneCapabilityRowState
@@ -227,6 +234,15 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.rememberUpdatedState
 
+// Added by the P09 sheet-host lane: the host-wide sheet back seam and the route
+// surface that presents the baseline's `.sheet` routes through the shared sheet
+// component (`interaction.md` §2 rules 1-9, §4 rules 5 and 7). Grouped so another
+// lane can move this block without touching the lanes above.
+import com.phonedsh.ui.sheet.LocalSheetBackHost
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetBackHost
+import com.phonedsh.ui.sheet.SheetChrome
+
 /**
  * One level of back that lives inside the top route.
  *
@@ -355,6 +371,13 @@ internal fun RouteBackLevel(
  *   system gesture leaves that level instead of closing the whole route. The
  *   default is `null` because a host that renders these pages without a back
  *   gesture is still a valid host.
+ * @param sheetBackHost the host's one shared [SheetBackHost], i.e. the sheet layer
+ *   of `interaction.md` §4 rule 5. It is provided through [LocalSheetBackHost] so
+ *   every page-owned [PdshSheet] inside this host registers on the same chain as
+ *   the routes presented as sheets below; one back then closes the top sheet
+ *   before the route stack moves (§2 rule 9). The default `null` leaves the local
+ *   empty, so a page previewed without a host keeps a sheet-local chain and system
+ *   back still closes it.
  * @param onPreferenceWrite a preference picker or stepper reported a choice. The
  *   host owns the store; this router only names the row and the option, exactly
  *   as the phone-permission gestures are handed back. Empty by default, so a host
@@ -388,6 +411,8 @@ public fun PdshNavHost(
     // measured no turn, so the page claims nothing (every workspace file is 未归属).
     artifacts: SessionArtifactsFacts = SessionArtifactsFacts(),
     backLevel: PdshBackLevel? = null,
+    /** The host's shared sheet back layer; see the KDoc above. */
+    sheetBackHost: SheetBackHost? = null,
     // The phone-permissions page is the one page whose 请求 is not a write this file
     // can perform: a system permission prompt belongs to the Activity, so the gesture
     // is handed back with the row it was made on. Empty by default, so a host that
@@ -437,13 +462,56 @@ public fun PdshNavHost(
     agentPresets: NativeAgentPresetsFacts = NativeAgentPresetsFacts(),
     /** The host's preset read/use handoffs; the default leaves them unavailable. */
     agentPresetActions: AgentPresetActions = AgentPresetActions(),
+    /**
+     * 连接电脑's host snapshot. The default is the honest idle page, so a host
+     * without a PCLink seam still renders the contract's install/scan/other body.
+     */
+    pcPairingState: PCPairingUiState = PCPairingUiState(),
+    /** 已连接的电脑's host snapshot; the default is its 还没有连接电脑 empty state. */
+    pcConnectedState: ConnectedComputerUiState = ConnectedComputerUiState(),
+    /** 已连接的电脑's trailing value (`未配对` / `离线` / the verified name). */
+    connectedComputerValue: String? = null,
+    /** The host's camera preview for the pairing page's scanner sheet. */
+    pcScannerContent: (@Composable () -> Unit)? = null,
+    onPcScan: () -> Unit = {},
+    onPcToggleOtherWays: () -> Unit = {},
+    onPcPairingLinkChange: (String) -> Unit = {},
+    onPcPairWithLink: () -> Unit = {},
+    onPcPairingCodeChange: (String) -> Unit = {},
+    onPcPairManually: () -> Unit = {},
+    /** `null` falls back to [onBack], the pre-glue behaviour. */
+    onPcCancelPairing: (() -> Unit)? = null,
+    onPcRetry: () -> Unit = {},
+    /** `null` falls back to [onBack], the pre-glue behaviour. */
+    onPcDone: (() -> Unit)? = null,
+    /** `null` falls back to [onBack], the pre-glue behaviour. */
+    onPcClose: (() -> Unit)? = null,
+    onPcCancelScanner: () -> Unit = {},
+    onPcUnpair: () -> Unit = {},
+    onPcDismissUnpairFailure: () -> Unit = {},
+    onPcConnectionScreenOpened: () -> Unit = {},
+    /** 设置 › GitHub Agent's facts; default is no token and writes off. */
+    githubAgent: GitHubAgentFacts = GitHubAgentFacts(),
+    /** Saves the typed token; true only when the host stored it. */
+    onGitHubAgentSaveToken: (String) -> Boolean = { false },
+    /** Deletes the stored token; true only when the host removed it. */
+    onGitHubAgentDeleteToken: () -> Boolean = { false },
+    /** Persists the explicit write opt-in. */
+    onGitHubAgentAllowWrites: (Boolean) -> Unit = {},
 ) {
     val route = nav.current
     if (route == PdshRoute.Home) {
-        home()
+        CompositionLocalProvider(LocalSheetBackHost provides sheetBackHost) {
+            home()
+        }
         return
     }
-    RouteSurface(route.presentation) {
+    RouteSurface(
+        presentation = route.presentation,
+        sheetPageId = sheetPageIdOf(route),
+        onDismissRequest = onBack,
+        sheetBackHost = sheetBackHost,
+    ) {
         when (route) {
             PdshRoute.Home -> Unit // rendered above; kept for the exhaustive when
             PdshRoute.Sessions ->
@@ -504,6 +572,7 @@ public fun PdshNavHost(
                 onPhonePermissionSettings = onPhonePermissionSettings,
                 agentPresets = agentPresets,
                 agentPresetActions = agentPresetActions,
+                connectedComputerValue = connectedComputerValue,
             )
             PdshRoute.Discover -> com.phonedsh.ui.page.ConnectorsPage(
                 onOpen = { connector ->
@@ -527,6 +596,14 @@ public fun PdshNavHost(
                 onOpenEditor = { id -> onNavigate(PdshRoute.SshEditor(id)) },
             )
             is PdshRoute.SshEditor -> SshEditorRoute(route, facts, onBack, onHostAction)
+            PdshRoute.GitHubAgent -> GitHubAgentSettingsPage(
+                facts = githubAgent,
+                onBack = onBack,
+                onSaveToken = onGitHubAgentSaveToken,
+                onDeleteToken = onGitHubAgentDeleteToken,
+                onAllowWritesChange = onGitHubAgentAllowWrites,
+                onRestartEngine = { onHostAction(PdshHostAction.RestartRuntime) },
+            )
             PdshRoute.Bluetooth -> BluetoothRoute(facts, onBack, onHostAction)
             PdshRoute.AndroidAdb -> com.phonedsh.ui.page.AndroidADBSettingsPage(
                 facts = facts.androidAdb,
@@ -534,6 +611,9 @@ public fun PdshNavHost(
                 onSave = { onHostAction(PdshHostAction.AndroidAdbSave(it)) },
                 onCheck = { onHostAction(PdshHostAction.AndroidAdbCheck(it)) },
                 onCancel = { onHostAction(PdshHostAction.AndroidAdbCancel) },
+                onScan = { onHostAction(PdshHostAction.AndroidAdbScan) },
+                onConnect = { onHostAction(PdshHostAction.AndroidAdbConnect(it)) },
+                onCancelConnection = { onHostAction(PdshHostAction.AndroidAdbCancelConnect) },
             )
             PdshRoute.TonoAccount -> com.phonedsh.ui.page.TonoAccountPage(
                 facts = facts.tonoAccount,
@@ -584,21 +664,134 @@ public fun PdshNavHost(
             PdshRoute.CommandResult -> CommandResultRoute(chatSubpages, onBack)
             PdshRoute.SessionJobs -> SessionJobsRoute(chatSubpages, onBack, onHostAction)
             PdshRoute.SessionSchedules -> SessionSchedulesRoute(chatSubpages, onBack, onHostAction)
+            // C5 PCLink: the host half supplies the flow/record snapshot (the
+            // defaults keep this router's standalone preview honest).
+            PdshRoute.PcPairing -> PCPairingPage(
+                state = pcPairingState,
+                onScan = onPcScan,
+                onToggleOtherWays = onPcToggleOtherWays,
+                onPairingLinkChange = onPcPairingLinkChange,
+                onPairWithLink = onPcPairWithLink,
+                onPairingCodeChange = onPcPairingCodeChange,
+                onPairManually = onPcPairManually,
+                onCancelPairing = onPcCancelPairing ?: onBack,
+                onRetry = onPcRetry,
+                onDone = onPcDone ?: onBack,
+                onClose = onPcClose ?: onBack,
+                onCancelScanner = onPcCancelScanner,
+                scannerContent = pcScannerContent,
+            )
+            PdshRoute.ConnectedComputer -> ConnectedComputerPage(
+                state = pcConnectedState,
+                onBack = onBack,
+                onOpenPairing = { onNavigate(PdshRoute.PcPairing) },
+                onUnpair = onPcUnpair,
+                onDismissUnpairFailure = onPcDismissUnpairFailure,
+                onConnectionScreenOpened = onPcConnectionScreenOpened,
+            )
         }
     }
 }
 
 /**
- * The modal frame around a non-home route.
+ * The frozen `interaction.sheet.pageDetents` id for a route iOS presents as a
+ * modal sheet, or `null` for a route that is not one.
  *
- * PUSH and FULLSCREEN pages cover the screen. A SHEET keeps a strip of the page
- * below visible and rounds its own top edge, so the modal form §1 names is
- * visible rather than only behavioural. No sheet geometry token exists, so the
- * strip reuses `geometry.cardOuterMarginV` and the radius reuses `radius.card`;
- * both are marked unverified at this call site.
+ * The four ids the baseline names explicitly (`chatJobs`, `chatSchedules`,
+ * `chatArtifacts`, `workbench`) are read from `tokens.json` by `PdshSheet`. R1 of
+ * `PC-20261112-ui-round3` enumerates the seven `homeSheetChrome()` sites that
+ * write no `.presentationDetents` as page ids of their own, each mapped to the
+ * contract's `default` detent set (rule 2); every id here is declared by
+ * `interaction.sheet.pageDetents`, never guessed from a detent set.
+ *
+ * `chatSessions` is an iOS debug-only sheet (`PDSH_DEBUG_SHEET`) and is not a
+ * product route id (R2): the drawer's sessions list stays a push, so no route
+ * here maps to it.
+ *
+ * The routes that are `SHEET`-presented but have no iOS `.sheet` call site
+ * ([PdshRoute.AgentPresets], [PdshRoute.PhonePermissions], [PdshRoute.ChatPreferences],
+ * [PdshRoute.SettingsDocument]) deliberately return `null`: they keep the older
+ * page frame until the contract says which sheet they are.
+ */
+internal fun sheetPageIdOf(route: PdshRoute): String? = when (route) {
+    PdshRoute.Automation -> "automation"
+    PdshRoute.Configuration -> "configuration"
+    PdshRoute.Settings -> "settings"
+    PdshRoute.ModelProvider -> "modelProvider"
+    PdshRoute.Runtime -> "runtime"
+    is PdshRoute.Workbench -> "workbench"
+    PdshRoute.DeviceConnection -> "deviceConnection"
+    is PdshRoute.SessionArtifacts -> "chatArtifacts"
+    PdshRoute.CommandResult -> "commandResult"
+    PdshRoute.SessionJobs -> "chatJobs"
+    PdshRoute.SessionSchedules -> "chatSchedules"
+    else -> null
+}
+
+/**
+ * The frame around a non-home route.
+ *
+ * When [sheetPageId] is non-null the route is one of the baseline's modal sheets
+ * (`interaction.md` §2): it renders through [PdshSheet], so the platform sheet
+ * owns the detents, scrim, drag and present/dismiss motion, and a dismissed sheet
+ * pops its route. The chrome is [SheetChrome.HomeSheet] for every such site
+ * because the baseline wraps all of them in `homeSheetChrome()`; page content must
+ * not draw a second grabber (round 1 removed those).
+ *
+ * The remaining PUSH and FULLSCREEN pages cover the screen. A [PdshPresentation.SHEET]
+ * route with no contract page id (see [sheetPageIdOf]) keeps the older frame: it
+ * reuses `geometry.cardOuterMarginV` for the strip and `radius.card` for the top
+ * edge, both marked unverified at this call site, until the contract names its
+ * page id.
+ *
+ * @param presentation the route's contract presentation form.
+ * @param sheetPageId the frozen sheet page id, or `null` for the page frame.
+ * @param onDismissRequest closes the route after the platform sheet hides.
+ * @param sheetBackHost the host's shared chain, provided to this route's content
+ *   and to the sheet itself through [LocalSheetBackHost].
  */
 @Composable
-private fun RouteSurface(presentation: PdshPresentation, content: @Composable () -> Unit) {
+private fun RouteSurface(
+    presentation: PdshPresentation,
+    sheetPageId: String?,
+    onDismissRequest: () -> Unit,
+    sheetBackHost: SheetBackHost?,
+    content: @Composable () -> Unit,
+) {
+    // §2 rule 9 / §4 rule 5: one sheet chain for the whole host, so a page-owned
+    // sheet and a sheet-presented route are the same `sheet` layer. The provider
+    // stays here (not at the sheet call) because a FULLSCREEN route's content
+    // mounts its own sheets too — the chat page's subagent catalogue is one.
+    CompositionLocalProvider(LocalSheetBackHost provides sheetBackHost) {
+        if (sheetPageId != null) {
+            // §2 rule 1: no path is disabled (scrim, drag and back all keep their
+            // platform implementations); rule 9: the sheet's dismissal is one
+            // route pop, asked for only after the hide animation `PdshSheet`
+            // reports. `backHost` is left to [LocalSheetBackHost], i.e. the very
+            // chain this provider installs.
+            PdshSheet(
+                pageId = sheetPageId,
+                chrome = SheetChrome.HomeSheet,
+                onDismissRequest = onDismissRequest,
+            ) {
+                content()
+            }
+        } else {
+            RoutePageFrame(presentation, content)
+        }
+    }
+}
+
+/**
+ * The page frame for a route the contract does not name as a sheet.
+ *
+ * A [PdshPresentation.SHEET] route here is one whose page id the contract does not
+ * publish (see [sheetPageIdOf]); it keeps the modal look the older frame gave it
+ * (`geometry.cardOuterMarginV` strip, `radius.card` top edge, both unverified at
+ * this call site) instead of inventing detents.
+ */
+@Composable
+private fun RoutePageFrame(presentation: PdshPresentation, content: @Composable () -> Unit) {
     val tokens = LocalUiTokens.current
     val sheet = presentation == PdshPresentation.SHEET
     Box(modifier = Modifier.fillMaxSize().background(tokens.colors.selector)) {
@@ -1438,6 +1631,8 @@ private fun SettingsRoute(
     onPhonePermissionSettings: (PhoneCapability) -> Unit = {},
     agentPresets: NativeAgentPresetsFacts = NativeAgentPresetsFacts(),
     agentPresetActions: AgentPresetActions = AgentPresetActions(),
+    /** 已连接的电脑's trailing value; `null` keeps the row's honest 未知. */
+    connectedComputerValue: String? = null,
 ) {
     // 新会话默认权限 is the settings sheet's own child page in the baseline, so it
     // is a local page swap here, not a route the stack owns.
@@ -1555,6 +1750,8 @@ private fun SettingsRoute(
             onOpenPluginsTools = { onNavigate(PdshRoute.Configuration) },
             onOpenFolders = { onNavigate(PdshSettingsRows.targetOf(PdshSettingsRows.HostRow.FOLDERS)) },
             onOpenArchivedSessions = { archivedSessions = true },
+            onOpenConnectedComputer = { onNavigate(PdshRoute.ConnectedComputer) },
+            connectedComputerValue = connectedComputerValue,
             onSelectDefaultPermission = { tier -> onSettingsWrite(SettingsWrite.DefaultPermissionTier(tier)) },
             onToggleDeveloperTools = onToggleDeveloperTools,
             onBack = onBack,

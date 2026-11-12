@@ -709,9 +709,11 @@ struct BotUICardContent {
             let name = body.string("title", "name", "automationId") ?? body["automation"]?.object?.string("name", "automationId")
             return name?.isEmpty == false
         case .notice:
-            let tone = body["tone"]?.string ?? "error"
-            return ["error", "denied", "denial"].contains(tone)
-                && !(body["text"]?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // Tone is a presentation hint, not a visibility gate. The shared
+            // predicate keeps the epoch-switch info notice visible while still
+            // hiding empty notices.
+            return BotNoticeVisibility.isVisible(
+                tone: body["tone"]?.string, text: body["text"]?.string ?? "")
         }
     }
 }

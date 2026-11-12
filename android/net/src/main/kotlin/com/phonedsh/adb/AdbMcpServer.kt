@@ -99,19 +99,32 @@ public class AdbMcpServer(
         runCatching { current.outer.await() }
     }
 
-    /** The page's 测试连接: the same status command, serialized with tool calls, no receipt. */
-    public suspend fun checkConnection(configuration: AdbConfiguration): String {
+    /**
+     * The page's 测试连接: the same status command, serialized with tool calls, no receipt.
+     *
+     * [timeoutMillis] lets the TV flow use a short per-attempt probe (the same
+     * 4 s the iOS checker uses) so its 2 s authorization retry actually ticks;
+     * the manual check keeps the 30 s default.
+     */
+    public suspend fun checkConnection(
+        configuration: AdbConfiguration,
+        timeoutMillis: Long = 30_000,
+    ): String {
+        // The start() wrapper turns failures into a JSON result, so remember the
+        // typed kind on the way out instead of losing it in the message text.
+        var failureKind: AdbFailureKind? = null
         val outer = mutex.withLock {
-            if (active != null) throw AdbFailure("An Android operation is already running")
+            if (active != null) throw AdbFailure("An Android operation is already running", AdbFailureKind.BUSY)
             val endpoint = configuration.endpoint()
             start(JsonString("native-connection-check"), finish = { it }) {
                 try {
-                    val result = executor.shell(endpoint, STATUS_COMMAND, ByteArray(0), 30_000, 65_536)
+                    val result = executor.shell(endpoint, STATUS_COMMAND, ByteArray(0), timeoutMillis, 65_536)
                     if (result.exitCode != 0) throw AdbFailure(String(result.stderr, Charsets.UTF_8))
                     JsonString(String(result.stdout, Charsets.UTF_8))
                 } catch (failure: CancellationException) {
                     throw failure
                 } catch (failure: Exception) {
+                    failureKind = (failure as? AdbFailure)?.kind
                     obj("error" to JsonString(failure.message ?: "ADB connection failed"))
                 }
             }
@@ -122,6 +135,7 @@ public class AdbMcpServer(
                 (result["error"] as? JsonString)?.value
                     ?: ((result["content"] as? JsonArray)?.values?.firstOrNull() as? JsonObject)
                         ?.let { (it["text"] as? JsonString)?.value } ?: "ADB connection failed",
+                failureKind ?: AdbFailureKind.DEVICE,
             )
             else -> throw AdbFailure("ADB connection failed")
         }

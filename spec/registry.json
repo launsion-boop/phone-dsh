@@ -488,6 +488,7 @@
         "spec/v1/gateway-security.md",
         "spec/v1/schema/gateway-vector.schema.json",
         "spec/v1/golden/gateway",
+        "spec/v1/github-oauth.md",
         "spec/v1/tono-account.md",
         "spec/v1/golden/tono-account"
       ],
@@ -495,11 +496,15 @@
         "Swift": [
           "Sources/PhoneDSHGateway",
           "Sources/PhoneDSHLoopback/{HTTPTransport,StreamingForward}.swift",
+          "examples/probe-app/ProbeKit/GitHubOAuthFlow.swift",
           "Sources/PhoneDSH/TonoAccount"
         ],
         "TypeScript": [
           "plugins/llm-bridge",
           "plugins/phone-mcp/src/{manager,schema}.ts"
+        ],
+        "JavaScript": [
+          "services/github-oauth/server.mjs"
         ],
         "Kotlin": [
           "android/net/src/main"
@@ -585,6 +590,18 @@
         },
         {
           "glob": "harmony/host-rust/src/http.rs"
+        },
+        {
+          "glob": "spec/v1/github-oauth.md"
+        },
+        {
+          "glob": "spec/v1/golden/github-oauth/**"
+        },
+        {
+          "glob": "services/github-oauth/**"
+        },
+        {
+          "glob": "examples/probe-app/ProbeKit/GitHubOAuthFlow.swift"
         }
       ],
       "status": [
@@ -593,14 +610,15 @@
       "evidence": [
         "android/net/src/test/kotlin/com/phonedsh/gateway/GatewayVectorConformanceTest.kt",
         "Tests/PhoneDSHGatewayTests",
+        "services/github-oauth/server.test.mjs",
         "Tests/PhoneDSHGatewayTests/TonoCloudResponsePolicyTests.swift",
         "android/net/src/test/kotlin/com/phonedsh/account/TonoAccountCasesTest.kt"
       ],
       "source": {
-        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[independent Search/Fetch](v1/gateway-independent-search.md)、[tono-account user credential](v1/tono-account.md)、[golden/tono-account](v1/golden/tono-account)、[cloud speech client](v1/cloud-voice.md)、[golden/cloud-voice](v1/golden/cloud-voice)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)",
-        "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback HTTP（`HTTPTransport`、`StreamingForward`、`NativeMCP` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/) ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostHttpProxy.ets`, `harmony/entry/src/main/ets/host/HostModelAlias.ets`, `harmony/host-rust/src/http.rs`",
+        "authority": "[v1/gateway-security.md](v1/gateway-security.md)、[native MCP](v1/native-mcp.md)、[official DeepSeek web tools](v1/gateway-official-web.md)、[independent Search/Fetch](v1/gateway-independent-search.md)、[tono-account user credential](v1/tono-account.md)、[golden/tono-account](v1/golden/tono-account)、[cloud speech client](v1/cloud-voice.md)、[golden/cloud-voice](v1/golden/cloud-voice)、[gateway schema](v1/schema/gateway-vector.schema.json)、[golden/gateway](v1/golden/gateway)、[GitHub OAuth](v1/github-oauth.md)",
+        "ends": "Swift [PhoneDSHGateway](../Sources/PhoneDSHGateway/)、Loopback HTTP（`HTTPTransport`、`StreamingForward`、`NativeMCP` 等；ChannelServer／WebSocket 屬 P01）；TS `plugins/llm-bridge`、`plugins/phone-mcp/src/{manager,schema}.ts`；Kotlin [android/net](../android/net/src/main/) ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostHttpProxy.ets`, `harmony/entry/src/main/ets/host/HostModelAlias.ets`, `harmony/host-rust/src/http.rs`；[GitHub OAuth broker](../services/github-oauth/) 与 [iOS client](../examples/probe-app/ProbeKit/GitHubOAuthFlow.swift)",
         "evidence": "Native MCP 有 Swift `PhoneDSHADBTests`；gateway vectors 只有 Kotlin `GatewayVectorConformanceTest` 讀取；Swift `Tests/PhoneDSHGatewayTests` 不讀",
-        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/gateway-independent-search.md`、`spec/v1/tono-account.md`、`spec/v1/golden/tono-account/**`、`Sources/PhoneDSH/TonoAccount/**`、`spec/v1/cloud-voice.md`、`spec/v1/golden/cloud-voice/**`、`Sources/PhoneDSH/CloudVoice/**`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`Sources/PhoneDSHVenus/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`"
+        "triggers": "`spec/v1/{gateway-security,native-mcp}.md`、`spec/v1/gateway-official-web.md`、`spec/v1/gateway-independent-search.md`、`spec/v1/tono-account.md`、`spec/v1/golden/tono-account/**`、`Sources/PhoneDSH/TonoAccount/**`、`spec/v1/cloud-voice.md`、`spec/v1/golden/cloud-voice/**`、`Sources/PhoneDSH/CloudVoice/**`、`spec/v1/schema/gateway-vector.schema.json`、`spec/v1/golden/{gateway,native-mcp}/**`、`spec/v1/tools/{native_mcp_check,test_native_mcp_check}.py`、`Sources/PhoneDSHGateway/**`、`Sources/PhoneDSHLoopback/{HTTPTransport,HTTPEgressFailure,StreamingForward,Loopback,Support,NativeMCP}.swift`、`Sources/PhoneDSHAgentCore/{Credentials,HTTPSupport,ProviderError}.swift`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`Sources/PhoneDSHVenus/**`、`plugins/llm-bridge/src/**`、`plugins/phone-mcp/src/{manager,schema,protocol}.ts`、`plugins/worker-entry/src/model-route.ts`、`android/net/src/main/**` 、`harmony/entry/src/main/ets/host/HostHttpProxy.ets`、`harmony/entry/src/main/ets/host/HostModelAlias.ets`、`harmony/host-rust/src/http.rs`、`spec/v1/github-oauth.md`、`spec/v1/golden/github-oauth/**`、`services/github-oauth/**`、`examples/probe-app/ProbeKit/GitHubOAuthFlow.swift`"
       }
     },
     {
@@ -823,7 +841,7 @@
       ],
       "source": {
         "authority": "[platform/README.md](platform/README.md)、[whitelist](platform/whitelist.json)、[iOS audio ownership](platform/ios-audio-session.md)、[Android module mapping](platform/android-module-map.json)",
-        "ends": "Swift OS API、`Sources/PhoneDSH/Background`、`ProbeKit/PhoneAudioSessionLease.swift` 与 app 的录音／保活调用方；Android `:platform`／`:engine`／`:net` ；HarmonyOS partial `harmony/entry/src/main/ets/entryability/EntryAbility.ets`",
+        "ends": "Swift OS API、`Sources/PhoneDSH/Background`、`ProbeKit/PhoneAudioSessionLease.swift` 与 app 的录音／保活调用方；Android `:platform`／`:engine`／`:net` ；HarmonyOS partial `harmony/entry/src/main/ets/entryability/EntryAbility.ets`；PCLink 平台差異：`platform.pclink-identity-seed`、`platform.pclink-foreground-relay`、`platform.pclink-doze-network`",
         "evidence": "`platform_check.py`；Android mapping 由 `android/tools/structure_check.py` 及其测试核对；whitelist 不代替 conformance",
         "triggers": "`spec/platform/**`、`android/platform*/src/main/**`、`Sources/PhoneDSHController/Signals/**`、`Sources/PhoneDSH/Background/**`、`examples/probe-app/ProbeKit/PhoneAudioSessionLease.swift`、`examples/probe-app/ProbeKit/Capabilities/PhoneMediaTools.swift`、`examples/probe-app/PhoneDSHProbe/{BackgroundKeepAlive,ComposerVoiceInput}.swift` 、`harmony/entry/src/main/ets/entryability/EntryAbility.ets`"
       }
@@ -896,7 +914,7 @@
       ],
       "source": {
         "authority": "[ui/v1/README.md](ui/v1/README.md)、[interaction](ui/v1/interaction.md)、[page source inventory](ui/v1/page-completeness.md)、[tokens](ui/v1/tokens.json)、[pages](ui/v1/pages)、[v1/trajectory.md](v1/trajectory.md)",
-        "ends": "iOS `examples/probe-app/PhoneDSHProbe`；Android `android/lib` ；HarmonyOS partial `harmony/entry/src/main/ets/ui`, `harmony/entry/src/main/ets/model/Contracts.ets`",
+        "ends": "iOS `examples/probe-app/PhoneDSHProbe`；Android `android/lib`（PCLink 頁面：`android/lib/.../page/{PCPairingPage,ConnectedComputerPage}.kt`、`android/lib/.../nav/PcDrawer*.kt`）；HarmonyOS partial `harmony/entry/src/main/ets/ui`, `harmony/entry/src/main/ets/model/Contracts.ets`",
         "evidence": "Kotlin `UiStateProjectorGoldenTest`、`TrajectoryNormalizerTest`；`ui_check.py`、`extract_ios_pages.py` 及 mutation tests、`page_structure_check.py`",
         "triggers": "`spec/ui/v1/**`、`scripts/ci/check.sh`、`scripts/ci/test_p0_completeness.py`、`spec/v1/trajectory.md`、`spec/v1/schema/{trajectory,ui-state-sequence}.schema.json`、`spec/v1/golden/trajectory/**`、`examples/probe-app/PhoneDSHProbe/**`、`android/lib/src/main/**` 、`harmony/entry/src/main/ets/ui/**`、`harmony/entry/src/main/ets/model/Contracts.ets`"
       }
@@ -1022,6 +1040,9 @@
           "glob": "android/tools/test_structure_check.py"
         },
         {
+          "glob": "android/settings.gradle.kts"
+        },
+        {
           "glob": "android/shell/src/main/**"
         },
         {
@@ -1050,7 +1071,7 @@
         "authority": "[shell/include/xzshell.h](../shell/include/xzshell.h) ；平台 host ABI [pdsh_host.h](../harmony/host-rust/include/pdsh_host.h)；[Android module mapping](platform/android-module-map.json)",
         "ends": "Rust [pdsh-ffi](../shell/crates/pdsh-ffi/)、[pdsh-jni](../shell/crates/pdsh-jni/)；Swift [PhoneDSHShell](../Sources/PhoneDSHShell/)（含必須與 header 同步的 `PDSHShellCSurface.swift` stub）；Kotlin [android/shell](../android/shell/src/main/kotlin/com/phonedsh/shell/)、`core/wire/Native*.kt` ；HarmonyOS partial `harmony/host-rust/include/pdsh_host.h`, `harmony/entry/src/main/cpp/napi_init.cpp`, `harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`",
         "evidence": "以 [Package.swift](../Package.swift)、Android build wiring、`android/tools/check-native-alignment.py` 判斷是否真的連結；[Android mapping projection](../android/README.md) 由 `android/tools/structure_check.py` 核對；source 存在不等於可用",
-        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`spec/platform/android-module-map.json`、`spec/platform/schema/android-module-map.schema.json`、`spec/platform/schema/android-module-map-vector.schema.json`、`spec/platform/golden/android-module-map-cases.jsonl`、`android/README.md`、`android/tools/structure_check.py`、`android/tools/test_structure_check.py`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt` 、`harmony/host-rust/include/pdsh_host.h`、`harmony/entry/src/main/cpp/napi_init.cpp`、`harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`"
+        "triggers": "`shell/include/**`、`shell/crates/{pdsh-ffi,pdsh-jni,pdsh-core}/**`、`shell/build-apple.sh`、`Sources/PhoneDSHShell/**`、`Package.swift`、`spec/platform/android-module-map.json`、`spec/platform/schema/android-module-map.schema.json`、`spec/platform/schema/android-module-map-vector.schema.json`、`spec/platform/golden/android-module-map-cases.jsonl`、`android/README.md`、`android/tools/structure_check.py`、`android/tools/test_structure_check.py`、`android/settings.gradle.kts`、`android/shell/src/main/**`、`android/core/src/main/kotlin/com/phonedsh/wire/Native*.kt` 、`harmony/host-rust/include/pdsh_host.h`、`harmony/entry/src/main/cpp/napi_init.cpp`、`harmony/entry/src/main/cpp/types/libpdshhost/index.d.ts`"
       }
     },
     {
@@ -1289,6 +1310,7 @@
         "plugins/worker-entry/src/capabilities.ts",
         "plugins/phone-mcp/src/schema.ts",
         "plugins/phone-model-config/src/model-config.ts",
+        "docs/protocol-changes/PC-20261111-ios-github.md",
         "harmony/entry/src/main/ets/host/HostPersistence.ets",
         "spec/device/v1/legacy-identity-preferences.md",
         "spec/v1/tono-account.md"
@@ -1298,6 +1320,7 @@
           "Sources/PhoneDSHLog/MaterializedInvariant.swift",
           "Sources/PhoneDSHScenario/ScenarioBudgets.swift",
           "Sources/PhoneDSH/Phone*Settings.swift",
+          "examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift",
           "Sources/PhoneDSH/TonoAccount",
           "Sources/PhoneDSHBLE/BLEIdentity.swift"
         ],
@@ -1363,6 +1386,30 @@
         },
         {
           "glob": "android/net/src/main/kotlin/com/phonedsh/account/**"
+        },
+        {
+          "glob": "android/app/src/main/kotlin/com/phonedsh/probe/ChatSessionStore.kt"
+        },
+        {
+          "glob": "android/pclink/src/main/kotlin/com/phonedsh/pclink/PclinkPairingStore.kt"
+        },
+        {
+          "glob": "android/pclink/src/main/kotlin/com/phonedsh/pclink/PclinkRosterCache.kt"
+        },
+        {
+          "glob": "android/app/src/main/kotlin/com/phonedsh/probe/pc/PcWorkspaceStorage.kt"
+        },
+        {
+          "glob": "android/app/src/main/kotlin/com/phonedsh/probe/pc/PcDiagnosticsLog.kt"
+        },
+        {
+          "glob": "android/app/src/main/kotlin/com/phonedsh/probe/pc/SecureStorePclinkIdentityStore.kt"
+        },
+        {
+          "glob": "android/app/src/main/kotlin/com/phonedsh/probe/GitHubAgentSettingsStore.kt"
+        },
+        {
+          "glob": "examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift"
         }
       ],
       "status": [
@@ -1374,10 +1421,10 @@
         "Tests/PhoneDSHBLETests/BLEIdentityTests.swift"
       ],
       "source": {
-        "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)；tono-account 会话记录：[v1/tono-account.md](v1/tono-account.md) §3",
-        "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端 ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostPersistence.ets`, `harmony/entry/src/main/ets/model/ProviderProfiles.ets`",
+        "authority": "[legacy identity preferences](device/v1/legacy-identity-preferences.md)；`/dsh/home/capabilities.json`：`plugins/worker-entry/src/capabilities.ts`；`mcp.json`：`plugins/phone-mcp/src/schema.ts`（`MCP_CONFIG_VERSION`）；`PDSH_MODEL_PROVIDER_JSON`：`plugins/phone-model-config/src/model-config.ts` ；Harmony 私有设置 [HostPersistence.ets](../harmony/entry/src/main/ets/host/HostPersistence.ets)；tono-account 会话记录：[v1/tono-account.md](v1/tono-account.md) §3；iPhone GitHub 令牌：[PC-20261111-ios-github](../docs/protocol-changes/PC-20261111-ios-github.md)",
+        "ends": "Swift `MaterializedInvariant.swift`、`ScenarioBudgets.swift`、`Sources/PhoneDSH/Phone*Settings.swift`；未查得 Kotlin 讀寫這三種設定的對應端 ；HarmonyOS partial `harmony/entry/src/main/ets/host/HostPersistence.ets`, `harmony/entry/src/main/ets/model/ProviderProfiles.ets`；Swift [GitHubConnectorPage](../examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift)",
         "evidence": "讀寫兩端、舊資料、降級一起評估；UserDefaults key 名也是協議。**D2 追加（P18，`pclink-d2`）**：`phone-dsh.drawer.backend` 的值域封閉為 `phone`/`pc`，缺省 `phone`；PC 工作區的會話、草稿、標題提示、轉錄快照與收合文件夾鍵以 `<BackendID.storageScope>／<sessionID>`（scope 為 `phone` 或 `pc:<machineId>`）為鍵；既有裸 `sessionID` 鍵一次性複製遷移到 `phone`（不刪舊鍵，回滾讀舊鍵）。權威變更單：[PC-20261110-pclink-ios-app.md](../docs/protocol-changes/PC-20261110-pclink-ios-app.md)。**v1.5 追加（P18，`pclink-v1.5`）**：PC 新會話上次使用的工作區鍵 `phone-dsh.pc.last-workspace.<machineId>`（值為 DSH `workspaceId` 字串；缺省或該工作區已不存在時回退到最近活動的工作區；解除配對時刪除）。權威變更單：[PC-20261110-pclink-ios-app.md](../docs/protocol-changes/PC-20261110-pclink-ios-app.md) §4.10。**離線清單快照追加（P18，`pclink-roster-snapshot`）**：PC 工作區的會話清單／工作區分組快照存於 `phone-dsh.pc.session-snapshot.<machineId>`，值為 `{\"v\":1,\"capturedAtMilliseconds\",\"backend\",\"payload\"}` （`payload` 為 `ChatSessionSnapshot`）；手機維持既有 `dsh.management.sessionSnapshot.v1` 裸格式不遷移；讀取時 envelope 與裸格式皆可解，壞值忽略不清空；解除配對時刪除該 PC 鍵。權威變更單：[PC-20261110-pclink-pc-roster-snapshot.md](../docs/protocol-changes/PC-20261110-pclink-pc-roster-snapshot.md)。**快取後半段追加（P18，`pclink-workspace-cache`）**：`Documents/transcript-snapshots/<scope>/<sessionID>.json` 改寫為 `{\"v\":1,\"capturedAtMilliseconds\",\"backend\",\"sessionID\",\"lastSeq\",\"items\"}`，讀取相容舊裸陣列，scope／session 不符或未知版本即忽略；上限為 400 項／512 KiB／單項 4096 字元，目錄 `isExcludedFromBackup`，保留 200 檔並以修改時間淘汰（當前會話檔除外）；新增 `Documents/pclink-diag.log`（+`.1` 輪替，各 256 KiB，只記狀態／原因類名／間隙秒數）。權威變更單：[PC-20261110-pclink-workspace-cache.md](../docs/protocol-changes/PC-20261110-pclink-workspace-cache.md)。**打扰偏好追加（P18，`bot-v2-presence`）**：UserDefaults key `phone-dsh.bot.proactive-settings.v1` 存 `ProactiveSettings` 的 Codable JSON（`mode`、`dnd`、`quietStart`、`quietEnd`、`routineQuietWeekends`、`timeZone`）；缺省 `mode = on`、`dnd = false`、`quietStart = 23:00`、`quietEnd = 08:00`、时区为 `TimeZone.current`；读取时规范化非法时间/时区，写回用同一 key。所有 Bot 共享这份“能不能打扰”的授权；改动同时作用于生产 `ProactiveEngine` 与 `RoutineScheduler`。權威變更單：[PC-20261111-bot-v2-presence.md](../docs/protocol-changes/PC-20261111-bot-v2-presence.md)。**记忆整理开关追加（P18，`bot-memory-maintenance`）**：UserDefaults key `phone-dsh.bot.memory-maintenance.v1` 存 `BotMemoryMaintenanceSettings` 的 Codable JSON（`enabled`、`runTokenBudget`、`dailyTokenBudget`）；缺省 `enabled = false`、`runTokenBudget = 32000`、`dailyTokenBudget = 96000`；读取时把预算下限规范化为 1，写回用同一 key。所有 Bot 共享这一个「后台记忆整理」开关；关闭时不发起任何整理批次。權威變更單：[PC-20261112-bot-memory-maintenance.md](../docs/protocol-changes/PC-20261112-bot-memory-maintenance.md)。",
-        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSHBot/Proactive/ProactiveSettingsStore.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`、`spec/v1/tono-account.md`、`Sources/PhoneDSH/TonoAccount/**`、`android/net/src/main/kotlin/com/phonedsh/account/**`"
+        "triggers": "`plugins/worker-entry/src/capabilities.ts`、`plugins/shell-ext/src/contract.ts`、`plugins/phone-mcp/src/schema.ts`、`plugins/phone-model-config/src/model-config.ts`、`Sources/PhoneDSH/Phone*Settings.swift`、`Sources/PhoneDSHBot/Proactive/ProactiveSettingsStore.swift`、`Sources/PhoneDSH{SSH,ADB}/**`、`Sources/PhoneDSHBLE/LinkToolJournal.swift`、`Sources/PhoneDSHBLE/BLEIdentity.swift`、`spec/device/v1/legacy-identity-preferences.md`、`Sources/PhoneDSHDeviceTasks/DeviceTaskJournal.swift`、`Sources/PhoneDSHLog/MaterializedInvariant.swift`、`Sources/PhoneDSHScenario/ScenarioBudgets.swift` 、`harmony/entry/src/main/ets/host/HostPersistence.ets`、`harmony/entry/src/main/ets/model/ProviderProfiles.ets`、`spec/v1/tono-account.md`、`Sources/PhoneDSH/TonoAccount/**`、`android/net/src/main/kotlin/com/phonedsh/account/**`、`android/app/src/main/kotlin/com/phonedsh/probe/ChatSessionStore.kt`、`android/pclink/src/main/kotlin/com/phonedsh/pclink/PclinkPairingStore.kt`、`android/pclink/src/main/kotlin/com/phonedsh/pclink/PclinkRosterCache.kt`、`android/app/src/main/kotlin/com/phonedsh/probe/pc/PcWorkspaceStorage.kt`、`android/app/src/main/kotlin/com/phonedsh/probe/pc/PcDiagnosticsLog.kt`、`android/app/src/main/kotlin/com/phonedsh/probe/pc/SecureStorePclinkIdentityStore.kt`、`android/app/src/main/kotlin/com/phonedsh/probe/GitHubAgentSettingsStore.kt`、`examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift`"
       }
     },
     {
@@ -1702,6 +1749,9 @@
           "glob": "spec/bot/v1/README.md"
         },
         {
+          "glob": "spec/bot/v1/mcp-endpoint.md"
+        },
+        {
           "glob": "spec/bot/v2/README.md"
         },
         {
@@ -1752,7 +1802,7 @@
         "authority": "工具面与观察：[bot/v1/README.md](bot/v1/README.md)、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile,record-reference,observation-envelope,record-query,verifier-output,verification-report}.schema.json` 與 golden；记忆、后台整理（maintainer）、唤醒标记、主动提醒、routine 预定通知：[bot/v2/README.md](bot/v2/README.md)、`spec/bot/v2/{memory-document,memory-write-request,memory-write-result,memory-read-result,memory-injection,memory-recall,memory-legacy-fact,memory-maintenance,memory-maintenance-start,memory-maintenance-rollback,wake-routine,held-inbox-item,routine,routine-notification}.schema.json` 與 golden（2026-11-10 起由 phoneDSH 作准，不跟 dsh-bot 钉版）",
         "ends": "dsh-bot `mcp/dshbotServer.cjs`、`cardPayloads.cjs`、`authz/`、`ledger.cjs`、`llm/`、`watchdog/`、`prompt/assemble.cjs`、`eval/contextLint.cjs`（v1 工具面/观察；`memory.cjs`、`wake.cjs`、`routines.cjs` 只作 v2 移交时的参考实现，不再跟随钉版）；Swift `Sources/PhoneDSHBot/{MCP,Memory,Wake,Routines,Proactive,Providers,Ledger,Watchdog}`；TS `plugins/bot-runtime/`（记忆/唤醒/主动提醒的 Swift 实作以 v2 为准）",
         "evidence": "`spec/bot/v1/tools/validate_vectors.py`（同时调用 `spec/bot/v2/tools/validate_vectors.py`）；Swift/TS 各工作包測試；P1 卡片只登記 target，不進第一版工具面；多 Bot 與 `SendToAgent`／`CreateTeammate` 在手機工具面（PC-20261109-bot-team-tools），但 Team 共享/發布/克隆、團隊記憶、sidebar section 與 CloudAgent 不在；macOS 本機工具不在手機工具面",
-        "triggers": "`spec/bot/v1/README.md`、`spec/bot/v2/README.md`、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile,record-reference,observation-envelope,record-query,verifier-output,verification-report}.schema.json`、`spec/bot/v2/{memory-document,memory-write-request,memory-write-result,memory-read-result,memory-injection,memory-recall,memory-legacy-fact,memory-maintenance,memory-maintenance-start,memory-maintenance-rollback,wake-routine,held-inbox-item,routine,routine-notification}.schema.json`、`spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.json`、`spec/bot/v2/golden/*.json`、`spec/bot/v1/golden/*.phone.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/bot/v1/tools/**`、`spec/bot/v2/tools/**`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`plugins/{bot-runtime,lifecycle-gate,profile}/**`"
+        "triggers": "`spec/bot/v1/README.md`、`spec/bot/v1/mcp-endpoint.md`、`spec/bot/v2/README.md`、`spec/bot/v1/{tool-catalog,card-payload,volatile-context,tool-effects,approval-patterns,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile,record-reference,observation-envelope,record-query,verifier-output,verification-report}.schema.json`、`spec/bot/v2/{memory-document,memory-write-request,memory-write-result,memory-read-result,memory-injection,memory-recall,memory-legacy-fact,memory-maintenance,memory-maintenance-start,memory-maintenance-rollback,wake-routine,held-inbox-item,routine,routine-notification}.schema.json`、`spec/bot/v1/golden/{tool-catalog,card-payload,card-payload.phone,volatile-context,tool-effects,approval-patterns,llm-ledger,model-purpose-policy,watchdog,fish-director,context-profiles,context-lint,bot-profile}.json`、`spec/bot/v2/golden/*.json`、`spec/bot/v1/golden/*.phone.json`、`spec/bot/v1/dshbot-pin.json`、`spec/bot/v1/export-manifest.json`、`spec/bot/v1/tools/**`、`spec/bot/v2/tools/**`、`spec/tools/bot/**`、`Sources/PhoneDSHBot/**`、`plugins/{bot-runtime,lifecycle-gate,profile}/**`"
       }
     },
     {
@@ -1817,29 +1867,50 @@
       ],
       "ends": {
         "Node": [
+          "relay",
+          "pclink",
           "spec/pclink/v1/tools/vectors.mjs"
         ],
         "Swift": [
+          "Sources/PhoneDSHPCLink",
+          "Tests/PhoneDSHPCLinkTests",
           "spec/pclink/v1/golden"
         ]
       },
       "triggers": [
         {
           "glob": "spec/pclink/v1/**"
+        },
+        {
+          "glob": "relay/**"
+        },
+        {
+          "glob": "pclink/**"
+        },
+        {
+          "glob": "Sources/PhoneDSHPCLink/**"
+        },
+        {
+          "glob": "Tests/PhoneDSHPCLinkTests/**"
+        },
+        {
+          "glob": "android/pclink/**"
         }
       ],
       "status": [
         "target"
       ],
       "evidence": [
+        "pclink/test/vectors.test.mjs",
+        "Tests/PhoneDSHPCLinkTests",
         "spec/pclink/v1/tools/vectors.mjs",
         "spec/pclink/v1/tools/check_samples.py"
       ],
       "source": {
         "authority": "[PCLink v1](pclink/v1/README.md)、[schema](pclink/v1/schema)、[golden](pclink/v1/golden)、[endpoints.json](pclink/v1/endpoints.json)（`target`；依賴 P14、P06，承載 DSH Remote 呼叫但不改其格式）",
-        "ends": "Node relay `relay/**`（target；獨立 `package.json`，只依賴 `ws`）、PC plugin／CLI `pclink/plugin/**`、`pclink/cli/**`、`pclink/core/**`（target）、Swift `Sources/PhoneDSHPCLink/**` + `Tests/PhoneDSHPCLinkTests/**`（target；`Package.swift` 為 P12），App 接線在 `examples/probe-app/**`（P09/P27）",
+        "ends": "Node relay `relay/**`（target；獨立 `package.json`，只依賴 `ws`）、PC plugin／CLI `pclink/plugin/**`、`pclink/cli/**`、`pclink/core/**`（target）、Swift `Sources/PhoneDSHPCLink/**` + `Tests/PhoneDSHPCLinkTests/**`（target；`Package.swift` 為 P12），App 接線在 `examples/probe-app/**`（P09/P27）；Kotlin `android/pclink/**`（target；`com.phonedsh.pclink`，JVM，讀 `spec/pclink/v1/golden/**` 的 `PclinkGolden*Test`）與 `android/app/**/pc/**`、`android/lib/.../page/{PCPairingPage,ConnectedComputerPage}.kt`（P09）；證據為 `:pclink` JVM tests、`page_structure_check.py` 與真機 E2E。",
         "evidence": "`spec/pclink/v1/tools/vectors.mjs`、`check_samples.py` 與 `golden/`（v1.3：`§2.3` 嚴格 JSON 作用於 wire 位元組，DSH 透傳值允許合法 `\\u0000` 轉義並原樣承載；密碼向量與 25 條狀態機模型樣例分開計數；兩端 runtime 證據尚未存在，P28 維持 `target`）",
-        "triggers": "`spec/pclink/v1/**`（B/C/D 落地後由 contract owner 在同一列加入 relay/**、pclink/**、Sources/PhoneDSHPCLink/**、Tests/PhoneDSHPCLinkTests/** 的 trigger；本 A 冻结不包含实现目录）"
+        "triggers": "`spec/pclink/v1/**`、`relay/**`、`pclink/**`、`Sources/PhoneDSHPCLink/**`、`Tests/PhoneDSHPCLinkTests/**`、`android/pclink/**`（B/C/D 已落地；Android `:pclink` 由 C0 落地；其餘 Android 實作目錄 android/app/src/main/kotlin/com/phonedsh/probe/pc/**、android/lib/src/main/kotlin/com/phonedsh/ui/page/{PCPairingPage,ConnectedComputerPage}.kt、android/lib/src/main/kotlin/com/phonedsh/ui/nav/PcDrawer*.kt 由 C5 落地後加入 trigger）"
       }
     }
   ]

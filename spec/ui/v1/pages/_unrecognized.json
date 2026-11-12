@@ -38,7 +38,7 @@
    "page": "permission-defaults",
    "kind": "unresolved-section",
    "name": "<untitled: error>",
-   "reason": "SettingsPage.swift:421-423 renders `if let error = model.permissionCatalogError ?? model.settingsError { Section { Text(error) } }`: an untitled error block whose only row is runtime text, so no literal criterion exists. Same shape as mcp-settings `<untitled: error>`. Android shows the host failure in the page's status line (PermissionDefaultsPage.kt, PERMISSION_DEFAULTS_STATUS_TAG), which is also runtime text.",
+   "reason": "SettingsPage.swift:427-429 renders `if let error = model.permissionCatalogError ?? model.settingsError { Section { Text(error) } }`: an untitled error block whose only row is runtime text, so no literal criterion exists. Same shape as mcp-settings `<untitled: error>`. Android shows the host failure in the page's status line (PermissionDefaultsPage.kt, PERMISSION_DEFAULTS_STATUS_TAG), which is also runtime text.",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   },
@@ -46,7 +46,7 @@
    "page": "permission-defaults",
    "kind": "unresolved-section",
    "name": "<untitled: nativeConfigurationError(error)>",
-   "reason": "SettingsPage.swift:424-426 renders `if let error = model.error { Section { Text(nativeConfigurationError(error)) } }`: an untitled error block whose row is runtime text, so no literal criterion exists. Same shape as native-configuration `<untitled: nativeConfigurationError(error)>`.",
+   "reason": "SettingsPage.swift:430-432 renders `if let error = model.error { Section { Text(nativeConfigurationError(error)) } }`: an untitled error block whose row is runtime text, so no literal criterion exists. Same shape as native-configuration `<untitled: nativeConfigurationError(error)>`.",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   },
@@ -94,7 +94,7 @@
    "page": "runtime-details",
    "kind": "unresolved-section",
    "name": "<untitled: empty>",
-   "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4336) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
+   "reason": "The first RuntimeDetailsPage Section (ChatPage.swift:4370) opens with `runtimeRow(\"状态\", model.isStarted ? statusValue : \"已停止\")`; the label's value is a ternary, so no stable first-row criterion exists. The row and the stop/restart action are judged by the actions, not by this group title.",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   }
@@ -102,7 +102,7 @@
  "notes": [
   {
    "page": "chat",
-   "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1407 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
+   "text": "`完全权限` 是 Swift 的字符串比较操作数（ChatPage.swift:1438 `AccessModeWording.title(…) == \"完全权限\"`），不是 section 标题；该组的真实标题是两个三元分支之一，rows 就是 :1376 的菜单按钮、已作为 action 覆盖。契约里该 section 被标 `suppressed`，不给 Android 加假字面量 section。",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
   }

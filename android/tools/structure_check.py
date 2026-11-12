@@ -9,7 +9,7 @@ one PASS/FAIL line; the process exits 1 if any check fails.
 Checks:
   settings-includes   include(...) set == module directories, both directions
   module-build-files  every included module has build.gradle.kts
-  module-inventory    the module set is the prepared PR22/PR14 13-module tree
+  module-inventory    the module set is the prepared PR22/PR14 14-module tree
   page-inventory      the UI page layer still carries the prepared baseline pages
   sdk-levels          :lib and :app declare minSdk 26 and targetSdk 35
   readme-map          README, source modules and Android packages match the reviewed inventory
@@ -50,6 +50,7 @@ EXPECTED_MODULES = (
     "domain",
     "core",
     "net",
+    "pclink",
     "controller",
     "engine",
     "shell",
@@ -264,7 +265,7 @@ def check_module_build_files(root):
 
 
 def check_module_inventory(root):
-    """The include set must be exactly the reviewed 13-module tree."""
+    """The include set must be exactly the reviewed 14-module tree."""
     android = root / "android"
     if not android.is_dir():
         return False, "missing android/"

@@ -33,6 +33,87 @@ in Android 11+ Wireless debugging is not implemented.** Its pairing/connect
 ports are not interchangeable with the TCP/IP port. See Google's
 [ADB connection instructions](https://developer.android.com/tools/adb).
 
+## Discovery
+
+Typing the TV's address is optional. In iPhone **Settings → Android ADB**, a
+scan of the current Wi-Fi network lists plausible TVs and connects to one with no
+input. A scan is one explicit, bounded foreground pass, with no persistent
+listener and no background polling; on iOS it merges three sources:
+
+| Source | Contribution |
+| --- | --- |
+| Bonjour catalog | `_androidtvremote2._tcp`, `_googlecast._tcp`, `_airplay._tcp` and `_roku-rcp._tcp` advertisements, resolved within the same pass |
+| Unicast port probes | TCP 5555, 6095, 6091, 8009, 7000, 6466, 6467 and 8060, at most 64 concurrent, 400 ms per connection |
+| Remembered devices | TVs connected before, from the local device list, offered even when this pass observes nothing |
+
+**Platform difference (this version).** The Bonjour catalog and the remembered
+device list above are **iOS-only**. The Android host runs the same bounded port
+scan but has no DNS-SD catalog and keeps no remembered list or last endpoint; it
+still saves the one manual target through the existing ADB settings. A TV that
+only advertises Bonjour is therefore not listed on Android, and an Android scan
+starts from port evidence only.
+
+On iOS, probes cover every up, non-loopback IPv4 subnet reported by `getifaddrs`;
+on Android, only the current Wi-Fi network's `wlan*` interface, with the socket
+bound to that network. Both exclude the network and broadcast addresses and cap
+the pass at 4096 hosts. A pass stops at 8
+seconds and returns partial results. Ranking favors hosts that answer on 5555,
+then remembered TVs, then hosts with only Xiaomi (6095/6091), TV-shaped Bonjour
+or media-port evidence; a generic Bonjour advertisement alone never proposes a
+host. Every candidate is listed as `host:5555`, because 5555 is the endpoint ADB
+dials, even when the evidence came from another service on that host. A scan adds
+no MCP tool: the agent path stays `android_connect`, and manual host/port entry
+keeps working.
+
+**What a scan cannot do.** SSDP/UPnP/DLNA multicast discovery is **not
+supported**: the app has no `com.apple.developer.networking.multicast`
+entitlement, so it cannot join the SSDP group (UDP 1900). Bonjour browsing uses
+the system DNS-SD resolver and needs no such entitlement; SSDP has no equivalent
+here. A TV that only advertises DLNA is therefore not discoverable; enter its
+address by hand. A host app must declare all four service types in
+`NSBonjourServices`; an undeclared type yields no Bonjour hits. Android 11+
+Wireless debugging is still unsupported: the six-digit pairing code and the TLS
+transport are not browsed or dialed, so the TV must expose the classic
+RSA-authenticated TCP/IP port (run `adb tcpip 5555` from a computer where the
+device has no network-ADB switch). A port hit is **candidate evidence, not device
+identity**: an open 8009, 7000, 6466, 6467 or 8060 says a TV-shaped service
+exists on that host, not that ADB is enabled, and an open 5555 does not prove the
+host is the TV the user meant. Model, serial and Android version are known only
+after authorization.
+
+**Connecting.** Selecting a candidate starts the same authorization as a manual
+endpoint:
+
+1. The connector dials `host:5555`. If this iPhone's key is not trusted yet, the
+   TV shows its debugging authorization prompt; accept it with the TV remote.
+2. While the TV reports the connection as unauthorized, a 4 s probe is retried
+   after a 2 s gap for up to 90 seconds, and the attempt reports the elapsed
+   wait. A host that never answers, a busy engine or a protocol violation ends
+   it immediately; once the AUTH exchange has started, a closed or timed-out
+   read is treated as the authorization wait.
+3. After authorization, serial, model, Android release, screen resolution and the
+   wlan0 MAC are read in one shell round trip. The endpoint is recorded as the
+   last successful target and the TV joins the device list. A field the TV does
+   not report, such as a restricted `wm size`, is left empty instead of failing
+   the connection.
+4. If 90 seconds pass without authorization, the attempt fails with guidance:
+   allow this iPhone's debugging key on the TV under **Settings → Developer
+   options**, check that USB debugging is still enabled, and when no prompt
+   appears, revoke USB debugging authorizations so the TV asks again, then retry.
+
+**Remembered devices (iOS).** The last **8** TVs are remembered, newest first,
+keyed by ADB serial rather than address. Each record holds model, host, port,
+wlan0 MAC and last-seen time; the endpoint of the most recent successful
+connection is stored separately, so the last address is available without a new
+scan. Records are keyed by serial, so a later connection to the same TV updates
+that record in place instead of adding a second entry. Discovery itself buckets
+candidates by address: a DHCP move is **not** followed from the old record alone,
+because the TV must first answer at its new address (a scan hit) before the
+record is updated. Forgetting a TV also clears the saved endpoint when it points
+at that TV, so a remembered endpoint never points at a forgotten device. The list
+and the endpoint are local to the app; they are not uploaded or shared with the
+Worker. Android has neither list nor endpoint in this version.
+
 ## Tools
 
 The existing official DSH MCP client mounts the native endpoint under `phone`:

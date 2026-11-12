@@ -1,24 +1,17 @@
 // SPDX-License-Identifier: MIT
-// The system-back chain a host must own, in the form a consumer can paste.
+// The predictive-back observation the reference consumer shares with the host.
 //
-// `:lib` publishes `PdshBackLevel` (the one level of back that lives *inside* a
-// route) but, as of 0.1.0, no handler: `:app`'s implementation
-// (`android/app/src/main/kotlin/com/phonedsh/probe/BackNavigation.kt`) is an
-// app-level file and is `internal`. Every consumer therefore writes this, and
-// the two ways to get it wrong are the two things this file gets right:
+// `:lib` publishes `BackCoordinator` (the one layered back chain, `interaction.md`
+// §4) and `PdshBackLevel` (the one level of back that lives *inside* a route).
+// A host no longer writes a second `OnBackPressedCallback`: the platform
+// dispatches a gesture to one enabled callback, so two chains would either
+// never run or consume it twice. What the host still owns is the *measurement*
+// half: `BackCoordinator` forwards predictive-gesture callbacks to the active
+// `PushBackLayer`, and `observingBackLayer` records them for the 返回手势 row.
 //
-//   1. the root route registers NOTHING. `enabled` is false when no level can be
-//      consumed, so the platform's default (`finish()`) runs together with the
-//      predictive back-to-home animation. A callback that popped-and-finished
-//      would look the same and steal that animation.
-//   2. the callback is registered once per `enabled` change but must call the
-//      *latest* `onBack`: `nav` moves on every gesture, so the lambda is read
-//      through `rememberUpdatedState`.
-//
-// The measurement half is not decoration. The 返回手势 row of the settings sheet
-// reports what the platform actually delivered, and the only proof is a
-// predictive-back animation event (API 34+). Without this, the host reports
-// whatever its manifest claimed.
+// The measurement is not decoration. Without a predictive animation event
+// (API 34+) the row reports whatever the manifest claimed; with it the row says
+// what the platform actually delivered.
 //
 // This file is the reference implementation from
 // docs/design/android-aar-consumer-api-2026-11-02.md §5.2, kept here so the
@@ -26,56 +19,50 @@
 // `:lib-consumer-test:assembleRelease` instead of drifting as prose.
 package com.phonedsh.consumer
 
+
 import android.os.Build
 import android.util.Log
-import androidx.activity.BackEventCompat
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.phonedsh.ui.nav.PdshNavFacts
+import com.phonedsh.ui.nav.PushBackLayer
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.SettingsPlatformFacts
+import com.phonedsh.ui.theme.generated.TokenBackLayer
 
 /**
- * The one system-back handler for the whole host.
+ * Wraps one [PushBackLayer] so the coordinator's gesture callbacks also feed
+ * [PredictiveBack].
  *
- * @param enabled whether any level of the chain can consume the gesture. When
- *   false no callback is registered at all.
- * @param onBack consumes one level; only called when [enabled].
+ * The coordinator calls `onPredictiveBack*` only on the topmost present layer's
+ * delegate, which is exactly the gesture the person performed; the delegate
+ * stays the only consumer of the back. A gesture at the root registers no
+ * callback at all, and no observation is claimed for it.
+ *
+ * @param layer the generated layer this delegate owns.
+ * @param onConsume the layer's own one-level back; `true` leaves the state alone.
  */
-@Composable
-internal fun PdshBackHandler(enabled: Boolean, onBack: () -> Unit) {
-    val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher ?: return
-    val current = rememberUpdatedState(onBack)
-    DisposableEffect(dispatcher, enabled) {
-        if (!enabled) {
-            return@DisposableEffect onDispose {}
-        }
-        val callback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                PredictiveBack.observeStarted(backEvent.progress)
-            }
+internal fun observingBackLayer(
+    layer: TokenBackLayer,
+    onConsume: () -> Boolean,
+): PushBackLayer = object : PushBackLayer {
+    override val layer: TokenBackLayer = layer
 
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                PredictiveBack.observeProgressed(backEvent.progress)
-            }
+    override fun consumeBack(): Boolean = onConsume()
 
-            override fun handleOnBackCancelled() {
-                PredictiveBack.observeCancelled()
-            }
+    override fun onPredictiveBackStarted() {
+        PredictiveBack.observeStarted(0f)
+    }
 
-            override fun handleOnBackPressed() {
-                current.value()
-            }
-        }
-        dispatcher.addCallback(callback)
-        onDispose { callback.remove() }
+    override fun onPredictiveBackProgressed(progress: Float) {
+        PredictiveBack.observeProgressed(progress)
+    }
+
+    override fun onPredictiveBackCancelled() {
+        PredictiveBack.observeCancelled()
     }
 }
 

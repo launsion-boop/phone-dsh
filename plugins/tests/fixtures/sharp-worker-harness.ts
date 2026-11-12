@@ -77,7 +77,12 @@ interface AttachmentLocalLike {
     input: { data: Uint8Array; mediaType: string },
     limits: Record<string, unknown>,
     policy: Record<string, unknown>,
-  ): Promise<{ ref: { mediaType: string; width: number; height: number; bytes: number } }>
+  ): Promise<{ data: Uint8Array; ref: { attachmentId: string; mediaType: string; width: number; height: number; bytes: number } }>
+  readRequestImageFile(
+    root: string,
+    attachment: { data: Uint8Array; ref: { attachmentId: string; mediaType: string; width: number; height: number; bytes: number } },
+    target: { width: number; height: number; maxBytes: number },
+  ): Promise<{ mediaType: string; width: number; height: number; bytes: number; hasAlpha: boolean }>
 }
 
 interface ErrorFacts {
@@ -262,7 +267,21 @@ async function main(): Promise<void> {
         rotateAngle: syncErrorOf(() => phoneSharp(png.data).rotate(90)),
         resizeFit: syncErrorOf(() => phoneSharp(png.data).resize({ fit: 'cover' })),
         noOutput: await errorOf(async () => phoneSharp(png.data).toBuffer()),
-        webpFallback: await errorOf(async () => phoneSharp(png.data).webp({ quality: 70 }).toBuffer()),
+        webpFallback: await (async () => {
+          const scope = globalThis as unknown as {
+            OffscreenCanvas: { prototype: { convertToBlob: (options?: { type?: string }) => Promise<{ type: string; arrayBuffer(): Promise<ArrayBuffer> }> } }
+          }
+          const original = scope.OffscreenCanvas.prototype.convertToBlob
+          scope.OffscreenCanvas.prototype.convertToBlob = async () => ({
+            type: '',
+            arrayBuffer: async () => new ArrayBuffer(0),
+          })
+          try {
+            return await errorOf(async () => phoneSharp(png.data).webp({ quality: 70 }).toBuffer())
+          } finally {
+            scope.OffscreenCanvas.prototype.convertToBlob = original
+          }
+        })(),
       },
       encodeJpeg: await (async () => {
         try {
@@ -271,6 +290,18 @@ async function main(): Promise<void> {
             return { error: { name: 'Uint8Array', message: 'expected an object result from resolveWithObject' } }
           }
           return { info: encoded.info, bytes: encoded.data.byteLength }
+        } catch (error) {
+          return { error: errorFacts(error) }
+        }
+      })(),
+      encodeWebp: await (async () => {
+        try {
+          const encoded = await phoneSharp(png.data).clone().webp({ quality: 70 }).toBuffer({ resolveWithObject: true })
+          if (encoded instanceof Uint8Array) {
+            return { error: { name: 'Uint8Array', message: 'expected an object result from resolveWithObject' } }
+          }
+          const meta = await metadataOf(phoneSharp, encoded.data)
+          return { info: encoded.info, bytes: encoded.data.byteLength, format: meta.format }
         } catch (error) {
           return { error: errorFacts(error) }
         }
@@ -297,6 +328,32 @@ async function main(): Promise<void> {
       gif: await integrationOf(phoneTable, mounted, gif),
       jpeg: await integrationOf(phoneTable, mounted, jpeg),
       corrupt: await integrationOf(phoneTable, mounted, corrupt),
+      requestPngWebp: await (async () => {
+        const loader = new WorkerModuleLoader({ vfs: mounted, root: '/dsh', staticModules: phoneTable })
+        setActiveModuleLoader(loader)
+        try {
+          const require = loader.requireFrom('/dsh')
+          const attachment = require('@deepseek-ai/dsh-attachment-local') as AttachmentLocalLike
+          // Force the alpha WebP quality ladder on an RGBA PNG (as happens
+          // when an Android RGBA screenshot exceeds the token/pixel or byte
+          // budget in dsh-attachment-local / dsh-llm-deepseek).
+          const prepared = await attachment.prepareImageFile(
+            { data: png.data, mediaType: png.mediaType },
+            IMAGE_LIMITS,
+            { maxPixels: 1, maxDimension: 1, maxBytes: 10 },
+          )
+          return {
+            ref: {
+              mediaType: prepared.ref.mediaType,
+              width: prepared.ref.width,
+              height: prepared.ref.height,
+              bytes: prepared.ref.bytes,
+            },
+          }
+        } catch (error) {
+          return { error: errorFacts(error) }
+        }
+      })(),
     },
   }
 

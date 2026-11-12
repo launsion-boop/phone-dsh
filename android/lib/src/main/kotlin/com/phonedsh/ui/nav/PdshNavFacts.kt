@@ -520,6 +520,32 @@ public sealed interface PdshHostAction {
         override val wire: String = "androidAdb.cancel"
     }
 
+    /**
+     * 扫描局域网: one foreground TV scan over this phone's current Wi-Fi subnet.
+     *
+     * The host owns the bounds (ports, concurrency, 8 s budget) and fills
+     * `AndroidAdbFacts.candidates` only with ports that actually answered.
+     */
+    public data object AndroidAdbScan : PdshHostAction {
+        override val wire: String = "androidAdb.scan"
+    }
+
+    /**
+     * 连接 one discovered candidate: save its host/port through the existing ADB
+     * target flow, retrying the authorization check until the host's 90 s
+     * deadline. The candidate is the page's snapshot; the host validates it.
+     */
+    public data class AndroidAdbConnect(
+        public val candidate: com.phonedsh.ui.page.AndroidAdbCandidate,
+    ) : PdshHostAction {
+        override val wire: String = "androidAdb.connect"
+    }
+
+    /** 取消 one candidate's connection attempt; a cancelled attempt is never reported as success. */
+    public data object AndroidAdbCancelConnect : PdshHostAction {
+        override val wire: String = "androidAdb.cancelconnect"
+    }
+
     /** Tono 账号 获取验证码 for the drafted number; `toString` hides it. */
     public class TonoAccountRequestCode(public val phone: String) : PdshHostAction {
         override val wire: String = "tonoAccount.requestCode"

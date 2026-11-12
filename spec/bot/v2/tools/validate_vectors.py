@@ -1086,6 +1086,27 @@ def validate_wake_and_held() -> tuple[int, int]:
     return len(held["staged"]["items"]), len(held_fixture["invalid"])
 
 
+def validate_routine_document() -> tuple[int, int]:
+    # CCR-7 routine snapshots: the outer wrapper is routine-document.schema.json;
+    # each routine and delivery is validated with its own frozen schema. The
+    # repository JSON-Schema subset does not resolve $ref, so the checker must
+    # perform the two nested checks explicitly.
+    documents = load("routine-document")
+    if documents.get("vector") != "routine-document":
+        raise AssertionError("routine-document: vector must be routine-document")
+    for index, case in enumerate(documents.get("valid", [])):
+        where = f"routine-document.valid[{index}]"
+        check(case["data"], "routine-document.schema.json", where)
+        document = case["data"]["document"]
+        check_many(document["routines"], "routine.schema.json", f"{where}.routines")
+        for key, delivery in sorted(document["deliveries"].items()):
+            check(delivery, "routine-delivery.schema.json", f"{where}.deliveries[{key}]")
+    for index, case in enumerate(documents.get("invalid", [])):
+        rejects(case["data"], "routine-document.schema.json",
+                f"routine-document.invalid[{index}]")
+    return len(documents.get("valid", [])), len(documents.get("invalid", []))
+
+
 def validate_routine_notification() -> tuple[int, int]:
     fixture = load("routine-notification")
     for name, case in fixture["valid"].items():
@@ -1106,11 +1127,12 @@ def main() -> int:
     erasure_cases, erasure_invalid, erasure_mutations = validate_erasure_vectors()
     held_valid, held_invalid = validate_wake_and_held()
     notifications_valid, notifications_invalid = validate_routine_notification()
+    routine_docs_valid, routine_docs_invalid = validate_routine_document()
     maintenance_valid, maintenance_invalid, maintenance_checks = validate_maintenance_vectors()
     maintenance_mutations = mutation_count_for_maintenance()
     mutations = mutation_count_for_evidence()
     print("bot v2 vectors: PASS (memory documents, write/version/index/single-author, "
-          "read, recall, injection, migration, maintenance; wake/routine/held/notification; schema-positive "
+          "read, recall, injection, migration, maintenance; wake/routine/routine document/held/notification; schema-positive "
           f"and negative vectors; documents {documents}; evidence {evidence_valid} valid / "
           f"{evidence_invalid} invalid / {boundary} boundary / {mutations} mutations; "
           f"writes {writes}; reads {reads}; recall {recall}; injection {injection}; "
@@ -1118,6 +1140,7 @@ def main() -> int:
           f"{erasure_invalid} invalid / {erasure_mutations} mutations; "
           f"held {held_valid} valid / {held_invalid} invalid; "
           f"notifications {notifications_valid} valid / {notifications_invalid} invalid; "
+          f"routine documents {routine_docs_valid} valid / {routine_docs_invalid} invalid; "
           f"maintenance {maintenance_valid} batches / {maintenance_invalid} invalid / "
           f"{maintenance_checks} checks / {maintenance_mutations} mutations)")
     return 0

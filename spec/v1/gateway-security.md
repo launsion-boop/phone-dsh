@@ -147,12 +147,12 @@ workbench-turn probe keeps `notBot` for a running workbench turn; otherwise one 
   scalar `bearer`/`api-key` (`ModelGateway.swift:647`, `:1206`, `:1240`). A non-empty `.headers`
   map remains only a defensive fallback; credential kind never decides sensitivity.
 - **Non-2xx.** The status is the diagnostic; the body is replaced by one controlled JSON-RPC error
-  and the head is `application/json; charset=utf-8`. `HEAD` and 204/205/304 keep no body
-  (`SensitiveResponseBody.swift:68`, `:110`).
+  and the head is `application/json; charset=utf-8`; `HEAD`/204/205/304 keep no body. The message
+  names the call kind and a status reason ([web tools](gateway-official-web.md)); status + `code:-32000` are the contract.
 - **2xx JSON/text.** Buffered up to 4 MiB; every exact injected value, plus the credential part
   after `Bearer`/`Basic`/`Token`, is replaced with `[redacted]`; JSON is rewritten structurally so
   the JSON-RPC `id` survives; invalid UTF-8 falls back to byte-level replacement; exceeding the
-  bound fails closed (`SensitiveResponseBody.swift:58`, `:143`, `:321`). Re-encoding uses
+  bound fails closed (`SensitiveResponseBody.swift:68`, `:208`, `:386`). Re-encoding uses
   `.sortedKeys`, so the same input always produces the same UTF-8 bytes and `body_sha256` can
   pin them (`SensitiveResponseBody.swift:152`). Input: body echoing a secret → expect: no secret
   in `body`/`body_json` and the exact bytes in `body_sha256`.

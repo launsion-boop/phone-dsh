@@ -28,7 +28,6 @@
 // `cardOuterMarginV` and says so. Nothing here invents a colour or a length.
 package com.phonedsh.ui.page
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,12 +46,13 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.generated.UiTokenNames
@@ -1161,7 +1161,16 @@ private fun UnknownRow(tag: String) {
     )
 }
 
-/** One 暂不可用 disclosure (`:143`–`:145`): a title that expands into the red detail. */
+/**
+ * One 暂不可用 disclosure (`SessionActivityPage.swift:143`–`:145`).
+ *
+ * The iOS source is a SwiftUI `DisclosureGroup`, i.e. a real disclosure whose
+ * body the platform animates. `interaction.md` §7 rule 1 assigns that body
+ * `motion.disclosure` (160 ms easeOut) and rule 3 assigns the chevron
+ * `motion.chevron` (120 ms easeInOut); [PdshDisclosure] and [PdshChevron] are
+ * that shared implementation. The iOS source names no duration of its own, so
+ * the contract token — not a local number — is the authority.
+ */
 @Composable
 private fun DisclosureRow(
     title: String,
@@ -1172,35 +1181,41 @@ private fun DisclosureRow(
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(tag)
-                // Page-level geometry: the disclosure's title is a page row.
-                .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
-                .clickable(role = Role.Button, onClick = onToggle)
-                .semantics(mergeDescendants = true) {
-                    contentDescription = title
-                }
-                .padding(
-                    horizontal = tokens.geometry.pageOuterMarginH,
-                    vertical = tokens.spacing.badgeInsetV,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-        ) {
-            BasicText(
-                text = if (expanded) EXPANDED_GLYPH else COLLAPSED_GLYPH,
-                style = type.caption.copy(color = tokens.colors.tertiary),
-            )
-            BasicText(
-                text = title,
-                style = type.body.copy(color = tokens.colors.primary),
-                modifier = Modifier.weight(1f),
-            )
-        }
-        if (expanded) {
+    PdshDisclosure(
+        expanded = expanded,
+        onToggle = { onToggle() },
+        tag = tag,
+        header = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The contract's tag stays on the row the user taps; the
+                    // component adds its own header/body tags beside it.
+                    .testTag(tag)
+                    // Page-level geometry: the disclosure's title is a page row.
+                    .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = title
+                    }
+                    .padding(
+                        horizontal = tokens.geometry.pageOuterMarginH,
+                        vertical = tokens.spacing.badgeInsetV,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+            ) {
+                PdshChevron(
+                    expanded = expanded,
+                    tint = tokens.colors.tertiary,
+                )
+                BasicText(
+                    text = title,
+                    style = type.body.copy(color = tokens.colors.primary),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        },
+        body = {
             BasicText(
                 text = detail,
                 // `SessionActivityPage.swift:144`: `.font(.footnote)` (13 pt) red.
@@ -1212,8 +1227,8 @@ private fun DisclosureRow(
                         vertical = tokens.spacing.badgeInsetV,
                     ),
             )
-        }
-    }
+        },
+    )
 }
 
 /**
@@ -1424,9 +1439,6 @@ private const val DONE_GLYPH: String = "✓"
 private const val RUNNING_GLYPH: String = "◐"
 private const val TODO_GLYPH: String = "○"
 private const val PENDING_GLYPH: String = "◷"
-private const val EXPANDED_GLYPH: String = "⌄"
-private const val COLLAPSED_GLYPH: String = "›"
-
 /**
  * The token inventory of this page; `PageTokenReferenceTest` fails when a use
  * site reads a token that is not listed here.

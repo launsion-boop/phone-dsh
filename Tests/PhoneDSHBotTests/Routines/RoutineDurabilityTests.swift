@@ -83,14 +83,27 @@ final class RoutineDurabilityTests: XCTestCase {
         try await WP6AssertEqual(try await machine.list(botId: "bot-a").count, 12)
         _ = try await machine.begin(botId: "bot-a", routineId: "routine-0", startedAt: now, runId: "run-shared")
 
-        async let updated = machine.update(botId: "bot-a", routineId: "routine-0",
-                                           patch: RoutinePatch(title: "Updated title"), now: now + 1)
-        async let finished = machine.finish(botId: "bot-a", routineId: "routine-0", status: .succeeded,
-                                            text: "result", finishedAt: now + 2, attempt: 1, runId: "run-shared")
-        _ = try await (updated, finished)
-        async let duplicate = machine.finish(botId: "bot-a", routineId: "routine-0", status: .succeeded,
-                                             text: "duplicate", finishedAt: now + 3, attempt: 1, runId: "run-shared")
-        let duplicateFinish = try await duplicate
+        // Use a task group rather than multiple `async let` bindings: the
+        // Xcode 26.2 Swift runtime crashes on this test's two async-let
+        // teardowns ("freed pointer was not the last allocation", in
+        // asyncLet_finish_after_task_completion). The concurrency being tested
+        // is update-vs-finish, not the async-let lowering.
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                _ = try await machine.update(
+                    botId: "bot-a", routineId: "routine-0",
+                    patch: RoutinePatch(title: "Updated title"), now: self.now + 1)
+            }
+            group.addTask {
+                _ = try await machine.finish(
+                    botId: "bot-a", routineId: "routine-0", status: .succeeded,
+                    text: "result", finishedAt: self.now + 2, attempt: 1, runId: "run-shared")
+            }
+            try await group.waitForAll()
+        }
+        let duplicateFinish = try await machine.finish(
+            botId: "bot-a", routineId: "routine-0", status: .succeeded,
+            text: "duplicate", finishedAt: now + 3, attempt: 1, runId: "run-shared")
         let duplicateResult = try XCTUnwrap(duplicateFinish)
         XCTAssertTrue(duplicateResult.ignored)
 

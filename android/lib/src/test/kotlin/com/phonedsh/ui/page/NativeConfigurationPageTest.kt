@@ -7,6 +7,7 @@
 // about the page.
 package com.phonedsh.ui.page
 
+import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +34,10 @@ import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import com.phonedsh.agentcore.JsonValue
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.sheet.SheetDetents
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.generated.TokenDetent
+import com.phonedsh.ui.theme.generated.TokenDetentSetId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,6 +46,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h640dp")
@@ -412,7 +417,29 @@ class NativeConfigurationPageTest {
             .assertIsDisplayed()
             .assertHasClickAction()
             .performSemanticsAction(SemanticsActions.OnClick)
+        // 完成 leaves through the shared sheet's platform hide.
+        compose.waitUntil(timeoutMillis = 5_000) { dismissals == 1 }
         assertEquals(1, dismissals)
+    }
+
+    @Test
+    fun `plugin info sheet uses the frozen detents and system back dismisses it`() {
+        // The page id, not a local detent choice. Scrim tap and drag-down stay
+        // device-only; Robolectric does not route touches into the sheet window.
+        assertEquals(TokenDetentSetId.MEDIUM_LARGE, SheetDetents.forPage("configurationInfo"))
+        assertEquals(
+            listOf(TokenDetent.MEDIUM, TokenDetent.LARGE),
+            SheetDetents.detents(SheetDetents.forPage("configurationInfo")),
+        )
+
+        showLive(fullFacts())
+        compose.onNodeWithTag(UiPageTags.CONFIGURATION_PLUGIN_INFO_ACTION).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag(CONFIGURATION_PLUGIN_INFO_SHEET_TAG).assertIsDisplayed()
+
+        pressBackAndSettle()
+
+        compose.onNodeWithTag(CONFIGURATION_PLUGIN_INFO_SHEET_TAG).assertDoesNotExist()
     }
 
     @Test
@@ -926,5 +953,17 @@ class NativeConfigurationPageTest {
         compose.onNodeWithTag(UiPageTags.CONFIGURATION_LIST)
             .performScrollToNode(hasTestTag(UiPageTags.CONFIGURATION_NOTE_PREFIX + state.notes.single().id))
         compose.onNodeWithText(sentence).assertIsDisplayed()
+    }
+
+    /**
+     * Robolectric models the sheet as its own dialog; dispatch on that dialog's
+     * owner exactly as the platform window would, then let the hide animation
+     * finish on the test clock.
+     */
+    private fun pressBackAndSettle() {
+        val dialog = ShadowDialog.getLatestDialog()
+        (dialog as OnBackPressedDispatcherOwner).onBackPressedDispatcher.onBackPressed()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
     }
 }

@@ -265,6 +265,7 @@ extension BotInfoSnapshot {
                         approval.decision == .allow ? "allow" : "deny",
                         scope: approval.scope,
                         status: approval.status),
+                    reason: approval.reason,
                     decidedAt: Date(timeIntervalSince1970: Double(approval.decidedAtMS) / 1_000))
             },
             grants: snapshot.grants.map { grant in
@@ -287,7 +288,16 @@ extension BotInfoSnapshot {
             maintenance: snapshot.maintenance.map(BotMaintenanceBatchInfo.production),
             maintenanceEnabled: snapshot.maintenanceEnabled,
             maintenanceDailyTokens: snapshot.maintenanceDailyTokens,
-            maintenanceDailyBudget: snapshot.maintenanceDailyBudget)
+            maintenanceDailyBudget: snapshot.maintenanceDailyBudget,
+            bridgeStatus: snapshot.bridgeStatus.map { diagnostic in
+                // The raw code is logged by `BotProductionInfoService.load`;
+                // only the human copy reaches the presence line.
+                BotUIFormat.bridgeFailure(atMilliseconds: diagnostic.atMilliseconds)
+            },
+            memoryError: snapshot.memoryError,
+            routinesError: snapshot.routinesError,
+            approvalsError: snapshot.approvalsError,
+            grantsError: snapshot.grantsError)
     }
 
     fileprivate static func maintenanceInfo(

@@ -38,6 +38,9 @@ CITED_DOCS = (
     "spec/v1/render-media-v1.md",
     "spec/v1/bridge.md",
     "spec/ui/v1/README.md",
+    "spec/ui/v1/interaction.md",
+    "spec/device/v1/tonolink-board.md",
+    "spec/pclink/v1/README.md",
     "docs/design/phone-dsh-app/app-map.md",
 )
 

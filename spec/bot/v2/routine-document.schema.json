@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BotRoutineDocumentSnapshot v1",
+  "description": "The data object of a durable routine.defined / routine.updated / routine.deleted event, frozen from Sources/PhoneDSHBot/Routines/{DurableSnapshot,RoutineStore,RoutineModels}.swift: {botId, document:{version, routines, deliveries}}. The routines array items are validated against routine.schema.json and each deliveries value against routine-delivery.schema.json; the shared checker performs both nested checks because the repository's JSON-Schema subset does not resolve $ref. See spec/bot/v2/README.md §2.3.",
+  "type": "object",
+  "required": ["botId", "document"],
+  "properties": {
+    "botId": {"type": "string", "minLength": 1},
+    "document": {
+      "type": "object",
+      "required": ["version", "routines", "deliveries"],
+      "properties": {
+        "version": {"const": 1},
+        "routines": {"type": "array", "items": {"$ref": "routine.schema.json"}},
+        "deliveries": {"type": "object", "additionalProperties": {"$ref": "routine-delivery.schema.json"}}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

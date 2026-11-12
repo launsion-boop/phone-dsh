@@ -117,7 +117,7 @@ public final class ADBExecProvider: ExecProvider, @unchecked Sendable {
 
     private func transferNative(action: String, local: String, remote: String, endpoint: ADBEndpoint, timeout: TimeInterval) async throws -> UInt64 {
         let admitted = lock.withLock { nativeTransfers.insert(local).inserted }
-        guard admitted else { throw ADBFailure("A transfer for this path is already running; use adb stat before retrying") }
+        guard admitted else { throw ADBFailure("A transfer for this path is already running; use adb stat before retrying", kind: .busy) }
         defer { _ = lock.withLock { nativeTransfers.remove(local) } }
         let (parent, name) = try ADBNativeFiles.parent(path: local, root: transfers)
         defer { close(parent) }

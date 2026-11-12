@@ -50,6 +50,29 @@ class AdbMcpServerTest {
     }
 
     @Test
+    fun checkConnectionPreservesTheTypedFailureKind() {
+        val executor = object : AdbCommandExecuting {
+            override suspend fun shell(
+                endpoint: AdbEndpoint,
+                command: String,
+                stdin: ByteArray,
+                timeoutMillis: Long,
+                outputLimit: Int,
+            ): AdbShellResult = throw AdbFailure("waiting for the TV", AdbFailureKind.UNAUTHORIZED)
+        }
+        val server = AdbFixtures.server(executor)
+        val failure = assertThrows(AdbFailure::class.java) {
+            runBlocking {
+                server.checkConnection(
+                    AdbConfiguration(enabled = true, host = "192.0.2.81", port = 5555),
+                    timeoutMillis = 4_000,
+                )
+            }
+        }
+        assertEquals(AdbFailureKind.UNAUTHORIZED, failure.kind)
+    }
+
+    @Test
     fun toolCallAndIdempotentReplayNeverRepeatTap() = runBlocking<Unit> {
         val recorder = RecordingAdb()
         val server = AdbFixtures.server(recorder)

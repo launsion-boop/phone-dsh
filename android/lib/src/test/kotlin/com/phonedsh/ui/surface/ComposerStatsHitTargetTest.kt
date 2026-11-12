@@ -9,12 +9,14 @@
 // the text centre itself is tapped.
 package com.phonedsh.ui.surface
 
+import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
@@ -23,12 +25,14 @@ import com.phonedsh.ui.state.ContextBreakdown
 import com.phonedsh.ui.state.ContextPressure
 import com.phonedsh.ui.state.SessionStats
 import com.phonedsh.ui.state.SessionTokenUsage
+import com.phonedsh.ui.sheet.PdshSheetTags
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w430dp-h932dp")
@@ -89,6 +93,25 @@ class ComposerStatsHitTargetTest {
         compose.onNodeWithText("估算用量 / 容量").assertIsDisplayed()
     }
 
+    @Test
+    fun `detail opens the shared composerStats sheet without a fixed fraction`() {
+        show()
+        compose.onNodeWithTag("pdsh.composer.metrics.usage").performClick()
+        compose.onNodeWithText("Token 用量").assertIsDisplayed()
+        // interaction.md §2: an unlisted chrome site follows the platform, which
+        // the contract records as a hidden grabber; the sheet is PdshSheet's
+        // composerStats page id (medium detent), not a local fixed-height modal.
+        compose.onNodeWithTag(PdshSheetTags.DRAG_HANDLE).assertDoesNotExist()
+        compose.onNodeWithTag("pdsh.composer.metrics.done").assertIsDisplayed()
+        // Robolectric hosts the sheet in its own dialog, so touches into it are
+        // device-verified; the component's back path is the JVM-observable one.
+        val dialog = ShadowDialog.getLatestDialog() as OnBackPressedDispatcherOwner
+        dialog.onBackPressedDispatcher.onBackPressed()
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.waitForIdle()
+        compose.onNodeWithText("Token 用量").assertDoesNotExist()
+    }
+
     private fun tapLabel(label: String) {
         compose.onNodeWithText(label, substring = true, useUnmergedTree = true)
             .performTouchInput { click(center) }
@@ -102,10 +125,10 @@ class ComposerStatsHitTargetTest {
                     text = "",
                     onTextChange = {},
                     placeholder = UiStrings.COMPOSER_PLACEHOLDER_IDLE,
-                    mode = ComposerMode.SEND,
                     enabled = true,
                     canSubmit = false,
                     running = false,
+                    steer = false,
                     onSend = {},
                     onStop = {},
                     sessionStats = SessionStats(2, 4, 1200.0, 0.0, 600.0, 2, 2000.0, 50),

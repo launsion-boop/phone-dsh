@@ -24,7 +24,7 @@ CI_TMP=${CI_TMP%/}/phone-dsh-ci
 IDF_VERSION_WANT=${CI_IDF_VERSION:-5.5.2}
 IOS_RUNTIME=${CI_IOS_RUNTIME:-26.5}
 
-STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-compat phone-plugins phone-bundle-fresh phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-bot-eval-catalog phone-android-structure phone-android-tests phone-android-release phone-xcode-resolve"
+STAGES="phone-spec phone-p0-conformance phone-cross-tree phone-rust-tests phone-compat phone-plugins phone-bundle-fresh phone-image phone-sdk phone-no-dsh-patch phone-hygiene phone-license phone-modules phone-gate-contracts phone-github-oauth phone-bot-eval-catalog phone-android-structure phone-android-tests phone-android-release phone-xcode-resolve"
 
 stage_desc() {
     case "$1" in
@@ -42,6 +42,7 @@ stage_desc() {
         phone-license)         echo "SPDX MIT headers and plugins package licenses" ;;
         phone-modules)         echo "Package.swift dependency map of the 8 phone-DSH modules (SKIP without PhoneWire)" ;;
         phone-gate-contracts)  echo "Python regressions for scenario batch/evidence and gate contracts" ;;
+        phone-github-oauth)    echo "services/github-oauth broker: node --test over the shared P05 GitHub OAuth fixtures (SKIP without node)" ;;
         phone-bot-eval-catalog) echo "Bot eval catalog schema/plan/gate regressions + selftest and product catalog validation + eval.sh syntax (no Worker, no model)" ;;
         phone-android-structure) echo "android/tools structure_check (11 checks, incl. nested-comments and the two 16 KB page-alignment gates) + its tool unit tests + the packaged-APK 16 KB gate's mutation suite" ;;
         phone-android-tests)   echo "cargo build -p pdsh-jni, then every test-bearing Gradle module's JVM tests; 0 tests counted = FAIL" ;;
@@ -370,6 +371,25 @@ stage_phone_gate_contracts() {
     "$PYTHON" "$ROOT/scripts/ci/test_rust_stage.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/test_p0_completeness.py" || return 1
     "$PYTHON" "$ROOT/scripts/ci/selftest.py" || return 1
+}
+
+stage_phone_github_oauth() {
+    # The broker holds the GitHub App Client Secret and performs the code
+    # exchange and revocation, so its tests are a contract gate, not an
+    # optional service check. Missing sources fail; only a missing node SKIPs.
+    [ -f "$ROOT/services/github-oauth/server.test.mjs" ] || {
+        echo "missing services/github-oauth/server.test.mjs"
+        return 1
+    }
+    [ -f "$ROOT/spec/v1/golden/github-oauth/github-oauth-cases.json" ] || {
+        echo "missing the shared GitHub OAuth golden fixture"
+        return 1
+    }
+    node_bin="${PDSH_NODE:-}"
+    if [ -z "$node_bin" ]; then node_bin=$(command -v node || true); fi
+    [ -n "$node_bin" ] || { skip "node not found: GitHub OAuth broker tests were not run"; return; }
+    log "GitHub OAuth broker tests with $("$node_bin" --version 2>/dev/null || echo node)"
+    ( cd "$ROOT" && "$node_bin" --test services/github-oauth/*.test.mjs )
 }
 
 stage_phone_bot_eval_catalog() {

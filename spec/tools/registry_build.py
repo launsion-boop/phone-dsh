@@ -70,14 +70,18 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'evidence': ['spec/v1/tools/bridge_check.py']},
  'P05': {'authority': ['spec/v1/gateway-security.md',
                        'spec/v1/schema/gateway-vector.schema.json',
-                       'spec/v1/golden/gateway'],
+                       'spec/v1/golden/gateway',
+                       'spec/v1/github-oauth.md'],
          'ends': {'Swift': ['Sources/PhoneDSHGateway',
-                            'Sources/PhoneDSHLoopback/{HTTPTransport,StreamingForward}.swift'],
+                            'Sources/PhoneDSHLoopback/{HTTPTransport,StreamingForward}.swift',
+                            'examples/probe-app/ProbeKit/GitHubOAuthFlow.swift'],
                   'TypeScript': ['plugins/llm-bridge', 'plugins/phone-mcp/src/{manager,schema}.ts'],
+                  'JavaScript': ['services/github-oauth/server.mjs'],
                   'Kotlin': ['android/net/src/main']},
          'status': [],
          'evidence': ['android/net/src/test/kotlin/com/phonedsh/gateway/GatewayVectorConformanceTest.kt',
-                      'Tests/PhoneDSHGatewayTests']},
+                      'Tests/PhoneDSHGatewayTests',
+                      'services/github-oauth/server.test.mjs']},
  'P06': {'authority': ['spec/device/v1/task-delegation.md', 'spec/host/v1/README.md', 'spec/host/v1/event-kinds.md', 'spec/host/v1/golden'],
          'ends': {'Swift': ['Sources/PhoneDSHAgentCore/AgentHarness.swift',
                             'Sources/PhoneDSHAgentCore/DSH',
@@ -168,10 +172,12 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
          'evidence': []},
  'P18': {'authority': ['plugins/worker-entry/src/capabilities.ts',
                        'plugins/phone-mcp/src/schema.ts',
-                       'plugins/phone-model-config/src/model-config.ts'],
+                       'plugins/phone-model-config/src/model-config.ts',
+                       'docs/protocol-changes/PC-20261111-ios-github.md'],
          'ends': {'Swift': ['Sources/PhoneDSHLog/MaterializedInvariant.swift',
                             'Sources/PhoneDSHScenario/ScenarioBudgets.swift',
-                            'Sources/PhoneDSH/Phone*Settings.swift']},
+                            'Sources/PhoneDSH/Phone*Settings.swift',
+                            'examples/probe-app/PhoneDSHProbe/GitHubConnectorPage.swift']},
          'status': [],
          'evidence': []},
  'P19': {'authority': ['examples/probe-app/ProbeKit/Capabilities/PhoneToolEnvelope.swift',
@@ -219,16 +225,18 @@ PATH_PROJECTIONS = {'P01': {'authority': ['spec/v1/channel.md', 'spec/v1/schema'
                             'examples/probe-app/PhoneDSHProbe']},
          'status': ['target'],
          'evidence': ['spec/bot/v1/tools/validate_vectors.py']},
- # P28 is a frozen target with no implementation tree yet.  Its structured
- # ends are the shared contract-side checker/fixtures; the planned relay,
- # plugin and Swift paths are recorded in spec/README.md §3.1 and the change
- # record.  The contract owner adds those globs when the directories land.
+ # P28 is a frozen target.  B/C/D have landed.  The Android Kotlin end is
+ # recorded in spec/README.md §3.1 and is added here when C0 creates
+ # android/pclink; registry_check rejects a glob that matches no file.
  'P28': {'authority': ['spec/pclink/v1/README.md', 'spec/pclink/v1/schema',
                        'spec/pclink/v1/golden', 'spec/pclink/v1/endpoints.json'],
-         'ends': {'Node': ['spec/pclink/v1/tools/vectors.mjs'],
-                  'Swift': ['spec/pclink/v1/golden']},
+         'ends': {'Node': ['relay', 'pclink', 'spec/pclink/v1/tools/vectors.mjs'],
+                  'Swift': ['Sources/PhoneDSHPCLink', 'Tests/PhoneDSHPCLinkTests',
+                            'spec/pclink/v1/golden']},
          'status': ['target'],
-         'evidence': ['spec/pclink/v1/tools/vectors.mjs',
+         'evidence': ['pclink/test/vectors.test.mjs',
+                      'Tests/PhoneDSHPCLinkTests',
+                      'spec/pclink/v1/tools/vectors.mjs',
                       'spec/pclink/v1/tools/check_samples.py']}}
 
 

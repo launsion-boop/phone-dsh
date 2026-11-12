@@ -344,6 +344,142 @@
                             {"type": "object", "required": ["value", "unit", "source", "expect", "note"], "additionalProperties": false, "properties": {"value": {"type": "number"}, "unit": {"enum": ["pt", "opacity", "widthFraction", "s"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 120}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 240}}}
                         ]}
                     }
+                },
+                "sheet": {
+                    "type": "object",
+                    "required": ["defaultDetents", "mediumFraction", "detentSets", "pageDetents", "grabberVisible", "grabberHidden", "background", "backgroundClear", "cornerRadiusDefault", "cornerRadiusConnector", "cornerRadiusCatalog", "presentMotion", "dismissMotion"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "defaultDetents": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["detentSet"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "mediumFraction": {"type": "object", "required": ["needsDeviceMeasure"], "additionalProperties": false, "properties": {"needsDeviceMeasure": {"const": true}, "unit": {"enum": ["screenFraction"]}, "note": {"type": "string", "maxLength": 300}}},
+                        "detentSets": {"type": "array", "minItems": 4, "maxItems": 4, "items": {
+                                "type": "object",
+                                "required": ["id", "detents", "source", "expect"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+                                    "detents": {"enum": ["default", "medium", "large", "medium+large"]},
+                                    "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"},
+                                    "expect": {"type": "string", "minLength": 3, "maxLength": 200},
+                                    "note": {"type": "string", "maxLength": 300}
+                                }
+                            }
+                        },
+                        "pageDetents": {"type": "array", "minItems": 20, "maxItems": 20, "items": {
+                                "type": "object",
+                                "required": ["id", "detents", "source", "expect"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+                                    "detents": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+                                    "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"},
+                                    "expect": {"type": "string", "minLength": 3, "maxLength": 200},
+                                    "note": {"type": "string", "maxLength": 300}
+                                }
+                            }
+                        },
+                        "grabberVisible": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"enum": ["visible", "hidden"]}, "unit": {"enum": ["grabberVisibility"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "grabberHidden": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"enum": ["visible", "hidden"]}, "unit": {"enum": ["grabberVisibility"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "background": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^colors\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "backgroundClear": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["color"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "cornerRadiusDefault": {"type": "object", "required": ["needsDeviceMeasure"], "additionalProperties": false, "properties": {"needsDeviceMeasure": {"const": true}, "unit": {"enum": ["pt"]}, "note": {"type": "string", "maxLength": 300}}},
+                        "cornerRadiusConnector": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["pt"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "cornerRadiusCatalog": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["pt"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "presentMotion": {"type": "object", "required": ["needsDeviceMeasure"], "additionalProperties": false, "properties": {"needsDeviceMeasure": {"const": true}, "unit": {"enum": ["transition"]}, "note": {"type": "string", "maxLength": 300}}},
+                        "dismissMotion": {"type": "object", "required": ["needsDeviceMeasure"], "additionalProperties": false, "properties": {"needsDeviceMeasure": {"const": true}, "unit": {"enum": ["transition"]}, "note": {"type": "string", "maxLength": 300}}}
+                    }
+                },
+                "contextMenu": {
+                    "type": "object",
+                    "required": ["preview", "surfaces"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "preview": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["preview"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "surfaces": {"type": "array", "minItems": 11, "maxItems": 11, "items": {
+                                "type": "object",
+                                "required": ["id", "source", "expect", "items"],
+                                "additionalProperties": false,
+                                "properties": {
+                                    "id": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
+                                    "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"},
+                                    "expect": {"type": "string", "minLength": 3, "maxLength": 200},
+                                    "items": {"type": "array", "minItems": 1, "maxItems": 8, "items": {
+                                            "type": "object",
+                                            "required": ["label", "role", "kind", "when", "source", "expect"],
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "label": {"type": "string", "minLength": 1, "maxLength": 60},
+                                                "altLabel": {"type": "string", "minLength": 1, "maxLength": 60},
+                                                "role": {"enum": ["default", "destructive"]},
+                                                "kind": {"enum": ["action", "share", "info"]},
+                                                "when": {"type": "string", "minLength": 1, "maxLength": 80},
+                                                "dividerBefore": {"type": "boolean"},
+                                                "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"},
+                                                "expect": {"type": "string", "minLength": 3, "maxLength": 200}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "push": {
+                    "type": "object",
+                    "required": ["stackScope", "rootBack", "backOrder", "barVisibleAtRoot", "barHiddenWhenPushed", "predictiveBack", "systemMotion"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "stackScope": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["scope"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "rootBack": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["rootAction"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "backOrder": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["layerOrder"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "barVisibleAtRoot": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["bool"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "barHiddenWhenPushed": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["bool"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "predictiveBack": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["gesture"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "systemMotion": {"type": "object", "required": ["needsDeviceMeasure"], "additionalProperties": false, "properties": {"needsDeviceMeasure": {"const": true}, "unit": {"enum": ["transition"]}, "note": {"type": "string", "maxLength": 300}}}
+                    }
+                },
+                "composerSend": {
+                    "type": "object",
+                    "required": ["motion", "transitionScale", "transitionOpacity", "buttonSize", "enabledFill", "disabledFill", "enabledInk", "disabledInk", "disabledRule", "stopRule"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "motion": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^motion\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "transitionScale": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["scale"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "transitionOpacity": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["opacity"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "buttonSize": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^geometry\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "enabledFill": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^colors\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "disabledFill": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^colors\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "enabledInk": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^colors\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "disabledInk": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^colors\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "disabledRule": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["enabledWhen"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "stopRule": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["showWhen"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}}
+                    }
+                },
+                "pressed": {
+                    "type": "object",
+                    "required": ["motion", "pillOverlay", "pillOverlayColor", "rowFill", "rowFillOpacity", "primaryPressedOpacity", "primaryDisabledOpacity", "scale"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "motion": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^motion\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "pillOverlay": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["opacity"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "pillOverlayColor": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["color"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "rowFill": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^colors\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "rowFillOpacity": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["opacity"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "primaryPressedOpacity": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["opacity"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "primaryDisabledOpacity": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["opacity"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}},
+                        "scale": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["scale"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}}
+                    }
+                },
+                "disclosure": {
+                    "type": "object",
+                    "required": ["bodyMotion", "folderMotion", "chevronMotion", "reducedMotion"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "bodyMotion": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^motion\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "folderMotion": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^motion\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "chevronMotion": {"type": "object", "required": ["token"], "additionalProperties": false, "properties": {"token": {"type": "string", "pattern": "^motion\\.[A-Za-z][A-Za-z0-9]*$"}, "note": {"type": "string", "maxLength": 300}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}}},
+                        "reducedMotion": {"type": "object", "required": ["value", "unit"], "additionalProperties": false, "properties": {"value": {"type": ["number", "string", "boolean"]}, "unit": {"enum": ["a11yFallback"]}, "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"}, "expect": {"type": "string", "minLength": 3, "maxLength": 200}, "valueLiteral": {"type": "string", "minLength": 1, "maxLength": 120}, "needsDeviceMeasure": {"type": "boolean"}, "note": {"type": "string", "maxLength": 300}}}
+                    }
                 }
             }
         },

@@ -552,6 +552,7 @@
             "mode": {
               "enum": [
                 "planned_restart",
+                "park_resume",
                 "worker_kill"
               ]
             }

@@ -720,7 +720,7 @@ final class PhoneDSHWorkerCapabilityTests: XCTestCase {
             try await testHost.boot(modelURL: modelURL,
                                     modelName: Self.modelName,
                                     environmentExtra: [
-                                        "PDSH_TEST_MCP_TOKEN": mcp.authorizationValue,
+                                        "PHONE_TEST_MCP_TOKEN": mcp.authorizationValue,
                                     ],
                                     egressHosts: ["http://127.0.0.1:\(mcpPort)"],
                                     extraCredentials: [
@@ -763,7 +763,7 @@ final class PhoneDSHWorkerCapabilityTests: XCTestCase {
                 args: .object(["request": .object([
                     "serverName": .string(serverName),
                     "url": .string(mcpURL.absoluteString),
-                    "headersFromEnv": .object(["Authorization": .string("PDSH_TEST_MCP_TOKEN")]),
+                    "headersFromEnv": .object(["Authorization": .string("PHONE_TEST_MCP_TOKEN")]),
                     "enabled": .bool(true),
                     "toolCallTimeoutMs": .number(5000),
                 ])]),

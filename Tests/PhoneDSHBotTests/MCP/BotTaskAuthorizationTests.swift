@@ -73,7 +73,7 @@ final class BotTaskAuthorizationTests: XCTestCase {
         XCTAssertEqual(result.structuredContent?["error"]?["code"], .string("permission_denied"))
         XCTAssertTrue(
             (result.structuredContent?["error"]?["message"]?.stringValue ?? "")
-                .contains("delegation is not allowed"))
+                .contains("不能再派发任务"))
     }
 
     func testWriteInsideSubsetNeedsApprovalAndOutsideIsDeniedFirst() async throws {

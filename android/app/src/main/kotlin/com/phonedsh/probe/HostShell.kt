@@ -31,8 +31,12 @@
 package com.phonedsh.probe
 
 import com.phonedsh.dsh.localexec.UbuntuApproval
+import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import android.view.View
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
@@ -40,6 +44,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
@@ -53,6 +58,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,12 +77,16 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import com.phonedsh.engine.ChannelStatus
 import com.phonedsh.engine.EngineState
@@ -84,6 +94,7 @@ import com.phonedsh.engine.HandshakeSummary
 import com.phonedsh.engine.KernelVerdict
 import com.phonedsh.platform.EngineHostState
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.nav.BackCoordinator
 import com.phonedsh.ui.nav.PdshBackLevel
 import com.phonedsh.ui.nav.PdshHostAction
 import com.phonedsh.ui.nav.SettingsWrite
@@ -99,10 +110,14 @@ import com.phonedsh.ui.nav.HomeDrawerArchiveRequest
 import com.phonedsh.ui.nav.rememberHomeDrawerUiState
 import com.phonedsh.ui.nav.PdshNavState
 import com.phonedsh.ui.nav.PdshRoute
+import com.phonedsh.ui.nav.HomeTab
 import com.phonedsh.ui.nav.HomeTabBar
-import com.phonedsh.ui.nav.selectHomeTab
+import com.phonedsh.ui.nav.PushBackState
+import com.phonedsh.ui.nav.PushOverlay
 import com.phonedsh.ui.nav.selectedHomeTab
 import com.phonedsh.ui.nav.confirms
+import com.phonedsh.ui.sheet.SheetBackHost
+import com.phonedsh.ui.theme.generated.TokenBackLayer
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.AgentPresetActions
 import com.phonedsh.ui.page.PhoneCapability
@@ -112,6 +127,30 @@ import com.phonedsh.ui.page.BusyEnterMode
 import com.phonedsh.ui.page.SettingsScreenState
 import com.phonedsh.ui.page.WorkbenchSection
 import com.phonedsh.ui.page.ShellRun
+import com.phonedsh.ui.page.ConnectedComputerUiState
+import com.phonedsh.ui.page.PCPairingUiState
+import com.phonedsh.ui.page.PcDrawerBackend
+import com.phonedsh.ui.page.PcDrawerUiState
+import com.phonedsh.probe.pc.PcBackend
+import com.phonedsh.probe.pc.PcCameraAvailability
+import com.phonedsh.probe.pc.PcQrScanner
+import com.phonedsh.probe.pc.PcWorkspaceController
+import com.phonedsh.probe.pc.PcWorkspaceState
+import com.phonedsh.probe.pc.cancelPcPairing
+import com.phonedsh.probe.pc.connectionScreenOpened
+import com.phonedsh.probe.pc.finishPcPairing
+import com.phonedsh.probe.pc.pairWithPcCode
+import com.phonedsh.probe.pc.pairWithPcLink
+import com.phonedsh.probe.pc.pairWithPcQr
+import com.phonedsh.probe.pc.retryPcPairing
+import com.phonedsh.probe.pc.retryPcRoster
+import com.phonedsh.probe.pc.selectPcBackend
+import com.phonedsh.probe.pc.startPcScan
+import com.phonedsh.probe.pc.toConnectedComputerUiState
+import com.phonedsh.probe.pc.toPcDrawerUiState
+import com.phonedsh.probe.pc.toPcPairingUiState
+import com.phonedsh.probe.pc.toPcSettingsValue
+import com.phonedsh.probe.pc.unpairPc
 import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.theme.PdshThemeValues
 import com.phonedsh.ui.theme.UiTypePreferences
@@ -121,6 +160,130 @@ import java.util.UUID
 /** The installed app opens the real conversation; the diagnostic face is opt-in. */
 internal fun initialHostNavState(probeFaceOnLaunch: Boolean): PdshNavState =
     PdshNavState(listOf(if (probeFaceOnLaunch) PdshRoute.Home else PdshRoute.Chat))
+
+/**
+ * How many pages sit above [tab]'s root in [nav].
+ *
+ * Each tab owns its route stack (`interaction.md` §4 rule 1), so the depth comes
+ * from that tab's stack even while another tab is showing. A tab whose root is
+ * not on its stack (the diagnostic [PdshRoute.Home] face) counts every route
+ * above the stack floor.
+ */
+internal fun PdshNavState.hostPushDepth(tab: HomeTab): Int = depthOf(tab)
+
+/**
+ * Mirrors every tab's depth into the contract's push state.
+ *
+ * `interaction.md` §4 rule 1 needs a depth for each tab, not only the one on
+ * screen: the hidden tabs keep their pages while another tab is selected, so
+ * storing only the selected tab would lose them at the next switch. Zero depths
+ * are omitted (they read as zero through [PushBackState.depthOf]); overlays and
+ * the keyboard flag are not depth and are preserved untouched.
+ */
+internal fun PushBackState.mirroredTo(nav: PdshNavState, tab: HomeTab = selectedTab): PushBackState {
+    val depths = HomeTab.entries.mapNotNull { candidate ->
+        val depth = nav.hostPushDepth(candidate)
+        if (depth == 0) null else candidate to depth
+    }.toMap()
+    return copy(selectedTab = tab, stackDepths = depths)
+}
+
+/**
+ * The host's one navigation value: the route stack and the layered back state.
+ *
+ * `interaction.md` §4 makes [PushBackState] the authority for the tab bar
+ * (rule 4), tab selection (rules 1-2) and layer order (rule 5), while the
+ * pages are still rendered from [PdshNavState]. Keeping both halves in one
+ * value is what stops the two from drifting: every transition below updates
+ * both, and [applyPushState] is the only way a coordinator transition reaches
+ * the route stack. A back that the coordinator reports at depth 0 leaves both
+ * halves unchanged, so the platform's own exit remains in charge.
+ */
+internal data class HostBackChain(
+    val nav: PdshNavState = productFloor,
+    val pushBack: PushBackState = PushBackState(),
+) {
+    private companion object {
+        /** The product floor; the diagnostic `Home` face is built explicitly. */
+        val productFloor: PdshNavState = PdshNavState(listOf(PdshRoute.Chat))
+    }
+
+    /** True while the drawer's overlay layer is present (`interaction.md` §1 rule 9). */
+    val drawerOpen: Boolean get() = PushOverlay.DRAWER in pushBack.overlays
+
+    /** The selected tab's contract depth; the tab bar reads [PushBackState.tabBarVisible]. */
+    val depth: Int get() = pushBack.depth
+
+    /** Push one route and add one level to the selected tab's mirrored depth. */
+    fun push(route: PdshRoute): HostBackChain = withNav(nav.push(route))
+
+    /**
+     * Pop one route, mirroring the depth. The page header's back arrow calls
+     * this directly (there is no gesture to dispatch), so the tab bar returns
+     * at the same moment the route does.
+     */
+    fun pop(): HostBackChain {
+        if (!nav.canGoBack) return this
+        return withNav(nav.pop())
+    }
+
+    /**
+     * `interaction.md` §4 rules 1-2: select a tab. A re-tap of the current tab
+     * returns this value, so it can never pop to root. `nav.selectHomeTab`
+     * restores the target tab's own route stack (rule 1), and the mirror then
+     * carries every tab's depth.
+     */
+    fun selectTab(tab: HomeTab): HostBackChain {
+        val selected = pushBack.selectTab(tab)
+        if (selected === pushBack) return this
+        val next = nav.selectHomeTab(tab)
+        return copy(nav = next, pushBack = selected.mirroredTo(next, tab))
+    }
+
+    /** §1 rule 9: the drawer becomes the top overlay; the page stack is untouched. */
+    fun openDrawer(): HostBackChain = copy(pushBack = pushBack.openOverlay(PushOverlay.DRAWER))
+
+    /** Close the drawer overlay only; the motion stays mounted until `onClose`. */
+    fun closeDrawer(): HostBackChain = copy(pushBack = pushBack.closeOverlay(PushOverlay.DRAWER))
+
+    /** §4 rule 4: the keyboard hides the bar without touching the stack. */
+    fun withKeyboard(visible: Boolean): HostBackChain =
+        copy(pushBack = pushBack.withKeyboardVisible(visible))
+
+    /**
+     * Return to a single-route floor (`Home` or `Chat`) and drop every overlay.
+     * The drawer stays mounted through its close motion because [drawerOpen]
+     * turns false here; the host clears `drawerMounted` only in `onClose`.
+     */
+    fun resetTo(route: PdshRoute, tab: HomeTab = HomeTab.TASKS): HostBackChain = copy(
+        nav = PdshNavState(stacks = mapOf(tab to listOf(route)), selectedTab = tab),
+        pushBack = pushBack.copy(selectedTab = tab, stackDepths = emptyMap(), overlays = emptyList()),
+    )
+
+    /**
+     * Apply one [BackCoordinator] transition.
+     *
+     * The coordinator consumes exactly one layer (`interaction.md` §4 rule 5).
+     * A stack pop must also pop the route it names; an overlay close must leave
+     * the route stack alone. The depth difference is that decision, so the host
+     * never repeats the layer order here.
+     */
+    fun applyPushState(next: PushBackState): HostBackChain {
+        val pops = (pushBack.depth - next.depth).coerceAtLeast(0)
+        var nextNav = nav
+        repeat(pops) { nextNav = nextNav.pop() }
+        // A pop that lands on a tab root names that tab; a pop that lands on a
+        // pushed page keeps the tab the person selected.
+        val tab = if (pops > 0) nextNav.selectedHomeTab() ?: next.selectedTab else next.selectedTab
+        return copy(nav = nextNav, pushBack = next.mirroredTo(nextNav, tab))
+    }
+
+    /** Move the route stack and keep `selectedTab` on the tab root under it. */
+    private fun withNav(next: PdshNavState): HostBackChain {
+        val tab = next.selectedHomeTab() ?: next.selectedTab
+        return copy(nav = next, pushBack = pushBack.mirroredTo(next, tab))
+    }
+}
 
 private fun ShellRun.withExecEvent(event: com.phonedsh.dsh.exec.ExecEvent): ShellRun = when (event) {
     is com.phonedsh.dsh.exec.ExecEvent.Start -> copy(runningExecId = event.execId)
@@ -226,6 +389,43 @@ internal fun HostShell(
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
     val context = LocalContext.current
+    // PCLink C5: the view model owns the controller's lifetime (`onCleared`), so
+    // this shell only observes its snapshot and maps it onto the plain `:lib`
+    // page state. The camera prompt stays the Activity's one CAMERA request.
+    val pcController = engine.pcWorkspace
+    val pcStateFlow: StateFlow<PcWorkspaceState?> = remember(pcController) {
+        pcController?.state ?: MutableStateFlow(null)
+    }
+    val pcState by pcStateFlow.collectAsState()
+    val pcWiring = remember(pcController, context) {
+        HostPcLinkWiring(pcController) {
+            (context as? MainActivity)?.requestPcCameraPermission()
+        }
+    }
+    val pcPairingState = pcWiring.pairingState(pcState)
+    val pcConnectedState = pcWiring.connectedState(pcState)
+    val pcDrawerState = pcWiring.drawerState(pcState)
+    val pcConnectedValue = pcWiring.settingsValue(pcState)
+    // One successful unpair ends the attempt; otherwise a later, unrelated error
+    // (a roster read, a turn) would reopen 解除没有完成 on a page with no pairing.
+    LaunchedEffect(pcState?.record?.machineId) {
+        if (pcState?.record == null) pcWiring.onDismissUnpairFailure()
+    }
+    val pcScannerController = pcController
+    val pcScannerContent: (@Composable () -> Unit)? =
+        if (pcScannerController != null && pcPairingState.scanning &&
+            pcState?.camera == PcCameraAvailability.AVAILABLE
+        ) {
+            {
+                PcQrScannerContent(
+                    controller = pcScannerController,
+                    onDecoded = { payload -> pcWiring.onQrDecoded(payload) },
+                    onUnavailable = { pcWiring.onCameraUnavailable() },
+                )
+            }
+        } else {
+            null
+        }
     // 蓝牙设备: the process-owned scan + standard GATT store (android-standard-gatt.md).
     val bleDevices = remember { AndroidBleDevices.get(context) }
     BindBluetoothHost(bleDevices)
@@ -233,6 +433,10 @@ internal fun HostShell(
     // SSH 主机: the process-wide saved connections (docs/native-ssh.md).
     val sshSettings = remember { SshSettingsStore.get(context) }
     val sshFacts by sshSettings.facts.collectAsState()
+    // GitHub Agent: the process-wide token record and write opt-in
+    // (`PC-20261112-github-agent-credential`). The page only receives facts.
+    val githubAgentSettings = remember { GitHubAgentSettingsStore.get(context) }
+    val githubAgentFacts by githubAgentSettings.facts.collectAsState()
     // Android ADB: the process-owned native android_* tool host (native-mcp.md).
     val androidAdb = remember { AndroidAdbHost.get(context) }
     val androidAdbFacts by androidAdb.facts.collectAsState()
@@ -326,7 +530,41 @@ internal fun HostShell(
     var activeProviderSaveRequest by remember { mutableStateOf<String?>(null) }
     val providerProbeScope = rememberCoroutineScope()
     var notice by remember { mutableStateOf<String?>(null) }
-    var nav by remember { mutableStateOf(initialHostNavState(engine.probeFaceOnLaunch())) }
+    // The route stack and the contract's push state move as one value: the tab
+    // bar, the drawer overlay and the coordinator all read the same [hostBack],
+    // so a back gesture can never leave the two halves at different depths.
+    var hostBack by remember {
+        mutableStateOf(HostBackChain(nav = initialHostNavState(engine.probeFaceOnLaunch())))
+    }
+    val nav: PdshNavState = hostBack.nav
+
+    fun pushRoute(route: PdshRoute) {
+        hostBack = hostBack.push(route)
+    }
+
+    fun popRoute() {
+        hostBack = hostBack.pop()
+    }
+
+    fun selectHomeTab(tab: HomeTab) {
+        hostBack = hostBack.selectTab(tab)
+    }
+
+    fun resetTo(route: PdshRoute) {
+        hostBack = hostBack.resetTo(route)
+    }
+
+    fun openHostDrawer() {
+        hostBack = hostBack.openDrawer()
+    }
+
+    fun closeHostDrawer() {
+        hostBack = hostBack.closeDrawer()
+    }
+
+    fun applyPushState(next: PushBackState) {
+        hostBack = hostBack.applyPushState(next)
+    }
     var shellRun by remember { mutableStateOf(ShellRun()) }
     var speechNotice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(nav.current) {
@@ -645,10 +883,10 @@ internal fun HostShell(
             }
         }
         available(com.phonedsh.ui.nav.PdshActionKey.OPEN_SETTINGS) { request ->
-            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSettings) nav = nav.push(PdshRoute.Settings)
+            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSettings) pushRoute(PdshRoute.Settings)
         }
         available(com.phonedsh.ui.nav.PdshActionKey.OPEN_SCHEDULES) { request ->
-            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSchedules) nav = nav.push(PdshRoute.Automation)
+            if (request is com.phonedsh.ui.nav.PdshUiHostCommand.OpenSchedules) pushRoute(PdshRoute.Automation)
         }
         available(com.phonedsh.ui.nav.PdshActionKey.PROVIDER_GET_MODELS) { request ->
             if (request is com.phonedsh.ui.nav.PdshUiHostCommand.ProviderGetModels) {
@@ -743,7 +981,7 @@ internal fun HostShell(
                     val receipt = engine.newChatSessionConfirmed(request.requestId)
                     if (receipt.confirms(request.requestId, receipt.sessionId, null)) {
                         if (draft.isNotEmpty()) engine.chatDraftChanged(draft)
-                        nav = PdshNavState(listOf(PdshRoute.Chat))
+                        resetTo(PdshRoute.Chat)
                     }
                 }
             }
@@ -813,13 +1051,23 @@ internal fun HostShell(
     // rather than inside the remembered walk.
     val shownFacts = PredictiveBack.measured(facts).copy(bluetooth = bluetoothFacts, ssh = sshFacts, androidAdb = androidAdbFacts, tonoAccount = tonoAccountFacts, lan = lanFacts)
     LaunchedEffect(chatUi.commandExecution?.id) {
-        if (chatUi.commandExecution != null) nav = nav.push(PdshRoute.CommandResult)
+        if (chatUi.commandExecution != null) pushRoute(PdshRoute.CommandResult)
     }
     // The model may have saved a new target with android_connect since the last read.
     LaunchedEffect(nav.current) {
         if (nav.current == PdshRoute.AndroidAdb) androidAdb.refresh()
     }
-    var drawerOpen by remember { mutableStateOf(false) }
+    // The drawer's open state is the contract's DRAWER overlay (`interaction.md`
+    // §1 rule 9), so the system back and the close button consume the same layer.
+    val drawerOpen = hostBack.drawerOpen
+    // Opening the drawer on the PC segment asks the PC for its own session list;
+    // the cached roster is already painted from the controller, so an offline or
+    // reconnecting PC never waits on this read (and never falls back to 手机).
+    LaunchedEffect(drawerOpen, pcState?.backend, pcState?.presence?.isOnline) {
+        if (drawerOpen && pcState?.backend == PcBackend.PC && pcState?.presence?.isOnline == true) {
+            pcController?.retryPcRoster()
+        }
+    }
     // The drawer stays mounted after the host closes it (selecting a session, a tab,
     // a route) so its close motion can run (spec/ui/v1/interaction.md §1 rule 8);
     // HomeDrawer reports the end of that motion through onClose.
@@ -885,32 +1133,54 @@ internal fun HostShell(
         LaunchedEffect(state, webFaceOnLaunch) {
             if (webFaceOnLaunch && !webFaceOpened && state is EngineHostState.Running) {
                 webFaceOpened = true
-                nav = nav.push(PdshRoute.WebSurface)
+                pushRoute(PdshRoute.WebSurface)
             }
         }
-        // `spec/ui/v1/README.md` §5 back-gesture: one gesture pops one level, and the
-        // root page exits the app. The chain is three deep because two of its levels
-        // are not routes: the drawer, the top route's own inner level (a sheet's
-        // child page, a folder drill-down, an embedded preview — registered by the
-        // route through `PdshBackLevel`), then the route stack. When none of the
-        // three can consume the gesture no callback is registered, which is what
-        // leaves "exit the app" to the platform's own default behaviour.
+        // `spec/ui/v1/README.md` §5 back-gesture: one gesture consumes exactly
+        // one layer in `interaction.md` §4 rule 5's order (sheet, drawer, stack,
+        // root). [BackCoordinator] is that order's only owner; this host supplies
+        // the two inner levels a route owns:
         //
-        // L62 adds a fourth level *above* the route stack: the probe is the home
-        // address's host-owned face, so while it is showing, one gesture leaves it
-        // for the product home instead of closing the app.
+        //   * STACK — the rendered page's own inner level (`PdshBackLevel`: a
+        //     folder drill-down, an embedded preview), then the route pop;
+        //   * SHEET — a mounted `PdshSheet`, whose own inner stack pops before
+        //     the sheet closes (§2 rule 9). The sheet layer is backed by the one
+        //     [SheetBackHost] this host owns, so page sheets register on the same
+        //     decider rather than a per-sheet chain.
+        //
+        // The probe is the host's own face *at* the home address (L62), not a
+        // route: while it is showing, its root back leaves it for the product
+        // home. Passing `onExit` only for that case keeps the real root free of a
+        // callback, which is what leaves "exit the app" (and the platform's
+        // back-to-home animation) to the platform itself.
         val backLevel = remember { PdshBackLevel() }
-        PdshBackHandler(enabled = drawerOpen || probeOpen || backLevel.available || nav.canGoBack) {
-            when {
-                drawerOpen -> drawerOpen = false
-                probeOpen -> {
-                    probeOpen = false
-                    nav = PdshNavState(listOf(PdshRoute.Chat))
-                }
-                backLevel.consume() -> Unit
-                else -> nav = nav.pop()
-            }
+        val sheetBackHost = remember { SheetBackHost() }
+        val sheetBackLayer = remember(sheetBackHost) {
+            observingBackLayer(TokenBackLayer.SHEET) { sheetBackHost.dispatch() }
         }
+        val stackBackLayer = remember(backLevel) {
+            observingBackLayer(TokenBackLayer.STACK) { backLevel.consume() }
+        }
+        val activityBackDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+        BackCoordinator(
+            state = hostBack.pushBack,
+            onStateChange = { next -> applyPushState(next) },
+            layers = remember(sheetBackLayer, stackBackLayer) {
+                listOf(sheetBackLayer, stackBackLayer)
+            },
+            // Only the diagnostic face intercepts the root; anywhere else the
+            // platform's default exit stays in charge (`BackCoordinator` then
+            // registers no callback at all).
+            onExit = if (probeOpen) {
+                {
+                    probeOpen = false
+                    resetTo(PdshRoute.Chat)
+                }
+            } else {
+                null
+            },
+            enabled = hostBack.pushBack.canConsumeBack || probeOpen,
+        )
         val note = notice ?: speechNotice ?: routeNote
         val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         Box(Modifier.fillMaxSize().background(tokens.colors.selector)) {
@@ -936,7 +1206,11 @@ internal fun HostShell(
                 val homeTab = if (probeOpen) null else nav.selectedHomeTab()
                 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
                 val imeVisible = WindowInsets.isImeVisible
-                val showTabBar = homeTab != null && !imeVisible
+                // §4 rule 4: the bar follows the *selected tab's* contract depth
+                // and leaves while the keyboard is up. `PushBackState` owns both
+                // facts; the host only supplies the measured IME state.
+                val showTabBar = homeTab != null &&
+                    hostBack.withKeyboard(imeVisible).pushBack.tabBarVisible
                 Box(
                     Modifier
                         .weight(1f)
@@ -947,16 +1221,20 @@ internal fun HostShell(
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
+                        // §2 rule 9 / §4 rule 5: the same chain the SHEET layer
+                        // above dispatches to, so a page-owned or route-presented
+                        // sheet is the layer this host's back closes first.
+                        sheetBackHost = sheetBackHost,
                         onNavigate = { route ->
-                            drawerOpen = false
-                            nav = nav.push(route)
+                            closeHostDrawer()
+                            pushRoute(route)
                         },
-                        onBack = { nav = nav.pop() },
+                        onBack = { popRoute() },
                         onHome = {
                             // 原生恢复 returns to the *product* home, never back
                             // into the diagnostic face the person left open.
                             probeOpen = false
-                            nav = PdshNavState(listOf(PdshRoute.Chat))
+                            resetTo(PdshRoute.Chat)
                         },
                         onHostAction = { action ->
                             // L72: one action is a navigation edge, not a handoff —
@@ -983,7 +1261,7 @@ internal fun HostShell(
                                 lanDiscovery.handle(action)
                             } else if (action is PdshHostAction.OpenWorkspaceFiles) {
                                 notice = null
-                                nav = nav.push(PdshRoute.Files(action.id.ifBlank { null }))
+                                pushRoute(PdshRoute.Files(action.id.ifBlank { null }))
                             } else if (action == PdshHostAction.RestartRuntime) {
                                 engine.restartChatEngine()
                                 notice = null
@@ -1201,7 +1479,38 @@ internal fun HostShell(
                         // it (see `HostPhonePermissions.kt`).
                         onPhonePermissionRequest = onPhonePermissionRequest,
                         onPhonePermissionSettings = onPhonePermissionSettings,
-                        onOpenDrawer = { drawerOpen = true },
+                        // PCLink C5: the two PC routes render the controller's
+                        // snapshot; the scanner is a host composable because :lib
+                        // carries no camera dependency.
+                        pcPairingState = pcPairingState,
+                        pcConnectedState = pcConnectedState,
+                        pcScannerContent = pcScannerContent,
+                        connectedComputerValue = pcConnectedValue,
+                        onPcScan = pcWiring::onScan,
+                        onPcToggleOtherWays = pcWiring::onToggleOtherWays,
+                        onPcPairingLinkChange = pcWiring::onPairingLinkChange,
+                        onPcPairWithLink = pcWiring::onPairWithLink,
+                        onPcPairingCodeChange = pcWiring::onPairingCodeChange,
+                        onPcPairManually = pcWiring::onPairManually,
+                        onPcCancelPairing = pcWiring::onCancelPairing,
+                        onPcRetry = pcWiring::onRetry,
+                        onPcDone = {
+                            pcWiring.onDone()
+                            popRoute()
+                        },
+                        onPcClose = {
+                            pcWiring.onClose()
+                            popRoute()
+                        },
+                        onPcCancelScanner = pcWiring::onCancelScanner,
+                        onPcUnpair = pcWiring::onUnpairConfirmed,
+                        onPcDismissUnpairFailure = pcWiring::onDismissUnpairFailure,
+                        onPcConnectionScreenOpened = pcWiring::onConnectionScreenOpened,
+                        githubAgent = githubAgentFacts,
+                        onGitHubAgentSaveToken = { token -> githubAgentSettings.saveToken(token) },
+                        onGitHubAgentDeleteToken = { githubAgentSettings.deleteToken() },
+                        onGitHubAgentAllowWrites = { value -> githubAgentSettings.setAllowWrites(value) },
+                        onOpenDrawer = { openHostDrawer() },
                         onOpenSubagentSession = engine::openSubagentSession,
                         onLoadEarlierChatTranscript = engine::loadEarlierSubagentTranscript,
                         onFilesImportRequest = onPickWorkspaceFile,
@@ -1260,7 +1569,7 @@ internal fun HostShell(
                                 )
                                 if (failure == null) {
                                     notice = null
-                                    nav = PdshNavState(listOf(PdshRoute.Chat))
+                                    resetTo(PdshRoute.Chat)
                                 }
                                 failure
                             },
@@ -1284,11 +1593,11 @@ internal fun HostShell(
                                     onStart = onStart,
                                     onStop = onStop,
                                     onRunTurn = onRunTurn,
-                                    onOpenDrawer = { drawerOpen = true },
-                                    onOpenConfiguration = { nav = nav.push(PdshRoute.Configuration) },
-                                    onOpenRuntime = { nav = nav.push(PdshRoute.Runtime) },
+                                    onOpenDrawer = { openHostDrawer() },
+                                    onOpenConfiguration = { pushRoute(PdshRoute.Configuration) },
+                                    onOpenRuntime = { pushRoute(PdshRoute.Runtime) },
                                     onOpenWorkbench = { section, path ->
-                                        nav = nav.push(
+                                        pushRoute(
                                             PdshRoute.Workbench(previewPath = path, section = section),
                                         )
                                     },
@@ -1300,9 +1609,9 @@ internal fun HostShell(
                                     turn = turn,
                                     providerConfigured = providerConfigured,
                                     onHostNotice = { notice = it },
-                                    onOpenDrawer = { drawerOpen = true },
-                                    onOpenModelProvider = { nav = nav.push(PdshRoute.ModelProvider) },
-                                    onOpenChat = { nav = nav.push(PdshRoute.Chat) },
+                                    onOpenDrawer = { openHostDrawer() },
+                                    onOpenModelProvider = { pushRoute(PdshRoute.ModelProvider) },
+                                    onOpenChat = { pushRoute(PdshRoute.Chat) },
                                 )
                             }
                         },
@@ -1315,13 +1624,13 @@ internal fun HostShell(
                                 engine = engine,
                                 state = state,
                                 turn = turn,
-                                onBack = { nav = nav.pop() },
+                                onBack = { popRoute() },
                                 onHostNotice = { notice = it },
                                 // L69: selecting a row (or 新建会话) opens the chat at
                                 // that conversation. The list stays the drawer's
                                 // 会话 page; the person lands on the transcript they
                                 // chose instead of an empty one.
-                                onOpenChat = { nav = nav.push(PdshRoute.Chat) },
+                                onOpenChat = { pushRoute(PdshRoute.Chat) },
                             )
                         },
                         // The chain's middle level: what the top route can still go
@@ -1384,12 +1693,14 @@ internal fun HostShell(
                         artifacts = artifactFacts,
                     )
                 }
-                if (showTabBar && homeTab != null) {
+                if (showTabBar) {
                     HomeTabBar(
                         selection = homeTab,
                         onSelect = { tab ->
-                            drawerOpen = false
-                            nav = nav.selectHomeTab(tab)
+                            // A re-tap is a no-op inside `selectTab` (§4 rule 2), and
+                            // the target tab's route stack is the only one this host owns.
+                            closeHostDrawer()
+                            selectHomeTab(tab)
                         },
                     )
                 }
@@ -1473,14 +1784,25 @@ internal fun HostShell(
                     facts = drawerFacts,
                     isOpen = drawerOpen,
                     state = drawerUiState,
-                    onClose = { drawerOpen = false; drawerMounted = false },
+                    // One back, one layer: the drawer's dialog forwards the gesture
+                    // to the Activity's [BackCoordinator] and the host starts the
+                    // same close motion. The guard keeps a gesture made in the
+                    // one-frame gap after the overlay closed (session chosen,
+                    // drawer still animating) from reaching the platform default,
+                    // which would exit the app instead of doing nothing.
+                    onBackPressed = {
+                        if (hostBack.pushBack.canConsumeBack || probeOpen) {
+                            activityBackDispatcher?.onBackPressed()
+                        }
+                    },
+                    onClose = { closeHostDrawer(); drawerMounted = false },
                     onCreateSession = {
                         val requestId = StateRequestId(UUID.randomUUID().toString())
                         val receipt = engine.newChatSessionConfirmed(requestId)
                         val created = receipt.confirms(requestId, receipt.sessionId, null)
                         if (created) {
                             notice = null
-                            nav = PdshNavState(listOf(PdshRoute.Chat))
+                            resetTo(PdshRoute.Chat)
                             settingsRevision++
                         } else {
                             drawerSnapshotFailure = "新会话没有创建成功，列表未改变。请重试。"
@@ -1494,7 +1816,7 @@ internal fun HostShell(
                         if (created) {
                             notice = null
                             drawerSnapshotFailure = null
-                            nav = PdshNavState(listOf(PdshRoute.Chat))
+                            resetTo(PdshRoute.Chat)
                             settingsRevision++
                         }
                         created
@@ -1532,8 +1854,7 @@ internal fun HostShell(
                     onOpenSession = { id ->
                         engine.openChatSession(id)
                         notice = null
-                        drawerOpen = false
-                        nav = PdshNavState(listOf(PdshRoute.Chat))
+                        resetTo(PdshRoute.Chat)
                     },
                     onArchiveSession = { request: HomeDrawerArchiveRequest ->
                         val receipt = withContext(Dispatchers.IO) {
@@ -1555,10 +1876,207 @@ internal fun HostShell(
                         } else HomeDrawerArchiveResult.Failed(request.requestId, request.sessionId, "归档未确认，原会话仍保留")
                         result
                     },
+                    // PCLink C5: the drawer's segment reads/writes the P18 value
+                    // through the controller. Selecting PC while unpaired opens the
+                    // PC empty card, never the phone list.
+                    pcDrawer = pcDrawerState,
+                    onSelectPcBackend = pcWiring::onSelectBackend,
+                    onOpenPcPairing = { pushRoute(PdshRoute.PcPairing) },
+                    onRetryPc = pcWiring::onRetryRoster,
+                    onOpenConnectedComputer = { pushRoute(PdshRoute.ConnectedComputer) },
                 )
             }
         }
     }
+}
+
+/**
+ * The host half of PCLink C5: it keeps the page-local draft stages and maps the
+ * controller snapshot through `PcUiMapping`. The controller stays the owner of
+ * the protocol/record/roster facts; this class only remembers what the page
+ * itself would remember (the 配对链接/配对码 drafts, the open scanner sheet and
+ * whether an unpair was attempted).
+ *
+ * It is deliberately a plain object rather than a second state machine: every
+ * callback is one controller intent from `PcUiMapping`, and the state getters
+ * are pure projections of the caller's latest [PcWorkspaceState]. The JVM wiring
+ * test drives the same methods the pages call.
+ */
+internal class HostPcLinkWiring(
+    private val controller: PcWorkspaceController?,
+    private val requestCameraPermission: () -> Unit = {},
+) {
+    /** The page-local pairing draft/scanner stage, before controller facts win. */
+    var pairingUiState by mutableStateOf(PCPairingUiState())
+        private set
+
+    private var unpairAttempted by mutableStateOf(false)
+
+    /** The pairing page snapshot the route renders. */
+    fun pairingState(source: PcWorkspaceState?): PCPairingUiState =
+        source?.toPcPairingUiState(pairingUiState) ?: pairingUiState
+
+    /** The connected-computer snapshot; an unpair failure is the attempt's own. */
+    fun connectedState(source: PcWorkspaceState?): ConnectedComputerUiState {
+        if (source == null) return ConnectedComputerUiState()
+        return source.toConnectedComputerUiState(
+            unpairFailure = if (unpairAttempted) source.lastError?.message else null,
+        )
+    }
+
+    /** The 手机 | PC segment plus the PC-scope list. */
+    fun drawerState(source: PcWorkspaceState?): PcDrawerUiState =
+        source?.toPcDrawerUiState() ?: PcDrawerUiState()
+
+    /** 已连接的电脑's trailing value, or `null` when the host has no seam. */
+    fun settingsValue(source: PcWorkspaceState?): String? = source?.toPcSettingsValue()
+
+    // ---- Pairing page callbacks ----------------------------------------
+
+    /** 扫码连接. A denied/absent camera becomes the page's one honest state. */
+    fun onScan() {
+        val target = controller ?: return
+        pairingUiState = target.startPcScan(pairingUiState)
+        if (target.state.value.camera == PcCameraAvailability.DENIED) {
+            requestCameraPermission()
+        }
+    }
+
+    fun onToggleOtherWays() {
+        pairingUiState = pairingUiState.toggleOtherWays()
+    }
+
+    fun onPairingLinkChange(value: String) {
+        pairingUiState = pairingUiState.withPairingLink(value)
+    }
+
+    fun onPairWithLink() {
+        val target = controller ?: return
+        pairingUiState = target.pairWithPcLink(pairingUiState)
+    }
+
+    fun onPairingCodeChange(value: String) {
+        pairingUiState = pairingUiState.withPairingCode(value)
+    }
+
+    fun onPairManually() {
+        val target = controller ?: return
+        pairingUiState = target.pairWithPcCode(pairingUiState)
+    }
+
+    fun onQrDecoded(payload: String) {
+        val target = controller ?: return
+        target.pairWithPcQr(payload)
+        pairingUiState = pairingUiState.scannerDismissed()
+    }
+
+    fun onCameraUnavailable() {
+        controller?.onCameraPermissionResult(false)
+        pairingUiState = pairingUiState.cameraUnavailable()
+    }
+
+    fun onCancelPairing() {
+        val target = controller
+        if (target != null) {
+            pairingUiState = target.cancelPcPairing()
+        } else {
+            pairingUiState = PCPairingUiState()
+        }
+    }
+
+    fun onRetry() {
+        val target = controller ?: return
+        pairingUiState = target.retryPcPairing(pairingUiState)
+        if (target.state.value.camera == PcCameraAvailability.DENIED) {
+            requestCameraPermission()
+        }
+    }
+
+    fun onDone() {
+        val target = controller
+        pairingUiState = target?.finishPcPairing() ?: PCPairingUiState()
+    }
+
+    fun onClose() {
+        if (controller?.state?.value?.pairing?.isBusy == true) controller.cancelPairing()
+        pairingUiState = PCPairingUiState()
+    }
+
+    fun onCancelScanner() {
+        pairingUiState = pairingUiState.scannerDismissed()
+    }
+
+    // ---- Drawer / connected page callbacks ------------------------------
+
+    fun onSelectBackend(backend: PcDrawerBackend) {
+        controller?.selectPcBackend(backend)
+    }
+
+    fun onRetryRoster() {
+        controller?.retryPcRoster()
+    }
+
+    fun onUnpairConfirmed() {
+        unpairAttempted = true
+        controller?.unpairPc()
+    }
+
+    fun onDismissUnpairFailure() {
+        unpairAttempted = false
+    }
+
+    fun onConnectionScreenOpened() {
+        controller?.connectionScreenOpened()
+    }
+}
+
+/**
+ * The scanner slot `PCPairingPage` hands to the host. `:lib` carries no camera
+ * dependency, so CameraX + ZXing live here and the page only sees a composable.
+ * A bind that fails after `checkCameraForScanning` reports the unavailable page
+ * state rather than leaving a dead preview on screen.
+ */
+@Composable
+private fun PcQrScannerContent(
+    controller: PcWorkspaceController,
+    onDecoded: (String) -> Unit,
+    onUnavailable: () -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = context.findLifecycleOwner()
+    if (lifecycleOwner == null) {
+        LaunchedEffect(Unit) { onUnavailable() }
+        return
+    }
+    val previewView = remember(context) { PreviewView(context) }
+    val scanner = remember(context, lifecycleOwner) { PcQrScanner(context, lifecycleOwner) }
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    DisposableEffect(scanner) { onDispose { scanner.close() } }
+    AndroidView(
+        factory = { previewView },
+        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+    )
+    LaunchedEffect(scanner, previewView) {
+        val availability = scanner.start(
+            previewView = previewView,
+            onDecoded = { payload ->
+                // The analysis executor must not write Compose state directly.
+                mainExecutor.execute { onDecoded(payload) }
+            },
+            // A late provider/bind failure is not a permission answer: it is the
+            // same page state as a camera that was never there, so the scanner
+            // closes and 其他方式 stays available.
+            onUnavailable = onUnavailable,
+        )
+        if (availability != PcCameraAvailability.AVAILABLE) onUnavailable()
+    }
+}
+
+/** The Activity in the context chain, or `null` when this is not an Activity tree. */
+private tailrec fun Context.findLifecycleOwner(): LifecycleOwner? = when (this) {
+    is LifecycleOwner -> this
+    is ContextWrapper -> baseContext.findLifecycleOwner()
+    else -> null
 }
 
 /**
@@ -1743,6 +2261,9 @@ private fun actionLabel(action: PdshHostAction): String = when (action) {
     is PdshHostAction.AndroidAdbSave -> "保存 Android ADB"
     is PdshHostAction.AndroidAdbCheck -> "测试 Android ADB 连接"
     PdshHostAction.AndroidAdbCancel -> "停止当前 Android 操作"
+    PdshHostAction.AndroidAdbScan -> "扫描局域网电视"
+    is PdshHostAction.AndroidAdbConnect -> "连接发现的电视"
+    PdshHostAction.AndroidAdbCancelConnect -> "取消电视连接"
     is PdshHostAction.TonoAccountRequestCode -> "获取 Tono 验证码"
     is PdshHostAction.TonoAccountSignIn -> "登录 Tono 账号"
     PdshHostAction.TonoAccountSignOut -> "退出 Tono 账号"
@@ -1795,11 +2316,17 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     PdshRoute.Bluetooth -> null
     PdshRoute.Ssh, is PdshRoute.SshEditor -> null
+    PdshRoute.GitHubAgent -> null
     PdshRoute.AndroidAdb -> null
     PdshRoute.TonoAccount -> null
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null
+
+    // PCLink C5 is live: both pages render the controller's own pairing/record
+    // state, and their failures are the page's own lines. A route-wide note would
+    // be a second, weaker version of that disclosure.
+    PdshRoute.PcPairing, PdshRoute.ConnectedComputer -> null
 
     // The rules are real: they are the App's own /v1/http policy. The note is
     // what keeps them from being mistaken for the DSH settings allow-list.

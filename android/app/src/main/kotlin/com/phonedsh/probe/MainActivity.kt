@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.probe
 
+import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -113,6 +114,19 @@ class MainActivity : ComponentActivity() {
             // is the honest degradation rather than a refusal to work.
             engine.runTurn()
         }
+    }
+
+    /**
+     * PC pairing's one camera prompt (C5). The scanner itself lives in
+     * `:app/probe/pc`; the Activity owns only the Android runtime grant. A
+     * denial is reported to the controller, whose state lets the page show
+     * `相机不可用或未授权…` while paste-link/manual-code pairing still works.
+     */
+    private val cameraPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        Log.i(TAG, "CAMERA_ANSWER granted=$granted")
+        engine.pcWorkspace?.onCameraPermissionResult(granted)
     }
 
     /**
@@ -376,6 +390,19 @@ class MainActivity : ComponentActivity() {
         // the system's own app-info screen. Re-walking on resume is the only way the
         // matrix reports what the platform says now instead of what it said before.
         permissionRevision++
+    }
+
+    /**
+     * Called by the PC pairing page before it opens the scanner. This is the
+     * only CAMERA runtime request in the app; POST_NOTIFICATIONS and the phone
+     * permission matrix keep their own launchers above.
+     */
+    internal fun requestPcCameraPermission() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            engine.pcWorkspace?.onCameraPermissionResult(true)
+            return
+        }
+        cameraPermission.launch(Manifest.permission.CAMERA)
     }
 
     /**

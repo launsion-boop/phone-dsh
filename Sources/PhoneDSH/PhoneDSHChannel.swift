@@ -128,6 +128,10 @@ actor PhoneDSHChannelCoordinator {
     private let eventBus: PhoneDSHEventBus
     private var connections: [UUID: PhoneDSHConnection] = [:]
     private var latestConnectionID: UUID?
+    /// Connection whose HELLO was accepted last. Diagnostic only: unlike
+    /// `latestConnectionID` it is never set by a bare socket registration, so
+    /// an App bind can tell whether its transport would use the newest HELLO.
+    private var latestHelloConnectionID: UUID?
     private var hellos: [UUID: HelloPayload] = [:]
     private var connectionCount: UInt64 = 0
     private var helloCount: UInt64 = 0
@@ -263,6 +267,7 @@ actor PhoneDSHChannelCoordinator {
         }
         connections[connection.id] = connection
         latestConnectionID = connection.id
+        latestHelloConnectionID = connection.id
         hellos[connection.id] = payload
         helloCount &+= 1
         eventBus.send(.workerHello(PhoneDSHWorkerHello(bootID: payload.bootID,
@@ -359,6 +364,21 @@ actor PhoneDSHChannelCoordinator {
     func currentConnection() -> PhoneDSHConnection? {
         guard let latestConnectionID else { return nil }
         return connections[latestConnectionID]
+    }
+
+    /// Diagnostic view of the connection an App transport would select. No
+    /// payload, URL or credential is included.
+    func channelSelectionSnapshot() -> PhoneDSHChannelSelection {
+        let current = currentConnection()
+        let currentHello = current.flatMap { hellos[$0.id] }
+        let latestHello = latestHelloConnectionID.flatMap { hellos[$0] == nil ? nil : $0 }
+        return PhoneDSHChannelSelection(
+            currentConnectionID: current?.id,
+            currentWorkerBootID: currentHello?.bootID,
+            latestHelloConnectionID: latestHello,
+            latestHelloCount: helloCount,
+            connectionCount: connections.count,
+            isCurrentConnectionLatestHello: current != nil && latestHello == current?.id)
     }
 
     func waitForChannel(excluding: Set<UUID>, timeout: TimeInterval) async throws -> PhoneDSHConnection {

@@ -79,7 +79,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -87,7 +86,6 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -105,9 +103,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -139,6 +134,8 @@ import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.SessionsMetrics
 import com.phonedsh.ui.ShellFilesMetrics
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetBackHost
 import com.phonedsh.ui.surface.SettingsLargeTitle
 import com.phonedsh.ui.surface.SettingsNavAction
 import com.phonedsh.ui.surface.SettingsNavBar
@@ -147,7 +144,6 @@ import com.phonedsh.ui.surface.SettingsSectionLabelIndent
 import com.phonedsh.ui.surface.SettingsSubPageFootnote
 import com.phonedsh.ui.surface.settingsLabelStyle
 import com.phonedsh.ui.theme.LocalUiTokens
-import com.phonedsh.ui.theme.materialSheetColors
 import com.phonedsh.ui.theme.LocalUiType
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -1155,8 +1151,14 @@ public fun NativeAutomationPage(
     }
 }
 
-/** The editor is a modal sheet over its catalog or detail parent, as on iOS. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * The editor is a modal sheet over its catalog or detail parent, as on iOS.
+ *
+ * The editor is not a `pageDetents` site, so it takes the contract default
+ * (system large) instead of the private 92% of the screen this page used to
+ * impose. 取消 leaves through the shared sheet's platform hide; the host sees
+ * the cancel only after the sheet has gone.
+ */
 @Composable
 private fun AutomationEditorSheet(
     state: AutomationScreenState,
@@ -1165,28 +1167,20 @@ private fun AutomationEditorSheet(
     onDraftChange: ((AutomationScheduleDraft) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = LocalUiTokens.current
-    val palette = materialSheetColors(tokens)
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    LaunchedEffect(sheetState) { sheetState.show() }
-    BoxWithConstraints(modifier.fillMaxSize()) {
-        val editorSheetHeight = maxHeight * AUTOMATION_EDITOR_SHEET_HEIGHT_RATIO
-        ModalBottomSheet(
-            onDismissRequest = onCancel,
-            sheetState = sheetState,
-            modifier = Modifier.fillMaxWidth(),
-            containerColor = palette.container,
-            contentColor = palette.content,
-        ) {
-            Box(Modifier.fillMaxWidth().height(editorSheetHeight)) {
-                ScheduleEditorPage(
-                    state = state,
-                    onCancel = onCancel,
-                    onSubmit = onSubmit,
-                    onDraftChange = onDraftChange,
-                )
-            }
-        }
+    val sheetBackHost = remember { SheetBackHost() }
+    PdshSheet(
+        // Not a pageDetents site: the contract's default id/set applies.
+        pageId = "default",
+        backHost = sheetBackHost,
+        onDismissRequest = onCancel,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        ScheduleEditorPage(
+            state = state,
+            onCancel = { sheetBackHost.dispatch() },
+            onSubmit = onSubmit,
+            onDraftChange = onDraftChange,
+        )
     }
 }
 
@@ -2644,7 +2638,6 @@ private const val AUTOMATION_DETAIL_MENU_EDIT_TAG: String = "automation.detail.m
 private const val AUTOMATION_DETAIL_MENU_DELETE_TAG: String = "automation.detail.menu.delete"
 private const val AUTOMATION_DETAIL_MENU_TARGET: Float = 44f
 private const val AUTOMATION_DETAIL_MENU_GLYPH: Float = 22f
-private const val AUTOMATION_EDITOR_SHEET_HEIGHT_RATIO: Float = 0.92f
 private const val AUTOMATION_EDITOR_SAVING_LABEL: String = "保存中…"
 
 private val WHITESPACE: Regex = Regex("\\s+")

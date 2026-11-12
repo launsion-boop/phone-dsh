@@ -31,6 +31,9 @@ class P0CompletenessTests(unittest.TestCase):
         self.copy("spec/ui/v1/tools/extract_ios_pages.py")
         self.copy("spec/ui/v1/tools/test_extract_ios_pages.py")
         self.copy("spec/ui/v1/tools/ui_check.py", "spec/ui/v1/tools/ui_check_real.py")
+        # The real extractor tests read the probe project spec (inactive build
+        # flags), so the isolated fixture needs the same file.
+        self.copy("examples/probe-app/project.yml")
         self.copy("spec/v1/tools/spec_golden.py")
         self.copy("spec/platform/tools/platform_check.py", "spec/platform/tools/platform_lint_real.py")
         shutil.copytree(GOLDEN, self.root / "spec/ui/v1/golden/page-completeness")

@@ -116,7 +116,10 @@ class ChatRowsTimelineTest {
                 )
             }
         }
-        compose.onNodeWithText("Open file").performClick()
+        // The shared menu wrapper is one merged long-press node (rule 1), so the
+        // link lives in the unmerged tree; a tap on the link's own glyphs is still
+        // the markdown body's action, not the row's.
+        compose.onNodeWithText("Open file", useUnmergedTree = true).performClick()
         assertEquals(resource, opened)
     }
 }

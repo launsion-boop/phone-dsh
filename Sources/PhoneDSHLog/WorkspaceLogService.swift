@@ -8,6 +8,7 @@
 // memory proxy. Cold recovery runs on open so the actor is usable immediately.
 
 import Foundation
+import PhoneDSHStandardError
 import PhoneDSHWire
 
 /// HELLO positions the host needs after recovery (channel.md §4.1, D17).
@@ -264,8 +265,8 @@ public actor WorkspaceLog: WorkspaceLogging {
         }
         let parts = prefixes.map { "\($0)=\(sums[$0] ?? 0)" }.joined(separator: " ")
         let increment = mutation.op == .write ? mutation.data.count : 0
-        let line = "[vfs] op=\(mutation.op) path=\(mutation.path) +\(increment) total=\(total) \(parts)\n"
-        FileHandle.standardError.write(Data(line.utf8))
+        let line = "[vfs] op=\(mutation.op) path=\(mutation.path) +\(increment) total=\(total) \(parts)"
+        PhoneDSHStandardError.write(line)
     }
 
     /// Cumulative WAL acks. A new subscriber receives the retained recent acks

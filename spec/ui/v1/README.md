@@ -22,11 +22,9 @@ Status: P0 · spec 版本 1 · MIT。适用端：iOS PR22 基线 `examples/probe
 | 未测项（unmeasured） | 值读不到；记 `null` + `provenance.tier = unmeasured`（来源可写定义处 `file:line`），**禁止编造**。 |
 | 语义等价 | 两端交互结果相同；呈现形式允许不同，差异必须落在 §5 白名单内。 |
 
-MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**；
-截图只作辅证，验收比对的是投影出的行序列。
+MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**；截图只作辅证，验收比对的是投影出的行序列。
 
-同一轮可有多个独立的过程组。Android 会话列表用每组首个可见事件的完整行 ID
-区分它们。事件类型后缀不能用作身份，后续工具结果不应改动组的身份。
+同一轮可有多个独立的过程组。Android 会话列表用每组首个可见事件的完整行 ID 区分它们。事件类型后缀不能用作身份，后续工具结果不应改动组的身份。
 本 lane 的自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
 
 ```
@@ -34,9 +32,7 @@ python3 spec/ui/v1/tools/ui_check.py --root .
 python3 -m unittest spec.ui.v1.tools.test_ui_check -v
 ```
 
-**验收顺序**：除 `ui_check.py --root .` 和 `test_ui_check` 外，P0 还运行页面结构及源码契约检查。
-`extract_ios_pages.py --check` 的缺失或过期契约必须修复；不能仅因页面出现在下表就视为结构契约完整。
-源码提取不证明条件编译配置或页面行为，相关限制分别见 baseline GAP-19 和 GAP-21。
+**验收顺序**：除 `ui_check.py --root .` 和 `test_ui_check` 外，P0 还运行页面结构及源码契约检查。 `extract_ios_pages.py --check` 的缺失或过期契约必须修复；不能仅因页面出现在下表就视为结构契约完整。 源码提取不证明条件编译配置或页面行为，相关限制分别见 baseline GAP-19 和 GAP-21。
 
 checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line` 来源，且该行必须仍存在并包含 token 名/值（页面层长度可用 `expect` 片段；来源过期即失败）；颜色、字号、间距必须
 来自 `HomeSpec.swift`；仍被 PR22 使用的组件 token（0.5 hairline、ShimmerText 动效、发送/复制动效）保留 owning page/component 出处；只有页面层几何/动效可标 `tier: page`；WCAG 对比度（正文 4.5 / 大字与非文本 3.0，已登记债
@@ -55,9 +51,13 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | 页面 | 职责 | 入口 | 导航关系 | P5 |
 |---|---|---|---|---|
 | ChatPage | PR22 首页：对话、输入坞、审批/问题卡、目标条；空对话也是首页 | RootView 的默认原生面（NativeShell） | 根页；自绘页头：抽屉 / 改名 / 设备+更多（含产物、工作区、运行状态、插件与工具、导出） | must |
-| ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail 示例连接器 | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；设备 push BluetoothDevicesPage | must |
+| ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail / GitHub | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；设备 push BluetoothDevicesPage | must |
+| GmailConnectorPage | iPhone Gmail 只读授权、搜索、正文预览、断开 | 发现 › Gmail | push；授权由 Google 提供，其他平台单独接入 | later |
+| GmailMessagePage | iPhone Gmail 邮件正文预览 | 发现 › Gmail › 邮件行 | push；返回邮件列表 | later |
+| GitHubConnectorPage | iPhone GitHub OAuth、仓库列表和断开 | 发现 › GitHub（在 Gmail 下方） | push；仓库行打开 GitHub | later |
 | SessionsPage | 抽屉会话列表（PR22 已不是产品首页） | **预览专用（`-uiPreview sessions`、`DrawerPreview`）；产品抽屉换 HomeDrawer** | 预览壳；选中会话即关闭 | later |
 | SessionActivityPage | 单会话的步骤/用量/上下文 | **触发点缺失（sheet 已接线但无人置位，基线不可达）** | sheet | later |
+| NativeTurnUsageDetails | 单个回合的 token 用量明细：缓存命中、未缓存输入、缓存读取、缓存写入、输出、其中推理、合计 | Chat 回合尾部「用量」动作 | sheet（medium detent，契约 `turn-usage.json`） | must |
 | FilesPage | 工作区文件树、导入 | Chat 工具写出路径；文件段内联 | 页面栈；文件行 push `PreviewSurface`（独立预览面，契约 `pages/preview-surface.json`） | must |
 | NativeWorkbenchPage | 会话内工作面板（文件 / 命令两段） | 对话里点工具写出的文件路径 | sheet，`完成` 关闭 | must |
 | PDSHShellPage | 只读加速器命令（argv 来自 caps） | 文件段旁的「命令」段 | 段内页面 | must |
@@ -81,9 +81,9 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | NativeConfigurationPage | 会话级与插件配置 | 页头 `⋯` → 本会话设置；设置 › 插件与工具 | sheet | must |
 | WebSearchSettingsPage | 网页搜索开关与后端 | 插件配置 → 网页搜索与抓取 | push / sheet | must |
 | MCPSettingsPage | MCP 服务器列表与编辑 | 设置 › 权限与隐私 › MCP 与局域网设备 | push；编辑子页 MCPEditorPage | must |
-| NativeAutomationPage | 定时任务、计划详情与历史 | 设置 › 定时任务；`-uiPreview sessions.schedules` | push；子页 ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
+| NativeAutomationPage | 定时任务、计划详情与历史 | 设置 › 定时任务；`-uiPreview sessions.schedules` | sheet（`NavigationStack`，`SettingsPage.swift:115`）；子页 push：ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
 | EgressAllowListPage | 出网白名单 | 设置 › 网络访问 | push | must |
-| GitHubAgentSettingsPage | Agent GitHub 写入凭据：fine-grained token（Contents/Pull requests write）存 Keychain，写入开关存 UserDefaults；`github` 的 commit/branch/pr 只有开启后才可用 | 设置 › 权限与隐私 › GitHub Agent | push；保存/删除 token 与写入开关后需重启引擎；Android 页面待补 | later |
+| GitHubAgentSettingsPage | Agent GitHub 写入凭据：fine-grained token（Contents/Pull requests write）存 Keychain，写入开关存 UserDefaults；`github` 的 commit/branch/pr 只有开启后才可用 | 设置 › 权限与隐私 › GitHub Agent | push；保存/删除 token 与写入开关后需重启引擎；Android：`GitHubAgentSettingsPage.kt`（token 存 SecureStore，写入开关同键 `phone-dsh.github.agent.allow-writes`，`PDSH_GITHUB_AUTH`/`PDSH_GITHUB_WRITE` 由 `WorkerEnvironment` 最后写入） | must |
 | RuntimeDetailsPage | 运行时状态、停止与重启 | 设置 › 引擎 › 运行状态；Chat 页头运行状态 | sheet | must |
 | SettingsAboutPage | 版本、许可、开发者入口 | 设置 › 关于 Phone DSH | push；子页 LicensesPage | must |
 | WebSurfacePage | 完整 DSH 页面（WebView 宿主） | **iOS 已删除（495da9b5）；Android 侧是独立全屏宿主，见 `pages/_android-only.json`** | 全屏容器，不做返回栈 | later |
@@ -101,8 +101,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 
 产品抽屉是 `HomeDrawer`（`HomeDrawer.swift:12`，不是 `*Page`）：整宽「新会话」胶囊、「手机 | PC」分段（`pclink-pacing` 起位于「新会话」下方；选中态持久化 `phone-dsh.drawer.backend`，P18；PC 未配对/离线状态与能力隐藏不自动切回手机）、文件夹分组（默认「手机工作区 / Phone Workspace」；PC 分段按 DSH 工作区标题分组，`workspace/follow` 未登记会话按 cwd 最长路径归组，未归组的 PC 会话单列「未分组」，原「PC 工作区 · <电脑名>」聚合组取消）、长按会话重命名/归档；读列表时显示加载态，读取失败显示错误与「重试」而不是空状态，分组用 `LazyVStack` 以支撑 3,000+ 行。PC 后端的新会话/空会话在输入框工具栏显示「工作区」选择器（与模型胶囊同一行同样式，默认上次使用的工作区，P18 键 `phone-dsh.pc.last-workspace.<machineId>`；会话有第一轮后只显示不可改）；手机分段不显示该选择器、行为不变。PC 未配对空状态是一张小卡片（一句说明 +「连接电脑」），不再重复安装命令；安装命令只出现在配对页一次（`PCLinkInstallGuide`，与中继地址配置同文件；Windows/Android 不在 v1 范围）。命令在电脑终端运行，脚本会检查环境、安装插件、加载 `dsh web` 并显示配对二维码，扫码即完成配对。「文件夹」标题、新建文件夹、空文件夹提示与文件夹重命名/删除暂不开放（iOS `HomeDrawer.foldersEnabled`、Android `DRAWER_FOLDERS_ENABLED` 均为 false）；「定时任务」入口只在设置页保留，抽屉不再重复。它用手写契约 `pages/home-drawer.json` 进 gate，`extract_ios_pages.py` 的 `CHROME_CONTRACTS` 钉住文件与 struct。`HomeSpec.swift` 是 430×932 的页面/文字/间距/圆角值来源（#F7F7F7 page、#1A1A1A ink、16/24 body、16 chrome/20 content），不生成页面契约，由 `CHROME_VALUE_FILES` 钉住。`FilePreviewPage` 已删除（PR15），预览是独立面 `PreviewSurface`（`pages/preview-surface.json`）。
 
-页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。
-标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
+页面结构另有机器可读契约：`pages/<page-id>.json`（分区/行/动作/呈现，每项带 `file:line`）由 `tools/extract_ios_pages.py` 抽取，`tools/page_structure_check.py` 比对 Android；平台被迫差异只走 `_whitelist.json`（引用 `spec/platform/whitelist.json` 的 id），已知差异记 `_baseline.json` 只减不增；`states` 只作人读，Android 无对应页登记 `_android-only.json`，Android 同页多出的单项登记 `_android-only-items.json`（准入规则与对称判定见 [page-structure-rules.md](page-structure-rules.md)），有 `public fun *Page()` 无契约即失败。标题 MUST 是渲染形态：`dynamicTitle` 只给「固定模板+一个可变量」；数据即标题记 `title:null`+`titleSource:"expression"`+`titleExpression`+`criterion`；无字面判据的项登记 `_unrecognized.json`（owner+reviewBy+理由，stale 即失败）；死 UI 标 `deadUi`+证据；整页一坨记 `single-region`。
 Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionView(_, title)` 与 `SessionTextAction`/`InfoRow(..., onClick=…)`；标题/标签含静态文案却无法解析记 `unresolved`，纯宿主数据记 data-labelled 不比较；标准控件（`Button`、`FilterChip`、`Switch`、`DropdownMenuItem`、`label:` 包装器）也算动作；判据是 gate 看不见正确实现时修 gate、实现藏信息时修实现。
 
 ### 1.1 已知基线观察（只记录，不改基线）
@@ -114,11 +113,10 @@ Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionV
 | NativeTab 四 Tab 枚举是死代码 | `NativeShell.swift:14` 定义、全仓无引用；实际外壳 = ChatPage + HomeDrawer | 按 §1 的抽屉外壳实现，不实现 Tab 栏 |
 | SessionsPage 不再是产品抽屉 | 产品抽屉是 `HomeDrawer`（`NativeShell.swift:238`）；SessionsPage 只在 `-uiPreview sessions`（`:724`）和 DrawerPreview（`:826`） | 不把 SessionsPage 当 Android 首页；首页/抽屉分别按 ChatPage/HomeDrawer 实现 |
 | 设置五分页外壳已移除 | `SettingsPage.swift:45` 起是分组 List；`NativeSettingsTab`（`:7`）只剩 `initialTab` 深链，仅 `-uiPreview settings.permissions.tab`（`NativeShell.swift:734`） | 按六个分组索引实现，不保留五 Tab 外壳 |
-| HomeSpec 是 PR22 的首页值来源 | `HomeSpec.swift:26` 起 page/ink/surface，#F7F7F7/#1A1A1A、16/24 body、16 chrome/20 content；`ChatPage.swift:1106-1113` 的 accent/surface/hairline 全部委托 HomeSpec/主题，旧的本地 #2F5BFF 调色板已不存在 | 用 HomeSpec 值做 430×932 基准；不再按旧 402pt 主题取色 |
+| HomeSpec 是 PR22 的首页值来源 | `HomeSpec.swift:26` 起 page/ink/surface，#F7F7F7/#1A1A1A、16/24 body、16 chrome/20 content；`ChatPage.swift:1137-1144` 的 accent/surface/hairline 全部委托 HomeSpec/主题，旧的本地 #2F5BFF 调色板已不存在 | 用 HomeSpec 值做 430×932 基准；不再按旧 402pt 主题取色 |
 | DevelopmentToolsPage 已删除 | PR #13 删除该页；PR22 全仓无 `struct DevelopmentToolsPage` | memory/probes/background/task-screen 保持不可达，不恢复开发者页 |
-
 | HomeSpec 的 dark 是回退值 | `HomeSpec.swift:5` 明说浅色是参考录像的实测值，dark 用既有 parity 调色板 | 按 HomeSpec 给出的 light/dark 对镜像，不另造色 |
-| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3906` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
+| 用户气泡正文仍调用偏好字号 | `ChatPage.swift:3940` 用 `NativeChatTheme.bodyFont()`，注释却写 16/24；HomeSpec 的 body 是 16 | token 取 HomeSpec 16/24；Android 按 token，不复制旧偏好默认值 |
 
 ## 2. 组件语义清单
 
@@ -128,10 +126,10 @@ Android 侧 MUST 走 `SessionSectionLabel`/`SectionHeader(title=…)`/`*SectionV
 |---|---|---|---|
 | 工具行（tool run） | 首个 `tool_call` 起；连续工具行合并为一行 | 默认折叠，行内只留标题 + 首行摘要；`tool_result` 只改状态与摘要；点标题展开，展开后是白底 r18 列表卡 | 只随会话切换/回合清理消失 |
 | thinking_pill | `colors.textSecondary` `colors.textTertiary` | `typography.process` |  |  |  | `geometry.processRowHeight` `geometry.processIcon` | `motion.disclosure` `motion.shimmer` |
-| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
+| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.approvalCardSpacing` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
 | 问题卡 | `question_requested` | 单选/多选/自定义答案，全部必答才能提交；折叠与槽位规则同上 | 提交后消失；同时刻最多一张 |
 | NativeChangedFilesCard | 回合末最后一条非流式 assistant 行 | 按 `turn` 聚合成功的 write/edit/str_replace_editor；同路径后者覆盖前者；>4 个只列 4 个 + 「全部 N 个文件」 | 回合结束仍保留；清除随会话切换 |
-| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` |  |
+| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` `geometry.composerOuterMarginBottom` `geometry.composerPortLeading` `geometry.composerPortTrailing` |  |
 | fail-loud 横幅 | `colors.sessionWarning` `colors.sessionDanger` `colors.sessionAccent` `colors.sessionSecondary` | `typography.secondary` |  |  |  | `geometry.bannerGap` `geometry.bannerInsetH` `geometry.bannerInsetV` |  |
 
 页头 `⋯` 里的「导出对话记录」是页内动作，parity 到 Android 的平台分享 affordance（形态差异见 §5 `share-sheet`）；Android 不注册为外部分享目标、不做深链。
@@ -198,8 +196,8 @@ Parity is asserted on **two different object graphs**，混用两者就是端口
 | 气泡 | `colors.userBubble` `colors.textPrimary` | `typography.body` | `radius.bubble` |  | `spacing.paragraphGap` | `geometry.contentInset` `geometry.bubblePaddingH` `geometry.bubblePaddingV` `geometry.bubbleMaxWidthRatio` |  |
 | 工具行 | `colors.surface` `colors.textSecondary` `colors.textTertiary` `colors.borderList` | `typography.process` `typography.listItem` | `radius.listCard` | `stroke.hairline` | `spacing.disclosureGap` | `geometry.processRowHeight` `geometry.processIcon` `geometry.listRowHeight` | `motion.disclosure` |
 | thinking_pill | `colors.textSecondary` `colors.textTertiary` | `typography.process` |  |  |  | `geometry.processRowHeight` `geometry.processIcon` | `motion.disclosure` `motion.shimmer` |
-| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
-| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` |  |
+| 审批卡 | `colors.sessionSelector` `colors.sessionAccent` `colors.sessionOnAccent` `colors.sessionPrimary` `colors.sessionSecondary` | `typography.pageTitle` `typography.process` | `radius.card` |  |  | `geometry.cardPadding` `geometry.cardOuterMarginH` `geometry.cardOuterMarginV` `geometry.approvalCardSpacing` `geometry.primaryButtonHeight` `geometry.secondaryButtonHeight` `geometry.cardAreaMaxHeightRatio` |  |
+| composer | `colors.surface` `colors.primaryButton` `colors.primaryButtonInk` `colors.userBubble` `colors.inputPlaceholder` `colors.iconMuted` | `typography.body` | `radius.composerOpen` |  |  | `geometry.composerOpenMinHeight` `geometry.sendButton` `geometry.composerIcon` `geometry.chromeInset` `geometry.composerMaxHeight` `geometry.composerControlHeight` `geometry.composerOuterMarginBottom` `geometry.composerPortLeading` `geometry.composerPortTrailing` |  |
 | fail-loud 横幅 | `colors.sessionWarning` `colors.sessionDanger` `colors.sessionAccent` `colors.sessionSecondary` | `typography.secondary` |  |  |  | `geometry.bannerGap` `geometry.bannerInsetH` `geometry.bannerInsetV` |  |
 
 审批卡以实际 `PermissionCardView` 为准（selector、r12、17/15 字号），错误提示以实际 `ChatPage.errorBanner` / `failureLine` 为准；HomeSpec 示例卡不能覆盖仍在使用的组件。气泡段落间距和工具组卡外壳由 `ChatRows` 父级持有，并由检查显式核对。
@@ -247,10 +245,10 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | 输入 | `composerOpenMinHeight`=104 `sendButton`=36 `composerIcon`=24 | `HomeSpec.swift:71`–`:73` |
 | 间距 | `blockGap`=20 `paragraphGap`=16 `disclosureGap`=8 | `HomeSpec.swift:57`–`:61` |
 | 圆角 | `radius.bubble`=24 `radius.listCard`=18 `radius.composerOpen`=24 | `HomeSpec.swift:78`–`:80` |
-| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3914`–`:3906` |
-| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 | `ChatPage.swift:4602`–`:4594`、`:927` |
-| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 | `ChatPage.swift:1993`、`:2007` |
-| 页面层 | `bannerGap`=12 `bannerInsetH`=4 `bannerInsetV`=6 | `ChatPage.swift:1023`、`:1045`–`:1046` |
+| 页面层 | `bubblePaddingH`=16 `bubblePaddingV`=12 `bubbleMaxWidthRatio`=0.8 | `ChatPage.swift:3948`–`:3906` |
+| 页面层 | `cardPadding`=14 `cardOuterMarginH`=16 `cardOuterMarginV`=8 `primaryButtonHeight`=48 `secondaryButtonHeight`=44 `cardAreaMaxHeightRatio`=0.4 `approvalCardSpacing`=10 | `ChatPage.swift:4636`–`:4594`、`:927`、`:5210` |
+| 页面层 | `composerMaxHeight`=336 `composerControlHeight`=44 `composerOuterMarginBottom`=0 `composerPortLeading`=11 `composerPortTrailing`=8 | `ChatPage.swift:2025`、`:2007`、`:2352`、`:2409`–`:2410` |
+| 页面层 | `bannerGap`=12 `bannerInsetH`=4 `bannerInsetV`=6 | `ChatPage.swift:1054`、`:1045`–`:1046` |
 
 `geometry` 的 `scalesWith` 全部为 null：HomeSpec 使用固定 `frame` / padding，没有 `@ScaledMetric`；字号本身仍按
 `baseSize × 平台缩放系数`。页面级 token 不用 `signatureSurfaces` 的 surface 概念，只在 `geometry` 与 provenance
@@ -265,7 +263,7 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | `motion.drawerOpen` | 280ms easeInOut once | `NativeShell.swift:386` | 会话抽屉打开 |
 | `motion.drawerClose` | 220ms easeInOut once | `NativeShell.swift:392` | 会话抽屉收起/未过门槛弹回 |
 | `motion.shimmer` | 1500ms linear forever | `DSHComponents.swift:56` | thinking 行运行中摘要扫光 |
-| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2462` | 发送键可用态切换 |
+| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2494` | 发送键可用态切换 |
 | `motion.copyConfirmHold` | 1000ms linear once | `Components.swift:181` | 「已复制」保持时长 |
 
 ### Baseline accessibility debt（已登记基线无障碍债）

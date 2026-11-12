@@ -89,6 +89,8 @@ SURFACE_ALIASES = {
 # Golden fixture families and the checker that reads each family.  A new
 # golden directory that is not listed here is reported as an orphan.
 GOLDEN_READERS = (
+    ("spec/v1/golden/github-oauth", "github-oauth-cases.json", "services/github-oauth/server.test.mjs", False),
+    ("spec/v1/golden/github-oauth", "github-oauth-cases.json", "examples/probe-app/PhoneDSHSimTests/GitHubOAuthTests.swift", False),
     ("spec/bot/v1/golden", "*.json", "spec/bot/v1/tools/validate_vectors.py", False),
     ("spec/bot/v2/golden", "*.json", "spec/bot/v2/tools/validate_vectors.py", False),
     ("spec/host/v1/golden", "*.json", "spec/host/v1/tools/host_check.py", False),
@@ -96,6 +98,12 @@ GOLDEN_READERS = (
     ("spec/ui/v1/golden", "tokens.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "surface-projection.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "drawer-gesture.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "sheet-detents.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "context-menu-items.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "push-back.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "composer-send.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "pressed-states.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/golden", "disclosure-motion.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/v1/golden/native-mcp", "*.json", "spec/v1/tools/native_mcp_check.py", False),
     ("spec/ui/v1/golden/page-completeness", "fixture.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
     ("spec/ui/v1/golden/page-completeness", "cases.schema.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),

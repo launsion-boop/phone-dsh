@@ -12,6 +12,7 @@
 // a visible button fails the swipe test on purpose.
 package com.phonedsh.ui.page
 
+import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
@@ -29,14 +30,19 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.sheet.SheetDetents
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.generated.TokenDetent
+import com.phonedsh.ui.theme.generated.TokenDetentSetId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h640dp")
@@ -216,9 +222,36 @@ class DailyBriefPageTest {
             .assertTextEquals("https://example.org/atom.xml")
         compose.onNodeWithTag(UiPageTags.BRIEF_SOURCE_ADD_CONFIRM)
             .performSemanticsAction(SemanticsActions.OnClick)
+        // 添加 closes through the platform hide; the host sees the values only
+        // after the sheet has gone.
+        compose.waitUntil(timeoutMillis = 5_000) { added != null }
         assertEquals("示例 2" to "https://example.org/atom.xml", added)
         compose.waitForIdle()
         compose.onNodeWithTag(UiPageTags.BRIEF_SOURCE_EDITOR).assertDoesNotExist()
+    }
+
+    @Test
+    fun `source editor uses the medium detents and system back dismisses it`() {
+        // The page id, not a local fraction: `dailyBriefSource` is the frozen
+        // medium site. Scrim tap and drag-down stay device-only (Robolectric does
+        // not route touches into the sheet's own window).
+        assertEquals(TokenDetentSetId.MEDIUM, SheetDetents.forPage("dailyBriefSource"))
+        assertEquals(
+            listOf(TokenDetent.MEDIUM),
+            SheetDetents.detents(SheetDetents.forPage("dailyBriefSource")),
+        )
+
+        val state = DailyBriefScreenState.from(DailyBriefFacts(snapshot = measuredSnapshot()))
+        var added: Pair<String, String>? = null
+        show(state, onAddSource = { name, url -> added = name to url })
+        scrollTo(UiPageTags.BRIEF_ADD_SOURCE)
+        compose.onNodeWithTag(UiPageTags.BRIEF_ADD_SOURCE).performClick()
+        compose.onNodeWithTag(UiPageTags.BRIEF_SOURCE_EDITOR).assertExists()
+
+        pressBackAndSettle()
+
+        compose.onNodeWithTag(UiPageTags.BRIEF_SOURCE_EDITOR).assertDoesNotExist()
+        assertNull("back is a dismissal, not a submission", added)
     }
 
     @Test
@@ -303,5 +336,17 @@ class DailyBriefPageTest {
         assertEquals("读取失败", states[5].failure)
         assertEquals(states.map { it.signature() }, run().map { it.signature() })
         assertEquals(states.map { it.hasUnmeasuredValues }, run().map { it.hasUnmeasuredValues })
+    }
+
+    /**
+     * Robolectric models the sheet as its own dialog; dispatch on that dialog's
+     * owner exactly as the platform window would, then let the hide animation
+     * finish on the test clock.
+     */
+    private fun pressBackAndSettle() {
+        val dialog = ShadowDialog.getLatestDialog()
+        (dialog as OnBackPressedDispatcherOwner).onBackPressedDispatcher.onBackPressed()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
     }
 }

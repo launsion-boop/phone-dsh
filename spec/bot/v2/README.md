@@ -40,6 +40,11 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
   见 §1.8。
 - 回放按 `commitSeq` 顺序应用事件。每份文档的 `version` 从 1 单调递增，删除也占用一个版本；
   历史版本可从事件库回看，`UpdateMemory{"action":"restore"}` 把旧版本作为新版本写回。
+- 回放把**载荷已被抹除**的事件当作墓碑，而不是数据损坏。墓碑保留事件头/类型/摘要，但没有
+  `path`/`version`/`content`：某路径的下一个存活版本号相对已回放版本出现**前向跳号**时，缺失的
+  版本视为已被抹除——跳过、不合成历史版本、不复活、不进入注入/检索。已在事件库中看到同版本
+  且内容冲突，或版本号不前进（乱序/重复）仍是真正的损坏，继续报错；不能把墓碑当作“没有这条
+  事件”而重排序号。
 - `memory-document.schema.json` 冻结 live 文档/版本形状；`memory-write-request.schema.json`、
   `memory-write-result.schema.json`、`memory-read-result.schema.json`、`memory-recall.schema.json`
   冻结三个原语的输入/输出形状。`memory-legacy-fact.schema.json` 只描述迁移输入。
@@ -187,10 +192,13 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
   `memory.document_deleted`，live 文档消失，历史版本和原始事件保留。
 - **抹除（erase）**：只由宿主的记忆页/服务路径发起，模型工具面没有这个 action。它物理清除：
   该文档（或 `agent/`、`user/` 整个根）的 live 文档、**全部历史版本**、对应
-  `memory.document_written`/`memory.document_deleted` 事件载荷、检索结果、UI 行，以及事件载荷里
-  与版本文本相同或由唯一标记匹配到的副本；`redaction.applied`/观察信封等指向被清除
+  `memory.document_written`/`memory.document_deleted` 事件载荷、检索结果、UI 行，以及非记忆事件
+  载荷里与版本文本相同或由唯一标记匹配到的副本；`redaction.applied`/观察信封等指向被清除
   `record://event/...` 的内容也一并清除。事件头、序号、id、类型和 SHA-256 摘要保留，并追加一条
   durable `erasure` 事件（v1 §4.6、[erasure-event.schema.json](../v1/erasure-event.schema.json)）。
+  **其他记忆文档不是副本**：`memory.document_written`/`memory.document_deleted`/`memory.written`/
+  `memory.forgotten` 事件只按目标路径/scope 选择；其他路径的文档即使正文包含相同文本或标记也必须
+  存活（否则会在幸存文档里留下版本空洞）。`erasure.memoryVersions` 列出所有被清除版本的目标路径。
 - **范围**：单份文档只作用于该路径的全部版本；`agent/` 只作用于该 Bot（`erasure` 事件按写入者
   principal 限定，其他 Bot 的 agent 文档必须存活）；`user/` 是所有 Bot 共享的根，抹除会跨 Bot
   清除共享文档和事件副本。`user/` 与 `agent/` 的入口必须分开确认，文案写明范围。
@@ -255,6 +263,26 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
 - 手动取消运行中的 routine 走宿主 `RoutineScheduler` 的同一取消链（`reason:"user"`），结果是交付行里的
   `cancelOrigin:"user"`，不产生新的强制通知；`needs-reconciliation` 的人工处理见
   [v1 §5](../v1/README.md#5-行与交互) 的 Bot 信息页。
+
+### 2.3 Routine snapshot 的 presence 与 RoutineDocument
+
+`routine.defined`／`routine.updated`／`routine.deleted` 的 `data` 是
+`{"botId":<string>,"document":<RoutineDocument>}`（`Routines/DurableSnapshot.swift`、
+`RoutineStore.swift`）。`RoutineDocument` 固定为 `{"version":1,"routines":[…],"deliveries":{…}}`；
+持久化字节由 `BotEventEnvelopeCodec` 以排序 key 输出。
+
+`routine.schema.json` 的 `run_state`、`quiet_defer`、`next_run_at`、`last_result` 是 nullable，
+且**absent ≡ null**（CCR-7；与 [v1 §1.2](../v1/README.md#12-envelope-presence-与编码ccr-1ccr-7) 同一规则）：
+
+1. reader MUST 接受 absent 与显式 `null`，解码为同一个 nil。
+2. writer MUST omit nil，不写显式 `null`。Swift `Routine` 的 synthesized Codable 已经这样写；既有
+   iOS snapshot 的省略字节保持有效，不回写。
+3. Kotlin writer MUST 同样 omit nil，否则同一 routine 的 snapshot bytes 与 iOS 不同。
+4. `routine-document.schema.json` 冻结 `data` 的外层；`routines` 的每一项按
+   `routine.schema.json` 校验，`deliveries` 的每个值按 `routine-delivery.schema.json` 校验。
+   `version` 不是 1 时 fail-closed，不静默重置。
+5. 向量 `golden/routine-document.json` 覆盖 new／deferred／started／needs-reconciliation／deleted，
+   由 Swift encoder 产生；实现必须用真实 encoder 对拍，不得手写期望字节。
 
 ## 3. 主动提醒
 
@@ -515,6 +543,9 @@ cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purp
 （`memory-legacy-fact`）。
 `routine-notification` 是本目录新增的 phoneDSH-owned 向量，覆盖正常、安静时段延后、紧急绕过和
 四类非法输入。
+`golden/routine-document.json` 是 phoneDSH 新增的 routine snapshot 向量（CCR-7），由 Swift
+encoder 产生，覆盖 new／deferred／started／needs-reconciliation／deleted；它没有上游对应文件，
+也不参与 v1 的导出器 manifest。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。

@@ -25,12 +25,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.verticalScroll
+import com.phonedsh.ui.nav.BackCoordinator
+import com.phonedsh.ui.nav.HomeTab
 import com.phonedsh.ui.nav.PdshBackLevel
 import com.phonedsh.ui.nav.PdshNavFacts
 import com.phonedsh.ui.nav.PdshNavHost
 import com.phonedsh.ui.nav.PdshNavState
 import com.phonedsh.ui.nav.PdshRoute
+import com.phonedsh.ui.nav.PushBackState
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.generated.TokenBackLayer
 import com.phonedsh.ui.surface.MarkdownBody
 
 /**
@@ -54,29 +58,59 @@ import com.phonedsh.ui.surface.MarkdownBody
 public fun ProbeConsumer() {
     PdshTheme {
         var nav by remember { mutableStateOf(PdshNavState()) }
+        // `interaction.md` §4: `PushBackState` owns the layered chain and the
+        // per-tab depth; the route stack is the rendered half. They move as one
+        // value here, exactly like the app shell does.
+        var pushBack by remember { mutableStateOf(PushBackState()) }
         val facts: PdshNavFacts = remember { PdshNavFacts() }
         // The measurement is a projection, not a write: `measured` re-reads the
         // platform observation on every composition and returns the same value
         // when nothing new arrived.
         val shownFacts: PdshNavFacts = PredictiveBack.measured(facts)
-        // The back chain: the top route's own inner level first, then the route
-        // stack. At the root no callback is registered, so the platform's default
-        // (finish the Activity) runs — the documented "back at the start of the
-        // task" behaviour, and the one the predictive back-to-home animation is
-        // attached to. `PdshBackHandler` is the reference implementation from
-        // docs/design/android-aar-consumer-api-2026-11-02.md §5.2 (compiled here
-        // so the doc cannot drift); `:lib` itself ships only `PdshBackLevel`.
+        // The route's own inner level is the STACK delegate: it gets the first
+        // refusal, and when it has nothing to leave the coordinator pops the
+        // mirrored depth below. A second callback is never registered — the
+        // coordinator's callback is the one system-back path.
         val backLevel = remember { PdshBackLevel() }
-        PdshBackHandler(enabled = backLevel.available || nav.canGoBack) {
-            if (!backLevel.consume()) nav = nav.pop()
+        val stackBackLayer = remember(backLevel) {
+            observingBackLayer(TokenBackLayer.STACK) { backLevel.consume() }
         }
+
+        fun mirrorDepth() {
+            val depth = nav.stack.size - 1
+            pushBack = pushBack.copy(
+                selectedTab = HomeTab.TASKS,
+                stackDepths = if (depth == 0) emptyMap() else mapOf(HomeTab.TASKS to depth),
+            )
+        }
+
+        // At the root the coordinator registers nothing (no layer can consume),
+        // so the platform's default finish and back-to-home animation stay in
+        // charge — the documented "back at the start of the task" behaviour.
+        BackCoordinator(
+            state = pushBack,
+            onStateChange = { next ->
+                repeat((pushBack.depth - next.depth).coerceAtLeast(0)) { nav = nav.pop() }
+                pushBack = next
+            },
+            layers = remember(stackBackLayer) { listOf(stackBackLayer) },
+        )
 
         PdshNavHost(
             nav = nav,
             facts = shownFacts,
-            onNavigate = { route -> nav = nav.push(route) },
-            onBack = { nav = nav.pop() },
-            onHome = { nav = nav.popToHome() },
+            onNavigate = { route ->
+                nav = nav.push(route)
+                mirrorDepth()
+            },
+            onBack = {
+                nav = nav.pop()
+                mirrorDepth()
+            },
+            onHome = {
+                nav = nav.popToHome()
+                pushBack = PushBackState()
+            },
             // A gesture this host cannot complete. A real host performs the engine
             // stop/start here; a consumer with no engine must still compile and must
             // not pretend the write happened.
@@ -84,7 +118,12 @@ public fun ProbeConsumer() {
             // The inner-level back chain above; omit it (default null) and a
             // settings sub-page or a folder drill-down would lose its own back step.
             backLevel = backLevel,
-            home = { HomeFace(onOpenSessions = { nav = nav.push(PdshRoute.Sessions) }) },
+            home = {
+                HomeFace(onOpenSessions = {
+                    nav = nav.push(PdshRoute.Sessions)
+                    mirrorDepth()
+                })
+            },
             webSurface = { Text("the host owns the WebView; this is the fallback face") },
         )
     }

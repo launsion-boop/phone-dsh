@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.state.EngineLifecycleFacts
 import com.phonedsh.ui.state.EngineLifecycleStatus
 import com.phonedsh.ui.theme.PdshTheme
@@ -151,6 +152,35 @@ class SettingsPageTest {
     }
 
     @Test
+    fun `menu body expands through the shared disclosure and closes before writing`() {
+        val writes = mutableListOf<SettingsPreferenceChoice>()
+        show(
+            facts = SettingsFacts(preferences = SettingsPreferences(
+                appearance = SettingsAppearance.SYSTEM,
+                language = SettingsLanguage.SYSTEM,
+            )),
+            onSelectPreference = { writes += it },
+        )
+        val rowTag = com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance"
+        val disclosureTag = rowTag + ".disclosure"
+        scrollTo("外观")
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosureTag)).assertDoesNotExist()
+        compose.onNodeWithTag(rowTag).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosureTag)).assertExists()
+        val optionTag = com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance.option.dark"
+        scrollToTag(optionTag)
+        compose.onNodeWithTag(optionTag).assertIsDisplayed()
+        compose.onNodeWithTag(optionTag).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosureTag)).assertDoesNotExist()
+        assertEquals(
+            listOf(SettingsPreferenceChoice(SettingsScreenState.APPEARANCE_ROW_ID, "dark")),
+            writes,
+        )
+    }
+
+    @Test
     fun `menu pickers write selected appearance and language values`() {
         val writes = mutableListOf<SettingsPreferenceChoice>()
         show(
@@ -259,6 +289,9 @@ class SettingsPageTest {
         )
         scrollTo("重新启动引擎")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "engineRestart").performClick()
+        // The root rows are the measured 62 pt, so the footer is below the fold
+        // on this viewport; scroll to it before asserting its copy.
+        scrollTo(UiStrings.SETTINGS_ENGINE_RESET_FOOTER)
         compose.onNodeWithText(UiStrings.SETTINGS_ENGINE_RESET_FOOTER).assertIsDisplayed()
         assertEquals(1, restartCount)
     }

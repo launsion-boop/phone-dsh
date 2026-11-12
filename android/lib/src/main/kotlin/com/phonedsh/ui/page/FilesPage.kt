@@ -52,11 +52,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -466,12 +468,13 @@ public data class FilesLocalState(
  * @param onBack leave the page.
  * @param onOpenDemo the toolbar's 「3D 示例」 (`:79`–`:86`). The entry is always
  *   drawn, because the baseline always draws it (`FilesPage.swift:79`): when the
- *   host supplies no demo surface the page opens its own sheet, so a null
- *   callback can no longer make a labelled control exist in the source and never
- *   render — the hole `page_structure_check.py` could not see. Since L75 the entry
- *   is drawn as the baseline's icon-only cube in a floating white pill rather than
- *   as a text verb: `Label(…, systemImage: "cube")` in a toolbar renders its icon
- *   alone, and `ios-files.png` shows exactly that (x 353.0–374.33, y 72.33–96.33).
+ *   host supplies no demo surface the page opens its own sheet (`:60`–`:75`), so
+ *   the 「完成」 key is reachable instead of existing only in source. The sheet's
+ *   完成 dismisses it, exactly like `showingDemo = false` in the baseline. Since
+ *   L75 the entry is drawn as the baseline's icon-only cube in a floating white
+ *   pill rather than as a text verb: `Label(…, systemImage: "cube")` in a
+ *   toolbar renders its icon alone, and `ios-files.png` shows exactly that
+ *   (x 353.0–374.33, y 72.33–96.33).
  */
 @Composable
 public fun FilesPage(
@@ -488,8 +491,11 @@ public fun FilesPage(
     // back-gesture (§5): a sub-directory is one level below its parent, so the
     // header's back walks the same stack the baseline's NavigationStack walks.
     val onHeaderBack = if (state.canNavigateUp) onNavigateUp else onBack
-    // The iOS page uses an inline navigation title. The viewer and document
-    // picker remain host-owned seams; absent callbacks disable their controls.
+    // The iOS page uses an inline navigation title. The document picker remains a
+    // host-owned seam; an absent callback disables that control. The demo sheet is
+    // the page's own destination when the host supplies no viewer route.
+    var showingDemo by rememberSaveable { mutableStateOf(false) }
+    val openDemo: () -> Unit = onOpenDemo ?: { showingDemo = true }
     val tokens = LocalUiTokens.current
     SettingsSubPageFrame(
         title = state.groupTitle,
@@ -520,7 +526,7 @@ public fun FilesPage(
                 )
                 PageBarCapsule(
                     description = UiStrings.FILES_DEMO,
-                    onClick = { onOpenDemo?.invoke() },
+                    onClick = openDemo,
                     insetH = HomeMetrics.navButton / 4,
                     elevation = HomeMetrics.blockGap / 4,
                     showsLabel = false,
@@ -532,9 +538,9 @@ public fun FilesPage(
                             contentDescription = null,
                         )
                     },
-                    enabled = onOpenDemo != null,
+                    enabled = true,
                     tag = UiPageTags.FILES_DEMO,
-                    accessibilityLabel = if (onOpenDemo == null) FILES_DEMO_UNAVAILABLE else UiStrings.FILES_DEMO_OPEN,
+                    accessibilityLabel = UiStrings.FILES_DEMO_OPEN,
                 )
             }
         },
@@ -547,21 +553,58 @@ public fun FilesPage(
             onImportUnavailable = onImportRequest == null,
         )
     }
+    if (showingDemo) {
+        DemoSheet(onDismiss = { showingDemo = false })
+    }
 }
 
 /**
  * The 「3D 示例」 sheet (`FilesPage.swift:62`–`:75`).
  *
- * The native iOS viewer is not available in this Compose module. The toolbar
- * remains disabled until the host supplies a real viewer route.
+ * The baseline presents the bundled `demo/spin.html` in a `PDSHPageView` and
+ * closes it from the toolbar's 完成 (`:68`). The native iOS viewer is not
+ * available in this Compose module, so the sheet keeps the baseline's title and
+ * its 完成 key and puts the page's documented 3D answer in the body; 完成
+ * dismisses the sheet, which is the baseline's whole effect (`showingDemo =
+ * false`).
  */
+@Composable
+private fun DemoSheet(onDismiss: () -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            BasicText(
+                text = UiStrings.FILES_PREVIEW_DONE,
+                style = type.listItem.copy(color = tokens.colors.pageAccent),
+                modifier = Modifier
+                    .testTag(UiPageTags.FILES_DEMO_DONE)
+                    .clickable(role = Role.Button, onClick = onDismiss)
+                    .padding(tokens.spacing.iconText),
+            )
+        },
+        title = {
+            BasicText(
+                text = UiStrings.FILES_DEMO,
+                style = type.body.copy(color = tokens.colors.textPrimary),
+            )
+        },
+        text = {
+            BasicText(
+                text = UiStrings.PREVIEW_REASON_MODEL,
+                style = type.listItem.copy(color = tokens.colors.textSecondary),
+            )
+        },
+    )
+}
+
 private const val FILES_IMPORT_LABEL = "导入文件"
 private const val FILES_IMPORT_UNAVAILABLE = "导入文件，宿主未提供文档选择器"
 private const val FILES_IMPORT_UNAVAILABLE_HINT = "当前宿主没有提供文件选择器，尚未导入文件。"
 private const val FILES_IMPORT_CANCELLED = "文件导入已取消"
 private const val FILES_IMPORT_COMPLETED = "文件已导入工作区"
 private const val FILES_IMPORT_FAILED = "文件导入失败"
-private const val FILES_DEMO_UNAVAILABLE = "3D 示例，宿主未提供本地页面查看器"
 private const val FILES_IMPORT_TEST_TAG = "files-import"
 
 /** The listing: the search field above the one section (`FilesPage.swift:100`). */

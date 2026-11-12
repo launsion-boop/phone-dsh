@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "vector": "bot-attachments.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [
+    "bot-attachments.json"
+  ],
+  "delta": [
+    "phoneDSH freezes the phone prompt sentence produced by BotAttachmentPrompt.explanation; the upstream golden keeps the Mac sentence byte-identical.",
+    "safeNameCases freeze BotAttachmentPolicy.safeName, including the non-BMP double-underscore case the Swift test already covered.",
+    "importPathCases freeze BotWorkspaceLayout.botRoot plus the imports/attachments-<messageID>/ entry name; the model-visible path still comes from the import commit."
+  ],
+  "promptBlockPhone": "\n\n[dshbot-attachments]\nThe user attached these files. They are saved in your workspace; read them with your file tools when the task needs their contents.\n- {\"name\":\"周报.pdf\",\"path\":\"/data/agents/main/attachments/m1/周报.pdf\",\"size\":2048,\"mimeType\":\"application/pdf\",\"kind\":\"pdf\"}\n- {\"name\":\"photo.jpg\",\"path\":\"/data/agents/main/attachments/m1/photo.jpg\",\"size\":1234567,\"mimeType\":\"image/jpeg\",\"kind\":\"image\"}\n[/dshbot-attachments]",
+  "safeNameCases": [
+    {
+      "input": "a/b.png",
+      "safeName": "b.png"
+    },
+    {
+      "input": "a\\b.png",
+      "safeName": "b.png"
+    },
+    {
+      "input": ".hidden",
+      "safeName": "hidden"
+    },
+    {
+      "input": "",
+      "safeName": "file"
+    },
+    {
+      "input": "/",
+      "safeName": "file"
+    },
+    {
+      "input": "bad:name?.txt",
+      "safeName": "bad_name_.txt"
+    },
+    {
+      "input": "周报.pdf",
+      "safeName": "周报.pdf"
+    },
+    {
+      "input": "🐟.png",
+      "safeName": "__.png"
+    },
+    {
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "safeName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "importPathCases": [
+    {
+      "botID": "main",
+      "botRoot": "/dsh/workspace/.dshbot/agents/main",
+      "directory": "/dsh/workspace/.dshbot/agents/main/imports/attachments-att-1",
+      "messageID": "att-1",
+      "safeBotID": "main"
+    },
+    {
+      "botID": "a/b",
+      "botRoot": "/dsh/workspace/.dshbot/agents/a_b",
+      "directory": "/dsh/workspace/.dshbot/agents/a_b/imports/attachments-att-2",
+      "messageID": "att-2",
+      "safeBotID": "a_b"
+    },
+    {
+      "botID": "..",
+      "botRoot": "/dsh/workspace/.dshbot/agents/bot",
+      "directory": "/dsh/workspace/.dshbot/agents/bot/imports/attachments-att-3",
+      "messageID": "att-3",
+      "safeBotID": "bot"
+    }
+  ]
+}

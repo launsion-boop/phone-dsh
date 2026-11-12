@@ -12,7 +12,9 @@
 // when its caller has not supplied a real destination. The host still owns the
 // permission, provider, session-count, permission-summary, and callback wiring.
 //
-// Index rows use the PR22 48pt minimum grouped-list pitch, registered
+// Index rows use the settings root's measured 62pt row, the 57pt titled-section
+// band and the iOS toolbar's 58x36 Done button; the sub-pages keep the PR22
+// 48pt token-backed grouped-list pitch. Registered
 // [com.phonedsh.ui.icon.PdshIcons], and the shared HomeSpec semantic palette.
 // The old pure `SettingsScreenState.sections` projection remains for the shared
 // settings preference IDs consumed by the existing PreferenceStore.
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -61,6 +65,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.state.EngineLifecycleFacts
 import com.phonedsh.ui.state.EngineLifecycleStatus
 import com.phonedsh.ui.surface.SettingsCardGap
@@ -76,6 +81,9 @@ import com.phonedsh.ui.surface.SettingsMenuChevron
 import com.phonedsh.ui.surface.SettingsMenuChevronSlot
 import com.phonedsh.ui.surface.SettingsMenuTrailingInset
 import com.phonedsh.ui.surface.SettingsNavBar
+import com.phonedsh.ui.surface.SettingsRootFirstSectionHeight
+import com.phonedsh.ui.surface.SettingsRootRowHeight
+import com.phonedsh.ui.surface.SettingsRootTitledSectionGap
 import com.phonedsh.ui.surface.SettingsRowFrame
 import com.phonedsh.ui.surface.SettingsRowLabel
 import com.phonedsh.ui.surface.SettingsRowValue
@@ -233,6 +241,9 @@ public enum class SettingsDestination {
 
     /** SSH 主机: saved native SSH connections (docs/native-ssh.md). */
     SSH,
+
+    /** GitHub Agent: the write-capable fine-grained token (`PC-20261112-github-agent-credential`). */
+    GITHUB_AGENT,
 
     /** 蓝牙设备: scan + standard GATT (`spec/device/v1/android-standard-gatt.md`). */
     BLUETOOTH,
@@ -581,6 +592,9 @@ public data class SettingsScreenState(
         public const val BATTERY_ROW_ID: String = "platform.battery"
         public const val BACK_ROW_ID: String = "platform.back"
         public const val STATUS_ROW_ID: String = "platform.status"
+
+        /** 我的 › 已连接的电脑 (`SettingsPage.swift:353`); first row of its untitled group. */
+        public const val CONNECTED_COMPUTER_ROW_ID: String = "me.connectedComputer"
 
         /** Projects the facts into the five mirrored cards plus the appendix. */
         public fun from(facts: SettingsFacts): SettingsScreenState {
@@ -1162,6 +1176,13 @@ public fun SettingsPage(
     indexListState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     /** Which of the baseline's three placements this is ([SettingsPageMode]). */
     mode: SettingsPageMode = SettingsPageMode.SHEET,
+    /**
+     * 已连接的电脑's trailing value: `未配对` / `离线` / the verified PC name
+     * (`SettingsPage.swift:330-334`). `null` keeps the honest 未知.
+     */
+    connectedComputerValue: String? = null,
+    /** Opens ConnectedComputer (`SettingsPage.swift:353`); `null` leaves the row read-only. */
+    onOpenConnectedComputer: (() -> Unit)? = null,
 ) {
     // The old tab enum is retained as the deep-link vocabulary used by the host.
     // A non-General incoming tab is still rendered as the requested pushed page.
@@ -1236,11 +1257,21 @@ public fun SettingsPage(
             // 完成 belongs to the sheet only (`if mode == .sheet`, `SettingsPage.swift:103`).
             trailing = if (mode == SettingsPageMode.SHEET) {
                 {
-                    SettingsBarAction(
-                        label = UiStrings.settingsNativeText(state.preferences.language?.id, UiStrings.SETTINGS_DONE, UiStrings.SETTINGS_DONE_EN),
-                        onClick = onBack,
-                        modifier = Modifier.testTag(UiPageTags.SETTINGS_DONE),
-                    )
+                    // The iOS toolbar keeps its confirmation action on the 20 pt
+                    // content inset; the bar itself is already inside the 16 pt
+                    // chrome inset (`SettingsMetrics.DONE_TRAILING_INSET_PT`).
+                    Box(
+                        modifier = Modifier.padding(
+                            end = com.phonedsh.ui.SettingsMetrics.DONE_TRAILING_INSET_PT.dp -
+                                tokens.geometry.pageOuterMarginH,
+                        ),
+                    ) {
+                        SettingsBarAction(
+                            label = UiStrings.settingsNativeText(state.preferences.language?.id, UiStrings.SETTINGS_DONE, UiStrings.SETTINGS_DONE_EN),
+                            onClick = onBack,
+                            modifier = Modifier.testTag(UiPageTags.SETTINGS_DONE),
+                        )
+                    }
                 }
             } else null,
         )
@@ -1256,6 +1287,8 @@ public fun SettingsPage(
                 folderValue = folderValue,
                 archivedValue = archivedValue,
                 permissionSummary = permissionSummary,
+                connectedComputerValue = connectedComputerValue,
+                onOpenConnectedComputer = onOpenConnectedComputer,
                 onNavigate = { destination ->
                     when (destination) {
                         SettingsDestination.PERMISSION_DEFAULTS -> page = SettingsIndexPage.PERMISSION_DEFAULTS
@@ -1331,6 +1364,8 @@ private fun SettingsIndexList(
     folderValue: String,
     archivedValue: String,
     permissionSummary: String,
+    connectedComputerValue: String?,
+    onOpenConnectedComputer: (() -> Unit)?,
     onNavigate: (SettingsDestination) -> Unit,
     onSelectPreference: ((SettingsPreferenceChoice) -> Unit)?,
     onOpenAgentPresets: (() -> Unit)?,
@@ -1394,8 +1429,17 @@ private fun SettingsIndexList(
             SettingsIndexEntry("me.archivedSessions", native(UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS, UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS_EN), com.phonedsh.ui.icon.PdshIcon.ARCHIVE, archivedValue,
                 enabled = onOpenArchivedSessions != null, callback = onOpenArchivedSessions),
         ), modes = TAB_ONLY),
-        // 设置 (every other option) and 关于 (`:319-324`).
+        // 设置 (every other option) and 关于 (`:319-324`). 已连接的电脑 is the
+        // first clickable row of this untitled group (`SettingsPage.swift:347-358`).
         SettingsIndexSection("me.more", "", listOf(
+            SettingsIndexEntry(
+                SettingsScreenState.CONNECTED_COMPUTER_ROW_ID,
+                UiStrings.PC_SETTINGS_ROW,
+                com.phonedsh.ui.icon.PdshIcon.NETWORK,
+                value = connectedComputerValue ?: UiStrings.UNKNOWN,
+                enabled = onOpenConnectedComputer != null,
+                callback = onOpenConnectedComputer,
+            ),
             SettingsIndexEntry("me.settings", native(UiStrings.SETTINGS, UiStrings.SETTINGS_EN), com.phonedsh.ui.icon.PdshIcon.GEAR, callback = { onNavigate(SettingsDestination.MORE_SETTINGS) }),
             SettingsIndexEntry("me.about", native("关于 Phone DSH", "About Phone DSH"), com.phonedsh.ui.icon.PdshIcon.INFO, callback = { onNavigate(SettingsDestination.ABOUT) }),
         ), modes = TAB_ONLY),
@@ -1417,6 +1461,7 @@ private fun SettingsIndexList(
             SettingsIndexEntry("network", native("网络访问", UiStrings.SETTINGS_ROW_NETWORK_EN), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.EGRESS) }),
             SettingsIndexEntry("mcp", native("MCP 与局域网设备", "MCP and LAN devices"), com.phonedsh.ui.icon.PdshIcon.DATABASE, callback = { onNavigate(SettingsDestination.MCP) }),
             SettingsIndexEntry("ssh", native("SSH 主机", "SSH hosts"), com.phonedsh.ui.icon.PdshIcon.TERMINAL, callback = { onNavigate(SettingsDestination.SSH) }),
+            SettingsIndexEntry("githubAgent", native("GitHub Agent", "GitHub agent"), com.phonedsh.ui.icon.PdshIcon.CODE, callback = { onNavigate(SettingsDestination.GITHUB_AGENT) }),
             SettingsIndexEntry("bluetooth", native("蓝牙设备", "Bluetooth devices"), com.phonedsh.ui.icon.PdshIcon.NETWORK, callback = { onNavigate(SettingsDestination.BLUETOOTH) }),
             SettingsIndexEntry("androidAdb", native("Android ADB", "Android ADB"), com.phonedsh.ui.icon.PdshIcon.DEVICE, callback = { onNavigate(SettingsDestination.ANDROID_ADB) }),
         )),
@@ -1461,14 +1506,32 @@ private fun SettingsIndexList(
     androidx.compose.foundation.lazy.LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().navigationBarsPadding().testTag(SETTINGS_INDEX_LIST_TAG),
-        contentPadding = PaddingValues(top = com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset),
-        verticalArrangement = Arrangement.spacedBy(SettingsCardGap),
     ) {
         sections.forEach { section ->
             item(key = section.id) {
-                Column {
-                    // The 我的 tab's groups are untitled `Section { … }`s.
-                    if (section.title.isNotBlank()) com.phonedsh.ui.surface.SettingsSectionLabel(section.title, tag = UiPageTags.SETTINGS_INDEX_GROUP_PREFIX + section.id)
+                val firstSection = section === sections.first()
+                val titled = section.title.isNotBlank()
+                val topGap = when {
+                    titled -> null
+                    firstSection -> com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset
+                    else -> SettingsCardGap
+                }
+                Column(
+                    modifier = if (topGap != null) {
+                        Modifier.padding(top = topGap)
+                    } else {
+                        Modifier
+                    },
+                ) {
+                    // The 我的 tab's groups are untitled `Section { … }`s; only a
+                    // titled group owns the measured root band.
+                    if (titled) {
+                        com.phonedsh.ui.surface.SettingsSectionLabel(
+                            section.title,
+                            tag = UiPageTags.SETTINGS_INDEX_GROUP_PREFIX + section.id,
+                            bandHeight = if (firstSection) SettingsRootFirstSectionHeight else SettingsRootTitledSectionGap,
+                        )
+                    }
                     SettingsGroupCard {
                         section.entries.forEachIndexed { index, entry ->
                             SettingsIndexRow(entry, dividerBelow = index != section.entries.lastIndex)
@@ -1604,11 +1667,11 @@ private fun SettingsIndexRow(entry: SettingsIndexEntry, dividerBelow: Boolean) {
         entry.options.isNotEmpty() -> ({ expanded = !expanded })
         else -> null
     }
-    androidx.compose.foundation.layout.Column {
-        androidx.compose.foundation.layout.Row(
+    val header: @Composable () -> Unit = {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = com.phonedsh.ui.SettingsMetrics.GROUPED_LIST_MIN_ROW_HEIGHT_PT.dp)
+                .heightIn(min = SettingsRootRowHeight)
                 .then(if (click != null) Modifier.clickable(
                     enabled = entry.enabled,
                     role = if (entry.onToggle != null) Role.Switch else Role.Button,
@@ -1619,85 +1682,109 @@ private fun SettingsIndexRow(entry: SettingsIndexEntry, dividerBelow: Boolean) {
                         stateDescription = if (entry.toggleChecked == true) UiStrings.SETTINGS_BACKGROUND_ON else UiStrings.SETTINGS_BACKGROUND_OFF
                     }
                 },
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            com.phonedsh.ui.icon.PdshIconView(
-                icon = entry.icon,
-                size = com.phonedsh.ui.HomeMetrics.composerIcon,
-                tint = tokens.colors.textPrimary,
-                contentDescription = null,
-                modifier = Modifier.padding(start = tokens.geometry.pageOuterMarginH),
-            )
-            Column(modifier = Modifier.weight(1f).padding(start = tokens.spacing.iconText)) {
-                androidx.compose.foundation.text.BasicText(
-                    text = entry.title,
-                    style = settingsLabelStyle().copy(color = if (entry.enabled) tokens.colors.textPrimary else tokens.colors.textTertiary),
-                )
-                entry.subtitle?.let { subtitle ->
-                    androidx.compose.foundation.text.BasicText(
-                        text = subtitle,
-                        style = settingsLabelStyle().copy(color = tokens.colors.textSecondary),
-                        maxLines = 2,
-                    )
-                }
-            }
-            entry.value?.let { value ->
-                BoxWithConstraints {
-                    androidx.compose.foundation.text.BasicText(
-                        text = value,
-                        style = settingsLabelStyle().copy(color = tokens.colors.textSecondary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .widthIn(max = maxWidth * 0.5f)
-                            .testTag(UiPageTags.SETTINGS_INDEX_VALUE_PREFIX + entry.id),
-                    )
-                }
-            }
-            if (entry.onToggle != null) {
-                SettingsSwitch(checked = entry.toggleChecked == true, enabled = entry.enabled)
-            } else if (entry.options.isNotEmpty()) {
+            androidx.compose.foundation.layout.Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = SettingsRootRowHeight),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            ) {
                 com.phonedsh.ui.icon.PdshIconView(
-                    icon = com.phonedsh.ui.icon.PdshIcon.CHEVRON_DOWN,
+                    icon = entry.icon,
                     size = com.phonedsh.ui.HomeMetrics.composerIcon,
-                    tint = tokens.colors.textSecondary,
+                    tint = tokens.colors.textPrimary,
                     contentDescription = null,
-                    modifier = Modifier.padding(horizontal = tokens.spacing.iconText),
+                    modifier = Modifier.padding(start = tokens.geometry.pageOuterMarginH),
                 )
-            } else if (click != null) {
-                com.phonedsh.ui.icon.PdshIconView(
-                    icon = com.phonedsh.ui.icon.PdshIcon.CHEVRON_RIGHT,
-                    size = com.phonedsh.ui.HomeMetrics.composerIcon,
-                    tint = tokens.colors.textSecondary,
-                    contentDescription = null,
-                    modifier = Modifier.padding(horizontal = tokens.spacing.iconText),
-                )
-            } else {
-                Spacer(modifier = Modifier.width(tokens.spacing.cardInset))
-            }
-        }
-        if (entry.options.isNotEmpty() && expanded) {
-            entry.options.forEachIndexed { index, option ->
-                SettingsGroupedRow(
-                    title = option.title,
-                    modifier = Modifier.testTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "${entry.id}.option.${option.id}"),
-                    dividerBelow = index != entry.options.lastIndex,
-                    trailing = if (option.id == entry.selectedOptionId) ({
-                        com.phonedsh.ui.icon.PdshIconView(
-                            icon = com.phonedsh.ui.icon.PdshIcon.CHECK,
-                            size = com.phonedsh.ui.HomeMetrics.composerIcon,
-                            tint = tokens.colors.textPrimary,
-                            contentDescription = "已选择",
+                Column(modifier = Modifier.weight(1f).padding(start = tokens.spacing.iconText)) {
+                    androidx.compose.foundation.text.BasicText(
+                        text = entry.title,
+                        style = settingsLabelStyle().copy(color = if (entry.enabled) tokens.colors.textPrimary else tokens.colors.textTertiary),
+                    )
+                    entry.subtitle?.let { subtitle ->
+                        androidx.compose.foundation.text.BasicText(
+                            text = subtitle,
+                            style = settingsLabelStyle().copy(color = tokens.colors.textSecondary),
+                            maxLines = 2,
                         )
-                    }) else null,
-                    onClick = {
-                        expanded = false
-                        entry.rowId?.let { rowId -> entry.onSelectPreference?.invoke(SettingsPreferenceChoice(rowId, option.id)) }
-                    },
+                    }
+                }
+                entry.value?.let { value ->
+                    BoxWithConstraints {
+                        androidx.compose.foundation.text.BasicText(
+                            text = value,
+                            style = settingsLabelStyle().copy(color = tokens.colors.textSecondary),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .widthIn(max = maxWidth * 0.5f)
+                                .testTag(UiPageTags.SETTINGS_INDEX_VALUE_PREFIX + entry.id),
+                        )
+                    }
+                }
+                if (entry.onToggle != null) {
+                    SettingsSwitch(checked = entry.toggleChecked == true, enabled = entry.enabled)
+                } else if (entry.options.isNotEmpty()) {
+                    com.phonedsh.ui.icon.PdshIconView(
+                        icon = com.phonedsh.ui.icon.PdshIcon.CHEVRON_DOWN,
+                        size = com.phonedsh.ui.HomeMetrics.composerIcon,
+                        tint = tokens.colors.textSecondary,
+                        contentDescription = null,
+                        modifier = Modifier.padding(horizontal = tokens.spacing.iconText),
+                    )
+                } else if (click != null) {
+                    com.phonedsh.ui.icon.PdshIconView(
+                        icon = com.phonedsh.ui.icon.PdshIcon.CHEVRON_RIGHT,
+                        size = com.phonedsh.ui.HomeMetrics.composerIcon,
+                        tint = tokens.colors.textSecondary,
+                        contentDescription = null,
+                        modifier = Modifier.padding(horizontal = tokens.spacing.iconText),
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(tokens.spacing.cardInset))
+                }
+            }
+            if (dividerBelow) {
+                SettingsHairline(
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter),
                 )
             }
         }
-        if (dividerBelow) SettingsHairline()
+    }
+    androidx.compose.foundation.layout.Column {
+        if (entry.options.isNotEmpty()) {
+            // §7: the option body is one disclosure unit. The header stays a
+            // fixed row (the row the user tapped never moves); the body expands
+            // and collapses with `motion.disclosure` (160 ms), not a bare `if`.
+            PdshDisclosure(
+                expanded = expanded,
+                onToggle = { expanded = !expanded },
+                tag = UiPageTags.SETTINGS_INDEX_ROW_PREFIX + entry.id + ".disclosure",
+                header = header,
+            ) {
+                entry.options.forEachIndexed { index, option ->
+                    SettingsGroupedRow(
+                        title = option.title,
+                        modifier = Modifier.testTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "${entry.id}.option.${option.id}"),
+                        dividerBelow = index != entry.options.lastIndex,
+                        trailing = if (option.id == entry.selectedOptionId) ({
+                            com.phonedsh.ui.icon.PdshIconView(
+                                icon = com.phonedsh.ui.icon.PdshIcon.CHECK,
+                                size = com.phonedsh.ui.HomeMetrics.composerIcon,
+                                tint = tokens.colors.textPrimary,
+                                contentDescription = "已选择",
+                            )
+                        }) else null,
+                        onClick = {
+                            expanded = false
+                            entry.rowId?.let { rowId -> entry.onSelectPreference?.invoke(SettingsPreferenceChoice(rowId, option.id)) }
+                        },
+                    )
+                }
+            }
+        } else {
+            header()
+        }
     }
 }
 
@@ -1735,6 +1822,13 @@ internal const val SETTINGS_TAB_TAG_PREFIX: String = "pdsh.settings.tab."
  * action of this page instead of the contract's one missing label; the word, the
  * ink, the tag and the gesture are unchanged.
  *
+ * 完成's 58 x 36 pt frame is the iOS 26 toolbar text button:
+ * `SettingsPage.swift:106-112` declares
+ * `Button(NativeText("完成", "Done"))` in `.toolbar` with `.fontWeight(.semibold)`;
+ * measured, iOS XCUITest export, `docs/parity/bench.md` settings-root. Page-local;
+ * see [com.phonedsh.ui.SettingsMetrics.DONE_BUTTON_WIDTH_PT] and
+ * [com.phonedsh.ui.SettingsMetrics.DONE_BUTTON_HEIGHT_PT].
+ *
  * @param label the action's word; also its accessibility name.
  * @param onClick dismiss the sheet.
  * @param modifier the caller's tag and placement.
@@ -1749,18 +1843,25 @@ private fun SettingsBarAction(
     // ios-settings.png (measured): 完成 is a **white capsule with black ink**
     // (x 302.7-389.7, y 60.0-104.7), not a bare blue text button. The blue word
     // read as a link and lost the control's shape on the real page.
-    BasicText(
-        text = label,
-        style = settingsLabelStyle().copy(color = tokens.colors.primary),
-        maxLines = 1,
+    Box(
         modifier = modifier
+            .size(
+                width = com.phonedsh.ui.SettingsMetrics.DONE_BUTTON_WIDTH_PT.dp,
+                height = com.phonedsh.ui.SettingsMetrics.DONE_BUTTON_HEIGHT_PT.dp,
+            )
             .clip(CircleShape)
             .background(tokens.colors.input)
             .border(tokens.stroke.hairline, tokens.colors.borderLight, CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = label }
-            .padding(tokens.spacing.cardInset),
-    )
+            .semantics { contentDescription = label },
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        BasicText(
+            text = label,
+            style = settingsLabelStyle().copy(color = tokens.colors.primary),
+            maxLines = 1,
+        )
+    }
 }
 
 /**
@@ -1935,7 +2036,7 @@ private fun SettingsMenuCardRow(
     val tokens = LocalUiTokens.current
     var expanded by remember { mutableStateOf(false) }
     val unknown = row.tone == PageTone.UNKNOWN
-    Column(modifier = modifier) {
+    val header: @Composable () -> Unit = {
         SettingsRowFrame(
             dividerBelow = row.dividerBelow && !expanded,
             // A menu row's value + up-down chevron sit 17.6 pt from the card edge,
@@ -1954,7 +2055,14 @@ private fun SettingsMenuCardRow(
                 )
             }
         }
-        if (expanded) {
+    }
+    Column(modifier = modifier) {
+        PdshDisclosure(
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+            tag = UiPageTags.SETTINGS_ROW_PREFIX + row.id + ".disclosure",
+            header = header,
+        ) {
             row.options.forEach { option ->
                 val selected = option.id == row.selectedOptionId
                 SettingsRowFrame(

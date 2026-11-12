@@ -184,11 +184,11 @@ public struct BotFishActionTool: BotTeamToolHandling {
                         principal: BotGatewayPrincipal,
                         context: BotMCPRequestContext) async -> BotMCPCallResult {
         guard handles(name), case .object(let args) = arguments else {
-            return .failure("invalid_arguments", "FishAction arguments must be an object")
+            return .failure("invalid_arguments", "FishAction 的参数必须是一个对象")
         }
         guard let action = args["action"]?.stringValue, !action.isEmpty else {
             return .failure("invalid_arguments",
-                            "FishAction requires action. Allowed: \(BotFishReactionVocabulary.reactions.joined(separator: ", ")).")
+                            "FishAction 需要提供 action。可用：\(BotFishReactionVocabulary.reactions.joined(separator: "、"))。")
         }
         guard let kind = BotFishReactionVocabulary.kind(for: action),
               let duration = BotFishReactionVocabulary.durationMs(for: action) else {

@@ -88,7 +88,6 @@ class ComposerSurfaceTest {
             text = "draft",
             running = true,
             canSubmit = false,
-            mode = ComposerMode.STOP,
             onStop = { stopped += 1 },
         )
         compose.onNodeWithTag(UiTags.COMPOSER_SEND).assertDoesNotExist()
@@ -99,8 +98,8 @@ class ComposerSurfaceTest {
 
     @Test
     fun `a running turn with a submittable draft keeps send and adds the small stop key`() {
-        // iOS: `if model.turnRunning, canSubmit { stopButton(diameter: 24) }` + send.
-        show(text = "补充", running = true, canSubmit = true, mode = ComposerMode.SEND)
+        // iOS: `if model.turnRunning, canSubmit { stopButton } + actionButton`.
+        show(text = "补充", running = true, canSubmit = true)
         compose.onNodeWithTag(UiTags.COMPOSER_SEND).assertIsDisplayed()
         compose.onNodeWithTag(UiTags.COMPOSER_STOP).assertIsDisplayed()
     }
@@ -211,13 +210,17 @@ class ComposerSurfaceTest {
         show(text = "", canSubmit = false)
         val cardBounds = compose.onNodeWithTag(UiTags.COMPOSER).getUnclippedBoundsInRoot()
         val sendBounds = compose.onNodeWithTag(UiTags.COMPOSER_SEND).getUnclippedBoundsInRoot()
+        val fieldBounds = compose.onNodeWithTag(UiTags.COMPOSER_FIELD).getUnclippedBoundsInRoot()
         val cardHeight = (cardBounds.bottom - cardBounds.top).value
-        val sendHitWidth = (sendBounds.right - sendBounds.left).value
-        val sendCircleBounds = compose.onNodeWithTag("pdsh.composer.send-circle", useUnmergedTree = true).getUnclippedBoundsInRoot()
-        val sendDiameter = (sendCircleBounds.right - sendCircleBounds.left).value
+        val sendWidth = (sendBounds.right - sendBounds.left).value
+        val sendHeight = (sendBounds.bottom - sendBounds.top).value
+        val fieldHeight = (fieldBounds.bottom - fieldBounds.top).value
         assertEquals(true, cardHeight >= 104f)
-        assertEquals(44f, sendHitWidth, 0.1f)
-        assertEquals(36f, sendDiameter, 0.1f)
+        // §5 rule 5: the click target is the 36 pt circle itself, not a 44 pt box.
+        assertEquals(36f, sendWidth, 0.1f)
+        assertEquals(36f, sendHeight, 0.1f)
+        // The editable surface floors at 36; its port row above floors at 56.
+        assertEquals(36f, fieldHeight, 0.1f)
     }
 
     @Test
@@ -241,7 +244,7 @@ class ComposerSurfaceTest {
         canSubmit: Boolean,
         enabled: Boolean = true,
         running: Boolean = false,
-        mode: ComposerMode = ComposerMode.SEND,
+        steer: Boolean = false,
         stat: String? = null,
         contextPercent: Int? = null,
         sessionStats: SessionStats? = null,
@@ -259,10 +262,10 @@ class ComposerSurfaceTest {
                     text = text,
                     onTextChange = {},
                     placeholder = UiStrings.COMPOSER_PLACEHOLDER_IDLE,
-                    mode = mode,
                     enabled = enabled,
                     canSubmit = canSubmit,
                     running = running,
+                    steer = steer,
                     onSend = onSend,
                     onStop = onStop,
                     stat = stat,

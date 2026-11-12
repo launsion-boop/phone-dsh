@@ -127,6 +127,7 @@ class OfficialDeepSeekWebToolsEgress(
                 mcpAdmitted: Boolean,
             ): Boolean = true
         },
+        sensitiveKind = SensitiveResponseKind.WEB_TOOL,
     )
 
     private val gateway: GatewayHttpEgress = GatewayHttpEgress(session)

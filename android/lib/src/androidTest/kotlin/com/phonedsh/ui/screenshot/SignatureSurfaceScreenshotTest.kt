@@ -20,7 +20,6 @@ import com.phonedsh.ui.surface.ApprovalCard
 import com.phonedsh.ui.surface.BubbleRole
 import com.phonedsh.ui.surface.ChatBubble
 import com.phonedsh.ui.surface.Composer
-import com.phonedsh.ui.surface.ComposerMode
 import com.phonedsh.ui.surface.FailLoudBanner
 import com.phonedsh.ui.surface.FailLoudKind
 import com.phonedsh.ui.surface.ThinkingPill
@@ -104,10 +103,10 @@ class SignatureSurfaceScreenshotTest : ScreenshotTestBase() {
                 // The idle placeholder is the one the baseline pins: the three
                 // running cases are separate states (ChatPage.swift).
                 placeholder = com.phonedsh.ui.UiStrings.COMPOSER_PLACEHOLDER_IDLE,
-                mode = ComposerMode.SEND,
                 enabled = true,
                 canSubmit = true,
                 running = false,
+                steer = false,
                 onSend = {},
                 onStop = {},
                 stat = ScreenshotSamples.COMPOSER_STAT,

@@ -78,6 +78,7 @@ struct HomeDrawer: View {
                 .padding(.bottom, bottomInset + 24)
             }
             .scrollIndicators(.hidden)
+            .accessibilityIdentifier("drawer.scroll")
         }
         .background(HomeSpec.page)
         .overlay(alignment: .top) {
@@ -211,6 +212,7 @@ struct HomeDrawer: View {
             .buttonStyle(HomeDrawerPillStyle())
             .disabled(newSessionDisabled)
             .accessibilityLabel(NativeText("新会话", "New Session"))
+            .accessibilityIdentifier("drawer.new-session")
             ZStack {
                 if let reason = newSessionBlocked {
                     Text(reason)

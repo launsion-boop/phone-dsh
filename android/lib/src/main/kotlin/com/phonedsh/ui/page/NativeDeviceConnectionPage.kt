@@ -477,7 +477,14 @@ internal object DeviceConnectionPageTokens {
     )
 }
 
-/** The disclosure chevron; the same glyph the other page rows use. */
+/**
+ * The row's *navigation* chevron, not a disclosure mark.
+ *
+ * `NativeDeviceConnectionPage.swift:59` draws a static `Image(systemName:
+ * "chevron.right")` inside the device `Button`; tapping it pushes a session, it
+ * does not expand a body. It therefore takes no `motion.chevron` and no
+ * `PdshChevron`: the disclosure components are for disclosure bodies.
+ */
 private const val CHEVRON_GLYPH: String = "›"
 
 /** The in-flight marker of the row whose session is opening. */

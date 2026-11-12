@@ -269,6 +269,7 @@ struct ChatPage: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("打开会话列表")
+            .accessibilityIdentifier("chat.header.drawer")
 
             Button { beginRename() } label: {
                 Text(sessionTitle)
@@ -369,57 +370,69 @@ struct ChatPage: View {
         return lastResult
     }
 
-    var body: some View {
-        NativePerfCounters.shared.bodyRendered()
-        NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
-        return VStack(spacing: 0) {
+    // D2: PC-only status strips. They are plain text on purpose: the offline
+    // recovery action lives in the drawer's empty state, and a new Button here
+    // would be a new page-contract action.
+    @ViewBuilder
+    private var pcStatusStrips: some View {
+        if model.backendID != .phone {
+            if let warning = workspaceModels.pcLink.versionWarning {
+                PCVersionWarningBar(warning: warning)
+                    .padding(.horizontal, HomeSpec.chromeInset)
+                    .padding(.bottom, 6)
+            }
+            if !model.isStarted {
+                // `connecting` is a bounded resume the phone started on
+                // foreground return; only a failed dial is an offline PC
+                // (§10, PC-20261110-pclink-foreground-resume-presence).
+                Text(pcStatusStripText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(HomeSpec.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(HomeSpec.userBubble, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, HomeSpec.chromeInset)
+                    .padding(.bottom, 6)
+            }
+        }
+    }
+
+    // A failure that belongs to one message is rendered under it; every other
+    // failure (send refused, session open, stream error) needed a surface too —
+    // it used to be invisible on this page. The resume recovery pill is
+    // additive: it explains a lifecycle wait, while the error banner below
+    // keeps the failure/queued-action surface. The engine-stopped line is the
+    // one exception to the error banner: the no-engine empty card already says
+    // it and offers the start button.
+    @ViewBuilder
+    private var failureBanners: some View {
+        if let recovery = model.recoveryBannerText {
+            recoveryBanner(recovery)
+        }
+        if model.failedItemID == nil,
+           let error = model.userFacingError,
+           ChatEngineStoppedNoticePolicy.shouldShow(
+               message: error,
+               engineEmptyStateVisible: visibleItems.isEmpty && !model.isStarted) {
+            errorBanner(error)
+        }
+        if let error = model.commandsError { commandErrorBanner(error) }
+    }
+
+    private var pageStack: some View {
+        VStack(spacing: 0) {
             chatHeader
-            // D2: PC-only status strips. They are plain text on purpose: the
-            // offline recovery action lives in the drawer's empty state, and a
-            // new Button here would be a new page-contract action.
-            if model.backendID != .phone {
-                if let warning = workspaceModels.pcLink.versionWarning {
-                    PCVersionWarningBar(warning: warning)
-                        .padding(.horizontal, HomeSpec.chromeInset)
-                        .padding(.bottom, 6)
-                }
-                if !model.isStarted {
-                    // `connecting` is a bounded resume the phone started on
-                    // foreground return; only a failed dial is an offline PC
-                    // (§10, PC-20261110-pclink-foreground-resume-presence).
-                    Text(pcStatusStripText)
-                        .font(.system(size: 12))
-                        .foregroundStyle(HomeSpec.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(HomeSpec.userBubble, in: RoundedRectangle(cornerRadius: 10))
-                        .padding(.horizontal, HomeSpec.chromeInset)
-                        .padding(.bottom, 6)
-                }
-            }
-            // A failure that belongs to one message is rendered under it; every
-            // other failure (send refused, session open, stream error) needed a
-            // surface too — it used to be invisible on this page. The resume
-            // recovery pill is additive: it explains a lifecycle wait, while
-            // the error banner below keeps the failure/queued-action surface.
-            // The engine-stopped line is the one exception to the error banner:
-            // the no-engine empty card already says it and offers the start button.
-            if let recovery = model.recoveryBannerText {
-                recoveryBanner(recovery)
-            }
-            if model.failedItemID == nil,
-               let error = model.userFacingError,
-               ChatEngineStoppedNoticePolicy.shouldShow(
-                   message: error,
-                   engineEmptyStateVisible: visibleItems.isEmpty && !model.isStarted) {
-                errorBanner(error)
-            }
-            if let error = model.commandsError { commandErrorBanner(error) }
+            pcStatusStrips
+            failureBanners
             resourceBanner
             cardsRegion
             transcript
         }
+    }
+
+    private var pageChrome: some View {
+        pageStack
         // The composer is a bottom safe-area inset, not a stack item: the
         // keyboard then lifts only the composer and the content area shrinks
         // from the bottom. Putting it in the VStack lets the keyboard push the
@@ -458,6 +471,10 @@ struct ChatPage: View {
         // 我们的页头,接点击的却是它,左上角那个按钮就是这么点不开的。
         .toolbar(.hidden, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
+    }
+
+    private var pageSheets: some View {
+        pageChrome
         // The keyboard's own 发送 key replaced the custom toolbar: the
         // composer text view sets `returnKeyType = .send` and intercepts
         // Return, so a second button above the keyboard would be the only
@@ -525,6 +542,10 @@ struct ChatPage: View {
             NavigationStack { RuntimeDetailsPage(model: model).homeSheetDone() }
                 .homeSheetChrome()
         }
+    }
+
+    private var pageMoreSheets: some View {
+        pageSheets
         .sheet(isPresented: $showSubagentCatalog) {
             VStack(spacing: 0) {
                 NativeSubagentCatalogSheet(
@@ -610,6 +631,10 @@ struct ChatPage: View {
                     .homeSheetChrome()
             }
         }
+    }
+
+    private var pageLifecycle: some View {
+        pageMoreSheets
         .fileImporter(
             isPresented: $showAttachmentPicker,
             allowedContentTypes: Self.imageContentTypes,
@@ -705,6 +730,12 @@ struct ChatPage: View {
         // screen. DEBUG always enables them; Release needs the
         // `chat.perfCounters` default (off by default, so no Release log).
         .task { await reportPerfCounters() }
+    }
+
+    var body: some View {
+        NativePerfCounters.shared.bodyRendered()
+        NativePerfCounters.shared.reportIfDue { ChatModel.appendDiagnostic($0) }
+        return pageLifecycle
     }
 
     private func onChatAppear() {
@@ -1744,6 +1775,7 @@ struct ChatPage: View {
             .buttonStyle(HomePrimaryButtonStyle())
             .disabled(model.busy)
             .padding(.top, 24)
+            .accessibilityIdentifier("chat.empty.start")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2461,6 +2493,7 @@ struct ChatPage: View {
             .transition(.scale(scale: 0.8).combined(with: .opacity))
             .animation(.easeOut(duration: 0.12), value: canSubmit)
             .accessibilityLabel(sendButtonLabel)
+            .accessibilityIdentifier("chat.composer.send")
         }
     }
 
@@ -3710,6 +3743,7 @@ private struct NativeComposerTextView: UIViewRepresentable {
         view.text = text
         view.font = UIFont.systemFont(ofSize: fontSize)
         view.accessibilityLabel = accessibilityLabel
+        view.accessibilityIdentifier = "chat.composer.field"
         let coordinator = context.coordinator
         coordinator.attach(view)
         view.onMenuKey = { [weak coordinator] key in coordinator?.parent.onMenuKey(key) ?? false }
@@ -4476,10 +4510,19 @@ private struct ResourceStatusBanner: View {
 struct ToolRunRow: View {
     let items: [ChatItem]
     var onOpenFile: (String) -> Void = { _ in }
+    /// Optional human title override; the Bot page passes its action-name
+    /// mapping so wire tool names never reach the transcript. The main DSH
+    /// chat keeps the default official title table.
+    var titleForItem: ((ChatItem) -> String)? = nil
     @State private var expanded = true
     @State private var scrollMetrics = ProcessScrollMetrics()
-    @State private var displayedTitle = ""
-    @State private var titleTask: Task<Void, Never>?
+
+    /// `ForEach` requires unique ids. A resumed live observer can project the
+    /// same journal record twice; the second copy has the same `ChatItem.id`
+    /// and the lazy transcript can loop placing it. Keep the first occurrence
+    /// in transcript order here as a row-boundary guard, even though the live
+    /// projection already deduplicates its records.
+    private var uniqueItems: [ChatItem] { NativeToolRowIdentity.unique(items) }
 
     private var targetTitle: String {
         NativeProcessGroupModel.title(for: categories, running: isRunning)
@@ -4495,13 +4538,13 @@ struct ToolRunRow: View {
     }
 
     private var categories: [NativeProcessCategory] {
-        items.map {
+        uniqueItems.map {
             $0.kind == .reasoning ? .thinking : NativeProcessCategory.forTool($0.toolName ?? "")
         }
     }
 
     private var isRunning: Bool {
-        items.contains { $0.toolState == .running || $0.toolState == .preparing }
+        uniqueItems.contains { $0.toolState == .running || $0.toolState == .preparing }
     }
 
     var body: some View {
@@ -4509,17 +4552,20 @@ struct ToolRunRow: View {
         // its body members own the 6pt flow gap. Do not add a VStack gap
         // between the header and the first member (that would make 14pt).
         VStack(alignment: .leading, spacing: 0) {
-            if items.count > 1 {
+            if uniqueItems.count > 1 {
+                // Title is derived from the items; mirroring it into @State
+                // from onAppear/onChange wrote state during layout and kept
+                // the lazy stack placing subviews.
                 NativeProcessGroupHeader(
-                    title: displayedTitle.isEmpty ? targetTitle : displayedTitle,
+                    title: targetTitle,
                     glyph: categories.first?.glyph ?? .tools,
                     isRunning: isRunning,
                     isExpanded: expanded) {
                         withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
                     }
             }
-            if expanded || items.count == 1 {
-                if items.count > 4 {
+            if expanded || uniqueItems.count == 1 {
+                if uniqueItems.count > 4 {
                     ScrollView {
                         processRows
                             .background(GeometryReader { geometry in
@@ -4531,7 +4577,13 @@ struct ToolRunRow: View {
                             })
                     }
                     .coordinateSpace(name: "process-scroll")
-                    .onPreferenceChange(ProcessScrollMetricsKey.self) { scrollMetrics = $0 }
+                    .onPreferenceChange(ProcessScrollMetricsKey.self) { metrics in
+                        // A preference callback that writes even an unchanged
+                        // value invalidates layout again. Only a real value
+                        // change may feed the fade overlays.
+                        guard metrics != scrollMetrics else { return }
+                        scrollMetrics = metrics
+                    }
                     .scrollIndicators(.visible)
                     .frame(maxHeight: processViewport)
                     .overlay(alignment: .top) {
@@ -4545,20 +4597,6 @@ struct ToolRunRow: View {
                 }
             }
         }
-        .onAppear { displayedTitle = targetTitle }
-        .onChange(of: targetTitle) { _, next in
-            titleTask?.cancel()
-            if isRunning {
-                titleTask = Task {
-                    try? await Task.sleep(for: .milliseconds(150))
-                    guard !Task.isCancelled else { return }
-                    displayedTitle = next
-                }
-            } else {
-                displayedTitle = next
-            }
-        }
-        .onDisappear { titleTask?.cancel() }
     }
 
     /// An opened group sits in the white list card (HomeSpec): rows 8pt
@@ -4566,15 +4604,16 @@ struct ToolRunRow: View {
     @ViewBuilder
     private var processRows: some View {
         let rows = VStack(alignment: .leading, spacing: 8) {
-            ForEach(items) { item in
+            ForEach(uniqueItems) { item in
                 if item.kind == .reasoning {
                     NativeThinkingRow(item: item)
                 } else {
-                    NativeToolCallRow(item: item, onOpenFile: onOpenFile)
+                    NativeToolCallRow(item: item, onOpenFile: onOpenFile,
+                                      title: titleForItem?(item))
                 }
             }
         }
-        if items.count > 1 {
+        if uniqueItems.count > 1 {
             rows.homeListCard()
         } else {
             rows
