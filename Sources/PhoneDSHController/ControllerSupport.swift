@@ -278,7 +278,11 @@ enum ControllerFileStore {
     }
 
     /// Temporary file → fsync → rename → fsync directory (wal.md §7.1 rule).
-    static func writeAtomic(_ data: Data, to url: URL) throws {
+    ///
+    /// `sync: false` is only for derived records whose authoritative log line
+    /// already exists (a step snapshot); the rename still replaces the file
+    /// atomically but the bytes are not forced out of the page cache.
+    static func writeAtomic(_ data: Data, to url: URL, sync: Bool = true) throws {
         let directory = url.deletingLastPathComponent()
         try ensureDirectory(directory)
         let temporary = directory.appendingPathComponent(url.lastPathComponent + ".tmp")
@@ -290,8 +294,10 @@ enum ControllerFileStore {
         }
         do {
             try writeAll(descriptor: descriptor, data: data)
-            guard Darwin.fsync(descriptor) == 0 else {
-                throw ControllerFileError.posix(operation: "fsync", code: errno)
+            if sync {
+                guard Darwin.fsync(descriptor) == 0 else {
+                    throw ControllerFileError.posix(operation: "fsync", code: errno)
+                }
             }
         } catch {
             Darwin.close(descriptor)
@@ -306,11 +312,13 @@ enum ControllerFileStore {
         guard renamed == 0 else {
             throw ControllerFileError.posix(operation: "rename", code: errno)
         }
-        try syncDirectory(directory)
+        if sync { try syncDirectory(directory) }
     }
 
-    /// Appends `data` and fsyncs before returning (step records, exec ledger).
-    static func append(_ data: Data, to url: URL) throws {
+    /// Appends `data` and, by default, fsyncs before returning (step records,
+    /// exec ledger). `sync: false` leaves the bytes in the page cache: level 1
+    /// still survives process death; the terminal record or epoch close fsyncs.
+    static func append(_ data: Data, to url: URL, sync: Bool = true) throws {
         try ensureDirectory(url.deletingLastPathComponent())
         let descriptor = url.path.withCString {
             Darwin.open($0, O_WRONLY | O_APPEND | O_CREAT, 0o600)
@@ -320,8 +328,10 @@ enum ControllerFileStore {
         }
         defer { Darwin.close(descriptor) }
         try writeAll(descriptor: descriptor, data: data)
-        guard Darwin.fsync(descriptor) == 0 else {
-            throw ControllerFileError.posix(operation: "fsync", code: errno)
+        if sync {
+            guard Darwin.fsync(descriptor) == 0 else {
+                throw ControllerFileError.posix(operation: "fsync", code: errno)
+            }
         }
     }
 
@@ -347,6 +357,20 @@ enum ControllerFileStore {
             return 0
         }
         return size.intValue
+    }
+
+    /// Forces already-appended bytes of one existing file to stable storage.
+    /// Used by the epoch close for the step log's intermediate lines (W4).
+    static func fsync(_ url: URL) throws {
+        guard exists(url) else { return }
+        let descriptor = url.path.withCString { Darwin.open($0, O_RDONLY) }
+        guard descriptor >= 0 else {
+            throw ControllerFileError.posix(operation: "open", code: errno)
+        }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else {
+            throw ControllerFileError.posix(operation: "fsync", code: errno)
+        }
     }
 
     /// Removes a record and fsyncs its directory. Without the directory fsync a

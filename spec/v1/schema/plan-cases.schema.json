@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Performance-plan contract cases v1",
+  "description": "Shared valid/invalid cases for the W0/W2/W3/W4/W6/W7 contract freezes, including the W2 rev 2 engine-memory input amendment. The envelope is schema-checked; the per-vector semantic law is judged by spec/v1/tools/plan_cases_check.py. Cases are fixture assets, not runtime messages.",
+  "type": "object",
+  "required": ["schemaVersion", "vector", "valid", "invalid"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "vector": {"enum": ["perf-targets", "retention", "storage-levels", "append-records", "response-log-key", "streaming", "single-copy", "memory-input"]},
+    "valid": {"type": "array", "minItems": 1, "items": {"type": "object"}},
+    "invalid": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["case", "reason"],
+        "properties": {
+          "case": {"type": "object"},
+          "reason": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

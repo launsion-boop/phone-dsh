@@ -73,6 +73,15 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 | memory proxy | VFS bytes by prefix, session bytes, sampled engine heap, WebContent termination count | Budget actions in §4 order; VFS or heap pressure shares the same order; a hard cap after the actions → `Failed` (fail loud). |
 | lease verification | controller and remote authority record | Required for `Recovering` → `Running`; failure keeps admission closed. |
 
+**Engine-memory input sources (W2 rev 2, 2026-11-12).** In this revision the only **production**
+input to the engine-memory side of the memory proxy is the platform **system memory warning**
+(`DispatchSource`/`didReceiveMemoryWarning`). The sampled engine heap named above and in §4 is
+`target`: there is no production producer (`PhoneDSHEngine` exposes no public heap probe,
+`WebEngineScripts` carries only console/boot, every `reportEngineHeapBytes` caller is a test).
+`reportEngineHeapBytes` stays the test/future-P04 injection point; a missing sample MUST NOT be
+read as zero, headroom, or a reason to raise a budget. The warning path keeps
+`clearTmp → plannedRestart` and adds no UI prompt; the numeric §4 rows are unchanged.
+
 **Boot mapping for the rows above.** §2 lists the four persisted states it decided; these four were
 left implicit and the port had to infer them, so they are written down here: persisted `Parked` →
 `Parked` (the resume waits for an active scene), persisted `Backoff` → `Backoff`, persisted `Remote` →
@@ -164,8 +173,10 @@ The domain-store quota is the one row that is a **policy default rather than a m
 was chosen when the store landed, no workload has been profiled against it, and a deployment may
 override it per domain. It is written down so an implementation cannot pick a number silently — the
 row states the value in force, not a value that has been validated.
-`Cache-Control: no-store` responses and lazy image shards are not persisted and do not count against
-these quotas.
+`Cache-Control: no-store` responses are not persisted and do not count against these quotas. The
+content-addressed resources of wal.md §8 may be held in the platform's HTTP cache, outside the app's
+accounting; level 2 below stops new entries by serving them `no-store` again, and the platform
+reclaims existing ones.
 
 Repeated rewrites of one large file are reconciled by compaction, not by raising the quota. When an
 append would cross the WAL quota the host closes the epoch in the D18 order, compacts every droppable
@@ -198,3 +209,112 @@ the published file budget, and adds the 60 s / 75 s duration, 4500-frame and 96 
 per tier. The encoder's footprint is booked in the app process row (150 → 230 MB at 8 GiB,
 400 → 540 MB at 12 GiB). Video artefacts live in the separate `video/` store of §5, so they do not
 consume WAL bytes during encoding.
+
+## 7. Target performance budgets (P03, W0)
+
+Status: `target`. This section adds the performance rows the W0 baseline work will fill; it does not
+change any value in §4 or §5. The numeric column is the literal `待基线` (baseline pending) for every
+row: **no number printed here is a measurement**, and a row becomes a usable target only when a
+device baseline report names the device model, commit, command and result. Until then the row is
+not a pass/fail gate; it fixes the metric, the collection point and the two report画像 (light /
+typical / heavy, plan §1.3) so two measurements cannot silently use different definitions.
+
+| Metric | Unit | Light | Typical | Heavy | Collection point |
+|---|---|---|---|---|---|
+| Cold start to sendable | ms | 待基线 | 待基线 | 待基线 | process start → the first user message is accepted into the outbox and projected |
+| First token latency | ms | 待基线 | 待基线 | 待基线 | prompt accepted → first model token reaches the page |
+| fsync calls per turn | count | 待基线 | 待基线 | 待基线 | one user turn, all stores, counted at the `fsync`/`F_FULLFSYNC` call |
+| Bytes written per turn | bytes | 待基线 | 待基线 | 待基线 | one user turn, WAL + materialized + journal + steps + exec ledger + response log |
+| Idle 10 minutes: wakeups | count | 待基线 | 待基线 | 待基线 | process background for 10 min with no turn; CPU wakeups attributable to the host |
+| Idle 10 minutes: bytes written | bytes | 待基线 | 待基线 | 待基线 | same window; every store, including a periodic epoch close |
+| Host internal storage, steady state | bytes | 待基线 | 待基线 | 待基线 | WAL + materialized + journal + steps + exec + response log + caches; target formula in §9 |
+
+- `待基线`（繁體寫作「待基線」）is one token, not a range. A report that substitutes an estimate (token count, prior
+  device, another profile) does not fill the row.
+- The first two rows are wall-clock latency and are **NOT_VERIFIED** until measured on a device;
+  a simulator, a host build or a unit test cannot fill them.
+- The turn rows count one ordinary user turn on the named fixture profile, not an average over a
+  synthetic loop. The fixture definitions are `scripts/perf/` and `docs/perf/README.md`.
+- This section is additive: no existing row or sentence above is superseded, and a row that later
+  gains a number does not change §4 or §5.
+
+## 8. Journal and step-record pruning (P03/P17, W2)
+
+§5 already requires the journal to prune entries whose step is `journaled` and durable; that
+sentence is made precise here because an implementation without a discardable set can only refuse
+the write at 64 MiB.
+
+- **Journal entry.** A journal entry may be deleted only when all of these hold: the step's
+  `completed` record is present and its state is `journaled` (exec.md §4); that record is level-2
+  durable (the journal `JOURNAL_ACK` level 2 was emitted, or a later epoch close covers it); no
+  open recovery holds the entry; and no retained `start` record of the same step needs it for
+  reconcile. Entries of a step whose terminal record is missing are never deleted. Deletion is
+  whole-entry: a record is never half-removed, never rewritten with edited fields, and `jseq`
+  values are never reused.
+- **High-water retention (implementation constraint).** Pruning is a permission, not a requirement
+  to delete to zero. The journal file header has no `jseq_base`; dropping a session's last record
+  would lower `lastJseq` after a restart and make ChannelServer treat the next consecutive record
+  as a gap. The host **MUST** keep, per session, the newest retained high-water/terminal record
+  (and MAY keep the second-newest) when dropping it would decrease `lastJseq`; at most two records
+  are kept for this reason. Retained records are kept whole, unmodified and with their original
+  `jseq`. This floor does not widen any other deletion condition and never protects an
+  un-journaled, non-durable or replay-referenced entry; keeping more than two records is not
+  required and is not part of this rule.
+- **Step record.** A line in `steps/<session_id>.ndjson` may be dropped only when the step's last
+  recorded state is terminal (`journaled` or `abandoned`), the corresponding journal record is
+  durable (for `journaled`) or the abandonment is durable (for `abandoned`), the step is not
+  referenced by an open exec/dedup replay, and the file is first rewritten as a whole with the
+  surviving lines. An open step's newest line and any line needed to identify it are never
+  dropped. A torn final line is ignored and then removed by the rewrite, never treated as a
+  state.
+- **When.** Pruning runs after every successful epoch close (wal.md §5.2 step 5, before the
+  level-2 ACK is considered complete is *not* allowed) and on a quota overflow before the fail-loud
+  branch. It is silent: no user-visible prompt, banner or disabled state.
+- **Crash safety.** A rewrite writes `*.tmp`, fsyncs it, renames it over the target and fsyncs the
+  directory (wal.md §7.1 order). A kill before the rename leaves the old file, a kill after it
+  leaves the new file; replay must accept either. Pruning never runs while the workspace is
+  `Recovering`.
+- **`JOURNAL_ACK` is unchanged.** Level 1 still acknowledges the append `write()`, level 2 still
+  acknowledges the checkpoint/epoch fsync; pruning does not emit an ACK, does not lower a
+  previously acknowledged level and does not let a not-yet-durable record be dropped. A pruned
+  entry is invisible to replay, not "acknowledged and lost".
+- **GAP.** `LogQuota.swift` currently has no discardable set and refuses at 64 MiB while every
+  recovered body stays resident. That is a defect against this section, registered as GAP-38 in
+  [README.md](README.md) §7, not a licence to raise the quota.
+
+## 9. Host internal storage: total budget and levels (P03, W3)
+
+The absolute per-store quotas in §5 are unchanged. This section adds the aggregate host-internal
+view and the graded, silent actions; it is the only place the five levels are defined.
+
+`hostInternalBytes` is the sum of the WAL (segments plus live blobs, wal.md §14), materialized copy,
+journal, `steps/`, `exec/`, response-log entries that are not yet deletable, the overlay cache and the
+transcript snapshots. The blob store is counted once and the materialized copy once; because a
+materialized file cloned from a blob shares blocks, the sum is an upper bound, which can only trigger
+an action earlier than the physical footprint requires.
+It excludes the user workspace's own bytes only in the sense that the workspace is reported
+separately as `workspaceLogicalBytes`; it is not excluded from the volume headroom. `availableImportantBytes` is
+`volumeAvailableCapacityForImportantUsage` (falls back to the volume's available capacity where the
+platform has no important-usage value).
+
+| Level | Trigger | Automatic action | User-visible |
+|---|---|---|---|
+| 0 | after every epoch close | reclaim every droppable WAL segment and every response-log entry whose deletion condition holds (wal.md §12, gateway-security.md §11) | no |
+| 1 | `hostInternalBytes > 1.3 × workspaceLogicalBytes` | the level-0 actions, then prune caches and cold snapshots; recreate them on demand | no |
+| 2 | `availableImportantBytes < max(512 MiB, 10 % of the volume)` or the platform reports a low-space condition | level-1 actions, more aggressively; stop creating new caches (serve the cacheable routes of wal.md §8 with `no-store` again); never touch §5's authoritative stores beyond their own rules | no |
+| 3 | `workspaceLogicalBytes ≥ 90 % of the workspace bucket` | level-2 actions; emit one structured signal naming the largest files and sizes for the App to show after the turn | one card, at most once per workspace per day |
+| 4 | no reclaimable data remains and the next write would fail | level-3 actions; fail the write with an explicit quota error that names the cause and the remedy | yes, that error |
+
+- Levels 0–2 are completely silent. Level 3 produces a signal only; the App renders the card, and
+  the model layer does not block the turn for it. Level 4 is the only new user-visible failure and
+  it reuses the existing quota-error vocabulary rather than adding a second error meaning.
+- Auto-deletion never removes `home/`, `workspace/`, a session log, or an un-journaled step, and
+  never removes a *live* blob (one a retained WAL record references, wal.md §14.5). Only
+  rebuildable content (overlay cache, transcript snapshots, response-log bodies whose deletion
+  condition holds) and unreferenced blobs may be removed; a removed cache is rebuilt without a
+  prompt or error.
+- The 1.3 × workspace level-1 threshold and the level-2 headroom are **policy defaults, not
+  measurements** (the same status as the §5 domain-store row); they are fixed here so an
+  implementation cannot pick a different number silently.
+- Level 4 is not a second quota for any store; §5's absolute values still govern, and a store
+  below its own quota never fails because of this aggregate view.

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "vector": "perf-targets",
+  "valid": [
+    {"metric": "cold_start_to_sendable_ms", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"},
+    {"metric": "first_token_latency_ms", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"},
+    {"metric": "fsync_calls_per_turn", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"},
+    {"metric": "bytes_written_per_turn", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"},
+    {"metric": "idle_10m_wakeups", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"},
+    {"metric": "idle_10m_bytes_written", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"},
+    {"metric": "host_internal_storage_steady_state_bytes", "status": "target", "light": "待基线", "typical": "待基线", "heavy": "待基线"}
+  ],
+  "invalid": [
+    {"case": {"metric": "first_token_latency_ms", "status": "target", "light": 120, "typical": "待基线", "heavy": "待基线"}, "reason": "invented_number"},
+    {"case": {"metric": "fsync_calls_per_turn", "status": "measured", "light": "待基线", "typical": "待基线", "heavy": "待基线"}, "reason": "not_a_target_row"}
+  ]
+}

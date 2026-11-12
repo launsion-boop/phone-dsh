@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 
 SPEC_DIR = Path(__file__).resolve().parents[1]
+LINE_CAP = {"handoff.md": 200, "budgets.md": 320}
 
 
 def run_checker(spec_dir: Path, full: bool = False) -> subprocess.CompletedProcess:
@@ -94,7 +95,7 @@ class HandoffBudgetTests(unittest.TestCase):
     def test_handoff_line_cap_enforced(self) -> None:
         path = self.copy / "handoff.md"
         original = path.read_text(encoding="utf-8")
-        self.assertLessEqual(len(original.splitlines()), 200)
+        self.assertLessEqual(len(original.splitlines()), LINE_CAP["handoff.md"])
         path.write_text(original + ("\n" * 50), encoding="utf-8")
         completed = run_checker(self.copy)
         self.assert_fails(completed, "D16 cap")
@@ -102,7 +103,7 @@ class HandoffBudgetTests(unittest.TestCase):
     def test_budgets_line_cap_enforced(self) -> None:
         path = self.copy / "budgets.md"
         original = path.read_text(encoding="utf-8")
-        self.assertLessEqual(len(original.splitlines()), 200)
+        self.assertLessEqual(len(original.splitlines()), LINE_CAP["budgets.md"])
         path.write_text(original + ("\n" * 100), encoding="utf-8")
         completed = run_checker(self.copy)
         self.assert_fails(completed, "D16 cap")

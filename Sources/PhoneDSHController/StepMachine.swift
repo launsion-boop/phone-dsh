@@ -410,8 +410,15 @@ public actor StepMachine {
     private let stepsDirectory: URL
     private var records: [StepKey: StepRecord] = [:]
     private var order: [StepKey] = []
+    /// Sessions whose append-only log has intermediate lines in the page cache
+    /// and needs one fsync at the next epoch close (W4, exec.md §8).
+    private var dirtyLogSessions: Set<String> = []
     private var streamingTurns: Set<TurnKey> = []
     private var storedMetrics = StepMachineMetrics()
+    /// Level-2 journal watermark per session. The host injects this so a
+    /// terminal step is pruned only after its `journaled` record is durable
+    /// (budgets.md §8, exec.md §7). `nil` keeps journaled records forever.
+    private let journalDurableJseq: (@Sendable (String) async -> UInt64)?
 
     struct StepKey: Hashable, Sendable {
         var sessionID: String
@@ -428,10 +435,12 @@ public actor StepMachine {
     /// Opens the step store and loads every complete record for reconcile.
     /// A torn final NDJSON line is ignored (exec.md §4).
     public init(root: URL, clock: any HostClock = SystemHostClock(),
-                logger: any ControllerLogging = StderrControllerLogger()) throws {
+                logger: any ControllerLogging = StderrControllerLogger(),
+                journalDurableJseq: (@Sendable (String) async -> UInt64)? = nil) throws {
         self.root = root
         self.clock = clock
         self.logger = logger
+        self.journalDurableJseq = journalDurableJseq
         self.stepsDirectory = root.appendingPathComponent("steps", isDirectory: true)
         try ControllerFileStore.ensureDirectory(stepsDirectory)
         let loaded = try Self.loadFromDisk(stepsDirectory: stepsDirectory)
@@ -967,6 +976,120 @@ public actor StepMachine {
         allRecords().filter { !$0.state.isTerminal }
     }
 
+    // MARK: - Pruning (budgets.md §8, exec.md §7)
+
+    /// Drops terminal step records whose durability has been proven.
+    ///
+    /// The injected journal watermark decides whether a `journaled` record is
+    /// level-2 durable; an `abandoned` record is durable because its terminal
+    /// line is fsynced by ``persist(_:)``. A step referenced by a live exec or
+    /// dedup replay stays. Both the append-only `steps/<session>.ndjson` file
+    /// and the per-step snapshot are removed so a reload cannot resurrect the
+    /// record; the NDJSON rewrite is atomic (temp + fsync + rename + directory
+    /// fsync) and drops a torn final line, which is never a state.
+    @discardableResult
+    public func pruneTerminalSteps(referencedStepKeys: Set<String> = []) async throws
+        -> [StepRecord] {
+        var durable: [String: UInt64] = [:]
+        if let journalDurableJseq {
+            for session in Set(order.map(\.sessionID)) {
+                durable[session] = await journalDurableJseq(session)
+            }
+        }
+        return try pruneTerminalSteps(journalDurableJseq: durable,
+                                      referencedStepKeys: referencedStepKeys)
+    }
+
+    /// Deterministic form used by tests and by a caller that already holds the
+    /// level-2 journal watermark.
+    @discardableResult
+    public func pruneTerminalSteps(journalDurableJseq durable: [String: UInt64],
+                                   referencedStepKeys: Set<String> = []) throws
+        -> [StepRecord] {
+        var pruned: [StepKey: StepRecord] = [:]
+        for key in order {
+            guard let record = records[key], record.state.isTerminal else { continue }
+            guard !referencedStepKeys.contains(record.stepKey) else { continue }
+            if let evidence = record.execEvidence,
+               evidence.values.contains(where: { ($0.started && !$0.terminal) || $0.persistenceFailed }) {
+                continue
+            }
+            switch record.state {
+            case .journaled:
+                guard let jseq = record.completionJseq ?? record.jseq,
+                      jseq > 0,
+                      jseq <= (durable[record.sessionID] ?? 0) else { continue }
+            case .abandoned:
+                break
+            default:
+                continue
+            }
+            pruned[StepKey(sessionID: record.sessionID, identity: record.stepKey)] = record
+        }
+        guard !pruned.isEmpty else { return [] }
+
+        let bySession = Dictionary(grouping: pruned.values, by: \.sessionID)
+        for (sessionID, recordsToDrop) in bySession {
+            let identities = Set(recordsToDrop.map(\.stepKey))
+            try pruneSessionLog(sessionID: sessionID, identities: identities)
+            for record in recordsToDrop {
+                try ControllerFileStore.removeIfExists(
+                    snapshotURL(sessionID: sessionID, stepKey: record.stepKey))
+                if let stepID = record.stepID, stepID != record.stepKey {
+                    try ControllerFileStore.removeIfExists(
+                        snapshotURL(sessionID: sessionID, stepKey: stepID))
+                }
+            }
+        }
+
+        // Keep every in-memory alias of a pruned step in sync with the files.
+        let removed = pruned
+        order.removeAll { key in
+            guard let record = records[key] else { return false }
+            return removed[StepKey(sessionID: record.sessionID, identity: record.stepKey)] != nil
+        }
+        let removedKeys = records.keys.filter { key in
+            guard let record = records[key] else { return false }
+            return removed[StepKey(sessionID: record.sessionID, identity: record.stepKey)] != nil
+        }
+        for key in removedKeys {
+            records.removeValue(forKey: key)
+        }
+        return removed.values.sorted {
+            $0.sessionID == $1.sessionID ? $0.stepKey < $1.stepKey
+                                        : $0.sessionID < $1.sessionID
+        }
+    }
+
+    private func pruneSessionLog(sessionID: String, identities: Set<String>) throws {
+        let url = sessionLogURL(sessionID)
+        guard ControllerFileStore.exists(url) else { return }
+        let data = try ControllerFileStore.read(url)
+        let text = String(decoding: data, as: UTF8.self)
+        var kept: [String] = []
+        var changed = false
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let lineData = line.data(using: .utf8),
+                  let decoded = try? ControllerFileStore.makeDecoder()
+                    .decode(StepLogLine.self, from: lineData) else {
+                // A torn final line from a crash mid-append; the rewrite
+                // removes it instead of treating it as a state.
+                changed = true
+                continue
+            }
+            let identity = decoded.idemKey ?? decoded.stepID
+            if let identity, identities.contains(identity) {
+                changed = true
+                continue
+            }
+            kept.append(String(line))
+        }
+        guard changed else { return }
+        let rewritten = kept.isEmpty ? "" : kept.joined(separator: "\n") + "\n"
+        try ControllerFileStore.writeAtomic(Data(rewritten.utf8), to: url)
+        dirtyLogSessions.remove(sessionID)
+    }
+
     /// Gives every non-terminal step a terminal owner after the host has
     /// stopped waiting for a replacement Worker to reconcile it.
     ///
@@ -1083,6 +1206,16 @@ public actor StepMachine {
         record.history.append(target)
     }
 
+    /// Forces the append-only step logs that still have intermediate lines in
+    /// the page cache. The host calls this once per successful epoch close
+    /// (exec.md §8: terminal line or epoch close fsyncs; not every transition).
+    public func fsyncPendingLogs() throws {
+        for sessionID in dirtyLogSessions.sorted() {
+            try ControllerFileStore.fsync(sessionLogURL(sessionID: sessionID))
+        }
+        dirtyLogSessions.removeAll()
+    }
+
     private func persist(_ record: StepRecord) throws {
         let stepKey = record.stepKey
         guard WireValidation.isValidIdentifier(stepKey) else {
@@ -1101,18 +1234,26 @@ public actor StepMachine {
                                completionJseq: record.completionJseq)
         var data = try ControllerFileStore.encode(line)
         data.append(0x0A)
-        try ControllerFileStore.append(data, to: sessionLogURL(sessionID: record.sessionID))
-        let encoded = try ControllerFileStore.encode(record)
-        // D20 canonical snapshot: the step identity is the journal key.
-        try ControllerFileStore.writeAtomic(
-            encoded, to: snapshotURL(sessionID: record.sessionID, stepKey: stepKey))
-        // The W0/W2 snapshot form keyed by the informational decimal ordinal is
-        // still written when the record carries one, so a reader that only
-        // knows the original form keeps working. The key snapshot is canonical.
-        if let stepID = record.stepID, stepID != stepKey {
-            try ControllerFileStore.writeAtomic(
-                encoded, to: snapshotURL(sessionID: record.sessionID, stepKey: stepID))
+        // W4: one line per transition. Intermediate lines stay in the page
+        // cache (level 1 survives process death); the terminal line fsyncs, and
+        // the epoch close owns the level-2 fsync (exec.md §8).
+        let terminal = record.state.isTerminal
+        try ControllerFileStore.append(data,
+                                       to: sessionLogURL(sessionID: record.sessionID),
+                                       sync: terminal)
+        if terminal {
+            dirtyLogSessions.remove(record.sessionID)
+        } else {
+            dirtyLogSessions.insert(record.sessionID)
         }
+        let encoded = try ControllerFileStore.encode(record)
+        // D20 canonical snapshot: the step identity is the journal key. It is
+        // derived from the append-only line, so an intermediate snapshot does
+        // not fsync; the terminal snapshot does. A decimal-ordinal snapshot is
+        // no longer written twice (exec.md §8, W4).
+        try ControllerFileStore.writeAtomic(
+            encoded, to: snapshotURL(sessionID: record.sessionID, stepKey: stepKey),
+            sync: terminal)
     }
 
     private func sessionLogURL(sessionID: String) -> URL {

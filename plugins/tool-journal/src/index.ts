@@ -395,7 +395,10 @@ export class ToolJournal extends Service {
       const key = idempotencyKey(sessionId, exec.callId)
       const tool = ctx.tools.get(exec.name, exec.agent)
       this.track(sessionId, exec.callId, true)
-      this.store.append(sessionId, {
+      // exec.md §8: the `start` record is awaited and fsynced before the tool
+      // body runs. Firing it without awaiting let the body (and its side
+      // effects) get ahead of the durable evidence.
+      await this.store.append(sessionId, {
         v: 1, t: 'start', key, call_id: exec.callId, tool: exec.name, class: this.classify(exec.name),
         args_sha256: canonicalHash(exec.arguments), schema_sha256: tool === undefined ? null : schemaHash(tool),
         profile: config.profile, at: Date.now(),

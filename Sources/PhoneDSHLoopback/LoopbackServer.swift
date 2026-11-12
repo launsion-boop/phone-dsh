@@ -57,6 +57,14 @@ public struct LoopbackRoutes: Sendable {
     /// the boot id and returns the file URL, or nil for 404. The file name keeps
     /// the pre-D21 route contract; its bytes are the gzip member of D21.
     public var overlayProvider: (@Sendable (String) -> URL?)?
+    /// `/blobs/sha256/<hash>` of the wal.md §14 store; the closure receives the
+    /// digest and returns the blob file URL, or nil for 404. Content-addressed
+    /// resources are the only routes allowed to leave `no-store` (wal.md §8).
+    public var blobProvider: (@Sendable (String) -> URL?)?
+    /// Whether the two content-addressed routes may be served as
+    /// `private, max-age=31536000, immutable`. The host sets this from
+    /// budgets.md §9: storage level >= 2 serves them `no-store` again.
+    public var immutableResourcesCacheable: @Sendable () -> Bool
     /// `/v1/http` implementation (the model gateway).
     public var httpEgress: (any HTTPEgress)?
     /// Target of the `/v1/exec*`, `/v1/fs/*` and `/v1/lifecycle` routes.
@@ -82,6 +90,8 @@ public struct LoopbackRoutes: Sendable {
                 imageBaseURL: URL? = nil,
                 lazyImageProvider: (@Sendable (String) -> URL?)? = nil,
                 overlayProvider: (@Sendable (String) -> URL?)? = nil,
+                blobProvider: (@Sendable (String) -> URL?)? = nil,
+                immutableResourcesCacheable: @escaping @Sendable () -> Bool = { true },
                 httpEgress: (any HTTPEgress)? = nil,
                 execBridge: (any ExecBridgeHosting)? = nil,
                 mcpBaseURL: URL? = nil,
@@ -96,6 +106,8 @@ public struct LoopbackRoutes: Sendable {
         self.imageBaseURL = imageBaseURL
         self.lazyImageProvider = lazyImageProvider
         self.overlayProvider = overlayProvider
+        self.blobProvider = blobProvider
+        self.immutableResourcesCacheable = immutableResourcesCacheable
         self.httpEgress = httpEgress
         self.execBridge = execBridge
         self.mcpBaseURL = mcpBaseURL
@@ -168,29 +180,49 @@ public actor LoopbackServer {
             token = configuration.token
             generatedToken = false
         }
-        let listener = LoopbackListener { [weak self] connection in
-            guard let self else {
-                connection.cancel()
-                return
+        func makeListener() -> LoopbackListener {
+            LoopbackListener { [weak self] connection in
+                guard let self else {
+                    connection.cancel()
+                    return
+                }
+                Task { await self.accept(connection) }
             }
-            Task { await self.accept(connection) }
         }
+        // wal.md §8: a fixed host:port per installation is what makes the
+        // content-addressed cache useful. `configuration.port != 0` is the
+        // preferred port; if it cannot be bound, fall back to an ephemeral one
+        // (a cache miss, never a correctness or security change).
+        var listener = makeListener()
+        let port: UInt16
         do {
-            let port = try await listener.start(host: LoopbackConfiguration.loopbackHost,
-                                                port: configuration.port)
-            guard let url = URL(string: "http://127.0.0.1:\(port)") else {
-                listener.stop()
-                throw LoopbackError.invalidEndpoint("the bound port is not a valid URL")
-            }
-            self.listener = listener
-            self.configuration.token = token
-            let endpoint = LoopbackEndpoint(baseURL: url, token: token)
-            self.endpointValue = endpoint
-            return endpoint
+            port = try await listener.start(host: LoopbackConfiguration.loopbackHost,
+                                            port: configuration.port)
         } catch {
+            guard configuration.port != 0 else {
+                listener.stop()
+                throw error
+            }
             listener.stop()
-            throw error
+            listener = makeListener()
+            do {
+                port = try await listener.start(host: LoopbackConfiguration.loopbackHost,
+                                                port: 0)
+            } catch {
+                listener.stop()
+                throw error
+            }
         }
+        guard let url = URL(string: "http://127.0.0.1:\(port)") else {
+            listener.stop()
+            throw LoopbackError.invalidEndpoint("the bound port is not a valid URL")
+        }
+        self.listener = listener
+        self.configuration.token = token
+        self.configuration.port = port
+        let endpoint = LoopbackEndpoint(baseURL: url, token: token)
+        self.endpointValue = endpoint
+        return endpoint
     }
 
     /// Stops accepting, cancels live connections and drops the token.
@@ -319,8 +351,14 @@ public actor LoopbackServer {
             return .json(503, code: "unavailable", message: "the loopback server is stopping")
         }
         let path = request.path
+        // wal.md §8: the content-addressed routes authenticate with the
+        // same-origin launch cookie or a bearer header; they no longer put the
+        // token in their URL. Cookie auth is therefore accepted there too,
+        // while the query/bearer forms keep working (cache miss, not a
+        // correctness change).
         let acceptsCookie = path == "/" || path.hasPrefix("/static/")
             || path == "/api" || path.hasPrefix("/api/")
+            || path.hasPrefix("/image/lazy/") || path.hasPrefix("/blobs/sha256/")
         let queryToken = request.query["token"]
         let cookieToken = acceptsCookie
             ? Self.cookieValue(named: Self.launchCookieName,
@@ -363,7 +401,16 @@ public actor LoopbackServer {
             let sha = String(name.dropLast(".tar.gz".count))
             guard Self.isLowercaseHex(sha, length: 64) else { return notFound() }
             guard let url = routes.lazyImageProvider?(sha) else { return notFound() }
-            return fileReply(url, contentType: "application/gzip")
+            return fileReply(url, contentType: "application/gzip",
+                             cacheControl: immutableCacheControl())
+        }
+        if path.hasPrefix("/blobs/sha256/") {
+            guard request.method == "GET" else { return methodNotAllowed() }
+            let digest = String(path.dropFirst("/blobs/sha256/".count))
+            guard Self.isLowercaseHex(digest, length: 64),
+                  let url = routes.blobProvider?(digest) else { return notFound() }
+            return fileReply(url, contentType: "application/octet-stream",
+                             cacheControl: immutableCacheControl())
         }
         if path.hasPrefix("/image/overlay/") {
             guard request.method == "GET" else { return methodNotAllowed() }
@@ -419,7 +466,8 @@ public actor LoopbackServer {
                   let url = routes.lazyImageProvider?(sha) else {
                 return notFound()
             }
-            return fileReply(url, contentType: "application/gzip")
+            return fileReply(url, contentType: "application/gzip",
+                             cacheControl: immutableCacheControl())
         case .modelGateway:
             return routeHTTPEgress(request)
         case .channelUpgrade:
@@ -456,10 +504,10 @@ public actor LoopbackServer {
               !isDirectory.boolValue else {
             return notFound()
         }
-        let data = (try? Data(contentsOf: resolved)) ?? Data()
-        var headers: [String: String] = [
-            "Content-Type": Self.contentType(forExtension: resolved.pathExtension),
-        ]
+        // W7 (§13 item 6): never read the body on the actor. A `.file` reply
+        // is streamed by the response writer off the actor, so a large static
+        // asset cannot block another route (health, /v1/exec, /channel).
+        var headers: [String: String] = [:]
         if page && configuration.crossOriginIsolation {
             headers["Cross-Origin-Opener-Policy"] = "same-origin"
             headers["Cross-Origin-Embedder-Policy"] = "require-corp"
@@ -471,16 +519,29 @@ public actor LoopbackServer {
             headers["Set-Cookie"] = Self.launchCookie(name: Self.launchCookieName,
                                                       token: token)
         }
-        return .full(status: 200, headers: headers, body: data)
+        return .file(url: resolved,
+                     contentType: Self.contentType(forExtension: resolved.pathExtension),
+                     headers: headers)
     }
 
-    private func fileReply(_ url: URL, contentType: String) -> LoopbackReply {
+    private func fileReply(_ url: URL, contentType: String,
+                           cacheControl: String? = nil) -> LoopbackReply {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else {
             return notFound()
         }
-        return .file(url: url, contentType: contentType, headers: [:])
+        var headers: [String: String] = [:]
+        if let cacheControl { headers["Cache-Control"] = cacheControl }
+        return .file(url: url, contentType: contentType, headers: headers)
+    }
+
+    /// wal.md §8: `private, max-age=31536000, immutable` only for the two
+    /// content-addressed routes, and only below storage level 2.
+    private func immutableCacheControl() -> String? {
+        routes.immutableResourcesCacheable()
+            ? "private, max-age=31536000, immutable"
+            : nil
     }
 
     static func contentType(forExtension ext: String) -> String {

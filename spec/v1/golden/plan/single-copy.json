@@ -1,0 +1,493 @@
+{
+  "schemaVersion": 1,
+  "vector": "single-copy",
+  "valid": [
+    {
+      "id": "blob-at-threshold",
+      "kind": "wal-write",
+      "mutationOp": 1,
+      "appended": false,
+      "dataBytes": 65536,
+      "blobLenEqualsData": true,
+      "sameMseq": true,
+      "expected": {
+        "storedAs": "blob"
+      }
+    },
+    {
+      "id": "inline-below-threshold",
+      "kind": "wal-write",
+      "mutationOp": 1,
+      "appended": false,
+      "dataBytes": 65535,
+      "blobLenEqualsData": true,
+      "sameMseq": true,
+      "expected": {
+        "storedAs": "inline"
+      }
+    },
+    {
+      "id": "appended-suffix-at-threshold",
+      "kind": "wal-write",
+      "mutationOp": 1,
+      "appended": true,
+      "dataBytes": 65536,
+      "blobLenEqualsData": true,
+      "sameMseq": true,
+      "expected": {
+        "storedAs": "blob"
+      }
+    },
+    {
+      "id": "mkdir-never-by-reference",
+      "kind": "wal-write",
+      "mutationOp": 2,
+      "appended": false,
+      "dataBytes": 0,
+      "blobLenEqualsData": true,
+      "sameMseq": true,
+      "expected": {
+        "storedAs": "inline"
+      }
+    },
+    {
+      "id": "referenced-blob-kept",
+      "kind": "blob-gc",
+      "referenced": true,
+      "segmentDropDurable": true,
+      "liveBlobs": [
+        "aa"
+      ],
+      "deleted": [],
+      "expected": {
+        "action": "keep"
+      }
+    },
+    {
+      "id": "orphan-blob-deleted-after-manifest",
+      "kind": "blob-gc",
+      "referenced": false,
+      "segmentDropDurable": true,
+      "liveBlobs": [
+        "aa"
+      ],
+      "deleted": [
+        "bb"
+      ],
+      "expected": {
+        "action": "delete"
+      }
+    },
+    {
+      "id": "orphan-blob-held-before-manifest",
+      "kind": "blob-gc",
+      "referenced": false,
+      "segmentDropDurable": false,
+      "liveBlobs": [],
+      "deleted": [],
+      "expected": {
+        "action": "keep-until-manifest-durable"
+      }
+    },
+    {
+      "id": "materialized-clone-cow",
+      "kind": "materialization",
+      "cloneSupported": true,
+      "action": "clone",
+      "laterInPlaceAppend": true,
+      "blobMutatedByLaterAppend": false,
+      "expected": {
+        "action": "clone"
+      }
+    },
+    {
+      "id": "materialized-copy-without-clone",
+      "kind": "materialization",
+      "cloneSupported": false,
+      "action": "copy",
+      "laterInPlaceAppend": true,
+      "blobMutatedByLaterAppend": false,
+      "expected": {
+        "action": "copy"
+      }
+    },
+    {
+      "id": "cache-lazy-shard-immutable",
+      "kind": "cache",
+      "route": "/image/lazy/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.tar.gz",
+      "storageLevel": 0,
+      "header": "private, max-age=31536000, immutable",
+      "versionKey": "sha256",
+      "tokenInURL": false,
+      "auth": "launch-cookie",
+      "stableOrigin": true,
+      "expected": {
+        "header": "private, max-age=31536000, immutable",
+        "cacheable": true
+      }
+    },
+    {
+      "id": "cache-page-stays-no-store",
+      "kind": "cache",
+      "route": "/",
+      "storageLevel": 0,
+      "header": "no-store",
+      "versionKey": "none",
+      "tokenInURL": true,
+      "auth": "bearer",
+      "stableOrigin": true,
+      "expected": {
+        "header": "no-store",
+        "cacheable": false
+      }
+    },
+    {
+      "id": "cache-level-2-stops-new-entries",
+      "kind": "cache",
+      "route": "/image/lazy/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.tar.gz",
+      "storageLevel": 2,
+      "header": "no-store",
+      "versionKey": "sha256",
+      "tokenInURL": false,
+      "auth": "launch-cookie",
+      "stableOrigin": true,
+      "expected": {
+        "header": "no-store",
+        "cacheable": false
+      }
+    },
+    {
+      "id": "handoff-snapshot-at-closed-tail",
+      "kind": "handoff",
+      "direction": "push",
+      "baseEqualsWalSeq": true,
+      "expandsBlobsInTransfer": false,
+      "blobRecordsInSegments": 0,
+      "expected": {
+        "accepted": true,
+        "segments": "empty"
+      }
+    },
+    {
+      "id": "handoff-expanded-transfer",
+      "kind": "handoff",
+      "direction": "push",
+      "baseEqualsWalSeq": false,
+      "expandsBlobsInTransfer": true,
+      "blobRecordsInSegments": 0,
+      "expected": {
+        "accepted": true,
+        "segments": "expanded"
+      }
+    },
+    {
+      "id": "reclaim-segments-are-inline",
+      "kind": "handoff",
+      "direction": "reclaim",
+      "baseEqualsWalSeq": false,
+      "expandsBlobsInTransfer": false,
+      "blobRecordsInSegments": 0,
+      "expected": {
+        "accepted": true,
+        "segments": "as-is"
+      }
+    },
+    {
+      "id": "recovery-applies-verified-blob",
+      "kind": "recovery",
+      "blobPresent": true,
+      "blobLenMatches": true,
+      "digestMatches": true,
+      "expected": {
+        "result": "apply"
+      }
+    },
+    {
+      "id": "old-build-reads-inline-record",
+      "kind": "compat",
+      "readerBuild": "old",
+      "dataForm": "inline",
+      "rollback": false,
+      "expected": {
+        "result": "read"
+      }
+    },
+    {
+      "id": "new-build-reads-blob-record",
+      "kind": "compat",
+      "readerBuild": "new",
+      "dataForm": "blob",
+      "rollback": false,
+      "expected": {
+        "result": "read"
+      }
+    },
+    {
+      "id": "old-build-refuses-blob-record",
+      "kind": "compat",
+      "readerBuild": "old",
+      "dataForm": "blob",
+      "rollback": true,
+      "expected": {
+        "result": "fail-loud-preserve"
+      },
+      "restoreAvailable": true
+    },
+    {
+      "id": "no-wal-migration",
+      "kind": "migration",
+      "scope": "wal",
+      "rewritesRetainedRecords": false,
+      "oldDataReadable": true,
+      "expected": {
+        "migration": "none"
+      }
+    },
+    {
+      "id": "overlay-manifest-background-build",
+      "kind": "migration",
+      "scope": "overlay",
+      "rewritesRetainedRecords": false,
+      "oldDataReadable": true,
+      "expected": {
+        "migration": "background-manifest-build"
+      }
+    },
+    {
+      "id": "quota-counts-live-blobs-only",
+      "kind": "quota",
+      "walBytes": 450000000,
+      "liveBlobBytes": 104857600,
+      "orphanBlobBytes": 52428800,
+      "limitBytes": 536870912,
+      "expected": {
+        "countedBytes": 554857600,
+        "result": "fail-loud"
+      }
+    },
+    {
+      "id": "quota-ignores-orphans",
+      "kind": "quota",
+      "walBytes": 450000000,
+      "liveBlobBytes": 0,
+      "orphanBlobBytes": 268435456,
+      "limitBytes": 536870912,
+      "expected": {
+        "countedBytes": 450000000,
+        "result": "admit"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "case": {
+        "kind": "wal-write",
+        "mutationOp": 1,
+        "appended": false,
+        "dataBytes": 65535,
+        "blobLenEqualsData": true,
+        "sameMseq": true,
+        "expected": {
+          "storedAs": "blob"
+        }
+      },
+      "reason": "blob_record_below_threshold"
+    },
+    {
+      "case": {
+        "kind": "wal-write",
+        "mutationOp": 3,
+        "appended": false,
+        "dataBytes": 65536,
+        "blobLenEqualsData": true,
+        "sameMseq": true,
+        "expected": {
+          "storedAs": "blob"
+        }
+      },
+      "reason": "remove_stored_by_reference"
+    },
+    {
+      "case": {
+        "kind": "wal-write",
+        "mutationOp": 1,
+        "appended": false,
+        "dataBytes": 65536,
+        "blobLenEqualsData": false,
+        "sameMseq": true,
+        "expected": {
+          "storedAs": "blob"
+        }
+      },
+      "reason": "blob_len_differs_from_data_len"
+    },
+    {
+      "case": {
+        "kind": "blob-gc",
+        "referenced": true,
+        "segmentDropDurable": true,
+        "liveBlobs": [
+          "aa"
+        ],
+        "deleted": [
+          "aa"
+        ],
+        "expected": {
+          "action": "delete"
+        }
+      },
+      "reason": "referenced_blob_deleted"
+    },
+    {
+      "case": {
+        "kind": "blob-gc",
+        "referenced": false,
+        "segmentDropDurable": false,
+        "liveBlobs": [],
+        "deleted": [
+          "bb"
+        ],
+        "expected": {
+          "action": "delete"
+        }
+      },
+      "reason": "orphan_deleted_before_manifest_durable"
+    },
+    {
+      "case": {
+        "kind": "materialization",
+        "cloneSupported": true,
+        "action": "copy",
+        "laterInPlaceAppend": true,
+        "blobMutatedByLaterAppend": false,
+        "expected": {
+          "action": "copy"
+        }
+      },
+      "reason": "clone_available_but_not_used"
+    },
+    {
+      "case": {
+        "kind": "materialization",
+        "cloneSupported": false,
+        "action": "hardlink",
+        "laterInPlaceAppend": true,
+        "blobMutatedByLaterAppend": true,
+        "expected": {
+          "action": "hardlink"
+        }
+      },
+      "reason": "hardlink_append_mutates_blob"
+    },
+    {
+      "case": {
+        "kind": "cache",
+        "route": "/static/index.html",
+        "storageLevel": 0,
+        "header": "private, max-age=31536000, immutable",
+        "versionKey": "none",
+        "tokenInURL": false,
+        "auth": "launch-cookie",
+        "stableOrigin": true,
+        "expected": {
+          "header": "private, max-age=31536000, immutable",
+          "cacheable": true
+        }
+      },
+      "reason": "unversioned_route_made_cacheable"
+    },
+    {
+      "case": {
+        "kind": "cache",
+        "route": "/image/lazy/9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08.tar.gz",
+        "storageLevel": 0,
+        "header": "public, max-age=31536000, immutable",
+        "versionKey": "sha256",
+        "tokenInURL": false,
+        "auth": "none",
+        "stableOrigin": true,
+        "expected": {
+          "header": "public, max-age=31536000, immutable",
+          "cacheable": true
+        }
+      },
+      "reason": "shared_cache_and_unauthenticated_route"
+    },
+    {
+      "case": {
+        "kind": "handoff",
+        "direction": "push",
+        "baseEqualsWalSeq": false,
+        "expandsBlobsInTransfer": false,
+        "blobRecordsInSegments": 1,
+        "expected": {
+          "accepted": true,
+          "segments": "as-is"
+        }
+      },
+      "reason": "blob_reference_crosses_handoff"
+    },
+    {
+      "case": {
+        "kind": "recovery",
+        "blobPresent": false,
+        "blobLenMatches": true,
+        "digestMatches": true,
+        "expected": {
+          "result": "apply"
+        }
+      },
+      "reason": "missing_blob_applied"
+    },
+    {
+      "case": {
+        "kind": "recovery",
+        "blobPresent": true,
+        "blobLenMatches": true,
+        "digestMatches": false,
+        "expected": {
+          "result": "apply"
+        }
+      },
+      "reason": "digest_mismatch_applied"
+    },
+    {
+      "case": {
+        "kind": "compat",
+        "readerBuild": "old",
+        "dataForm": "blob",
+        "rollback": true,
+        "expected": {
+          "result": "read"
+        }
+      },
+      "reason": "old_build_claims_blob_compatibility"
+    },
+    {
+      "case": {
+        "kind": "migration",
+        "scope": "wal",
+        "rewritesRetainedRecords": true,
+        "oldDataReadable": true,
+        "expected": {
+          "migration": "none"
+        }
+      },
+      "reason": "migration_rewrites_retained_records"
+    },
+    {
+      "case": {
+        "kind": "quota",
+        "walBytes": 419430400,
+        "liveBlobBytes": 104857600,
+        "orphanBlobBytes": 0,
+        "limitBytes": 536870912,
+        "expected": {
+          "countedBytes": 419430400,
+          "result": "admit"
+        }
+      },
+      "reason": "quota_excludes_live_blobs"
+    }
+  ]
+}

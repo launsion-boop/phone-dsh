@@ -37,15 +37,36 @@ enum WebEngineScripts {
             try { handler.postMessage(message); } catch (error) {}
           }
           var levels = { log: 'log', info: 'info', warn: 'warning', error: 'error', debug: 'debug' };
+          // W7 (§13): a chatty page used to stringify and post every console
+          // call. Non-error levels are rate limited to 50 lines per second per
+          // level; `error` is never dropped. The native forward is still only
+          // attempted for an allowed line, so stringification is skipped too.
+          var consoleWindowStart = Date.now();
+          var consoleCounts = {};
+          var consoleBudgetPerLevel = 50;
+          function allowConsole(level) {
+            if (level === 'error') { return true; }
+            var now = Date.now();
+            if (now - consoleWindowStart >= 1000) {
+              consoleWindowStart = now;
+              consoleCounts = {};
+            }
+            var count = (consoleCounts[level] || 0) + 1;
+            consoleCounts[level] = count;
+            return count <= consoleBudgetPerLevel;
+          }
           Object.keys(levels).forEach(function (name) {
             var original = console[name];
             console[name] = function () {
               try {
-                var parts = [];
-                for (var i = 0; i < arguments.length; i++) {
-                  parts.push(String(arguments[i]));
+                var level = levels[name];
+                if (allowConsole(level)) {
+                  var parts = [];
+                  for (var i = 0; i < arguments.length; i++) {
+                    parts.push(String(arguments[i]));
+                  }
+                  post({ kind: 'console', level: level, text: parts.join(' ') });
                 }
-                post({ kind: 'console', level: levels[name], text: parts.join(' ') });
               } catch (error) {}
               if (typeof original === 'function') {
                 return original.apply(console, arguments);
@@ -53,6 +74,18 @@ enum WebEngineScripts {
             };
           });
           var lastBootState = '';
+          var bootObservers = [];
+          var loadListenerAttached = false;
+          function stopObserving() {
+            for (var i = 0; i < bootObservers.length; i++) {
+              try { bootObservers[i].disconnect(); } catch (error) {}
+            }
+            bootObservers = [];
+            if (loadListenerAttached) {
+              try { window.removeEventListener('load', inspectBoot); } catch (error) {}
+              loadListenerAttached = false;
+            }
+          }
           function statusText() {
             var text = '';
             try { text += String(document.title || ''); } catch (error) {}
@@ -70,26 +103,35 @@ enum WebEngineScripts {
             if (state === '' || state === lastBootState) { return; }
             lastBootState = state;
             post({ kind: 'boot', state: state, detail: text.trim() });
+            // The probe has answered: stop watching the whole document. A
+            // ready page no longer needs a per-mutation JS callback.
+            if (state === 'ready') { stopObserving(); }
           }
           function observe() {
             inspectBoot();
+            if (lastBootState === 'ready') { return; }
             try {
               var target = document.documentElement || document;
-              new MutationObserver(inspectBoot).observe(target, {
+              var documentObserver = new MutationObserver(inspectBoot);
+              documentObserver.observe(target, {
                 subtree: true,
                 childList: true,
                 characterData: true,
                 attributes: true,
                 attributeFilter: ['content']
               });
+              bootObservers.push(documentObserver);
               var title = document.querySelector('title');
               if (title) {
-                new MutationObserver(inspectBoot).observe(title, {
+                var titleObserver = new MutationObserver(inspectBoot);
+                titleObserver.observe(title, {
                   subtree: true, childList: true, characterData: true
                 });
+                bootObservers.push(titleObserver);
               }
             } catch (error) {}
             window.addEventListener('load', inspectBoot);
+            loadListenerAttached = true;
           }
           if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', observe);

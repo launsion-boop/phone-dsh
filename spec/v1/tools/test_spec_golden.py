@@ -77,6 +77,11 @@ class GoldenCheckerTests(unittest.TestCase):
             if record["kind"] == "mutation":
                 body = checker.encode_mutation_body(record["fields"], "test")
                 mseq = record["fields"]["mseq"]
+            elif record["kind"] == "blob_write":
+                body = checker.encode_blob_write_body(
+                    {name: value for name, value in record["fields"].items()
+                     if name != "mseq"}, "test")
+                mseq = record["fields"]["mseq"]
             else:
                 mseq, body = checker.encode_epoch_close_body(record["fields"], "test")
             crc, record_bytes = checker.encode_wal_record(mseq, body, "test")
@@ -346,7 +351,16 @@ class GoldenCheckerTests(unittest.TestCase):
             record["fields"]["mflags"] = 0
             record["fields"]["append_from"] = 0
 
+        def remove_blob_append(doc) -> None:
+            # The appended coverage is cross-vector, so the blob vector's appended write
+            # has to go too; otherwise the rule is still satisfied.
+            for record in doc["records"]:
+                if record["kind"] == "blob_write" and record["fields"]["mflags"] & 0x02:
+                    record["fields"]["mflags"] = 1
+                    record["fields"]["append_from"] = 0
+
         self.rewrite_wal("golden/wal/segment-1.json", remove_append)
+        self.rewrite_wal("golden/wal/segment-blob-write.json", remove_blob_append)
         completed = run_checker(self.copy)
         self.assert_fails(completed, "no appended write")
 

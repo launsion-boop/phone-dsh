@@ -332,6 +332,52 @@ final class LoopbackHTTPTests: XCTestCase {
         }
     }
 
+    // MARK: - W6 content-addressed cacheability (wal.md §8)
+
+    func testContentAddressedRoutesAreImmutableAndBlobsAreServed() async throws {
+        let root = try makeTemporaryDirectory()
+        addTeardownBlock { removeTemporaryDirectory(root) }
+        let sha = String(repeating: "a", count: 64)
+        let lazy = root.appendingPathComponent("\(sha).tar.gz")
+        try Data("lazy".utf8).write(to: lazy)
+        let blob = root.appendingPathComponent(sha)
+        try Data("blob".utf8).write(to: blob)
+        let (_, client) = try await startServer(routes: LoopbackRoutes(
+            lazyImageProvider: { $0 == sha ? lazy : nil },
+            blobProvider: { $0 == sha ? blob : nil }))
+
+        let (lazyResponse, lazyData) = try await client.send("GET", "/image/lazy/\(sha).tar.gz")
+        XCTAssertEqual(lazyResponse.statusCode, 200)
+        XCTAssertEqual(lazyData, Data("lazy".utf8))
+        XCTAssertEqual(lazyResponse.value(forHTTPHeaderField: "Cache-Control"),
+                       "private, max-age=31536000, immutable")
+        XCTAssertNil(lazyResponse.value(forHTTPHeaderField: "Vary"))
+
+        let (blobResponse, blobData) = try await client.send("GET", "/blobs/sha256/\(sha)")
+        XCTAssertEqual(blobResponse.statusCode, 200)
+        XCTAssertEqual(blobData, Data("blob".utf8))
+        XCTAssertEqual(blobResponse.value(forHTTPHeaderField: "Cache-Control"),
+                       "private, max-age=31536000, immutable")
+
+        // Every other route keeps the pre-W6 rule.
+        let (page, _) = try await client.send("GET", "/")
+        XCTAssertEqual(page.value(forHTTPHeaderField: "Cache-Control"), "no-store")
+    }
+
+    func testStorageLevelTwoServesContentAddressedRoutesNoStore() async throws {
+        let root = try makeTemporaryDirectory()
+        addTeardownBlock { removeTemporaryDirectory(root) }
+        let sha = String(repeating: "b", count: 64)
+        let blob = root.appendingPathComponent(sha)
+        try Data("blob".utf8).write(to: blob)
+        let (_, client) = try await startServer(routes: LoopbackRoutes(
+            blobProvider: { $0 == sha ? blob : nil },
+            immutableResourcesCacheable: { false }))
+        let (response, _) = try await client.send("GET", "/blobs/sha256/\(sha)")
+        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.value(forHTTPHeaderField: "Cache-Control"), "no-store")
+    }
+
     // MARK: - Egress
 
     private func egressHeaders(target: String = "http://example.test/echo",

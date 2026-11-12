@@ -12,7 +12,9 @@
         "properties": {
           "name": {"enum": ["ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress", "show_checklist", "show_link", "UpdateMemory", "RecallMemory", "Task", "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser"]},
           "description": {"type": "string"},
-          "inputSchema": {"type": "object"}
+          "inputSchema": {"type": "object"},
+          "tier": {"enum": ["core", "device", "discoverable"]},
+          "requires": {"enum": ["adb", "ble", "venus", "ssh", "adb+ble"]}
         },
         "additionalProperties": false
       }
@@ -25,10 +27,35 @@
         "properties": {
           "name": {"enum": ["show_table", "show_callout", "show_info", "show_payload", "show_library"]},
           "description": {"type": "string"},
-          "inputSchema": {"type": "object"}
+          "inputSchema": {"type": "object"},
+          "tier": {"enum": ["core", "device", "discoverable"]},
+          "requires": {"enum": ["adb", "ble", "venus", "ssh", "adb+ble"]}
         },
         "additionalProperties": false
       }
+    },
+    "tiers": {
+      "description": "Additive tool-catalog layering (PC-20261112-w5-tool-catalog-roundtrips). p0/p1 keep their meaning; this object names the three runtime tiers. A device tier is listed only while its connection/configuration is present; a discoverable tool stays listed with a compact description. A tool appears in exactly one tier.",
+      "type": "object",
+      "required": ["core", "device", "discoverable"],
+      "properties": {
+        "core": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "device": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["class", "tools"],
+            "properties": {
+              "class": {"enum": ["adb", "ble", "venus", "ssh"]},
+              "tools": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "catalogVersion": {"type": "integer", "minimum": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        "discoverable": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

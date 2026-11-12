@@ -11,7 +11,7 @@ import {
 } from './index.ts'
 
 interface GoldenRecord {
-  readonly kind: 'mutation' | 'epoch_close'
+  readonly kind: 'mutation' | 'blob_write' | 'epoch_close'
   readonly fields: Record<string, unknown>
   readonly crc32c: number
   readonly record_hex: string
@@ -71,6 +71,18 @@ function encodeGoldenRecord(record: GoldenRecord): Uint8Array {
       mutation: mutationBody(fields),
     })
   }
+  if (record.kind === 'blob_write') {
+    return encodeWalRecord({
+      kind: 'blob_write',
+      mseq: BigInt(numberField(fields, 'mseq')),
+      mode: numberField(fields, 'mode'),
+      mflags: numberField(fields, 'mflags'),
+      appendFrom: BigInt(numberField(fields, 'append_from')),
+      blobLen: numberField(fields, 'blob_len'),
+      blobSha256: hexToBytes(stringField(fields, 'blob_sha256')),
+      path: stringField(fields, 'path'),
+    })
+  }
   return encodeWalRecord({
     kind: 'epoch_close',
     mseq: BigInt(numberField(fields, 'mseq')),
@@ -92,6 +104,21 @@ function fieldifyRecord(record: WalRecord): { kind: string; fields: Record<strin
         path: record.mutation.path,
         data_len: record.mutation.data.byteLength,
         data_hex: bytesToHex(record.mutation.data),
+      },
+    }
+  }
+  if (record.kind === 'blob_write') {
+    return {
+      kind: 'blob_write',
+      fields: {
+        mseq: Number(record.mseq),
+        op: 0xfe,
+        mode: record.mode,
+        mflags: record.mflags,
+        append_from: Number(record.appendFrom),
+        blob_len: record.blobLen,
+        blob_sha256: bytesToHex(record.blobSha256),
+        path: record.path,
       },
     }
   }

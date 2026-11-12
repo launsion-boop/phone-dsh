@@ -76,4 +76,29 @@ final class OverlayCacheTests: XCTestCase {
         let sidecarWatermark = (sidecar as? [String: Any])?["watermark"] as? UInt64
         XCTAssertEqual(sidecarWatermark, 2)
     }
+
+    func testOverlayCacheLivesUnderTheConfiguredCacheRoot() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pdsh-overlay-root-\(UUID().uuidString)", isDirectory: true)
+        let cache = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pdsh-overlay-cache-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: cache)
+        }
+        let configuration = WorkspaceLogConfiguration(root: root, cacheRoot: cache,
+                                                      groupCommitDelay: 0)
+        let log = try WorkspaceLog(configuration: configuration,
+                                   bootID: Data(repeating: 0x34, count: 16))
+        _ = try await log.recover()
+        _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
+        let bootURL = try await log.overlay(bootID: bootA)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: cache.appendingPathComponent("overlay-cache.tar").path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("overlay-cache.tar").path))
+        XCTAssertEqual(bootURL.deletingLastPathComponent().standardizedFileURL,
+                       cache.standardizedFileURL)
+    }
+
 }

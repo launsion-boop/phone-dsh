@@ -7,16 +7,63 @@
 // the same code can run wherever the phone host is built.
 
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#elseif canImport(Crypto)
+import Crypto
+#endif
 
-/// Minimal SHA-256 (FIPS 180-4) used for response-log keys.
+/// SHA-256 used for response-log keys (W7).
+///
+/// The key recipe is frozen in `spec/v1/gateway-security.md` §12: the digest
+/// must be byte-identical across platforms and implementations. CryptoKit (or
+/// swift-crypto on non-Apple platforms) is preferred; the original scalar
+/// implementation remains the fallback and the test-only oracle. Both paths
+/// hash exactly the same bytes.
 enum GatewaySHA256 {
+    /// Lowercase hexadecimal SHA-256 digest of the concatenation of `parts`.
+    ///
+    /// Hashing the parts incrementally avoids building one more copy of the
+    /// request body for the content key.
+    static func hexDigest(parts: [Data]) -> String {
+        #if canImport(CryptoKit)
+        var hasher = SHA256()
+        for part in parts { hasher.update(data: part) }
+        return hexString(Array(hasher.finalize()))
+        #elseif canImport(Crypto)
+        var hasher = SHA256()
+        for part in parts { hasher.update(data: part) }
+        return hexString(Array(hasher.finalize()))
+        #else
+        var combined = Data()
+        combined.reserveCapacity(parts.reduce(0) { $0 + $1.count })
+        for part in parts { combined.append(part) }
+        return hexString(scalarDigest(combined))
+        #endif
+    }
+
     /// Lowercase hexadecimal SHA-256 digest of `data`.
     static func hexDigest(_ data: Data) -> String {
-        digest(data).map { String(format: "%02x", $0) }.joined()
+        hexDigest(parts: [data])
     }
 
     /// Raw 32-byte SHA-256 digest of `data`.
     static func digest(_ data: Data) -> [UInt8] {
+        #if canImport(CryptoKit)
+        return Array(SHA256.hash(data: data))
+        #elseif canImport(Crypto)
+        return Array(SHA256.hash(data: data))
+        #else
+        return scalarDigest(data)
+        #endif
+    }
+
+    /// The original dependency-free implementation.
+    ///
+    /// Kept as the platform fallback and as the oracle for the cross-check
+    /// test: a crypto-backed digest that differs from this one is a contract
+    /// violation, not an optimisation.
+    static func scalarDigest(_ data: Data) -> [UInt8] {
         var message = [UInt8](data)
         let bitLength = UInt64(message.count) * 8
         message.append(0x80)
@@ -87,6 +134,17 @@ enum GatewaySHA256 {
             output.append(UInt8(truncatingIfNeeded: word >> 16))
             output.append(UInt8(truncatingIfNeeded: word >> 8))
             output.append(UInt8(truncatingIfNeeded: word))
+        }
+        return output
+    }
+
+    private static func hexString(_ bytes: [UInt8]) -> String {
+        let digits: [Character] = Array("0123456789abcdef")
+        var output = String()
+        output.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            output.append(digits[Int(byte >> 4)])
+            output.append(digits[Int(byte & 0x0f)])
         }
         return output
     }

@@ -119,4 +119,23 @@ final class LogSupportTests: XCTestCase {
         let live = await collector.waitForCount(3)
         XCTAssertEqual(live, [2, 3, 4])
     }
+
+    func testAckBroadcasterBoundsAStalledSubscriberAndCountsDrops() async throws {
+        let broadcaster = AckBroadcaster<Int>()
+        // A stalled subscriber: the stream exists, but nothing consumes it
+        // until after the yields.
+        let stream = broadcaster.stream(bufferingPolicy: .bufferingNewest(1))
+        broadcaster.yield(1)
+        broadcaster.yield(2)
+        broadcaster.yield(3)
+        let collector = AckCollector(stream)
+        let delivered = await collector.waitForCount(1)
+        XCTAssertEqual(delivered, [3],
+                       "the newest cumulative ack is the authoritative state")
+        XCTAssertEqual(broadcaster.droppedElementCount(), 2)
+    }
+
+    func testAckBroadcasterDefaultStreamIsBounded() {
+        XCTAssertEqual(AckBroadcaster<Int>.defaultBufferingLimit, 4_096)
+    }
 }

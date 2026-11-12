@@ -88,10 +88,13 @@ event, not a separate binary prefix.
 ## 5. WAL vectors
 
 `golden/wal/<name>.json` carries `header` (fields plus `header_hex`), `records[]` (each with
-`kind`, `fields`, `crc32c` and `record_hex`) and `file_hex` = `header_hex` followed by every
-`record_hex`. Mutation record bytes are `len u32 ‖ crc32c u32 ‖ mseq u64 ‖ mutation body without
-mseq`; the epoch-close record is `op 0xFF` with `mseq = durable_upto`. The checker validates these
-files when they exist; `--full` makes them mandatory.
+`kind`, `fields`, `crc32c` and `record_hex`), an optional `blobs` map (`sha256 → content_hex`) and
+`file_hex` = `header_hex` followed by every `record_hex`. Mutation record bytes are
+`len u32 ‖ crc32c u32 ‖ mseq u64 ‖ mutation body without mseq`; the epoch-close record is `op 0xFF`
+with `mseq = durable_upto`; the W6 blob-write record is `op 0xFE` and names its payload by
+`blob_len`/`blob_sha256` (wal.md §14.2). `segment-blob-write.json` pins that encoding, a complete and
+an appended blob write, and verifies that each referenced blob hashes to its key and matches
+`blob_len`. The checker validates these files when they exist; `--full` makes them mandatory.
 
 `golden/wal/replay/*.json` are the D9 replay-semantics vectors: materialized copy, manifest
 watermark, retained mutations and the expected per-record verdict, final watermark, optional

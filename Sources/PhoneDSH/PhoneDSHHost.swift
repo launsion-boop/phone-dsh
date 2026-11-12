@@ -190,6 +190,17 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private var periodicEpochCloseToken = UUID()
     private var periodicEpochCloseIntervalOverride: TimeInterval?
     private var periodicEpochCloseObserver: (@Sendable (PeriodicEpochCloseOutcome) -> Void)?
+    /// Feeds the journal's level-2 acks into the step machine so terminal step
+    /// records are pruned only once their journal entry is durable.
+    private var journalDurabilityObserver: Task<Void, Never>?
+    /// Registered on the live workspace log for W3's response-log reclamation
+    /// at every successful epoch close.
+    private var epochCloseStorageObserverID: UUID?
+    /// Platform memory-warning adapter (no user-visible prompt).
+    private var memoryPressureObserver: PhoneDSHMemoryPressureObserver?
+    /// Coalesces system memory warnings so one pressure episode does not
+    /// restart the Worker repeatedly.
+    private var lastMemoryReliefAt: Date?
     private var lastError: String?
     /// The resume line being accumulated, and the phase currently in flight.
     /// The exclusive resume gate guarantees one at a time.
@@ -1559,6 +1570,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseRuntimeAfterReclaim(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
+        stopEpochCloseStorageObserver()
         await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         await runtime.machine.shutdown()
@@ -1576,6 +1590,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     private func releaseFailedRuntime(_ runtime: RuntimeServices) async {
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
+        stopEpochCloseStorageObserver()
         await shutdownEngineBestEffort(runtime.engine)
         await runtime.loopback.stop()
         _ = await runtime.coordinator.waitForInboundWritesToQuiesce()
@@ -3107,6 +3124,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         machineObserver = nil
         engineObserver?.cancel()
         engineObserver = nil
+        stopJournalDurabilityObserver()
+        stopMemoryPressureObserver()
+        stopEpochCloseStorageObserver()
         if let runtime {
             await runtime.loopback.stop()
             let controller = await runtime.machine.currentState()
@@ -3616,7 +3636,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             // a Backoff refusal needs no teardown and leaves the persisted
             // deadline untouched.
             try await prepareMachineForBoot(machine)
-            let stepMachine = try StepMachine(root: configuration.workspaceRoot)
+            let journalDurability = JournalDurabilityTracker()
+            let stepMachine = try StepMachine(
+                root: configuration.workspaceRoot,
+                journalDurableJseq: { sessionID in
+                    await journalDurability.durableJseq(sessionID: sessionID)
+                })
             let ledger = try SideEffectLedger(root: configuration.workspaceRoot)
             let recoveredJournal = await log.recoveredJournalSnapshot()
             // Rebuild identities first, then correlate only explicitly
@@ -3651,7 +3676,9 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             let gatewayConfiguration = configuration.resolvedGatewayConfiguration()
             let responseLog = try? ModelGateway.makeResponseLog(
                 configuration: gatewayConfiguration,
-                workspaceRoot: configuration.workspaceRoot)
+                workspaceRoot: configuration.workspaceRoot,
+                cacheRoot: PhoneDSHConfiguration.cacheRoot(
+                    for: configuration.workspaceRoot))
             // The same boot-timings file carries the loopback and gateway
             // timing lines: a resume stall is diagnosed from one artifact.
             let gatewayDiagnostics = GatewayUpstreamDiagnostics(
@@ -3702,6 +3729,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 loopback: loopback, budgetMonitor: budgetMonitor,
                 overlayURL: overlayURL, engine: nil,
                 engineConfiguration: engineConfiguration)
+            installJournalDurabilityObserver(log: log, stepMachine: stepMachine,
+                                             tracker: journalDurability)
+            await installEpochCloseStorageObserver(log: log,
+                                                   responseLog: responseLog,
+                                                   stepMachine: stepMachine,
+                                                   tracker: journalDurability)
+            installMemoryPressureObserver()
             // A boot starts from Recovering, before any Worker HELLO; open the
             // replay window here so a request that arrives during the boot can
             // be answered from the response log instead of the upstream.
@@ -5116,7 +5150,19 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             return .skipped(reason: reason)
         }
         do {
-            let ack = try await runtime.log.closeEpochCoveringTail()
+            // W4: an idle epoch is skipped. `sealEpochCoveringTail` returns the
+            // current durable position without a segment, an F_FULLFSYNC or a
+            // level-2 ack when no mutation opened an epoch since the last close
+            // (wal.md §13). A close required by handoff/drain/teardown still runs
+            // its §5.2 order through the same call when it has work to make
+            // durable.
+            let positions = await runtime.log.positions()
+            guard positions.durableMseq < positions.ackedMseq else {
+                let reason = "periodic epoch close skipped: idle epoch (no mutation since the last close)"
+                periodicEpochCloseObserver?(.skipped(reason: reason))
+                return .skipped(reason: reason)
+            }
+            let ack = try await runtime.log.sealEpochCoveringTail()
             periodicEpochCloseObserver?(.closed(uptoMseq: ack.uptoMseq))
             return .closed(uptoMseq: ack.uptoMseq)
         } catch {
@@ -5140,6 +5186,145 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     @discardableResult
     internal func performPeriodicEpochCloseForTesting() async -> PeriodicEpochCloseOutcome {
         await attemptPeriodicEpochClose()
+    }
+
+    // MARK: - Journal durability and memory warnings (W2)
+
+    /// Subscribes to the level-2 journal acks of one runtime. Each ack that
+    /// completes an epoch advances the step machine's durable watermark and
+    /// lets it prune terminal step records; the journal prunes its own entries
+    /// inside ``JournalLog/closeEpoch()`` with the same rule.
+    private func installJournalDurabilityObserver(log: WorkspaceLog,
+                                                  stepMachine: StepMachine,
+                                                  tracker: JournalDurabilityTracker) {
+        stopJournalDurabilityObserver()
+        journalDurabilityObserver = Task.detached(priority: .utility) {
+            for await ack in log.journalAcks() {
+                await tracker.record(ack)
+                guard ack.level == .epochFsync else { continue }
+                // W4: intermediate step lines were not fsynced per transition;
+                // the epoch close forces the session logs that still hold them.
+                _ = try? await stepMachine.fsyncPendingLogs()
+                // Silence is part of the contract: pruning is background work
+                // and never surfaces a prompt or a disabled state.
+                _ = try? await stepMachine.pruneTerminalSteps()
+            }
+        }
+    }
+
+    private func stopJournalDurabilityObserver() {
+        journalDurabilityObserver?.cancel()
+        journalDurabilityObserver = nil
+    }
+
+    /// W3 (gateway-security.md §11): at the same successful epoch close that
+    /// reclaims droppable WAL segments, delete response-log entries whose
+    /// whole step set is terminal and level-2 durable. The host never runs this
+    /// while Recovering, and the response log itself refuses a key with a
+    /// resume in flight. Silence is part of the contract.
+    private func installEpochCloseStorageObserver(
+        log: WorkspaceLog,
+        responseLog: ResponseLog?,
+        stepMachine: StepMachine,
+        tracker: JournalDurabilityTracker) async {
+        stopEpochCloseStorageObserver()
+        guard let responseLog else { return }
+        epochCloseStorageObserverID = await log.addEpochCloseObserver {
+            [weak self] _ in
+            guard let self else { return }
+            await self.reclaimResponseLogAfterEpochClose(responseLog: responseLog,
+                                                         stepMachine: stepMachine,
+                                                         tracker: tracker)
+        }
+    }
+
+    private func stopEpochCloseStorageObserver() {
+        guard let id = epochCloseStorageObserverID else { return }
+        epochCloseStorageObserverID = nil
+        guard let log = runtime?.log else { return }
+        Task { await log.removeEpochCloseObserver(id) }
+    }
+
+    private func reclaimResponseLogAfterEpochClose(
+        responseLog: ResponseLog,
+        stepMachine: StepMachine,
+        tracker: JournalDurabilityTracker) async {
+        if state == .recovering { return }
+        if let runtime, await runtime.machine.currentState() == .recovering { return }
+        let durable = await tracker.snapshot()
+        // W3 does not edit StepMachine (its owning unit did): the host derives
+        // the same fact from the public records. Every loaded step must be
+        // terminal and its terminal evidence level-2 durable. An empty set is
+        // vacuously true, which is exactly the idle case.
+        let records = await stepMachine.allRecords()
+        guard records.allSatisfy({ record in
+            guard record.state.isTerminal else { return false }
+            if let evidence = record.execEvidence,
+               evidence.values.contains(where: {
+                   ($0.started && !$0.terminal) || $0.persistenceFailed
+               }) {
+                return false
+            }
+            switch record.state {
+            case .journaled:
+                guard let jseq = record.completionJseq ?? record.jseq,
+                      jseq > 0,
+                      jseq <= (durable[record.sessionID] ?? 0) else { return false }
+                return true
+            case .abandoned:
+                return true
+            default:
+                return false
+            }
+        }) else { return }
+        let keys = await responseLog.allKeys()
+        guard !keys.isEmpty else { return }
+        _ = await responseLog.reclaim(keys: Set(keys))
+    }
+
+    /// Installs the platform memory-warning adapter. The handler lands on the
+    /// host actor so it observes the same lifecycle and budget state as every
+    /// other signal.
+    private func installMemoryPressureObserver() {
+        let observer = PhoneDSHMemoryPressureObserver()
+        observer.start { [weak self] in
+            guard let self else { return }
+            Task { await self.handleSystemMemoryPressureWarning() }
+        }
+        memoryPressureObserver?.stop()
+        memoryPressureObserver = observer
+    }
+
+    private func stopMemoryPressureObserver() {
+        memoryPressureObserver?.stop()
+        memoryPressureObserver = nil
+    }
+
+    /// Applies the existing pressure order for a system memory warning.
+    ///
+    /// `clearTmp` is a no-op at this layer: `/dsh/tmp` lives in the Worker's
+    /// volatile VFS and is never materialized, so the host owns no tmp bytes to
+    /// unlink. The planned restart is the release valve and only runs at a tool
+    /// boundary, so a turn is never interrupted. No prompt, banner or disabled
+    /// state is produced (plan §1.2).
+    internal func handleSystemMemoryPressureWarning() async {
+        guard state == .running, let runtime else { return }
+        let now = Date()
+        if let last = lastMemoryReliefAt,
+           now.timeIntervalSince(last) < 60 {
+            return
+        }
+        guard await runtime.machine.currentState() == .running,
+              await runtime.stepMachine.atToolCallBoundary() else { return }
+        lastMemoryReliefAt = now
+        try? await plannedRestart(reason: "system memory warning")
+    }
+
+    /// Test seam: forces one memory-warning handling without a platform
+    /// notification (Linux CI and simulator tests cannot post the UIKit one).
+    internal func handleSystemMemoryPressureWarningForTesting() async {
+        lastMemoryReliefAt = nil
+        await handleSystemMemoryPressureWarning()
     }
 
     // MARK: - Budgets

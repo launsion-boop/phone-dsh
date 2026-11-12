@@ -171,12 +171,16 @@ public struct KillReplayTree {
 
     public init() {}
 
-    /// Applies every non-epoch-close record in mseq order.
-    public static func replay(_ records: [WALRecord]) throws -> KillReplayTree {
+    /// Applies every non-epoch-close record in mseq order. A W6 §14.2 blob
+    /// write is resolved through `blobStore` with its bytes verified; a missing
+    /// or mismatched blob is the WAL reader's fail-loud error, never an empty
+    /// body. Inline records decode exactly as before.
+    public static func replay(_ records: [WALRecord],
+                              blobStore: WorkspaceBlobStore) throws -> KillReplayTree {
         var tree = KillReplayTree()
         for record in records.sorted(by: { $0.mseq < $1.mseq }) {
             if record.isEpochClose { continue }
-            let mutation = try record.mutationBody()
+            let mutation = try record.resolvedMutationBody(using: blobStore)
             try tree.apply(mutation)
         }
         return tree
@@ -293,9 +297,10 @@ public func verifyKillWorkspace(_ workspace: URL,
     -> [String: Any] {
     let paths = WorkspacePaths(root: workspace)
     let records = try WALReader.records(directory: paths.walDirectory, fromMseq: 1)
+    let blobStore = WorkspaceBlobStore(root: workspace)
     var walMutations: [UInt64: VfsMutationBody] = [:]
     for record in records where !record.isEpochClose {
-        walMutations[record.mseq] = try record.mutationBody()
+        walMutations[record.mseq] = try record.resolvedMutationBody(using: blobStore)
     }
 
     // 1. Every level-1-acked mseq is present (and matches the sent body when
@@ -315,7 +320,8 @@ public func verifyKillWorkspace(_ workspace: URL,
 
     // 2. WAL replay equals the materialized copy, exactly: this catches
     //    rm/rename inconsistencies and ghost writes.
-    let replay = try KillReplayTree.replay(records)
+    let replay = try KillReplayTree.replay(records,
+                                           blobStore: WorkspaceBlobStore(root: workspace))
     let materialized = try scanMaterialized(workspace)
     guard replay.files == materialized.files else {
         let missing = Set(replay.files.keys).subtracting(materialized.files.keys)

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "vector": "response-log-key",
+  "valid": [
+    {
+      "id": "json-body-sorted-keys",
+      "method": "POST",
+      "url": "https://api.example.com/v1/chat/completions",
+      "headers": {"Content-Type": " application/json ", "X-Request-Id": " req-1 ", "Authorization": "Bearer secret"},
+      "allowList": ["content-type", "x-request-id"],
+      "body": "{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}",
+      "expectedKey": "22a064a9434a3ee2baa6abb121b54d316408f4995cec87f588cd88472824400a"
+    },
+    {
+      "id": "empty-body-fragment-removed",
+      "method": "GET",
+      "url": "https://example.com/a?b=1#frag",
+      "headers": {},
+      "allowList": [],
+      "body": null,
+      "expectedKey": "ef08d91e3c103d7a239c5013c14c7f3b86b7adccd1f4bb1954e4767e6ea79091"
+    },
+    {
+      "id": "raw-body-not-json",
+      "method": "DELETE",
+      "url": "https://example.com/x",
+      "headers": {"X-Trace": " abc "},
+      "allowList": ["x-trace"],
+      "body": "not json",
+      "expectedKey": "5148db24ba50956cc300a80d7f2bcd3494f5718bd7d499367e7b3f5bba9d6154"
+    }
+  ],
+  "invalid": [
+    {
+      "case": {"method": "POST", "url": "https://api.example.com/v1/chat/completions", "headers": {"Content-Type": "application/json", "X-Request-Id": "req-1"}, "allowList": ["content-type", "x-request-id"], "body": "{\"model\":\"m\"}", "mutation": "lowercase_method"},
+      "reason": "method_case_changes_the_key"
+    },
+    {
+      "case": {"method": "POST", "url": "https://api.example.com/v1/chat/completions", "headers": {"Content-Type": "application/json", "X-Request-Id": "req-1"}, "allowList": ["content-type", "x-request-id"], "body": "{\"model\":\"m\"}", "mutation": "volatile_header"},
+      "reason": "volatile_header_changes_the_key"
+    },
+    {
+      "case": {"method": "POST", "url": "https://api.example.com/v1/chat/completions", "headers": {"Content-Type": "application/json", "X-Request-Id": "req-1"}, "allowList": ["content-type", "x-request-id"], "body": "{\"model\":\"m\"}", "mutation": "unsorted_headers"},
+      "reason": "header_order_changes_the_key"
+    },
+    {
+      "case": {"method": "POST", "url": "https://api.example.com/v1/chat/completions", "headers": {"Content-Type": "application/json"}, "allowList": ["content-type"], "body": "{\"model\":\"m\"}", "mutation": "no_header_terminator"},
+      "reason": "missing_header_terminator_changes_the_key"
+    },
+    {
+      "case": {"method": "GET", "url": "https://example.com/a", "headers": {}, "allowList": [], "body": null, "mutation": "no_blank_separator"},
+      "reason": "missing_blank_separator_changes_the_key"
+    }
+  ]
+}

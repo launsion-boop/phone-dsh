@@ -61,6 +61,10 @@ struct PhoneDSHWorkspaceLogBridge: LoopbackWorkspaceLog {
         try await log.append(mutation)
     }
 
+    func appendBatch(_ mutations: [VfsMutationBody]) async throws -> [UInt64] {
+        try await log.appendBatch(mutations)
+    }
+
     func acks() -> AsyncStream<LoopbackWorkspaceAck> {
         let source = log.acks()
         return AsyncStream { continuation in

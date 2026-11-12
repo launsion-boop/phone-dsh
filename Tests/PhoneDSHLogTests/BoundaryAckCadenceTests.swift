@@ -140,8 +140,11 @@ final class BoundaryAckCadenceTests: XCTestCase {
         XCTAssertEqual(ack.first?.uptoMseq, 1)
         XCTAssertLessThan(ackSeconds, 5.0,
                           "the level-1 ack waited for materialization instead of the WAL write()")
-        // The ack is emitted by the writer before the manifest rewrite; after
-        // the append returns the materialized copy and manifest agree.
+        // W4: the append no longer rewrites the manifest; the watermark is
+        // persisted by the D18 close that follows the materialized fsync.
+        let beforeClose = try ManifestStore(root: root).read()
+        XCTAssertEqual(beforeClose?.materializedUptoMseq ?? 0, 0)
+        _ = try await log.closeEpoch()
         let manifest = try XCTUnwrap(try ManifestStore(root: root).read())
         XCTAssertEqual(manifest.materializedUptoMseq, 1)
     }
