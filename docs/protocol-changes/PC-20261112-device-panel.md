@@ -172,8 +172,10 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
   （真实 `BLEDeviceStore` + journal；覆盖 `not_executed`、`outcome_unknown`、取消、撤销授权、两调用者并发，
   以及 loser 无 journal／winner 不受影响／同幂等 key 重试成功）。**真实断线**没有在新增准入回归里重做：
   断线语义由既有 `StandardGatt*`／`PDSHLinkTests` 覆盖，准入回归的 transport 是手写 fake，不是
-  `golden/pdsh-link.jsonl` 帧。面板 model 10 tests（模拟器、fake source）；**采用 sheet 的文件选择／预览／
-  确认／移除交互没有 UI 测试**，只有 model 级测试。Kotlin：未实现（GAP-20）；C：不变。
+  `golden/pdsh-link.jsonl` 帧。面板 model 12 tests（模拟器、fake source），含“工具表变化后重新求值”与
+  “撤销授权后禁用发送”；面板在打开期间观察 `linkTools`／`linkToolDescriptors`／`grantedTools`／`linkDeviceID`
+  并重新求值（观察接线只有编译级证据，model 级有上述两条测试）。**采用 sheet 的文件选择／预览／确认／移除
+  交互没有 UI 测试**，只有 model 级测试。Kotlin：未实现（GAP-20）；C：不变。
 - **命令 → 结果**（2026-11-12，集成分支 `feat/device-panel` 的评审 head，macOS arm64，Xcode 27.2 / Swift 6.4.2）：
   - `swift test --filter DevicePanelVectorTests` → PASS（10 tests）
   - `swift test --filter DevicePanelStoreTests` → PASS（12 tests）
@@ -198,7 +200,7 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
     未改动的 base 上相同。`bash firmware/tests/run.sh --portable-only` → PASS
   - probe-app：`xcodegen generate` → PASS（需先建 gitignored 的 `Bundle/worker/` 空目录，未提交）；
     `xcodebuild … -destination 'generic/platform=iOS Simulator' build` → PASS
-  - `xcodebuild -scheme PhoneDSHSim -only-testing:PhoneDSHSimTests/DevicePanelModelTests test` → PASS（10 tests，
+  - `xcodebuild -scheme PhoneDSHSim -only-testing:PhoneDSHSimTests/DevicePanelModelTests test` → PASS（12 tests，
     iOS 18.0 模拟器；这是 model/fake 级证据，不是设备结论）
   - `python3 scripts/ci/protocol_impact.py --base main --body-file …` → PASS（触发 P05、P07、P09、P18）
   - 真机 iPhone + TonoLink M21-R4 → NOT_RUN
@@ -226,3 +228,5 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
 | draft–draft-4 | 协调者 | 初稿；定下描述的存放与采用、并发规则、不进 Session、Android 一并冻结 | 无（没有实现方） |
 | draft-5 | 协调者 | 写出 owning spec、schema 与向量；去掉 `tools_digest`；控件改为参数编辑器（§2.2） | 无（没有实现方） |
 | `spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec` | 协调者 | 冻结 A 档契约（用户指示执行冻结） | 无（没有实现方）；Swift implementer 待指定 |
+| 同 revision（实施） | 协调者 + WP1–WP4 | Swift 实施落地；P18 目录/命名登记、P09 页面与平台差异登记；owning spec 端状态推进到 iOS `implemented`（真机未验） | iOS implementer（WP1–WP4）、WP5 评审 |
+| 同 revision（评审后） | 协调者 + WP2/WP4 | WP5 评审：M2 恢复 `ble_link_result` 的两层既有忙文本；M1 面板观察工具表/授权变化；m3 `agent_only` 只显示名称与「仅 Agent 可用」；M3 修正 P18 状态；m2 登记 GAP-40；其余 MINOR 收窄声明或记为剩余风险 | WP2、WP4、WP5 |
