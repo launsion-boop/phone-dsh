@@ -10,11 +10,16 @@
 // D21 supersedes the earlier "uncompressed tar overlay": the pinned runtime's
 // `storage/image-gzip` inflates every image and overlay as a gzip member, so
 // the tar bytes are wrapped in gzip here. The manifest and mseq contracts do
-// not change. Only the system Compression framework is used (no new package).
+// not change.
+//
+// The gzip member is assembled from independent raw-DEFLATE fragments (one per
+// tar entry) so a warm boot only recompresses files whose lstat identity
+// changed. The system zlib is the only compressor; no package is added. The
+// decompressed ustar stays byte-identical to the pre-D21 packer.
 
-import Compression
 import Darwin
 import Foundation
+import zlib
 
 /// Result of writing an overlay to a file.
 public struct OverlayPackResult: Equatable, Sendable {
@@ -35,13 +40,40 @@ public struct OverlayPacker: Sendable {
     /// Root that contains `home/` and `workspace/`.
     public let materializedDirectory: URL
 
+    /// Optional per-file fragment cache directory. `nil` keeps the public
+    /// in-memory behaviour: every entry is freshly compressed.
+    private let fragmentCacheDirectory: URL?
+    private let diagnostics: OverlayFragmentCacheDiagnostics?
+
     public init(materializedDirectory: URL) {
         self.materializedDirectory = materializedDirectory
+        self.fragmentCacheDirectory = nil
+        self.diagnostics = nil
     }
 
     /// Convenience initializer for a workspace root.
     public init(root: URL) {
         self.materializedDirectory = WorkspacePaths(root: root).materializedDirectory
+        self.fragmentCacheDirectory = nil
+        self.diagnostics = nil
+    }
+
+    /// Internal initializer used by `WorkspaceLog` (durable cache) and by the
+    /// incremental-overlay tests (cache plus a recompression counter).
+    init(materializedDirectory: URL,
+         fragmentCacheDirectory: URL?,
+         diagnostics: OverlayFragmentCacheDiagnostics? = nil) {
+        self.materializedDirectory = materializedDirectory
+        self.fragmentCacheDirectory = fragmentCacheDirectory
+        self.diagnostics = diagnostics
+    }
+
+    init(root: URL,
+         fragmentCacheDirectory: URL?,
+         diagnostics: OverlayFragmentCacheDiagnostics? = nil) {
+        self.materializedDirectory = WorkspacePaths(root: root).materializedDirectory
+        self.fragmentCacheDirectory = fragmentCacheDirectory
+        self.diagnostics = diagnostics
     }
 
     /// Returns the complete gzip-compressed overlay bytes (D21).
@@ -68,12 +100,17 @@ public struct OverlayPacker: Sendable {
     /// Streams the gzip-compressed overlay (header, DEFLATE chunks, trailer).
     public func stream() -> AsyncThrowingStream<Data, Error> {
         let directory = materializedDirectory
+        let cacheDirectory = fragmentCacheDirectory
+        let diagnostics = self.diagnostics
         return AsyncThrowingStream { continuation in
             let task = Task.detached(priority: .utility) {
                 do {
-                    _ = try OverlayPacker(materializedDirectory: directory).forEachGzippedChunk { chunk in
-                        continuation.yield(chunk)
-                    }
+                    _ = try OverlayPacker(materializedDirectory: directory,
+                                          fragmentCacheDirectory: cacheDirectory,
+                                          diagnostics: diagnostics)
+                        .forEachGzippedChunk { chunk in
+                            continuation.yield(chunk)
+                        }
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -145,6 +182,24 @@ public struct OverlayPacker: Sendable {
         var size: Int
         var isDirectory: Bool
         var url: URL?
+        var mtimeSec: Int64 = 0
+        var mtimeNsec: Int64 = 0
+        var ctimeSec: Int64 = 0
+        var ctimeNsec: Int64 = 0
+        var inode: UInt64 = 0
+
+        /// The lstat identity that makes a cached fragment reusable. Files are
+        /// content-addressed by metadata, not by rereading them: a change to
+        /// size, mtime, ctime or inode is a miss and recompresses one file.
+        var fragmentKey: OverlayFragmentKey {
+            OverlayFragmentKey(path: name,
+                               size: Int64(size),
+                               mtimeSec: mtimeSec,
+                               mtimeNsec: mtimeNsec,
+                               ctimeSec: ctimeSec,
+                               ctimeNsec: ctimeNsec,
+                               inode: inode)
+        }
     }
 
     private func entries() throws -> [Entry] {
@@ -191,7 +246,12 @@ public struct OverlayPacker: Sendable {
                                     mode: info.st_mode & mode_t(0o7777),
                                     size: Int(info.st_size),
                                     isDirectory: false,
-                                    url: url))
+                                    url: url,
+                                    mtimeSec: Int64(info.st_mtimespec.tv_sec),
+                                    mtimeNsec: Int64(info.st_mtimespec.tv_nsec),
+                                    ctimeSec: Int64(info.st_ctimespec.tv_sec),
+                                    ctimeNsec: Int64(info.st_ctimespec.tv_nsec),
+                                    inode: UInt64(info.st_ino)))
             default:
                 throw LogError.materializationFailed("overlay entry is not a file or directory")
             }
@@ -200,29 +260,109 @@ public struct OverlayPacker: Sendable {
 
     // MARK: - Gzip encoding (D21)
 
-    /// Emits one gzip member: fixed header, the same tar chunks as the
-    /// pre-D21 packer, then the CRC32/ISIZE trailer.
+    /// Emits one gzip member assembled from one independent raw-DEFLATE
+    /// fragment per tar entry, then the 1024 zero bytes, the final empty block
+    /// and the CRC-32/ISIZE trailer.
     ///
-    /// One chunk is held back so the encoder can mark the last tar chunk as
-    /// `COMPRESSION_STREAM_FINALIZE`; nothing else about the tar changes.
+    /// A fragment starts a fresh zlib stream and ends with Z_SYNC_FLUSH, so no
+    /// back-reference crosses a fragment and concatenation is a valid DEFLATE
+    /// stream. The decompressed tar is byte-identical to ``forEachChunk``.
     @discardableResult
     private func forEachGzippedChunk(_ body: (Data) throws -> Void) throws -> Int {
-        let encoder = try GzipEncoder()
-        try body(encoder.header)
-        var pending: Data?
-        let count = try forEachChunk { chunk in
-            if let previous = pending {
-                let encoded = try encoder.encode(previous, final: false)
-                if encoded.isEmpty == false { try body(encoded) }
+        let entries = try entries()
+        let cache: OverlayFragmentCache?
+        if let directory = fragmentCacheDirectory {
+            let created = OverlayFragmentCache(directory: directory,
+                                               diagnostics: diagnostics)
+            created.prepare()
+            cache = created
+        } else {
+            cache = nil
+        }
+
+        try body(OverlayZlib.gzipHeader)
+        var totalLength: UInt64 = 0
+        var checksum: uLong = 0
+
+        for entry in entries {
+            let header = try tarHeader(for: entry)
+            if entry.isDirectory {
+                let fragment = try OverlayZlib.deflate([header])
+                try body(fragment)
+                totalLength &+= 512
+                checksum = OverlayZlib.combine(checksum,
+                                               OverlayZlib.crc32(header),
+                                               length: 512)
+                continue
             }
-            pending = chunk
+            guard let url = entry.url else {
+                throw LogError.materializationFailed("overlay entry has no file")
+            }
+            let key = entry.fragmentKey
+            if let cached = cache?.fragment(for: key) {
+                try body(cached.bytes)
+                totalLength &+= UInt64(cached.uncompressedLength)
+                checksum = OverlayZlib.combine(checksum,
+                                               uLong(cached.crc),
+                                               length: cached.uncompressedLength)
+                continue
+            }
+
+            let data = try LogFile.readAll(url)
+            guard data.count == entry.size else {
+                throw LogError.materializationFailed("overlay file changed during packing")
+            }
+            try verifyUnchanged(entry, url: url)
+            let remainder = data.count % 512
+            let padding = remainder == 0 ? Data() : Data(count: 512 - remainder)
+            var chunks = [header, data]
+            if !padding.isEmpty { chunks.append(padding) }
+            let uncompressedLength = 512 + data.count + padding.count
+            let crc = UInt32(truncatingIfNeeded: OverlayZlib.crc32(chunks))
+            let fragment = try OverlayZlib.deflate(chunks)
+            diagnostics?.recordRecompression()
+            cache?.store(fragment,
+                         uncompressedLength: uncompressedLength,
+                         crc: crc,
+                         for: key)
+            try body(fragment)
+            totalLength &+= UInt64(uncompressedLength)
+            checksum = OverlayZlib.combine(checksum,
+                                           uLong(crc),
+                                           length: uncompressedLength)
         }
-        if let last = pending {
-            let encoded = try encoder.encode(last, final: true)
-            if encoded.isEmpty == false { try body(encoded) }
+
+        // The tar's 1024-byte zero trailer is itself a fragment, followed by
+        // the BFINAL block that closes the concatenation.
+        let zeros = Data(count: 1024)
+        let zeroFragment = try OverlayZlib.deflate([zeros])
+        try body(zeroFragment)
+        totalLength &+= 1024
+        checksum = OverlayZlib.combine(checksum,
+                                       OverlayZlib.crc32(zeros),
+                                       length: 1024)
+        try body(OverlayZlib.finalEmptyBlock)
+        try body(OverlayZlib.gzipTrailer(crc: checksum, size: totalLength))
+        cache?.finish()
+        return entries.count
+    }
+
+    /// The cache key comes from the lstat performed by ``entries()``. If the
+    /// file changed while it was read, its cached fragment would be filed
+    /// under stale metadata; fail loud just like the size check.
+    private func verifyUnchanged(_ entry: Entry, url: URL) throws {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else {
+            throw LogError.materializationFailed("overlay entry vanished during packing")
         }
-        try body(encoder.trailer())
-        return count
+        guard Int(info.st_size) == entry.size,
+              Int64(info.st_mtimespec.tv_sec) == entry.mtimeSec,
+              Int64(info.st_mtimespec.tv_nsec) == entry.mtimeNsec,
+              Int64(info.st_ctimespec.tv_sec) == entry.ctimeSec,
+              Int64(info.st_ctimespec.tv_nsec) == entry.ctimeNsec,
+              UInt64(info.st_ino) == entry.inode else {
+            throw LogError.materializationFailed("overlay file changed during packing")
+        }
     }
 
     // MARK: - Tar encoding
@@ -316,155 +456,5 @@ public struct OverlayPacker: Sendable {
             header[offset + index] = bytes[index]
         }
         header[offset + length - 1] = 0
-    }
-}
-
-// MARK: - Streaming gzip encoder (D21)
-
-/// Streaming gzip encoder over the system Compression framework.
-///
-/// The overlay is exactly one gzip member. The header is fixed (mtime 0, no
-/// file name, OS 255) so packing the same tree twice yields identical bytes;
-/// the trailer carries the RFC 1952 CRC-32 and ISIZE of the uncompressed tar.
-private final class GzipEncoder {
-    private static let outputCapacity = 64 * 1024
-    /// RFC 1952 header: magic, DEFLATE, no flags, mtime 0, no extra flags,
-    /// OS = unknown (255).
-    private static let headerBytes: [UInt8] = [
-        0x1f, 0x8b, 0x08, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0xff,
-    ]
-
-    private static let crcTable: [UInt32] = (0..<256).map { index in
-        var entry = UInt32(index)
-        for _ in 0..<8 {
-            entry = (entry & 1) == 1
-                ? (entry >> 1) ^ 0xEDB8_8320
-                : entry >> 1
-        }
-        return entry
-    }
-
-    private var stream: compression_stream
-    private let output: UnsafeMutablePointer<UInt8>
-    private var streamInitialized = false
-    private var checksum: UInt32 = 0xffff_ffff
-    private var uncompressedSize: UInt32 = 0
-    private var finalized = false
-
-    init() throws {
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: Self.outputCapacity)
-        self.output = buffer
-        self.stream = compression_stream(dst_ptr: buffer,
-                                         dst_size: Self.outputCapacity,
-                                         src_ptr: UnsafePointer(buffer),
-                                         src_size: 0,
-                                         state: nil)
-        guard compression_stream_init(&stream, COMPRESSION_STREAM_ENCODE,
-                                      COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else {
-            throw LogError.materializationFailed("the system compressor could not start")
-        }
-        streamInitialized = true
-        stream.dst_ptr = output
-        stream.dst_size = Self.outputCapacity
-    }
-
-    deinit {
-        if streamInitialized {
-            compression_stream_destroy(&stream)
-        }
-        output.deallocate()
-    }
-
-    /// The fixed gzip header.
-    var header: Data { Data(Self.headerBytes) }
-
-    /// Compresses one tar chunk. `final` must be set on the last chunk only.
-    func encode(_ input: Data, final: Bool) throws -> Data {
-        guard !finalized else {
-            throw LogError.materializationFailed("the overlay compressor is already finalized")
-        }
-        updateChecksum(input)
-        var encoded = Data()
-        if input.isEmpty {
-            try encodeBuffer(UnsafePointer(output), count: 0, final: final, into: &encoded)
-            return encoded
-        }
-        try input.withUnsafeBytes { raw in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return }
-            try encodeBuffer(base, count: raw.count, final: final, into: &encoded)
-        }
-        return encoded
-    }
-
-    /// The gzip trailer: CRC-32 and ISIZE, both little-endian.
-    func trailer() throws -> Data {
-        guard finalized else {
-            throw LogError.materializationFailed("the overlay compressor did not finish")
-        }
-        var trailer = Data()
-        appendLittleEndian(checksum ^ 0xffff_ffff, to: &trailer)
-        appendLittleEndian(uncompressedSize, to: &trailer)
-        return trailer
-    }
-
-    // MARK: Internals
-
-    private func encodeBuffer(_ first: UnsafePointer<UInt8>, count: Int,
-                              final: Bool, into encoded: inout Data) throws {
-        var source = first
-        var remaining = count
-        let flags = final ? Int32(COMPRESSION_STREAM_FINALIZE.rawValue) : 0
-        var iterations = 0
-        while true {
-            iterations += 1
-            guard iterations <= 1_000_000 else {
-                throw LogError.materializationFailed("overlay DEFLATE made no progress")
-            }
-            stream.src_ptr = source
-            stream.src_size = remaining
-            let status = compression_stream_process(&stream, flags)
-            let consumed = remaining - stream.src_size
-            source = source.advanced(by: consumed)
-            remaining -= consumed
-            let produced = Self.outputCapacity - stream.dst_size
-            if produced > 0 {
-                encoded.append(output, count: produced)
-                stream.dst_ptr = output
-                stream.dst_size = Self.outputCapacity
-            }
-            switch status {
-            case COMPRESSION_STATUS_END:
-                finalized = true
-                return
-            case COMPRESSION_STATUS_OK:
-                if remaining > 0 { continue }
-                if final { continue }
-                // A full destination buffer can still hide pending output.
-                if produced == Self.outputCapacity { continue }
-                return
-            default:
-                throw LogError.materializationFailed("overlay DEFLATE failed")
-            }
-        }
-    }
-
-    private func updateChecksum(_ data: Data) {
-        uncompressedSize &+= UInt32(truncatingIfNeeded: data.count)
-        var value = checksum
-        data.withUnsafeBytes { raw in
-            for byte in raw.bindMemory(to: UInt8.self) {
-                value = Self.crcTable[Int((value ^ UInt32(byte)) & 0xff)] ^ (value >> 8)
-            }
-        }
-        checksum = value
-    }
-
-    private func appendLittleEndian(_ value: UInt32, to data: inout Data) {
-        data.append(UInt8(truncatingIfNeeded: value))
-        data.append(UInt8(truncatingIfNeeded: value >> 8))
-        data.append(UInt8(truncatingIfNeeded: value >> 16))
-        data.append(UInt8(truncatingIfNeeded: value >> 24))
     }
 }
