@@ -590,6 +590,9 @@ public data class SettingsScreenState(
         public const val BACK_ROW_ID: String = "platform.back"
         public const val STATUS_ROW_ID: String = "platform.status"
 
+        /** 我的 › 已连接的电脑 (`SettingsPage.swift:353`); first row of its untitled group. */
+        public const val CONNECTED_COMPUTER_ROW_ID: String = "me.connectedComputer"
+
         /** Projects the facts into the five mirrored cards plus the appendix. */
         public fun from(facts: SettingsFacts): SettingsScreenState {
             val preferences = facts.preferences
@@ -1170,6 +1173,13 @@ public fun SettingsPage(
     indexListState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     /** Which of the baseline's three placements this is ([SettingsPageMode]). */
     mode: SettingsPageMode = SettingsPageMode.SHEET,
+    /**
+     * 已连接的电脑's trailing value: `未配对` / `离线` / the verified PC name
+     * (`SettingsPage.swift:330-334`). `null` keeps the honest 未知.
+     */
+    connectedComputerValue: String? = null,
+    /** Opens ConnectedComputer (`SettingsPage.swift:353`); `null` leaves the row read-only. */
+    onOpenConnectedComputer: (() -> Unit)? = null,
 ) {
     // The old tab enum is retained as the deep-link vocabulary used by the host.
     // A non-General incoming tab is still rendered as the requested pushed page.
@@ -1274,6 +1284,8 @@ public fun SettingsPage(
                 folderValue = folderValue,
                 archivedValue = archivedValue,
                 permissionSummary = permissionSummary,
+                connectedComputerValue = connectedComputerValue,
+                onOpenConnectedComputer = onOpenConnectedComputer,
                 onNavigate = { destination ->
                     when (destination) {
                         SettingsDestination.PERMISSION_DEFAULTS -> page = SettingsIndexPage.PERMISSION_DEFAULTS
@@ -1349,6 +1361,8 @@ private fun SettingsIndexList(
     folderValue: String,
     archivedValue: String,
     permissionSummary: String,
+    connectedComputerValue: String?,
+    onOpenConnectedComputer: (() -> Unit)?,
     onNavigate: (SettingsDestination) -> Unit,
     onSelectPreference: ((SettingsPreferenceChoice) -> Unit)?,
     onOpenAgentPresets: (() -> Unit)?,
@@ -1412,8 +1426,17 @@ private fun SettingsIndexList(
             SettingsIndexEntry("me.archivedSessions", native(UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS, UiStrings.SETTINGS_ROW_ARCHIVED_SESSIONS_EN), com.phonedsh.ui.icon.PdshIcon.ARCHIVE, archivedValue,
                 enabled = onOpenArchivedSessions != null, callback = onOpenArchivedSessions),
         ), modes = TAB_ONLY),
-        // 设置 (every other option) and 关于 (`:319-324`).
+        // 设置 (every other option) and 关于 (`:319-324`). 已连接的电脑 is the
+        // first clickable row of this untitled group (`SettingsPage.swift:347-358`).
         SettingsIndexSection("me.more", "", listOf(
+            SettingsIndexEntry(
+                SettingsScreenState.CONNECTED_COMPUTER_ROW_ID,
+                UiStrings.PC_SETTINGS_ROW,
+                com.phonedsh.ui.icon.PdshIcon.NETWORK,
+                value = connectedComputerValue ?: UiStrings.UNKNOWN,
+                enabled = onOpenConnectedComputer != null,
+                callback = onOpenConnectedComputer,
+            ),
             SettingsIndexEntry("me.settings", native(UiStrings.SETTINGS, UiStrings.SETTINGS_EN), com.phonedsh.ui.icon.PdshIcon.GEAR, callback = { onNavigate(SettingsDestination.MORE_SETTINGS) }),
             SettingsIndexEntry("me.about", native("关于 Phone DSH", "About Phone DSH"), com.phonedsh.ui.icon.PdshIcon.INFO, callback = { onNavigate(SettingsDestination.ABOUT) }),
         ), modes = TAB_ONLY),

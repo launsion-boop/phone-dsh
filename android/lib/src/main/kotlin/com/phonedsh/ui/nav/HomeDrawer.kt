@@ -87,6 +87,8 @@ import com.phonedsh.ui.menu.ContextMenuModel
 import com.phonedsh.ui.menu.ContextMenuRowState
 import com.phonedsh.ui.menu.PdshContextMenu
 import com.phonedsh.ui.page.workspaceTitle
+import com.phonedsh.ui.page.PcDrawerBackend
+import com.phonedsh.ui.page.PcDrawerUiState
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.press.pillPressed
@@ -168,6 +170,16 @@ public fun HomeDrawer(
      * [requestClose] path for a standalone mount.
      */
     onBackPressed: (() -> Unit)? = null,
+    /**
+     * The 手机 | PC selection and the PC list region. P18 owns the persisted
+     * value (`phone-dsh.drawer.backend`); this drawer only reports the tap.
+     */
+    pcDrawer: PcDrawerUiState = PcDrawerUiState(),
+    onSelectPcBackend: (PcDrawerBackend) -> Unit = {},
+    onOpenPcPairing: () -> Unit = {},
+    onRetryPc: () -> Unit = {},
+    onOpenPcSession: ((String) -> Unit)? = null,
+    onOpenConnectedComputer: (() -> Unit)? = null,
 ) {
     // The drawer follows the app's theme. It used to resolve a light token
     // table for dark mode (the iOS shell's fixed light panel); that painted a
@@ -571,6 +583,32 @@ public fun HomeDrawer(
                         )
                     }
                 }
+                // pclink-pacing: 手机 | PC sits below the 新会话 pill
+                // (`HomeDrawer.swift:44-48`). The selection is persisted by the
+                // host (P18) and never changes back because the PC is down.
+                PcDrawer(
+                    state = pcDrawer,
+                    onSelectBackend = onSelectPcBackend,
+                    onPair = onOpenPcPairing,
+                    onRetry = onRetryPc,
+                    onOpenSession = onOpenPcSession,
+                    onOpenConnectedComputer = onOpenConnectedComputer,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 10.dp),
+                    segment = {
+                        PcSegmentButton(
+                            label = UiStrings.PC_BACKEND_PHONE,
+                            selected = pcDrawer.selected == PcDrawerBackend.PHONE,
+                            onClick = { onSelectPcBackend(PcDrawerBackend.PHONE) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        PcSegmentButton(
+                            label = UiStrings.PC_BACKEND_PC,
+                            selected = pcDrawer.selected == PcDrawerBackend.PC,
+                            onClick = { onSelectPcBackend(PcDrawerBackend.PC) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    },
+                )
                 Spacer(Modifier.height(16.dp))
                 if (DRAWER_FOLDERS_ENABLED) Row(Modifier.fillMaxWidth().height(36.dp).padding(start = HomeMetrics.CONTENT_INSET_PT.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("文件夹", style = type.secondary.copy(color = tokens.colors.textSecondary))

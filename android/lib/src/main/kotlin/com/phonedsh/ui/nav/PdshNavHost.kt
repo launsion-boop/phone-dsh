@@ -84,6 +84,10 @@ import com.phonedsh.ui.page.NativeConfigurationPage
 import com.phonedsh.ui.page.NativePluginInventoryPage
 import com.phonedsh.ui.page.NativeWorkbenchPage
 import com.phonedsh.ui.page.PDSHShellPage
+import com.phonedsh.ui.page.PCPairingPage
+import com.phonedsh.ui.page.PCPairingUiState
+import com.phonedsh.ui.page.ConnectedComputerPage
+import com.phonedsh.ui.page.ConnectedComputerUiState
 import com.phonedsh.ui.page.PhoneCapability
 import com.phonedsh.ui.page.PhoneCapabilityAction
 import com.phonedsh.ui.page.PhoneCapabilityRowState
@@ -611,6 +615,20 @@ public fun PdshNavHost(
             PdshRoute.CommandResult -> CommandResultRoute(chatSubpages, onBack)
             PdshRoute.SessionJobs -> SessionJobsRoute(chatSubpages, onBack, onHostAction)
             PdshRoute.SessionSchedules -> SessionSchedulesRoute(chatSubpages, onBack, onHostAction)
+            // C5 PCLink. The host half supplies the flow/record state once it is
+            // glued in; the library route renders the honest idle/empty snapshot
+            // rather than inventing a paired PC.
+            PdshRoute.PcPairing -> PCPairingPage(
+                state = PCPairingUiState(),
+                onDone = onBack,
+                onClose = onBack,
+                onCancelPairing = onBack,
+            )
+            PdshRoute.ConnectedComputer -> ConnectedComputerPage(
+                state = ConnectedComputerUiState(),
+                onBack = onBack,
+                onOpenPairing = { onNavigate(PdshRoute.PcPairing) },
+            )
         }
     }
 }
@@ -1673,6 +1691,7 @@ private fun SettingsRoute(
             onOpenPluginsTools = { onNavigate(PdshRoute.Configuration) },
             onOpenFolders = { onNavigate(PdshSettingsRows.targetOf(PdshSettingsRows.HostRow.FOLDERS)) },
             onOpenArchivedSessions = { archivedSessions = true },
+            onOpenConnectedComputer = { onNavigate(PdshRoute.ConnectedComputer) },
             onSelectDefaultPermission = { tier -> onSettingsWrite(SettingsWrite.DefaultPermissionTier(tier)) },
             onToggleDeveloperTools = onToggleDeveloperTools,
             onBack = onBack,
