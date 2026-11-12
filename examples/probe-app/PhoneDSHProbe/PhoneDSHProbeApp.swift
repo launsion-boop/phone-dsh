@@ -26,6 +26,14 @@ struct PhoneDSHProbeApp: App {
     @State private var preferences = NativeChatPreferences.shared
 
     init() {
+        // P09 main-thread bound: start the hang evidence first, before any
+        // scene work. The monitor writes through the same off-main status log
+        // the chat pipeline uses, so a blocked main actor still leaves a trace.
+        MainThreadHangMonitor.shared.start { line in
+            StatusLogWriter.shared.append(line)
+        }
+        MainThreadHangMonitor.mark("app.launch")
+        MetricDiagnosticsRecorder.shared.start()
         // Local notification taps are received by the App delegate before the
         // SwiftUI scene is ready; install the one deep-link router here.
         BotNotificationRouter.shared.install()
