@@ -25,6 +25,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.google.common.util.concurrent.ListenableFuture
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.DecodeHintType
@@ -49,15 +50,25 @@ internal enum class PcCameraAvailability {
  * The production CameraX scanner.
  *
  * [start] binds a preview + analysis use case to [lifecycleOwner]; [stop]
- * releases the analyzer and shuts the single executor down. The callback is
- * invoked at most once per [start].
+ * releases the analyzer and provider; [close] also shuts the single executor
+ * down. Each terminal callback (decoded or unavailable) is invoked at most once
+ * per [start].
  */
 internal class PcQrScanner(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
+    /**
+     * Resolves CameraX's process provider. Production is the process singleton;
+     * the seam lets a JVM test fail the asynchronous resolution step that
+     * precedes the bind, without a camera or a device.
+     */
+    private val providerFuture: (Context) -> ListenableFuture<ProcessCameraProvider> =
+        { ProcessCameraProvider.getInstance(it) },
 ) : AutoCloseable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val delivered = AtomicBoolean(false)
+    private val unavailableReported = AtomicBoolean(false)
+    private val active = AtomicBoolean(false)
     private var provider: ProcessCameraProvider? = null
     private var analysis: ImageAnalysis? = null
 
@@ -66,14 +77,25 @@ internal class PcQrScanner(
      * device has no camera, [PcCameraAvailability.DENIED] when CAMERA is not
      * granted, and [PcCameraAvailability.AVAILABLE] once the use cases bind.
      *
-     * The callback runs on the analysis executor; callers must post to their UI
+     * The bind is asynchronous. [onUnavailable] runs on the main thread exactly
+     * once for a start that returned [PcCameraAvailability.AVAILABLE] when the
+     * provider resolution or the bind throws; a synchronous non-AVAILABLE return
+     * is the caller's fact instead. A [stop] before the listener settles
+     * suppresses that late failure: the person already closed the scanner.
+     * [onDecoded] runs on the analysis executor, so callers must post to their UI
      * thread themselves (the page does so through its state holder).
      */
-    fun start(previewView: PreviewView, onDecoded: (String) -> Unit): PcCameraAvailability {
+    fun start(
+        previewView: PreviewView,
+        onDecoded: (String) -> Unit,
+        onUnavailable: () -> Unit,
+    ): PcCameraAvailability {
         val availability = availability(context)
         if (availability != PcCameraAvailability.AVAILABLE) return availability
         delivered.set(false)
-        val future = ProcessCameraProvider.getInstance(context)
+        unavailableReported.set(false)
+        active.set(true)
+        val future = providerFuture(context)
         future.addListener(
             {
                 try {
@@ -108,8 +130,21 @@ internal class PcQrScanner(
                     )
                 } catch (_: Exception) {
                     // A camera that disappears between the feature check and bind
-                    // is the same user-visible state as no camera.
-                    stop()
+                    // is the same user-visible state as no camera. Settle the
+                    // decode gate first so a frame racing the failure cannot
+                    // navigate the page after this failure is reported.
+                    delivered.set(true)
+                    // A cancel/close while the provider is still resolving has
+                    // already left the page; its late failure must not reopen the
+                    // unavailable state after the person dismissed the scanner.
+                    val reportUnavailable = active.getAndSet(false)
+                    try {
+                        stop()
+                    } finally {
+                        if (reportUnavailable && unavailableReported.compareAndSet(false, true)) {
+                            onUnavailable()
+                        }
+                    }
                 }
             },
             ContextCompat.getMainExecutor(context),
@@ -118,6 +153,7 @@ internal class PcQrScanner(
     }
 
     fun stop() {
+        active.set(false)
         analysis?.clearAnalyzer()
         analysis = null
         provider?.unbindAll()

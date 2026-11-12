@@ -2049,10 +2049,17 @@ private fun PcQrScannerContent(
         modifier = Modifier.fillMaxWidth().aspectRatio(1f),
     )
     LaunchedEffect(scanner, previewView) {
-        val availability = scanner.start(previewView) { payload ->
-            // The analysis executor must not write Compose state directly.
-            mainExecutor.execute { onDecoded(payload) }
-        }
+        val availability = scanner.start(
+            previewView = previewView,
+            onDecoded = { payload ->
+                // The analysis executor must not write Compose state directly.
+                mainExecutor.execute { onDecoded(payload) }
+            },
+            // A late provider/bind failure is not a permission answer: it is the
+            // same page state as a camera that was never there, so the scanner
+            // closes and 其他方式 stays available.
+            onUnavailable = onUnavailable,
+        )
         if (availability != PcCameraAvailability.AVAILABLE) onUnavailable()
     }
 }
