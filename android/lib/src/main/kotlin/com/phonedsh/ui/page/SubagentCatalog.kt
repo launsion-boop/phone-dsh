@@ -4,7 +4,6 @@ package com.phonedsh.ui.page
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,12 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,8 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -48,9 +43,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.PdshContextMenu
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetChrome
 import com.phonedsh.ui.theme.LocalUiTokens
-import com.phonedsh.ui.theme.materialSheetColors
 import com.phonedsh.ui.theme.LocalUiType
+import com.phonedsh.ui.theme.generated.TokenContextMenuWhen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -93,19 +92,40 @@ private fun ChatSubagentEntry.modeLabel(): String = when (mode) {
     else -> "模式未知"
 }
 
-/** Phone presentation of the source's large opaque sheet and floating catalog card. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * `interaction.sheet.pageDetents` id for the chat page's catalog sheet.
+ *
+ * `ChatPage.swift:565` is the only caller the Android catalog has, so it uses
+ * `chatSubagentCatalog`. The other catalog page id,
+ * `subagentCatalogCompact` (`NativeSubagentCatalogSheet.swift:433`), is the
+ * standalone presenter extension with no Android caller.
+ */
+internal const val SUBAGENT_CATALOG_CHAT_PAGE_ID: String = "chatSubagentCatalog"
+
+/** The §3 surface for one catalog row (`NativeSubagentCatalogSheet.swift:250`). */
+private const val SUBAGENT_ROW_SURFACE: String = "subagentRow"
+
+/**
+ * Phone presentation of the source's floating catalog card inside a system sheet.
+ *
+ * The shared [PdshSheet] supplies the page id's detent set (`medium+large` for
+ * both catalog ids) and [SheetChrome.SubagentCatalog]: hidden grabber,
+ * `Color.clear` background, 16 pt top radius (§2 rules 4-6, citations in
+ * `NativeSubagentCatalogSheet.swift:433-436`).
+ *
+ * @param pageId the frozen sheet page id; the Android caller is the chat catalog.
+ */
 @Composable
 internal fun SubagentCatalogDialog(
     entries: List<ChatSubagentEntry>,
     currentWorkerSessionId: String?,
     onDismiss: () -> Unit,
     onOpen: suspend (ChatSubagentEntry) -> String?,
+    pageId: String = SUBAGENT_CATALOG_CHAT_PAGE_ID,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var openingId by remember { mutableStateOf<String?>(null) }
     var openFailure by remember { mutableStateOf<String?>(null) }
     var openJob by remember { mutableStateOf<Job?>(null) }
@@ -131,14 +151,13 @@ internal fun SubagentCatalogDialog(
         cardMaxHeight,
     )
 
-    val palette = materialSheetColors(tokens)
-    LaunchedEffect(sheetState) { sheetState.show() }
-    ModalBottomSheet(
+    PdshSheet(
+        pageId = pageId,
         onDismissRequest = close,
-        sheetState = sheetState,
-        containerColor = palette.container,
-        contentColor = palette.content,
-        modifier = Modifier.testTag(SUBAGENT_CATALOG_SHEET_TAG).semantics { paneTitle = "子智能体会话" },
+        chrome = SheetChrome.SubagentCatalog,
+        modifier = Modifier
+            .testTag(SUBAGENT_CATALOG_SHEET_TAG)
+            .semantics { paneTitle = "子智能体会话" },
     ) {
         Column(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
             Column(
@@ -226,94 +245,115 @@ private fun SubagentCatalogRow(
         else -> null
     }
     val openEnabled = entry.canOpen && !openInFlight
-    Row(
+    val rowDescription = listOfNotNull(entry.title, entry.modeLabel(), status).joinToString(" · ")
+    PdshContextMenu(
+        surfaceId = SUBAGENT_ROW_SURFACE,
+        state = ContextMenuRowState.of(
+            TokenContextMenuWhen.NOT_EXTERNAL to !entry.isExternal,
+            // Android has no distinct aside destination yet: the token keeps
+            // 在侧边栏打开 off screen instead of inventing a second callback.
+            TokenContextMenuWhen.HAS_ASIDE to false,
+        ),
+        onAction = { item ->
+            // Token order: 打开子会话 (notExternal), 在侧边栏打开 (hasAside).
+            when (item.order) {
+                0 -> onOpen()
+            }
+        },
+        onClick = if (openEnabled) onOpen else null,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = ChatMetrics.SUBAGENT_ROW_INSET_LEADING_PT.dp,
-                end = ChatMetrics.SUBAGENT_ROW_INSET_TRAILING_PT.dp,
-                top = ChatMetrics.SUBAGENT_ROW_INSET_V_PT.dp,
-                bottom = ChatMetrics.SUBAGENT_ROW_INSET_V_PT.dp,
-            )
-            .defaultMinSize(minHeight = ChatMetrics.SUBAGENT_ROW_MIN_HEIGHT_PT.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_ROW_GAP_PT.dp),
+            .semantics(mergeDescendants = true) {
+                contentDescription = rowDescription
+                if (!openEnabled) disabled()
+            },
     ) {
-        // SwiftUI leaves this 14×17 slot empty for the flat catalog caller.
-        Spacer(Modifier.width(ChatMetrics.SUBAGENT_DISCLOSURE_SLOT_PT.dp).height(ChatMetrics.SUBAGENT_DISCLOSURE_HEIGHT_PT.dp))
         Row(
             modifier = Modifier
-                .weight(1f)
-                .clickable(enabled = openEnabled, role = Role.Button, onClick = onOpen)
-                .semantics(mergeDescendants = true) {
-                    contentDescription = listOfNotNull(entry.title, entry.modeLabel(), status).joinToString(" · ")
-                },
+                .fillMaxWidth()
+                .padding(
+                    start = ChatMetrics.SUBAGENT_ROW_INSET_LEADING_PT.dp,
+                    end = ChatMetrics.SUBAGENT_ROW_INSET_TRAILING_PT.dp,
+                    top = ChatMetrics.SUBAGENT_ROW_INSET_V_PT.dp,
+                    bottom = ChatMetrics.SUBAGENT_ROW_INSET_V_PT.dp,
+                )
+                .defaultMinSize(minHeight = ChatMetrics.SUBAGENT_ROW_MIN_HEIGHT_PT.dp),
             verticalAlignment = Alignment.Top,
             horizontalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_ROW_GAP_PT.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(width = ChatMetrics.SUBAGENT_ACTIVITY_SLOT_PT.dp, height = ChatMetrics.SUBAGENT_DISCLOSURE_HEIGHT_PT.dp),
-                contentAlignment = Alignment.Center,
+            // The only Android caller is the flat chat catalog, whose iOS entries
+            // carry `children: []` (`ChatPage.swift:242-249`), so the baseline draws
+            // `Color.clear` here (NativeSubagentCatalogSheet.swift:236-238) and no
+            // §7 chevron exists to rotate. The slot keeps the same 14×17 box.
+            Spacer(Modifier.width(ChatMetrics.SUBAGENT_DISCLOSURE_SLOT_PT.dp).height(ChatMetrics.SUBAGENT_DISCLOSURE_HEIGHT_PT.dp))
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_ROW_GAP_PT.dp),
             ) {
-                if (!entry.isExternal && (entry.running == true || isOpening)) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(ChatMetrics.SUBAGENT_ACTIVITY_SLOT_PT.dp),
-                        color = tokens.colors.tertiary,
-                        strokeWidth = tokens.stroke.hairline,
-                    )
-                } else if (!entry.isExternal && entry.running == false) {
-                    Box(
-                        Modifier.size(ChatMetrics.SUBAGENT_ACTIVITY_DOT_PT.dp)
-                            .background(tokens.colors.textPlaceholder, CircleShape),
-                    )
+                Box(
+                    modifier = Modifier
+                        .size(width = ChatMetrics.SUBAGENT_ACTIVITY_SLOT_PT.dp, height = ChatMetrics.SUBAGENT_DISCLOSURE_HEIGHT_PT.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!entry.isExternal && (entry.running == true || isOpening)) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(ChatMetrics.SUBAGENT_ACTIVITY_SLOT_PT.dp),
+                            color = tokens.colors.tertiary,
+                            strokeWidth = tokens.stroke.hairline,
+                        )
+                    } else if (!entry.isExternal && entry.running == false) {
+                        Box(
+                            Modifier.size(ChatMetrics.SUBAGENT_ACTIVITY_DOT_PT.dp)
+                                .background(tokens.colors.textPlaceholder, CircleShape),
+                        )
+                    }
                 }
-            }
-            Column(
-                verticalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_TITLE_STACK_GAP_PT.dp),
-            ) {
-                BasicText(
-                    text = entry.title,
-                    style = type.body.copy(
-                        fontSize = ChatMetrics.SUBAGENT_TITLE_REF_PT.sp,
-                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
-                        color = tokens.colors.textPrimary,
-                    ),
-                    maxLines = 1,
-                    modifier = Modifier.height(ChatMetrics.SUBAGENT_TITLE_LINE_HEIGHT_PT.dp),
-                )
-                Row(
-                    modifier = Modifier.height(ChatMetrics.SUBAGENT_SECONDARY_HEIGHT_PT.dp),
-                    horizontalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_SECONDARY_GAP_PT.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_TITLE_STACK_GAP_PT.dp),
                 ) {
                     BasicText(
-                        text = entry.modeLabel(),
-                        style = type.caption.copy(
-                            color = tokens.colors.tertiary,
-                            fontSize = ChatMetrics.SUBAGENT_SECONDARY_REF_PT.sp,
-                            lineHeight = ChatMetrics.SUBAGENT_SECONDARY_HEIGHT_PT.sp,
+                        text = entry.title,
+                        style = type.body.copy(
+                            fontSize = ChatMetrics.SUBAGENT_TITLE_REF_PT.sp,
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                            color = tokens.colors.textPrimary,
                         ),
                         maxLines = 1,
-                        modifier = Modifier
-                            .background(tokens.colors.selector, RoundedCornerShape(ChatMetrics.SUBAGENT_MODE_CHIP_RADIUS_PT.dp))
-                            .padding(horizontal = ChatMetrics.SUBAGENT_MODE_CHIP_INSET_H_PT.dp),
+                        modifier = Modifier.height(ChatMetrics.SUBAGENT_TITLE_LINE_HEIGHT_PT.dp),
                     )
-                    status?.let {
-                        BasicText("·", style = type.caption.copy(color = tokens.colors.tertiary))
+                    Row(
+                        modifier = Modifier.height(ChatMetrics.SUBAGENT_SECONDARY_HEIGHT_PT.dp),
+                        horizontalArrangement = Arrangement.spacedBy(ChatMetrics.SUBAGENT_SECONDARY_GAP_PT.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         BasicText(
-                            text = it,
+                            text = entry.modeLabel(),
                             style = type.caption.copy(
+                                color = tokens.colors.tertiary,
                                 fontSize = ChatMetrics.SUBAGENT_SECONDARY_REF_PT.sp,
                                 lineHeight = ChatMetrics.SUBAGENT_SECONDARY_HEIGHT_PT.sp,
-                                color = tokens.colors.tertiary,
                             ),
                             maxLines = 1,
+                            modifier = Modifier
+                                .background(tokens.colors.selector, RoundedCornerShape(ChatMetrics.SUBAGENT_MODE_CHIP_RADIUS_PT.dp))
+                                .padding(horizontal = ChatMetrics.SUBAGENT_MODE_CHIP_INSET_H_PT.dp),
                         )
+                        status?.let {
+                            BasicText("·", style = type.caption.copy(color = tokens.colors.tertiary))
+                            BasicText(
+                                text = it,
+                                style = type.caption.copy(
+                                    fontSize = ChatMetrics.SUBAGENT_SECONDARY_REF_PT.sp,
+                                    lineHeight = ChatMetrics.SUBAGENT_SECONDARY_HEIGHT_PT.sp,
+                                    color = tokens.colors.tertiary,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }
         }
-
     }
 }

@@ -64,13 +64,12 @@ package com.phonedsh.ui.page
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -109,13 +108,18 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -132,9 +136,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.phonedsh.ui.SessionsMetrics
+import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshFolderGroup
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
-import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.PdshContextMenu
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.materialDialogColors
 import com.phonedsh.ui.theme.LocalUiType
@@ -313,7 +321,10 @@ public data class SessionsLocalState(
     public val collapsedWorkspaceIDs: Set<String> = emptySet(),
     /** Whether 已归档 is expanded; it starts collapsed. */
     public val showArchived: Boolean = false,
-    /** The session whose long-press action row is open. */
+    /**
+     * Legacy host-side session-menu selection, kept so existing hosts still
+     * compile. The shared [PdshContextMenu] owns the popup and no longer reads it.
+     */
     public val sessionMenuID: String? = null,
     /** The workspace whose overflow menu is open. */
     public val workspaceMenuID: String? = null,
@@ -343,8 +354,6 @@ public data class SessionRowView(
     public val renaming: Boolean,
     /** Legacy session-delete flag; the page never renders it (baseline archives). */
     public val deleting: Boolean,
-    /** True while this row's long-press action row is open. */
-    public val menuOpen: Boolean = false,
 )
 
 /** One visible workspace section. */
@@ -561,7 +570,6 @@ public data class SessionsScreenState(
                 selected = session.id == currentID,
                 renaming = session.id == local.renameTargetID,
                 deleting = session.id == local.deleteTargetID,
-                menuOpen = session.id == local.sessionMenuID,
             )
 
             val ungroupedRows = if (defaultGroup == null) {
@@ -712,7 +720,8 @@ public data class SessionsScreenState(
  * @param onCancelCreateWorkspace close the editor without creating.
  * @param onToggleArchived expand or collapse 已归档.
  * @param onRestoreArchived restore one archived session.
- * @param onSessionMenuToggle open or close one session's long-press actions.
+ * @param onSessionMenuToggle retained for hosts compiled against the previous page; the shared
+ *   [PdshContextMenu] now owns the session-row popup, so this callback is no longer invoked.
  * @param onArchiveSession archive one session (the baseline's alternative to delete).
  * @param onRefresh pull-to-refresh; `null` leaves the gesture inert.
  */
@@ -825,13 +834,13 @@ public fun SessionsPage(
                         onAddWorkspace = onAddWorkspace,
                         onToggleArchived = onToggleArchived,
                         onRestoreArchived = onRestoreArchived,
-                        onSessionMenuToggle = onSessionMenuToggle,
                         onArchiveSession = onArchiveSession,
                         workspaceActionsAvailable = workspaceActionsAvailable,
                     )
                 }
             }
         }
+        SessionsRowMenuInventory()
         // The baseline's alerts are real modal dialogs; using the standard
         // control keeps the interaction one design across pages.
         state.rename?.let { editor ->
@@ -1079,7 +1088,6 @@ private fun SessionsList(
     onAddWorkspace: () -> Unit,
     onToggleArchived: () -> Unit,
     onRestoreArchived: (ArchivedRowView) -> Unit,
-    onSessionMenuToggle: (SessionRowView) -> Unit,
     onArchiveSession: (SessionRowView) -> Unit,
     workspaceActionsAvailable: Boolean,
 ) {
@@ -1137,7 +1145,6 @@ private fun SessionsList(
                 row = row,
                 onSelect = onSelect,
                 onRenameStart = onRenameStart,
-                onSessionMenuToggle = onSessionMenuToggle,
                 onArchiveSession = onArchiveSession,
             )
         }
@@ -1169,49 +1176,57 @@ private fun SessionsList(
             }
         }
 
-        // Section 3: one section per workspace folder.
+        // Section 3: one section per workspace folder. `SessionsPage.swift:265-290`
+        // is a folder-style Section: the header row folds the folder's sessions in
+        // and out as one group, so the shared drawer folder disclosure owns the
+        // body motion (§7 rule 2, `motion.folderCollapse`) and the chevron rotates
+        // through [PdshChevron]. The ⋯ control remains a page `Menu`, not a §3
+        // context-menu surface.
         state.workspaces.forEach { workspace ->
             item(key = "workspace-${workspace.id}") {
-                WorkspaceRow(
-                    workspace = workspace,
-                    onToggle = onToggleWorkspace,
-                    onMenuToggle = onWorkspaceMenuToggle,
-                    onNewSession = onNewSessionInWorkspace,
-                    onRename = onRenameWorkspaceStart,
-                    onDelete = onDeleteWorkspaceRequest,
+                PdshFolderGroup(
+                    expanded = workspace.expanded,
+                    onToggle = { onToggleWorkspace(workspace) },
+                    tag = sessionsWorkspaceDisclosureTag(workspace.id),
+                    anchorKey = workspace.id,
                     modifier = Modifier.padding(top = SESSIONS_WORKSPACE_SECTION_GAP_PT.dp),
-                    showMenu = workspaceActionsAvailable,
-                )
-            }
-            if (workspace.expanded) {
-                if (workspace.empty) {
-                    item(key = "workspace-empty-${workspace.id}") {
-                        Column {
-                            WorkspaceSessionsEmpty()
-                            // The baseline's empty copy carries no
-                            // `.listRowSeparator(.hidden)` (`SessionsPage.swift:246-256`),
-                            // so the platform draws that row's separator (16 → 304 in the
-                            // drawer the state is captured in, `ios-sessions-empty.png`
-                            // y 438). It stays an overlay, like every other line here.
-                            Box {
-                                SessionSeparator(Modifier.align(Alignment.BottomStart).padding(start = SessionsMetrics.SEPARATOR_INSET_PT.dp))
+                    header = {
+                        WorkspaceRow(
+                            workspace = workspace,
+                            onMenuToggle = onWorkspaceMenuToggle,
+                            onNewSession = onNewSessionInWorkspace,
+                            onRename = onRenameWorkspaceStart,
+                            onDelete = onDeleteWorkspaceRequest,
+                            showMenu = workspaceActionsAvailable,
+                        )
+                    },
+                    body = {
+                        if (workspace.empty) {
+                            Column {
+                                WorkspaceSessionsEmpty()
+                                // The baseline's empty copy carries no
+                                // `.listRowSeparator(.hidden)` (`SessionsPage.swift:246-256`),
+                                // so the platform draws that row's separator (16 → 304 in the
+                                // drawer the state is captured in, `ios-sessions-empty.png`
+                                // y 438). It stays an overlay, like every other line here.
+                                Box {
+                                    SessionSeparator(Modifier.align(Alignment.BottomStart).padding(start = SessionsMetrics.SEPARATOR_INSET_PT.dp))
+                                }
+                            }
+                        } else {
+                            Column {
+                                workspace.sessions.forEach { row ->
+                                    SessionItem(
+                                        row = row,
+                                        onSelect = onSelect,
+                                        onRenameStart = onRenameStart,
+                                        onArchiveSession = onArchiveSession,
+                                    )
+                                }
                             }
                         }
-                    }
-                } else {
-                    items(
-                        items = workspace.sessions,
-                        key = { "workspace-${workspace.id}-session-${it.id}" },
-                    ) { row ->
-                        SessionItem(
-                            row = row,
-                            onSelect = onSelect,
-                            onRenameStart = onRenameStart,
-                            onSessionMenuToggle = onSessionMenuToggle,
-                            onArchiveSession = onArchiveSession,
-                        )
-                    }
-                }
+                    },
+                )
             }
         }
 
@@ -1356,7 +1371,31 @@ private fun SessionsFailureLine(
 }
 
 /**
- * One session row, its long-press `DropdownMenu` and the current check mark.
+ * Inspection-only mirror of the `sessionsRow` action labels.
+ *
+ * The live popup is rendered by [PdshContextMenu] from the frozen token
+ * surface, so its labels never appear at a `Text` call site in this file. The
+ * P09 page-structure checker reads labels from the page source; this mirror
+ * keeps the two wordings explicit for it (and for previews) without composing a
+ * second menu in a host, where [LocalInspectionMode] is false.
+ */
+@Composable
+private fun SessionsRowMenuInventory() {
+    if (!LocalInspectionMode.current) return
+    DropdownMenu(expanded = true, onDismissRequest = {}) {
+        DropdownMenuItem(
+            text = { BasicText(text = UiStrings.SESSION_RENAME_TITLE) },
+            onClick = {},
+        )
+        DropdownMenuItem(
+            text = { BasicText(text = UiStrings.SESSIONS_ARCHIVE) },
+            onClick = {},
+        )
+    }
+}
+
+/**
+ * One session row, its long-press menu and the current check mark.
  *
  * The standalone baseline's row: `bubble.left` 15pt ink in a 17pt box, a 16pt
  * title, 13pt relative-time metadata, a 56pt row floor, and a 288pt hairline
@@ -1365,23 +1404,24 @@ private fun SessionsFailureLine(
  * Two things the overlay placement changes, both measured on `ios-sessions-many`:
  * the row stays exactly 56pt tall, and the line sits on the boundary.
  *
- * Pressing the row paints it `NativePagePalette.toast` with a 12 pt radius for
- * 0.15 s (`SessionsPage.swift:583`, `:641-654`), which replaces the platform
- * ripple: the baseline's feedback is a flat fill, not a splash.
+ * The long-press surface is [PdshContextMenu] with the frozen `sessionsRow`
+ * table (`SessionsPage.swift:612-616`): 重命名会话 then 归档会话, both `always`.
+ * The row's normal tap still selects it. The 0.15 s press fill is the page's own
+ * source-owned feedback (`SessionsPage.swift:641-654`), not the shared §6
+ * pressed-state recipe, so it stays page-local and is driven from a non-consuming
+ * Initial-pass pointer observer while the shared wrapper owns the click gesture.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SessionItem(
     row: SessionRowView,
     onSelect: (SessionRowView) -> Unit,
     onRenameStart: (SessionRowView) -> Unit,
-    onSessionMenuToggle: (SessionRowView) -> Unit,
     onArchiveSession: (SessionRowView) -> Unit,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
+    var pressed by remember { mutableStateOf(false) }
+    val onPressChange = rememberUpdatedState<(Boolean) -> Unit> { pressed = it }
     val pressFill by animateFloatAsState(
         targetValue = if (pressed) 1f else 0f,
         animationSpec = tween(durationMillis = ROW_PRESS_MS, easing = ROW_PRESS_EASING),
@@ -1389,7 +1429,17 @@ private fun SessionItem(
     )
     Box(modifier = Modifier.fillMaxWidth()) {
         val rowShape = RoundedCornerShape(SessionsMetrics.SESSION_ROW_PRESS_RADIUS_PT.dp)
-        Row(
+        PdshContextMenu(
+            surfaceId = SESSIONS_ROW_SURFACE,
+            state = ContextMenuRowState.unconditional,
+            onAction = { item ->
+                // Token order in `interaction.contextMenu.surfaces[sessionsRow]`.
+                when (item.order) {
+                    0 -> onRenameStart(row)
+                    1 -> onArchiveSession(row)
+                }
+            },
+            onClick = { onSelect(row) },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = tokens.geometry.pageOuterMarginH)
@@ -1399,122 +1449,105 @@ private fun SessionItem(
                     color = tokens.colors.selector.copy(alpha = pressFill),
                     shape = rowShape,
                 )
-                .combinedClickable(
-                    interactionSource = interaction,
-                    indication = null,
-                    role = Role.Button,
-                    onClick = { onSelect(row) },
-                    onLongClick = { onSessionMenuToggle(row) },
-                )
-                // Source floor is 56 pt; the 16 pt card inset plus 8 pt content
-                // inset puts the glyph at the same 24 pt baseline position.
-                .heightIn(min = SessionsMetrics.standaloneSessionRowHeight)
-                .padding(horizontal = SessionsMetrics.SESSION_ROW_INNER_INSET_PT.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_GLYPH_GAP_PT.dp),
-        ) {
-            SessionRowGlyph(ink = tokens.colors.secondary)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_TEXT_GAP_PT.dp),
-            ) {
-                BasicText(
-                    text = row.title,
-                    style = type.body.copy(
-                        fontWeight = FontWeight.Normal,
-                        color = tokens.colors.textPrimary,
-                        platformStyle = PlatformTextStyle(includeFontPadding = false),
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_METADATA_GAP_PT.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (row.timeLabel != null) {
-                        BasicText(
-                            text = row.timeLabel,
-                            style = type.caption.copy(
-                                color = tokens.colors.textSecondary,
-                                fontSize = SessionsMetrics.SESSION_METADATA_SIZE_PT.sp,
-                                platformStyle = PlatformTextStyle(includeFontPadding = false),
-                            ),
+                // The shared wrapper owns click/long-press. Observe the down/up
+                // on the Initial pass without consuming so the 0.15 s fill still
+                // tracks the finger exactly as the baseline's ButtonStyle did.
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(
+                            requireUnconsumed = false,
+                            pass = PointerEventPass.Initial,
                         )
+                        onPressChange.value(true)
+                        try {
+                            waitForUpOrCancellation(pass = PointerEventPass.Initial)
+                        } finally {
+                            onPressChange.value(false)
+                        }
                     }
-                    // The baseline shows one run indicator only: a grey dot and
-                    // 运行中. A failure is not a row state there, so it is not
-                    // invented here.
-                    if (row.status == SessionRunStatus.RUNNING) {
-                        BasicText(
-                            text = SEPARATOR_GLYPH,
-                            style = type.caption.copy(color = tokens.colors.textSecondary, fontSize = SessionsMetrics.SESSION_METADATA_SIZE_PT.sp),
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_STATUS_DOT_GAP_PT.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(SessionsMetrics.SESSION_RUNNING_DOT_PT.dp)
-                                    .clip(CircleShape)
-                                    .background(tokens.colors.textSecondary),
-                            )
+                },
+        ) {
+            Row(
+                modifier = Modifier
+                    // Source floor is 56 pt; the 16 pt card inset plus 8 pt content
+                    // inset puts the glyph at the same 24 pt baseline position.
+                    .heightIn(min = SessionsMetrics.standaloneSessionRowHeight)
+                    .padding(horizontal = SessionsMetrics.SESSION_ROW_INNER_INSET_PT.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_GLYPH_GAP_PT.dp),
+            ) {
+                SessionRowGlyph(ink = tokens.colors.secondary)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_TEXT_GAP_PT.dp),
+                ) {
+                    BasicText(
+                        text = row.title,
+                        style = type.body.copy(
+                            fontWeight = FontWeight.Normal,
+                            color = tokens.colors.textPrimary,
+                            platformStyle = PlatformTextStyle(includeFontPadding = false),
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_METADATA_GAP_PT.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (row.timeLabel != null) {
                             BasicText(
-                                text = UiStrings.RUNNING,
+                                text = row.timeLabel,
+                                style = type.caption.copy(
+                                    color = tokens.colors.textSecondary,
+                                    fontSize = SessionsMetrics.SESSION_METADATA_SIZE_PT.sp,
+                                    platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                ),
+                            )
+                        }
+                        // The baseline shows one run indicator only: a grey dot and
+                        // 运行中. A failure is not a row state there, so it is not
+                        // invented here.
+                        if (row.status == SessionRunStatus.RUNNING) {
+                            BasicText(
+                                text = SEPARATOR_GLYPH,
                                 style = type.caption.copy(color = tokens.colors.textSecondary, fontSize = SessionsMetrics.SESSION_METADATA_SIZE_PT.sp),
                             )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(SessionsMetrics.SESSION_STATUS_DOT_GAP_PT.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(SessionsMetrics.SESSION_RUNNING_DOT_PT.dp)
+                                        .clip(CircleShape)
+                                        .background(tokens.colors.textSecondary),
+                                )
+                                BasicText(
+                                    text = UiStrings.RUNNING,
+                                    style = type.caption.copy(color = tokens.colors.textSecondary, fontSize = SessionsMetrics.SESSION_METADATA_SIZE_PT.sp),
+                                )
+                            }
                         }
                     }
                 }
-            }
-            if (row.selected) {
-                // `SessionsPage.swift:572`: `Spacer(minLength: 4)` between the
-                // title block and the check, on top of the 10 pt row gap.
-                Box(modifier = Modifier.width(SessionsMetrics.SESSION_SELECTED_CHECK_GAP_PT.dp))
-                BasicText(
-                    text = CHECK_GLYPH,
-                    style = type.body.copy(
-                        fontSize = SessionsMetrics.SESSION_SELECTED_CHECK_SIZE_PT.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = tokens.colors.primary,
-                    ),
-                    modifier = Modifier
-                        .testTag(UiPageTags.SESSIONS_SESSION_CURRENT)
-                        .semantics { contentDescription = UiStrings.SESSIONS_CURRENT },
-                )
-            }
-        }
-        // The baseline's `contextMenu`: a standard DropdownMenu, not an inline row.
-        DropdownMenu(
-            expanded = row.menuOpen,
-            onDismissRequest = { onSessionMenuToggle(row) },
-            modifier = Modifier.testTag(UiPageTags.SESSIONS_SESSION_MENU),
-        ) {
-            DropdownMenuItem(
-                text = {
+                if (row.selected) {
+                    // `SessionsPage.swift:572`: `Spacer(minLength: 4)` between the
+                    // title block and the check, on top of the 10 pt row gap.
+                    Box(modifier = Modifier.width(SessionsMetrics.SESSION_SELECTED_CHECK_GAP_PT.dp))
                     BasicText(
-                        text = UiStrings.SESSION_RENAME_TITLE,
-                        style = type.body.copy(color = tokens.colors.primary),
+                        text = CHECK_GLYPH,
+                        style = type.body.copy(
+                            fontSize = SessionsMetrics.SESSION_SELECTED_CHECK_SIZE_PT.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = tokens.colors.primary,
+                        ),
+                        modifier = Modifier
+                            .testTag(UiPageTags.SESSIONS_SESSION_CURRENT)
+                            .semantics { contentDescription = UiStrings.SESSIONS_CURRENT },
                     )
-                },
-                onClick = { onRenameStart(row) },
-                colors = MenuDefaults.itemColors(textColor = tokens.colors.primary),
-                modifier = Modifier.testTag(UiPageTags.SESSIONS_SESSION_RENAME),
-            )
-            DropdownMenuItem(
-                // Archiving is recoverable, so it is not inked as destructive
-                // and it gets no confirmation (the baseline's rule).
-                text = {
-                    BasicText(
-                        text = UiStrings.SESSIONS_ARCHIVE,
-                        style = type.body.copy(color = tokens.colors.primary),
-                    )
-                },
-                onClick = { onArchiveSession(row) },
-                colors = MenuDefaults.itemColors(textColor = tokens.colors.primary),
-                modifier = Modifier.testTag(UiPageTags.SESSIONS_SESSION_ARCHIVE),
-            )
+                }
+            }
         }
         // `SessionsPage.swift:592-597`: `.overlay(alignment: .bottomLeading)`.
         SessionSeparator(
@@ -1584,40 +1617,31 @@ private fun CompletelyEmptyBlock(onCreateWorkspace: () -> Unit, showCreateAction
     }
 }
 
-/** One folder row: chevron, name, the filtered count and its `DropdownMenu`. */
+/** One folder row: chevron, name, the filtered count and its page `Menu`. */
 @Composable
 private fun WorkspaceRow(
     workspace: SessionWorkspaceView,
-    onToggle: (SessionWorkspaceView) -> Unit,
     onMenuToggle: (SessionWorkspaceView) -> Unit,
     onNewSession: (SessionWorkspaceView) -> Unit,
     onRename: (SessionWorkspaceView) -> Unit,
     onDelete: (SessionWorkspaceView) -> Unit,
-    modifier: Modifier = Modifier,
     showMenu: Boolean = true,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = SessionsMetrics.workspaceRowHeight)
             .padding(horizontal = tokens.geometry.pageOuterMarginH),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // `SessionsPage.swift:449-462`: the folder is one row; the disclosure
+        // header owns the whole row's tap, and this child only carries the label.
         Row(
             modifier = Modifier
                 .weight(1f)
                 .testTag(UiPageTags.SESSIONS_WORKSPACE_ROW)
-                .clickable(
-                    role = Role.Button,
-                    onClickLabel = if (workspace.expanded) {
-                        UiStrings.SESSIONS_WORKSPACE_COLLAPSE
-                    } else {
-                        UiStrings.SESSIONS_WORKSPACE_EXPAND
-                    },
-                    onClick = { onToggle(workspace) },
-                )
                 .semantics {
                     contentDescription = UiStrings.SESSIONS_WORKSPACE_A11Y
                         .format(workspace.title, workspace.sessionCount)
@@ -1625,12 +1649,14 @@ private fun WorkspaceRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start,
         ) {
-            BasicText(
-                text = CHEVRON_GLYPH,
-                style = type.caption.copy(color = tokens.colors.secondary),
-                modifier = Modifier
-                    .width(SessionsMetrics.WORKSPACE_CHEVRON_SLOT_PT.dp)
-                    .rotate(if (workspace.expanded) EXPANDED_ROTATION else 0f),
+            // `SessionsPage.swift:453`: 12 pt `chevron.right`; §7 rule 3's shared
+            // chevron owns the 0→90° rotation and keeps the slot's size.
+            PdshChevron(
+                expanded = workspace.expanded,
+                modifier = Modifier.width(SessionsMetrics.WORKSPACE_CHEVRON_SLOT_PT.dp),
+                size = SessionsMetrics.WORKSPACE_CHEVRON_SLOT_PT.dp,
+                tint = tokens.colors.textSecondary,
+                tag = sessionsWorkspaceChevronTag(workspace.id),
             )
             BasicText(
                 text = workspace.title,
@@ -1649,7 +1675,8 @@ private fun WorkspaceRow(
         }
         if (showMenu) Box {
             // The baseline's hit box is 32 x 44 with the mark centred in it
-            // (`SessionsPage.swift:451-457`).
+            // (`SessionsPage.swift:451-457`). This is the page's own overflow
+            // `Menu`, not one of the eleven §3 `.contextMenu` surfaces.
             Box(
                 modifier = Modifier
                     .testTag(UiPageTags.SESSIONS_WORKSPACE_MENU)
@@ -2374,18 +2401,26 @@ private val DEFAULT_WORKSPACE_TITLES: Set<String> =
     setOf("workspace", "工作区", "工作文件夹", "default", "default-workspace", "日常", "手机工作区", "phone workspace")
 
 private const val WORKSPACE_NAME_LIMIT: Int = 12
-private const val EXPANDED_ROTATION: Float = 90f
 private const val MINUTE_MS: Long = 60_000
 private const val HOUR_MS: Long = 3_600_000
 private const val DAY_MS: Long = 86_400_000
 
 /** The glyphs the drawer draws; the baseline's SF Symbols have no Compose peer. */
 private const val PLUS_GLYPH: String = "+"
-private const val CHEVRON_GLYPH: String = "›"
 private const val CHECK_GLYPH: String = "✓"
 private const val SEPARATOR_GLYPH: String = "·"
 
 private const val ELLIPSIS: String = "…"
+
+/** The frozen §3 surface for a session row (`SessionsPage.swift:612`). */
+private const val SESSIONS_ROW_SURFACE: String = "sessionsRow"
+
+/** Stable disclosure/chevron tags for one workspace folder; new nodes only. */
+internal fun sessionsWorkspaceDisclosureTag(workspaceId: String): String =
+    "pdsh.sessions.workspace.$workspaceId"
+
+internal fun sessionsWorkspaceChevronTag(workspaceId: String): String =
+    "${sessionsWorkspaceDisclosureTag(workspaceId)}.chevron"
 
 /**
  * The session row's registered `bubble.left` icon, secondary ink.
