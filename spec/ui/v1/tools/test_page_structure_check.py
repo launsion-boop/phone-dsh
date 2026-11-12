@@ -38,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import page_structure_check as check  # noqa: E402
+import extract_ios_pages as extract  # noqa: E402
 
 PAGE_ID = "fake"
 PAGE = "FakePage"
@@ -603,6 +604,52 @@ class LocalizedLabelResolutionTests(unittest.TestCase):
         self.assertEqual((None, True), check.resolve_kotlin_expr(
             'UiStrings.settingsNativeText(locale, state.title, "Title")', {},
         ))
+
+
+class QualifiedObjectConstantTests(unittest.TestCase):
+    SOURCE = '''package com.phonedsh.ui.page
+
+public object PcLinkText {
+    public const val FULL_OWNER_WARNING: String =
+        "连接后，这台手机可以完整使用这台电脑上的 DSH。"
+    private val PAIRING_INTERRUPTED: String = "连接中断，请保持此页面打开后重试。"
+
+    fun helper() {
+        val LOCAL: String = "函数内的值不是常量"
+    }
+}
+
+class Holder {
+    companion object {
+        const val TITLE: String = "标题"
+    }
+}
+'''
+
+    def test_object_and_companion_constants_resolve(self):
+        consts = check.qualified_constants(self.SOURCE)
+        self.assertEqual("连接后，这台手机可以完整使用这台电脑上的 DSH。",
+                         consts["PcLinkText.FULL_OWNER_WARNING"])
+        self.assertEqual("连接中断，请保持此页面打开后重试。",
+                         consts["PcLinkText.PAIRING_INTERRUPTED"])
+        self.assertEqual("标题", consts["Holder.TITLE"])
+        self.assertEqual("标题", consts["Holder.Companion.TITLE"])
+        self.assertNotIn("PcLinkText.LOCAL", consts)
+        self.assertEqual(("连接中断，请保持此页面打开后重试。", False),
+                         check.resolve_kotlin_expr("PcLinkText.PAIRING_INTERRUPTED", {}, consts))
+        self.assertEqual((None, True),
+                         check.resolve_kotlin_expr("PcLinkText.NOT_DECLARED", {}, consts))
+
+    def test_page_constants_allow_a_line_break_after_equals(self):
+        self.assertEqual({"ROW": "行"}, check.local_constants(
+            'public const val ROW: String =\n        "行"\n'))
+        self.assertEqual({"TOP": "顶"}, check.local_constants(
+            'private val TOP: String =\n        "顶"\n'))
+
+    def test_a_local_val_does_not_become_a_page_constant(self):
+        self.assertEqual({}, check.local_constants('fun f() { val ROW = "行" }'))
+        self.assertNotIn("ROW", check.qualified_constants(
+            'public object O { fun f() { val ROW = "行" } }'))
 
 
 class Fixture:
@@ -1842,6 +1889,93 @@ struct FakePage: View { var body: some View {
         self._titled_android("state.groupTitle")
         rc, out = run_check(self.fx.root)
         self.assertEqual(rc, 0, out)
+
+
+class StaticSwiftLiteralAgreementTests(unittest.TestCase):
+    """The extractor's Swift label and the checker's Kotlin constant must agree.
+
+    This is the end-to-end mutation: `Text(DemoCopy.row)` resolves to the one plain
+    Swift `static let`, and Android renders `DemoText.ROW` through the PcLink hint
+    wrapper. Changing only the Swift literal must make the checker report the
+    criterion row missing; changing the Kotlin constant the same way must too.
+    """
+
+    def _write(self, root: Path, rel: str, text: str) -> None:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _fixture(self, root: Path, swift_literal: str) -> dict:
+        self._write(root, "examples/probe-app/PhoneDSHProbe/DemoPage.swift", """\
+import SwiftUI
+
+struct DemoPage: View {
+    var body: some View {
+        List {
+            Section { Text(DemoCopy.row) }
+        }
+    }
+}
+""")
+        self._write(root, "Sources/App/DemoCopy.swift", f'''\
+struct DemoCopy {{
+    static let row =
+        "{swift_literal}"
+}}
+''')
+        self._write(root, "android/lib/src/main/kotlin/com/phonedsh/ui/page/DemoPage.kt", f'''\
+package com.phonedsh.ui.page
+
+public object DemoText {{
+    public const val ROW: String =
+        "{swift_literal}"
+}}
+
+public fun DemoPage() {{
+    PcPairingHint(DemoText.ROW)
+}}
+
+private fun PcPairingHint(text: String) {{
+    BasicText(text = text)
+}}
+''')
+        self._write(root, "spec/ui/v1/pages/_whitelist.json",
+                    json.dumps(whitelist(), ensure_ascii=False))
+        self._write(root, "spec/platform/whitelist.json",
+                    json.dumps(platform_whitelist(), ensure_ascii=False))
+        page_path = root / "examples/probe-app/PhoneDSHProbe/DemoPage.swift"
+        page = extract.extract_page(root, page_path, "DemoPage")
+        self._write(root, "spec/ui/v1/pages/demo.json",
+                    json.dumps(page, ensure_ascii=False, indent=2))
+        return page
+
+    def test_matching_static_literal_passes_and_a_swift_mutation_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page = self._fixture(root, "同一行")
+            self.assertEqual("同一行", page["sections"][0]["criterion"]["label"])
+            self.assertEqual("DemoCopy.swift:2",
+                             page["sections"][0]["rows"][0]["labelSource"])
+            rc, out = run_check(root)
+            self.assertEqual(rc, 0, out)
+
+            # Mutate only the Swift definition: the contract must follow it, and the
+            # Android page that still renders the old wording must stop matching.
+            self._write(root, "Sources/App/DemoCopy.swift", """\
+struct DemoCopy {
+    static let row =
+        "改过的行"
+}
+""")
+            page_path = root / "examples/probe-app/PhoneDSHProbe/DemoPage.swift"
+            page = extract.extract_page(root, page_path, "DemoPage")
+            self._write(root, "spec/ui/v1/pages/demo.json",
+                        json.dumps(page, ensure_ascii=False, indent=2))
+            self.assertEqual("改过的行", page["sections"][0]["criterion"]["label"])
+            rc, out = run_check(root)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("missing-section", out)
+            self.assertIn("改过的行", out)
 
 
 if __name__ == "__main__":
