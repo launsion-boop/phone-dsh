@@ -645,6 +645,11 @@ dependencies {
     // UiTokenData over spec/ui/v1/tokens.json. The screen keeps no copy of a
     // token value, and the AAR was already on this module's classpath.
     implementation(project(":lib"))
+    // PCLink (P28) is the phone end of the relay/E2E protocol. `:app` is the
+    // composition root that constructs the real client/RPC/transport and the
+    // Android Keystore identity adapter; the published `:lib` AAR does not
+    // expose this edge (design §2.2).
+    implementation(project(":pclink"))
     // No :testkit edge: no :app source imports it, so the dependency only shipped
     // the scenario runner into the debug APK. The module's own host-side tests need
     // plain JUnit only (they run against the `:domain` reading value types and the
@@ -668,6 +673,14 @@ dependencies {
     // which API 26's JCA does not have. Both live only in :app, never in the AAR.
     implementation(libs.jsch)
     implementation(libs.bouncycastle.bcprov)
+    // PC pairing QR (design §6 C5): CameraX for the preview/analysis surface and
+    // ZXing core for the decoder. ZXing is pure Java — no Play Services — and
+    // both stay in :app so the published :lib AAR remains camera-free.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
 
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -5,15 +5,14 @@ compares the **real iOS app** with the **real Compose pages**. It does not
 replace the screenshots in `docs/receipts/ui-parity-sheet/`; it replaces the
 hand-authored Android `ScreenState` samples as the source of layout evidence.
 
-Current v0 receipt on this host:
+Current v0 receipt on this host (bench-host capture-frame fix, 2026-11-12):
 
 | command | result |
 |---|---|
 | `python3 -m unittest discover -s scripts/parity -p 'test_*.py'` | **PASS** (23 tests) |
-| `bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --tests '*parity*' --rerun-tasks --no-daemon` | **PASS** (4 tests, three exports written) |
-| iOS `xcodebuild ... PhoneDSHDeviceUI` (build-for-testing) | **PASS** — the three slow type-check expressions were split; see the resolved build-blocker section below |
-| `bash scripts/parity/run_ios_export.sh` | **PASS** (1 XCUITest, three exports written) |
-| `python3 scripts/parity/compare_geometry.py ...` | **FAIL** — latest two-platform run: `chat-empty` 2/5, `session-drawer-open` 2/3 (the `drawer.scroll` exemption now applies), `settings-root` 0/6 elements pass. Per-fixture deltas are recorded below. A report is only `PASS` when both export files describe the same fixture, unit and origin. |
+| `bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --tests '*ParityGeometryExportTest*' --no-daemon` | **PASS** (6 tests: the four exports plus the two host-frame regressions, three exports written) |
+| iOS `bash scripts/parity/run_ios_export.sh` | **FAIL (environment blocker)** — `xcodebuild test` exits 74 because this sandbox cannot allocate a pty; no Swift build failure was reached. The comparison reuses the iOS export written by the last successful host run on 2026-11-11T15:12Z (same iPhone 17 Pro, 402 x 874 pt), recovered from that simulator's container. |
+| `python3 scripts/parity/compare_geometry.py ...` | **chat-empty PASS 5/5**; `session-drawer-open` FAIL 2/3 (the `drawer.scroll` exemption applies; `chat.header.drawer` still +62); `settings-root` FAIL 0/6 (row height and settings chrome, not the host frame). Per-fixture before/after deltas are recorded in the host-frame section below. A report is only `PASS` when both export files describe the same fixture, unit and origin. |
 
 What the bench compares:
 
@@ -166,10 +165,16 @@ missing nodes (`found: false`) instead of failing the whole run, so the
 comparator can name the missing element on one side. It does not invent a line
 count: a node without `GetTextLayoutResult` exports `lines: null`.
 
-The capture frame reserves the measured iOS status band
-(`SettingsMetrics.PARITY_SAFE_AREA_TOP_PT` = 62 pt), the same band the existing
-pixel-parity suite uses. This is a capture condition, not a page inset: on a
-device the page already gets the band from the platform.
+The capture frame reserves **one** measured iOS status band in total
+(`SettingsMetrics.PARITY_SAFE_AREA_TOP_PT` = 62 pt): the page keeps its own
+production `statusBarsPadding()` (56 dp under Robolectric) and the frame adds
+only the missing 6 pt. It also mounts the real shell `HomeTabBar` (50 pt) and
+the measured 34 pt home-indicator area below it, so the page ends at the same
+y as the iOS tab page. The settings fixture uses iOS's full-screen
+`-uiPreview settings` cover instead, so it keeps the status band but has no tab
+bar. These are capture conditions, not page insets: on a device the page gets
+the band from the platform and the host supplies the tab bar. See the
+bench-host fix section below for the measured before/after.
 
 ## iOS exporter (XCUITest)
 
@@ -290,6 +295,13 @@ and the P09 page contracts named no identifiers for these elements.
 
 Remaining outside this bench's owned files:
 
+* **`HomeDrawer`'s dialog window.** The drawer's `new-session` row needs the
+  62 pt status band, but its `Dialog` window reports no status-bar inset under
+  Robolectric. A host-supplied top inset (or an instrumented exporter) is
+  needed before `chat.header.drawer` can pass in `session-drawer-open`.
+* **Settings row chrome.** `SettingsPage` rows are 48 pt on Android vs 62 pt on
+  iOS, and `settings.done` exposes a different semantics frame. That belongs to
+  the settings page/chrome owners, not this capture host.
 * **Both sides, text layout.** XCUITest exposes no line count or wrap points. A
   debug-only accessibility value (or an XCUITest-visible test surface) carrying
   `TextLayoutResult`'s `lineCount` and line start offsets is needed before the
@@ -335,7 +347,7 @@ behaviour, layout, strings, modifier order or accessibility:
 
 The same `build-for-testing` command now succeeds, and the XCUITest export runs.
 
-## First two-platform run (2026-11-12)
+## First two-platform run (2026-11-12, before the host-frame fix)
 
 Environment:
 
@@ -429,7 +441,7 @@ one text line per row; iOS exposes no line layout.
 
 No PASS is claimed for any fixture above, and none of these deltas were tuned.
 
-### Re-run after the Android `gatedAxes` / `exemption` fix (2026-11-12)
+### Re-run after the Android `gatedAxes` / `exemption` fix (2026-11-12, before the host-frame fix)
 
 The Android exporter now copies `gatedAxes` and `exemption` from the shared
 fixture exactly as it copies `tolerance`; the comparator, fixtures and UI were
@@ -449,6 +461,88 @@ fails with `Δy=+118` because its frame is relative to `drawer.new-session`,
 whose absolute origin differs by the same 62 pt status band. The fixture-level
 `session-drawer-open` result therefore remains **FAIL**; no threshold, fixture
 tolerance, fixture, skip or Android UI was changed to make an element pass.
+
+## Bench-host capture-frame fix (2026-11-12, P09)
+
+### Measured cause (before the fix)
+
+The Android export put the chat header at absolute `y=126` while the iOS export
+put it at `y=70`. The frame reserved the full 62 pt band **and** the page's own
+`statusBarsPadding()` reported 56 dp under Robolectric, then the header added
+its 8 pt nav top: `62 + 56 + 8 = 126` against iOS `62 + 8 = 70`, a +56 pt top
+offset. At the bottom the Android page ran to `y=874`; the iOS tab page ends on
+the shell menu at `y=790` (`50 pt` menu content + `34 pt` home-indicator area),
+so Android had 84 pt more page. The net title-to-page-bottom distance was
+Android `748` vs iOS `720` — the reported **+28 pt** — made of `+56` top and
+`-84` bottom. The composer field was at `y=748` vs iOS `664` (+84 net), which
+is the same cause.
+
+The fixtures, page composables and tolerances were not the cause.
+
+### Change
+
+`ParityGeometryExportTest` now builds the capture frame from:
+
+* the page's own production status inset plus only the missing part of the
+  62 pt iOS band (6 pt under Robolectric, 0 on a device that already reports
+  62 pt);
+* the real `HomeTabBar(selection = HomeTab.TASKS)` (50 pt) and the measured
+  34 pt home-indicator area for `chat` / `sessions-drawer` fixtures;
+* the status band but no tab bar for the `settings` fixture, matching iOS's
+  full-screen `-uiPreview settings` cover.
+
+Two tests assert the frame on the real composition: the chat title is at
+`62 + 8 = 70`, the bar spans `790..840`, and the settings preview has the
+status band without a `HomeTabBar`. No page source, fixture, tolerance,
+`gatedAxes` entry or comparator rule was changed.
+
+### Before/after
+
+Both columns use the same iOS export (the last successful host run,
+`2026-11-11T15:12Z`). `Δ = Android − iOS`; only `Δy` changed.
+
+| fixture | element | Δy before | Δy after | status before → after |
+|---|---|---:|---:|---|
+| `chat-empty` | `chat.header.drawer` | 0 | 0 | PASS → PASS |
+| `chat-empty` | `chat.header.title` | 0 | 0 | PASS → PASS |
+| `chat-empty` | `chat.empty.start` | **+29** | **+1** | FAIL → **PASS** (tolerance is 1 pt) |
+| `chat-empty` | `chat.composer.field` | **+28** | **0** | FAIL → **PASS** |
+| `chat-empty` | `chat.composer.send` | **+28** | **0** | FAIL → **PASS** |
+| `session-drawer-open` | `chat.header.drawer` | **+118** | **+62** | FAIL → FAIL |
+| `session-drawer-open` | `drawer.new-session` | 0 | 0 | PASS → PASS (fixture origin) |
+| `session-drawer-open` | `drawer.scroll` | **+62** | **+62** | PASS → PASS (only x/w/h gated; §5 `insets`) |
+| `settings-root` | `settings.done` | **-73.67** | **-73.67** | FAIL → FAIL |
+| `settings-root` | `settings.row.modelProvider` | 0 | 0 | FAIL → FAIL (Δh `-14`) |
+| `settings-root` | `settings.row.agentPresets` | **-26** | **-26** | FAIL → FAIL |
+| `settings-root` | `settings.row.pluginsTools` | **-39** | **-39** | FAIL → FAIL |
+| `settings-root` | `settings.row.permissionDefaults` | **-16** | **-16** | FAIL → FAIL |
+| `settings-root` | `settings.row.network` | **-42** | **-42** | FAIL → FAIL |
+
+Absolute origins after the fix: chat `chat.header.title` is Android `(76,70)`
+= iOS `(76,70)`; the chat page bottom is `790` on both sides. The
+`session-drawer-open` origin is still Android `(16,8)` vs iOS `(16,70)`: the
+`HomeDrawer` is a separate `Dialog` window and Robolectric reports no status
+bar inside it, so its `new-session` row starts at 8 pt. That is why
+`chat.header.drawer` remains +62 in origin space even though the page behind it
+now starts at the same absolute y as iOS. The settings origin is Android
+`(16,225)` vs iOS `(16,155.33)`; the remaining 69.67 pt is settings chrome
+above the first row, not the capture frame, and the relative row deltas are
+unchanged.
+
+### Remaining findings (not fixed, not relaxed)
+
+* **Drawer dialog status band.** `HomeDrawer`'s own `Dialog` window gets no
+  status-bar inset under Robolectric, so the drawer's `new-session` row is
+  62 pt higher than iOS and `chat.header.drawer` still fails in origin space.
+  Fixing it needs a production seam (e.g. a host-supplied top inset for the
+  dialog) or an instrumented exporter; editing the bench host cannot reach
+  that window. This is recorded under "Needed outside my scope".
+* **Settings rows.** Android rows are 48 pt vs iOS 62 pt, and `settings.done`
+  is a different semantics node; this is `SettingsPage` / `SettingsChrome`
+  geometry, outside the bench host. Relative deltas are unchanged from before
+  the fix.
+* No tolerance, fixture, `gatedAxes` entry or skip was changed to produce any
+  of the results above.
 
 ## Report provenance
 

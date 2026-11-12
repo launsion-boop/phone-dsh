@@ -41,6 +41,7 @@ package com.phonedsh.ui.surface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -52,13 +53,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -71,10 +70,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.press.primaryPressed
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.LocalUiTokens
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -126,6 +124,7 @@ public fun PageBarCapsule(
 ) {
     val tokens = LocalUiTokens.current
     val shape = RoundedCornerShape(percent = CAPSULE_CORNER_PERCENT)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             // A white pill on a white page is only visible through this shadow,
@@ -134,7 +133,17 @@ public fun PageBarCapsule(
             .background(tokens.colors.surface, shape)
             .defaultMinSize(minHeight = tokens.geometry.pageHeaderMinHeight)
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            // interaction.md §6 rule 5: a bar item has no Material ripple. Its only
+            // feedback is the platform's own pressed chrome, which this control does
+            // not paint; the shared §6 table covers the drawer pill/row and the
+            // primary action, not this floating bar capsule.
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = onClick,
+            )
             // A bar item can carry two different names: the title a person reads
             // (or the icon's spoken name) and a longer action sentence. iOS uses both
             // — `Label("3D 示例", systemImage: "cube")` plus
@@ -162,7 +171,15 @@ public fun PageBarCapsule(
     }
 }
 
-/** HomeSpec's full-width black capsule for a page's primary action. */
+/**
+ * HomeSpec's full-width black capsule for a page's primary action.
+ *
+ * Pressed/disabled feedback comes from the shared §6 table
+ * ([com.phonedsh.ui.press.primaryPressed]): 0.8 whole-content opacity while
+ * pressed and a 0.25 fill while disabled. There is no local press constant and
+ * no ripple; [interactionSource] is exposed so a host (or a JVM test) can drive
+ * the same state machine the real tap drives.
+ */
 @Composable
 public fun HomePrimaryAction(
     label: String,
@@ -170,12 +187,11 @@ public fun HomePrimaryAction(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
     tag: String? = null,
+    interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     val isEnabled = enabled && onClick != null
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
     val actionModifier = if (onClick != null) {
         Modifier.clickable(
             interactionSource = interactionSource,
@@ -190,22 +206,19 @@ public fun HomePrimaryAction(
             disabled()
         }
     }
+    val shape = RoundedCornerShape(percent = CAPSULE_CORNER_PERCENT)
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(HomeMetrics.homePrimaryButtonHeight)
-            .graphicsLayer {
-                alpha = if (isPressed && isEnabled) {
-                    HomeMetrics.HOME_PRIMARY_BUTTON_PRESSED_OPACITY
-                } else {
-                    1f
-                }
-            }
-            .clip(RoundedCornerShape(percent = CAPSULE_CORNER_PERCENT))
-            .background(
-                tokens.colors.primaryButton.copy(
-                    alpha = if (isEnabled) 1f else HomeMetrics.HOME_PRIMARY_BUTTON_DISABLED_OPACITY,
-                ),
+            .clip(shape)
+            // interaction.md §6 rule 3: the shared table owns BOTH ends of this
+            // control — 0.8 whole-content opacity while pressed and the 0.25 fill
+            // while disabled. The page keeps no local press/disabled alpha.
+            .primaryPressed(
+                interactionSource = interactionSource,
+                enabled = isEnabled,
+                shape = shape,
             )
             .then(if (tag != null) Modifier.testTag(tag) else Modifier)
             .then(actionModifier)

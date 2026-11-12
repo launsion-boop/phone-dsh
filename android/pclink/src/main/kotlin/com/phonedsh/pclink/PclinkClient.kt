@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // App-facing PCLink client: identity/record lifecycle, QR/manual pairing and
 // the phone side of the E2E handshake (§2.2, §4, §5, §10). RPC is C4: this file
-// only freezes `PclinkRpcHost` and routes authenticated inner messages to an
-// optional host. There is no Android import; C5 supplies the stores and links.
+// freezes `PclinkRpcHost` (plus C4's optional relay-event seam) and routes
+// authenticated inner messages and `relay.offline` correlation to an optional
+// host. There is no Android import; C5 supplies the stores and links.
 package com.phonedsh.pclink
 
 import java.time.Duration
@@ -158,6 +159,23 @@ data class PclinkNotice(
 interface PclinkRpcHost {
     suspend fun sendInner(inner: PclinkJson)
     fun activeSession(): PclinkE2eSession?
+}
+
+/**
+ * C4's optional extension of the frozen [PclinkRpcHost] seam for relay-plane
+ * correlation. `relay.offline` is not an inner message, so C2 hands it to C4
+ * through this interface before it decides whether the frame identifies the
+ * current E2E session (§3.3/§10). Kept separate so C2's two-method host seam is
+ * unchanged.
+ */
+interface PclinkRelayEventHost {
+    /**
+     * Settles only the calls/streams that [offline] identifies (§10): a frame
+     * carrying `id`/`streamId` settles exactly that frame; a `sid`-only frame
+     * settles that session per §7. Returns true when a pending call/stream
+     * matched, so [PclinkClient] can tell a live frame from a stale one.
+     */
+    fun onRelayOffline(offline: PclinkRelayOffline): Boolean
 }
 
 data class PclinkClientConfiguration(
@@ -739,10 +757,7 @@ class PclinkClient(
                 if (rekey != null && rekey.handle(frame)) return
                 handleEstablishedFrame(frame)
             }
-            "relay.offline" -> {
-                setState(PclinkClientState.Offline(PclinkOfflineReason.PeerOffline))
-                closeConnection(PclinkError.PeerOffline())
-            }
+            "relay.offline" -> handleRelayOfflineFrame(frame)
             "relay.error" -> {
                 try {
                     PclinkWire.validateRelayError(frame)
@@ -756,6 +771,53 @@ class PclinkClient(
             }
             else -> Unit
         }
+    }
+
+    /**
+     * §10 `relay.offline` correlation. The relay echoes `id`/`streamId`/`sid`
+     * only when the undelivered source frame carried them. An `id`/`streamId`
+     * identifies one frame and must not settle any other in-flight call; a
+     * `sid`-only frame names the whole session (unsafe work becomes
+     * `unknown_outcome`, read/idempotent follows §7). A frame for another
+     * peer/session is stale and leaves this session untouched.
+     */
+    private suspend fun handleRelayOfflineFrame(frame: PclinkJson) {
+        try {
+            PclinkWire.validateRelayOffline(frame)
+        } catch (error: PclinkError) {
+            handleProtocolError(error)
+            return
+        }
+        val offline = PclinkRelayOffline(
+            to = frame.requiredString("to"),
+            id = frame["id"]?.stringValue,
+            streamId = frame["streamId"]?.stringValue,
+            sid = frame["sid"]?.stringValue,
+            frame = frame,
+        )
+        // One phone has one paired PC; an offline for any other target cannot
+        // describe a frame this client sent.
+        val peerMachineId = record?.peerMachineId
+        if (peerMachineId != null && offline.to != peerMachineId) return
+        val correlated = (rpcHost as? PclinkRelayEventHost)?.onRelayOffline(offline) ?: false
+        val identifiesFrame = offline.id != null || offline.streamId != null
+        val activeSids = setOfNotNull(
+            session?.sid,
+            handshake?.session?.sid,
+            rekeyHandshake?.sid,
+        )
+        val settlesThisSession = when {
+            // A sid that is not current names a stale session even when an id
+            // happens to collide with one of this session's correlation ids.
+            offline.sid != null -> offline.sid in activeSids && (!identifiesFrame || correlated)
+            identifiesFrame -> correlated
+            else -> true
+        }
+        if (!settlesThisSession) return
+        // Clear the session before publishing Offline: a caller that observes
+        // the state must not still find an ESTABLISHED session to reuse.
+        closeConnection(PclinkError.PeerOffline())
+        setState(PclinkClientState.Offline(PclinkOfflineReason.PeerOffline))
     }
 
     private suspend fun handleEstablishedFrame(frame: PclinkJson) {

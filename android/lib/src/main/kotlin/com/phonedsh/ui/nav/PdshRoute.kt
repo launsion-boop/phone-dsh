@@ -85,17 +85,39 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
-    /** 设置 › 定时任务; the drawer no longer carries a duplicate entry. */
+    /**
+     * 设置 › 定时任务; the drawer no longer carries a duplicate entry.
+     *
+     * iOS presents it as `NavigationStack { NativeAutomationPage() }` inside a
+     * `.sheet` with `homeSheetChrome()` and no `.presentationDetents`
+     * (`SettingsPage.swift:115`), so the row keeps SHEET and renders through the
+     * contract's default detent set (`interaction.md` §2 rule 2).
+     */
     public data object Automation : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
 
-    /** 页头 `⋯`; §1: sheet, closed by 完成. Read-only on this host. */
+    /**
+     * 页头 `⋯`; §1: sheet, closed by 完成. Read-only on this host.
+     *
+     * iOS presents `NativeConfigurationPage(presentedAsSheet: true)` in a
+     * `NavigationStack` with `homeSheetChrome()` and no `.presentationDetents`
+     * (`ChatPage.swift:526`–`:533`), so the sheet takes the contract default.
+     * The `configurationInfo` page id is the nested 插件说明 sheet
+     * (`NativeConfigurationPage.swift:66`–`:83`), not this route.
+     */
     public data object Configuration : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
 
-    /** 抽屉底行「设置」; §1: a sheet (NavigationStack). */
+    /**
+     * 抽屉底行「设置」; §1: a sheet (NavigationStack).
+     *
+     * iOS: `NavigationStack { SettingsPage(...) }.homeSheetChrome()` with no
+     * `.presentationDetents` (`ChatPage.swift:522`–`:525`), so the contract default
+     * applies. The sheet chrome owns the visible grabber; the settings content
+     * draws none (`SheetChrome.HomeSheet`).
+     */
     public data object Settings : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
@@ -119,7 +141,14 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.FULLSCREEN
     }
 
-    /** 设置首行; §1: sheet. */
+    /**
+     * 设置首行; §1: sheet.
+     *
+     * iOS also pushes it from the settings index, and presents it as `NavigationStack
+     * { ModelProviderSettingsPage().homeSheetDone() }.homeSheetChrome()` with no
+     * `.presentationDetents` (`ChatPage.swift:518`–`:521`), so the sheet consumes
+     * the contract default.
+     */
     public data object ModelProvider : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
@@ -178,7 +207,13 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
-    /** 设置内「运行时详情」, also the page-header status dot; §1: sheet. */
+    /**
+     * 设置内「运行时详情」, also the page-header status dot; §1: sheet.
+     *
+     * iOS: `NavigationStack { RuntimeDetailsPage(...).homeSheetDone() }
+     * .homeSheetChrome()` (`ChatPage.swift:541`–`:544`), no `.presentationDetents`
+     * → contract default.
+     */
     public data object Runtime : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
@@ -190,6 +225,11 @@ public sealed interface PdshRoute {
 
     /**
      * The session workbench sheet, opened from a tool-written path in the turn.
+     *
+     * Not a PUSH: iOS presents `NativeWorkbenchPage(...)` in a `.sheet` with
+     * `.homeSheetChrome()` (`ChatPage.swift:504`–`:507`), and the page itself pins
+     * `.presentationDetents([.large])` (`NativeWorkbenchPage.swift:40`), i.e. the
+     * frozen page id `workbench` with the `large` set.
      *
      * @param previewPath the path the chat page was asked to preview, if any.
      * @param section the segment to show first; `null` keeps the page default.
@@ -241,8 +281,10 @@ public sealed interface PdshRoute {
     /**
      * 设备连接: which devices a connector publishes, and which session each opens.
      *
-     * The baseline presents it as a sheet closed by 完成 (`NativeDeviceConnectionPage`
-     * is the root of a `NavigationStack`), so it keeps that form here.
+     * The baseline presents it as `NavigationStack { NativeDeviceConnectionPage() }
+     * .homeSheetChrome()` (`ChatPage.swift:495`–`:497`), which is the site the
+     * contract records as `interaction.sheet.defaultDetents` (no
+     * `.presentationDetents`), so the sheet keeps the default set.
      */
     public data object DeviceConnection : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -264,7 +306,9 @@ public sealed interface PdshRoute {
     /**
      * 本 session 产物: the files one session's tools produced, plus the unassigned rest.
      *
-     * A sheet closed by 完成 in the baseline (`SessionArtifactsPage`'s toolbar).
+     * A sheet closed by 完成 in the baseline: `NavigationStack { SessionArtifactsPage(...) }`
+     * with `.presentationDetents([.medium, .large])` and `.homeSheetChrome()`
+     * (`ChatPage.swift:584`–`:590`), i.e. page id `chatArtifacts`.
      *
      * @param sessionId the session whose artifacts are listed.
      */
@@ -367,7 +411,9 @@ public sealed interface PdshRoute {
      * The baseline opens it from `executeCommand`'s success path
      * (`ChatPage.swift:2516`), never from a menu row, so there is no in-page entry
      * on this host either: a host that owns `commands/execute` pushes this route
-     * when the execution returns.
+     * when the execution returns. iOS presents it with `.homeSheetChrome()` and no
+     * `.presentationDetents` (`ChatPage.swift:534`–`:540`), so the sheet uses the
+     * contract default set.
      */
     public data object CommandResult : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -377,7 +423,9 @@ public sealed interface PdshRoute {
      * 后台任务: this session's background jobs (`ChatPage.swift:3554`).
      *
      * The page-head menu opens it only while the list has rows (`:247`), which is
-     * why this route has no other entrance.
+     * why this route has no other entrance. iOS presents `NativeJobListSheet` with
+     * `.presentationDetents([.medium, .large])` and `.homeSheetChrome()`
+     * (`ChatPage.swift:568`–`:575`), i.e. page id `chatJobs`.
      */
     public data object SessionJobs : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -388,6 +436,9 @@ public sealed interface PdshRoute {
      *
      * Same entrance rule as [SessionJobs] (`:252`). Not to be confused with
      * [Automation], the drawer's schedule *catalog* page, which is a different read.
+     * iOS presents `NativeScheduleListSheet` with `.presentationDetents([.medium,
+     * .large])` and `.homeSheetChrome()` (`ChatPage.swift:576`–`:583`), i.e. page id
+     * `chatSchedules`.
      */
     public data object SessionSchedules : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -422,18 +473,80 @@ public sealed interface PdshRoute {
     public data class Preview(public val path: String) : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
+
+    // -----------------------------------------------------------------------
+    // Appended by the C5 PCLink lane. Both pages already exist as Swift sheets/
+    // pushes; the Android route keeps the same form so the host's one back
+    // gesture matches the baseline (`PCPairingPage.swift:79`, `SettingsPage.swift:353`).
+    // -----------------------------------------------------------------------
+
+    /**
+     * 连接电脑: the PCLink pairing flow.
+     *
+     * Presented as a sheet at both iOS call sites (`HomeDrawer.swift:109`,
+     * `ConnectedComputerPage.swift:34`); its scanner is a second sheet inside the
+     * page (`PCPairingPage.swift:79`). `interaction.sheet.pageDetents` declares no
+     * entry for it, so it keeps the system default detent. The route carries no
+     * flow state; the host owns the pairing flow and passes a
+     * [com.phonedsh.ui.page.PCPairingUiState] to the page.
+     */
+    public data object PcPairing : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.SHEET
+    }
+
+    /**
+     * 已连接的电脑: the one paired PC, its verified DSH version and unpairing.
+     *
+     * The iOS settings row is a `NavigationLink` push (`SettingsPage.swift:353`),
+     * so the Android route is a PUSH; the page keeps its own back.
+     */
+    public data object ConnectedComputer : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
 }
 
 /**
- * The page stack: a list of routes plus push/pop.
+ * The navigation state: one route stack per home tab plus the selected tab.
  *
- * The top of [stack] is the visible route. [Home] is the floor, so [pop] on the
- * root is a no-op and the back gesture can never empty the stack.
+ * `interaction.md` §4 rule 1 gives every tab an independent `NavigationStack`;
+ * switching tabs swaps which stack is visible and never clears the target's
+ * depth. [stack] is still the selected tab's stack, so a caller that renders or
+ * mutates the visible route keeps the pre-per-tab API; [selectHomeTab] restores
+ * the target tab's own stack, and re-selecting the current tab returns this value
+ * (rule 2, never pop-to-root).
+ *
+ * The top of [stack] is the visible route. A stack's floor is its tab root
+ * ([HomeTab.root]) or, on the diagnostic face, [PdshRoute.Home]; [pop] on a root
+ * is a no-op and the back gesture can never empty a stack.
  */
-public data class PdshNavState(public val stack: List<PdshRoute> = listOf(PdshRoute.Home)) {
+public data class PdshNavState(
+    public val stacks: Map<HomeTab, List<PdshRoute>> = mapOf(
+        HomeTab.TASKS to listOf(PdshRoute.Home),
+    ),
+    public val selectedTab: HomeTab = HomeTab.TASKS,
+) {
+    /**
+     * The pre-per-tab source shape: one visible stack.
+     *
+     * The tab is inferred from the stack's floor, so `PdshNavState(listOf(Chat,
+     * Settings))` still means "the tasks tab, two levels down" and
+     * `PdshNavState(listOf(Chat, Discover))` means "the discover tab at its
+     * root". A stack whose pushed page repeats a tab root does not move the tab:
+     * the first occurrence of the root is the floor, later ones are pages.
+     */
+    public constructor(stack: List<PdshRoute>) : this(
+        stacks = mapOf(inferredTab(stack) to stack),
+        selectedTab = inferredTab(stack),
+    )
+
     init {
-        require(stack.isNotEmpty()) { "the navigation stack needs at least the Home route" }
+        require(stacks.isNotEmpty()) { "the navigation state needs the selected tab's stack" }
+        require(stacks.values.all { it.isNotEmpty() }) { "a navigation stack needs at least its floor route" }
+        require(selectedTab in stacks) { "the selected tab has no stack: $selectedTab" }
     }
+
+    /** The selected tab's route stack; its top is the visible route (rule 1). */
+    public val stack: List<PdshRoute> get() = stacks.getValue(selectedTab)
 
     /** The visible route. */
     public val current: PdshRoute get() = stack.last()
@@ -441,21 +554,88 @@ public data class PdshNavState(public val stack: List<PdshRoute> = listOf(PdshRo
     /** True when a back gesture pops a page instead of leaving the app. */
     public val canGoBack: Boolean get() = stack.size > 1
 
-    /** Opens [route] on top of the current page. */
-    public fun push(route: PdshRoute): PdshNavState = copy(stack = stack + route)
+    /**
+     * How many pages sit above [tab]'s root (rules 1 and 3); a tab never opened
+     * is at its root. The first occurrence of the tab's root is its floor — a
+     * later route that repeats the root is a pushed page, not a new floor.
+     */
+    public fun depthOf(tab: HomeTab): Int {
+        val tabStack = stacks[tab] ?: return 0
+        val rootIndex = tabStack.indexOfFirst { it == tab.root }
+        val floorIndex = if (rootIndex >= 0) rootIndex else 0
+        return (tabStack.lastIndex - floorIndex).coerceAtLeast(0)
+    }
 
-    /** Pops one level; the root is a fixed point. */
-    public fun pop(): PdshNavState = if (canGoBack) copy(stack = stack.dropLast(1)) else this
+    /** Opens [route] on top of the selected tab's current page. */
+    public fun push(route: PdshRoute): PdshNavState {
+        val target = HomeTab.entries.firstOrNull { it != selectedTab && it.root == route }
+        // A tab root pushed from another tab's floor shows that tab, it is not a
+        // page over the current one. Once a page is pushed, a tab root is just a
+        // page: 会话 → 对话 pushes Chat one level above its floor.
+        if (target != null && depthOf(selectedTab) == 0) return selectHomeTab(target)
+        val next = stacks.toMutableMap()
+        next[selectedTab] = stack + route
+        return PdshNavState(next.toMap(), selectedTab)
+    }
+
+    /** Pops one level of the selected tab; the root is a fixed point. */
+    public fun pop(): PdshNavState {
+        if (!canGoBack) return this
+        val nextStack = stack.dropLast(1)
+        val nextTab = inferredTab(nextStack)
+        val next = stacks.toMutableMap()
+        if (nextTab != selectedTab) next.remove(selectedTab)
+        next[nextTab] = nextStack
+        return PdshNavState(next.toMap(), nextTab)
+    }
 
     /** Returns to the root page (the Web surface's 原生恢复 path). */
     public fun popToHome(): PdshNavState = PdshNavState()
 
-    /** Replaces the top route, keeping its depth (used by the opt-in Web face). */
-    public fun replaceTop(route: PdshRoute): PdshNavState =
-        copy(stack = stack.dropLast(1) + route)
+    /** Replaces the top route of the selected tab, keeping its depth. */
+    public fun replaceTop(route: PdshRoute): PdshNavState {
+        val nextStack = stack.dropLast(1) + route
+        val nextTab = inferredTab(nextStack)
+        val next = stacks.toMutableMap()
+        if (nextTab != selectedTab) next.remove(selectedTab)
+        next[nextTab] = nextStack
+        return PdshNavState(next.toMap(), nextTab)
+    }
 
-    /** True when [route] is already somewhere on the stack. */
+    /** True when [route] is already somewhere on the selected tab's stack. */
     public fun contains(route: PdshRoute): Boolean = stack.any { it == route }
+
+    /**
+     * `interaction.md` §4 rules 1-2: show [tab]'s own stack. A tab that has not
+     * been opened starts at its root on the current home floor; a tab that has
+     * keeps every pushed page. Re-tapping the selected tab returns this value, so
+     * it can never pop to root.
+     */
+    public fun selectHomeTab(tab: HomeTab): PdshNavState {
+        if (tab == selectedTab) return this
+        val target = stacks[tab] ?: chatFloor().let { floor ->
+            if (tab == HomeTab.TASKS) floor else floor + tab.root
+        }
+        return PdshNavState(stacks + (tab to target), tab)
+    }
+
+    /** The leading Home/Chat floor every tab root sits on (`HomeTabBar.kt`). */
+    private fun chatFloor(): List<PdshRoute> {
+        val floor = stack.takeWhile { it == PdshRoute.Home || it == PdshRoute.Chat }
+        val chatIndex = floor.indexOfFirst { it == PdshRoute.Chat }
+        return if (chatIndex >= 0) floor.take(chatIndex + 1) else floor + PdshRoute.Chat
+    }
+}
+
+/**
+ * The tab a visible stack belongs to: the route just above the Home/Chat floor
+ * when it is a non-tasks tab root, otherwise tasks. A pushed page never changes
+ * the tab.
+ */
+private fun inferredTab(stack: List<PdshRoute>): HomeTab {
+    val floorEnd = stack.takeWhile { it == PdshRoute.Home || it == PdshRoute.Chat }.size
+    val root = stack.getOrNull(floorEnd)
+    return HomeTab.entries.firstOrNull { it != HomeTab.TASKS && it.root == root } ?: HomeTab.TASKS
 }
 
 /**

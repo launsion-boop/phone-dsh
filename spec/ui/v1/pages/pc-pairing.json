@@ -31,8 +31,8 @@
   },
   "android": {
     "screen": "PCPairingPage",
-    "file": null,
-    "match": "missing"
+    "file": "android/lib/src/main/kotlin/com/phonedsh/ui/page/PCPairingPage.kt",
+    "match": "composable"
   },
   "sections": [
     {
@@ -272,9 +272,9 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-202",
-          "label": null,
-          "labelExpr": "PCLinkPairingPrompt.fullOwnerWarning",
+          "id": "连接后-这台手机可以完整使用这台电脑上的-dsh-对话-shell-文件-审批与设置",
+          "label": "连接后，这台手机可以完整使用这台电脑上的 DSH（对话、Shell、文件、审批与设置）。",
+          "labelExpr": null,
           "kind": "text",
           "value": null,
           "valueExpr": null,
@@ -284,15 +284,16 @@
           "condition": null,
           "provenance": "PCPairingPage.swift:202",
           "anchor": "Text(PCLinkPairingPrompt.fullOwnerWarning)",
-          "extraction": "manual"
+          "extraction": "syntax",
+          "labelSource": "PCLinkClient.swift:127"
         }
       ],
       "provenance": "PCPairingPage.swift:201",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "PCLinkPairingPrompt.fullOwnerWarning",
+        "kind": "first-row",
+        "label": "连接后，这台手机可以完整使用这台电脑上的 DSH（对话、Shell、文件、审批与设置）。",
         "provenance": "PCPairingPage.swift:202"
       }
     },
@@ -402,9 +403,9 @@
           "extraction": "manual"
         },
         {
-          "id": "text-234",
-          "label": null,
-          "labelExpr": "PCLinkWorkspaceText.pairingOldPCConfirm",
+          "id": "如果这台电脑仍要求确认-请在电脑上完成确认",
+          "label": "如果这台电脑仍要求确认，请在电脑上完成确认。",
+          "labelExpr": null,
           "kind": "text",
           "value": null,
           "valueExpr": null,
@@ -414,7 +415,8 @@
           "condition": "showOldPCHint",
           "provenance": "PCPairingPage.swift:234",
           "anchor": "Text(PCLinkWorkspaceText.pairingOldPCConfirm)",
-          "extraction": "manual"
+          "extraction": "syntax",
+          "labelSource": "PCWorkspaceBackend.swift:464"
         },
         {
           "id": "取消配对",
@@ -452,9 +454,9 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-258",
-          "label": null,
-          "labelExpr": "PCLinkWorkspaceText.pairingInterrupted",
+          "id": "连接中断-请保持此页面打开后重试",
+          "label": "连接中断，请保持此页面打开后重试。",
+          "labelExpr": null,
           "kind": "text",
           "value": null,
           "valueExpr": null,
@@ -464,15 +466,16 @@
           "condition": null,
           "provenance": "PCPairingPage.swift:258",
           "anchor": "Text(PCLinkWorkspaceText.pairingInterrupted)",
-          "extraction": "manual"
+          "extraction": "syntax",
+          "labelSource": "PCWorkspaceBackend.swift:467"
         }
       ],
       "provenance": "PCPairingPage.swift:253",
       "anchor": "Section {",
       "extraction": "syntax",
       "criterion": {
-        "kind": "first-row-expression",
-        "labelExpr": "PCLinkWorkspaceText.pairingInterrupted",
+        "kind": "first-row",
+        "label": "连接中断，请保持此页面打开后重试。",
         "provenance": "PCPairingPage.swift:258"
       }
     },
@@ -553,9 +556,9 @@
           "extraction": "manual"
         },
         {
-          "id": "text-284",
-          "label": null,
-          "labelExpr": "PCLinkWorkspaceText.pairingInterrupted",
+          "id": "连接中断-请保持此页面打开后重试",
+          "label": "连接中断，请保持此页面打开后重试。",
+          "labelExpr": null,
           "kind": "text",
           "value": null,
           "valueExpr": null,
@@ -565,7 +568,8 @@
           "condition": "interrupted, message != PCLinkWorkspaceText.pairingInterrupted",
           "provenance": "PCPairingPage.swift:284",
           "anchor": "Text(PCLinkWorkspaceText.pairingInterrupted)",
-          "extraction": "manual"
+          "extraction": "syntax",
+          "labelSource": "PCWorkspaceBackend.swift:467"
         },
         {
           "id": "重试",

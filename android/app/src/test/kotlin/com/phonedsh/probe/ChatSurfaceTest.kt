@@ -28,7 +28,8 @@ import com.phonedsh.ui.state.ContextPressure
 import com.phonedsh.ui.state.ContextBreakdown
 import com.phonedsh.ui.state.ComposerStatsMode
 import com.phonedsh.ui.page.PerformanceUsage
-import com.phonedsh.ui.surface.ComposerMode
+import com.phonedsh.ui.composer.ComposerSendLayout
+import com.phonedsh.ui.composer.ComposerSendRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -182,7 +183,10 @@ class ChatSurfaceTest {
         )
         assertTrue("an empty conversation must not lock the dock", state.composer.enabled)
         assertTrue("typed text can be sent", state.composer.canSubmit)
-        assertEquals(ComposerMode.SEND, state.composer.mode)
+        assertEquals(
+            ComposerSendLayout.SEND,
+            ComposerSendRule.layout(state.composer.running, state.composer.canSubmit),
+        )
         assertEquals(ChatPhase.IDLE, state.phase)
     }
 
@@ -203,7 +207,10 @@ class ChatSurfaceTest {
         val live = streaming.rows.last() as ChatRow.Assistant
         assertEquals("正在读取 CSV", live.text)
         assertTrue("the live row is a streaming row", live.streaming)
-        assertEquals(ComposerMode.STOP, streaming.composer.mode)
+        assertEquals(
+            ComposerSendLayout.STOP,
+            ComposerSendRule.layout(streaming.composer.running, streaming.composer.canSubmit),
+        )
     }
 
     @Test

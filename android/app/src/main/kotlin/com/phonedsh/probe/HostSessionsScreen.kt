@@ -281,13 +281,7 @@ internal fun HostSessionsScreen(
                 onHostNotice("无法恢复此会话，列表已保留原状态")
             }
         },
-        onSessionMenuToggle = { row ->
-            local = local.copy(
-                sessionMenuID = if (local.sessionMenuID == row.id) null else row.id,
-            )
-        },
         onArchiveSession = { row: SessionRowView ->
-            local = local.copy(sessionMenuID = null)
             if (!engine.archiveChatSession(row.id)) {
                 onHostNotice("无法归档此会话，列表已保留原状态")
             }

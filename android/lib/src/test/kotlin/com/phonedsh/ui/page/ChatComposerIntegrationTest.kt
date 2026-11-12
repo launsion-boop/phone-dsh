@@ -145,7 +145,9 @@ class ChatComposerIntegrationTest {
         )
         var stopped = 0
         show(state = state, onStop = { stopped += 1 })
-        compose.onNodeWithTag(UiTags.COMPOSER_SEND).assertIsDisplayed()
+        // interaction.md §5 rule 1: !canSubmit while a turn runs shows the stop
+        // key in the send key's place, never both.
+        compose.onNodeWithTag(UiTags.COMPOSER_SEND).assertDoesNotExist()
         compose.onNodeWithTag(UiTags.COMPOSER_STOP).performClick()
         assertEquals(1, stopped)
         compose.onNodeWithTag(UiTags.COMPOSER_FIELD).assertTextEquals("retry this")
@@ -198,14 +200,19 @@ class ChatComposerIntegrationTest {
                 currentModel = model,
             ),
         )
-        show(state = state, availability = ComposerAvailability(selectModel = true), onStop = {})
+        show(
+            state = state,
+            availability = ComposerAvailability(selectModel = true),
+            onStop = {},
+            queueSubmissionAvailability = PdshActionAvailability.Available { _, _ -> },
+        )
         val modelBounds = compose.onNodeWithTag(UiPageTags.COMPOSER_MODEL_MENU).getUnclippedBoundsInRoot()
-        val stopBounds = compose.onNodeWithTag("pdsh.composer.stop-circle", useUnmergedTree = true).getUnclippedBoundsInRoot()
-        val sendBounds = compose.onNodeWithTag("pdsh.composer.send-circle", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        val stopBounds = compose.onNodeWithTag(UiTags.COMPOSER_STOP).getUnclippedBoundsInRoot()
+        val sendBounds = compose.onNodeWithTag(UiTags.COMPOSER_SEND).getUnclippedBoundsInRoot()
         val cardBounds = compose.onNodeWithTag("pdsh.composer.card").getUnclippedBoundsInRoot()
-        assertEquals("model to painted stop circle", 8f, (stopBounds.left - modelBounds.right).value, 0.1f)
-        assertEquals("painted action circles", 8f, (sendBounds.left - stopBounds.right).value, 0.1f)
-        assertEquals("painted send to card edge", 8f, (cardBounds.right - sendBounds.right).value, 0.1f)
+        assertEquals("model to stop key", 8f, (stopBounds.left - modelBounds.right).value, 0.1f)
+        assertEquals("stop/send gap", 8f, (sendBounds.left - stopBounds.right).value, 0.1f)
+        assertEquals("send key to card edge", 8f, (cardBounds.right - sendBounds.right).value, 0.1f)
     }
 
     @Test
@@ -247,6 +254,8 @@ class ChatComposerIntegrationTest {
         onSubmitAnswer: (com.phonedsh.ui.state.PendingAnswer, String) -> Unit = { _, _ -> },
         onStop: (() -> Unit)? = null,
         onRetry: (() -> Unit)? = null,
+        queueSubmissionAvailability: PdshActionAvailability<(String, StateRequestId) -> Unit> =
+            PdshActionAvailability.Unavailable(PdshUnavailableReason.NOT_IMPLEMENTED),
     ) {
         compose.setContent {
             PdshTheme {
@@ -255,6 +264,7 @@ class ChatComposerIntegrationTest {
                     onDraftChange = {},
                     onSend = {},
                     onStop = onStop ?: {},
+                    queueSubmissionAvailability = queueSubmissionAvailability,
                     onToggleRow = {},
                     onApprove = {},
                     onDeny = {},

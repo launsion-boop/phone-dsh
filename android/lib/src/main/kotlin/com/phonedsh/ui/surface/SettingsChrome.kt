@@ -65,17 +65,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -93,6 +90,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.SettingsMetrics
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.page.PageTone
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -117,8 +116,17 @@ public val SettingsCardMargin: Dp get() = SettingsMetrics.cardMargin
 /** The card's 26 pt continuous corner, measured by fitting the top-left arc. */
 public val SettingsCardRadius: Dp get() = SettingsMetrics.cardRadius
 
-/** The 38.67 pt gap between two cards (116 px at y=914→1030). */
+/** The measured 35 pt gap between two sub-page cards ([SettingsMetrics.SECTION_GAP_PT]). */
 public val SettingsCardGap: Dp get() = SettingsMetrics.SECTION_GAP_PT.dp
+
+/** The settings root's 62 pt row ([SettingsMetrics.ROOT_ROW_HEIGHT_PT]). */
+public val SettingsRootRowHeight: Dp get() = SettingsMetrics.ROOT_ROW_HEIGHT_PT.dp
+
+/** The settings root's 57 pt titled-section band ([SettingsMetrics.ROOT_TITLED_SECTION_GAP_PT]). */
+public val SettingsRootTitledSectionGap: Dp get() = SettingsMetrics.ROOT_TITLED_SECTION_GAP_PT.dp
+
+/** The settings root's first titled-section band ([SettingsMetrics.ROOT_FIRST_SECTION_HEIGHT_PT]). */
+public val SettingsRootFirstSectionHeight: Dp get() = SettingsMetrics.ROOT_FIRST_SECTION_HEIGHT_PT.dp
 
 /** The 34.67 pt from the list's top edge to the first card (y=502→606 px). */
 public val SettingsListTopInset: Dp get() = SettingsMetrics.FIRST_CARD_TOP_INSET_PT.dp
@@ -742,14 +750,22 @@ public fun SettingsFootnoteRow(
 }
 
 /**
- * The sub-pages' section label: 17 pt secondary ink at x 33 pt, optional
- * right-aligned trailing value (the baseline's `15 个地址`).
+ * A section label: 13 pt secondary ink at x 33 pt by default, and the settings
+ * root's measured bottom-aligned band when [bandHeight] is set.
+ *
+ * The root's band *is* the 57 pt gap between the previous group's last row and
+ * this group's first row ([SettingsRootTitledSectionGap]); the first section uses
+ * the measured 49.33 pt header block ([SettingsRootFirstSectionHeight]). Its
+ * text sits `cardInset` above the card, matching the iOS export's header ink
+ * 12.66 pt above the next row.
  *
  * @param trailing an optional right-aligned value in 13 pt secondary ink
  *   (`-network`'s `15 个地址` measures 35 px = 11.7 pt of ink, i.e. 13 pt).
  * @param indent the leading inset; the network page's `地址` sits at 32.7 pt and
  *   the plain-row pages at 33 pt, so the default is the measured 33.
  * @param tag an optional stable test tag.
+ * @param bandHeight the settings root's header-band height; `null` keeps the
+ *   sub-pages' padded inline label (the previous behaviour).
  */
 @Composable
 public fun SettingsSectionLabel(
@@ -758,8 +774,30 @@ public fun SettingsSectionLabel(
     trailing: String? = null,
     indent: Dp = SettingsSectionLabelIndent,
     tag: String? = null,
+    bandHeight: Dp? = null,
 ) {
     val tokens = LocalUiTokens.current
+    if (bandHeight != null) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(bandHeight)
+                .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+                .padding(
+                    start = indent,
+                    end = tokens.geometry.pageOuterMarginH,
+                    bottom = tokens.spacing.cardInset,
+                )
+                .semantics { heading() },
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            BasicText(
+                text = title,
+                style = settingsSectionLabelStyle().copy(color = tokens.colors.textSecondary),
+            )
+        }
+        return
+    }
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -940,9 +978,13 @@ public fun SettingsSubPageFootnote(text: String, modifier: Modifier = Modifier) 
  * @param onBack the leading affordance (the baseline's ✕ on a sheet, ‹ on a
  *   pushed page).
  * @param rootTag an optional stable test tag for the page root.
+ * @param showSheetHandle retained compatibility flag: it only selects the ✕'s
+ *   spoken label (`取消` on a sheet, `返回` on a pushed page). Page content never
+ *   draws a grabber — `interaction.md` §2 rule 4 gives that to the sheet chrome
+ *   (`SheetChrome.HomeSheet` / `Connectors`); the settings sub-pages are content
+ *   inside that sheet and used to draw a second, non-contract handle here.
  */
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 public fun SettingsSubPageFrame(
     modifier: Modifier = Modifier,
     title: String? = null,
@@ -973,11 +1015,6 @@ public fun SettingsSubPageFrame(
         // the 44 pt bar and the segmented picker, so drawing another bar here
         // would stack two. The large title stays — it belongs to the page.
         if (!embedded) {
-            if (showSheetHandle) {
-                androidx.compose.material3.BottomSheetDefaults.DragHandle(
-                    modifier = Modifier.testTag("settings-sheet-drag-handle"),
-                )
-            }
             SettingsNavBar(
                 title = title,
                 leading = if (onBack != null) {
@@ -1369,14 +1406,6 @@ public fun SettingsSectionHeader(
     tag: String? = null,
 ) {
     val tokens = LocalUiTokens.current
-    val rotation by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(
-            tokens.motion.disclosureMs,
-            easing = tokens.motion.disclosureEasing,
-        ),
-        label = "settings-section-chevron",
-    )
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1394,10 +1423,10 @@ public fun SettingsSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
     ) {
-        BasicText(
-            text = CHEVRON_FORWARD,
-            style = settingsLabelStyle().copy(color = tokens.colors.textTertiary),
-            modifier = Modifier.rotate(rotation),
+        PdshChevron(
+            expanded = expanded,
+            tint = tokens.colors.textTertiary,
+            tag = tag?.let { PdshDisclosureTags.chevron(it) },
         )
         BasicText(
             text = title,
@@ -1415,8 +1444,6 @@ public fun SettingsSectionHeader(
     }
 }
 
-/** The disclosure glyph. */
-private const val CHEVRON_FORWARD: String = "›"
 
 /**
  * The ink for a row value: secondary for a plain value, a tone for a fact.

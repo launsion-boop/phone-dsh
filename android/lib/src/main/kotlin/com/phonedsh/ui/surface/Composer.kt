@@ -23,15 +23,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -43,7 +42,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberCoroutineScope
 import com.phonedsh.ui.state.ComposerStatsMode
 import com.phonedsh.ui.state.SessionStats
 import com.phonedsh.ui.state.SessionTokenUsage
@@ -53,7 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEvent
@@ -66,9 +63,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.Role
@@ -80,24 +77,14 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.ChatMetrics
+import com.phonedsh.ui.composer.PdshComposerSendKeys
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiTokens
-import com.phonedsh.ui.theme.materialSheetColors
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.generated.UiTokenNames
 import java.util.Locale
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-
-/** Which key the dock's trailing corner shows. */
-public enum class ComposerMode {
-    /** The accent send key. */
-    SEND,
-
-    /** A turn runs and the draft cannot be submitted to it: the stop key. */
-    STOP,
-}
 
 /**
  * The token inventory of this surface: exactly `signatureSurfaces.composer.tokens`.
@@ -153,18 +140,19 @@ public object ComposerTokens {
  * @param onTextChange draft updates.
  * @param placeholder the three-case placeholder the screen already resolved
  *   (idle / steer / queue); it is both the hint and the field's label.
- * @param mode send or stop for the trailing key.
  * @param enabled false while a pending ask is on screen (visible, disabled).
- * @param canSubmit iOS `canSubmit`: the send key is live.
- * @param running a turn is running (keeps the small stop key beside a live send).
+ * @param canSubmit rule 2's value: the send key is live.
+ * @param running a turn is running (keeps the stop key beside a live send).
+ * @param steer the running turn is in steer mode (selects the §5 label).
  * @param onSend send the draft.
  * @param onStop stop the running turn.
  * @param stat optional usage pill text; `null` hides it.
  * @param contextPercent optional context-window share; `null` hides the ring.
- * @param sendLabel the send key's accessibility label (the screen resolves it
- *   from the idle/steer/queue case).
  * @param controls the tool row docked inside the card (plus / permissions /
  *   model / running spinner); `null` leaves the row empty.
+ * @param outerTopInset the source `composer` VStack's 8 pt top padding. The page
+ *   owns the auxiliary dock rows above this card, so it passes `0` while those
+ *   rows already carry the inset; the default remains the token read.
  * @param onTruncated the draft exceeded 8000 extended graphemes and was cut.
  */
 @Composable
@@ -172,17 +160,17 @@ public fun Composer(
     text: String,
     onTextChange: (String) -> Unit,
     placeholder: String,
-    mode: ComposerMode,
     enabled: Boolean,
     canSubmit: Boolean,
     running: Boolean,
+    steer: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
     stat: String? = null,
     contextPercent: Int? = null,
-    sendLabel: String = UiStrings.COMPOSER_SEND_LABEL,
     controls: (@Composable () -> Unit)? = null,
+    outerTopInset: Dp? = null,
     onTruncated: () -> Unit = {},
     onMenuKey: (KeyEvent) -> Boolean = { false },
     onMenuSubmit: () -> Boolean = { false },
@@ -195,6 +183,7 @@ public fun Composer(
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     val shape = RoundedCornerShape(tokens.radius.composer)
+    val resolvedOuterTopInset = outerTopInset ?: tokens.geometry.composerOuterMarginTop
     val focusRequester = remember { FocusRequester() }
     // Keep selection/composition data from the platform editor while the host
     // continues to own the plain-text draft. External command/reference picks
@@ -222,7 +211,7 @@ public fun Composer(
             .padding(
                 start = tokens.geometry.composerOuterMarginH,
                 end = tokens.geometry.composerOuterMarginH,
-                top = tokens.geometry.composerOuterMarginTop,
+                top = resolvedOuterTopInset,
                 // PR22 ChatPage.swift removes the former 8 pt dock bottom inset;
                 // only the system navigation safe area remains below this card.
                 bottom = ChatMetrics.COMPOSER_OUTER_MARGIN_BOTTOM_PT.dp,
@@ -232,6 +221,11 @@ public fun Composer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // The iOS `composer` VStack keeps one `flowGap` (6 pt) above the
+                // card even while `composerDocks` is empty (`ChatPage.swift:2341`).
+                // The dock's rows live in the page, so the empty gap is reserved
+                // here; without it the card sits 6 pt lower than the source.
+                .padding(top = tokens.spacing.iconText)
                 .onPreviewKeyEvent(onMenuKey)
                 .heightIn(min = ChatMetrics.COMPOSER_HEIGHT_PT.dp)
                 .shadow(
@@ -260,7 +254,11 @@ public fun Composer(
                         .padding(
                             start = ChatMetrics.COMPOSER_PORT_LEADING_PT.dp,
                             end = ChatMetrics.COMPOSER_PORT_TRAILING_PT.dp,
-                        ),
+                        )
+                        // iOS `frame(height: max(56, composerHeight))`: the *port*
+                        // row is floored at 56 while the editable surface itself
+                        // measures 36…336 (`ChatPage.swift:2405`, `:85`).
+                        .heightIn(min = ChatMetrics.COMPOSER_PORT_MIN_HEIGHT_PT.dp),
                 ) {
                     if (text.isEmpty()) {
                         BasicText(
@@ -301,12 +299,14 @@ public fun Composer(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
+                            // The editable surface's own measured floor is 36 pt
+                            // (`ChatPage.swift:85`, `:3893`); the port row above
+                            // keeps the source's 56 pt frame.
                             .heightIn(
-                                // The UIKit text view itself floors at 56 pt even
-                                // though its containing row's minimum is 36 pt.
                                 min = ChatMetrics.COMPOSER_TEXT_MIN_HEIGHT_PT.dp,
                                 max = tokens.geometry.composerMaxHeight,
                             )
+                            .align(Alignment.CenterStart)
                             .focusRequester(focusRequester)
                             .onPreviewKeyEvent(::handleHardwareEnter)
                             .testTag(UiTags.COMPOSER_FIELD)
@@ -333,28 +333,31 @@ public fun Composer(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) { controls?.invoke() }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            // Stop remains available while a draft cannot yet be
-                            // queued/steered. Its host capability is independent
-                            // of the send action and the non-empty draft.
-                            if (running && mode != ComposerMode.STOP) StopKey(onClick = onStop)
-                            if (mode == ComposerMode.STOP) {
-                                StopKey(onClick = onStop)
-                            } else {
-                                SendKey(enabled = enabled && canSubmit, label = sendLabel, onClick = onSend)
-                            }
-                        }
+                        // interaction.md §5 rule 1: the stop key comes first, the
+                        // send key follows 8 pt later when both are visible; the
+                        // component owns the 36 pt circle, colours, transition and
+                        // verbatim labels.
+                        PdshComposerSendKeys(
+                            canSubmit = canSubmit,
+                            turnRunning = running,
+                            steer = steer,
+                            onSend = onSend,
+                            onStop = onStop,
+                            // `ChatPage.swift:2571` `.padding(.leading, 8)`: the
+                            // action group keeps the source's leading inset.
+                            modifier = Modifier.padding(start = ChatMetrics.COMPOSER_ACTION_GAP_PT.dp),
+                        )
                     }
                 }
             }
         }
         Row(
-            // NativeComposerStats retains an empty detailed HStack with
-            // 2pt top padding. The 6pt parent gap therefore remains even
-            // when no metrics have arrived; hiding it shifts the card 8pt.
-            modifier = Modifier.fillMaxWidth().padding(top = com.phonedsh.ui.ChatMetrics.COMPOSER_STATS_TOP_PT.dp),
+            // NativeComposerStats reserves `reservedHeight = 22` (a 20 pt pill
+            // line plus its 2 pt top padding) even with no metrics, and the 6 pt
+            // parent gap above it remains. Hiding either shifts the card.
+            modifier = Modifier.fillMaxWidth()
+                .padding(top = com.phonedsh.ui.ChatMetrics.COMPOSER_STATS_TOP_PT.dp)
+                .heightIn(min = tokens.geometry.statPillMinHeight),
             // ios-chat-official.png: the stats line sits under the card's leading
             // edge (x 29.3), not centred under it.
             horizontalArrangement = Arrangement.spacedBy(if (statsMode == ComposerStatsMode.COMPACT) 8.dp else 4.dp, Alignment.Start),
@@ -398,14 +401,10 @@ private fun ComposerMetrics(
         color = tokens.colors.tertiary,
     )
     var detail by remember { mutableStateOf<ComposerMetricDetail?>(null) }
-    val detailSheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    val closeDetail: () -> Unit = {
-        detail = null
-        scope.launch {
-            detailSheetState.hide()
-        }
-    }
+    // The pin's 完成 is the sheet's own dismiss path: dispatch starts the
+    // platform hide and `PdshSheet` calls onDismissRequest only after it ends.
+    val sheetBackHost = remember { com.phonedsh.ui.sheet.SheetBackHost() }
+    val closeDetail: () -> Unit = { sheetBackHost.dispatch() }
     val speed = stats?.tokensPerSecond?.takeIf(Double::isFinite)
     val cacheHit = usage?.cacheHitPercent
     if (mode == ComposerStatsMode.COMPACT) {
@@ -489,15 +488,16 @@ private fun ComposerMetrics(
             }
         }
     }
-    val sheetPalette = materialSheetColors(tokens)
-    androidx.compose.material3.ModalBottomSheet(
-        sheetState = detailSheetState,
+    // interaction.md §2: the stats sheet is the frozen `composerStats` page id
+    // (medium detent). The platform owns the partial height and the motion; this
+    // content has no fixed fraction.
+    com.phonedsh.ui.sheet.PdshSheet(
+        pageId = "composerStats",
         onDismissRequest = { detail = null },
-        containerColor = sheetPalette.container,
-        contentColor = sheetPalette.content,
+        backHost = sheetBackHost,
     ) {
         com.phonedsh.ui.surface.SettingsSubPageFrame(
-            modifier = Modifier.fillMaxWidth().height((LocalConfiguration.current.screenHeightDp * 0.5f).dp),
+            modifier = Modifier.fillMaxWidth(),
             title = title,
             grouped = true,
             trailing = {
@@ -540,72 +540,6 @@ private fun formatMetricDuration(milliseconds: Double): String {
     return if (seconds < 60) "${(seconds * 10).roundToInt() / 10.0}秒" else {
         val whole = seconds.roundToInt()
         "${whole / 60}分${whole % 60}秒"
-    }
-}
-
-/** The 36pt source circle is trailing-aligned inside a 44pt Android tap target. */
-@Composable
-private fun SendKey(
-    enabled: Boolean,
-    label: String,
-    onClick: () -> Unit,
-) {
-    val tokens = LocalUiTokens.current
-    val type = LocalUiType.current
-    Box(
-        modifier = Modifier
-            .size(ChatMetrics.SEND_HIT_PT.dp)
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .testTag(UiTags.COMPOSER_SEND)
-            .semantics { contentDescription = label },
-        contentAlignment = Alignment.CenterEnd,
-    ) {
-        Box(
-            modifier = Modifier.size(tokens.geometry.sendButtonDiameter)
-                .clip(CircleShape)
-                .background(if (enabled) tokens.colors.primaryButton else tokens.colors.userBubble)
-                .testTag(COMPOSER_SEND_CIRCLE_TAG),
-            contentAlignment = Alignment.Center,
-        ) {
-            PdshIconView(
-                icon = PdshIcon.SEND,
-                size = ChatMetrics.SEND_GLYPH_PT.dp,
-                tint = if (enabled) tokens.colors.primaryButtonInk else tokens.colors.iconMuted,
-                contentDescription = null,
-            )
-        }
-    }
-}
-
-/** Same trailing-aligned source circle; adjacent targets leave an 8pt visual gap. */
-@Composable
-private fun StopKey(
-    onClick: () -> Unit,
-) {
-    val tokens = LocalUiTokens.current
-    Box(
-        modifier = Modifier
-            .size(ChatMetrics.SEND_HIT_PT.dp)
-            .clickable(role = Role.Button, onClick = onClick)
-            .testTag(UiTags.COMPOSER_STOP)
-            .semantics { contentDescription = UiStrings.COMPOSER_STOP_LABEL },
-        contentAlignment = Alignment.CenterEnd,
-    ) {
-        Box(
-            modifier = Modifier.size(tokens.geometry.sendButtonDiameter)
-                .clip(CircleShape)
-                .background(tokens.colors.primaryButton)
-                .testTag(COMPOSER_STOP_CIRCLE_TAG),
-            contentAlignment = Alignment.Center,
-        ) {
-            androidx.compose.foundation.Canvas(Modifier.size(ChatMetrics.STOP_GLYPH_PT.dp)) {
-                drawRoundRect(
-                    color = tokens.colors.primaryButtonInk,
-                    size = androidx.compose.ui.geometry.Size(size.width, size.height),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(ChatMetrics.STOP_GLYPH_RADIUS_PT.dp.toPx()),
-                )
-            }
-        }
     }
 }
 
@@ -710,7 +644,3 @@ internal fun enforceComposerDraftLimit(
     )
 }
 private const val COMPOSER_CARD_TAG: String = "pdsh.composer.card"
-
-/** Tag for the 36pt painted send circle inside its 44pt tap target. */
-private const val COMPOSER_SEND_CIRCLE_TAG: String = "pdsh.composer.send-circle"
-private const val COMPOSER_STOP_CIRCLE_TAG: String = "pdsh.composer.stop-circle"

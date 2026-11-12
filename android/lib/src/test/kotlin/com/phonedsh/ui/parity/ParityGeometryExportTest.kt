@@ -29,29 +29,44 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performGesture
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.SettingsMetrics
 import com.phonedsh.ui.nav.HomeDrawer
 import com.phonedsh.ui.nav.HomeDrawerEngineState
 import com.phonedsh.ui.nav.HomeDrawerFacts
+import com.phonedsh.ui.nav.HomeTab
+import com.phonedsh.ui.nav.HomeTabBar
+import com.phonedsh.ui.nav.HomeTabBarTags
 import com.phonedsh.ui.page.ChatPage
 import com.phonedsh.ui.page.SettingsPage
 import com.phonedsh.ui.page.SettingsPageMode
 import com.phonedsh.ui.page.SettingsScreenState
 import com.phonedsh.ui.page.SettingsFacts
+import com.phonedsh.ui.page.UiPageTags
 import com.phonedsh.ui.state.ChatHostFacts
 import com.phonedsh.ui.state.ChatScreenState
 import com.phonedsh.ui.state.EngineLifecycleFacts
 import com.phonedsh.ui.theme.PdshTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -65,6 +80,9 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.io.File
 import java.time.OffsetDateTime
+
+/** The iOS fixture's measured home-indicator band (`UiMetrics` records the same 34 pt bottom safe area). */
+private const val PARITY_HOME_INDICATOR_BOTTOM_PT: Float = 34f
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], qualifiers = "w402dp-h874dp")
@@ -110,6 +128,49 @@ class ParityGeometryExportTest {
     }
 
     @Test
+    fun `chat empty capture frame reserves one status band and mounts shell chrome`() {
+        val fixture = mountFixture("chat-empty")
+        val title = compose.onNodeWithTag(UiPageTags.CHAT_HEADER_TITLE, useUnmergedTree = true)
+            .getBoundsInRoot()
+        assertEquals(
+            "one status band: the page's own status bar plus the frame's top-up",
+            SettingsMetrics.PARITY_SAFE_AREA_TOP_PT + HomeMetrics.NAV_TOP_PT,
+            title.top.value,
+            0.1f,
+        )
+        val bar = compose.onNodeWithTag(HomeTabBarTags.BAR, useUnmergedTree = true).getBoundsInRoot()
+        val frameHeight = fixture.getJSONObject("frame").getInt("heightPt").toFloat()
+        assertEquals(
+            "the page ends on the shell menu, not at the screen bottom",
+            frameHeight - PARITY_HOME_INDICATOR_BOTTOM_PT - HomeMetrics.TAB_BAR_HEIGHT_PT,
+            bar.top.value,
+            0.1f,
+        )
+        assertEquals(HomeMetrics.TAB_BAR_HEIGHT_PT, bar.bottom.value - bar.top.value, 0.1f)
+        assertEquals(frameHeight - PARITY_HOME_INDICATOR_BOTTOM_PT, bar.bottom.value, 0.1f)
+    }
+
+    @Test
+    fun `settings preview capture keeps the status band without the shell menu`() {
+        mountFixture("settings-root")
+        val done = compose.onNodeWithTag(UiPageTags.SETTINGS_DONE, useUnmergedTree = true)
+            .getBoundsInRoot()
+        // The status band is kept: the 36 pt 完成 node is centred in the 44 pt bar
+        // under the 62 pt band, i.e. y = 66, the iOS export's absolute 155.33 - 89.33.
+        assertEquals(
+            SettingsMetrics.PARITY_SAFE_AREA_TOP_PT +
+                (SettingsMetrics.NAV_BAR_HEIGHT_PT - SettingsMetrics.DONE_BUTTON_HEIGHT_PT) / 2f,
+            done.top.value,
+            0.1f,
+        )
+        assertTrue(
+            "the settings fixture is iOS's full-screen -uiPreview cover, not a tab page",
+            compose.onAllNodes(hasTestTag(HomeTabBarTags.BAR), useUnmergedTree = true)
+                .fetchSemanticsNodes().isEmpty(),
+        )
+    }
+
+    @Test
     fun `chat empty exports real Compose semantics`() {
         exportFixture("chat-empty")
     }
@@ -132,24 +193,21 @@ class ParityGeometryExportTest {
     private fun fixturePath(id: String): File = File(fixtureDir, "$id.json")
 
     private fun exportFixture(id: String) {
+        val fixture = mountFixture(id)
+        val export = buildExport(fixture)
+        outputDir.mkdirs()
+        val target = File(outputDir, "${fixture.getString("id")}.json")
+        target.writeText(export.toString(2) + "\n", Charsets.UTF_8)
+        println("parity geometry: wrote ${target.path}")
+    }
+
+    private fun mountFixture(id: String): JSONObject {
         val fixture = readFixture(fixturePath(id))
         currentFixture = fixture
-        val androidSeed = fixture.getJSONObject("seed").getJSONObject("android")
-        val screen = androidSeed.getString("screen")
-
+        val screen = fixture.getJSONObject("seed").getJSONObject("android").getString("screen")
         compose.setContent {
             PdshTheme {
-                // The iOS baselines are device screenshots at 402x874 with the
-                // measured 62 pt status band above the page. Android hides its
-                // system bars under Robolectric, so the same band is reserved by
-                // the capture frame (the constant is the one the pixel-parity
-                // suite already uses, SettingsMetrics.PARITY_SAFE_AREA_TOP_PT).
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(Color.White)
-                        .padding(top = SettingsMetrics.PARITY_SAFE_AREA_TOP_PT.dp),
-                ) {
+                ParityCaptureFrame(showTabBar = fixture.getString("page") != "settings") {
                     ParityHost(screen)
                 }
             }
@@ -164,12 +222,59 @@ class ParityGeometryExportTest {
         // reading frames. This is the production motion, not a test sleep.
         compose.mainClock.advanceTimeBy(400L)
         compose.waitForIdle()
+        return fixture
+    }
 
-        val export = buildExport(fixture)
-        outputDir.mkdirs()
-        val target = File(outputDir, "${fixture.getString("id")}.json")
-        target.writeText(export.toString(2) + "\n", Charsets.UTF_8)
-        println("parity geometry: wrote ${target.path}")
+    /**
+     * The iOS capture frame: exactly one measured 62 pt status band and the
+     * shell's bottom chrome, not a second inset on top of the page's own one.
+     *
+     * iOS lays the page inside the status band (the page header adds its own
+     * 8 pt nav top below it) and above the shell's bottom menu; the menu is
+     * 50 pt of content plus the measured 34 pt home-indicator area of the
+     * 402 x 874 fixture frame. Robolectric reports a 56 dp status bar and a
+     * 0 dp navigation bar, so the frame supplies only the
+     * missing 6 pt of the status band and the 34 pt home-indicator area. The
+     * page keeps its production `statusBarsPadding()`; this frame never
+     * reserves the full band a second time.
+     *
+     * `showTabBar` is false for the settings fixture because iOS exports that
+     * page through `-uiPreview settings`, a full-screen cover with no bottom
+     * menu. The tab bar is the shell's real [HomeTabBar].
+     */
+    @Composable
+    private fun ParityCaptureFrame(
+        showTabBar: Boolean,
+        content: @Composable () -> Unit,
+    ) {
+        val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val topUp = (SettingsMetrics.PARITY_SAFE_AREA_TOP_PT.dp - statusBarTop)
+            .coerceAtLeast(0.dp)
+        val navigationBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val homeIndicator = (PARITY_HOME_INDICATOR_BOTTOM_PT.dp - navigationBarBottom)
+            .coerceAtLeast(0.dp)
+        Column(Modifier.fillMaxSize().background(Color.White)) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(Color.White)
+                    // The bar paints the navigation-bar inset itself, so the
+                    // page above it must not pad for it a second time. This is
+                    // the production shell's consumeWindowInsets rule.
+                    .then(
+                        if (showTabBar) Modifier.consumeWindowInsets(WindowInsets.navigationBars)
+                        else Modifier,
+                    )
+                    .padding(top = topUp),
+            ) {
+                content()
+            }
+            if (showTabBar) {
+                HomeTabBar(selection = HomeTab.TASKS, onSelect = {})
+            }
+            Spacer(Modifier.fillMaxWidth().height(homeIndicator).background(Color.White))
+        }
     }
 
     @Composable

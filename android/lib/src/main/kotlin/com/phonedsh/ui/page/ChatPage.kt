@@ -163,7 +163,9 @@ import com.phonedsh.ui.state.SlashMenu
 import com.phonedsh.ui.state.TodoDockItem
 import com.phonedsh.ui.state.reconcileQueueRows
 import com.phonedsh.ui.surface.Composer
-import com.phonedsh.ui.surface.ComposerMode
+import com.phonedsh.ui.composer.ComposerSendRule
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.surface.composer.ComposerToolbar
 import com.phonedsh.ui.surface.composer.ComposerAvailability
 import com.phonedsh.ui.surface.FoldedPendingRow
@@ -2373,10 +2375,19 @@ private fun ComposerDock(
     val steerSubmission = (steerSubmissionAvailability as? PdshActionAvailability.Available)?.callback
     val stopRequest = (stopAvailability as? PdshActionAvailability.Available)?.callback
     val runningSubmissionAvailable = if (composer.steering) steerSubmission != null else queueSubmission != null
-    val canSubmit = composer.canSubmit && (!composer.running || runningSubmissionAvailable)
+    // interaction.md §5 rule 2 has one implementation: the page contributes the
+    // typed queue/steer route to `composerEnabled`, then calls the same rule the
+    // screen state used. There is no second truth table here.
+    val canSubmit = ComposerSendRule.canSubmit(
+        composerEnabled = composer.enabled && (!composer.running || runningSubmissionAvailable),
+        steer = composer.steering,
+        hasText = composer.draft.trim().isNotEmpty(),
+        hasAttachments = composer.attachments.isNotEmpty(),
+        turnRunning = composer.running,
+    )
+    // No host stop route means no stop key; the key's visibility is the §5 turn
+    // branch, but the page never draws an action the host cannot receive.
     val showRunningStop = composer.running && stopRequest != null
-    val composerMode = if (composer.running && stopRequest == null) ComposerMode.SEND else composer.mode
-    val sendLabel = if (composer.running && !runningSubmissionAvailable && stopRequest == null) UiStrings.UNAVAILABLE else composer.sendLabel
 
     fun submitComposer() {
         if (!composer.running) {
@@ -2401,6 +2412,21 @@ private fun ComposerDock(
     var slashHighlight by remember { mutableIntStateOf(0) }
     val slashMenu = state.composer.slash.takeUnless { slashMenuDismissed }
     val slashCommands = (slashMenu as? SlashMenu.Matches)?.commands.orEmpty()
+    // The source `composer` has one 8 pt outer top inset above `composerDocks`
+    // and one 6 pt VStack gap above the card, including when the docks are empty.
+    // This page owns the dock rows, so only the first visible surface carries
+    // the inset; the surface always supplies the 6 pt gap.
+    val hasDockRows = state.todoItems.isNotEmpty() ||
+        state.goal is GoalBarState.Visible ||
+        pendingQueueRows.isNotEmpty() ||
+        queueRows.isNotEmpty() ||
+        composer.attachments.isNotEmpty() ||
+        composer.attachmentError != null ||
+        composer.fileImportNotice != null ||
+        queueEditNotice != null ||
+        truncated ||
+        slashMenu != null ||
+        composer.reference != null
 
     fun chooseCommand(name: String) {
         val command = slashCommands.firstOrNull { it.name == name }
@@ -2459,7 +2485,7 @@ private fun ComposerDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = tokens.geometry.composerOuterMarginH)
-                .padding(top = tokens.geometry.composerOuterMarginTop),
+                .padding(top = if (hasDockRows) tokens.geometry.composerOuterMarginTop else Dp(0f)),
             // iOS stacks the dock's rows with `NativeParityTokens.flowGap` = 6 pt
             // (`ChatPage.swift:1795`); the old 40 pt was the trailing *reserve*
             // for the send key, which pushed the queue strip 28 pt too high.
@@ -2582,10 +2608,10 @@ private fun ComposerDock(
                 text = composer.draft,
                 onTextChange = onDraftChange,
                 placeholder = composer.placeholder,
-                mode = composerMode,
                 enabled = composer.enabled,
                 canSubmit = canSubmit,
                 running = showRunningStop,
+                steer = composer.steering,
                 onSend = ::submitComposer,
                 onStop = { stopRequest?.invoke(nextQueueActionRequestId()) },
                 stat = state.stats,
@@ -2595,7 +2621,7 @@ private fun ComposerDock(
                 contextPressure = state.contextPressure,
                 contextBreakdown = state.contextBreakdown,
                 statsMode = state.composerStatsMode,
-                sendLabel = sendLabel,
+                outerTopInset = if (hasDockRows) Dp(0f) else null,
                 onTruncated = { truncated = true },
                 onMenuKey = ::handleSlashKey,
                 onMenuSubmit = {
@@ -2906,7 +2932,6 @@ private fun QueueDock(
 ) {
     if (rows.isEmpty()) return
     val tokens = LocalUiTokens.current
-    val type = LocalUiType.current
     val edit = (editAvailability as? PdshActionAvailability.Available)?.callback
     val remove = (removeAvailability as? PdshActionAvailability.Available)?.callback
     val steer = (steerAvailability as? PdshActionAvailability.Available)?.callback
@@ -2921,54 +2946,109 @@ private fun QueueDock(
         verticalArrangement = Arrangement.spacedBy(ChatMetrics.CHAT_QUEUE_STACK_GAP_PT.dp),
     ) {
         if (rows.size > 1) {
-            Row(
-                modifier = Modifier.fillMaxWidth()
-                    .height(ChatMetrics.CHAT_QUEUE_HEADER_HEIGHT_PT.dp)
-                    .clickable(enabled = !busy, role = Role.Button, onClick = onToggleExpanded)
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = UiStrings.CHAT_QUEUE_HEADER_COUNT.format(rows.size)
-                        stateDescription = if (showRows) UiStrings.EXPANDED else UiStrings.COLLAPSED
-                    }
-                    .padding(horizontal = ChatMetrics.CHAT_QUEUE_ROW_INSET_H_PT.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHAT_QUEUE_HEADER_GAP_PT.dp),
-            ) {
-                PdshIconView(PdshIcon.LIST, ChatMetrics.CHAT_QUEUE_HEADER_ICON_PT.dp, tokens.colors.secondary, null)
-                BasicText(
-                    text = UiStrings.CHAT_QUEUE_HEADER_COUNT.format(rows.size),
-                    style = type.secondary.copy(
-                        fontSize = ChatMetrics.CHAT_QUEUE_HEADER_FONT_PT.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                        color = tokens.colors.secondary,
-                    ),
-                )
-                Spacer(Modifier.weight(1f))
-                PdshIconView(
-                    if (showRows) PdshIcon.CHEVRON_DOWN else PdshIcon.CHEVRON_UP,
-                    ChatMetrics.CHAT_QUEUE_HEADER_CHEVRON_PT.dp,
-                    tokens.colors.secondary,
-                    null,
-                )
-            }
-        }
-        if (showRows) {
-            rows.forEachIndexed { index, item ->
-                QueueDockRow(
-                    item = item,
-                    showsLeadingGlyph = rows.size == 1,
-                    running = running,
-                    edit = edit,
-                    remove = remove,
-                    steer = steer,
-                    onEdit = onEdit,
-                )
-                if (index < rows.lastIndex) {
-                    Box(
-                        Modifier.fillMaxWidth()
-                            .padding(start = if (rows.size == 1) ChatMetrics.CHAT_QUEUE_DIVIDER_INSET_PT.dp else ChatMetrics.CHAT_QUEUE_ROW_INSET_H_PT.dp)
-                            .height(tokens.stroke.hairline).background(tokens.colors.border),
+            // interaction.md §7 rule 1/4: the queue's whole row list is one
+            // `motion.disclosure` unit; the header stays outside the animated
+            // body (rule 6) and its chevron rotates in place (rule 3).
+            PdshDisclosure(
+                expanded = showRows,
+                onToggle = { if (!busy) onToggleExpanded() },
+                tag = QUEUE_DISCLOSURE_TAG,
+                anchorKey = rows.size,
+                header = {
+                    QueueDockHeader(rows = rows, showRows = showRows)
+                },
+                body = {
+                    QueueDockBody(
+                        rows = rows,
+                        running = running,
+                        edit = edit,
+                        remove = remove,
+                        steer = steer,
+                        onEdit = onEdit,
                     )
-                }
+                },
+            )
+        } else if (showRows) {
+            QueueDockBody(
+                rows = rows,
+                running = running,
+                edit = edit,
+                remove = remove,
+                steer = steer,
+                onEdit = onEdit,
+            )
+        }
+    }
+}
+
+/** The disclosure header: count, glyph and rotating chevron (interaction §7 rule 3). */
+@Composable
+private fun QueueDockHeader(
+    rows: List<ManagedQueueItemState>,
+    showRows: Boolean,
+) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    Row(
+        modifier = Modifier.fillMaxWidth()
+            // The card's 4 pt row rhythm used to come from its Column spacing;
+            // inside the disclosure the header owns the gap before the body.
+            .padding(bottom = ChatMetrics.CHAT_QUEUE_STACK_GAP_PT.dp)
+            .height(ChatMetrics.CHAT_QUEUE_HEADER_HEIGHT_PT.dp)
+            .padding(horizontal = ChatMetrics.CHAT_QUEUE_ROW_INSET_H_PT.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = UiStrings.CHAT_QUEUE_HEADER_COUNT.format(rows.size)
+                stateDescription = if (showRows) UiStrings.EXPANDED else UiStrings.COLLAPSED
+            },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHAT_QUEUE_HEADER_GAP_PT.dp),
+    ) {
+        PdshIconView(PdshIcon.LIST, ChatMetrics.CHAT_QUEUE_HEADER_ICON_PT.dp, tokens.colors.secondary, null)
+        BasicText(
+            text = UiStrings.CHAT_QUEUE_HEADER_COUNT.format(rows.size),
+            style = type.secondary.copy(
+                fontSize = ChatMetrics.CHAT_QUEUE_HEADER_FONT_PT.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                color = tokens.colors.secondary,
+            ),
+        )
+        Spacer(Modifier.weight(1f))
+        PdshChevron(
+            expanded = showRows,
+            size = ChatMetrics.CHAT_QUEUE_HEADER_CHEVRON_PT.dp,
+            tint = tokens.colors.secondary,
+        )
+    }
+}
+
+/** The animated body: all rows and their dividers, one disclosure unit (rule 4). */
+@Composable
+private fun QueueDockBody(
+    rows: List<ManagedQueueItemState>,
+    running: Boolean,
+    edit: ((ManagedQueueItemState, String, StateRequestId) -> Unit)?,
+    remove: ((ManagedQueueItemState, StateRequestId) -> Unit)?,
+    steer: ((ManagedQueueItemState, StateRequestId) -> Unit)?,
+    onEdit: (ManagedQueueItemState) -> Unit,
+) {
+    val tokens = LocalUiTokens.current
+    Column(verticalArrangement = Arrangement.spacedBy(ChatMetrics.CHAT_QUEUE_STACK_GAP_PT.dp)) {
+        rows.forEachIndexed { index, item ->
+            QueueDockRow(
+                item = item,
+                showsLeadingGlyph = rows.size == 1,
+                running = running,
+                edit = edit,
+                remove = remove,
+                steer = steer,
+                onEdit = onEdit,
+            )
+            if (index < rows.lastIndex) {
+                Box(
+                    Modifier.fillMaxWidth()
+                        .padding(start = if (rows.size == 1) ChatMetrics.CHAT_QUEUE_DIVIDER_INSET_PT.dp else ChatMetrics.CHAT_QUEUE_ROW_INSET_H_PT.dp)
+                        .height(tokens.stroke.hairline).background(tokens.colors.border),
+                )
             }
         }
     }
@@ -4402,6 +4482,9 @@ private const val TODO_DOCK_TAG: String = "pdsh.chat.todo-dock"
 private const val TODO_DOCK_ROW_TAG: String = "pdsh.chat.todo-row."
 private const val QUESTION_TAKEOVER_TAG: String = "pdsh.chat.question-takeover"
 private const val COMPOSER_MODEL_LABEL_TAG: String = "pdsh.composer.model-label"
+
+/** Stable tag for the queue disclosure; `PdshDisclosureTags` appends `.header` / `.body`. */
+private const val QUEUE_DISCLOSURE_TAG: String = "pdsh.composer.queue.disclosure"
 private const val PLAN_REVIEW_TAKEOVER_TAG: String = "pdsh.chat.plan-review-takeover"
 private const val PLAN_REVIEW_APPROVE_TAG: String = "pdsh.chat.plan-review-approve"
 private const val PLAN_REVIEW_CHANGE_TAG: String = "pdsh.chat.plan-review-change"

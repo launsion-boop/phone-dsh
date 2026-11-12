@@ -7,6 +7,14 @@
          Declared here too so the demo's requirement is visible in :app. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- PC pairing's QR scanner (design §6 C5). The scanner lives in :app and
+         uses CameraX + pure-Java ZXing (no Play Services); :lib stays
+         camera-free. The feature is optional: a tablet/emulator without a
+         camera keeps paste-link and manual-code pairing, and the page shows
+         the camera-unavailable copy. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <!-- 蓝牙设备 page: foreground scan + standard GATT only
          (spec/device/v1/android-ble-discovery.md, android-standard-gatt.md).
          API 31+: scan never derives location; connect is asked at the first 连接.

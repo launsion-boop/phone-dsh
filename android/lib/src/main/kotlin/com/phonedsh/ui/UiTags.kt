@@ -65,4 +65,9 @@ public object UiTags {
 
     public const val ABOUT_LIST: String = "pdsh.about.list"
     public const val ABOUT_SECTION: String = "pdsh.about.section"
+
+    // Turn-tail usage control and its medium sheet (iOS `NativeTurnTail` /
+    // `NativeTurnUsageDetails`, `spec/ui/v1/pages/chat.json` `sheet-913`).
+    public const val CHAT_TURN_USAGE: String = "pdsh.chat.turn-usage"
+    public const val TURN_USAGE_SHEET: String = "pdsh.turn-usage.sheet"
 }

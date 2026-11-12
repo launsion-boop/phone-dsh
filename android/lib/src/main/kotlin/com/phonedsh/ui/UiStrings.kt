@@ -2736,4 +2736,62 @@ public object UiStrings {
     public const val PROVIDER_NAME_LABEL: String = MCP_FIELD_NAME
     public const val PROVIDER_KEY_LABEL: String = PROVIDER_KEY_SECTION
     public const val PROVIDER_IDENTIFIER_LABEL: String = PROVIDER_FIELD_ID
+
+    // PCLink pages and the drawer's PC segment (P09/P28; page contracts
+    // `pages/pc-pairing.json`, `pages/connected-computer.json`,
+    // `pages/home-drawer.json`, `pages/settings.json`). The checker resolves
+    // `UiStrings.*`, so the contract's literal Chinese stays here exactly once.
+    public const val PC_PAIRING_TITLE: String = "连接电脑"
+    public const val PC_PAIRING_INSTALL_LEAD: String = "在电脑终端运行："
+    public const val PC_PAIRING_SCAN: String = "扫码连接"
+    public const val PC_PAIRING_OTHER: String = "其他方式"
+    public const val PC_PAIRING_OTHER_COLLAPSE: String = "收起其他方式"
+    public const val PC_PAIRING_LINK: String = "配对链接"
+    public const val PC_PAIRING_USE_LINK: String = "用链接配对"
+    public const val PC_PAIRING_CODE: String = "配对码"
+    public const val PC_PAIRING_MANUAL: String = "手动连接"
+    public const val PC_PAIRING_JOINING: String = "正在连接电脑…"
+    public const val PC_PAIRING_CANCEL: String = "取消配对"
+    public const val PC_PAIRING_DONE: String = "完成"
+    public const val PC_PAIRING_RETRY: String = "重试"
+
+    public const val PC_CONNECTED_TITLE: String = "已连接的电脑"
+    public const val PC_COMPUTER_SECTION: String = "电脑"
+    public const val PC_COMPUTER_NAME: String = "电脑名称"
+    public const val PC_DSH_VERSION: String = "DSH 版本"
+    public const val PC_ONLINE_STATUS: String = "在线状态"
+    public const val PC_THIS_PHONE_SECTION: String = "本机"
+    public const val PC_OWN_FINGERPRINT: String = "本机指纹"
+    public const val PC_PAIRING_MODE: String = "配对方式"
+    public const val PC_PAIRED_AT: String = "配对时间"
+    public const val PC_RELAY: String = "中继"
+
+    public const val PC_BACKEND_GROUP: String = "工作区"
+    public const val PC_BACKEND_PHONE: String = "手机"
+    public const val PC_BACKEND_PC: String = "PC"
+    public const val PC_SETTINGS_VALUE_UNPAIRED: String = "未配对"
+    public const val PC_SETTINGS_VALUE_OFFLINE: String = "离线"
+    public const val PC_SETTINGS_ROW: String = "已连接的电脑"
+    public const val PC_CONNECT_COMPUTER: String = "连接电脑"
+    public const val PC_PAIR_NEW: String = "配对新电脑"
+    public const val PC_UNPAIR: String = "解除配对"
+    public const val PC_UNPAIR_CURRENT: String = "解除当前配对"
+    public const val PC_KNOW_IT: String = "知道了"
+
+    // Turn usage (iOS `NativeTurnUsageDetails`, `NativeMessageActions.swift:73-92`;
+    // `NativeTurnTail.swift:117-119`). The page contract currently names only the
+    // sheet destination and its detent, so these strings are the Swift provenance
+    // and are recorded as a contract change request in the handoff.
+    public const val TURN_USAGE_TITLE: String = "本轮用量"
+    public const val TURN_USAGE_ACTION: String = TURN_USAGE_TITLE
+    public const val TURN_USAGE_PREFIX: String = ACTIVITY_USAGE
+    public const val TURN_USAGE_CACHE_HIT: String = "缓存命中"
+    public const val TURN_USAGE_UNCACHED_INPUT: String = "未缓存输入"
+    public const val TURN_USAGE_CACHE_READ: String = "缓存读取"
+    public const val TURN_USAGE_CACHE_WRITE: String = "缓存写入"
+    public const val TURN_USAGE_OUTPUT: String = "输出"
+    public const val TURN_USAGE_REASONING: String = "其中推理"
+    public const val TURN_USAGE_TOTAL: String = "合计"
+    public const val TURN_USAGE_TOKENS_SUFFIX: String = " tok"
+    public const val TURN_USAGE_PERCENT_SUFFIX: String = "%"
 }

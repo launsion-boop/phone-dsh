@@ -7,6 +7,9 @@
 // screenshot or a font metric.
 package com.phonedsh.ui.page
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
@@ -22,6 +25,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.DisclosureKind
+import com.phonedsh.ui.disclosure.DisclosureMotion
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -491,6 +497,53 @@ class SessionActivityPageTest {
         show(SessionActivityScreenState.from(source, local))
         scrollTo(UiPageTags.ACTIVITY_ERROR_ROW_PREFIX + "计划")
         compose.onNodeWithText("读不到计划").assertIsDisplayed()
+    }
+
+    @Test
+    fun `the 暂不可用 body runs motion disclosure`() {
+        var local by mutableStateOf(SessionActivityLocalState())
+        compose.setContent {
+            PdshTheme {
+                SessionActivityPage(
+                    state = SessionActivityScreenState.from(source, local),
+                    onRefresh = {},
+                    onToggleError = { key ->
+                        local = local.apply(SessionActivityUiEvent.ToggleError(key))
+                    },
+                    onConfirm = {},
+                    onCancel = {},
+                )
+            }
+        }
+        val rowTag = UiPageTags.ACTIVITY_ERROR_ROW_PREFIX + "计划"
+        val bodyTag = PdshDisclosureTags.body(rowTag)
+        compose.onNodeWithTag(UiPageTags.ACTIVITY_LIST).performScrollToNode(hasTestTag(rowTag))
+        compose.onNodeWithTag(bodyTag).assertDoesNotExist()
+
+        // Freeze the clock so the body's own motion is what these samples see.
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag(rowTag).performClick()
+        compose.mainClock.advanceTimeByFrame()
+
+        var elapsed = 0L
+        val samples = mutableListOf<Pair<Long, Float>>()
+        repeat(24) {
+            compose.mainClock.advanceTimeByFrame()
+            elapsed += 16
+            samples += elapsed to compose.onNodeWithTag(bodyTag).fetchSemanticsNode().boundsInRoot.height
+        }
+        val full = samples.last().second
+        assertTrue("the detail body reached its full height", full > 1f)
+        val mid = samples.first { it.first >= 64L }.second
+        assertTrue("the body is mid-animation at 64 ms (height=$mid, full=$full)", mid > 0f && mid < full - 1f)
+        val durationMs = DisclosureMotion
+            .specFor(DisclosureKind.BODY, reducedMotion = false)
+            .durationMs
+        val firstFull = samples.first { it.second >= full - 0.5f }.first
+        assertTrue(
+            "the body runs motion.disclosure (${durationMs}ms); it was first full at ${firstFull}ms",
+            firstFull in (durationMs - 10L)..(durationMs + 40L),
+        )
     }
 
     @Test

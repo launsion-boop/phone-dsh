@@ -348,60 +348,57 @@ manifest 上用 `tools:node="remove"` 去掉确实不用的权限——先量再
 ### 5.2 参考实现（可粘贴，`internal` 就够）
 
 这段已经以 `android/lib-consumer-test/src/main/kotlin/com/phonedsh/consumer/BackHandler.kt`
-的形式**编译并过了 R8**（探针的 `assembleRelease` 会跑到它），所以下面不是未验证的散文。
+（`observingBackLayer` + 测量）与同目录 `ProbeConsumer.kt`（`BackCoordinator` 调用）的形式
+**编译并过了 R8**（探针的 `assembleRelease` 会跑到它），所以下面不是未验证的散文。
 放进你自己的应用时照抄、把包名换掉即可（`:app` 现在用的是同一份逻辑）。
 
-**四段缺一不可**：只抄 handler 会得到一个「会动但没有测量」的版本——设置页的「返回手势」
-那行会永远显示未知。
+**三层缺一不可**：`BackCoordinator` 注册唯一的平台回调；`observingBackLayer` 把路由内部那一级
+包成 `PushBackLayer`；`PredictiveBack` 记录手势并回填设置页的「返回手势」行。只抄 coordinator
+会得到一个「会动但没有测量」的版本——那一行会永远显示未知。
 
 ```kotlin
 package com.example.host
 
 import android.os.Build
 import android.util.Log
-import androidx.activity.BackEventCompat
-import androidx.activity.OnBackPressedCallback
-import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import com.phonedsh.ui.nav.PdshNavFacts
+import com.phonedsh.ui.nav.PushBackLayer
 import com.phonedsh.ui.page.FactState
 import com.phonedsh.ui.page.SettingsPlatformFacts
+import com.phonedsh.ui.theme.generated.TokenBackLayer
 
 /**
- * The one system-back handler for the whole app.
+ * Wraps one [PushBackLayer] so the coordinator's gesture callbacks also feed
+ * [PredictiveBack].
  *
- * When [enabled] is false the callback is NOT registered, so the platform's
- * default runs: at the root route that is `finish()`, which is the documented
- * "back at the start of the task" behaviour and the one the predictive
- * back-to-home animation is attached to. A callback that popped-and-finished
- * would produce the same visible result and steal that animation.
+ * [BackCoordinator] calls `onPredictiveBack*` only on the topmost present layer's
+ * delegate, which is exactly the gesture the person performed; the delegate stays
+ * the only consumer of the back. A gesture at the root registers no callback at
+ * all, and no observation is claimed for it.
  */
-@Composable
-internal fun PdshBackHandler(enabled: Boolean, onBack: () -> Unit) {
-    val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher ?: return
-    // The lambda closes over `nav`, which moves on every gesture; the callback is
-    // registered once per `enabled` change, so it must read the latest lambda.
-    val current = rememberUpdatedState(onBack)
-    DisposableEffect(dispatcher, enabled) {
-        if (!enabled) return@DisposableEffect onDispose {}
-        val callback = object : OnBackPressedCallback(true) {
-            override fun handleOnBackStarted(backEvent: BackEventCompat) {
-                PredictiveBack.observeStarted(backEvent.progress)
-            }
-            override fun handleOnBackProgressed(backEvent: BackEventCompat) {
-                PredictiveBack.observeProgressed(backEvent.progress)
-            }
-            override fun handleOnBackCancelled() = PredictiveBack.observeCancelled()
-            override fun handleOnBackPressed() = current.value()
-        }
-        dispatcher.addCallback(callback)
-        onDispose { callback.remove() }
+internal fun observingBackLayer(
+    layer: TokenBackLayer,
+    onConsume: () -> Boolean,
+): PushBackLayer = object : PushBackLayer {
+    override val layer: TokenBackLayer = layer
+
+    override fun consumeBack(): Boolean = onConsume()
+
+    override fun onPredictiveBackStarted() {
+        PredictiveBack.observeStarted(0f)
+    }
+
+    override fun onPredictiveBackProgressed(progress: Float) {
+        PredictiveBack.observeProgressed(progress)
+    }
+
+    override fun onPredictiveBackCancelled() {
+        PredictiveBack.observeCancelled()
     }
 }
 
@@ -454,6 +451,34 @@ internal fun PredictiveBack.measured(facts: PdshNavFacts): PdshNavFacts {
 /** The manifest's opt-in, as a constant because the platform has no public getter. */
 internal const val MANIFEST_DECLARES_BACK_INVOKED: Boolean = true
 ```
+
+The measurement half above is the whole of `BackHandler.kt`. The host's only
+platform back callback is the library coordinator; `ProbeConsumer.kt` calls it
+inside the host composable (this excerpt also imports
+`androidx.compose.runtime.remember` and
+`com.phonedsh.ui.nav.{BackCoordinator, PdshBackLevel, PushBackState}`):
+
+```kotlin
+var pushBack by remember { mutableStateOf(PushBackState()) }
+val backLevel = remember { PdshBackLevel() }
+val stackBackLayer = remember(backLevel) {
+    observingBackLayer(TokenBackLayer.STACK) { backLevel.consume() }
+}
+BackCoordinator(
+    state = pushBack,
+    onStateChange = { next ->
+        // The real consumer also pops `nav.stack` to `next.depth`.
+        pushBack = next
+    },
+    layers = remember(stackBackLayer) { listOf(stackBackLayer) },
+)
+```
+
+At the root no registered layer can consume and no `onExit` is supplied, so
+`BackCoordinator` registers nothing: the platform's default `finish()` and the
+predictive back-to-home animation stay in charge. That is the documented
+"back at the start of the task" behaviour, and the reason a second handler must
+not exist anywhere else.
 
 宿主 manifest 必须有这一行（否则测量永远是 `NO`，而且系统走旧路径）：
 

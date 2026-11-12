@@ -8,6 +8,7 @@
 // silently thinner page.
 package com.phonedsh.ui.page
 
+import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -65,6 +66,8 @@ import com.phonedsh.ui.state.PendingQuestionItem
 import com.phonedsh.ui.state.PendingQuestionOption
 import com.phonedsh.ui.state.PendingSlot
 import com.phonedsh.ui.state.RunStatus
+import com.phonedsh.ui.state.SessionStats
+import com.phonedsh.ui.state.SessionTokenUsage
 import com.phonedsh.ui.projection.UiStateKind
 import com.phonedsh.ui.state.TranscriptState
 import com.phonedsh.ui.state.TodoDockItem
@@ -78,6 +81,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp")
@@ -646,6 +650,26 @@ class ChatPageTest {
     }
 
     @Test
+    fun `the composer stats pill opens the shared composerStats sheet`() {
+        show(
+            state(case = "chat-basic").copy(
+                sessionStats = SessionStats(2, 4, 1200.0, 0.0, 600.0, 2, 2000.0, 50),
+                tokenUsage = SessionTokenUsage(100, 20, 80, 10),
+            ),
+        )
+        compose.onNodeWithTag("pdsh.composer.metrics.usage").performClick()
+        compose.onNodeWithText("Token 用量").assertIsDisplayed()
+        // interaction.md §2: the page's stats details are the shared sheet; its
+        // back path closes one sheet layer (the dialog is a separate window in
+        // Robolectric, so the platform back dispatcher is the JVM-observable path).
+        val dialog = ShadowDialog.getLatestDialog() as OnBackPressedDispatcherOwner
+        dialog.onBackPressedDispatcher.onBackPressed()
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.waitForIdle()
+        compose.onNodeWithText("Token 用量").assertDoesNotExist()
+    }
+
+    @Test
     fun `a single queue item renders without the multirow header`() {
         // ChatPage.swift `queueDock`: one row has no header.
         val nodes = SpecFixtures.projectCase("chat-basic")
@@ -670,9 +694,14 @@ class ChatPageTest {
         show(state(case = "chat-basic").copy(queueItems = rows))
         compose.onNodeWithText(UiStrings.CHAT_QUEUE_HEADER_COUNT.format(2)).assertIsDisplayed()
         compose.onNodeWithText("第一条排队消息").assertDoesNotExist()
+        // interaction.md §7: the shared disclosure owns the one tap and the
+        // animated body; the collapsed body is not composed.
+        compose.onNodeWithTag("${QUEUE_DISCLOSURE_TAG}.header").assertIsDisplayed()
+        compose.onNodeWithTag("${QUEUE_DISCLOSURE_TAG}.body").assertDoesNotExist()
         compose.onNodeWithText(UiStrings.CHAT_QUEUE_HEADER_COUNT.format(2)).performClick()
         compose.onNodeWithText("第一条排队消息").assertIsDisplayed()
         compose.onNodeWithText("第二条排队消息").assertIsDisplayed()
+        compose.onNodeWithTag("${QUEUE_DISCLOSURE_TAG}.body").assertIsDisplayed()
     }
 
     @Test
@@ -1293,3 +1322,6 @@ class ChatPageTest {
         compose.onNodeWithText(UiStrings.HEADER_RUN_STATUS).assertIsDisplayed()
     }
 }
+
+/** Mirrors the page's private disclosure tag for the behaviour assertions. */
+private const val QUEUE_DISCLOSURE_TAG: String = "pdsh.composer.queue.disclosure"

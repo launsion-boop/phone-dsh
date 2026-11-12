@@ -4,10 +4,13 @@ package com.phonedsh.ui.surface
 
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
@@ -32,12 +35,17 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
+import com.phonedsh.ui.press.PressedAlphaSemantics
+import com.phonedsh.ui.press.PressedBackgroundAlphaSemantics
 import com.phonedsh.ui.page.InfoRow
 import com.phonedsh.ui.page.PageFrame
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.generated.UiTokenData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,6 +68,12 @@ class SharedPageChromeTest {
             view.draw(Canvas(bitmap))
         }
     }
+
+    private fun pressedAlpha(tag: String): Float =
+        compose.onNodeWithTag(tag).fetchSemanticsNode().config[PressedAlphaSemantics]
+
+    private fun pressedAlphaBackground(tag: String): Float =
+        compose.onNodeWithTag(tag).fetchSemanticsNode().config[PressedBackgroundAlphaSemantics]
 
     private fun Bitmap.count(color: Int): Int {
         var count = 0
@@ -139,7 +153,7 @@ class SharedPageChromeTest {
     }
 
     @Test
-    fun `sheet frame shows native drag handle and labels close as cancel`() {
+    fun `sheet frame draws no page-content grabber and labels close as cancel`() {
         var cancels = 0
         compose.setContent {
             PdshTheme {
@@ -151,9 +165,34 @@ class SharedPageChromeTest {
                 )
             }
         }
-        compose.onNodeWithTag("settings-sheet-drag-handle").assertIsDisplayed()
+        // interaction.md §2 rule 4: only homeSheetChrome() and Connectors own a
+        // grabber; page content inside the sheet must not draw a second one.
+        compose.onNodeWithTag("settings-sheet-drag-handle").assertDoesNotExist()
         compose.onNodeWithContentDescription(UiStrings.CANCEL).performClick()
         assertEquals(1, cancels)
+    }
+
+    @Test
+    fun `section header chevron is the shared disclosure mark and toggles once`() {
+        var expanded by mutableStateOf(false)
+        var toggles = 0
+        compose.setContent {
+            PdshTheme {
+                SettingsSectionHeader(
+                    title = "规则",
+                    expanded = expanded,
+                    onToggle = { toggles += 1; expanded = !expanded },
+                    tag = "section-header",
+                )
+            }
+        }
+        compose.onNodeWithTag(PdshDisclosureTags.chevron("section-header"), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("section-header").performClick()
+        assertEquals(1, toggles)
+        compose.waitForIdle()
+        compose.onNodeWithTag("section-header").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, UiStrings.EXPANDED),
+        )
     }
 
     @Test
@@ -179,6 +218,70 @@ class SharedPageChromeTest {
         compose.waitForIdle()
         compose.onNodeWithTag("page-capsule").assertIsNotEnabled().performClick()
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun `HomeSpec primary action paints the shared pressed table at rest, pressed and disabled`() {
+        val source = MutableInteractionSource()
+        var enabled by mutableStateOf(true)
+        compose.setContent {
+            PdshTheme {
+                HomePrimaryAction(
+                    label = "启动引擎",
+                    onClick = {},
+                    enabled = enabled,
+                    tag = "home-primary",
+                    interactionSource = source,
+                )
+            }
+        }
+        compose.waitForIdle()
+        assertEquals("rest: whole content is opaque", 1f, pressedAlpha("home-primary"), 0f)
+        assertEquals("rest: the fill is opaque", 1f, pressedAlphaBackground("home-primary"), 0f)
+        val restBounds = compose.onNodeWithTag("home-primary").fetchSemanticsNode().boundsInRoot
+
+        compose.mainClock.autoAdvance = false
+        val press = PressInteraction.Press(Offset.Zero)
+        runBlocking { source.emit(press) }
+        compose.mainClock.advanceTimeBy(60)
+        val middle = pressedAlpha("home-primary")
+        assertTrue("the press-in animates with motion.pressed ($middle)", middle > 0.8f && middle < 1f)
+        compose.mainClock.advanceTimeBy(120)
+        assertEquals(
+            "pressed: interaction.pressed.primaryPressedOpacity",
+            UiTokenData.pressed.primaryPressedOpacity,
+            pressedAlpha("home-primary"),
+            1e-4f,
+        )
+        assertEquals("pressed: the fill stays opaque", 1f, pressedAlphaBackground("home-primary"), 0f)
+        assertEquals("§6 rule 4: pressed does not remeasure", restBounds, compose.onNodeWithTag("home-primary").fetchSemanticsNode().boundsInRoot)
+
+        runBlocking { source.emit(PressInteraction.Release(press)) }
+        compose.waitForIdle()
+        repeat(3) { compose.mainClock.advanceTimeByFrame() }
+        assertEquals("release returns to rest immediately", 1f, pressedAlpha("home-primary"), 0f)
+
+        enabled = false
+        // The clock is still manual; compose the disabled state explicitly.
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertEquals("disabled: content stays at rest opacity", 1f, pressedAlpha("home-primary"), 0f)
+        assertEquals(
+            "disabled: interaction.pressed.primaryDisabledOpacity is the fill alpha",
+            UiTokenData.pressed.primaryDisabledOpacity,
+            pressedAlphaBackground("home-primary"),
+            0f,
+        )
+        val disabledPress = PressInteraction.Press(Offset.Zero)
+        runBlocking { source.emit(disabledPress) }
+        compose.mainClock.advanceTimeBy(200)
+        assertEquals("§6 rule 6: a disabled control never enters pressed", 1f, pressedAlpha("home-primary"), 0f)
+        assertEquals(
+            "disabled stays 0.25 under a press",
+            UiTokenData.pressed.primaryDisabledOpacity,
+            pressedAlphaBackground("home-primary"),
+            0f,
+        )
     }
 
     @Test
