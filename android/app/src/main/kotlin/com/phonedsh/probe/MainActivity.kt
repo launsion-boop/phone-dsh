@@ -383,6 +383,20 @@ class MainActivity : ComponentActivity() {
             checkSelfPermission(NotificationCapability.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
 
+    override fun onStart() {
+        super.onStart()
+        // The Bot listener and routine scheduler follow the Activity's
+        // foreground: a background App must not keep a loopback server or a
+        // routine tick alive. The runtime itself is process-lifetime (the view
+        // model owns it), so this only starts/stops those services.
+        engine.startBotRuntime()
+    }
+
+    override fun onStop() {
+        engine.stopBotRuntime()
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         // A grant can change while this activity is stopped: the user may have just

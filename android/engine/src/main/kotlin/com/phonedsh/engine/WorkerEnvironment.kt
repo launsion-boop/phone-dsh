@@ -45,6 +45,18 @@ data class GitHubAgentEnvironment(
     }
 }
 
+/**
+ * The Bot MCP listener this host start publishes to the Worker.
+ *
+ * [url] is `http://127.0.0.1:<port>/mcp`; [egressToken] is the host-start
+ * credential the Worker sends as `X-PDSH-MCP-Egress` and the host strips before
+ * resolving the real Bot bearer. Neither value is persisted or logged.
+ */
+data class BotMcpEnvironment(
+    val url: String,
+    val egressToken: String? = null,
+)
+
 /** Builds the `env` page parameter the worker boot consumes. */
 object WorkerEnvironment {
     /**
