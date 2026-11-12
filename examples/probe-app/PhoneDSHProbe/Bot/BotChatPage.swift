@@ -26,7 +26,7 @@ struct BotChatPage: View {
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
     @State private var preservingHistoryPosition = false
-    /// Height of the composer dock (activity line + notices + capsule), used to
+    /// Height of the composer dock (notices + attachments + capsule), used to
     /// keep the newest transcript row above it on iOS 17.
     @State private var composerDockHeight: CGFloat = 0
     /// Bumped by the send button so the transcript can scroll after layout.
@@ -77,6 +77,7 @@ struct BotChatPage: View {
         VStack(spacing: 0) {
             header
             transcript
+                .overlay(alignment: .top) { headerStatus }
             composerDock
         }
         .background(HomeSpec.page.ignoresSafeArea())
@@ -150,17 +151,28 @@ struct BotChatPage: View {
                 onOpenInfo()
             } label: {
                 HStack(spacing: 8) {
+                    // While a turn runs the header fish is the only avatar
+                    // on screen, so it takes the status line's `.lively`
+                    // clip set and the activity category's work style.
                     BotFishView(state: model.fishState, size: 32, appearance: model.appearance,
-                                crowned: isMainBot, reaction: model.reaction)
+                                crowned: isMainBot, reaction: model.reaction,
+                                motionProfile: headerFishLively ? .lively : .standard,
+                                workStyle: headerFishWorkStyle)
                     Text(model.botName)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(HomeSpec.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    if let style = headerActivityStyle {
-                        BotHeaderActivityIcon(style: style)
+                    if model.pendingApprovalCount > 0 {
+                        Text("!")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(NativeParityTokens.error)
+                            .frame(width: 14, height: 14)
+                            .transition(.opacity.combined(with: .scale(scale: 0.6)))
+                            .accessibilityHidden(true)
                     }
                 }
+                .animation(.easeInOut(duration: 0.25), value: model.pendingApprovalCount > 0)
                 .padding(.leading, 6)
                 .padding(.trailing, 14)
                 .frame(height: HomeSpec.navButton)
@@ -200,17 +212,43 @@ struct BotChatPage: View {
         .accessibilityElement(children: .contain)
     }
 
-    /// Pending approval outranks the running status; a running turn with no
-    /// body yet shows the three-dot mark, a tool step shows the pencil.
-    private var headerActivityStyle: BotHeaderActivityIcon.Style? {
-        if model.pendingApprovalCount > 0 { return .alert }
-        guard let activity = model.activity else { return nil }
-        switch activity.status {
-        case .thinking, .streaming:
-            return .dots
-        case .toolRunning:
-            return .pencil
+    /// The status text under the header is visible exactly when the header
+    /// fish should be lively.
+    private var showsHeaderStatus: Bool {
+        model.showsActivityLine && model.lineActivity != nil
+    }
+
+    private var headerFishLively: Bool { showsHeaderStatus }
+
+    private var headerFishWorkStyle: BotFishWorkStyle {
+        guard showsHeaderStatus, let activity = model.lineActivity else { return .generic }
+        return BotActivityPhrases.workStyle(for: activity.category)
+    }
+
+    /// One centered status line right under the header capsule. It floats
+    /// over the top of the transcript on a page-colored fade instead of
+    /// taking layout space, so showing or hiding it never moves a message.
+    private var headerStatus: some View {
+        ZStack(alignment: .top) {
+            if showsHeaderStatus, let activity = model.lineActivity {
+                BotActivityLine(activity: activity)
+                    .padding(.top, 4)
+                    .padding(.bottom, 14)
+                    .background(alignment: .top) {
+                        LinearGradient(
+                            stops: [
+                                .init(color: HomeSpec.page, location: 0),
+                                .init(color: HomeSpec.page, location: 0.55),
+                                .init(color: HomeSpec.page.opacity(0), location: 1),
+                            ],
+                            startPoint: .top, endPoint: .bottom)
+                    }
+                    .transition(.opacity.combined(with: .offset(y: -6)))
+            }
         }
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.25), value: showsHeaderStatus)
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -258,7 +296,7 @@ struct BotChatPage: View {
                         }
                         if isEmpty {
                             emptyState
-                                .frame(minHeight: max(0, geometry.size.height - HomeSpec.blockGap - 16),
+                                .frame(minHeight: max(0, geometry.size.height - HomeSpec.blockGap - 14 - 16),
                                        alignment: .center)
                                 .accessibilityIdentifier("bot.chat.empty")
                         }
@@ -277,7 +315,9 @@ struct BotChatPage: View {
                         // above the composer" trigger below.
                         Color.clear.frame(height: 1).id("bot-transcript-bottom")
                     }
-                    .padding(.top, HomeSpec.blockGap)
+                    // Room for the header status line, reserved at all
+                    // times so it never shifts the transcript when it shows.
+                    .padding(.top, HomeSpec.blockGap + 14)
                     .padding(.bottom, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -290,9 +330,6 @@ struct BotChatPage: View {
                 .onChange(of: model.streamingText) { _, value in
                     if value != nil { scrollToBottom(proxy) }
                 }
-                .onChange(of: model.showsActivityLine) { _, _ in
-                    scrollToBottom(proxy)
-                }
                 .onChange(of: composerDockHeight) { _, _ in
                     scrollToBottom(proxy)
                 }
@@ -302,7 +339,7 @@ struct BotChatPage: View {
                     scrollToBottom(proxy)
                 }
                 .onChange(of: sendScrollTick) { _, _ in
-                    // Let the local echo and the activity line lay out first.
+                    // Let the local echo lay out first.
                     DispatchQueue.main.async { scrollToBottom(proxy) }
                 }
                 .onChange(of: model.scrollRequestID) { _, rowID in
@@ -353,11 +390,6 @@ struct BotChatPage: View {
 
     private var composerDock: some View {
         VStack(spacing: 8) {
-            if model.showsActivityLine, let activity = model.lineActivity {
-                BotActivityLine(activity: activity, fishState: model.fishState,
-                                appearance: model.appearance, reaction: model.reaction)
-                    .transition(.opacity.combined(with: .offset(y: 6)))
-            }
             if let notice = model.runtimeNotice {
                 // DSH composer notice: one 13pt line above the card, dismissible.
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -425,7 +457,6 @@ struct BotChatPage: View {
             .homeComposerShadow()
             .simultaneousGesture(TapGesture().onEnded { model.noteInteraction() })
         }
-        .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.lineActivity != nil)
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, 8)
         .padding(.bottom, 8)
@@ -601,7 +632,7 @@ struct BotChatPage: View {
         }
     }
 
-    /// Keep the newest content (activity line, live text, local echo) above
+    /// Keep the newest content (live text, local echo) above
     /// the composer, except while the user is loading older history or a deep
     /// link is centering a specific row.
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -668,7 +699,7 @@ struct BotChatPage: View {
     }
 }
 
-/// The composer dock's rendered height (activity line included), so the
+/// The composer dock's rendered height (notices and attachments included), so the
 /// transcript can scroll when it grows or shrinks. Measured with
 /// GeometryReader + PreferenceKey to stay on iOS 17.
 private struct BotComposerDockHeightKey: PreferenceKey {
