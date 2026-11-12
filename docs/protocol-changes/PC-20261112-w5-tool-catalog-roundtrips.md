@@ -8,7 +8,7 @@ change: PC-20261112-w5-tool-catalog-roundtrips
 contracts: [P06, P16, P17, P26]
 status: frozen
 breaking: false
-version_decision: 無 wire／proto 版本變更。`tool-catalog.schema.json` 只新增可選 `tiers` 與 item 的可選 `tier`/`requires`（舊 catalog 省略即舊行為）；不新增工具、不改 p0/p1 enum、不改 MCP frame；volatile time 精度是渲染語義；identity/approval/cancel 只合併往返，審批次數與安全檢查不變；model-purpose 執行點是宿主既有請求入口；profile 只改配置，不改 DSH 源碼。
+version_decision: 無 wire／proto 版本變更。`tool-catalog.schema.json` 只新增可選 `tiers` 與 item 的可選 `tier`/`requires`（舊 catalog 省略即舊行為）；不新增工具、不改 p0/p1 enum、不改 MCP frame；volatile time 精度是渲染語義；identity/approval/cancel 只合併往返，審批次數與安全檢查不變；model-purpose 的**執行點**在 Rev 2 是 `target`（owner 裁定 (a)）：enforcer 已交付，Gateway 接線記 `NOT_IMPLEMENTED`，見 GAP-42；不新增 wire 欄位、不改 `Package.swift`、不改其他條款；profile 只改配置，不改 DSH 源碼。
 base: d988108c1ec0c56903d6087c282cc9278bbdfd19
 contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden 的凍結 commit；本單另存於其後的 docs commit）
 ```
@@ -38,7 +38,7 @@ contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden
 | 重複注入 | 上游 `dsh-time-context` + bot-runtime 各一份 → 掛載 bot-runtime 的 profile scope 關閉上游行，只留本塊；普通工作台保留上游行。只改 `plugins/profile` 配置，不改 DSH 源碼。 |
 | volatile 獲取 | 每步阻塞取一次 → 內容未變（revision/摘要相同）不重取；取不到時用空快照，不沿用可能陳舊的內容。 |
 | 身份／審批／取消 | 3–4 次串行往返 → 可合併，但每次工具調用仍恰好一次 identity 登記、一次 approval 決定、一次執行；登記在審批前、審批在執行前；取消在結果之後、非阻塞、只投遞一次；審批次數與安全檢查不變。 |
-| model-purpose 執行點 | `assertModelAllowed` 無調用方 → 宿主唯一模型請求入口，在解析憑據／開 socket之前；無 purpose fail-closed。`front-turn`/`worker-turn` 允許大模型；`triage`（含標題）、`memory-extract`、`reflect`、`compact`、`watchdog`、`completion-check`（驗證器）、`memory-maintenance` 只允許小模型。 |
+| model-purpose 執行點 | `assertModelAllowed` 無調用方 → 宿主唯一模型請求入口，在解析憑據／開 socket之前；無 purpose fail-closed。`front-turn`/`worker-turn` 允許大模型；`triage`（含標題）、`memory-extract`、`reflect`、`compact`、`watchdog`、`completion-check`（驗證器）、`memory-maintenance` 只允許小模型。**Rev 2（owner 裁定 (a)）：執行點改為 `target`，本輪只交付 enforcer 與測試，Gateway 接線記 `NOT_IMPLEMENTED`，見 GAP-42；其餘映射不變。** |
 | Ledger | 驗證器記 worker-turn → `completion-check`；未知 purpose 記錄原值、不崩潰、不放大模型。 |
 | 驗證器取證 | 最舊 1000 → subject 會話最新窗口；證據不足 `uncertain`，不把舊事件當本次證據。 |
 | 用戶可見 | 無新增；工具分層不得產生「工具不可用」提示；時間塊是模型上下文，不是 UI。 |
@@ -74,8 +74,31 @@ contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden
 - **未執行**：56 場景 G2 批次、工具目錄實際 bytes、真機模型 E2E、PTC 可行性實測；一律 NOT_RUN／NOT_VERIFIED。
 - **風險／GAP**：分層依賴連接狀態的單一來源；若 ADB/BLE/Venus 各自快取，會出現「剛連上但下一步還看不到」。`tiers` 與 p0/p1 可能漂移，fixture 的 duplicate/core-missing 負例是防線。manifest 的 phone-only vector 清單與 digest 必須一起更新，否則 `check_golden` 會拒絕。
 
-## 5. 修訂紀錄
+## 5. Rev 2 — enforcement point deferred (owner ruling (a))
+
+- **Trigger。** `w5-model-purpose-hook` 嘗試在 `ModelGateway` 的請求構造處、解析憑據／開 socket 之前接上
+  `BotModelPurposePolicy`；實作前發現三項前提不存在，停下並發 CCR 給 lead／all，沒有寫任何產品檔。
+- **現況。** enforcer（`BotModelPurposeGate`／`BotModelRequest`）已在
+  `Sources/PhoneDSHBot/Ledger/BotModelPurposePolicy.swift` 定義且可被外部呼叫；
+  `model-purpose-enforcement.phone.json` 的 allowed／denied／default／unknown 正反例全數有效。但
+  `ModelGateway` 沒有任何呼叫方；Gateway 只依賴 `PhoneDSHAgentCore`；`GatewayRequest`／
+  `HTTPEgressRequest` 沒有 purpose／session／turn；pinned 模型適配器不保留上游 purpose。
+- **期望（`target`）。** 在宿主唯一模型請求入口、解析憑據／開 socket 之前執行 enforcer；沒有 purpose 的
+  請求不得以空 purpose 繞過。
+- **本次決定（owner 裁定 (a)）。** 本輪只交付 enforcer 與測試；`ModelGateway` 接線記
+  `NOT_IMPLEMENTED`，登記 GAP-42。模型用途策略本輪未生效，**與基線行為相同，非回歸**。
+- **不授權清單。** 不新增 Worker→host purpose 標頭；不改 `Package.swift` 依賴；不新增任何 wire 欄位或
+  錯誤碼；不 fail-closed；不以預設值放行；不按模型名推斷 purpose；不在 Gateway 複製 policy（第二個權威，
+  AGENTS.md §2.1）。
+- **關閉條件。** 三個前提同時具備並有 golden 與兩端測試：(i) Gateway↔Bot 依賴方向確定（或
+  `Package.swift` 調整，P12）；(ii) 可靠的 per-request purpose 載體；(iii) pinned adapter 保留／傳遞
+  purpose。
+- **兼容性。** 本輪不改 wire、schema、持久化格式或錯誤碼；舊端與新端行為相同，回滾不涉及資料遷移。
+- **用戶可見變化：無。** 沒有新增或去掉任何提示、限制、文案；enforcer 未被呼叫，行為與基線完全相同。
+
+## 6. 修訂紀錄
 
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | 1（本檔） | contracts | 初次凍結工具分層、時間精度、往返合併、model-purpose 執行點與驗證器取證 | all（contract freeze 公告） |
+| 2（本檔） | contracts | owner 裁定 (a)：model-purpose 執行點改為 `target`，Gateway 接線 `NOT_IMPLEMENTED`，登記 GAP-42；只改 §2.9 與本變更單，不改 schema／golden／其他條款 | all |
