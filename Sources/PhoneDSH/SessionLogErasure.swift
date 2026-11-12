@@ -399,6 +399,11 @@ enum SessionLogErasure {
         for name in ["overlay-cache.tar", "overlay-cache.json"] {
             try? manager.removeItem(at: root.appendingPathComponent(name))
         }
+        // The per-file fragment cache holds derived file bytes as well; a
+        // rewrite must not leave the old session content in it (wal.md §5.3
+        // step 5). Rebuilt on the next boot overlay.
+        try? manager.removeItem(at: root.appendingPathComponent("overlay-frags",
+                                                                isDirectory: true))
         if let names = try? manager.contentsOfDirectory(atPath: root.path) {
             for name in names where name.hasPrefix("overlay-") && name.hasSuffix(".tar") {
                 try? manager.removeItem(at: root.appendingPathComponent(name))
