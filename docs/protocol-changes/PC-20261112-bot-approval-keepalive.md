@@ -3,14 +3,14 @@
 ```yaml
 change: PC-20261112-bot-approval-keepalive
 contracts: [P26]
-status: frozen
+status: implemented
 breaking: false
 version_decision: No new route, field, header, status, reason, error code, environment variable or wire frame. `/approval` reuses the long tool-call SSE answer form of PC-20261110 when the Worker explicitly accepts text/event-stream; `/identity/cancel` additionally cancels the call's interactive approvals with the existing `consumer_cancelled` decision.
 base: 20ef5ca4
-contract_revision: spec/bot/v1/mcp-endpoint.md §2 "Long approvals", §3 cancel cascade, §6 + spec/v1/golden/mcp-long-call/cases.json `approval` block @ the commit that adds this file
+contract_revision: spec/bot/v1/mcp-endpoint.md §2 "Long approvals", §3 cancel cascade, §6 + spec/v1/golden/mcp-long-call/cases.json `approval` block @ d6939722
 ```
 
-Protocol impact: P26; P05: none — llm-bridge's delivery watchdog and the host egress are unchanged; the fix relies on their existing SSE pass-through and byte-arrival idle timers proven by PC-20261110 (`SensitiveSSEKeepaliveTests`, llm-install tests)
+Protocol impact: P26; P05: none — llm-bridge's delivery watchdog and the host egress are unchanged, the fix relies on their existing SSE pass-through and byte-arrival idle timers proven by PC-20261110; P25: none — no BotEvent type or field is added, the cascade writes the existing approval.decided cancelled/consumer_cancelled shape; P27: none — row projection is untouched, a cancelled card already projects as a non-pending row
 
 ## 1. 识别与角色
 
@@ -51,10 +51,14 @@ Protocol impact: P26; P05: none — llm-bridge's delivery watchdog and the host 
 
 ## 5. 证据
 
-（实现与审查后填写。）
+- Swift：`swift test --filter 'BotApprovalLongWaitTests|BotMCPLongCallTests|BotMCPHTTPTests'` → 19 passed（新增 `BotApprovalLongWaitTests` 7 例：golden 决策表；真实 HTTP 慢审批 = SSE 头（无 `Content-Length`／`Mcp-Session-Id`）+ ≥1 keepalive + 恰好一个 message；无 SSE accept 仍 JSON；常设授权快结果仍 JSON；`/identity/cancel` 使流以 `approval cancelled` 结束、恰好一条 `approval.decided` cancelled/consumer_cancelled、超时任务不再写第二条；持久待办不被取消；只取消同一 callId）。`swift test --filter PhoneDSHBotTests` → 571 passed（DSH worker 运行）。
+- TypeScript：`node scripts/run-tests.mjs tests/bot-approval-long-wait.test.ts tests/bot-identity-approval.test.ts tests/bot-sandbox-approval.test.ts tests/llm-install.test.ts` → 55/56；新增 3 例全过（golden valid/invalid 流驱动 `parseApprovalEventStream`；经真实 `installNodeFetch` host route、200 ms 投递窗口，700 ms 的 keepalive 流得 allowed；对照：700 ms 才回 JSON 头仍 `PDSH_DELIVERY_TIMEOUT`，看门狗未放宽）；`bot-identity-approval` 新增 1 例（投递超时的审批 fail closed、工具不执行、登记恰好取消一次）。唯一失败 `BLE native-MCP effects match the shared golden` 为基线既有（繁简标签不符，与本改动无关）。`npm run typecheck` → PASS。
+- `check.sh --only phone-spec,phone-cross-tree` → PASS；`phone-license` → PASS；`phone-plugins` → FAIL（3 个基线既有失败：上述 BLE 标签、`profile.test` preset 清单）；`phone-hygiene` → FAIL（基线 main 同样 FAIL）。`protocol_impact.py --base origin/main` → PASS（P26，P05/P25/P27 none）。
+- 未验证：真机（需重建 Worker bundle 并安装后，在 Bot 里触发 bash 审批、等待 >60 s 再点允许）、模拟器 UI 卡片收起的视觉表现、宿主出口对 `/approval` SSE 的逐字节透传在真机上的表现（由 PC-20261110 的 `/mcp` 真机证据与 `SensitiveSSEKeepaliveTests` 间接覆盖）。
 
 ## 6. 修订纪录
 
 | revision | 由谁 | 原因 | 通知 |
 | --- | --- | --- | --- |
 | 1 | Claude | 初版 contract freeze | App listener／协调器；Worker approval-gate |
+| 1 (implemented) | DSH worker + Claude 审查 | 两端按 rev 1 实现，无 CONTRACT CHANGE REQUEST | — |
