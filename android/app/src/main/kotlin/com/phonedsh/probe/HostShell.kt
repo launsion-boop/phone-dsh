@@ -392,7 +392,7 @@ internal fun HostShell(
     // The composition root owns the Bot driver/store/channel; this shell only
     // passes plain values into `:lib`. A construction failure leaves the tab
     // absent rather than rendering a fake conversation.
-    val botPlatform = engine.botPlatformConfig
+    val botPlatform by engine.botPlatformConfig.collectAsState()
     // PCLink C5: the view model owns the controller's lifetime (`onCleared`), so
     // this shell only observes its snapshot and maps it onto the plain `:lib`
     // page state. The camera prompt stays the Activity's one CAMERA request.
@@ -1711,6 +1711,7 @@ internal fun HostShell(
                 if (showTabBar) {
                     HomeTabBar(
                         selection = homeTab,
+                        showBot = botPlatform != null,
                         onSelect = { tab ->
                             // A re-tap is a no-op inside `selectTab` (§4 rule 2), and
                             // the target tab's route stack is the only one this host owns.

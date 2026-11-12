@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.View
 import android.webkit.WebView
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonArray
 import com.phonedsh.agentcore.JsonBool
@@ -1638,6 +1639,15 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
      * listener). Construction is lazy and failure is honest: the rest of the
      * App keeps working and the log names the reason.
      */
+    private val _botPlatformConfig = MutableStateFlow<BotPlatformConfig?>(null)
+
+    /**
+     * The Bot tab's one composition seam, published as state: the runtime is
+     * created lazily (and only after the host channel exists), so a plain lazy
+     * property would leave the first composition with `null` forever.
+     */
+    internal val botPlatformConfig: StateFlow<BotPlatformConfig?> = _botPlatformConfig.asStateFlow()
+
     private val appBotRuntimeDelegate = lazy<AppBotRuntime?> {
         runCatching {
             AppBotRuntime.create(
@@ -1645,24 +1655,35 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
                 transport = DshBotSessionTransport(host.channel, ::logTurn),
                 logger = { line -> Log.i("AppBotRuntime", line) },
             )
+        }.onSuccess { runtime ->
+            runtime?.let {
+                _botPlatformConfig.value = it.platformConfig
+            }
         }.onFailure { error ->
             Log.w(TAG_TURN, "Bot platform unavailable: ${error.javaClass.simpleName}: ${error.message}")
         }.getOrNull()
     }
     internal val appBotRuntime: AppBotRuntime? by appBotRuntimeDelegate
 
-    /** The Bot tab's one composition seam; the driver/store are the runtime's. */
-    internal val botPlatformConfig: BotPlatformConfig? by lazy {
-        appBotRuntime?.platformConfig
-    }
-
-    /** Foreground lifecycle hooks; both are no-ops before the lazy creation. */
+    /**
+     * Foreground lifecycle hooks. The listener binds and probes a socket, so
+     * both run off the main thread; `start` also publishes [botPlatformConfig]
+     * by creating the lazy runtime for the first time.
+     */
     internal fun startBotRuntime() {
-        if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.start()
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { appBotRuntime?.start() }
+                .onFailure { error ->
+                    Log.w(TAG_TURN, "Bot runtime start failed: ${error.javaClass.simpleName}")
+                }
+        }
     }
 
     internal fun stopBotRuntime() {
-        if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.stop()
+        if (!appBotRuntimeDelegate.isInitialized()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { appBotRuntime?.stop() }
+        }
     }
     val handshake: StateFlow<HandshakeSummary?> = engine.handshake
 
@@ -2304,10 +2325,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // The Bot listener must be live before the first page load: the engine
         // reads its URL into the Worker env at launch time. The Activity's
         // onStart/onStop then keep these services on the foreground lifecycle.
-        runCatching { appBotRuntime?.start() }
-            .onFailure { error ->
-                Log.w(TAG_TURN, "Bot runtime start failed: ${error.javaClass.simpleName}")
-            }
+        startBotRuntime()
         restoreSessionArchive()
         restoreChatSessions()
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
