@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -67,6 +69,9 @@ internal const val CHANGED_FILES_ROW_TAG: String = "pdsh.surface.changedFiles.ro
 
 /** Test tag of the "全部 N 个文件" toggle. */
 internal const val CHANGED_FILES_TOGGLE_TAG: String = "pdsh.surface.changedFiles.toggle"
+
+/** Test tag of the toggle's rotating chevron. */
+internal const val CHANGED_FILES_CHEVRON_TAG: String = "pdsh.surface.changedFiles.toggle.chevron"
 
 /**
  * One file a closed turn changed (iOS `NativeChangedFile`).
@@ -108,7 +113,6 @@ public fun ChangedFilesCard(
     // screen state, not a projection: `remember` is the same lifetime.
     var expanded by remember { mutableStateOf(false) }
     val single = files.singleOrNull()
-    val visible = if (expanded) files else files.take(VISIBLE_FILES)
 
     Column(
         modifier = modifier
@@ -189,83 +193,107 @@ public fun ChangedFilesCard(
                     .height(tokens.stroke.hairline)
                     .background(tokens.colors.border),
             )
-            visible.forEach { file ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(role = Role.Button) { onOpenFile(file.path) }
-                        .testTag(CHANGED_FILES_ROW_TAG)
-                        // iOS row: 14 h inset and a 44 pt floor *including* it
-                        // (`:68-70`), so the floor is outside the padding.
-                        .defaultMinSize(minHeight = ChatMetrics.CHANGED_FILES_ROW_MIN_HEIGHT_PT.dp)
-                        .padding(horizontal = ChatMetrics.CHANGED_FILES_ROW_INSET_H_PT.dp)
-                        .padding(vertical = ChatMetrics.CHANGED_FILES_ROW_INSET_V_PT.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_ROW_GAP_PT.dp),
-                ) {
-                    BasicText(
-                        text = file.display,
-                        style = type.caption.copy(color = tokens.colors.tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_DIFF_COUNT_GAP_PT.dp)) {
-                        BasicText(
-                            text = "+${file.added}",
-                            style = type.code.copy(
-                                color = tokens.colors.success,
-                                fontSize = type.codeAction.fontSize,
-                            ),
-                        )
-                        BasicText(
-                            text = "-${file.deleted}",
-                            style = type.code.copy(
-                                color = tokens.colors.danger,
-                                fontSize = type.codeAction.fontSize,
-                            ),
-                        )
-                    }
-                }
+            // The first four rows are always visible (`NativeChangedFilesCard.swift:14`).
+            files.take(VISIBLE_FILES).forEach { file ->
+                ChangedFileRow(file = file, onOpenFile = onOpenFile)
             }
             if (files.size > VISIBLE_FILES) {
+                // `interaction.md` §7 rule 1: 變更檔 folds with motion.disclosure.
+                // The toggle is the fixed header; the remaining rows are the one
+                // animated body, so a tap never moves the tapped control.
                 val toggle = if (expanded) {
                     UiStrings.CHANGED_FILES_COLLAPSE
                 } else {
                     UiStrings.CHANGED_FILES_ALL.format(files.size)
                 }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(role = Role.Button) { expanded = !expanded }
-                        .testTag(CHANGED_FILES_TOGGLE_TAG)
-                        .semantics {
-                            contentDescription = toggle
-                            stateDescription = if (expanded) {
-                                UiStrings.EXPANDED
-                            } else {
-                                UiStrings.COLLAPSED
-                            }
+                PdshDisclosure(
+                    expanded = expanded,
+                    onToggle = { expanded = !expanded },
+                    tag = CHANGED_FILES_TOGGLE_TAG,
+                    anchorKey = files.size,
+                    header = {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(CHANGED_FILES_TOGGLE_TAG)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = toggle
+                                    stateDescription = if (expanded) {
+                                        UiStrings.EXPANDED
+                                    } else {
+                                        UiStrings.COLLAPSED
+                                    }
+                                }
+                                // iOS toggle: 14 h / 10 v inset inside a 44 pt floor (`:84-86`).
+                                .defaultMinSize(minHeight = ChatMetrics.CHANGED_FILES_ROW_MIN_HEIGHT_PT.dp)
+                                .padding(horizontal = ChatMetrics.CHANGED_FILES_TOGGLE_INSET_H_PT.dp)
+                                .padding(vertical = ChatMetrics.CHANGED_FILES_TOGGLE_INSET_V_PT.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_TOGGLE_GAP_PT.dp),
+                        ) {
+                            BasicText(
+                                text = toggle,
+                                style = type.caption.copy(color = tokens.colors.tertiary),
+                            )
+                            PdshChevron(
+                                expanded = expanded,
+                                size = ChatMetrics.CHANGED_FILES_TOGGLE_CHEVRON_SIZE_PT.dp,
+                                tint = tokens.colors.tertiary,
+                                tag = CHANGED_FILES_CHEVRON_TAG,
+                            )
                         }
-                        // iOS toggle: 14 h / 10 v inset inside a 44 pt floor (`:84-86`).
-                        .defaultMinSize(minHeight = ChatMetrics.CHANGED_FILES_ROW_MIN_HEIGHT_PT.dp)
-                        .padding(horizontal = ChatMetrics.CHANGED_FILES_TOGGLE_INSET_H_PT.dp)
-                        .padding(vertical = ChatMetrics.CHANGED_FILES_TOGGLE_INSET_V_PT.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_TOGGLE_GAP_PT.dp),
-                ) {
-                    BasicText(
-                        text = toggle,
-                        style = type.caption.copy(color = tokens.colors.tertiary),
-                    )
-                    PdshIconView(
-                        icon = if (expanded) PdshIcon.CHEVRON_UP else PdshIcon.CHEVRON_DOWN,
-                        size = ChatMetrics.CHANGED_FILES_TOGGLE_CHEVRON_SIZE_PT.dp,
-                        tint = tokens.colors.tertiary,
-                        contentDescription = null,
-                    )
-                }
+                    },
+                    body = {
+                        files.drop(VISIBLE_FILES).forEach { file ->
+                            ChangedFileRow(file = file, onOpenFile = onOpenFile)
+                        }
+                    },
+                )
             }
+        }
+    }
+}
+
+/** One file row (iOS `NativeChangedFilesCard` `:67`–`:78`). */
+@Composable
+private fun ChangedFileRow(file: ChatFileChange, onOpenFile: (String) -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button) { onOpenFile(file.path) }
+            .testTag(CHANGED_FILES_ROW_TAG)
+            // iOS row: 14 h inset and a 44 pt floor *including* it
+            // (`:68-70`), so the floor is outside the padding.
+            .defaultMinSize(minHeight = ChatMetrics.CHANGED_FILES_ROW_MIN_HEIGHT_PT.dp)
+            .padding(horizontal = ChatMetrics.CHANGED_FILES_ROW_INSET_H_PT.dp)
+            .padding(vertical = ChatMetrics.CHANGED_FILES_ROW_INSET_V_PT.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_ROW_GAP_PT.dp),
+    ) {
+        BasicText(
+            text = file.display,
+            style = type.caption.copy(color = tokens.colors.tertiary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_DIFF_COUNT_GAP_PT.dp)) {
+            BasicText(
+                text = "+${file.added}",
+                style = type.code.copy(
+                    color = tokens.colors.success,
+                    fontSize = type.codeAction.fontSize,
+                ),
+            )
+            BasicText(
+                text = "-${file.deleted}",
+                style = type.code.copy(
+                    color = tokens.colors.danger,
+                    fontSize = type.codeAction.fontSize,
+                ),
+            )
         }
     }
 }
