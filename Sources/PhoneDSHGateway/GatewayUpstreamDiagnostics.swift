@@ -16,6 +16,22 @@ import PhoneDSHStandardError
 
 private let gatewayStderrLock = NSLock()
 
+/// One-shot latch: the first claim wins, later claims are ignored. Used for
+/// diagnostics that describe a gateway-wide state instead of one attempt, so a
+/// long session cannot turn a fact that never changes into a log flood.
+final class GatewayOnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
 /// Emits bounded upstream diagnostics for the model gateway.
 public final class GatewayUpstreamDiagnostics: @unchecked Sendable {
     /// Receives one complete line (without the trailing newline).
@@ -76,6 +92,16 @@ public final class GatewayUpstreamDiagnostics: @unchecked Sendable {
         sink(Self.waitingLine(host: host))
     }
 
+    /// Called when the model-purpose execution point sees an exchange with no
+    /// purpose evidence (P26 §2.10 absent branch,
+    /// PC-20261113-p12-model-purpose-sink). This is a host diagnostic, not an
+    /// error code: it never leaves the process, never appears on the wire and
+    /// never changes the exchange. The gateway records it once (the absence is
+    /// a property of the deployment, not of one request).
+    func recordPurposeAbsent(host: String) {
+        sink(Self.purposeAbsentLine(host: host))
+    }
+
     // MARK: - Formatting (internal for the unit tests)
 
     static func slowLine(host: String,
@@ -102,6 +128,12 @@ public final class GatewayUpstreamDiagnostics: @unchecked Sendable {
 
     static func waitingLine(host: String) -> String {
         "gateway waiting-for-connectivity host=\(hostToken(host))"
+    }
+
+    /// The frozen absent-branch token is `purpose_absent`. Only the host is
+    /// formatted: no path, no query, no headers, no body.
+    static func purposeAbsentLine(host: String) -> String {
+        "gateway-purpose purpose_absent host=\(hostToken(host))"
     }
 
     static func hostToken(_ host: String) -> String {
