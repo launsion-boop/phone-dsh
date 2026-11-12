@@ -813,6 +813,11 @@ public struct PhoneDSHDiagnostics: Equatable, Sendable {
     /// one. `bytesUp`/`bytesDown` are the gateway's own request/response byte
     /// counters; consumers must not infer direction from the response log.
     public var gatewayMetrics: ModelGatewayMetrics?
+    /// The settled persistence counters of the most recently completed turn
+    /// (`budgets.md` §7 `fsync_calls_per_turn` / `bytes_written_per_turn`), or
+    /// `nil` before the first turn settles. The same value
+    /// ``PhoneDSHHost/lastTurnPersistenceIO()`` returns.
+    public var lastTurnPersistenceIO: WorkspaceLogIOCounters?
 
     public init(state: PhoneDSHState, bootID: String, nextMseq: UInt64 = 1,
                 ackedMseq: UInt64 = 0, durableMseq: UInt64 = 0,
@@ -835,7 +840,8 @@ public struct PhoneDSHDiagnostics: Equatable, Sendable {
                 turnInactivityTimeout: TimeInterval? = nil,
                 vfsRefusals: UInt64 = 0,
                 lastVFSRefusal: PhoneDSHVFSRefusal? = nil,
-                gatewayMetrics: ModelGatewayMetrics? = nil) {
+                gatewayMetrics: ModelGatewayMetrics? = nil,
+                lastTurnPersistenceIO: WorkspaceLogIOCounters? = nil) {
         self.state = state
         self.bootID = bootID
         self.nextMseq = nextMseq
@@ -866,5 +872,6 @@ public struct PhoneDSHDiagnostics: Equatable, Sendable {
         self.vfsRefusals = vfsRefusals
         self.lastVFSRefusal = lastVFSRefusal
         self.gatewayMetrics = gatewayMetrics
+        self.lastTurnPersistenceIO = lastTurnPersistenceIO
     }
 }

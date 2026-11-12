@@ -108,6 +108,18 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// Turn-inactivity counters shared by every supervised harness this host
     /// hands out (G2-FIX-12). It holds no session or credential state.
     private let inactivityLedger: PhoneDSHTurnInactivityLedger
+    /// Per-turn persistence window shared by every harness this host hands out
+    /// (budgets.md §7). Created on first use so its diagnostic sink can name
+    /// this boot; it holds counters and the last settled sample only.
+    private lazy var turnPersistenceIO: PhoneDSHTurnPersistenceIOLedger = {
+        let recorder = bootPhaseRecorder
+        let bootID = bootID
+        return PhoneDSHTurnPersistenceIOLedger(sink: { sample in
+            recorder.recordDiagnostic(
+                PhoneDSHTurnPersistenceIOLedger.diagnosticLine(
+                    for: sample, bootID: bootID))
+        })
+    }()
     /// DSH session ids this host incarnation handed to the Worker (G2-FIX-9).
     /// The drain uses it to scope terminal-journal verification to live
     /// sessions; a journal left open by an earlier crashed boot is ignored.
@@ -3189,6 +3201,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                     drainError = error
                 }
             }
+            // budgets.md §7: this host incarnation is over. Close any turn the
+            // abort drain could not observe (after the sealing close above, so
+            // its fsyncs are in the sample) instead of leaving the counter
+            // window open for the next boot to inherit.
+            turnPersistenceIO.closeOpenTurnsAfterSeal(outcome: "stopped")
             if preserveRemoteHandoff, let handoff = runtime.handoff {
                 remoteHandoff = RemoteHandoffContext(coordinator: handoff,
                                                      machine: runtime.machine)
@@ -3239,10 +3256,44 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         // call returns a fresh supervisor; a caller that replaces the harness
         // after a recovery releases the old `events()` subscription, which
         // disarms that supervisor (no zombie cancel, no phantom stall).
-        return PhoneDSHTurnInactivitySupervisor(
+        //
+        // budgets.md §7: the same harness chain carries the per-turn
+        // persistence window. The outer decorator resets `WorkspaceLogIOCounters`
+        // before a prompt/steer opens a turn and settles it on the turn's
+        // terminal event, then records the sample for `lastTurnPersistenceIO()`.
+        // It is outside the inactivity supervisor so the watchdog's synthetic
+        // terminal (a failed turn) settles like any other terminal.
+        let harness = PhoneDSHTurnInactivitySupervisor(
             harness: DSHRemoteHarness(transport: makeTransport(runtime: runtime)),
             timeout: configuration.turnInactivityTimeout,
             ledger: inactivityLedger)
+        return PhoneDSHTurnPersistenceIOSupervisor(harness: harness,
+                                                   ledger: turnPersistenceIO)
+    }
+
+    /// The settled persistence counters of the most recently completed turn,
+    /// or `nil` before the first turn settles (budgets.md §7
+    /// `fsync_calls_per_turn` / `bytes_written_per_turn`).
+    ///
+    /// The window is the process-wide ``PhoneDSHLog/WorkspaceLogIOCounters``
+    /// set: it covers the stores `PhoneDSHLog` owns (WAL segments, journal,
+    /// materialized copy, blob store, overlay, manifest) and includes an epoch
+    /// close that ran inside the turn (D18's fsync pass). Steps, the exec
+    /// ledger and the response log are counted by other modules.
+    ///
+    /// The value is settled *before* the terminal `.turnEnded` event is
+    /// delivered, so a consumer that reads it on that event sees the turn's own
+    /// number. The next prompt/steer resets the window; a turn that never
+    /// reached a terminal is closed by a park/stop after the host's sealing
+    /// epoch close.
+    public func lastTurnPersistenceIO() -> WorkspaceLogIOCounters? {
+        turnPersistenceIO.lastCounters()
+    }
+
+    /// The most recent settled turn sample, including the session/turn id, how
+    /// the turn ended and when the host settled it.
+    public func lastTurnPersistenceIOSample() -> PhoneDSHTurnPersistenceIOSample? {
+        turnPersistenceIO.lastSample()
     }
 
     /// True while at least one workbench session this host opened or prompted
@@ -3305,7 +3356,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 state: state, bootID: bootID, lastError: lastError,
                 turnInactivityStalls: inactivity.stallCount,
                 turnInactivityReason: inactivity.lastStallReason,
-                turnInactivityTimeout: inactivity.timeout)
+                turnInactivityTimeout: inactivity.timeout,
+                lastTurnPersistenceIO: turnPersistenceIO.lastCounters())
         }
         let hostState = await runtime.machine.currentState()
         let bootDisposition = await runtime.machine.bootDisposition
@@ -3368,7 +3420,8 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             turnInactivityTimeout: inactivity.timeout,
             vfsRefusals: vfsRefusals,
             lastVFSRefusal: lastVFSRefusal,
-            gatewayMetrics: gatewayMetrics)
+            gatewayMetrics: gatewayMetrics,
+            lastTurnPersistenceIO: turnPersistenceIO.lastCounters())
         lastSnapshot = snapshot
         return snapshot
     }
@@ -4314,6 +4367,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             }
         }
         try await sealEpochAtTailAndRecordFence(runtime)
+        // budgets.md §7: the park's sealing epoch close is the last D18 pass of
+        // this host incarnation. A turn whose terminal the abort drain could
+        // not observe is closed here (after the seal, so its fsyncs are in the
+        // sample) instead of keeping the counter window open across the park.
+        turnPersistenceIO.closeOpenTurnsAfterSeal(
+            outcome: stopping ? "stopped"
+                : (interruptedSessions.isEmpty ? "parked" : "interrupted"))
         await runtime.coordinator.prepareForReboot()
         for (sessionID, turns) in interruptedSessions {
             var merged = sessionsInterruptedAtPark[sessionID] ?? []
@@ -4387,6 +4447,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             throw PhoneDSHError.invalidState(
                 "the WAL epoch close for the planned restart failed: \(error)")
         }
+        // budgets.md §7: the planned restart's sealing close is a D18 fsync
+        // pass. Credit it to an open turn (a restart may rebuild the Worker in
+        // the middle of one) instead of dropping it.
+        turnPersistenceIO.settleEpochClose()
         let fence = await runtime.authority.current
         if ack.uptoMseq > fence.walSeq {
             do {
@@ -4469,6 +4533,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                     await runtime.machine.escalateFailureToTerminal(reason: combined)
                 }
             }
+            // budgets.md §7: a failed incarnation ends the turn observation.
+            // The seal above already ran (or failed loud); whatever turn the
+            // App's stream never saw end is closed here so the numbers are
+            // recorded instead of being lost with the runtime.
+            turnPersistenceIO.closeOpenTurnsAfterSeal(outcome: "host-failed")
             if var services = self.runtime {
                 services.engine = nil
                 self.runtime = services
@@ -5232,6 +5301,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 return .skipped(reason: reason)
             }
             let ack = try await runtime.log.sealEpochCoveringTail()
+            // budgets.md §7: an epoch close is D18's fsync pass. Settling it
+            // here credits the pass to the open turn instead of letting the
+            // next turn's reset inherit it (and, between turns, discards a tail
+            // the next reset would discard anyway). Observation only.
+            turnPersistenceIO.settleEpochClose()
             periodicEpochCloseObserver?(.closed(uptoMseq: ack.uptoMseq))
             return .closed(uptoMseq: ack.uptoMseq)
         } catch {
