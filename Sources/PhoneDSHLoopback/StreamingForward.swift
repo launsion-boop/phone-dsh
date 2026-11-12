@@ -80,13 +80,29 @@ struct URLSessionForwarder: Sendable {
                                                   body: Data(),
                                                   isFinal: false),
                                   to: continuation)
+                    let isEventStream = (responseHeaders.first {
+                        $0.key.lowercased() == "content-type"
+                    }?.value.lowercased().contains("text/event-stream") ?? false)
                     var buffer = Data()
                     buffer.reserveCapacity(Self.coalesceMaxBytes)
+                    var trailingNewlines = 0
                     for try await byte in bytes {
                         buffer.append(byte)
-                        if byte == 0x0A || buffer.count >= Self.coalesceMaxBytes {
+                        if byte == 0x0A {
+                            trailingNewlines += 1
+                        } else if byte != 0x0D {
+                            trailingNewlines = 0
+                        }
+                        // §13: an SSE event ends at its blank line; an NDJSON
+                        // frame ends at one newline. Never flush an SSE event
+                        // at its first line break.
+                        let frameBoundary = isEventStream
+                            ? trailingNewlines >= 2
+                            : byte == 0x0A
+                        if frameBoundary || buffer.count >= Self.coalesceMaxBytes {
                             try Self.emit(HTTPEgressChunk(body: buffer), to: continuation)
                             buffer.removeAll(keepingCapacity: true)
+                            trailingNewlines = 0
                         }
                     }
                     if !buffer.isEmpty {

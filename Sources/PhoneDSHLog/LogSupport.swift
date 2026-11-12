@@ -434,7 +434,7 @@ final class AckBroadcaster<Element: Sendable>: @unchecked Sendable {
     /// `.unbounded`, so a stalled consumer could grow the process without
     /// limit. Cumulative acks coalesce naturally: dropping an older element
     /// loses no state because the next ack carries the higher watermark.
-    static let defaultBufferingLimit = 4_096
+    static var defaultBufferingLimit: Int { 4_096 }
 
     private let lock = NSLock()
     private var continuations: [UUID: AsyncStream<Element>.Continuation] = [:]

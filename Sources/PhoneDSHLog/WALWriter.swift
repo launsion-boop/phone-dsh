@@ -131,6 +131,10 @@ public actor WALWriter {
         var lastMutationMseq: UInt64
         var hasEpochClose: Bool
         var closeDurableUpto: UInt64
+        /// Blob digests referenced by this segment's retained blob-write
+        /// records (wal.md §14.5 live set). Compaction drops the whole segment
+        /// state, so the set never needs per-record removal.
+        var blobDigests: Set<String> = []
 
         /// The lifecycle facts of this segment; the manifest and truncation
         /// decisions are derived from them by ``WALSegmentLifecycle`` only.
@@ -239,7 +243,8 @@ public actor WALWriter {
                          mutationCount: segment.mutationCount,
                          lastMutationMseq: segment.lastMutationMseq,
                          hasEpochClose: segment.hasEpochClose,
-                         closeDurableUpto: segment.epochClose?.durableUpto ?? 0)
+                         closeDurableUpto: segment.epochClose?.durableUpto ?? 0,
+                         blobDigests: Self.blobDigests(in: segment.records))
         }
         let scannedLastMseq = scan.lastMutationMseq
         let resume: WALWriterResumeState
@@ -593,12 +598,14 @@ public actor WALWriter {
     /// Digests referenced by the retained blob-write records of this writer's
     /// segment state (wal.md §14.5 live set).
     public func liveBlobDigests() -> Set<String> {
+        segments.reduce(into: Set<String>()) { $0.formUnion($1.blobDigests) }
+    }
+
+    private static func blobDigests(in records: [WALRecord]) -> Set<String> {
         var digests: Set<String> = []
-        for segment in segments {
-            for record in segment.records where record.isBlobWrite {
-                if let blob = try? record.blobWrite() {
-                    digests.insert(blob.sha256Hex)
-                }
+        for record in records where record.isBlobWrite {
+            if let blob = try? record.blobWrite() {
+                digests.insert(blob.sha256Hex)
             }
         }
         return digests
@@ -776,6 +783,7 @@ public actor WALWriter {
         var chunk = Data()
         var chunkRecords = 0
         var chunkLastMseq: UInt64 = 0
+        var chunkBlobDigests: Set<String> = []
 
         func emitChunk() throws {
             guard !chunk.isEmpty else { return }
@@ -785,10 +793,12 @@ public actor WALWriter {
             segments[currentSegmentIndex].mutationCount += chunkRecords
             segments[currentSegmentIndex].lastMutationMseq =
                 max(segments[currentSegmentIndex].lastMutationMseq, chunkLastMseq)
+            segments[currentSegmentIndex].blobDigests.formUnion(chunkBlobDigests)
             epochWrittenSegmentNames.insert(segments[currentSegmentIndex].name.fileName)
             chunk = Data()
             chunkRecords = 0
             chunkLastMseq = 0
+            chunkBlobDigests.removeAll()
         }
 
         for item in batch {
@@ -800,6 +810,9 @@ public actor WALWriter {
                 try rotateSegment(firstMseq: item.mseq)
             }
             chunk.append(item.encoded)
+            if let blob = try? item.record.blobWrite() {
+                chunkBlobDigests.insert(blob.sha256Hex)
+            }
             chunkRecords += 1
             chunkLastMseq = item.mseq
         }

@@ -5294,7 +5294,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         responseLog: ResponseLog,
         stepMachine: StepMachine,
         tracker: JournalDurabilityTracker) async {
-        if state == .recovering { return }
+        if state == .starting { return }
         if let runtime, await runtime.machine.currentState() == .recovering { return }
         let durable = await tracker.snapshot()
         // W3 does not edit StepMachine (its owning unit did): the host derives

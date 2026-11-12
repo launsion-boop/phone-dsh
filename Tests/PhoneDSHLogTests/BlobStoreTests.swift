@@ -148,7 +148,7 @@ final class BlobStoreTests: XCTestCase {
         _ = try await writer.append(LogTestSupport.write("/dsh/workspace/big.bin", bytes: first))
         _ = try await writer.append(LogTestSupport.append("/dsh/workspace/big.bin",
                                                            from: UInt64(first.count),
-                                                           data: suffix))
+                                                           data: String(decoding: suffix, as: UTF8.self)))
         _ = try await writer.flush()
         let records = try LogTestSupport.records(in: root)
         XCTAssertEqual(records.count, 2)

@@ -1062,14 +1062,14 @@ public actor StepMachine {
     }
 
     private func pruneSessionLog(sessionID: String, identities: Set<String>) throws {
-        let url = sessionLogURL(sessionID)
+        let url = sessionLogURL(sessionID: sessionID)
         guard ControllerFileStore.exists(url) else { return }
         let data = try ControllerFileStore.read(url)
         let text = String(decoding: data, as: UTF8.self)
         var kept: [String] = []
         var changed = false
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let lineData = line.data(using: .utf8),
+            guard let lineData = String(line).data(using: .utf8),
                   let decoded = try? ControllerFileStore.makeDecoder()
                     .decode(StepLogLine.self, from: lineData) else {
                 // A torn final line from a crash mid-append; the rewrite
