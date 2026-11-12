@@ -25,7 +25,7 @@ subprojects {
 }
 
 // ---------------------------------------------------------------------------
-// Publication: eight coordinates, one version, one repository.
+// Publication: nine coordinates, one version, one repository.
 //
 // `:lib` is the entry point, but its AAR alone is not a deliverable: the UI's
 // reachable code names `:core` value types (the chat page's canonical JSON) and
@@ -38,7 +38,7 @@ subprojects {
 //   implementation("com.phonedsh:lib:0.1.0")
 //
 // AAR (Android library): lib, dsh, domain, controller, shell
-// JAR (java-library):    core, net, platform
+// JAR (java-library):    core, net, platform, bot
 //
 // Repository: `<android>/build/repo`, a file repository inside the build tree.
 // Deliberately not `~/.m2`:
@@ -52,7 +52,7 @@ subprojects {
 // ---------------------------------------------------------------------------
 val publishedModules = setOf(
     "lib", "dsh", "domain", "controller", "shell", // AAR
-    "core", "net", "platform", // JAR
+    "core", "net", "platform", "bot", // JAR
 )
 val localRepositoryDir: File = rootDir.resolve("build/repo")
 
@@ -66,7 +66,7 @@ subprojects {
     // module declares its own publication (its `from(components[...])` has to be
     // wired from inside that project's evaluation — see the comment in
     // lib/build.gradle.kts); the coordinates and metadata come from this file so
-    // eight POMs cannot drift apart.
+    // nine POMs cannot drift apart.
     plugins.withId("maven-publish") {
         extensions.configure<PublishingExtension>("publishing") {
             repositories {
@@ -78,7 +78,7 @@ subprojects {
             // A live collection: a module script creates its publication after
             // this callback runs, and `configureEach` still reaches it. The
             // artifactId is the Gradle module name, so the coordinate is
-            // `com.phonedsh:<module>:<version>` for all eight.
+            // `com.phonedsh:<module>:<version>` for all nine.
             publications.withType<MavenPublication>().configureEach {
                 artifactId = project.name
                 pom {
@@ -103,7 +103,7 @@ subprojects {
 // a clean checkout can build an app against the coordinates in one invocation;
 // a real consumer runs it once and then only consumes.
 tasks.register("publishLocalRepository") {
-    description = "Publishes the eight com.phonedsh artifacts to android/build/repo"
+    description = "Publishes the nine com.phonedsh artifacts to android/build/repo"
     group = "publishing"
     dependsOn(publishedModules.map { ":$it:publishAllPublicationsToLocalRepository" })
 }

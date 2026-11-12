@@ -15,6 +15,7 @@
 plugins {
     id("java-library")
     alias(libs.plugins.kotlin.jvm)
+    id("maven-publish")
 }
 
 kotlin {
@@ -31,4 +32,15 @@ tasks.test {
 dependencies {
     api(project(":core"))
     testImplementation(libs.junit)
+}
+
+// Published because `:lib` exposes the Bot value types (rows, fish lifecycle,
+// appearance) through its `api` edge; see the publication note in the root
+// build. Same shape as `:core`.
+publishing {
+    publications {
+        create<MavenPublication>("release") {
+            from(components["java"])
+        }
+    }
 }

@@ -85,3 +85,33 @@ Every one is a disagreement between two Swift code paths. The lane withheld the 
 
 - BotFish artwork: `examples/probe-app/BotFish/SOURCES.md` records a grant for phoneDSH **iOS** only. Android must not package the art until the rights holder extends the grant (and `NOTICE` records it).
 - `examples/probe-app/BotFish/atlas.json` carries 51 `file`/`frames` paths that do not exist; the asset golden freezes them as the known exception set.
+
+## 7. Round 2 — contract freeze (owner decisions)
+
+Base: the commit that adds this section. The owner decides all five CCRs as proposed. Each decision becomes normative text plus shared vectors, and the Swift end is fixed in the same round.
+
+| CCR | Decision (normative for every host) | Swift fix |
+| --- | --- | --- |
+| W4-C2-1 | The store's `lease` is the **only** selection order. A runner executes the effect it was leased and never pre-sorts or filters. An effect with no registered executor is released back to `pending` with the retry delay, never dead-lettered, unless its kind is unknown to the catalogue (then `fail(permanent)` with code `unknown_effect_kind`). | `BotRuntimeEffects.swift` |
+| W4-C2-2 | Migration v1/v2→v3 validates `commit_seq` contiguity **inside** the migration transaction, before COMMIT. A gap rolls back, leaves the file at its old `user_version`, and open fails with `corrupted` naming the first gap. | `SQLiteDomainStore.migrateToV3` |
+| UI-1 | One fish-lifecycle projection: inputs `{pendingApprovalCount, running = liveRunning ∨ remoteBusy ∨ routineRunning, idleSleeping, livePresentation?, durablePresentation?, liveTurn?, now}`. Priority: pending approval → `alerting`; then an unexpired one-shot; then live over durable presentation; then `running` coerces `idle` to `working`; then `idleSleeping` → `sleeping`; else `idle`. The runtime unit computes it; the page and the roster consume the same value. | `BotRuntimeUnit`, `BotChatModel` |
+| UI-2 | A failed `dismiss` is retryable like `answer` and `approval` (`state == nil || state == .failed`). | `BotChatModel.dismiss` |
+| FISH-1 | Head-slice displacement uses the quantum of the active profile end to end (`standard` 0.1, `lively` 0.25); `SliceKey` carries it. A slice vector freezes both profiles. | `BotFishRenderer.swift` |
+
+Packaging: `:bot` is now the ninth published `com.phonedsh` artifact, and `:lib` has an `api` edge to it. The Bot pages and `BotFishView` take `:bot` value types, so there is no second copy of a Bot type in `:lib`. The `phone-android-release` gate now also requires the `bot` jar, with compile scope.
+
+Test dependency: `org.xerial:sqlite-jdbc` is approved as **testImplementation of `:bot` only**. The P25 store vectors carry raw DDL, `PRAGMA user_version` and migration steps. Only a real SQLite engine can run those on the host JVM. The Android runtime driver uses `android.database.sqlite` and lives in `:app`. The same vectors run there as instrumented tests.
+
+Artwork: the BotFish grant now covers every phoneDSH platform (`examples/probe-app/BotFish/SOURCES.md`, `NOTICE`).
+
+### Round-2 lanes
+
+| Lane | Owns | Contract |
+| --- | --- | --- |
+| S1 | Swift W4-C2-1/2 fixes; `spec/bot/v1/store.md` §7–§9; new `store.phone.json` cases; `export-manifest.json`; `Tests/PhoneDSHBotTests/Store` | P25 |
+| S2 | Swift UI-1/UI-2/FISH-1 fixes in `examples/probe-app/PhoneDSHProbe/Bot/**`; `spec/ui/v1/bot/**` text and vectors | P09 |
+| K1 | `android/bot/.../store/**`, `android/app/.../bot/store/**` (Android driver), `:bot` build file, version catalog | P25 |
+| K2 | `android/bot/.../session/**`, `android/bot/.../projection/**` | P27 |
+| K3 | `android/lib/.../ui/bot/state/**`: the UI-state seam values and derivations | P09 |
+| K4 | `android/lib/.../ui/bot/fish/**`, the BotFish asset copy task in `lib/build.gradle.kts` | P09 |
+| K5 (after K3) | Bot pages, drawer, info and the Bot tab in `android/lib/.../ui/bot/page/**` and `nav/**` | P09 |

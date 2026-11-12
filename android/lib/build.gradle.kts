@@ -953,6 +953,10 @@ dependencies {
     // they do not, and a maintainer who believed it would go looking for a binding
     // that isn't there.
     api(project(":domain"))
+    // The Bot pages (P09 Bot UI-state seam) and the BotFish view take `:bot` value
+    // types (rows, fish lifecycle, appearance) as parameters, so the edge is `api`
+    // and `:bot` publishes with the rest of the closure.
+    api(project(":bot"))
     implementation(libs.androidx.core.ktx)
 
     // Compose: the AAR's public surface is composable, so the runtime and the
@@ -1012,7 +1016,7 @@ publishing {
 //
 // Publishing it would write a `com.phonedsh:lib:0.1.0` POM whose `compile` scope
 // is `:core` + `:platform` only — missing `dsh`, `controller`, `shell`, `net` and
-// through `dsh` no `domain` either: five of the eight artifacts — under the SAME
+// through `dsh` no `domain` either: five of the nine artifacts — under the SAME
 // version number as the complete publication. The consumer would then fail in R8
 // exactly the way L63 measured (44 missing classes), with nothing on disk saying
 // which of the two 0.1.0 POMs it resolved.
@@ -1027,7 +1031,7 @@ tasks.matching {
             throw org.gradle.api.GradleException(
                 "refusing to publish :lib with -Ppdsh.uiCoreOnly=true: that build's api edge is " +
                     ":core + :platform only, so the POM would be missing dsh, controller, shell, " +
-                    "net and the domain edge — five of the eight com.phonedsh artifacts — while " +
+                    "net and the domain edge — five of the nine com.phonedsh artifacts — while " +
                     "carrying the same 0.1.0 coordinate as the complete publication. Re-run " +
                     "without the flag to produce the real artifact.",
             )

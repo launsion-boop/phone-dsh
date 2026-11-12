@@ -15,7 +15,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         // The in-tree publish repository. `./gradlew publishLocalRepository`
-        // (android/build.gradle.kts) writes the eight `com.phonedsh` artifacts
+        // (android/build.gradle.kts) writes the nine `com.phonedsh` artifacts
         // here, and `:lib-consumer-test` resolves `com.phonedsh:lib:0.1.0` from
         // it — the same way an external app would from a real repository.
         //
