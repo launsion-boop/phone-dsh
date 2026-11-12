@@ -57,13 +57,15 @@
 - 仍未驗：真機（GAP-38 的關閉條件）、Bot tab 的實機 UI 流程（目前只有 JVM tests 與
   emulator instrumented 證據）。
 
-## B-5 Watchdog／context lint（S6）
+## B-5 Watchdog／context lint（已解除，2026-11-13）
 
-- 現況：`docs/design/android-bot-port-plan.md` §3.6 明確標 `spec-partial` 且
-  「**Blocked before B4 on D7**」：watchdog config schema 仍是 unconstrained object、
-  tick/flag payload 與 unit-kind deadline 未凍結、context-lint thresholds 與 caller 只在程式碼。
-- 卡住原因：D7 契約尚未凍結（是契約 lane，不是產品決策）。
-- 解除條件：D7 schema + 共享 vectors + spec 段落；之後才能開 `:bot/watchdog` 的 Kotlin lane。
+- 原阻塞是 D7 契約未凍結（config 仍是 unconstrained object、flag payload/unit deadline、lint
+  thresholds 只在程式碼）。
+- 2026-11-13 已由 C9 凍結（`watchdog.schema.json` 13 欄位、`watchdog.md`、`observability.md`、
+  `watchdog.phone.json`／`context-lint.phone.json`、PC-20261113-bot-watchdog-d7），並由 W1
+  完成 `:bot/watchdog` 移植（watchdog 28 tests、`:bot` 400 tests、vectors PASS）。
+- 仍由宿主負責：Android 的 thermal/battery/WebContent producer 尚未接線（pure-JVM port 已有
+  fake tests）；這不是契約 blocked。
 
 ## 不在 blocked 清單、但仍未完成的 Bot 項目
 

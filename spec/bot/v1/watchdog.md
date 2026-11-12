@@ -138,7 +138,8 @@ kind 是 `turn|task|routine|goal`。unit key 是 `(kind, id)`，`id` 去前后�
   flag。goal 通常没有 deadline。
 - **heartbeat**：`pendingApproval <= 0 && heartbeatTimeoutMs > 0` 时，令
   `lastEventAt = unit.lastEventAt ?? startedAt`；`now-lastEventAt > threshold` 才 flag。等待审批
-  不算静默。事件观察、工具调用/结果、usage、mobile 都会推进 `lastEventAt`。
+  不算静默。事件观察、工具调用/结果、usage 会推进 `lastEventAt`；mobile signal 不推进
+  `lastEventAt`（`observeMobile` 只评估，不修改 unit）。
 - **repeated_tool_signature**：`repeatedToolCalls > 0` 且同 signature 连续计数 `>=` 阈值。
   signature 由 `name` + `argumentsDigest` 组成；参数摘要不同即重新计数。非连续的同签名不会累加。
 - **repeated_tool_error**：`repeatedToolErrors > 0` 且同 errorSignature 连续计数 `>=` 阈值；
