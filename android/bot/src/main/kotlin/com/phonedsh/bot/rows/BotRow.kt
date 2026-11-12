@@ -166,6 +166,12 @@ public data class BotRow(
     public val provenance: BotRowProvenance,
     public val streaming: Boolean,
     public val createdAt: Long,
+    /**
+     * In-memory chat-action nonce (`projection.md` §4.4 step 15). It is part
+     * of row content for `sameContent` but is never encoded: no durable row
+     * carries it, and `row.schema.json` has no such member.
+     */
+    public val chatActionNonce: String? = null,
 ) {
     public fun toJson(): JsonObject {
         val members = LinkedHashMap<String, JsonValue>()
