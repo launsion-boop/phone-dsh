@@ -25,6 +25,10 @@ import PhoneDSHAgentCore
         public var allowRead = false
         public var allowAlert = false
         public var linkIdentity = ""
+        /// The Link device ID exactly as `tools/list` returned it. `linkIdentity`
+        /// stays lowercased for existing trust/journal consumers; the device panel
+        /// descriptor compares `device_id` verbatim (device-panel.md §4).
+        public var linkDeviceID = ""
         public var linkState = "未发现 Link"
         public var linkTools: [String] = []
         public var linkToolDescriptors: [JSONValue] = []
