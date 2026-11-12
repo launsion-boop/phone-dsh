@@ -4075,6 +4075,14 @@ public actor PhoneDSHHost: PhoneDSHHosting {
            let egress = Self.egressAllowEnvironmentValue(configuration.egressAllowHosts) {
             environment[PhoneDSHWorkerEnvironment.egressAllow] = egress
         }
+        // The worker only sees whether write verbs may run. The token stays in
+        // the host Keychain and is injected by the credential provider for the
+        // api.github.com scope; an App-supplied value must not claim auth the
+        // host cannot back.
+        environment[PhoneDSHWorkerEnvironment.githubAuth] =
+            Self.githubAuthEnvironmentValue(configuration.githubAgent)
+        environment[PhoneDSHWorkerEnvironment.githubWrite] =
+            Self.githubWriteEnvironmentValue(configuration.githubAgent)
         engineConfiguration.environment = environment
         return engineConfiguration
     }
@@ -4082,6 +4090,21 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// `PDSH_EGRESS_ALLOW` for the Worker: the configured egress hosts in a
     /// stable order, or `nil` when the App admitted none (the Worker then says
     /// "not reported" instead of claiming an empty list).
+    /// `1` only when the Keychain token exists and writes are enabled; `0`
+    /// otherwise. The decision is host-owned, so an environment override cannot
+    /// make the Worker believe it can write without a credential.
+    static func githubAuthEnvironmentValue(_ agent: GitHubAgentConfiguration,
+                                           store: (any ModelProviderSecretStore)? = nil) -> String {
+        let resolved = store ?? KeychainModelProviderSecretStore(service: agent.service)
+        return agent.credentialAvailable(store: resolved) ? "1" : "0"
+    }
+
+    static func githubWriteEnvironmentValue(_ agent: GitHubAgentConfiguration,
+                                            store: (any ModelProviderSecretStore)? = nil) -> String {
+        let resolved = store ?? KeychainModelProviderSecretStore(service: agent.service)
+        return agent.writeCredentialAvailable(store: resolved) ? "1" : "0"
+    }
+
     static func egressAllowEnvironmentValue(_ hosts: Set<String>) -> String? {
         let entries = hosts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
