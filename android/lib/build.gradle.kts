@@ -482,7 +482,11 @@ val generateUiTokens = tasks.register("generateUiTokens") {
                 val row = objectField(path, raw)
                 val id = row["id"] as? String ?: error("$path.id must be a string")
                 val detents = enumValue("$path.detents", row["detents"], detentSetIdNames)
-                "TokenSheetPageDetent(id = ${kotlinString(id)}, detents = TokenDetentSetId.$detents)"
+                // `note` is optional; the chatSessions row uses it to say the id is
+                // debug-only. It is contract copy, not a detent value, so it is
+                // emitted as a nullable field and never parsed for behaviour.
+                val note = row["note"]?.let { it as? String ?: error("$path.note must be a string") }
+                "TokenSheetPageDetent(id = ${kotlinString(id)}, detents = TokenDetentSetId.$detents, note = ${kotlinString(note)})"
             }
         val contextMenuSurfaces = listField("interaction.contextMenu.surfaces", contextMenuSpec["surfaces"])
             .mapIndexed { surfaceIndex, raw ->
@@ -745,7 +749,7 @@ val generateUiTokens = tasks.register("generateUiTokens") {
         out.append("public data class TokenDetentSet(\n")
         out.append("    public val id: TokenDetentSetId,\n    public val detents: TokenDetent,\n)\n\n")
         out.append("public data class TokenSheetPageDetent(\n")
-        out.append("    public val id: String,\n    public val detents: TokenDetentSetId,\n)\n\n")
+        out.append("    public val id: String,\n    public val detents: TokenDetentSetId,\n    public val note: String? = null,\n)\n\n")
         out.append("public data class TokenSheetInteraction(\n")
         out.append("    public val defaultDetents: TokenDetentSetId,\n    public val mediumFraction: Measured<Float>,\n")
         out.append("    public val detentSets: List<TokenDetentSet>,\n    public val pageDetents: List<TokenSheetPageDetent>,\n")

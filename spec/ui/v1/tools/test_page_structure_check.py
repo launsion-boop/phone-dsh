@@ -1411,6 +1411,23 @@ class PageStructureCheckTests(unittest.TestCase):
             self.assertTrue(pages, f"{page_id}: no PAGE line")
             self.assertTrue(all(name == page_id for name in pages), f"{page_id}: {pages}")
 
+    def test_turn_usage_chrome_contract_compares_the_non_page_android_sheet(self) -> None:
+        """NativeTurnUsageDetails has no `*Page` file; its contract must still compare."""
+        repo = Path(__file__).resolve().parents[4]
+        path = repo / "spec/ui/v1/pages/turn-usage.json"
+        if not path.is_file():
+            self.skipTest("repo contracts not present")
+        contract = check.load_contracts(repo)["turn-usage"]
+        self.assertEqual("NativeTurnUsageDetails", contract["page"])
+        self.assertEqual("TurnUsageSheet", contract["android"]["screen"])
+        self.assertTrue(contract["android"]["file"].endswith("surface/TurnUsageSheet.kt"))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = check.run(repo, strict=True, baseline_path=None, write_baseline=None,
+                           only_page="turn-usage", verbose=False)
+        self.assertEqual(rc, 0, out.getvalue())
+        self.assertIn("page-structure: ok (0 divergences", out.getvalue())
+
     # -- provenance never ratchets -----------------------------------------
 
     def test_stale_provenance_is_red(self) -> None:

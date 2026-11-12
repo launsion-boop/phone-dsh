@@ -1315,8 +1315,8 @@ def _drawer_case_number(case: dict, member: str, group: str) -> float:
     return float(value)
 
 
-def _interaction_source_line(root: Path, source: str, where: str) -> str:
-    """Resolve a Swift source the same way check_provenance_sources does."""
+def _interaction_source_path(root: Path, source: str, where: str) -> tuple:
+    """Resolve a Swift source anchor to (path, line number)."""
     files = {}
     for path in sorted((root / PROBE_REL).rglob("*.swift")):
         files.setdefault(path.name, path)
@@ -1332,7 +1332,13 @@ def _interaction_source_line(root: Path, source: str, where: str) -> str:
         raise CheckError(
             f"{where}: stale source {source!r}; {filename} has {len(lines)} line(s)"
         )
-    return lines[line_number - 1]
+    return path, line_number
+
+
+def _interaction_source_line(root: Path, source: str, where: str) -> str:
+    """Resolve a Swift source the same way check_provenance_sources does."""
+    path, line_number = _interaction_source_path(root, source, where)
+    return read_text(path).splitlines()[line_number - 1]
 
 
 def _check_anchor(root: Path, entry: dict, where: str, probe_present: bool) -> None:
@@ -1455,6 +1461,78 @@ def _unique_id(row, where: str, seen: set) -> str:
     return ident
 
 
+def _swift_matching(text: str, start: int, opener: str, closer: str) -> int:
+    """Index of the delimiter matching `text[start]`, or -1.
+
+    Skips Swift string literals and comments so a brace or paren inside copy does
+    not shift the range. Only the subset used by the `.sheet` call sites is
+    modelled; multiline string literals are not needed there.
+    """
+    if start >= len(text) or text[start] != opener:
+        return -1
+    depth = 0
+    quote = None
+    escaped = False
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char == '"':
+            quote = char
+            index += 1
+            continue
+        if text.startswith("//", index):
+            newline = text.find("\n", index)
+            if newline < 0:
+                return -1
+            index = newline + 1
+            continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0:
+                return -1
+            index = end + 2
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _sheet_body_for_line(path: Path, line_number: int) -> str | None:
+    """The `.sheet` trailing-closure body that contains a source line, or None."""
+    text = read_text(path)
+    offset = sum(len(line) for line in text.splitlines(keepends=True)[: line_number - 1])
+    for match in re.finditer(r"\.sheet\s*\(", text):
+        open_paren = match.end() - 1
+        close_paren = _swift_matching(text, open_paren, "(", ")")
+        if close_paren < 0:
+            continue
+        brace = close_paren + 1
+        while brace < len(text) and text[brace].isspace():
+            brace += 1
+        if brace >= len(text) or text[brace] != "{":
+            continue
+        close_brace = _swift_matching(text, brace, "{", "}")
+        if close_brace < 0:
+            continue
+        if brace <= offset <= close_brace:
+            return text[brace:close_brace + 1]
+    return None
+
+
 def _check_sheet_tables(root: Path, sheet: dict, probe_present: bool) -> None:
     seen = set()
     set_ids = set()
@@ -1474,20 +1552,48 @@ def _check_sheet_tables(root: Path, sheet: dict, probe_present: bool) -> None:
         _check_anchor(root, row, f"interaction.sheet.detentSets[{ident}]", probe_present)
         set_ids.add(ident)
     seen = set()
-    pages = _check_rows(sheet.get("pageDetents"), "interaction.sheet.pageDetents", 13, 13)
+    default = sheet["defaultDetents"].get("value")
+    pages = _check_rows(sheet.get("pageDetents"), "interaction.sheet.pageDetents", 20, 20)
     for row in pages:
         ident = _unique_id(row, "interaction.sheet.pageDetents", seen)
+        where = f"interaction.sheet.pageDetents[{ident}]"
         _check_row_keys(
             row,
-            f"interaction.sheet.pageDetents[{ident}]",
+            where,
             ("id", "detents", "source", "expect"),
+            ("note",),
         )
         if row["detents"] not in set_ids:
             raise CheckError(
                 f"interaction.sheet.pageDetents[{ident}] references unknown detent set "
                 f"{row['detents']!r}"
             )
-        _check_anchor(root, row, f"interaction.sheet.pageDetents[{ident}]", probe_present)
+        _check_anchor(root, row, where, probe_present)
+        if not probe_present:
+            continue
+        path, line_number = _interaction_source_path(root, row["source"], where)
+        line = read_text(path).splitlines()[line_number - 1]
+        if row["detents"] == default:
+            if ".homeSheetChrome()" not in line:
+                raise CheckError(
+                    f"{where}: detent set {row['detents']!r} is the default set, so its "
+                    "source must anchor on a .homeSheetChrome() line"
+                )
+            body = _sheet_body_for_line(path, line_number)
+            if body is None:
+                raise CheckError(
+                    f"{where}: source {row['source']!r} is not inside a .sheet body"
+                )
+            if ".presentationDetents(" in body:
+                raise CheckError(
+                    f"{where}: default-set row anchors inside a .sheet body that writes "
+                    ".presentationDetents(...)"
+                )
+        elif ".presentationDetents(" not in line:
+            raise CheckError(
+                f"{where}: detent set {row['detents']!r} is not the default set, so its "
+                "source must anchor on a .presentationDetents( line"
+            )
     if probe_present:
         sites = 0
         for path in (root / PROBE_REL).rglob("*.swift"):
@@ -1503,13 +1609,13 @@ def _check_sheet_tables(root: Path, sheet: dict, probe_present: bool) -> None:
                         f"interaction.sheet: {path.name} uses {needle} ({reason}) "
                         "that the sheet contract does not cover"
                     )
-        if sites != len(pages):
+        explicit = [row for row in pages if row["detents"] != default]
+        if sites != len(explicit):
             raise CheckError(
                 "interaction.sheet: "
                 f"{sites} .presentationDetents site(s) in the probe app but "
-                f"{len(pages)} pageDetent row(s) in the contract"
+                f"{len(explicit)} non-default pageDetent row(s) in the contract"
             )
-    default = sheet["defaultDetents"].get("value")
     if default not in set_ids:
         raise CheckError(
             f"interaction.sheet.defaultDetents value {default!r} is not a detent set id"
