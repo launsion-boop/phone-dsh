@@ -49,6 +49,7 @@ class ClassificationTests(unittest.TestCase):
             "wal": 101,
             "materialized": 505,       # workspace 202 + session log 303
             "caches": 0,
+            "app-support": 0,
             "response-log": 404,
             "overlay": 1717,           # 808 + 909
             "journal": 707,
@@ -158,6 +159,90 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(report["categories"]["caches"], 0)
         self.assertEqual(report["categories"]["other"], 24)
         self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+
+    def test_app_support_domain_is_its_own_bucket_not_wal(self) -> None:
+        # Regression for docs/perf/sim-container-20261113.md finding 1:
+        # Library/Application Support/PhoneDSHBot/domain.sqlite-wal used to fall
+        # into `other`.  It is the Bot's SQLite domain, so it is attributable
+        # but is neither a store bucket nor a rebuildable cache.
+        root = self.temp / "container"
+        support = root / "Library" / "Application Support" / "PhoneDSHBot"
+        _write(support / "domain.sqlite", 4096)
+        _write(support / "domain.sqlite-wal", 156592)
+        _write(support / "domain.sqlite-shm", 32768)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["app-support"], 193456)
+        self.assertEqual(report["categories"]["other"], 0)
+        self.assertEqual(report["categories"]["caches"], 0)
+        # The suffix in `domain.sqlite-wal` is not the `wal` path component.
+        self.assertEqual(report["categories"]["wal"], 0)
+        self.assertEqual(report["file_counts"]["app-support"], 3)
+        self.assertEqual(report["subdirectories"]["app-support"], 193456)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+        self.assertIn("app-support", report["category_notes"])
+        note = report["category_notes"]["app-support"]
+        self.assertIn("Library/Application Support", note)
+        self.assertIn("PhoneDSHBot/domain.sqlite", note)
+        self.assertIn("not a rebuildable cache", note)
+        self.assertIn("does not purge", note)
+
+    def test_app_support_children_named_after_stores_stay_app_support(self) -> None:
+        # A directory called `wal` or `response-log` under the Bot's domain is
+        # still Bot data, exactly like the Library/Caches rule.  The anchored
+        # check must run before the store-name checks.
+        root = self.temp / "container"
+        support = root / "Library" / "Application Support" / "PhoneDSHBot"
+        _write(support / "wal" / "x", 10)
+        _write(support / "response-log" / "k" / "body", 20)
+        _write(support / "nested" / "wal" / "x", 30)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["app-support"], 60)
+        self.assertEqual(report["categories"]["wal"], 0)
+        self.assertEqual(report["categories"]["response-log"], 0)
+        self.assertEqual(report["file_counts"]["app-support"], 3)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+
+    def test_app_support_anchor_requires_the_library_path(self) -> None:
+        # Only the app container's Library/Application Support is the Bot
+        # domain; the same names elsewhere (and the wrong case) are not.
+        root = self.temp / "container"
+        _write(root / "Application Support" / "PhoneDSHBot" / "domain.sqlite-wal", 11)
+        _write(root / "Documents" / "Application Support" / "PhoneDSHBot" /
+               "domain.sqlite-wal", 13)
+        _write(root / "Library" / "application support" / "PhoneDSHBot" /
+               "domain.sqlite-wal", 17)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["app-support"], 0)
+        self.assertEqual(report["categories"]["other"], 41)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+
+    def test_app_support_bucket_does_not_disturb_stores_or_caches(self) -> None:
+        # The three domains coexist in the real simulator container: the
+        # Documents store, the Library/Caches rebuildable tree and the Bot's
+        # Library/Application Support domain must stay in separate buckets.
+        root = self.temp / "container"
+        _write(root / "Documents" / "chat-host" / "wal" / "00000003.000000.xlwal", 500)
+        _write(root / "Library" / "Caches" / "pdsh" / "perf" / "response-log" /
+               "k" / "body", 600)
+        _write(root / "Library" / "Application Support" / "PhoneDSHBot" /
+               "domain.sqlite-wal", 700)
+
+        report = measure.measure(root)
+        self.assertEqual(report["categories"]["wal"], 500)
+        self.assertEqual(report["categories"]["caches"], 600)
+        self.assertEqual(report["categories"]["app-support"], 700)
+        self.assertEqual(report["categories"]["other"], 0)
+        self.assertEqual(report["file_counts"]["wal"], 1)
+        self.assertEqual(report["file_counts"]["caches"], 1)
+        self.assertEqual(report["file_counts"]["app-support"], 1)
+        self.assertEqual(report["subdirectories"]["wal"], 500)
+        self.assertEqual(report["subdirectories"]["caches"], 600)
+        self.assertEqual(report["subdirectories"]["app-support"], 700)
+        self.assertEqual(sum(report["categories"].values()), report["total_bytes"])
+        self.assertEqual(report["total_bytes"], 1800)
 
     def test_workspace_subdirectory_named_sessions_is_not_the_session_bucket(self) -> None:
         root = self.temp / "container"
