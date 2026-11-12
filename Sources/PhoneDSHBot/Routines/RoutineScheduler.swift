@@ -481,7 +481,9 @@ public actor RoutineScheduler {
             scheduledNotificationCount: scheduledNotifications.count)
         return RoutinePresence(level: level,
                                deferred: RoutinePresencePolicy.deferred(routines),
-                               scheduledNotificationCount: scheduledNotifications.count)
+                               scheduledNotificationCount: scheduledNotifications.count,
+                               nextNotificationAt: scheduledNotifications.values
+                                   .map(\.fireAt).min())
     }
 
     /// Applies a settings edit immediately: quiet-hour deferrals and pending

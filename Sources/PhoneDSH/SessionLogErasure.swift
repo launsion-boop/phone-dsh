@@ -380,7 +380,7 @@ enum SessionLogErasure {
                 segments: ["record mseq \(old.mseq)"])
         }
 
-        removeDerivedCopies(root: workspaceRoot)
+        removeDerivedCopies(root: workspaceRoot, sessionIDs: [request.sessionID])
         return PhoneDSHSessionErasureResult(
             sessionID: request.sessionID,
             erasedSeqs: plan.erasedSeqs,
@@ -391,10 +391,12 @@ enum SessionLogErasure {
             droppedSegments: dropped)
     }
 
-    /// The boot overlay and reconcile scratch trees are derived copies of the
-    /// materialized sessions. A successful rewrite must not leave the old
-    /// session bytes in them (wal.md §5.3 step 5).
-    static func removeDerivedCopies(root: URL) {
+    /// The boot overlay, reconcile scratch trees and the DSH session projection
+    /// cache are derived copies of the materialized sessions. A successful
+    /// rewrite must not leave the old session bytes in them (wal.md §5.3
+    /// step 5). The projection cache is keyed by session id and is rebuilt on
+    /// demand, so removing only the erased sessions is enough.
+    static func removeDerivedCopies(root: URL, sessionIDs: Set<String> = []) {
         let manager = FileManager.default
         for name in ["overlay-cache.tar", "overlay-cache.json"] {
             try? manager.removeItem(at: root.appendingPathComponent(name))
@@ -406,6 +408,13 @@ enum SessionLogErasure {
         }
         for name in ["materialized.staging", "recovery-backup"] {
             try? manager.removeItem(at: root.appendingPathComponent(name, isDirectory: true))
+        }
+        let projectionRoot = root
+            .appendingPathComponent("materialized/home/storages/session_projcache/sessions",
+                                    isDirectory: true)
+        for sessionID in sessionIDs {
+            try? manager.removeItem(
+                at: projectionRoot.appendingPathComponent("\(sessionID).json"))
         }
     }
 }

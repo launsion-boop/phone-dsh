@@ -227,6 +227,31 @@ public struct BotSessionErasurePlanner: Sendable {
                     seqs.insert(line.seq)
                 }
             }
+            // DSH copies one user-role message into the inbox as
+            // `agent/inbox/spliced` before it becomes the canonical
+            // `user/message` line. Tombstoning only the canonical record leaves
+            // the same original text in the splice line (F4). A splice line is
+            // an erased line when any inserted message is the same message as
+            // one already selected here (same DSH message id / source rpcId, or
+            // the exact same text with its producer kind).
+            if !seqs.isEmpty {
+                var erased = seqs
+                var changed = true
+                while changed {
+                    changed = false
+                    let fingerprints = messageFingerprints(
+                        of: lines.filter { erased.contains($0.seq) })
+                    for line in lines where !line.erased && !erased.contains(line.seq)
+                        && line.type == "agent/inbox/spliced" {
+                        guard !spliceFingerprints(line).isDisjoint(with: fingerprints) else {
+                            continue
+                        }
+                        erased.insert(line.seq)
+                        changed = true
+                    }
+                }
+                seqs = erased
+            }
             guard !seqs.isEmpty else { continue }
             targets.append(BotSessionErasureTarget(
                 sessionID: sessionID,
@@ -293,6 +318,61 @@ public struct BotSessionErasurePlanner: Sendable {
             + "\nThe previous conversation continues below. Lines the user erased are omitted.\n"
             + joined
             + "\n</session_continuation>"
+    }
+
+    /// Every fingerprint carried by a line selected for erasure. The tokens are
+    /// intentionally narrow: a DSH message id, the producer's rpcId, or the
+    /// exact visible text together with the producer kind. Short text is never
+    /// a fingerprint on its own.
+    private func messageFingerprints(of lines: [BotSessionLogLine]) -> Set<String> {
+        var result = Set<String>()
+        for line in lines {
+            guard let object = jsonObject(line) else { continue }
+            if line.type == "user/message" || line.type == "assistant/message" {
+                let data = object["data"] as? [String: Any]
+                let message = data?["message"] as? [String: Any] ?? data
+                result.formUnion(fingerprints(message: message))
+            } else if line.type == "agent/inbox/spliced" {
+                result.formUnion(spliceFingerprints(line))
+            }
+        }
+        return result
+    }
+
+    private func spliceFingerprints(_ line: BotSessionLogLine) -> Set<String> {
+        guard let object = jsonObject(line),
+              let data = object["data"] as? [String: Any],
+              let inserted = data["inserted"] as? [[String: Any]] else { return [] }
+        var result = Set<String>()
+        for message in inserted {
+            result.formUnion(fingerprints(message: message))
+        }
+        return result
+    }
+
+    private func fingerprints(message: [String: Any]?) -> Set<String> {
+        guard let message else { return [] }
+        var result = Set<String>()
+        if let id = message["id"] as? String, !id.isEmpty {
+            result.insert("id:\(id)")
+        }
+        let source = message["source"] as? [String: Any]
+        if let rpcId = source?["rpcId"] as? String, !rpcId.isEmpty {
+            result.insert("rpc:\(rpcId)")
+        }
+        if let text = messageText(message)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           text.unicodeScalars.count >= 8 {
+            let kind = source?["kind"] as? String ?? "unknown"
+            result.insert("text:\(kind):\(text)")
+        }
+        return result
+    }
+
+    private func jsonObject(_ line: BotSessionLogLine) -> [String: Any]? {
+        guard let value = try? JSONSerialization.jsonObject(with: Data(line.raw.utf8)) else {
+            return nil
+        }
+        return value as? [String: Any]
     }
 
     private func messageText(_ value: Any?) -> String? {
