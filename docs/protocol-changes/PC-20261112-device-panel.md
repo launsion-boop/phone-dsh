@@ -114,10 +114,12 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
 
 实现开始前由协调者定下，均不改变 owning spec 的条款；实现方按这些答复工作：
 
-1. **忙文本不新增第三条。** 准入在 `LinkToolCaller` 合成一个 `LinkBusy` 错误，在 journal 落盘之前抛出。
-   `DeviceMCPServer` 把它映射回各工具**现有的**文本：`ble_link_call` → "Another Link call is running"，
-   `ble_link_result` → "Invalid result query or Link busy"。MCP 的可观察文本因此逐字节不变；
-   面板自己把 `LinkBusy` 显示成本地化文案。§2.3 的行为变化只有「store 忙 → 忙且无记录」这一种。
+1. **忙文本不新增第三条，也不合并现有两层。** 准入在 `LinkToolCaller` 合成一个 `LinkBusy` 错误，在 journal
+   落盘之前抛出。`DeviceMCPServer` 把它映射回 base 的**分层**文本：`ble_link_call` 在两种忙情形下都是
+   "Another Link call is running"；`ble_link_result` 在 MCP 自身有进行中的调用时仍是
+   "Invalid result query or Link busy"，在 store 被面板／设备任务占用时仍是 "Link is busy"。
+   面板自己把 `LinkBusy` 显示成本地化文案。除 §2.3 登记的「`ble_link_call` store 忙 → 忙且无记录」外，
+   MCP 的可观察文本逐字节不变。
 2. **采用入口与工作区约定。** 入口只在面板页（工具栏／空状态「采用描述…」），清单来自工作区
    `device-panels/*.json`；模型把描述写到工作区路径 `device-panels/<Link device ID>.json`。
    这是给模型的命名约定，不是协议面：内容仍由 §4.2 求值，文件名不参与判定。不改 `FilesPage`。
@@ -125,7 +127,11 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
    不新增 UserDefaults key（那会是新的 P18 表面）。A0 的发布决定仍按 §3。
 4. **§2.2 的两处设计按冻结文本实施。** 截至实现开始未收到需求方推翻意见；若之后被推翻，
    出新 revision，WP1 与 WP4 重跑。
-5. **内部接口冻结。** 协调者在 `6e626fb4` 提交了四个 Swift 内部接口骨架（`DevicePanelSchema.swift`、
+5. **`origin` 只表达调用面，不落盘。** 面板调用在类型上就是 `.user`，MCP 是 `.agent`；按 §2.6 第 2 条
+   （计划口径）journal 格式不变，所以 `origin` 不写进 journal、也不进入面板结果记录。§3「来源记为用户」
+   的实现方式是：面板这条路径根本不经过 Agent／模型，不存在把它归因为模型的记录。若以后要审计来源，
+   那是 P18 的格式变更，须另提 CCR。
+6. **内部接口冻结。** 协调者在 `6e626fb4` 提交了四个 Swift 内部接口骨架（`DevicePanelSchema.swift`、
    `DevicePanelDescriptor.swift`、`LinkToolCaller.swift`、`DevicePanelStore.swift`）以及设备模型上的
    `linkDeviceID` 原始值字段，只为四个工作包能并行编译；它们不是协议，实现方在各自工作包里替换。
    同时把既有 `UniqueJSONKeys` 的 `struct`／`init`／`check` 放开为 `public`，避免复制重复键扫描器；
@@ -162,9 +168,12 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
   `spec/device/v1/golden/device-panel-descriptor-cases.jsonl`（59 行，十种结果各至少一例）。两份都含正例、反例、
   数值与大小边界、未知值和判定顺序。
 - **各端真实测试。** Swift：分类器与求值器读上述两份文件（`DevicePanelVectorTests`，10 tests，36+59 行逐行）；
-  已采用描述的存储 12 tests（WP1 合入后真实求值器 round-trip 用例由 skip 转 PASS）；并发准入 7 tests；
-  面板 model 10 tests（模拟器、fake source）。调用路径经真实 `BLEDeviceStore` 与 journal，覆盖 `not_executed`、
-  `outcome_unknown`、断线、撤销授权、并发准入。Kotlin：未实现（GAP-20）；C：不变。
+  已采用描述的存储 12 tests（WP1 合入后真实求值器 round-trip 用例由 skip 转 PASS）；并发准入 7 tests
+  （真实 `BLEDeviceStore` + journal；覆盖 `not_executed`、`outcome_unknown`、取消、撤销授权、两调用者并发，
+  以及 loser 无 journal／winner 不受影响／同幂等 key 重试成功）。**真实断线**没有在新增准入回归里重做：
+  断线语义由既有 `StandardGatt*`／`PDSHLinkTests` 覆盖，准入回归的 transport 是手写 fake，不是
+  `golden/pdsh-link.jsonl` 帧。面板 model 10 tests（模拟器、fake source）；**采用 sheet 的文件选择／预览／
+  确认／移除交互没有 UI 测试**，只有 model 级测试。Kotlin：未实现（GAP-20）；C：不变。
 - **命令 → 结果**（2026-11-12，集成分支 `feat/device-panel` 的评审 head，macOS arm64，Xcode 27.2 / Swift 6.4.2）：
   - `swift test --filter DevicePanelVectorTests` → PASS（10 tests）
   - `swift test --filter DevicePanelStoreTests` → PASS（12 tests）
@@ -187,16 +196,20 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
     `PhoneDSHTests.ProbeScenePhaseWiringTests` 一条既有失败（base 上相同）；没有一条指向本单改动
   - `bash firmware/tests/run.sh` → FAIL：所有可运行 host 检查 PASS，停在缺 ESP-IDF reference build（cJSON）；
     未改动的 base 上相同。`bash firmware/tests/run.sh --portable-only` → PASS
-  - probe-app：`xcodegen generate` → PASS；`xcodebuild … -destination 'generic/platform=iOS Simulator' build` → PASS
+  - probe-app：`xcodegen generate` → PASS（需先建 gitignored 的 `Bundle/worker/` 空目录，未提交）；
+    `xcodebuild … -destination 'generic/platform=iOS Simulator' build` → PASS
   - `xcodebuild -scheme PhoneDSHSim -only-testing:PhoneDSHSimTests/DevicePanelModelTests test` → PASS（10 tests，
     iOS 18.0 模拟器；这是 model/fake 级证据，不是设备结论）
   - `python3 scripts/ci/protocol_impact.py --base main --body-file …` → PASS（触发 P05、P07、P09、P18）
   - 真机 iPhone + TonoLink M21-R4 → NOT_RUN
 - **未验证。** 真机 E2E（连接、发送、断电恢复、撤销授权、模型生成描述后采用）、断电/崩溃的持久性、
-  模拟器里真实 BLE 路径（仅 fake source）、Android 上规则的可行性。
-- **剩余风险。** §2.4 的 Android 风险（GAP-20）；§2.3 的并发行为变化（`ble_link_result` 忙文本由 store 级
-  "Link is busy" 变为准入级文本）；参考实现与规范文本出自同一作者，没有第二个独立实现交叉验证向量；
-  测试证明的是代码与共享向量一致，不是真机行为。
+  模拟器里真实 BLE 路径（仅 fake source）、采用 sheet 的真实 UI 交互、已准入调用中的真实断线、
+  Android 上规则的可行性。
+- **剩余风险。** §2.4 的 Android 风险（GAP-20）；§2.3 的并发行为变化；参考实现与规范文本出自同一作者，
+  没有第二个独立实现交叉验证向量；测试证明的是代码与共享向量一致，不是真机行为；
+  `duplicate_key` 与深度溢出同时出现时 Python 参考实现与 Swift 的优先级不同（GAP-40，共享向量未覆盖）；
+  预设参数使 Link 请求超过 4096 字节时，既有路径会先落盘、再在客户端编码阶段失败并被报成
+  `outcome_unknown`（base 的 Agent 路径同样存在，面板预设更容易触发；本单未修，属 P05/P07 的既有边界）。
 
 ## 5. 审核边界（发布决定的依据，不是协议条款）
 
