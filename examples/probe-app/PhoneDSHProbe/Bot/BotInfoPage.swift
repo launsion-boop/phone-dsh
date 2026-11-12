@@ -1872,6 +1872,7 @@ struct BotPresenceSection: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bot.info.presence")
     }
 
