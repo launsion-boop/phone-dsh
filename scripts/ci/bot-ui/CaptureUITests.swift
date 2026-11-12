@@ -279,6 +279,77 @@ final class BotCaptureUITests: XCTestCase {
             .matching(identifier: "bot.composer.input").firstMatch.exists)
     }
 
+    /// P0 (2026-11-12): a keyboard-open turn with a question card, an
+    /// approval card, a checklist, a progress card and long text. The field
+    /// failure was the main thread looping in
+    /// `LazySubviewPlacements.updateValue/placeSubviews`: XCUITest could read
+    /// the element tree but the question option and approval button were
+    /// `Not hittable`, while `bot.composer.input` timed out resolving
+    /// snapshots. The cards must stay tappable and the composer must keep
+    /// answering snapshots before and after each tap, with the keyboard up.
+    func testKeyboardOpenDenseCardsStayHittableAndTappable() throws {
+        launch("chatLayoutKeyboard")
+        let input = app.textFields["bot.composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+
+        // Type without sending so the composer keeps focus and the software
+        // keyboard stays on screen for the whole interaction.
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3),
+                      "software keyboard did not open; the layout precondition is missing")
+        input.typeText("layout")
+
+        // The progress card updates in place while the keyboard is open. It
+        // lives below the fold here; the id row is how the test observes the
+        // fixture's update without dismissing the keyboard.
+        let ids = app.descendants(matching: .any)["bot.fixture.ids"]
+        XCTAssertTrue(ids.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            let label = ids.label
+            return label.contains("interactive-progress")
+                && !label.contains("interactive-progress-update")
+                && !label.contains("interactive-progress-final")
+        }, "progress card id changed: \(ids.label)")
+
+        // Composer snapshot before the taps.
+        XCTAssertTrue(input.exists, "composer is not resolvable before the taps")
+
+        // The question card is first: option A must be hittable while the
+        // keyboard covers the bottom of the transcript.
+        let option = app.buttons["bot.choice.option.o0"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        XCTAssertTrue(option.isHittable,
+                      "question option is visible but not hittable: \(option.frame)")
+        option.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            (app.descendants(matching: .any)["bot.fixture.actions"].label).contains("cardAnswer")
+        }, "tapping the option did not send the answer")
+
+        // The approval card is next. Scrolling may interactively dismiss the
+        // keyboard; focus the field again so the approval tap happens with the
+        // keyboard up, as in the field failure.
+        let always = app.buttons["bot.approval.always"]
+        scrollTo(always)
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(always.isHittable,
+                      "approval always button is visible but not hittable: \(always.frame)")
+        XCTAssertTrue(input.exists, "composer is not resolvable before the approval tap")
+        always.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            (app.descendants(matching: .any)["bot.fixture.actions"].label)
+                .contains("approval:always")
+        }, "tapping 本次对话都允许 did not send the approval")
+        XCTAssertFalse(app.buttons["bot.approval.always"].exists)
+
+        // Composer snapshot after both taps, still with the keyboard up.
+        XCTAssertTrue(input.exists, "composer is not resolvable after the taps")
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        input.typeText("ok")
+        XCTAssertTrue(input.exists)
+    }
+
     /// A lost live `turn/end` must not pin the live tool group forever. The
     /// 800ms durable watch is authoritative; once it carries the answer the
     /// stop control and tool-running activity go away.

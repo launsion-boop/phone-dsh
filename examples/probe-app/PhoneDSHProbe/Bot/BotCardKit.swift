@@ -14,6 +14,7 @@
 // in a 20pt column (or a 32pt gray tile for objects); buttons are 44pt
 // capsules. Color is monochrome: green and red mark only success and failure.
 
+import PhoneDSHBot
 import SwiftUI
 
 enum BotCardMetrics {
@@ -97,25 +98,61 @@ struct BotContentWidth<Content: View>: View {
 /// Shared by the Bot reply bubble, every card, and the user bubble (with its
 /// own 0.80 cap): propose the capped width, then place the content-sized child
 /// on the leading or trailing edge.
+///
+/// The layout is deliberately a pure function of the column **width**. The
+/// keyboard and safe-area changes alter the available height, and forwarding
+/// that height to the content made the child report a different natural height
+/// between passes; the lazy transcript then kept re-measuring the same cards.
+/// `BotAdaptiveBubbleGeometry` (PhoneDSHBot) owns the decision so the SwiftPM
+/// tests can prove it.
 struct BotAdaptiveBubbleLayout: Layout {
-    typealias Cache = CGSize
+    /// The last content measurement, tagged with the parent width it was
+    /// taken for. Placement reuses it only for the same width.
+    struct Cache: Equatable {
+        var parentWidth: CGFloat = 0
+        var contentHeight: CGFloat = 0
+    }
 
     let ratio: CGFloat
     let trailing: Bool
 
-    func makeCache(subviews: Subviews) -> CGSize { .zero }
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) -> CGSize {
-        guard let child = subviews.first, let width = proposal.width else { return .zero }
-        cache = child.sizeThatFits(ProposedViewSize(width: width * ratio, height: proposal.height))
-        return CGSize(width: width, height: cache.height)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        guard let width = proposal.width else {
+            // No column width yet. Return the content's ideal size instead of
+            // collapsing to zero: a 0 → content-height flip is another
+            // needless placement pass.
+            let ideal = child.sizeThatFits(.unspecified)
+            return BotAdaptiveBubbleGeometry.bubbleSize(availableWidth: ideal.width,
+                                                        contentHeight: ideal.height)
+        }
+        let contentProposal = BotAdaptiveBubbleGeometry.contentProposal(
+            availableWidth: width, availableHeight: proposal.height, ratio: ratio)
+        let content = child.sizeThatFits(ProposedViewSize(width: contentProposal?.width,
+                                                          height: contentProposal?.height))
+        cache = Cache(parentWidth: width, contentHeight: content.height)
+        return BotAdaptiveBubbleGeometry.bubbleSize(availableWidth: width,
+                                                     contentHeight: content.height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize) {
-        guard let child = subviews.first else { return }
-        let x = trailing ? bounds.maxX - cache.width : bounds.minX
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout Cache) {
+        guard let child = subviews.first, bounds.width > 0 else { return }
+        let contentWidth = BotAdaptiveBubbleGeometry.contentWidth(
+            availableWidth: bounds.width, ratio: ratio) ?? bounds.width
+        let contentHeight = BotAdaptiveBubbleGeometry.contentHeight(
+            boundsWidth: bounds.width,
+            cachedWidth: cache.parentWidth,
+            cachedHeight: cache.contentHeight) { width in
+                child.sizeThatFits(ProposedViewSize(width: width * ratio, height: nil)).height
+            }
+        cache = Cache(parentWidth: bounds.width, contentHeight: contentHeight)
+        let x = BotAdaptiveBubbleGeometry.contentOriginX(
+            bounds: bounds, contentWidth: contentWidth, trailing: trailing)
         child.place(at: CGPoint(x: x, y: bounds.minY),
-                    proposal: ProposedViewSize(width: cache.width, height: cache.height))
+                    proposal: ProposedViewSize(width: contentWidth, height: contentHeight))
     }
 }
 
@@ -230,17 +267,40 @@ private enum BotCardHeadingTextStyle {
     }
 }
 
-private struct BotCardTextHeights: Equatable {
-    var full: CGFloat = 0
-    var limited: CGFloat = 0
-}
-
 private struct BotCardTextHeightsKey: PreferenceKey {
     static var defaultValue = BotCardTextHeights()
     static func reduce(value: inout BotCardTextHeights, nextValue: () -> BotCardTextHeights) {
         let next = nextValue()
         value.full = max(value.full, next.full)
         value.limited = max(value.limited, next.limited)
+    }
+}
+
+/// Holds the in-flight heading measurement outside SwiftUI state.
+/// `onPreferenceChange` runs inside the layout transaction; writing even a
+/// task handle to `@State` there dirties the graph that is measuring the card
+/// and can keep the lazy transcript placing subviews. Only this plain class is
+/// mutated during the callback; the visible state is written by the deferred
+/// task, after layout.
+private final class BotCardTextMeasurementBox {
+    private var measurement = BotCardTextMeasurement()
+    private var task: Task<Void, Never>?
+
+    func report(_ next: BotCardTextHeights,
+                apply: @escaping (BotCardTextHeights) -> Void) {
+        guard measurement.report(next) else { return }
+        task?.cancel()
+        task = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self,
+                  let value = self.measurement.commit() else { return }
+            apply(value)
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
     }
 }
 
@@ -252,10 +312,11 @@ private struct BotCardExpandableText: View {
     let style: BotCardHeadingTextStyle
     let lineLimit: Int
     @State private var expanded = false
-    @State private var measured = BotCardTextHeights()
-    @State private var measurementTask: Task<Void, Never>?
+    /// The visible result of the last committed measurement.
+    @State private var showsExpansionControl = false
+    @State private var measurement = BotCardTextMeasurementBox()
 
-    private var canExpand: Bool { measured.full > measured.limited + 0.5 }
+    private var canExpand: Bool { showsExpansionControl }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -265,12 +326,12 @@ private struct BotCardExpandableText: View {
                 .background(alignment: .topLeading) { fullHeightProbe }
                 .background { limitedHeightProbe }
                 .onPreferenceChange(BotCardTextHeightsKey.self) { next in
-                    scheduleMeasurement(next)
+                    measurement.report(next) { heights in
+                        let shows = heights.needsExpansionControl
+                        if shows != showsExpansionControl { showsExpansionControl = shows }
+                    }
                 }
-                .onDisappear {
-                    measurementTask?.cancel()
-                    measurementTask = nil
-                }
+                .onDisappear { measurement.cancel() }
             if canExpand || expanded {
                 Button(expanded ? "收起" : "展开") {
                     withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
@@ -308,24 +369,6 @@ private struct BotCardExpandableText: View {
         }
     }
 
-    /// Preference callbacks run inside SwiftUI's layout transaction. Writing
-    /// `@State` there invalidates the same graph that is measuring the card,
-    /// so a title whose probe reports a slightly different height can keep the
-    /// lazy stack in a placement loop. Coalesce the value to the next main
-    /// run-loop turn and keep the last assignment only when it really changed.
-    private func scheduleMeasurement(_ next: BotCardTextHeights) {
-        guard Self.differs(next, measured) else { return }
-        measurementTask?.cancel()
-        measurementTask = Task { @MainActor in
-            await Task.yield()
-            guard !Task.isCancelled, Self.differs(next, measured) else { return }
-            measured = next
-        }
-    }
-
-    private static func differs(_ lhs: BotCardTextHeights, _ rhs: BotCardTextHeights) -> Bool {
-        abs(lhs.full - rhs.full) > 0.5 || abs(lhs.limited - rhs.limited) > 0.5
-    }
 }
 
 /// 0.5pt hairline between rows; `inset` lines it up with the row text.

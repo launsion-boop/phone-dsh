@@ -424,7 +424,11 @@ final class BotChatModel: ObservableObject {
     }
 
     private func applyDurablePresentation(_ presentation: BotRuntimePresentation) {
-        runtimePresentation = presentation
+        // `@Published` publishes on every assignment, even an equal value. The
+        // 800ms watch re-reads the same durable projection while the user
+        // reads a card; assigning it unconditionally re-rendered the whole
+        // dense transcript every poll.
+        if presentation != runtimePresentation { runtimePresentation = presentation }
         if let liveTurn = live {
             // The durable projection is authoritative for whether a turn is
             // still open. A `turn/end` live frame can be lost when the scene
@@ -442,7 +446,7 @@ final class BotChatModel: ObservableObject {
             }
             return
         }
-        reaction = presentation.reaction
+        if reaction != presentation.reaction { reaction = presentation.reaction }
         if let turn = presentation.runningTurnID {
             if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
         } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
@@ -647,7 +651,7 @@ final class BotChatModel: ObservableObject {
             pendingDelta = ""
             var turn = live ?? BotLiveTurn()
             turn.buffer = ""
-            live = turn
+            if turn != live { live = turn }
         case .textDelta(let text):
             if live == nil { live = BotLiveTurn() }
             pendingDelta += text
@@ -672,7 +676,7 @@ final class BotChatModel: ObservableObject {
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
-            live = turn
+            if turn != live { live = turn }
             if type == "turn/start" {
                 runningTurnID = liveFish.presentation().runningTurnID
                 streamingText = nil
@@ -686,8 +690,8 @@ final class BotChatModel: ObservableObject {
 
     private func refreshLiveFishPresentation() {
         let presentation = liveFish.presentation()
-        livePresentation = presentation
-        reaction = presentation.reaction
+        if livePresentation != presentation { livePresentation = presentation }
+        if reaction != presentation.reaction { reaction = presentation.reaction }
         scheduleFishExpiry(presentation)
     }
 
@@ -718,7 +722,7 @@ final class BotChatModel: ObservableObject {
         }
         turn.buffer += pendingDelta
         pendingDelta = ""
-        live = turn
+        if turn != live { live = turn }
     }
 
     /// After `turn/end` the live view stays until the row projection shows
@@ -732,7 +736,7 @@ final class BotChatModel: ObservableObject {
         if (committed && turn.pollsSinceEnd >= 2) || turn.pollsSinceEnd >= 4 {
             live = nil
             scheduleIdleSleep(reset: true)
-        } else {
+        } else if turn != live {
             live = turn
         }
     }

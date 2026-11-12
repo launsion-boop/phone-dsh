@@ -24,6 +24,10 @@ struct BotChatPage: View {
     let peerReaction: (String) -> BotFishReaction?
     let handleExternalDeepLink: (URL) -> Bool
     let openDrawer: (() -> Void)?
+    /// Capture/test entry: focus the composer once so the keyboard-open layout
+    /// can be reproduced without an XCUITest tap. Production pages leave this
+    /// false; the interaction test still taps the field like a user.
+    let initialComposerFocus: Bool
 
     @State private var draft = ""
     @State private var sourceRow: BotUIRow?
@@ -52,6 +56,7 @@ struct BotChatPage: View {
          onSelectBot: @escaping (String) -> Void = { _ in },
          peerAppearance: @escaping (String) -> BotFishAppearance? = { _ in nil },
          peerIsMainBot: @escaping (String) -> Bool = { _ in false },
+         initialComposerFocus: Bool = false,
          peerReaction: @escaping (String) -> BotFishReaction? = { _ in nil },
          openDrawer: (() -> Void)? = nil,
          hasOnlineDevices: Bool = false,
@@ -69,6 +74,7 @@ struct BotChatPage: View {
         self.externalDocumentAction = openDocument
         self.isMainBot = isMainBot
         self.onSelectBot = onSelectBot
+        self.initialComposerFocus = initialComposerFocus
         self.peerAppearance = peerAppearance
         self.peerIsMainBot = peerIsMainBot
         self.peerReaction = peerReaction
@@ -105,6 +111,14 @@ struct BotChatPage: View {
             }
         }
         .onAppear { model.noteInteraction() }
+        .task {
+            // Fixture-only keyboard precondition. The capture interaction test
+            // taps the field itself; this hook exists so the keyboard-open
+            // layout can be sampled from a plain simctl launch as well.
+            guard initialComposerFocus else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            composerFocused = true
+        }
         .onChange(of: draft) { _, _ in model.noteInteraction() }
         .photosPicker(isPresented: $showPhotos, selection: $photoItems,
                       maxSelectionCount: BotAttachmentPolicy.maxCount, matching: .images)
