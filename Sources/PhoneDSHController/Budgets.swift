@@ -457,9 +457,9 @@ public struct HostStorageUsage: Codable, Equatable, Sendable {
             &+ responseLogBytes &+ overlayCacheBytes &+ transcriptSnapshotBytes
     }
 
-    /// Aggregate used for the level-1/2 thresholds. Outbox attachments are
-    /// user data and are included in the total footprint, but no level ever
-    /// deletes them.
+    /// Reported aggregate including the W1 outbox attachments. budgets.md §9
+    /// defines the level-1 trigger as `hostInternalBytes`, so owned outbox
+    /// bytes are counted and reported but never make a level delete anything.
     public var budgetedBytes: Int {
         hostInternalBytes &+ outboxAttachmentBytes
     }
@@ -643,7 +643,9 @@ public struct HostStoragePolicy: Equatable, Sendable {
                                        userSurface: .silent,
                                        reason: "important-usage headroom below policy floor")
         }
-        if Double(usage.budgetedBytes) > steadyStateRatio * Double(max(1, usage.workspaceLogicalBytes)) {
+        // budgets.md §9: the trigger is the §9 aggregate, not the reported
+        // total that also carries the never-evicted outbox attachments.
+        if Double(usage.hostInternalBytes) > steadyStateRatio * Double(max(1, usage.workspaceLogicalBytes)) {
             actions.append(.pruneCaches)
             return HostStorageDecision(level: .one,
                                        actions: actions,

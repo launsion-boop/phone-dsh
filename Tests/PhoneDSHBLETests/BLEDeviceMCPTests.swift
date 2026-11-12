@@ -2,6 +2,7 @@
 import XCTest
 import PhoneDSHAgentCore
 import PhoneDSHLoopback
+import PhoneDSHADB
 @testable import PhoneDSHBLE
 
 final class BLEDeviceMCPTests: XCTestCase {
@@ -41,10 +42,52 @@ final class BLEDeviceMCPTests: XCTestCase {
         let expected = try JSONValue.parse(JSONSerialization.data(withJSONObject: XCTUnwrap(row["response"])))
         XCTAssertEqual(actual, expected)
     }
-    func testToolListKeepsAndroidAndAddsBLE() async throws {
-        let response = await DeviceMCPServer().handle(try request("tools/list"))
-        let text = String(decoding: response.body, as: UTF8.self)
-        for name in ["android_status", "android_tap", "ble_devices", "ble_read", "ble_alert", "ble_link_call", "ble_link_tools", "ble_link_result"] { XCTAssertTrue(text.contains("\"name\":\"\(name)\""), name) }
+    func testToolListTiersAndroidAndBLEDeviceGroupsByConfiguredState() async throws {
+        // W5 (spec/bot/v1/README.md §2): device groups appear only while the
+        // class is connected/configured; a connected class switches on the very
+        // next tools/list. The Android group is configured here, BLE is not.
+        let suite = "BLEDeviceMCPTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = ADBSettings(defaults: defaults)
+        try settings.save(ADBConfiguration(enabled: true, host: "192.0.2.1"))
+        let adb = ADBMCPServer(settings: settings)
+        let receipts = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ble-tools-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: receipts) }
+
+        let disconnected = DeviceMCPServer(receiptDirectory: receipts, adb: adb,
+                                           bleToolVisibility: { false })
+        let androidOnly = String(decoding: await disconnected.handle(try request("tools/list")).body,
+                                 as: UTF8.self)
+        for name in ["android_status", "android_tap"] {
+            XCTAssertTrue(androidOnly.contains("\"name\":\"\(name)\""), name)
+        }
+        for name in ["ble_devices", "ble_read", "ble_alert", "ble_link_call",
+                     "ble_link_tools", "ble_link_result"] {
+            XCTAssertFalse(androidOnly.contains("\"name\":\"\(name)\""),
+                           "\(name) must stay hidden until BLE is connected/configured")
+        }
+
+        let connected = DeviceMCPServer(receiptDirectory: receipts, adb: adb,
+                                        bleToolVisibility: { true })
+        let withBLE = String(decoding: await connected.handle(try request("tools/list")).body,
+                             as: UTF8.self)
+        for name in ["android_status", "android_tap", "ble_devices", "ble_read",
+                     "ble_alert", "ble_link_call", "ble_link_tools", "ble_link_result"] {
+            XCTAssertTrue(withBLE.contains("\"name\":\"\(name)\""), name)
+        }
+
+        // The connection/configuration predicate is the single source of the
+        // BLE group's visibility, not a per-request toggle.
+        let predicate = await MainActor.run {
+            var device = BLEDeviceStore.Device(id: UUID(), name: "board", rssi: 0)
+            device.state = "已连接"
+            return (DeviceMCPServer.bleToolsVisible(devices: []),
+                    DeviceMCPServer.bleToolsVisible(devices: [device]))
+        }
+        XCTAssertFalse(predicate.0)
+        XCTAssertTrue(predicate.1)
     }
     func testInitializationDescribesBothDeviceFamilies() async throws {
         let response = await DeviceMCPServer().handle(try request("initialize"))

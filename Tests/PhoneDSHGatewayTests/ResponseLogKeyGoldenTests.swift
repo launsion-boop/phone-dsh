@@ -59,15 +59,23 @@ final class ResponseLogKeyGoldenTests: XCTestCase {
     }
 
     func testAccumulatorPreservesOrderAndFlushesAtTheBound() {
+        // gateway-security.md §13 (PC-20261112-w7-streaming-response-log): the
+        // response log may buffer; the recorded bytes and their order do not
+        // change. The configured bound is 8 bytes, so 3 + 3 stays buffered and
+        // the third chunk crosses it.
         var accumulator = ResponseLogAccumulator(flushBytes: 8)
         XCTAssertNil(accumulator.append(Data("abc".utf8)))
         XCTAssertEqual(accumulator.bufferedBytes, 3)
-        XCTAssertEqual(accumulator.append(Data("def".utf8)),
-                       ResponseLogBatch(sequence: 0, body: Data("abcdef".utf8)))
+        XCTAssertNil(accumulator.append(Data("def".utf8)))
+        XCTAssertEqual(accumulator.bufferedBytes, 6)
+        XCTAssertEqual(accumulator.append(Data("ghi".utf8)),
+                       ResponseLogBatch(sequence: 0, body: Data("abcdefghi".utf8)))
         XCTAssertEqual(accumulator.bufferedBytes, 0)
         XCTAssertNil(accumulator.append(Data()))
-        XCTAssertEqual(accumulator.append(Data("ghi".utf8)),
-                       ResponseLogBatch(sequence: 1, body: Data("ghi".utf8)))
+        XCTAssertNil(accumulator.append(Data("jkl".utf8)))
+        XCTAssertEqual(accumulator.flush(),
+                       ResponseLogBatch(sequence: 1, body: Data("jkl".utf8)))
+        XCTAssertNil(accumulator.flush())
 
         var tail = ResponseLogAccumulator(flushBytes: 8)
         XCTAssertNil(tail.append(Data("12".utf8)))

@@ -168,10 +168,19 @@ final class BlobStoreTests: XCTestCase {
         let big = Data(repeating: 0x33, count: WireLimits.walBlobWriteThresholdBytes)
         _ = try await writer.append(LogTestSupport.write("/dsh/workspace/big.bin", bytes: big))
         _ = try await writer.closeEpoch()
-        // The first epoch's segment is droppable after a later close moves the
-        // durable watermark; a directly-written orphan is still reclaimed.
+        // W6 §14.5 (PC-20261112-single-copy): GC runs at startup and after a
+        // close that drops segments, not on every close. A second epoch with
+        // the same digest makes the first segment droppable while the blob
+        // stays in the live set.
+        _ = try await writer.append(LogTestSupport.write("/dsh/workspace/big.bin", bytes: big))
+        _ = try await writer.closeEpoch()
+        // The raw writer has no materializer; supply the watermark that the
+        // facade would have persisted from the applied copy.
+        await writer.setMaterializedUpto(2)
+        // A directly-written orphan is reclaimed by the same GC pass.
         let orphan = try store(root).write(Data(repeating: 0x44, count: 16))
-        _ = try await writer.compactDroppableSegments()
+        let dropped = try await writer.compactDroppableSegments()
+        XCTAssertFalse(dropped.isEmpty, "the first epoch segment is now droppable")
         XCTAssertThrowsError(try store(root).verifyLength(digest: orphan.sha256,
                                                           expectedLength: 16))
         let live = Set(await writer.liveBlobDigests())

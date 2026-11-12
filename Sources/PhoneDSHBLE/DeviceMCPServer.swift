@@ -14,8 +14,19 @@ public actor DeviceMCPServer: NativeMCPServing {
     private let receiptDirectory: URL
     /// The Android server whose tools, errors and receipts are served unchanged on `/mcp/native`.
     private let adb: ADBMCPServer
+    /// W5 runtime tiering: recomputed from the live connection/configuration
+    /// state for every `tools/list`. Injectable so the state transition can be
+    /// driven without CoreBluetooth.
+    private let bleToolVisibility: @MainActor @Sendable () -> Bool
     public init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared) {
+        self.init(receiptDirectory: receiptDirectory, adb: adb, bleToolVisibility: {
+            DeviceMCPServer.bleToolsVisible(devices: BLEDeviceStore.shared.devices)
+        })
+    }
+    init(receiptDirectory: URL? = nil, adb: ADBMCPServer = .shared,
+         bleToolVisibility: @escaping @MainActor @Sendable () -> Bool) {
         self.adb = adb
+        self.bleToolVisibility = bleToolVisibility
         self.receiptDirectory = receiptDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("ble-alert-receipts", isDirectory: true)
     }
     private var linkJournal: LinkToolJournal { LinkToolJournal(directory: receiptDirectory.appendingPathComponent("link-intents")) }
@@ -88,9 +99,7 @@ public actor DeviceMCPServer: NativeMCPServing {
             var response = await adb.handle(request)
             if let json = try? JSONValue.parse(response.body), case .object(var root) = json,
                case .object(var result) = root["result"], case .array(let tools) = result["tools"] {
-                let visible = await MainActor.run {
-                    Self.bleToolsVisible(devices: BLEDeviceStore.shared.devices)
-                }
+                let visible = await bleToolVisibility()
                 result["tools"] = .array(tools + Self.descriptors(visible: visible))
                 root["result"] = .object(result)
                 response.body = (try? JSONValue.object(root).encoded()) ?? Data()

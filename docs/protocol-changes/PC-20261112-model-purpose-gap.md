@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT -->
-# PC-20261112-model-purpose-gap — W5 §2.9 enforcement point deferred
+# PC-20261112-model-purpose-gap — W5 §2.10 enforcement point deferred
 
 ## 0. 摘要
 
@@ -8,7 +8,7 @@ change: PC-20261112-model-purpose-gap
 contracts: [P05, P12, P26]
 status: frozen
 breaking: false
-version_decision: 無 wire／schema／持久化格式變更。§2.9 的 model-purpose 執行點由「宿主唯一模型請求入口、解析憑據／開 socket 前必須執行」改記為 `target`；enforcer 與既有 golden 不變，Gateway 接線記 `NOT_IMPLEMENTED`，本輪行為與基線相同。
+version_decision: 無 wire／schema／持久化格式變更。§2.10 的 model-purpose 執行點由「宿主唯一模型請求入口、解析憑據／開 socket 前必須執行」改記為 `target`；enforcer 與既有 golden 不變，Gateway 接線記 `NOT_IMPLEMENTED`，本輪行為與基線相同。
 base: fad9984567ab939ec8ff1a240ccad701db41cc58
 contract_revision: 本檔所屬的 contracts-union 修訂；不改任何 schema／golden。
 ```

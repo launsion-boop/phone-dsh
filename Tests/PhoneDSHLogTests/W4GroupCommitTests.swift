@@ -33,7 +33,7 @@ final class W4GroupCommitTests: XCTestCase {
         }
     }
 
-    func testMaterializedWatermarkIsPersistedOnlyAtEpochClose() async throws {
+    func testMaterializedWatermarkIsPersistedAtCloseOrExplicitMaterialize() async throws {
         let root = LogTestSupport.root(for: self)
         let log = try WorkspaceLog(
             configuration: LogTestSupport.configuration(root: root),
@@ -41,12 +41,17 @@ final class W4GroupCommitTests: XCTestCase {
         _ = try await log.append(LogTestSupport.write("/dsh/workspace/a", data: "a"))
         _ = try await log.append(LogTestSupport.write("/dsh/workspace/b", data: "b"))
 
-        // The in-memory copy is current; `manifest.json` still names the old
-        // watermark (wal.md §13).
+        // wal.md §13 (PC-20261112-w4-writepath-append): the append path does
+        // not rewrite the manifest; its persisted watermark still lags.
+        let beforeMaterialize = try ManifestStore(root: root).read()
+        XCTAssertEqual(beforeMaterialize?.materializedUptoMseq ?? 0, 0)
+
+        // §13 allows a rewrite during reconcile/materialize once §5.2 step 1
+        // has made the copy durable. An explicit materialize is such a write.
         let watermark = try await log.materialize()
         XCTAssertEqual(watermark, 2)
-        let beforeClose = try ManifestStore(root: root).read()
-        XCTAssertEqual(beforeClose?.materializedUptoMseq ?? 0, 0)
+        let afterMaterialize = try XCTUnwrap(try ManifestStore(root: root).read())
+        XCTAssertEqual(afterMaterialize.materializedUptoMseq, 2)
 
         _ = try await log.closeEpoch()
         let afterClose = try XCTUnwrap(try ManifestStore(root: root).read())

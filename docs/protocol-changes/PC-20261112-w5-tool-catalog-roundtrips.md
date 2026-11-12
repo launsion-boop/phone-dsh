@@ -24,7 +24,7 @@ contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden
   - **驗證器取證（P06）。** 現況：`BotDSHRemoteRuntime` 用 `events(after: 0, limit: 1_000)` 取最舊 1000 條，新會話拿不到證據。期望：按 subject 會話取最新事件窗口；證據不足時 `uncertain`，不用舊事件冒充；加回歸。
   - **PTC 可行性（不在本輪開啟）。** 寫 `docs/research/ptc-on-phone-feasibility-20261112.md`，說明在手機 Worker 開啟 `ptc-runtime`、`workflow-ptc`、`tool-workflow` 需要什麼、風險、怎麼驗證；profile 維持 disabled。
 - **Coordinator / contract owner**：`contracts`。**Implementer**：`w5-model`（`Sources/PhoneDSHBot/{MCP,Ledger}`、`Sources/PhoneDSHADB`、`BLE/DeviceMCPServer.swift`、`Sources/PhoneDSHVenus`、`plugins/{bot-runtime,profile}`、`Tests/PhoneDSHBotTests/MCP`、`Tests/PhoneDSHADBTests`、`Tests/PhoneDSHVenusTests`、`docs/research`）；不改 `Sources/PhoneDSHBot/Store`、`spec/`。
-- **Owning spec / fixtures**：[bot/v1/README.md](../../spec/bot/v1/README.md) §2（分層）、§2.1（時間／單次注入）、§2.2（往返合併）、§2.9（model-purpose 與驗證器取證）；[tool-catalog.schema.json](../../spec/bot/v1/schema/tool-catalog.schema.json) 的 additive `tiers`；`golden/tool-catalog-tiers.phone.json`、`golden/volatile-context-time.phone.json`、`golden/model-purpose-enforcement.phone.json`；`validate_vectors.py` 與 `check_golden.py` 已登記為 phone-only vectors。
+- **Owning spec / fixtures**：[bot/v1/README.md](../../spec/bot/v1/README.md) §2（分層）、§2.1（時間／單次注入）、§2.2（往返合併）、§2.10（model-purpose 與驗證器取證）；[tool-catalog.schema.json](../../spec/bot/v1/schema/tool-catalog.schema.json) 的 additive `tiers`；`golden/tool-catalog-tiers.phone.json`、`golden/volatile-context-time.phone.json`、`golden/model-purpose-enforcement.phone.json`；`validate_vectors.py` 與 `check_golden.py` 已登記為 phone-only vectors。
 - **受影響 producer / consumer**：Swift 宿主（Bot MCP catalog、ModelGateway 請求入口、Ledger）、Worker/TS（identity-bridge、approval-gate、volatile-context）、Android（ADB MCP 與 device catalog）、Venus/BLE。Android/HarmonyOS 沒有 Bot runtime 的部分記 `not started`。
 
 ## 2. 契約 delta
@@ -61,7 +61,7 @@ contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden
 
 ## 4. 分工與證據
 
-- **獨占路徑（contracts）**：`spec/bot/v1/README.md` §2/§2.1/§2.2/§2.9、`spec/bot/v1/schema/tool-catalog.schema.json`、三個 `.phone.json` golden、`spec/bot/v1/tools/validate_vectors.py`、`spec/tools/bot/check_golden.py`、`spec/bot/v1/export-manifest.json`、本單。
+- **獨占路徑（contracts）**：`spec/bot/v1/README.md` §2/§2.1/§2.2/§2.10、`spec/bot/v1/schema/tool-catalog.schema.json`、三個 `.phone.json` golden、`spec/bot/v1/tools/validate_vectors.py`、`spec/tools/bot/check_golden.py`、`spec/bot/v1/export-manifest.json`、本單。
 - **w5-model 路徑**：`Sources/PhoneDSHBot/MCP/**`、`Sources/PhoneDSHBot/Ledger/**`、`Sources/PhoneDSHADB/**`、`Sources/PhoneDSHBLE/DeviceMCPServer.swift`、`Sources/PhoneDSHVenus/**`、`plugins/bot-runtime/**`、`plugins/profile/**`、`Tests/PhoneDSHBotTests/MCP/**`、`Tests/PhoneDSHADBTests/**`、`Tests/PhoneDSHVenusTests/**`、`docs/research/**`。不得改 `Sources/PhoneDSHBot/Store` 或 `spec/`。
 - **共享 fixtures**：`tool-catalog-tiers.phone.json`（core/device/discoverable、連接狀態、stale listing、duplicate tier）、`volatile-context-time.phone.json`（小時桶正反例）、`model-purpose-enforcement.phone.json`（小模型/大模型、空 model、未知 purpose）。
 - **Exact commands → result**（Linux 容器）：
@@ -101,4 +101,4 @@ contract_revision: 773fa69d081917adefc2a6ad114ee6d88b5832ce（spec/schema/golden
 | revision | 由誰 | 原因 | 通知了哪些端 |
 | --- | --- | --- | --- |
 | 1（本檔） | contracts | 初次凍結工具分層、時間精度、往返合併、model-purpose 執行點與驗證器取證 | all（contract freeze 公告） |
-| 2（本檔） | contracts | owner 裁定 (a)：model-purpose 執行點改為 `target`，Gateway 接線 `NOT_IMPLEMENTED`，登記 GAP-42；只改 §2.9 與本變更單，不改 schema／golden／其他條款 | all |
+| 2（本檔） | contracts | owner 裁定 (a)：model-purpose 執行點改為 `target`，Gateway 接線 `NOT_IMPLEMENTED`，登記 GAP-42；只改 §2.10 與本變更單，不改 schema／golden／其他條款 | all |

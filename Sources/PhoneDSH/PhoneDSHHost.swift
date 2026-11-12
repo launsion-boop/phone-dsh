@@ -5251,8 +5251,16 @@ public actor PhoneDSHHost: PhoneDSHHosting {
                 // the epoch close forces the session logs that still hold them.
                 _ = try? await stepMachine.fsyncPendingLogs()
                 // Silence is part of the contract: pruning is background work
-                // and never surfaces a prompt or a disabled state.
-                _ = try? await stepMachine.pruneTerminalSteps()
+                // and never surfaces a prompt or a disabled state. An
+                // `abandoned` record is the terminal owner record (exec.md §4)
+                // and budgets.md §8 permits retaining it; the kill/reconcile
+                // evidence must still name the steps this host gave up, so it
+                // is passed as a retained reference.
+                let loadedSteps = await stepMachine.allRecords()
+                let abandoned = Set(loadedSteps
+                    .filter { $0.state == .abandoned }.map(\.stepKey))
+                _ = try? await stepMachine.pruneTerminalSteps(
+                    referencedStepKeys: abandoned)
             }
         }
     }
@@ -5294,14 +5302,23 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         responseLog: ResponseLog,
         stepMachine: StepMachine,
         tracker: JournalDurabilityTracker) async {
-        if state == .starting { return }
-        if let runtime, await runtime.machine.currentState() == .recovering { return }
+        // gateway-security.md §11 (PC-20261112-w3): an entry may be removed only
+        // when its producing step is journaled and level-2 durable and the host
+        // is not Recovering. A planned restart closes the epoch while the facade
+        // is still Draining (before the controller enters Recovering), so the
+        // deletion must also stay closed across that edge or the committed
+        // response would be gone before the Recovering replay window opens.
+        if state == .draining || state == .starting { return }
+        if let runtime, await runtime.machine.currentState() != .running { return }
         let durable = await tracker.snapshot()
         // W3 does not edit StepMachine (its owning unit did): the host derives
         // the same fact from the public records. Every loaded step must be
-        // terminal and its terminal evidence level-2 durable. An empty set is
-        // vacuously true, which is exactly the idle case.
+        // terminal and its terminal evidence level-2 durable. With no loaded
+        // step there is no "step whose request produced it" to prove, so the
+        // §11 condition is not met and nothing is reclaimed (the response log
+        // remains an LRU cache).
         let records = await stepMachine.allRecords()
+        guard !records.isEmpty else { return }
         guard records.allSatisfy({ record in
             guard record.state.isTerminal else { return false }
             if let evidence = record.execEvidence,

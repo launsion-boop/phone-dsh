@@ -155,8 +155,11 @@ final class AbortStopDurabilityTests: XCTestCase {
         let accepted = await log.positions().ackedMseq
         _ = try await log.barrier(level: .write, upto: accepted)
 
-        // The abort: no epoch close. The manifest still has to name the real
-        // WAL segments; this is the assertion that fails on the old head.
+        // The abort: no epoch close. wal.md §13 (PC-20261112-w4-writepath-append)
+        // says the append path does not rewrite the manifest; an explicit
+        // materialize is the allowed reconcile-style write and must list the
+        // open-epoch segments with their real range.
+        _ = try await log.materialize()
         try assertManifestMatchesWAL(root)
         let manifest = try XCTUnwrap(try ManifestStore(root: root).read())
         XCTAssertEqual(manifest.materializedUptoMseq, accepted)
@@ -362,6 +365,9 @@ final class AbortStopDurabilityTests: XCTestCase {
                 "/dsh/workspace/l\(index).bin",
                 bytes: Data(repeating: UInt8(0x40 + index), count: 250)))
         }
+        // wal.md §13 (PC-20261112-w4-writepath-append): a manifest rewrite is
+        // explicit (reconcile/materialize/close), not per mutation.
+        _ = try await log.materialize()
         try assertManifestMatchesWAL(root)
         let manifest = try XCTUnwrap(try ManifestStore(root: root).read())
         XCTAssertEqual(manifest.materializedUptoMseq, 5)
@@ -416,6 +422,9 @@ final class AbortStopDurabilityTests: XCTestCase {
         XCTAssertEqual(reused.records.filter { !$0.isEpochClose }.map(\.mseq), [2])
         XCTAssertFalse(resumed.contains { $0.records.isEmpty },
                        "resume must not leave a header-only orphan behind: \(resumed.map(\.fileName))")
+        // wal.md §13 (PC-20261112-w4-writepath-append): force the allowed
+        // open-epoch manifest rewrite before asserting its real range.
+        _ = try await log.materialize()
         try assertManifestMatchesWAL(root)
         let resumedManifest = try XCTUnwrap(try ManifestStore(root: root).read())
         XCTAssertTrue(resumedManifest.segments.contains {

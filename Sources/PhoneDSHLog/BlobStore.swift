@@ -12,6 +12,9 @@
 import Darwin
 import Foundation
 import PhoneDSHWire
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 
 /// One stored blob: its lowercase hex digest, raw digest bytes and length.
 public struct BlobRef: Equatable, Sendable {
@@ -82,6 +85,51 @@ public final class WorkspaceBlobStore {
         self.init(root: paths.root)
     }
 
+    // MARK: - Digests
+
+    /// Content digest of one blob.
+    ///
+    /// The workspace log's own streaming SHA-256 is a scalar FIPS 180-4
+    /// implementation; hashing a 15 MiB blob with it dominates cold recovery
+    /// (the ENG-08 64 MiB probe). CryptoKit produces the identical digest and
+    /// is used whenever the platform provides it (wal.md §14.1 names the
+    /// digest, not the implementation).
+    private static func contentDigest(_ data: Data) -> String {
+        #if canImport(CryptoKit)
+        return CryptoKit.SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }.joined()
+        #else
+        return SHA256.hash(data)
+        #endif
+    }
+
+    /// Streaming content digest of one stored blob, bounded to 256 KiB chunks.
+    private static func fileDigest(_ url: URL) throws -> String {
+        #if canImport(CryptoKit)
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forReadingFrom: url)
+        } catch {
+            throw LogError.posix(operation: "open", code: EIO)
+        }
+        defer { try? handle.close() }
+        var hasher = CryptoKit.SHA256()
+        while true {
+            let chunk: Data?
+            do {
+                chunk = try handle.read(upToCount: 256 * 1024)
+            } catch {
+                throw LogError.posix(operation: "read", code: EIO)
+            }
+            guard let chunk, !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        #else
+        return try SHA256.hashFile(url)
+        #endif
+    }
+
     // MARK: - Layout
 
     /// `true` for a 64-character lowercase hex digest.
@@ -131,7 +179,7 @@ public final class WorkspaceBlobStore {
         guard data.count <= WireLimits.walBlobMaxBytes else {
             throw LogError.corrupt("a blob exceeds one mutation's 15 MiB")
         }
-        let digest = SHA256.hash(data)
+        let digest = Self.contentDigest(data)
         let shard = try shardDirectory(for: digest)
         let finalURL = shard.appendingPathComponent(digest)
 
@@ -142,7 +190,7 @@ public final class WorkspaceBlobStore {
                     "existing blob \(digest) is \(existing) bytes, expected \(data.count)")
             }
             if !createdThisBoot.contains(digest) {
-                guard try SHA256.hashFile(finalURL) == digest else {
+                guard try Self.fileDigest(finalURL) == digest else {
                     throw LogError.corrupt("existing blob \(digest) does not match its digest")
                 }
             }
@@ -199,7 +247,7 @@ public final class WorkspaceBlobStore {
                 "blob \(digest) is \(size) bytes, its record names \(expectedLength)")
         }
         if !createdThisBoot.contains(digest) {
-            guard try SHA256.hashFile(url) == digest else {
+            guard try Self.fileDigest(url) == digest else {
                 throw LogError.corrupt("blob \(digest) does not match its digest")
             }
         }

@@ -119,7 +119,7 @@ final class JournalAndQuotaTests: XCTestCase {
         let pruned = await journal.recoveredSnapshot()
         XCTAssertEqual(pruned.map(\.jseq), [2, 3],
                        "the open step and one high-water entry per session survive")
-        XCTAssertEqual(pruned.map(\.sessionID), ["s"])
+        XCTAssertEqual(pruned.map(\.sessionID), ["s", "s"])
         let highWater = await journal.lastJseq(sessionID: "s")
         XCTAssertEqual(highWater, 3, "jseq is never reused or rewound")
 
@@ -152,21 +152,24 @@ final class JournalAndQuotaTests: XCTestCase {
             jseq: 3, sessionID: "s", record: stepRecord("dispatched", key: keyB)))
         _ = try await journal.closeEpoch()
         let firstSnapshot = await journal.recoveredSnapshot()
-        XCTAssertEqual(firstSnapshot.map(\.jseq), [3])
+        // budgets.md §8 (PC-20261112-w2): the high-water floor MAY keep the
+        // second-newest terminal record; [2, 3] is within that at-most-two
+        // allowance while step B (jseq 3) and the high-water both survive.
+        XCTAssertEqual(firstSnapshot.map(\.jseq), [2, 3])
 
         // A second close with an already-pruned set is a no-op.
         _ = try await journal.closeEpoch()
         let secondSnapshot = await journal.recoveredSnapshot()
-        XCTAssertEqual(secondSnapshot.map(\.jseq), [3])
+        XCTAssertEqual(secondSnapshot.map(\.jseq), [2, 3])
         let reopened = try JournalLog(configuration: configuration,
                                       bootID: LogTestSupport.bootID())
         let reopenedSnapshot = await reopened.recoveredSnapshot()
-        XCTAssertEqual(reopenedSnapshot.map(\.jseq), [3])
+        XCTAssertEqual(reopenedSnapshot.map(\.jseq), [2, 3])
     }
 
     func testJournalSpaceIsReclaimedAfterADurableClose() async throws {
         let root = LogTestSupport.root(for: self)
-        let configuration = LogTestSupport.configuration(root: root, journalQuotaBytes: 300)
+        let configuration = LogTestSupport.configuration(root: root, journalQuotaBytes: 400)
         let journal = try JournalLog(configuration: configuration,
                                      bootID: LogTestSupport.bootID())
         _ = try await journal.append(JournalBody(
@@ -188,7 +191,7 @@ final class JournalAndQuotaTests: XCTestCase {
 
     func testJournalQuotaOverflowDoesNotPruneUndurableCompletedEntries() async throws {
         let root = LogTestSupport.root(for: self)
-        let configuration = LogTestSupport.configuration(root: root, journalQuotaBytes: 300)
+        let configuration = LogTestSupport.configuration(root: root, journalQuotaBytes: 400)
         let journal = try JournalLog(configuration: configuration,
                                      bootID: LogTestSupport.bootID())
         _ = try await journal.append(JournalBody(
