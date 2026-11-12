@@ -61,20 +61,20 @@ base `2153df10`，整合分支 `feat/android-bot-w4`（PR #137，base `feat/andr
 | --- | --- | --- |
 | R1 | 契約凍結（store、session/projection、UI-state seam、BotFish 數值軌跡）＋ `:bot` 模組（rows、user action、card payload、display projection、attachments、profile/roster、fish director）＋五條 CCR 裁決＋素材授權擴到全平台 | 完成（`bd87bd24`，PR #137） |
 | R2 | Kotlin store（sqlite vectors）、session runtime／projection（K2b §6.2）、UI 狀態接縫、BotFish 渲染完整移植（K4b）、Bot 聊天頁／model／driver／Bot tab（K5a）、抽屜／資訊頁／外觀（K5b）、`:lib` 頁面接線（K5c） | 完成（`a81d751b`，PR #137） |
-| R3 | Kotlin runtime：memory（B2）、routines/wake/held inbox（B3）、proactive（B4）、MCP handler/cards/volatile（B5a1）、authz/gateway（B5a2）、`:net` MCP listener/SSE＋P08 Notifier／P16 WorkerEnvironment（B5b）；契約：D13 MCP（C6）、proactive（C7）、D12 team/tasks（C8）；`:app:assembleDebug` 以 pinned DSH bundle 產出 APK | 部分完成（B2–B5、C6/C7 已併入；C8、K6 進行中） |
+| R3 | Kotlin runtime：memory（B2）、routines/wake/held inbox（B3）、proactive（B4）、MCP handler/cards/volatile（B5a1）、authz/gateway（B5a2）、`:net` MCP listener/SSE＋P08 Notifier／P16 WorkerEnvironment（B5b）；契約：D13 MCP（C6）、proactive（C7）、D12 team/tasks（C8）；`:app:assembleDebug` 以 pinned DSH bundle 產出 APK | 部分完成（B2–B5、C6/C7、L1、K6 已併入；K6 交付 `:app` driver/runtime/listener 接線、app tests 453/0、assembleDebug 89 MB APK；C8 進行中） |
 
 尚未移植的 wave 4 範圍：
 
 - B6 team／SendToAgent／CreateTeammate／durable tasks（D12 契約由 C8 凍結中；B7a agent-comm row model 為前置）。
 - watchdog／context lint／ledger（S6/S14 仍 `spec-partial`，未開）。
-- UI-Venus；`:app` Bot runtime 接線（K6 進行中）；真機驗證（GAP-38 關閉條件）。
+- UI-Venus；真機 UI 驗證（Bot tab 實機路徑，GAP-38 關閉條件）；instrumented test 仍無 emulator/AVD。
 - B4 的 proactive 已由 C7 凍結契約並完成 Kotlin；B5 的 MCP/authz/gateway 已全部落地。
 
 ## 能力差距（2026-11-13，wave 4 R3 後）
 
 | 能力 | Android | 規範是否足以移植 |
 | --- | --- | --- |
-| Bot runtime 及其上層 | **大部分**：store/session/projection/rows/cards/attachments/profile/fish、Bot 聊天頁／抽屜／資訊頁／Bot tab／BotFish 渲染、memory（B2）、routines/wake（B3）、proactive（B4）、MCP/cards/volatile（B5a1）、authz/gateway（B5a2）、`:net` listener/SSE＋P08/P16 seams（B5b）；`:app` 接線（K6）與 team/ledger 未完成 | D13（MCP）與 proactive（D12 除外）已凍結；team/tasks 由 C8 凍結中；watchdog/ledger 仍 partial |
+| Bot runtime 及其上層 | **大部分**：store/session/projection/rows/cards/attachments/profile/fish、Bot 聊天頁／抽屜／資訊頁／Bot tab／BotFish 渲染、memory（B2）、routines/wake（B3）、proactive（B4）、MCP/cards/volatile（B5a1）、authz/gateway（B5a2）、`:net` listener/SSE＋P08/P16 seams（B5b）；`:app` 接線（K6）與 ledger（L1）已完成；team、watchdog/context lint 未完成；真機 UI 未驗 | D13（MCP）與 proactive（D12 除外）已凍結；team/tasks 由 C8 凍結中；watchdog/ledger 仍 partial |
 | PCLink | **C0–C5 已落地**（PR #122、#129、#134；GAP-35 關閉） | 線上協議完整 |
 | TonoLink 語音 | 只有 JVM codec／cloud voice client（`0bc7233c`，2B.1/2B.2）；App/UI 接線未做 | 有 spec；接收端未接 |
 | UI-Venus | 無 | 有 spec，但 Android 沒有接收端 |
