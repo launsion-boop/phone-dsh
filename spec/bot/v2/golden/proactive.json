@@ -1,0 +1,2412 @@
+{
+  "schemaVersion": 1,
+  "vector": "proactive",
+  "source": {
+    "checkout": "phoneDSH-v2-proactive-20261113",
+    "note": "phoneDSH-owned proactive settings/decision vectors; there is no dsh-bot upstream file. Routine-due fields reuse routine-notification.schema.json."
+  },
+  "upstream": [],
+  "delta": [
+    "Freeze the effective proactive settings document: persisted ProactiveSettings fields, ProactivePolicyConfiguration fuse fields and ProactiveEngine deliveryKinds.",
+    "Freeze the ProactiveEngine decision order: routine-held/routine-quiet before mode-off, mode-off before policy, policy before fuse, fuse before delivery.",
+    "Freeze did/would/skip as the decision enum; mode-off, fuse, quiet-hours, dnd, missing-bot, delivery-failed and delivery-unavailable are reason values.",
+    "Freeze the strict fuse boundary (4th did allowed, 5th refused), would-mode fuse accounting, and that DND/quiet/delivery failures do not contribute.",
+    "Freeze on-mode deliveryKinds filtering: a non-deliverable kind records would/would-only-kind and contributes no fuse.",
+    "Freeze dedupeKey derivation and replacement semantics: the key is a stable notification identifier, never a suppression window.",
+    "Freeze notification copy defaults, trimming and 120/500-character clipping, plus the row deep link shape.",
+    "Freeze that a routine-due local notification is a separate RoutineScheduledNotification path, not a ProactiveDecision, and consumes no fuse."
+  ],
+  "settings": {
+    "valid": {
+      "production-default": {
+        "mode": "on",
+        "dnd": false,
+        "quietStart": "23:00",
+        "quietEnd": "08:00",
+        "routineQuietWeekends": false,
+        "timeZone": "Asia/Taipei",
+        "fuseWindowMs": 900000,
+        "fuseMaxWakeups": 4,
+        "deliveryKinds": [
+          "routine-result"
+        ]
+      },
+      "would-all-kinds": {
+        "mode": "would",
+        "dnd": false,
+        "quietStart": "22:30",
+        "quietEnd": "07:15",
+        "routineQuietWeekends": true,
+        "timeZone": "UTC",
+        "fuseWindowMs": 900000,
+        "fuseMaxWakeups": 4,
+        "deliveryKinds": [
+          "task-done",
+          "routine-result",
+          "reminder"
+        ]
+      },
+      "off-dnd-reminders-only": {
+        "mode": "off",
+        "dnd": true,
+        "quietStart": "00:00",
+        "quietEnd": "00:00",
+        "routineQuietWeekends": false,
+        "timeZone": "UTC",
+        "fuseWindowMs": 60000,
+        "fuseMaxWakeups": 1,
+        "deliveryKinds": [
+          "reminder"
+        ]
+      },
+      "on-empty-delivery-kinds": {
+        "mode": "on",
+        "dnd": false,
+        "quietStart": "23:00",
+        "quietEnd": "08:00",
+        "routineQuietWeekends": false,
+        "timeZone": "UTC",
+        "fuseWindowMs": 300000,
+        "fuseMaxWakeups": 2,
+        "deliveryKinds": []
+      }
+    },
+    "invalid": [
+      {
+        "name": "missing-mode",
+        "settings": {
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-missing-field",
+        "path": "$.mode",
+        "recovery": "decode-fails"
+      },
+      {
+        "name": "dnd-is-not-a-boolean",
+        "settings": {
+          "mode": "on",
+          "dnd": "true",
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-type",
+        "path": "$.dnd",
+        "recovery": "decode-fails"
+      },
+      {
+        "name": "mode-unknown-enum",
+        "settings": {
+          "mode": "always",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-unknown-enum",
+        "path": "$.mode",
+        "recovery": "decode-fails"
+      },
+      {
+        "name": "quiet-start-out-of-range",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "25:99",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-time-format",
+        "path": "$.quietStart",
+        "recovery": "normalize",
+        "normalized": {
+          "quietStart": "23:00"
+        }
+      },
+      {
+        "name": "quiet-end-minute-width",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "8:5",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-time-format",
+        "path": "$.quietEnd",
+        "recovery": "normalize",
+        "normalized": {
+          "quietEnd": "08:00"
+        }
+      },
+      {
+        "name": "fuse-window-zero",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 0,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-range",
+        "path": "$.fuseWindowMs",
+        "recovery": "contract-only"
+      },
+      {
+        "name": "fuse-max-negative",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": -1,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-range",
+        "path": "$.fuseMaxWakeups",
+        "recovery": "contract-only"
+      },
+      {
+        "name": "delivery-kind-unknown-enum",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "task-done",
+            "idle-checkin"
+          ]
+        },
+        "error": "proactive-settings-unknown-enum",
+        "path": "$.deliveryKinds[1]",
+        "recovery": "contract-only"
+      },
+      {
+        "name": "delivery-kind-duplicate",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "reminder",
+            "reminder"
+          ]
+        },
+        "error": "proactive-settings-duplicate-delivery-kind",
+        "path": "$.deliveryKinds[1]",
+        "recovery": "contract-only"
+      },
+      {
+        "name": "unknown-member",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ],
+          "cooldown": 60000
+        },
+        "error": "proactive-settings-unknown-field",
+        "path": "$.cooldown",
+        "recovery": "decode-ignores"
+      },
+      {
+        "name": "empty-timezone",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "error": "proactive-settings-timezone",
+        "path": "$.timeZone",
+        "recovery": "normalize",
+        "normalized": {
+          "timeZone": "<current>"
+        }
+      }
+    ],
+    "normalization": [
+      {
+        "name": "invalid-quiet-times-fall-back",
+        "input": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "25:99",
+          "quietEnd": "not-a-time",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "expect": {
+          "quietStart": "23:00",
+          "quietEnd": "08:00"
+        }
+      },
+      {
+        "name": "invalid-timezone-falls-back",
+        "input": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Not/AZone",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "expect": {
+          "timeZone": "<current>"
+        }
+      }
+    ]
+  },
+  "decisions": {
+    "valid": [
+      {
+        "name": "off-mode-records-mode-off",
+        "settings": {
+          "mode": "off",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "mode-off",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "mode": "off",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "would-mode-records-would-and-consumes-fuse",
+        "settings": {
+          "mode": "would",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 2,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "would",
+              "reason": "would-mode",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "would",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-2:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-2",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 2 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-2",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 2 次结果。",
+              "rowId": "routine-run-daily-2"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "would",
+              "reason": "would-mode",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "mode": "would",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 2 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-2:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-2",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-2"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-3:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-3",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 3 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-3",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 3 次结果。",
+              "rowId": "routine-run-daily-3"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "fuse",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "mode": "would",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 3 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-3:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-3",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "on-mode-delivers-interrupt-routine-result",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "First sentence. Second sentence.",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "First sentence.",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "held-and-quiet-routine-are-filtered-before-mode-off",
+        "settings": {
+          "mode": "off",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "Held result.",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "held",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "routine-held",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "off",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "Held result.",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-2:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-2",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "Quiet result.",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-2",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": true,
+              "resultExcerpt": "第 2 次结果。",
+              "rowId": "routine-run-daily-2"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "routine-quiet",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "mode": "off",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "Quiet result.",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-2:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-2",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-2"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-3:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-3",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "Absent delivery.",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-3",
+              "attempt": 1,
+              "quiet": false,
+              "resultExcerpt": "第 3 次结果。",
+              "rowId": "routine-run-daily-3"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "routine-held",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "mode": "off",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "Absent delivery.",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-3:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-3",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-3"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "dnd-blocks-and-explicit-reminder-bypasses",
+        "settings": {
+          "mode": "on",
+          "dnd": true,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 1,
+          "deliveryKinds": [
+            "task-done",
+            "reminder"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "dnd",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "reminder:rem-1",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "trigger": "reminder.due",
+              "createdAt": 1778587200000,
+              "body": "Stand up",
+              "reminderId": "rem-1",
+              "allowDuringDnd": false,
+              "rowId": "reminder-rem-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "dnd",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "dedupeKey": "reminder:bot-a:rem-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 提醒",
+                "body": "Stand up",
+                "kind": "reminder",
+                "botId": "bot-a",
+                "dedupeKey": "reminder:bot-a:rem-1",
+                "channel": "system-notification",
+                "rowId": "reminder-rem-1",
+                "deepLink": "phonedsh://bot/bot-a/row/reminder-rem-1"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "reminder:rem-2",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "trigger": "reminder.due",
+              "createdAt": 1778587200000,
+              "body": "Stand up",
+              "allowDuringDnd": true,
+              "rowId": "reminder-rem-2"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "dnd",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "dedupeKey": "reminder:bot-a:reminder:rem-2",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 提醒",
+                "body": "Stand up",
+                "kind": "reminder",
+                "botId": "bot-a",
+                "dedupeKey": "reminder:bot-a:reminder:rem-2",
+                "channel": "system-notification",
+                "rowId": "reminder-rem-2",
+                "deepLink": "phonedsh://bot/bot-a/row/reminder-rem-2"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "reminder:rem-3",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "trigger": "reminder.due",
+              "createdAt": 1778587200000,
+              "body": "Stand up",
+              "reminderId": "rem-3",
+              "allowDuringDnd": true,
+              "rowId": "reminder-rem-3"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:4",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "dedupeKey": "reminder:bot-a:rem-3",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 提醒",
+                "body": "Stand up",
+                "kind": "reminder",
+                "botId": "bot-a",
+                "dedupeKey": "reminder:bot-a:rem-3",
+                "channel": "system-notification",
+                "rowId": "reminder-rem-3",
+                "deepLink": "phonedsh://bot/bot-a/row/reminder-rem-3"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "quiet-hours-blocks-and-explicit-reminder-bypasses",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 1,
+          "deliveryKinds": [
+            "task-done",
+            "reminder"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778628600000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778628600000:1",
+              "at": 1778628600000,
+              "decision": "skip",
+              "reason": "quiet-hours",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778628600000,
+            "candidate": {
+              "id": "reminder:rem-1",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "trigger": "reminder.due",
+              "createdAt": 1778587200000,
+              "body": "Stand up",
+              "reminderId": "rem-1",
+              "allowDuringDnd": true,
+              "rowId": "reminder-rem-1"
+            },
+            "expect": {
+              "id": "proactive:1778628600000:2",
+              "at": 1778628600000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "reminder",
+              "botId": "bot-a",
+              "dedupeKey": "reminder:bot-a:rem-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 提醒",
+                "body": "Stand up",
+                "kind": "reminder",
+                "botId": "bot-a",
+                "dedupeKey": "reminder:bot-a:rem-1",
+                "channel": "system-notification",
+                "rowId": "reminder-rem-1",
+                "deepLink": "phonedsh://bot/bot-a/row/reminder-rem-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "equal-quiet-endpoints-are-not-quiet",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "00:00",
+          "quietEnd": "00:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 1,
+          "deliveryKinds": [
+            "task-done"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "fuse-allows-fourth-and-blocks-fifth",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-2:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-2",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 2 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-2",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 2 次结果。",
+              "rowId": "routine-run-daily-2"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 2 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-2:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-2",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-2"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-3:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-3",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 3 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-3",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 3 次结果。",
+              "rowId": "routine-run-daily-3"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 3 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-3:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-3",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-3"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-4:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-4:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-4",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 4 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-4",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 4 次结果。",
+              "rowId": "routine-run-daily-4"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:4",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-4:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 4 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-4:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-4",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-4"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-5:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-5:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-5",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 5 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-5",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 5 次结果。",
+              "rowId": "routine-run-daily-5"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:5",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "fuse",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-5:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 5 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-5:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-5",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-5"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "delivery-failure-does-not-consume-fuse",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "deliverer": {
+              "delivered": false,
+              "error": "denied"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "delivery-failed",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": false,
+                "channel": "system-notification",
+                "error": "denied"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-2:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-2",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 2 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-2",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 2 次结果。",
+              "rowId": "routine-run-daily-2"
+            },
+            "deliverer": {
+              "throw": "permission denied"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "delivery-failed",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-2:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 2 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-2:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-2",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-2"
+              },
+              "delivery": {
+                "delivered": false,
+                "channel": "system-notification",
+                "error": "permission denied"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-3:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-3",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 3 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-3",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 3 次结果。",
+              "rowId": "routine-run-daily-3"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-3:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 3 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-3:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-3",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-3"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-4:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-4:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-4",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 4 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-4",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 4 次结果。",
+              "rowId": "routine-run-daily-4"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:4",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-4:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 4 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-4:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-4",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-4"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-5:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-5:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-5",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 5 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-5",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 5 次结果。",
+              "rowId": "routine-run-daily-5"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:5",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-5:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 5 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-5:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-5",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-5"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-6:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-6:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-6",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 6 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-6",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 6 次结果。",
+              "rowId": "routine-run-daily-6"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:6",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-6:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 6 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-6:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-6",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-6"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "delivery-kinds-filter-records-would-only-kind",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 1,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "would",
+              "reason": "would-only-kind",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-2",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-2",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-2",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "would",
+              "reason": "would-only-kind",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-2",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-2",
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-3",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-3",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-3",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "would",
+              "reason": "would-only-kind",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-3",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-3",
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "dedupe-key-replaces-and-does-not-suppress",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "  routine-result:daily:run-1:1  ",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:3",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "   ",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:4",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:bot-a:run-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:bot-a:run-1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "notification-copy-trims-and-clips",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "task-done"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed",
+              "title": "  Backup  ",
+              "body": "  All done.  "
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "Backup",
+                "body": "All done.",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          },
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-2",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-2",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-2",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed",
+              "title": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+              "body": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:2",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "task-done",
+              "botId": "bot-a",
+              "dedupeKey": "task-done:task-2",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+                "body": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                "kind": "task-done",
+                "botId": "bot-a",
+                "dedupeKey": "task-done:task-2",
+                "channel": "system-notification"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "missing-bot-is-refused",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 1,
+          "deliveryKinds": [
+            "task-done"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "task-1",
+              "kind": "task-done",
+              "botId": "  ",
+              "dedupeKey": "task-done:task-1",
+              "trigger": "task.settled",
+              "createdAt": 1778587200000,
+              "taskId": "task-1",
+              "taskTitle": "Backup",
+              "summary": "Backup finished.",
+              "status": "completed"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "missing-bot",
+              "kind": "task-done",
+              "botId": "  ",
+              "dedupeKey": "task-done:task-1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "DSH Bot · 后台任务",
+                "body": "Backup finished.",
+                "kind": "task-done",
+                "botId": "  ",
+                "dedupeKey": "task-done:task-1",
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "delivery-unavailable-is-a-skip",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "deliverer": "none",
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "第 1 次结果。",
+              "status": "succeeded",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "第 1 次结果。",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "skip",
+              "reason": "delivery-unavailable",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "第 1 次结果。",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "name": "failed-routine-terminal-can-notify",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "UTC",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 2,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "steps": [
+          {
+            "at": 1778587200000,
+            "candidate": {
+              "id": "routine-result:daily:run-1:1",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "trigger": "routine.run_finished",
+              "sourceEventId": "event-routine-1",
+              "createdAt": 1778587200000,
+              "title": "晨间简报",
+              "body": "例行任务「daily」执行失败：boom",
+              "status": "failed",
+              "routineId": "daily",
+              "runId": "run-1",
+              "attempt": 1,
+              "delivery": "interrupt",
+              "quiet": false,
+              "resultExcerpt": "",
+              "rowId": "routine-run-daily-1"
+            },
+            "expect": {
+              "id": "proactive:1778587200000:1",
+              "at": 1778587200000,
+              "decision": "did",
+              "reason": "delivered",
+              "kind": "routine-result",
+              "botId": "bot-a",
+              "dedupeKey": "routine-result:daily:run-1:1",
+              "mode": "on",
+              "channel": "system-notification",
+              "notification": {
+                "title": "晨间简报",
+                "body": "例行任务「daily」执行失败：boom",
+                "kind": "routine-result",
+                "botId": "bot-a",
+                "dedupeKey": "routine-result:daily:run-1:1",
+                "channel": "system-notification",
+                "rowId": "routine-run-daily-1",
+                "deepLink": "phonedsh://bot/bot-a/row/routine-run-daily-1"
+              },
+              "delivery": {
+                "delivered": true,
+                "channel": "system-notification"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "invalid": [
+      {
+        "name": "candidate-kind-unknown",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "candidate": {
+          "id": "task-1",
+          "kind": "idle-checkin",
+          "botId": "bot-a",
+          "dedupeKey": "task-done:task-1",
+          "trigger": "task.settled",
+          "createdAt": 1778587200000,
+          "taskId": "task-1",
+          "taskTitle": "Backup",
+          "summary": "Backup finished.",
+          "status": "completed"
+        },
+        "error": "proactive-candidate-unknown-enum",
+        "path": "$.kind"
+      },
+      {
+        "name": "candidate-missing-bot",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "candidate": {
+          "id": "task-1",
+          "kind": "task-done",
+          "dedupeKey": "task-done:task-1",
+          "trigger": "task.settled",
+          "createdAt": 1778587200000,
+          "taskId": "task-1",
+          "taskTitle": "Backup",
+          "summary": "Backup finished.",
+          "status": "completed"
+        },
+        "error": "proactive-candidate-missing-field",
+        "path": "$.botId"
+      },
+      {
+        "name": "candidate-attempt-type",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "candidate": {
+          "id": "routine-result:daily:run-1:1",
+          "kind": "routine-result",
+          "botId": "bot-a",
+          "dedupeKey": "routine-result:daily:run-1:1",
+          "trigger": "routine.run_finished",
+          "sourceEventId": "event-routine-1",
+          "createdAt": 1778587200000,
+          "title": "晨间简报",
+          "body": "第 1 次结果。",
+          "status": "succeeded",
+          "routineId": "daily",
+          "runId": "run-1",
+          "attempt": "1",
+          "delivery": "interrupt",
+          "quiet": false,
+          "resultExcerpt": "第 1 次结果。",
+          "rowId": "routine-run-daily-1"
+        },
+        "error": "proactive-candidate-type",
+        "path": "$.attempt"
+      },
+      {
+        "name": "candidate-unknown-member",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "candidate": {
+          "id": "task-1",
+          "kind": "task-done",
+          "botId": "bot-a",
+          "dedupeKey": "task-done:task-1",
+          "trigger": "task.settled",
+          "createdAt": 1778587200000,
+          "taskId": "task-1",
+          "taskTitle": "Backup",
+          "summary": "Backup finished.",
+          "status": "completed",
+          "cooldown": 1000
+        },
+        "error": "proactive-candidate-unknown-field",
+        "path": "$.cooldown"
+      },
+      {
+        "name": "candidate-empty-row-id",
+        "settings": {
+          "mode": "on",
+          "dnd": false,
+          "quietStart": "23:00",
+          "quietEnd": "08:00",
+          "routineQuietWeekends": false,
+          "timeZone": "Asia/Taipei",
+          "fuseWindowMs": 900000,
+          "fuseMaxWakeups": 4,
+          "deliveryKinds": [
+            "routine-result"
+          ]
+        },
+        "candidate": {
+          "id": "routine-result:daily:run-1:1",
+          "kind": "routine-result",
+          "botId": "bot-a",
+          "dedupeKey": "routine-result:daily:run-1:1",
+          "trigger": "routine.run_finished",
+          "sourceEventId": "event-routine-1",
+          "createdAt": 1778587200000,
+          "title": "晨间简报",
+          "body": "第 1 次结果。",
+          "status": "succeeded",
+          "routineId": "daily",
+          "runId": "run-1",
+          "attempt": 1,
+          "delivery": "interrupt",
+          "quiet": false,
+          "resultExcerpt": "第 1 次结果。",
+          "rowId": ""
+        },
+        "error": "proactive-candidate-min-length",
+        "path": "$.rowId"
+      }
+    ]
+  },
+  "routineDue": {
+    "source": "spec/bot/v2/golden/routine-notification.json",
+    "cases": [
+      {
+        "name": "routine-due-is-not-proactive-and-consumes-no-fuse",
+        "input": {
+          "botId": "bot-a",
+          "routineId": "routine-due-7",
+          "routineTitle": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "fireAt": 1778659200000
+        },
+        "expect": {
+          "identifier": "routine-due:bot-a:routine-due-7:1778659200000",
+          "botId": "bot-a",
+          "routineId": "routine-due-7",
+          "title": "例行任务到期",
+          "body": "「AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA」到点，点开运行。",
+          "fireAt": 1778659200000,
+          "deepLink": "phonedsh://bot/bot-a/routine/routine-due-7"
+        },
+        "proactive": false,
+        "consumesFuse": false
+      }
+    ]
+  }
+}

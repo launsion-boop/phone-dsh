@@ -7,6 +7,9 @@ validator calls :func:`main`, so ``phone-spec`` covers both trees in one stage.
 The memory reference implementation here mirrors the domain rules frozen in
 ``spec/bot/v2/README.md``: path grammar, version premise, single author,
 evidence/trust, the 1,500-scalar INDEX limit and the one-time fact migration.
+The proactive reference evaluator mirrors §3's decision order, fuse accounting,
+deliveryKinds filtering, dedupeKey derivation and notification copy; it is
+validated by mutations and independently by the Swift vector test.
 """
 from __future__ import annotations
 
@@ -15,6 +18,8 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
@@ -40,6 +45,30 @@ INBOX_ONLY_KINDS = frozenset({"task", "routine", "team", "proactive", "watchdog"
 RECORD_RE = re.compile(r"^record://(session/(?!\.{1,2}#)[A-Za-z0-9._-]{1,64}#(0|[1-9][0-9]*)|event/[1-9][0-9]*)$")
 CURRENT_USER_TURN_EVIDENCE = "current-user-turn"
 
+# Proactive settings/decision reference rules (spec/bot/v2/README.md §3).
+PROACTIVE_SETTINGS_FIELDS = (
+    "mode", "dnd", "quietStart", "quietEnd", "routineQuietWeekends", "timeZone",
+    "fuseWindowMs", "fuseMaxWakeups", "deliveryKinds",
+)
+PROACTIVE_MODES = ("off", "would", "on")
+PROACTIVE_KINDS = ("task-done", "routine-result", "reminder")
+PROACTIVE_DECISIONS = ("did", "would", "skip")
+PROACTIVE_REASONS = (
+    "delivered", "would-mode", "would-only-kind", "mode-off", "fuse", "dnd",
+    "quiet-hours", "missing-bot", "delivery-failed", "delivery-unavailable",
+    "routine-held", "routine-quiet",
+)
+PROACTIVE_CANDIDATE_FIELDS = (
+    "id", "kind", "botId", "dedupeKey", "trigger", "sourceEventId", "createdAt",
+    "channel", "title", "body", "taskId", "taskTitle", "summary", "status",
+    "routineId", "runId", "attempt", "delivery", "quiet", "resultExcerpt",
+    "deliveryKey", "rowId", "reminderId", "allowDuringDnd",
+)
+PROACTIVE_CANDIDATE_REQUIRED = ("kind", "botId", "createdAt")
+PROACTIVE_CLOCK_PATTERN = r"^\s*(\+?[0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]\s*$"
+PROACTIVE_CLOCK_RE = re.compile(PROACTIVE_CLOCK_PATTERN)
+
+
 
 def load(name: str):
     return load_json(BOT / "golden" / f"{name}.json")
@@ -56,6 +85,18 @@ def check(instance, schema_name: str, where: str) -> None:
 def check_many(instances, schema_name: str, where: str) -> None:
     for index, instance in enumerate(instances):
         check(instance, schema_name, f"{where}[{index}]")
+
+
+def check_schema(instance, schema_object: dict, where: str) -> None:
+    validate_json(instance, schema_object, where)
+
+
+def rejects_schema(instance, schema_object: dict, where: str) -> None:
+    try:
+        check_schema(instance, schema_object, where)
+    except Exception:
+        return
+    raise AssertionError(f"{where}: negative fixture unexpectedly validates")
 
 
 def rejects(instance, schema_name: str, where: str) -> None:
@@ -1107,6 +1148,561 @@ def validate_routine_document() -> tuple[int, int]:
     return len(documents.get("valid", [])), len(documents.get("invalid", []))
 
 
+# ── proactive (S5: settings, decision chain, routine-due separation) ─────
+
+
+def proactive_minutes(value):
+    """Swift QuietClock.minutes: trimmed HH:MM, one-digit hour allowed."""
+    if not isinstance(value, str):
+        return None
+    pieces = value.strip().split(":")
+    if len(pieces) != 2 or len(pieces[0]) > 2 or len(pieces[1]) != 2:
+        return None
+    if pieces[0] != pieces[0].strip() or pieces[1] != pieces[1].strip():
+        return None
+    try:
+        hour = int(pieces[0])
+        minute = int(pieces[1])
+    except ValueError:
+        return None
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        return None
+    return hour * 60 + minute
+
+
+def proactive_timezone_known(value):
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        ZoneInfo(value)
+        return True
+    except Exception:  # noqa: BLE001 - ZoneInfo raises several lookup errors
+        return False
+
+
+def proactive_normalize_settings(value):
+    """Swift ProactiveSettings.normalized; <current> stands for TimeZone.current."""
+    normalized = dict(value)
+    if proactive_minutes(normalized.get("quietStart")) is None:
+        normalized["quietStart"] = "23:00"
+    if proactive_minutes(normalized.get("quietEnd")) is None:
+        normalized["quietEnd"] = "08:00"
+    if not proactive_timezone_known(normalized.get("timeZone")):
+        normalized["timeZone"] = "<current>"
+    return normalized
+
+
+def proactive_settings_error(value):
+    """First contract violation as (code, JSON path), or None."""
+    if not isinstance(value, dict):
+        return ("proactive-settings-type", "$")
+    unknown = sorted(set(value) - set(PROACTIVE_SETTINGS_FIELDS))
+    if unknown:
+        return ("proactive-settings-unknown-field", "$." + unknown[0])
+    for field in PROACTIVE_SETTINGS_FIELDS:
+        if field not in value:
+            return ("proactive-settings-missing-field", "$." + field)
+    if not isinstance(value["mode"], str):
+        return ("proactive-settings-type", "$.mode")
+    if value["mode"] not in PROACTIVE_MODES:
+        return ("proactive-settings-unknown-enum", "$.mode")
+    for field in ("dnd", "routineQuietWeekends"):
+        if not isinstance(value[field], bool):
+            return ("proactive-settings-type", "$." + field)
+    for field in ("quietStart", "quietEnd"):
+        if not isinstance(value[field], str):
+            return ("proactive-settings-type", "$." + field)
+        if PROACTIVE_CLOCK_RE.fullmatch(value[field]) is None:
+            return ("proactive-settings-time-format", "$." + field)
+    if not isinstance(value["timeZone"], str):
+        return ("proactive-settings-type", "$.timeZone")
+    if not value["timeZone"].strip():
+        return ("proactive-settings-timezone", "$.timeZone")
+    for field in ("fuseWindowMs", "fuseMaxWakeups"):
+        if isinstance(value[field], bool) or not isinstance(value[field], int):
+            return ("proactive-settings-type", "$." + field)
+        if value[field] < 1:
+            return ("proactive-settings-range", "$." + field)
+    kinds = value["deliveryKinds"]
+    if not isinstance(kinds, list):
+        return ("proactive-settings-type", "$.deliveryKinds")
+    seen = set()
+    for index, kind in enumerate(kinds):
+        path = "$.deliveryKinds[{}]".format(index)
+        if not isinstance(kind, str):
+            return ("proactive-settings-type", path)
+        if kind not in PROACTIVE_KINDS:
+            return ("proactive-settings-unknown-enum", path)
+        if kind in seen:
+            return ("proactive-settings-duplicate-delivery-kind", path)
+        seen.add(kind)
+    return None
+
+
+def proactive_candidate_error(value):
+    """First candidate contract violation as (code, JSON path), or None."""
+    if not isinstance(value, dict):
+        return ("proactive-candidate-type", "$")
+    unknown = sorted(set(value) - set(PROACTIVE_CANDIDATE_FIELDS))
+    if unknown:
+        return ("proactive-candidate-unknown-field", "$." + unknown[0])
+    for field in PROACTIVE_CANDIDATE_REQUIRED:
+        if field not in value:
+            return ("proactive-candidate-missing-field", "$." + field)
+    if not isinstance(value["kind"], str):
+        return ("proactive-candidate-type", "$.kind")
+    if value["kind"] not in PROACTIVE_KINDS:
+        return ("proactive-candidate-unknown-enum", "$.kind")
+    if not isinstance(value["botId"], str):
+        return ("proactive-candidate-type", "$.botId")
+    if not value["botId"]:
+        return ("proactive-candidate-min-length", "$.botId")
+    if isinstance(value["createdAt"], bool) or not isinstance(value["createdAt"], int):
+        return ("proactive-candidate-type", "$.createdAt")
+    if value["createdAt"] < 0:
+        return ("proactive-candidate-range", "$.createdAt")
+    for field in (
+        "id", "dedupeKey", "trigger", "sourceEventId", "channel", "title", "body",
+        "taskId", "taskTitle", "summary", "status", "routineId", "runId",
+        "resultExcerpt", "deliveryKey", "reminderId",
+    ):
+        if field in value and not isinstance(value[field], str):
+            return ("proactive-candidate-type", "$." + field)
+    if "channel" in value and not value["channel"]:
+        return ("proactive-candidate-min-length", "$.channel")
+    if "delivery" in value:
+        if not isinstance(value["delivery"], str):
+            return ("proactive-candidate-type", "$.delivery")
+        if value["delivery"] not in ("held", "interrupt"):
+            return ("proactive-candidate-unknown-enum", "$.delivery")
+    if "attempt" in value:
+        if isinstance(value["attempt"], bool) or not isinstance(value["attempt"], int):
+            return ("proactive-candidate-type", "$.attempt")
+        if value["attempt"] < 0:
+            return ("proactive-candidate-range", "$.attempt")
+    for field in ("quiet", "allowDuringDnd"):
+        if field in value and not isinstance(value[field], bool):
+            return ("proactive-candidate-type", "$." + field)
+    if "rowId" in value:
+        if not isinstance(value["rowId"], str):
+            return ("proactive-candidate-type", "$.rowId")
+        if not value["rowId"]:
+            return ("proactive-candidate-min-length", "$.rowId")
+    return None
+
+
+def proactive_status_label(status):
+    if status is None:
+        return "已结束"
+    lowered = status.lower()
+    if lowered in ("completed", "succeeded", "ok", "sent"):
+        return "已完成"
+    if lowered in ("stopped", "canceled", "cancelled"):
+        return "已停止"
+    if lowered in ("timed_out", "timeout", "timed-out"):
+        return "超时"
+    if lowered in ("error", "failed", "failure"):
+        return "失败"
+    return status
+
+
+def proactive_summarize(value, maximum=100):
+    """Swift RoutineScheduleMath.summarize: first sentence, cap 100 by default."""
+    text = re.sub(r"\s+", " ", value).strip()
+    if not text:
+        return ""
+    sentence_end = None
+    for index, character in enumerate(text):
+        if character in "。！？":
+            sentence_end = index + 1
+            break
+        if character in ".!?":
+            following = index + 1
+            if following == len(text) or text[following].isspace():
+                sentence_end = following
+                break
+    sentence = text[:sentence_end] if sentence_end is not None else text
+    return sentence[:max(1, maximum)].strip()
+
+
+def proactive_deep_link(bot_id, row_id):
+    safe = "!$&'()*+,-.:=@_~"
+    return "phonedsh://bot/{}/row/{}".format(quote(bot_id, safe=safe), quote(row_id, safe=safe))
+
+
+def proactive_delivery_key(candidate, at):
+    explicit = candidate.get("dedupeKey")
+    if isinstance(explicit, str):
+        trimmed = explicit.strip()
+        if trimmed:
+            return trimmed
+    payload = ""
+    for field in ("taskId", "runId", "reminderId", "id"):
+        if candidate.get(field) is not None:
+            payload = candidate[field]
+            break
+    return "{}:{}:{}".format(candidate["kind"], candidate["botId"], payload if payload else at)
+
+
+def proactive_notification(candidate, dedupe_key):
+    kind = candidate["kind"]
+    bot_id = candidate["botId"]
+    explicit_title = candidate.get("title")
+    title = explicit_title.strip() if isinstance(explicit_title, str) else ""
+    if not title:
+        title = {
+            "task-done": "DSH Bot · 后台任务",
+            "routine-result": "DSH Bot · 定时执行",
+            "reminder": "DSH Bot · 提醒",
+        }[kind]
+    explicit_body = candidate.get("body")
+    body = explicit_body.strip() if isinstance(explicit_body, str) else ""
+    if not body:
+        if kind == "task-done":
+            if candidate.get("summary") is not None:
+                body = candidate["summary"]
+            elif candidate.get("taskTitle") is not None:
+                body = candidate["taskTitle"]
+            else:
+                body = "任务 {} {}".format(
+                    candidate.get("taskId") or "", proactive_status_label(candidate.get("status")))
+        elif kind == "routine-result":
+            if candidate.get("resultExcerpt") is not None:
+                body = proactive_summarize(candidate["resultExcerpt"])
+            else:
+                body = "例行任务 {} {}".format(
+                    candidate.get("routineId") or "", proactive_status_label(candidate.get("status")))
+        else:
+            body = "提醒时间到了"
+    notification = {
+        "title": title[:120],
+        "body": body[:500],
+        "kind": kind,
+        "botId": bot_id,
+        "dedupeKey": dedupe_key,
+        "channel": candidate.get("channel", "system-notification"),
+    }
+    if candidate.get("rowId") is not None:
+        notification["rowId"] = candidate["rowId"]
+        notification["deepLink"] = proactive_deep_link(bot_id, candidate["rowId"])
+    return notification
+
+
+def proactive_local_minute(now_ms, timezone_name):
+    try:
+        zone = ZoneInfo(timezone_name)
+    except Exception:  # noqa: BLE001 - normalized settings always resolve; fail open to UTC
+        zone = timezone.utc
+    moment = datetime.fromtimestamp(now_ms / 1000, tz=zone)
+    return moment.hour * 60 + moment.minute
+
+
+def proactive_within_quiet(now_ms, start, end, timezone_name):
+    first = proactive_minutes(start)
+    last = proactive_minutes(end)
+    if first is None or last is None or first == last:
+        return False
+    current = proactive_local_minute(now_ms, timezone_name)
+    if first < last:
+        return first <= current < last
+    return current >= first or current < last
+
+
+def proactive_fuse_tripped(accepted, bot_id, at, settings):
+    count = sum(
+        1 for entry in accepted
+        if entry["fuseRecorded"] and entry["botId"] == bot_id
+        and at - entry["at"] < settings["fuseWindowMs"]
+    )
+    return count >= settings["fuseMaxWakeups"]
+
+
+def proactive_decision_actual(case, step, sequence, accepted):
+    """Reference ProactiveEngine.perform/finish for one golden step."""
+    settings = case["settings"]
+    candidate = step["candidate"]
+    at = step["at"]
+    mode = settings["mode"]
+    dedupe_key = proactive_delivery_key(candidate, at)
+    notification = proactive_notification(candidate, dedupe_key)
+
+    def make(choice, reason, delivery=None):
+        record = {
+            "id": "proactive:{}:{}".format(at, sequence),
+            "at": at,
+            "decision": choice,
+            "reason": reason,
+            "kind": candidate["kind"],
+            "botId": candidate["botId"],
+            "dedupeKey": dedupe_key,
+            "mode": mode,
+            "channel": candidate.get("channel", "system-notification"),
+            "notification": notification,
+        }
+        if delivery is not None:
+            record["delivery"] = delivery
+        if choice in ("did", "would"):
+            accepted.append({
+                "at": at,
+                "botId": candidate["botId"],
+                "fuseRecorded": choice == "did" or mode == "would",
+            })
+        return record
+
+    def skip(reason, delivery=None):
+        return make("skip", reason, delivery)
+
+    if candidate["kind"] == "routine-result":
+        if candidate.get("delivery") != "interrupt":
+            return skip("routine-held"), accepted
+        if candidate.get("quiet") is True:
+            return skip("routine-quiet"), accepted
+    if mode == "off":
+        return skip("mode-off"), accepted
+    deliverable = mode == "on" and candidate["kind"] in settings["deliveryKinds"]
+    if not candidate["botId"].strip():
+        return skip("missing-bot"), accepted
+    explicit_reminder = (
+        candidate["kind"] == "reminder"
+        and candidate.get("allowDuringDnd") is True
+        and bool(candidate.get("reminderId"))
+    )
+    if settings["dnd"] and not explicit_reminder:
+        return skip("dnd"), accepted
+    if not explicit_reminder and proactive_within_quiet(
+            at, settings["quietStart"], settings["quietEnd"], settings["timeZone"]):
+        return skip("quiet-hours"), accepted
+    fuse_applies = mode == "would" or deliverable
+    if fuse_applies and proactive_fuse_tripped(accepted, candidate["botId"], at, settings):
+        return skip("fuse"), accepted
+
+    if deliverable:
+        config = step.get("deliverer", case.get("deliverer", "ok"))
+        if config == "none":
+            return skip("delivery-unavailable"), accepted
+        if isinstance(config, dict) and "throw" in config:
+            return skip("delivery-failed", {
+                "delivered": False,
+                "channel": "system-notification",
+                "error": config["throw"],
+            }), accepted
+        if isinstance(config, dict) and config.get("delivered") is not True:
+            result = {
+                "delivered": False,
+                "channel": config.get("channel", "system-notification"),
+            }
+            if config.get("error") is not None:
+                result["error"] = config["error"]
+            return skip("delivery-failed", result), accepted
+        choice = "did"
+        delivery = {"delivered": True, "channel": notification["channel"]}
+    else:
+        choice = "would"
+        delivery = None
+    reason = "delivered" if choice == "did" else (
+        "would-mode" if mode == "would" else "would-only-kind")
+    return make(choice, reason, delivery), accepted
+
+
+def proactive_routine_due(input_value):
+    """Reference RoutineScheduledNotification for a routine-due local notification."""
+    title = "例行任务到期"
+    routine_title = input_value["routineTitle"][:120]
+    body = ("「{}」到点，点开运行。".format(routine_title))[:200]
+    return {
+        "identifier": "routine-due:{}:{}:{}".format(
+            input_value["botId"], input_value["routineId"], input_value["fireAt"]),
+        "botId": input_value["botId"],
+        "routineId": input_value["routineId"],
+        "title": title,
+        "body": body,
+        "fireAt": input_value["fireAt"],
+        "deepLink": "phonedsh://bot/{}/routine/{}".format(
+            input_value["botId"], input_value["routineId"]),
+    }
+
+
+def proactive_mismatch(where, actual, expected):
+    if actual == expected:
+        return
+    raise AssertionError(
+        "{}: {} != {}".format(
+            where,
+            json.dumps(actual, ensure_ascii=False, sort_keys=True),
+            json.dumps(expected, ensure_ascii=False, sort_keys=True)))
+
+
+def validate_proactive_fixture(fixture):
+    if fixture.get("vector") != "proactive":
+        raise AssertionError("proactive: vector must be proactive")
+    if fixture.get("upstream") != []:
+        raise AssertionError("proactive: phone-only vector must declare upstream: []")
+    settings_fixture = fixture["settings"]
+    valid_settings = settings_fixture["valid"]
+    invalid_settings = settings_fixture["invalid"]
+    if not valid_settings or not invalid_settings:
+        raise AssertionError("proactive: settings valid/invalid must be non-empty")
+    for name, document in valid_settings.items():
+        where = "proactive.settings.valid.{}".format(name)
+        check(document, "proactive-settings.schema.json", where)
+        error = proactive_settings_error(document)
+        if error is not None:
+            raise AssertionError("{}: reference rejected {}".format(where, error))
+    for index, case in enumerate(invalid_settings):
+        where = "proactive.settings.invalid[{}]".format(index)
+        rejects(case["settings"], "proactive-settings.schema.json", where)
+        proactive_mismatch(where, proactive_settings_error(case["settings"]),
+                           (case["error"], case["path"]))
+        if case.get("recovery") not in (
+                "decode-fails", "normalize", "contract-only", "decode-ignores"):
+            raise AssertionError("{}: invalid recovery {!r}".format(where, case.get("recovery")))
+        if case["recovery"] == "normalize" and not case.get("normalized"):
+            raise AssertionError("{}: normalize recovery needs normalized".format(where))
+    for index, case in enumerate(settings_fixture.get("normalization", [])):
+        where = "proactive.settings.normalization[{}]".format(index)
+        normalized = proactive_normalize_settings(case["input"])
+        for field, expected in case["expect"].items():
+            actual = normalized.get(field)
+            if expected == "<current>":
+                if actual == case["input"].get(field) or not actual:
+                    raise AssertionError("{}: {} did not fall back".format(where, field))
+            elif actual != expected:
+                raise AssertionError("{}: {} {!r} != {!r}".format(where, field, actual, expected))
+
+    settings_schema = schema("proactive-settings.schema.json")
+    if tuple(settings_schema["required"]) != PROACTIVE_SETTINGS_FIELDS:
+        raise AssertionError("proactive: settings required fields drifted")
+    if tuple(settings_schema["properties"]["mode"]["enum"]) != PROACTIVE_MODES:
+        raise AssertionError("proactive: settings mode enum drifted")
+    if tuple(settings_schema["properties"]["deliveryKinds"]["items"]["enum"]) != PROACTIVE_KINDS:
+        raise AssertionError("proactive: settings deliveryKinds enum drifted")
+    for field in ("quietStart", "quietEnd"):
+        if settings_schema["properties"][field]["pattern"] != PROACTIVE_CLOCK_PATTERN:
+            raise AssertionError("proactive: {} time pattern drifted".format(field))
+    decision_schema = schema("proactive-decision.schema.json")
+    if tuple(decision_schema["properties"]["decision"]["enum"]) != PROACTIVE_DECISIONS:
+        raise AssertionError("proactive: decision enum drifted")
+    if tuple(decision_schema["properties"]["reason"]["enum"]) != PROACTIVE_REASONS:
+        raise AssertionError("proactive: reason enum drifted")
+    if tuple(decision_schema["properties"]["kind"]["enum"]) != PROACTIVE_KINDS:
+        raise AssertionError("proactive: decision kind enum drifted")
+    candidate_schema = decision_schema["$defs"]["proactiveCandidate"]
+    if tuple(candidate_schema["required"]) != PROACTIVE_CANDIDATE_REQUIRED:
+        raise AssertionError("proactive: candidate required fields drifted")
+    if tuple(candidate_schema["properties"]) != PROACTIVE_CANDIDATE_FIELDS:
+        raise AssertionError("proactive: candidate field list drifted")
+    decisions = fixture["decisions"]
+    if not decisions["valid"] or not decisions["invalid"]:
+        raise AssertionError("proactive: decisions valid/invalid must be non-empty")
+    steps = 0
+    for index, case in enumerate(decisions["valid"]):
+        where = "proactive.decisions.valid[{}] {}".format(index, case["name"])
+        check(case["settings"], "proactive-settings.schema.json", where + ".settings")
+        accepted = []
+        for step_index, step in enumerate(case["steps"]):
+            step_where = "{} step {}".format(where, step_index + 1)
+            check_schema(step["candidate"], candidate_schema, step_where + ".candidate")
+            candidate_error = proactive_candidate_error(step["candidate"])
+            if candidate_error is not None:
+                raise AssertionError("{}: reference rejected {}".format(step_where, candidate_error))
+            actual, accepted = proactive_decision_actual(case, step, step_index + 1, accepted)
+            check(actual, "proactive-decision.schema.json", step_where + ".expect")
+            proactive_mismatch(step_where, actual, step["expect"])
+            steps += 1
+    for index, case in enumerate(decisions["invalid"]):
+        where = "proactive.decisions.invalid[{}]".format(index)
+        check(case["settings"], "proactive-settings.schema.json", where + ".settings")
+        rejects_schema(case["candidate"], candidate_schema, where + ".candidate")
+        proactive_mismatch(where, proactive_candidate_error(case["candidate"]),
+                           (case["error"], case["path"]))
+
+    routine_cases = fixture["routineDue"]["cases"]
+    if not routine_cases:
+        raise AssertionError("proactive: routineDue.cases must be non-empty")
+    for index, case in enumerate(routine_cases):
+        where = "proactive.routineDue.cases[{}]".format(index)
+        check(case["expect"], "routine-notification.schema.json", where + ".expect")
+        proactive_mismatch(where, proactive_routine_due(case["input"]), case["expect"])
+        if case.get("proactive") is not False or case.get("consumesFuse") is not False:
+            raise AssertionError("{}: routine-due must be non-proactive and fuse-free".format(where))
+
+    return (len(valid_settings), len(invalid_settings), len(decisions["valid"]),
+            steps, len(decisions["invalid"]), len(routine_cases))
+
+
+def validate_proactive_vectors():
+    fixture = load("proactive")
+    counts = validate_proactive_fixture(fixture)
+    return counts + (mutation_count_for_proactive(),)
+
+
+def mutation_count_for_proactive():
+    import copy
+
+    fixture = load("proactive")
+    names = [case["name"] for case in fixture["decisions"]["valid"]]
+
+    def index_of(name):
+        return names.index(name)
+
+    mutations = 0
+
+    def expect_failure(label, mutate):
+        nonlocal mutations
+        mutated = copy.deepcopy(fixture)
+        mutate(mutated)
+        try:
+            validate_proactive_fixture(mutated)
+        except Exception:  # noqa: BLE001 - schema and reference failures both count
+            mutations += 1
+            return
+        raise AssertionError("proactive mutation {!r} unexpectedly passed".format(label))
+
+    expect_failure(
+        "decision-flip",
+        lambda value: value["decisions"]["valid"][0]["steps"][0]["expect"].__setitem__(
+            "decision", "did"))
+    expect_failure(
+        "fuse-max",
+        lambda value: value["decisions"]["valid"][index_of("fuse-allows-fourth-and-blocks-fifth")]
+        ["settings"].__setitem__("fuseMaxWakeups", 5))
+    expect_failure(
+        "delivery-kinds",
+        lambda value: value["decisions"]["valid"][
+            index_of("delivery-kinds-filter-records-would-only-kind")]["settings"]
+        ["deliveryKinds"].append("task-done"))
+    expect_failure(
+        "delivery-failure-result",
+        lambda value: value["decisions"]["valid"][
+            index_of("delivery-failure-does-not-consume-fuse")]["steps"][0]["deliverer"]
+        .__setitem__("delivered", True))
+    expect_failure(
+        "dedupe-key",
+        lambda value: value["decisions"]["valid"][
+            index_of("dedupe-key-replaces-and-does-not-suppress")]["steps"][0]["expect"]
+        .__setitem__("dedupeKey", "replaced"))
+    expect_failure(
+        "notification-title",
+        lambda value: value["decisions"]["valid"][0]["steps"][0]["expect"]["notification"]
+        .__setitem__("title", "X"))
+    expect_failure(
+        "settings-enum",
+        lambda value: value["settings"]["valid"]["production-default"].__setitem__(
+            "mode", "always"))
+    expect_failure(
+        "settings-invalid-path",
+        lambda value: value["settings"]["invalid"][0].__setitem__(
+            "path", "$.deliveryKinds"))
+    expect_failure(
+        "decision-invalid-error",
+        lambda value: value["decisions"]["invalid"][0].__setitem__(
+            "error", "proactive-candidate-type"))
+    expect_failure(
+        "routine-due-body",
+        lambda value: value["routineDue"]["cases"][0]["expect"].__setitem__("body", "due"))
+    return mutations
+
+
 def validate_routine_notification() -> tuple[int, int]:
     fixture = load("routine-notification")
     for name, case in fixture["valid"].items():
@@ -1128,11 +1724,14 @@ def main() -> int:
     held_valid, held_invalid = validate_wake_and_held()
     notifications_valid, notifications_invalid = validate_routine_notification()
     routine_docs_valid, routine_docs_invalid = validate_routine_document()
+    (proactive_settings_valid, proactive_settings_invalid,
+     proactive_valid, proactive_steps, proactive_invalid,
+     proactive_routine, proactive_mutations) = validate_proactive_vectors()
     maintenance_valid, maintenance_invalid, maintenance_checks = validate_maintenance_vectors()
     maintenance_mutations = mutation_count_for_maintenance()
     mutations = mutation_count_for_evidence()
     print("bot v2 vectors: PASS (memory documents, write/version/index/single-author, "
-          "read, recall, injection, migration, maintenance; wake/routine/routine document/held/notification; schema-positive "
+          "read, recall, injection, migration, maintenance; wake/routine/routine document/held/notification; proactive settings/decisions/routine-due; schema-positive "
           f"and negative vectors; documents {documents}; evidence {evidence_valid} valid / "
           f"{evidence_invalid} invalid / {boundary} boundary / {mutations} mutations; "
           f"writes {writes}; reads {reads}; recall {recall}; injection {injection}; "
@@ -1141,6 +1740,10 @@ def main() -> int:
           f"held {held_valid} valid / {held_invalid} invalid; "
           f"notifications {notifications_valid} valid / {notifications_invalid} invalid; "
           f"routine documents {routine_docs_valid} valid / {routine_docs_invalid} invalid; "
+          f"proactive settings {proactive_settings_valid} valid / {proactive_settings_invalid} invalid; "
+          f"proactive decisions {proactive_valid} cases / {proactive_steps} steps / "
+          f"{proactive_invalid} invalid / {proactive_routine} routine-due / "
+          f"{proactive_mutations} mutations; "
           f"maintenance {maintenance_valid} batches / {maintenance_invalid} invalid / "
           f"{maintenance_checks} checks / {maintenance_mutations} mutations)")
     return 0
