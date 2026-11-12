@@ -563,14 +563,26 @@ final class BotRuntimeComposition {
             timeoutMilliseconds: BotMCPRuntime.defaultRuntimeReadinessTimeoutMilliseconds,
             isReady: { [weak self] in
                 guard let self else { return false }
-                let state = await self.state
-                return state == .ready
+                return await self.isRuntimeReady()
             },
             isTerminal: { [weak self] in
                 guard let self else { return true }
                 let state = await self.state
                 return state == .stopped || state.isFailure
             })
+    }
+
+    /// The composition's single readiness predicate for turns and tools.
+    /// A planned restart emits `.restarted`/`.workerHello` while the host is
+    /// still finishing its boot, so `state` is already `.recovering` by the
+    /// time `plannedRestart` returns. Waiting for `.ready` keeps a new user
+    /// turn out of the rejected-Worker window whose `attachTransport` would
+    /// otherwise cancel it. No boot-id comparison is used: an engine may
+    /// rotate its internal id without the corresponding HELLO event reaching
+    /// the App, and the transport itself always addresses the newest channel.
+    @MainActor
+    private func isRuntimeReady() async -> Bool {
+        state == .ready
     }
 
     private func bind(to newHost: PhoneDSHHost, recovering: Bool) async throws {

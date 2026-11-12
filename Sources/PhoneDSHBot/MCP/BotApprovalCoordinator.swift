@@ -484,7 +484,7 @@ public actor BotApprovalCoordinator {
     public func cancelAll(reason: String = "worker_restarted") async -> Int {
         await cancelAll(
             matching: { _ in true }, reason: reason,
-            noticeText: "The app restarted and cancelled the pending approval.")
+            noticeText: Self.cancellationNotice(reason))
     }
 
     /// Cancels only interactive pending cards; durable todos are preserved
@@ -493,7 +493,7 @@ public actor BotApprovalCoordinator {
     public func cancelInteractive(reason: String = "worker_restarted") async -> Int {
         await cancelAll(
             matching: { !$0.persistent }, reason: reason,
-            noticeText: "The app restarted and cancelled the pending approval.")
+            noticeText: Self.cancellationNotice(reason))
     }
 
     /// Cancels only the pending cards owned by one Bot. The Bot deletion
@@ -504,7 +504,16 @@ public actor BotApprovalCoordinator {
     public func cancelAll(botID: String, reason: String = "bot_deleted") async -> Int {
         await cancelAll(
             matching: { $0.principal.botId == botID }, reason: reason,
-            noticeText: "This Bot was deleted and its pending approval was cancelled.")
+            noticeText: Self.cancellationNotice(reason))
+    }
+
+    /// The one user-facing cancellation sentence. Approval history maps the
+    /// durable `reason` through ``BotApprovalReceipt/cancellationReason(_:)``;
+    /// the notice shown in the chat must use the same wording instead of a
+    /// second hardcoded English string.
+    static func cancellationNotice(_ reason: String) -> String {
+        let sentence = BotApprovalReceipt.cancellationReason(reason) ?? "审批已取消"
+        return sentence.hasSuffix("。") ? sentence : sentence + "。"
     }
 
     private func cancelAll(matching include: (Pending) -> Bool,
@@ -672,7 +681,7 @@ public actor BotApprovalCoordinator {
                         "kind": .string("approval_cancelled"),
                         "approvalID": .string(id),
                         "reason": .string("worker_restarted"),
-                        "text": .string("The app restarted and cancelled the pending approval."),
+                        "text": .string(Self.cancellationNotice("worker_restarted")),
                     ]),
                     eventId: "notice:\(id)")
                 continue

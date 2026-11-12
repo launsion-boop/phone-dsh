@@ -186,6 +186,11 @@ final class BotPersistentApprovalTests: XCTestCase {
                 && $0.data["status"] == .string("cancelled")
                 && $0.data["reason"] == .string("worker_restarted")
         })
+        XCTAssertTrue(events.contains {
+            $0.type == "ui.notice"
+                && $0.data["approvalID"] == .string("approval-legacy")
+                && $0.data["text"] == .string("App 重启时取消。")
+        })
         let pending = await restored.approvals.pendingIDs
         XCTAssertTrue(pending.isEmpty)
     }

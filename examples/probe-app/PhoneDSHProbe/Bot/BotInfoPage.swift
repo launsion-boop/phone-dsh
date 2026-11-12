@@ -4,6 +4,20 @@ import Combine
 import PhoneDSHBot
 import SwiftUI
 
+/// One sentence appended to every erasure confirmation. The erasure scope is
+/// the session logs and memory documents (P02 §5.3); the App's tool operation
+/// journal is outside that scope and may still hold the original text. The
+/// wording is user-facing only and never exposes the journal path.
+private let botErasureToolLogNotice = "；App 内部的操作日志可能仍保留原文。"
+
+/// Fixture-only seam: open one erasure confirmation directly so the UI capture
+/// proves the appended scope sentence without driving a destructive action.
+enum BotMemoryConfirmationPreview: Equatable {
+    case eraseMemory
+    case eraseShared
+    case eraseSharedFinal
+}
+
 struct BotMemoryVersionInfo: Identifiable, Hashable {
     let id: String
     var version: Int
@@ -564,6 +578,8 @@ struct BotInfoPage: View {
     /// Fixture/preview override for the profile description. Production reads
     /// `BotProfile.description` through the model and leaves this nil.
     private let descriptionOverride: String?
+    /// Fixture-only erasure-confirmation preview; production leaves this nil.
+    private let memoryConfirmationPreview: BotMemoryConfirmationPreview?
     @Environment(\.dismiss) private var dismiss
     /// A type-erased path: the same stack pushes both `BotInfoSection` and the
     /// memory document detail. A `[BotInfoSection]` path silently refuses the
@@ -578,12 +594,14 @@ struct BotInfoPage: View {
          initialSection: BotInfoSection? = nil,
          highlightRoutineID: String? = nil,
          onDelete: (() async throws -> Void)? = nil,
-         description: String? = nil) {
+         description: String? = nil,
+         memoryConfirmationPreview: BotMemoryConfirmationPreview? = nil) {
         self.model = model
         self.isMainBot = isMainBot
         self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
         self.descriptionOverride = description
+        self.memoryConfirmationPreview = memoryConfirmationPreview
         var initialPath = NavigationPath()
         if let initialSection { initialPath.append(initialSection) }
         _path = State(initialValue: initialPath)
@@ -720,7 +738,8 @@ struct BotInfoPage: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: BotInfoSection.self) { section in
                 switch section {
-                case .memory: BotMemoryPage(model: model)
+                case .memory: BotMemoryPage(
+                    model: model, preview: memoryConfirmationPreview)
                 case .routines: BotRoutinesPage(model: model)
                 case .approvals: BotApprovalHistoryPage(model: model)
                 case .grants: BotGrantsPage(model: model)
@@ -838,11 +857,17 @@ private struct BotInfoEntryLabel: View {
 
 private struct BotMemoryPage: View {
     @ObservedObject var model: BotInfoModel
+    private let preview: BotMemoryConfirmationPreview?
     @State private var forgetting: BotMemoryDocumentInfo?
     @State private var confirmErase = false
     @State private var confirmShared = false
     @State private var confirmSharedAgain = false
     @State private var confirmRollback = false
+
+    init(model: BotInfoModel, preview: BotMemoryConfirmationPreview? = nil) {
+        self.model = model
+        self.preview = preview
+    }
 
     private var botDocuments: [BotMemoryDocumentInfo] {
         model.memories.filter { $0.scope != "user" }
@@ -933,7 +958,7 @@ private struct BotMemoryPage: View {
             Button("抹除这个 Bot 的记忆", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销。")
+            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销\(botErasureToolLogNotice)")
         }
         .confirmationDialog("抹除所有 Bot 共享的记忆？", isPresented: $confirmShared) {
             Button("继续", role: .destructive) {
@@ -944,13 +969,24 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销。")
+            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销\(botErasureToolLogNotice)")
         }
         .confirmationDialog("最后确认：抹除全部共享记忆？", isPresented: $confirmSharedAgain) {
             Button("抹除共享记忆", role: .destructive) { Task { await model.eraseShared() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销。")
+            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销\(botErasureToolLogNotice)")
+        }
+        .task {
+            // Fixture/preview only: production passes nil and never opens a
+            // destructive confirmation by itself.
+            guard let preview else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            switch preview {
+            case .eraseMemory: confirmErase = true
+            case .eraseShared: confirmShared = true
+            case .eraseSharedFinal: confirmSharedAgain = true
+            }
         }
     }
 
@@ -1151,6 +1187,8 @@ struct BotMemoryDocumentView: View {
     let document: BotMemoryDocumentInfo
     let onForget: () -> Void
     let onErase: () -> Void
+    /// Fixture-only: open the erasure confirmation on appearance.
+    var autoConfirmErase = false
     @State private var confirmErase = false
     @Environment(\.dismiss) private var dismiss
 
@@ -1264,7 +1302,12 @@ struct BotMemoryDocumentView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销。")
+            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销\(botErasureToolLogNotice)")
+        }
+        .task {
+            guard autoConfirmErase else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            confirmErase = true
         }
         .homeGroupedList()
         .navigationTitle(document.fileName)

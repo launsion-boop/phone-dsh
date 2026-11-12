@@ -19,6 +19,9 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
     case infoPresence, infoApprovals, infoMemoryDocument
+    /// Each erasure confirmation is captured with its real dialog so the
+    /// "tool operation log may still keep the original text" clause is visible.
+    case infoEraseMemory, infoEraseShared, infoEraseSharedFinal, infoEraseDocument
 
     var id: String { rawValue }
 
@@ -400,7 +403,8 @@ enum BotUIFixtures {
             ]
         case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong, .infoMemory,
              .infoGrants, .infoRoutines, .infoReconcile, .infoPresence, .infoApprovals,
-             .infoMemoryDocument:
+             .infoMemoryDocument, .infoEraseMemory, .infoEraseShared,
+             .infoEraseSharedFinal, .infoEraseDocument:
             return []
         case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
             return []
@@ -1016,6 +1020,28 @@ struct BotUIFixtureRootView: View {
                         onForget: {},
                         onErase: {})
                 }
+            case .infoEraseDocument:
+                NavigationStack {
+                    BotMemoryDocumentView(
+                        document: BotUIFixtures.memoryDocument(
+                            path: "agent/notes/acceptance.md",
+                            scope: "agent",
+                            content: "# 验收记录\n\n- 发布材料已按最新契约整理。",
+                            version: 4,
+                            evidence: ["record://session/gb-main#12"]),
+                        onForget: {},
+                        onErase: {},
+                        autoConfirmErase: true)
+                }
+            case .infoEraseMemory:
+                BotInfoPage(model: infoModel, initialSection: .memory,
+                            memoryConfirmationPreview: .eraseMemory)
+            case .infoEraseShared:
+                BotInfoPage(model: infoModel, initialSection: .memory,
+                            memoryConfirmationPreview: .eraseShared)
+            case .infoEraseSharedFinal:
+                BotInfoPage(model: infoModel, initialSection: .memory,
+                            memoryConfirmationPreview: .eraseSharedFinal)
             case .infoPresence:
                 NavigationStack {
                     List {

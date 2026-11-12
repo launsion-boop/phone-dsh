@@ -459,6 +459,21 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertFalse(app.buttons["bot.drawer.add"].waitForExistence(timeout: 1))
     }
 
+    /// Every erasure confirmation (single document, this Bot's memory, shared
+    /// user/ memory — including its final confirmation) must say that the
+    /// App's tool operation log is outside the erasure scope and may still
+    /// keep the original text. The fixture opens each real dialog.
+    func testErasureConfirmationsNameTheToolLogBoundary() throws {
+        for fixture in ["infoEraseMemory", "infoEraseShared",
+                        "infoEraseSharedFinal", "infoEraseDocument"] {
+            launch(fixture)
+            let clause = app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS %@", "App 内部的操作日志可能仍保留原文")
+            ).firstMatch
+            XCTAssertTrue(clause.waitForExistence(timeout: 6), fixture)
+        }
+    }
+
     func testBotManageShowsHiddenBot() throws {
         launch("drawerManage")
         let hidden = app.staticTexts["夜航"]

@@ -225,35 +225,35 @@ public actor BotMemory {
         try await prepare()
         guard BotMemoryAuthorizer.parse(request.path) != nil else {
             return failure(request, code: "memory-path-invalid",
-                           error: "Memory paths must be under user/ or agent/ without empty, '.', '..' or backslash segments.")
+                           error: "记忆路径必须位于 user/ 或 agent/ 下，且不能包含空段、'.'、'..' 或反斜杠。")
         }
         if request.action == .move {
             guard let to = request.to, BotMemoryAuthorizer.parse(to) != nil else {
                 return failure(request, code: "memory-path-invalid",
-                               error: "The move destination must be a valid memory path.")
+                               error: "移动目标必须是一个有效的记忆路径。")
             }
         }
         let author = BotMemoryAuthor(
             botID: botID, sessionID: context.sessionID, kind: context.authorKind)
         if let denial = BotMemoryAuthorizer.scopeDenial(author: author, path: request.path) {
             return failure(request, code: denial,
-                           error: "Task and routine sessions may only write their own agent/inbox/<session>/ directory.")
+                           error: "任务和例行任务会话只能写自己的 agent/inbox/<会话>/ 目录。")
         }
         if request.action == .move, let to = request.to,
            let denial = BotMemoryAuthorizer.scopeDenial(author: author, path: to) {
             return failure(request, code: denial,
-                           error: "The move destination is outside this session's inbox.")
+                           error: "移动目标不在当前会话的收件目录里。")
         }
         if let denial = BotMemoryAuthorizer.maintenanceScopeDenial(
             author: author, path: request.path, isMainBot: context.isMainBot) {
             return failure(request, code: denial,
-                           error: "Only the main Bot's maintainer may write shared user/ memory.")
+                           error: "只有主 Bot 的后台整理可以写共享 user/ 记忆。")
         }
         if request.action == .move, let to = request.to,
            let denial = BotMemoryAuthorizer.maintenanceScopeDenial(
             author: author, path: to, isMainBot: context.isMainBot) {
             return failure(request, code: denial,
-                           error: "Only the main Bot's maintainer may write shared user/ memory.")
+                           error: "只有主 Bot 的后台整理可以写共享 user/ 记忆。")
         }
         if let boundary = BotMemoryAuthorizer.userBoundaryError(
             sourceKind: context.source.kind, trust: context.trust, path: request.path,
@@ -305,7 +305,7 @@ public actor BotMemory {
             return BotMemoryWriteResult(
                 ok: false,
                 code: "memory-version-conflict",
-                error: "The document is at version \(currentVersion); re-read it and retry with that expected_version.",
+                error: "文档当前是第 \(currentVersion) 版；请重新读取后用这个版本号重试。",
                 action: request.action,
                 path: request.path,
                 scope: BotMemoryAuthorizer.scope(of: request.path),
@@ -314,7 +314,7 @@ public actor BotMemory {
             return BotMemoryWriteResult(
                 ok: false,
                 code: "memory-not-found",
-                error: "No document exists at \(path).",
+                error: "\(path) 下没有这份文档。",
                 action: request.action,
                 path: path,
                 scope: BotMemoryAuthorizer.scope(of: path))
@@ -322,7 +322,7 @@ public actor BotMemory {
             return BotMemoryWriteResult(
                 ok: false,
                 code: "memory-path-exists",
-                error: "The destination document already exists: \(path).",
+                error: "目标位置已经有文档了：\(path)。",
                 action: request.action,
                 path: path,
                 scope: BotMemoryAuthorizer.scope(of: path))
@@ -330,7 +330,7 @@ public actor BotMemory {
             return BotMemoryWriteResult(
                 ok: false,
                 code: "memory-replace-not-found",
-                error: "The find text does not occur in the document.",
+                error: "文档里没有找到这段原文。",
                 action: request.action,
                 path: request.path,
                 scope: BotMemoryAuthorizer.scope(of: request.path))
@@ -338,7 +338,7 @@ public actor BotMemory {
             return BotMemoryWriteResult(
                 ok: false,
                 code: "memory-version-not-found",
-                error: "No live historical version \(version) exists for this document.",
+                error: "这份文档没有第 \(version) 版可恢复的历史版本。",
                 action: request.action,
                 path: request.path,
                 scope: BotMemoryAuthorizer.scope(of: request.path))
@@ -372,7 +372,7 @@ public actor BotMemory {
                 count: remaining, scope: version.scope)
         case let .conflict(currentVersion):
             return BotMemoryForgetResult(
-                ok: false, error: "The document is at version \(currentVersion); refresh and retry.",
+                ok: false, error: "文档当前是第 \(currentVersion) 版；请刷新后重试。",
                 removed: 0, path: path, count: 0,
                 scope: BotMemoryAuthorizer.scope(of: path) ?? .agent)
         case .notFound:
@@ -381,7 +381,7 @@ public actor BotMemory {
                 scope: BotMemoryAuthorizer.scope(of: path) ?? .agent)
         default:
             return BotMemoryForgetResult(
-                ok: false, error: "The document could not be forgotten.",
+                ok: false, error: "这份文档暂时没能删除。",
                 removed: 0, path: path, count: 0,
                 scope: BotMemoryAuthorizer.scope(of: path) ?? .agent)
         }
@@ -448,17 +448,17 @@ public actor BotMemory {
     public func read(path: String, version: Int? = nil) async throws -> BotMemoryReadResult {
         try await prepare()
         guard BotMemoryAuthorizer.parse(path, allowRoot: true) != nil else {
-            return .failure(code: "memory-path-invalid", error: "Invalid memory path.", path: path)
+            return .failure(code: "memory-path-invalid", error: "记忆路径无效。", path: path)
         }
         guard let scope = BotMemoryAuthorizer.scope(of: path) else {
-            return .failure(code: "memory-path-invalid", error: "Invalid memory path.", path: path)
+            return .failure(code: "memory-path-invalid", error: "记忆路径无效。", path: path)
         }
         if let version {
             let versions = try await store.versions(path: path)
             guard let found = versions.first(where: { $0.version == version }) else {
                 return .failure(
                     code: "memory-version-not-found",
-                    error: "No version \(version) exists for \(path).",
+                    error: "\(path) 没有第 \(version) 版。",
                     path: path)
             }
             return .document(found)
@@ -474,7 +474,7 @@ public actor BotMemory {
         if !entries.isEmpty || path == scope.rawValue {
             return .directory(path: path, scope: scope, entries: entries)
         }
-        return .failure(code: "memory-not-found", error: "No document or directory at \(path).", path: path)
+        return .failure(code: "memory-not-found", error: "\(path) 下没有文档或目录。", path: path)
     }
 
     public func recall(
@@ -582,8 +582,8 @@ public actor BotMemory {
 
     private func boundaryFailure(_ request: BotMemoryWriteRequest, code: String) -> BotMemoryWriteResult {
         let message = code == "memory-source-boundary"
-            ? "Only a real user turn can write user/ memory."
-            : "Writing user/ memory needs at least one evidence reference to a user message."
+            ? "只有真实用户回合才能写共享 user/ 记忆。"
+            : "写共享 user/ 记忆至少需要一条指向用户消息的依据。"
         return failure(request, code: code, error: message)
     }
 

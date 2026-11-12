@@ -71,7 +71,7 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertEqual(result.isError, true)
         XCTAssertEqual(result.structuredContent?["error"]?["code"], .string("invalid_arguments"))
         XCTAssertEqual(botTeamResultText(result),
-                       "SendToAgent requires priority (true = wake now, false = hold for their next turn).")
+                       "SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。")
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
     }
@@ -126,7 +126,7 @@ final class BotTeamToolsTests: XCTestCase {
         ])
         XCTAssertEqual(result.isError, true)
         XCTAssertEqual(botTeamResultText(result),
-                       "SendToAgent cannot target the same bot that is running; answer the request yourself.")
+                       "SendToAgent 不能发给自己；请直接回答当前请求。")
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
     }
@@ -140,7 +140,7 @@ final class BotTeamToolsTests: XCTestCase {
             "priority": .bool(true),
         ])
         XCTAssertEqual(result.isError, true)
-        XCTAssertTrue(botTeamResultText(result).contains("delegation depth limit reached (max 2 hops)"))
+        XCTAssertTrue(botTeamResultText(result).contains("最多 2 层"))
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
 
@@ -427,22 +427,22 @@ final class BotTeamToolsTests: XCTestCase {
         let tools = makeTools(host)
 
         let missing = await executeCreate(tools, [:])
-        XCTAssertEqual(botTeamResultText(missing), "CreateTeammate requires name.")
+        XCTAssertEqual(botTeamResultText(missing), "CreateTeammate 需要提供名字。")
         let blank = await executeCreate(tools, ["name": .string("   ")])
-        XCTAssertEqual(botTeamResultText(blank), "CreateTeammate requires name.")
+        XCTAssertEqual(botTeamResultText(blank), "CreateTeammate 需要提供名字。")
         let tooLong = await executeCreate(tools, [
             "name": .string(String(repeating: "a", count: 61)),
         ])
-        XCTAssertTrue(botTeamResultText(tooLong).contains("too long (61 > 60)"))
+        XCTAssertTrue(botTeamResultText(tooLong).contains("名字太长了（61 个字符，最多 60 个）"))
 
         let invalidColor = await executeCreate(tools, [
             "name": .string("Builder"), "color": .string("rainbow"),
         ])
-        XCTAssertTrue(botTeamResultText(invalidColor).contains("color must be one of"))
+        XCTAssertTrue(botTeamResultText(invalidColor).contains("color 只能是这些值之一"))
         let invalidHairstyle = await executeCreate(tools, [
             "name": .string("Builder"), "hairstyle": .string("mohawk"),
         ])
-        XCTAssertTrue(botTeamResultText(invalidHairstyle).contains("hairstyle must be one of"))
+        XCTAssertTrue(botTeamResultText(invalidHairstyle).contains("hairstyle 只能是这些值之一"))
         let created = await host.created
         XCTAssertTrue(created.isEmpty)
 
