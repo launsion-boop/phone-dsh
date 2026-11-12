@@ -398,9 +398,12 @@ not rename/drop columns; a new column needs a backfill or an optional default. O
   verified on a device. If a pragma cannot be honoured, report it; do not claim Level 2 durability.
 - Power-loss/kill/reopen (`SqliteRecovery`) is not in this repository; no repository test cuts power.
 - Erasure has DDL/triggers and reference tests but no dedicated shared vector yet.
-- Two Swift-path divergences are recorded as contract change requests in the wave-4 handoff and are **not**
-  frozen here: the v2-gap migration-order asymmetry (`store.md` §7 item 8, CCR-W4-C2-2) and the App runner’s
-  second lease ordering (`store.md` §9.7, CCR-W4-C2-1). The Android port must not copy either until the owner rules.
+- W4-C2-2 and W4-C2-1 are decided and normative in `store.md` §7/§9: the v1/v2 migration checks
+  `commit_seq` contiguity inside its transaction and rolls back to the old `user_version` on a gap (open fails
+  with `corrupted` naming the first gap), and the store lease is the only selection order. The earlier frozen
+  summary above (migration before scan) is superseded by `store.md` §7 item 9; do not implement the old order.
+  The App runner releases a known kind with no executor to `pending` with the retry delay and dead-letters only
+  a kind outside its catalogue with `unknown_effect_kind`.
 - `store.md` is not yet linked from `spec/README.md` §3.1/§4 (P25 row) or `spec/bot/v1/README.md` §1; those
   registry edits belong to the contract owner.
 

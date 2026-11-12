@@ -29,7 +29,7 @@ Swift case that reports them is reference.
   (`jseq`) is a different sequence domain and MUST NOT be mixed with `commitSeq`
   (`spec/bot/v1/README.md` §1, `spec/README.md` §6.1).
 - One SQLite database serves every Bot of the App. `botId` is a column/field, never a
-  file per Bot (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:478-482`; the Bot
+  file per Bot (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:510-514`; the Bot
   *VFS* root `BotWorkspaceLayout.botRoot` is a different tree and MUST NOT contain the
   database, `Sources/PhoneDSHBot/Attachments/BotWorkspaceLayout.swift:18-31`).
 - Authentication, authorization and the P26 memory semantics are not defined here. The
@@ -48,7 +48,7 @@ The Bot data root is the App-private directory named `PhoneDSHBot`. Relative to 
 
 - **Normative.** The logical path is `<app-private support root>/PhoneDSHBot/domain.sqlite`.
   iOS builds it from `FileManager.applicationSupportDirectory` in
-  `SQLiteDomainStore.applicationSupport()` (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:478-482`);
+  `SQLiteDomainStore.applicationSupport()` (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:510-514`);
   the App's profile files resolve the same `PhoneDSHBot` directory through
   `BotProfileStorage` (`examples/probe-app/PhoneDSHProbe/Bot/BotProfileStorage.swift:8-17`).
   Android MUST use its app-private files directory plus the same logical subtree
@@ -99,7 +99,7 @@ busy timeout, then applies these pragmas in this order
 ## 3. Schema v3 (normative DDL)
 
 The following is the exact DDL created by
-`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:338-443`. Column names, types,
+`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:370-475`. Column names, types,
 constraints, trigger names, the view name/columns and the index names are normative. A
 reader MAY add indexes; it MUST NOT rename or drop a column, relax a constraint, drop a
 trigger or change the view to a table. `CREATE TABLE IF NOT EXISTS` is used so opening an
@@ -357,7 +357,7 @@ cannot reproduce them MUST fail rather than store a second spelling of the same 
 ### 5.3 `payload_digest` and `payload_size`
 
 - `payload_digest` is the lowercase hexadecimal SHA-256 of exactly the `payload` bytes
-  (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:334-336`).
+  (`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:366-368`).
 - `payload_size` is the byte length of exactly those bytes, `>= 0`.
 - The digest is over `data`, **not** over `header_meta` and not over the old full
   envelope. The erasure path keeps both digest and size after clearing the payload, so
@@ -450,7 +450,7 @@ ring and returns `0` (`SQLiteDomainStore+BotEventLog.swift:7-20`):
 ## 7. Migration v1/v2 → v3
 
 `migrateToV3()` runs during open for `user_version` 1 or 2
-(`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:239-332`).
+(`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:244-354`).
 
 1. **Already split.** If `bot_events` is a view and `bot_event_headers` exists (a test or
    rollback fixture lowered `user_version`), the reference starts `BEGIN IMMEDIATE`,
@@ -471,17 +471,25 @@ ring and returns `0` (`SQLiteDomainStore+BotEventLog.swift:7-20`):
    27-byte payload whose digest is pinned by the vectors).
 5. **Copy nonces.** Each old nonce row is copied unchanged; its `event_id` must still
    reference the migrated header.
-6. **Commit.** `PRAGMA user_version=3` and `COMMIT`; then `foreign_keys=ON` and
+6. **Contiguity before COMMIT.** Inside the migration transaction, before any DDL or
+   copy is committed, the `commit_seq` values being migrated MUST be exactly
+   `1, 2, 3, …` with no gap and no duplicate. The check applies to both migration paths:
+   the old `bot_events` table and the already-split header table. A gap MUST abort the
+   transaction. The error is the existing `corrupted`, whose detail names the first gap
+   (`commit_seq gap: expected <n>, found <m>`); there is no second error code for this
+   condition. Because the rollback precedes COMMIT, `user_version` stays at its old
+   value and the old rows are untouched.
+7. **Commit.** `PRAGMA user_version=3` and `COMMIT`; then `foreign_keys=ON` and
    `foreign_key_check`.
-7. **On any error** the transaction rolls back, `foreign_keys` is restored, and the open
+8. **On any error** the transaction rolls back, `foreign_keys` is restored, and the open
    fails as `corrupted` (or the underlying error). Reopening retries the same migration;
    the operation is idempotent.
-8. **Order is observable.** The reference migrates before its full contiguous-sequence
-   scan. A v2 database with a pre-existing gap is therefore copied to v3 and then refused
-   at open with `commitGap` (or `corrupted`); the vector asserts the open failure, not
-   the post-failure `user_version`. A port that validates before migrating may leave the
-   file at v2; that difference is unresolved (CCR-W4-C2-2) and is a release risk, not a
-   license to loosen either check.
+9. **Order is observable.** The migration's contiguity check runs before the copy and
+   before the version change. A v1/v2 file with a pre-existing gap is therefore refused
+   by the migration and stays at v1/v2 after the failed open; the vector reads
+   `PRAGMA user_version` after the refusal. A v3 file with a gap is refused later by the
+   full integrity scan (§8) with `commitGap(expected:actual:)`. Both refuse the store;
+   the migration condition is `corrupted` because no store state was ever opened.
 
 New databases never run the migration: they create v3 directly and set `user_version=3`.
 
@@ -493,11 +501,14 @@ downgrade migration.
 ## 8. Integrity and recovery
 
 On open and on `verifyIntegrity()`, the reference scans every header/payload row
-(`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:491-586`):
+(`Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:528-618`):
 
 - `quick_check` must be exactly `ok`; `foreign_key_check` must be empty;
-- rows ordered by `commit_seq` MUST be `1, 2, 3, …` with no gap and no duplicate; a gap is
-  `commitGap(expected:actual:)`;
+- during a v1/v2 open, the migration itself first checks the old `commit_seq` set inside
+  its transaction before COMMIT (§7 item 6). A gap there is `corrupted` naming the first
+  gap, the transaction rolls back, `user_version` stays at the old value, and open fails;
+- rows ordered by `commit_seq` MUST be `1, 2, 3, …` with no gap and no duplicate; a gap in
+  the post-migration scan is `commitGap(expected:actual:)`;
 - `header_meta` MUST decode as a durable event whose `commitSeq`, `eventId` and `type`
   equal the columns; otherwise `corrupted`;
 - for a live payload: `erased_at` and `erasure_commit_seq` MUST be nil,
@@ -564,7 +575,7 @@ to `canonicalResource`, `payloadDigest` to `argsDigest`, `retryPolicy` to
 ### 9.3 Lease selection and lease record
 
 `lease(owner:now:)` uses the store's default TTL (30,000 ms by default;
-`SQLiteDomainStore.swift:458-476`); `leaseNext(owner:now:ttlMs:)` takes an explicit
+`SQLiteDomainStore.swift:490-508`); `leaseNext(owner:now:ttlMs:)` takes an explicit
 positive TTL. Owner non-empty, `now >= 0`, `ttl > 0`; otherwise `invalidConfiguration`.
 
 Candidate rows, in this order (`BotEffectOutbox.swift:117-194`):
@@ -591,6 +602,13 @@ now`, `not_before = NULL`, `reconciliation_reason = NULL`, and
 `effectKey`, `attempt`, `leaseOwner`, `leaseExpiresAt`, `startedAt`, `generation`.
 `attempt` is the current lease number; `attempts` is the total number of leases ever
 started and never decreases.
+
+The candidate order above is the **only** selection order. A runner MUST call
+`lease`/`leaseNext` and execute exactly the returned `effectKey`; it MUST NOT enumerate
+`pending`/`failed` itself, sort them, filter candidates before the call, or reject the
+store's choice because its own ordering named a different effect. The lease is not a
+hint. A runner that cannot execute the leased kind follows the release or unknown-kind
+rule in §9.5/§9.7; it MUST NOT substitute another effect.
 
 ### 9.4 Transition operations
 
@@ -629,6 +647,28 @@ no-op and writes no event; on a terminal effect it is `invalidTransition`.
 `retryDelayMs` is **0** for every policy except `network-idempotent`; for that policy it
 is `min(1000 * 2^(attempt-1), 300000)` ms, with the exponent clamped to `0…8`
 (`BotEffectOutbox.swift:610-614`). The delay is a store value, not a caller hint.
+`unknown_effect_kind` is the frozen reason/`last_error` value for an effect whose kind is
+outside the host catalogue (§9.7); it is not an `errorClass` value (`transient`,
+`permanent`, `unknown` stay the only three).
+
+### 9.5.1 Release of a known kind with no executor
+
+A leased effect whose kind is **known** but whose executor is not registered MUST be
+released, not failed and not dead-lettered. Release is a scheduling transition, not one
+of the §9.4 effect transitions:
+
+- `release(lease)` requires the lease to match `generation`, `attempt` and `lease_owner`
+  and the row to be `leased`; otherwise it is `staleLease` or `invalidTransition`.
+- In one transaction it sets state `pending`, `not_before = now + retryDelayMs` for the
+  policy and the `attempt` that was leased, `last_error = "no registered executor"`, and
+  clears `lease_owner`/`lease_expires_at`. It leaves `attempt`, `attempts`, `generation`
+  and `started_at` unchanged; a released attempt still counts, so §9.3's max-attempt
+  rule applies to the next selection.
+- It writes no durable event: the lease's `effect.attempted` event is the record and no
+  effect outcome occurred. It MUST NOT write `effect.dead_lettered`.
+- The release is implemented by the store (`Sources/PhoneDSHBot/Store/SQLiteDomainStore+EffectRelease.swift:14-52`).
+- The release exists for a known kind only. A kind outside the catalogue is
+  `fail(permanent)` with reason `unknown_effect_kind` (§9.7), never a release.
 
 `last_error` and every event `error`/`lastError` value are sanitized before storage:
 the reference redacts `sk-[A-Za-z0-9_-]{8,}` and `Bearer <token>` and truncates to 500
@@ -658,15 +698,27 @@ filter means all rows.
 
 ### 9.7 Executor contract
 
-- Effects are delivered **at least once**, in the store's lease order. A handler MUST
-  execute the lease it was given; it MUST NOT maintain a second ordering and then reject
-  the store's choice. (The App's current `BotProductionEffectRunner.runNext` pre-sorts
-  `pending`/`failed` and then rejects a different lease from the store; that is recorded
-  as CCR-W4-C2-1 in the lane handoff and is not normative.)
+- Effects are delivered **at least once**, in the store's lease order. A runner MUST
+  lease first and then execute exactly the `effectKey` it was leased; it MUST NOT keep a
+  second `pending`/`failed` ordering, filter candidates before leasing, or reject the
+  store's choice. The reference `BotProductionEffectRunner.runNext` leases first and
+  dispatches on the leased row
+  (`examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift:106-131`).
+- **Catalogue.** Effect kinds are a closed, host-declared set. The reference App declares
+  exactly `routine-delivery` (`BotRoutineOutbox.kind`,
+  `BotRuntimeEffects.swift:7`). The database column `bot_effects.kind` is `TEXT NOT NULL`
+  and §9.2 only requires it to be non-empty, so a stored row can legally carry a kind the
+  running host does not know; that is why the catalogue is explicit and separate from
+  "a handler happens to be registered". A kind outside the host catalogue MUST be
+  `fail(lease, errorClass:"permanent", reason:"unknown_effect_kind")`, which stores
+  `last_error = "unknown_effect_kind"` and dead-letters the effect.
+- A **known** kind whose executor is not registered MUST be released with `release(lease)`
+  (§9.5.1): back to `pending` with the retry delay, never `fail(permanent)` and never
+  `effect.dead_lettered`.
 - A handler that throws MUST be mapped by the host to
   `fail(lease, errorClass:"unknown", reason:)` so the effect becomes
   `needs_reconciliation` with `unknown-outcome`; the outbox itself does not catch handler
-  throws (`examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift:146-156`).
+  throws (`BotRuntimeEffects.swift:127-130`).
 - The App's 250 ms poll interval is *Swift detail*, not a delivery guarantee or latency
   contract.
 - Crashes, cancellations and timeouts do not prove an external side effect did not
@@ -796,8 +848,8 @@ conformance.
 | Schema | every table/column/constraint/trigger/view/index name and shape in §3; `user_version=3` | `CREATE TABLE IF NOT EXISTS` spelling, Swift string layout |
 | Sequence and dedupe | dense `commitSeq`, store-assigned only, batch atomicity, duplicate/conflict outcomes, gap outcomes | crash-hook names and the test-only `armCrashPoint` |
 | Bytes | canonical `data` bytes, SHA-256 over those bytes, `payload_size`, `header_meta` shape, erasure sentinel | Foundation `JSONEncoder` options and the `JSONValue` number representation |
-| Migration | old row decode/check, split rows, nonce copy, one transaction, idempotence, post-failure open refusal | the migration-before-scan order (§7 item 8) is Swift's observable order and is under CCR |
-| Outbox | states, candidate order, lease/attempt/attempts, transitions, retry delay, dead-letter, reconciliation, inbox dedupe | the 250 ms App poll, in-process in-flight coalescing, handler registry, the App's second ordering (§9.7, CCR) |
+| Migration | old row decode/check, split rows, nonce copy, one transaction, contiguity check before COMMIT, idempotence, post-failure open refusal | the exact SQLite statement layout and the Swift error spelling |
+| Outbox | states, candidate order, lease/attempt/attempts, transitions, retry delay, release, dead-letter, reconciliation, inbox dedupe | the 250 ms App poll, in-process in-flight coalescing, handler registry and the App's explicit kind catalogue |
 | User action | `(bot_id, nonce)` key, one transaction, result codes, frozen validation reasons, idempotency matrix | `BotUserActionDispatcher` in-flight map, planner implementation, `owner_direct` call site |
 | Errors | the failure conditions and their observable codes/outcomes | the Swift enum case names; a port may map them to its own types |
 
@@ -814,8 +866,13 @@ conformance.
 - **Erasure is not covered by a dedicated shared vector yet.** The DDL/triggers and the
   reference tests (`Tests/PhoneDSHBotTests/Store/BotEventStorageTests.swift:136-233`)
   exist; a port must still run its own erasure and `secure_delete` evidence.
-- **The migration order asymmetry (§7 item 8)** and the App runner's second lease order
-  (§9.7) are recorded as CCR-W4-C2-2 and CCR-W4-C2-1 in the lane handoff; they are not
-  resolved by this document.
+- **The effect-kind catalogue is host-declared.** `bot_effects.kind` itself is
+  `TEXT NOT NULL` and only checked non-empty (§3, §9.2); a port MUST declare its own
+  closed catalogue and map a kind outside it to `fail(permanent)` with
+  `unknown_effect_kind`. There is no database constraint to fall back on.
+- **The App runner is outside the SwiftPM test target.** The store-side release and
+  migration contract is tested in `Tests/PhoneDSHBotTests/Store`, but
+  `BotProductionEffectRunner.runNext` itself is only compiled by the probe-app build; its
+  runtime branch selection is not executed by `swift test`.
 - `bot_effects`/`bot_effect_inbox` do not have a full integrity scan; a corrupt effect row
   is reported by the transition that reads it (`corrupted`), not at open.

@@ -7,10 +7,10 @@
   "upstream": [],
   "delta": [
     "P25 SQLite store profile v3: logical path PhoneDSHBot/domain.sqlite, WAL/synchronous=FULL/foreign_keys/secure_delete pragmas, exact bot_event_headers/bot_event_payloads/bot_events/bot_effects/bot_effect_inbox/bot_user_action_nonces DDL.",
-    "commitSeq is assigned only by the store in a BEGIN IMMEDIATE transaction, starts at 1, is contiguous per durable batch, and a gap is commitGap on open/read. A single duplicate eventId returns the committed sequence; a batch with a committed or repeated eventId is invalidTransition.",
+    "commitSeq is assigned only by the store in a BEGIN IMMEDIATE transaction, starts at 1, is contiguous per durable batch, and a post-open gap is commitGap. A v1/v2 migration gap is checked inside the migration transaction: it rolls back, leaves user_version at its old value, and refuses the open with corrupted naming the first gap. A single duplicate eventId returns the committed sequence; a batch with a committed or repeated eventId is invalidTransition.",
     "The payload column stores only canonical data bytes (sorted keys, / unescaped, compact); payload_digest is SHA-256 over those exact bytes and payload_size is their byte length. header_meta is the canonical full envelope with data {}.",
-    "v1/v2 databases migrate in place to v3: the old full-envelope payload is decoded, checked against the row, and split into header_meta plus the data payload; nonces are copied; user_version becomes 3; reopen is idempotent.",
-    "Effects are at-least-once: enqueue is generation-idempotent, leases select by (not_before, enqueued_commit_seq, effect_key), an expired leased effect with attempts < maxAttempts takes a new attempt and generation+1, permanent or exhausted failures dead-letter, unknown outcomes need reconciliation, and only network-idempotent retries wait 1000*2^(attempt-1) ms (capped at 300000).",
+    "v1/v2 databases migrate in place to v3: the old full-envelope payload is decoded, checked against the row, and split into header_meta plus the data payload; nonces are copied; user_version becomes 3; reopen is idempotent. A pre-existing commit_seq gap is refused before COMMIT.",
+    "Effects are at-least-once: enqueue is generation-idempotent, leases select by (not_before, enqueued_commit_seq, effect_key), an expired leased effect with attempts < maxAttempts takes a new attempt and generation+1, permanent or exhausted failures dead-letter, unknown outcomes need reconciliation, and only network-idempotent retries wait 1000*2^(attempt-1) ms (capped at 300000). The store lease is the only selection order: a known kind without a registered executor is released to pending with that retry delay and writes no event, while a kind outside the host catalogue is fail(permanent) with unknown_effect_kind.",
     "The inbox dedupes by (receiver, effect_key, generation); a replay returns the stored result without executing again, including after reopen.",
     "These are phone-only vectors; upstream [] because dsh-bot does not export the SQLite profile."
   ],
@@ -1577,6 +1577,265 @@
           }
         }
       ]
+    },
+    {
+      "name": "outbox-lease-is-the-only-selection-order",
+      "source": "examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift:106-131",
+      "kind": "effect",
+      "steps": [
+        {
+          "op": "effectEnqueue",
+          "effect": {
+            "effectKey": "fx-expired",
+            "kind": "routine-delivery",
+            "operation": "routine.deliver",
+            "target": "delivery-1",
+            "canonicalResource": "delivery-1",
+            "argsDigest": "args-digest",
+            "payloadDigest": "payload-digest",
+            "logicalKey": "delivery-1",
+            "idempotent": true,
+            "retryPolicy": "local-idempotent",
+            "maxAttempts": 2,
+            "generation": 1,
+            "notBefore": 1000
+          },
+          "expect": {
+            "effectKey": "fx-expired",
+            "head": 1
+          }
+        },
+        {
+          "op": "effectLease",
+          "owner": "owner",
+          "now": 1000,
+          "expect": {
+            "attempt": 1,
+            "generation": 1,
+            "leaseOwner": "owner",
+            "leaseExpiresAt": 31000
+          }
+        },
+        {
+          "op": "effectEnqueue",
+          "effect": {
+            "effectKey": "fx-later",
+            "kind": "routine-delivery",
+            "operation": "routine.deliver",
+            "target": "delivery-2",
+            "canonicalResource": "delivery-2",
+            "argsDigest": "args-digest",
+            "payloadDigest": "payload-digest",
+            "logicalKey": "delivery-2",
+            "idempotent": true,
+            "retryPolicy": "local-idempotent",
+            "maxAttempts": 2,
+            "generation": 1,
+            "notBefore": 1000
+          },
+          "expect": {
+            "effectKey": "fx-later",
+            "head": 3
+          }
+        },
+        {
+          "op": "effectLeaseNext",
+          "owner": "owner",
+          "now": 40000,
+          "effectKey": "fx-expired",
+          "expect": {
+            "attempt": 2,
+            "generation": 2,
+            "leaseOwner": "owner",
+            "leaseExpiresAt": 70000
+          }
+        },
+        {
+          "op": "effectAck",
+          "effectKey": "fx-expired",
+          "resultRef": "result-expired",
+          "expect": {
+            "state": "acked",
+            "head": 5
+          }
+        },
+        {
+          "op": "effectRecord",
+          "effectKey": "fx-later",
+          "expect": {
+            "state": "pending",
+            "attempt": 0,
+            "attempts": 0,
+            "enqueuedCommitSeq": 3,
+            "leaseOwner": null
+          }
+        },
+        {
+          "op": "effectLeaseNext",
+          "owner": "owner",
+          "now": 40000,
+          "effectKey": "fx-later",
+          "expect": {
+            "attempt": 1,
+            "generation": 1,
+            "leaseOwner": "owner",
+            "leaseExpiresAt": 70000
+          }
+        }
+      ]
+    },
+    {
+      "name": "outbox-known-kind-without-executor-releases-to-pending",
+      "source": "examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift:120-124",
+      "kind": "effect",
+      "steps": [
+        {
+          "op": "effectEnqueue",
+          "effect": {
+            "effectKey": "fx-known",
+            "kind": "routine-delivery",
+            "operation": "routine.deliver",
+            "target": "delivery-1",
+            "canonicalResource": "delivery-1",
+            "argsDigest": "args-digest",
+            "payloadDigest": "payload-digest",
+            "logicalKey": "delivery-1",
+            "idempotent": true,
+            "retryPolicy": "network-idempotent",
+            "maxAttempts": 5,
+            "generation": 1,
+            "notBefore": 1000
+          },
+          "expect": {
+            "effectKey": "fx-known",
+            "head": 1
+          }
+        },
+        {
+          "op": "effectLease",
+          "owner": "owner",
+          "now": 1000,
+          "expect": {
+            "attempt": 1,
+            "generation": 1,
+            "leaseOwner": "owner",
+            "leaseExpiresAt": 31000
+          }
+        },
+        {
+          "op": "effectRelease",
+          "effectKey": "fx-known",
+          "expect": {
+            "state": "pending",
+            "head": 2,
+            "attempt": 1,
+            "attempts": 1,
+            "notBefore": 2000
+          }
+        },
+        {
+          "op": "effectRecord",
+          "effectKey": "fx-known",
+          "expect": {
+            "state": "pending",
+            "attempt": 1,
+            "attempts": 1,
+            "generation": 1,
+            "leaseOwner": null,
+            "notBefore": 2000,
+            "lastErrorContains": "no registered executor"
+          }
+        },
+        {
+          "op": "effectLease",
+          "owner": "owner",
+          "now": 1999,
+          "expect": {
+            "lease": null
+          }
+        },
+        {
+          "op": "effectLease",
+          "owner": "owner",
+          "now": 2000,
+          "expect": {
+            "attempt": 2,
+            "generation": 1,
+            "leaseOwner": "owner",
+            "leaseExpiresAt": 32000
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown-effect-kind-is-permanent",
+      "source": "examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift:116-119",
+      "kind": "effect",
+      "steps": [
+        {
+          "op": "effectEnqueue",
+          "effect": {
+            "effectKey": "fx-unknown",
+            "kind": "not-in-catalogue",
+            "operation": "notify",
+            "target": "row-1",
+            "canonicalResource": "row-1",
+            "argsDigest": "args-digest",
+            "payloadDigest": "payload-digest",
+            "logicalKey": "request-1",
+            "idempotent": false,
+            "retryPolicy": "local-nonidempotent",
+            "maxAttempts": 1,
+            "generation": 1,
+            "notBefore": 1000
+          },
+          "expect": {
+            "effectKey": "fx-unknown",
+            "head": 1
+          }
+        },
+        {
+          "op": "effectLease",
+          "owner": "owner",
+          "now": 1000,
+          "expect": {
+            "attempt": 1,
+            "generation": 1,
+            "leaseOwner": "owner",
+            "leaseExpiresAt": 31000
+          }
+        },
+        {
+          "op": "effectFail",
+          "effectKey": "fx-unknown",
+          "errorClass": "permanent",
+          "reason": "unknown_effect_kind",
+          "expect": {
+            "state": "dead_letter",
+            "head": 4
+          }
+        },
+        {
+          "op": "effectRecord",
+          "effectKey": "fx-unknown",
+          "expect": {
+            "state": "dead_letter",
+            "attempt": 1,
+            "attempts": 1,
+            "errorClass": "permanent",
+            "leaseOwner": null,
+            "lastErrorContains": "unknown_effect_kind"
+          }
+        },
+        {
+          "op": "effectLease",
+          "owner": "owner",
+          "now": 2000,
+          "expect": {
+            "lease": null
+          }
+        }
+      ]
     }
   ],
   "invalid": [
@@ -2235,10 +2494,44 @@
       ]
     },
     {
-      "name": "v2-gap-is-migrated-then-refused",
-      "source": "Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:239-332",
+      "name": "v2-gap-rolls-back-and-stays-v2",
+      "source": "Sources/PhoneDSHBot/Store/SQLiteDomainStore.swift:244-360",
       "kind": "migration",
-      "steps": [],
+      "steps": [
+        {
+          "op": "raw",
+          "query": "PRAGMA user_version",
+          "expect": {
+            "rows": [
+              [
+                "2"
+              ]
+            ]
+          }
+        },
+        {
+          "op": "raw",
+          "query": "SELECT type FROM sqlite_master WHERE name = 'bot_events'",
+          "expect": {
+            "rows": [
+              [
+                "table"
+              ]
+            ]
+          }
+        },
+        {
+          "op": "raw",
+          "query": "SELECT COUNT(*) FROM bot_events",
+          "expect": {
+            "rows": [
+              [
+                "2"
+              ]
+            ]
+          }
+        }
+      ],
       "setup": {
         "userVersion": 2,
         "events": [
@@ -2287,7 +2580,8 @@
         ],
         "nonces": []
       },
-      "openError": "commitGap:2:3"
+      "openError": "corrupted",
+      "openErrorContains": "commit_seq gap: expected 2, found 3"
     }
   ]
 }
