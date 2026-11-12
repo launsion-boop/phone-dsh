@@ -15,7 +15,8 @@
     "phoneDSH P25 additive principal kind: maintainer. Maintenance batches write memory.maintenance_started / memory.maintenance_finished / memory.maintenance_rolled_back and every document write carries correlationId memory-maintenance:<batch>.",
     "CCR-1: principal.botId/sessionId, causationId and correlationId are absent in iOS bytes and explicit null in the upstream golden; both decode identically and both validate.",
     "CCR-1: event-envelope.schema.json is durable-only; ephemeral events use event-envelope.ephemeral.schema.json, carry no commitSeq and are never stored.",
-    "CCR-2: authz.grant_snapshot is a durable type whose data is frozen by authz-grant-snapshot.schema.json; the vector is produced by the Swift BotGrantSnapshot encoder."
+    "CCR-2: authz.grant_snapshot is a durable type whose data is frozen by authz-grant-snapshot.schema.json; the vector is produced by the Swift BotGrantSnapshot encoder.",
+    "memory.document_written and memory.document_deleted are phoneDSH durable memory-document types already present in BotEventEnvelopeCodec.durableEventTypes; the enum repair records them. Their data shapes are owned by the bot/v2 memory document contract, not by this envelope."
   ],
   "validCases": [
     {
@@ -519,6 +520,96 @@
         "errors": []
       },
       "provenance": "Swift BotGrantSnapshot.event + BotEventEnvelopeCodec.encode; eventId/traceId fixed for the fixture"
+    },
+    {
+      "name": "memory-document-written",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.document_written",
+        "eventId": "memory.document_written:e914addf1ea6533a04c529bcd3ffad883635b542df08855a9a93d3ce78daa528",
+        "commitSeq": 11,
+        "time": 1760000020000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "trace-memory.document_written:e914addf1ea6533a04c529bcd3ffad883635b542df08855a9a93d3ce78daa528",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main",
+          "kind": "chat",
+          "capabilities": []
+        },
+        "turnId": "turn-main-1",
+        "data": {
+          "path": "agent/notes/plan.md",
+          "scope": "agent",
+          "content": "# Plan\n\nship it",
+          "version": 2,
+          "expected_version": 1,
+          "updated_at_ms": 1760000020000,
+          "author": {
+            "bot_id": "main",
+            "session_id": "gb-main",
+            "kind": "chat"
+          },
+          "evidence": [
+            "record://session/gb-main#3"
+          ],
+          "trust": "assistant",
+          "source": {
+            "kind": "user-turn",
+            "sessionId": "gb-main",
+            "turnId": "turn-main-1"
+          }
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
+    },
+    {
+      "name": "memory-document-deleted",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.document_deleted",
+        "eventId": "memory.document_deleted:530bd2d721ed73822986b55a781889fac4f2ee2e1ef96c5d8db546c3f2058b6c",
+        "commitSeq": 12,
+        "time": 1760000030000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "trace-memory.document_deleted:530bd2d721ed73822986b55a781889fac4f2ee2e1ef96c5d8db546c3f2058b6c",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main",
+          "kind": "chat",
+          "capabilities": []
+        },
+        "data": {
+          "path": "agent/notes/obsolete.md",
+          "scope": "agent",
+          "version": 1,
+          "expected_version": 1,
+          "at": 1760000030000,
+          "reason": "forget",
+          "author": {
+            "bot_id": "main",
+            "session_id": "gb-main",
+            "kind": "chat"
+          },
+          "evidence": [
+            "record://session/gb-main#4"
+          ],
+          "trust": "user"
+        }
+      },
+      "validation": {
+        "valid": true,
+        "errors": []
+      }
     }
   ],
   "invalidCases": [
@@ -598,6 +689,91 @@
             "code": "MISSING_COMMIT_SEQ",
             "field": "commitSeq",
             "message": "durable events require a commitSeq"
+          }
+        ]
+      }
+    },
+    {
+      "name": "memory-document-written-missing-commit-seq",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.document_written",
+        "eventId": "memory.document_written:e914addf1ea6533a04c529bcd3ffad883635b542df08855a9a93d3ce78daa528",
+        "time": 1760000020000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "trace-memory.document_written:e914addf1ea6533a04c529bcd3ffad883635b542df08855a9a93d3ce78daa528",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main",
+          "kind": "chat",
+          "capabilities": []
+        },
+        "turnId": "turn-main-1",
+        "data": {
+          "path": "agent/notes/plan.md",
+          "scope": "agent",
+          "content": "# Plan\n\nship it",
+          "version": 2,
+          "expected_version": 1,
+          "updated_at_ms": 1760000020000,
+          "author": {
+            "bot_id": "main",
+            "session_id": "gb-main",
+            "kind": "chat"
+          },
+          "evidence": [
+            "record://session/gb-main#3"
+          ],
+          "trust": "assistant",
+          "source": {
+            "kind": "user-turn",
+            "sessionId": "gb-main",
+            "turnId": "turn-main-1"
+          }
+        }
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "MISSING_COMMIT_SEQ",
+            "field": "commitSeq",
+            "message": "durable events require a commitSeq"
+          }
+        ]
+      }
+    },
+    {
+      "name": "memory-document-deleted-data-not-object",
+      "event": {
+        "schemaVersion": 1,
+        "type": "memory.document_deleted",
+        "eventId": "memory.document_deleted:530bd2d721ed73822986b55a781889fac4f2ee2e1ef96c5d8db546c3f2058b6c",
+        "commitSeq": 12,
+        "time": 1760000030000,
+        "origin": {
+          "kind": "local",
+          "source": "memory-service"
+        },
+        "traceId": "trace-memory.document_deleted:530bd2d721ed73822986b55a781889fac4f2ee2e1ef96c5d8db546c3f2058b6c",
+        "principal": {
+          "botId": "main",
+          "sessionId": "gb-main",
+          "kind": "chat",
+          "capabilities": []
+        },
+        "data": []
+      },
+      "validation": {
+        "valid": false,
+        "errors": [
+          {
+            "code": "INVALID_EVENT",
+            "field": "data",
+            "message": "event data must be an object"
           }
         ]
       }

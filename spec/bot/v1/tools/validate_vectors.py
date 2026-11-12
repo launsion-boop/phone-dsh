@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import posixpath
 import re
@@ -33,6 +34,8 @@ OBSERVATION_ENVELOPE_VECTOR = "observation-envelope.phone.json"
 RECORD_QUERY_VECTOR = "record-query.phone.json"
 ERASURE_EVENT_VECTOR = "erasure-event.phone.json"
 VERIFICATION_VECTOR = "verification.phone.json"
+STORE_VECTOR = "store.phone.json"
+USER_ACTION_VECTOR = "user-action-transaction.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
 PHONE_ONLY_VECTORS = frozenset({
@@ -40,6 +43,8 @@ PHONE_ONLY_VECTORS = frozenset({
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
     VERIFICATION_VECTOR,
+    STORE_VECTOR,
+    USER_ACTION_VECTOR,
 })
 
 # P26/P27 turn-origin contract. Prefix matching is exact, ASCII
@@ -1695,6 +1700,821 @@ def content_card_final_mutations(catalog):
     return count
 
 
+# --- P25 store / user-action transaction vectors (phone-owned) -----------------
+
+STORE_ERRORS = frozenset({
+    "INVALID_EVENT", "SCHEMA_TOO_NEW", "EPHEMERAL_HAS_COMMIT_SEQ", "UNKNOWN_REQUIRED_EVENT",
+    "COMMIT_SEQ_ASSIGNED_BY_STORE", "MISSING_COMMIT_SEQ",
+    "invalidTransition", "invalidCursor", "invalidConfiguration", "corrupted",
+    "staleLease", "unknownEffect", "schemaTooNew:4", "commitGap:2:3",
+    "simulatedCrash:abort-before-commit", "simulatedCrash:abort-after-commit",
+})
+TERMINAL_EFFECT_STATES = frozenset({"acked", "dead_letter", "canceled"})
+EFFECT_STATES = frozenset({
+    "pending", "leased", "failed", "acked", "dead_letter", "needs_reconciliation",
+    "cancel_requested", "canceled",
+})
+RECONCILIATION_REASONS = frozenset({
+    "unknown-outcome", "generation-conflict", "receiver-mismatch",
+})
+
+
+def _store_source(value, where):
+    if not isinstance(value, str) or not re.fullmatch(
+            r"(Tests|Sources|examples)/[^:\s]+:\d+(-\d+)?", value):
+        raise AssertionError(f"{where}: source must be a file:line reference")
+
+
+def _store_canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _store_digest(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _json_equal(expected, actual):
+    if expected is None or actual is None:
+        return expected is None and actual is None
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return isinstance(expected, bool) and isinstance(actual, bool) and expected == actual
+    if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
+        return expected == actual
+    if isinstance(expected, str) and isinstance(actual, str):
+        return expected == actual
+    if isinstance(expected, list) and isinstance(actual, list):
+        return len(expected) == len(actual) and all(
+            _json_equal(left, right) for left, right in zip(expected, actual))
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        return all(key in actual and _json_equal(value, actual[key])
+                   for key, value in expected.items())
+    return False
+
+
+def _expect_store(expect, observation, where):
+    if expect is None:
+        return
+    if not isinstance(expect, dict):
+        raise AssertionError(f"{where}: expect must be an object or null")
+    for key, value in expect.items():
+        if key == "lastErrorContains":
+            text = observation.get("lastError") or ""
+            if not isinstance(text, str) or value not in text:
+                raise AssertionError(f"{where}: lastError does not contain {value!r}")
+            continue
+        if key == "lastErrorNotContains":
+            text = observation.get("lastError") or ""
+            if isinstance(text, str) and value in text:
+                raise AssertionError(f"{where}: lastError unexpectedly contains {value!r}")
+            continue
+        actual = observation.get(key)
+        if not _json_equal(value, actual):
+            raise AssertionError(f"{where}.{key}: expected {value!r}, got {actual!r}")
+
+
+def _default_max_attempts(policy, idempotent):
+    if policy == "network-idempotent":
+        return 5
+    if policy == "local-idempotent":
+        return 2
+    if policy in ("local-nonidempotent", "network-nonidempotent"):
+        return 1
+    return 2 if idempotent else 1
+
+
+def _retry_delay(policy, attempt):
+    if policy != "network-idempotent":
+        return 0
+    exponent = max(0, min(8, attempt - 1))
+    return min(1000 * (1 << exponent), 300_000)
+
+
+def _safe_error(text):
+    import re as _re
+    text = _re.sub(r"\bsk-[A-Za-z0-9_-]{8,}\b", "[redacted]", text)
+    text = _re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*", "[redacted]", text)
+    return text[:500]
+
+
+class _StoreModelError(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+class _StoreModel:
+    def __init__(self, case):
+        self.clock = case.get("clock", 1000)
+        self.lease_ttl = case.get("leaseTTLms", 30_000)
+        self.ephemeral_capacity = case.get("ephemeralCapacity", 256)
+        self.head = 0
+        self.events = {}
+        self.ids = {}
+        self.effects = {}
+        self.nonces = {}
+        self.leases = {}
+        self.inbox = {}
+        self.inbox_executions = {}
+        self.crash_point = None
+        self.closed = False
+        self.version = 3
+        self.migrated_from = 0
+        self.ephemeral = []
+        self.dropped = 0
+        self.effect_event_ids = 0
+        setup = case.get("setup")
+        if setup:
+            self.migrated_from = setup.get("userVersion", 2)
+            for event in setup.get("events", []):
+                seq = event["commitSeq"]
+                self.events[seq] = event
+                self.ids[event["eventId"]] = seq
+                self.head = max(self.head, seq)
+            for nonce in setup.get("nonces", []):
+                self.nonces[(nonce["botId"], nonce["nonce"])] = nonce["eventId"]
+        self.version = 3
+
+    # -- helpers ---------------------------------------------------------
+    def _append_event(self, event, effect_event=False):
+        if effect_event:
+            self.effect_event_ids += 1
+            event_id = f"evt:vector-{self.effect_event_ids}"
+        else:
+            event_id = event["eventId"]
+        self.head += 1
+        stored = dict(event)
+        stored["commitSeq"] = self.head
+        self.events[self.head] = stored
+        self.ids[event_id] = self.head
+        return self.head
+
+    def _is_ephemeral(self, event_type):
+        return event_type in {
+            "model.delta", "model.started", "model.settled", "tool.progress", "agent.status",
+            "fish.action", "runtime.stderr", "runtime.notification", "projection.invalidated",
+            "journal.backpressure", "approval.card_available",
+        }
+
+    def _effect_event(self, event_type="effect.enqueued"):
+        return {"type": event_type, "eventId": "evt:placeholder"}
+
+    def _append_effect_events(self, event_types):
+        if len(event_types) == 1:
+            self._append_event(self._effect_event(event_types[0]), effect_event=True)
+            return
+        batch_id = f"batch:vector-{self.head + 1}"
+        for index, event_type in enumerate(event_types):
+            event = self._effect_event(event_type)
+            event["batch"] = {"id": batch_id, "index": index, "total": len(event_types)}
+            self._append_event(event, effect_event=True)
+
+    # -- operations ------------------------------------------------------
+    def step(self, step):
+        op = step.get("op")
+        fn = getattr(self, f"_op_{op}", None)
+        if fn is None:
+            raise AssertionError(f"unknown store op {op!r}")
+        if self.crash_point is not None and op not in ("armCrash",):
+            point = self.crash_point
+            self.crash_point = None
+            self.closed = True
+            if point == "abort-after-commit":
+                fn(step)
+            raise _StoreModelError(f"simulatedCrash:{point}")
+        return fn(step)
+
+    def _op_armCrash(self, step):
+        self.crash_point = step.get("point", "")
+        return {}
+
+    def _op_head(self, step):
+        return {"head": self.head}
+
+    def _op_append(self, step):
+        event = step["event"]
+        if "commitSeq" in event:
+            if self._is_ephemeral(event["type"]):
+                raise _StoreModelError("EPHEMERAL_HAS_COMMIT_SEQ")
+            raise _StoreModelError("COMMIT_SEQ_ASSIGNED_BY_STORE")
+        if event["eventId"] in self.ids:
+            return {"sequence": self.ids[event["eventId"]]}
+        seq = self._append_event(event)
+        return {"sequence": seq}
+
+    def _op_appendBatch(self, step):
+        events = step["events"]
+        if any(self._is_ephemeral(event["type"]) for event in events):
+            raise _StoreModelError("invalidTransition")
+        if any("commitSeq" in event for event in events):
+            raise _StoreModelError("COMMIT_SEQ_ASSIGNED_BY_STORE")
+        if len({event["eventId"] for event in events}) != len(events):
+            raise _StoreModelError("invalidTransition")
+        if any(event["eventId"] in self.ids for event in events):
+            raise _StoreModelError("invalidTransition")
+        if len(events) > 1 and all("batch" not in event for event in events):
+            batch_id = "batch:vector"
+            for index, event in enumerate(events):
+                event = dict(event)
+                event["batch"] = {"id": batch_id, "index": index, "total": len(events)}
+                events[index] = event
+        sequences = [self._append_event(event) for event in events]
+        return {"sequences": sequences}
+
+    def _op_events(self, step):
+        after = step.get("after", 0)
+        limit = step.get("limit", 256)
+        selected = [self.events[seq] for seq in sorted(self.events) if seq > after][:limit]
+        return {
+            "sequences": [event["commitSeq"] for event in selected],
+            "eventIds": [event["eventId"] for event in selected],
+            "types": [event["type"] for event in selected],
+            "batchIndices": [event.get("batch", {}).get("index") for event in selected],
+            "batchTotal": selected[0].get("batch", {}).get("total") if selected else None,
+            "batchIdsEqual": len({event.get("batch", {}).get("id") for event in selected}) <= 1,
+        }
+
+    def _op_payload(self, step):
+        data = step["data"]
+        if not isinstance(data, dict):
+            raise _StoreModelError("INVALID_EVENT")
+        text = _store_canonical(data)
+        return {"canonical": text, "sha256": _store_digest(text), "size": len(text.encode())}
+
+    def _op_ephemeralAppend(self, step):
+        sequences = []
+        for event in step["events"]:
+            if len(self.ephemeral) == self.ephemeral_capacity:
+                self.ephemeral.pop(0)
+                self.dropped += 1
+            self.ephemeral.append(event["eventId"])
+            sequences.append(0)
+        return {"sequences": sequences, "buffer": list(self.ephemeral),
+                "dropped": self.dropped, "head": self.head}
+
+    def _op_reopen(self, step):
+        if self.version > 3:
+            raise _StoreModelError(f"schemaTooNew:{self.version}")
+        expected = sorted(self.events)
+        if expected != list(range(1, len(expected) + 1)):
+            for index, seq in enumerate(expected, start=1):
+                if seq != index:
+                    raise _StoreModelError(f"commitGap:{index}:{seq}")
+        return {"head": self.head}
+
+    def _op_sql(self, step):
+        statement = step.get("statement", "")
+        match = re.search(r"PRAGMA user_version\s*=\s*(\d+)", statement)
+        if match:
+            self.version = int(match.group(1))
+        match = re.search(r"DELETE FROM bot_event_headers WHERE commit_seq\s*=\s*(\d+)", statement)
+        if match:
+            seq = int(match.group(1))
+            self.events.pop(seq, None)
+            for event_id, stored_seq in list(self.ids.items()):
+                if stored_seq == seq:
+                    self.ids.pop(event_id)
+        return {"ok": True}
+
+    def _op_raw(self, step):
+        query = step.get("query", "")
+        if query.startswith("PRAGMA user_version"):
+            return {"rows": [[str(self.version)]]}
+        if "sqlite_master WHERE name = 'bot_events'" in query:
+            if self.migrated_from and self.version == 3:
+                return {"rows": [["view"]]}
+            return {"rows": [["table"]]}
+        if query == "SELECT COUNT(*) FROM bot_event_headers":
+            return {"rows": [[str(len(self.events))]]}
+        if query == "SELECT COUNT(*) FROM bot_event_payloads":
+            return {"rows": [[str(len(self.events))]]}
+        if query.startswith("SELECT commit_seq, event_id, event_type, payload_size, payload_digest"):
+            rows = []
+            for seq in sorted(self.events):
+                event = self.events[seq]
+                data = _store_canonical(event.get("data", {}))
+                rows.append([str(seq), event["eventId"], event["type"],
+                             str(len(data.encode())), _store_digest(data)])
+            return {"rows": rows}
+        if query.startswith("SELECT CAST(payload AS TEXT)"):
+            match = re.search(r"commit_seq\s*=\s*(\d+)", query)
+            seq = int(match.group(1)) if match else 1
+            event = self.events.get(seq)
+            if event is None:
+                return {"rows": []}
+            return {"rows": [[_store_canonical(event.get("data", {}))]]}
+        if query.startswith("SELECT event_id FROM bot_user_action_nonces"):
+            match = re.search(r"bot_id = '([^']+)' AND nonce = '([^']+)'", query)
+            if not match:
+                return {"rows": []}
+            event_id = self.nonces.get((match.group(1), match.group(2)))
+            return {"rows": [[event_id]] if event_id else []}
+        if "name = 'bot_user_action_nonces'" in query:
+            return {"rows": [["bot_user_action_nonces"]]}
+        if query.startswith("SELECT name FROM pragma_table_info('bot_user_action_nonces')"):
+            return {"rows": [["bot_id"], ["nonce"], ["event_id"], ["created_commit_seq"]]}
+        return {"rows": []}
+
+    def _op_event(self, step):
+        event_id = step.get("eventId", "")
+        seq = self.ids.get(event_id)
+        if seq is None:
+            return {"exists": False}
+        event = self.events[seq]
+        return {"exists": True, "commitSeq": seq, "type": event["type"]}
+
+    def _op_eventData(self, step):
+        seq = step.get("commitSeq")
+        event = self.events.get(seq)
+        if event is None:
+            return {"exists": False}
+        return {"exists": True, "value": event.get("data", {}).get(step.get("dataKey"))}
+
+    # -- effects ---------------------------------------------------------
+    def _effect(self, key):
+        return self.effects.get(key)
+
+    def _op_effectEnqueue(self, step):
+        effect = dict(step["effect"])
+        key = effect["effectKey"]
+        generation = effect.get("generation", 1)
+        existing = self._effect(key)
+        if existing is not None and generation <= existing["generation"]:
+            return {"effectKey": key, "head": self.head}
+        retry = effect.get("retryPolicy") or (
+            "local-idempotent" if effect.get("idempotent") else "local-nonidempotent")
+        max_attempts = effect.get("maxAttempts") or _default_max_attempts(
+            retry, bool(effect.get("idempotent")))
+        not_before = effect.get("notBefore", self.clock)
+        self._append_event(self._effect_event("effect.enqueued"), effect_event=True)
+        self.effects[key] = {
+            "effectKey": key, "kind": effect.get("kind", "generic"),
+            "operation": effect.get("operation", ""), "idempotent": bool(effect.get("idempotent")),
+            "retryPolicy": retry, "maxAttempts": max_attempts, "generation": generation,
+            "notBefore": not_before, "state": "pending", "attempt": 0, "attempts": 0,
+            "enqueuedCommitSeq": self.head, "leaseOwner": None, "leaseExpiresAt": None,
+            "lastError": None, "errorClass": None, "resultRef": None,
+            "reconciliationReason": None,
+        }
+        return {"effectKey": key, "head": self.head}
+
+    def _lease(self, step, explicit_ttl):
+        owner = step.get("owner", "")
+        now = step.get("now", self.clock)
+        ttl = step.get("ttlMs", explicit_ttl or self.lease_ttl)
+        candidates = []
+        for key, effect in self.effects.items():
+            if effect["state"] in ("pending", "failed") and (
+                    effect["notBefore"] is None or effect["notBefore"] <= now):
+                candidates.append(effect)
+            elif effect["state"] in ("leased", "cancel_requested") and (
+                    effect["leaseExpiresAt"] is not None and effect["leaseExpiresAt"] <= now):
+                candidates.append(effect)
+        candidates.sort(key=lambda effect: (
+            effect["notBefore"] if effect["notBefore"] is not None else 0,
+            effect["enqueuedCommitSeq"], effect["effectKey"]))
+        for effect in candidates:
+            if effect["state"] == "cancel_requested":
+                self._append_event(self._effect_event("effect.reconciliation_required"), effect_event=True)
+                effect.update({"state": "needs_reconciliation", "reconciliationReason": "unknown-outcome",
+                               "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+                continue
+            if effect["state"] == "leased":
+                if effect["attempts"] >= effect["maxAttempts"]:
+                    self._append_event(self._effect_event("effect.reconciliation_required"), effect_event=True)
+                    effect.update({"state": "needs_reconciliation",
+                                   "reconciliationReason": "unknown-outcome",
+                                   "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+                    continue
+                attempt = effect["attempt"] + 1
+                generation = effect["generation"] + 1
+            else:
+                if effect["attempts"] >= effect["maxAttempts"]:
+                    self._append_event(self._effect_event("effect.dead_lettered"), effect_event=True)
+                    effect.update({"state": "dead_letter", "leaseOwner": None,
+                                   "leaseExpiresAt": None})
+                    continue
+                attempt = effect["attempt"] + 1
+                generation = effect["generation"]
+            self._append_event(self._effect_event("effect.attempted"), effect_event=True)
+            effect.update({
+                "state": "leased", "attempt": attempt, "generation": generation,
+                "attempts": max(effect["attempts"], attempt), "leaseOwner": owner,
+                "leaseExpiresAt": now + ttl, "notBefore": None,
+                "reconciliationReason": None,
+            })
+            lease = {"effectKey": effect["effectKey"], "attempt": attempt,
+                     "generation": generation, "leaseOwner": owner,
+                     "leaseExpiresAt": now + ttl}
+            self.leases[effect["effectKey"]] = lease
+            return dict(lease)
+        return {"lease": None}
+
+    def _op_effectLease(self, step):
+        return self._lease(step, None)
+
+    def _op_effectLeaseNext(self, step):
+        observation = self._lease(step, None)
+        if "lease" not in observation and step.get("effectKey"):
+            if observation.get("effectKey") != step["effectKey"]:
+                raise AssertionError("leaseNext selected another effect")
+        return observation
+
+    def _step_lease(self, step):
+        key = step.get("effectKey", "")
+        if "lease" in step:
+            return step["lease"]
+        lease = self.leases.get(key)
+        if lease is None:
+            raise AssertionError(f"no lease recorded for {key}")
+        return lease
+
+    def _op_effectRenew(self, step):
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (effect["state"] != "leased" or lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        now = step.get("now", self.clock)
+        ttl = step.get("ttlMs", self.lease_ttl)
+        self._append_event(self._effect_event("effect.attempted"), effect_event=True)
+        effect["leaseExpiresAt"] = now + ttl
+        lease["leaseExpiresAt"] = now + ttl
+        return {"attempt": lease["attempt"], "generation": lease["generation"],
+                "leaseExpiresAt": lease["leaseExpiresAt"], "leaseOwner": lease["leaseOwner"]}
+
+    def _check_lease(self, step, states):
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        if effect["state"] not in states:
+            raise _StoreModelError("invalidTransition")
+        return lease, effect
+
+    def _op_effectAck(self, step):
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is not None and effect["state"] == "acked" and (
+                effect["generation"] == lease["generation"]
+                and effect["attempt"] == lease["attempt"]):
+            return {"state": "acked", "head": self.head}
+        lease, effect = self._check_lease(step, {"leased", "cancel_requested"})
+        sequence = self._append_event(self._effect_event("effect.acked"), effect_event=True)
+        self.events[sequence]["data"] = {"reconciled": True}
+        effect.update({"state": "acked", "resultRef": step.get("resultRef"),
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None,
+                       "reconciliationReason": None})
+        return {"state": "acked", "head": self.head}
+
+    def _op_effectFail(self, step):
+        error_class = step.get("errorClass")
+        if error_class not in ("transient", "permanent", "unknown"):
+            raise _StoreModelError("invalidTransition")
+        lease = self._step_lease(step)
+        effect = self._effect(lease["effectKey"])
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (effect["state"] not in ("leased", "cancel_requested")
+                or lease["generation"] != effect["generation"]
+                or lease["attempt"] != effect["attempt"]
+                or lease["leaseOwner"] != effect["leaseOwner"]):
+            raise _StoreModelError("staleLease")
+        now = self.clock
+        safe = _safe_error(step.get("reason", ""))
+        dead = error_class == "permanent" or effect["attempts"] >= effect["maxAttempts"]
+        if error_class == "unknown":
+            self._append_effect_events(["effect.failed", "effect.reconciliation_required"])
+            effect.update({"state": "needs_reconciliation", "lastError": safe,
+                           "errorClass": error_class,
+                           "reconciliationReason": "unknown-outcome",
+                           "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        elif dead:
+            self._append_effect_events(["effect.failed", "effect.dead_lettered"])
+            effect.update({"state": "dead_letter", "lastError": safe,
+                           "errorClass": error_class, "leaseOwner": None,
+                           "leaseExpiresAt": None, "notBefore": None})
+        else:
+            self._append_event(self._effect_event("effect.failed"), effect_event=True)
+            effect.update({"state": "failed", "lastError": safe, "errorClass": error_class,
+                           "notBefore": now + _retry_delay(effect["retryPolicy"], lease["attempt"]),
+                           "leaseOwner": None, "leaseExpiresAt": None})
+        lease["leaseExpiresAt"] = None
+        return {"state": effect["state"], "head": self.head, "attempt": effect["attempt"],
+                "attempts": effect["attempts"], "notBefore": effect["notBefore"]}
+
+    def _op_effectMarkReconciliation(self, step):
+        reason = step.get("reason")
+        if reason not in RECONCILIATION_REASONS:
+            raise _StoreModelError("invalidTransition")
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if effect["state"] == "needs_reconciliation":
+            return {"state": effect["state"], "head": self.head}
+        if effect["state"] in TERMINAL_EFFECT_STATES:
+            raise _StoreModelError("invalidTransition")
+        self._append_event(self._effect_event("effect.reconciliation_required"), effect_event=True)
+        effect.update({"state": "needs_reconciliation", "reconciliationReason": reason,
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        return {"state": effect["state"], "head": self.head}
+
+    def _op_effectAckReconciled(self, step):
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if (effect["state"] != "needs_reconciliation"
+                or effect["generation"] != step.get("generation")
+                or effect["attempt"] != step.get("attempt")):
+            raise _StoreModelError("invalidTransition")
+        sequence = self._append_event(self._effect_event("effect.acked"), effect_event=True)
+        self.events[sequence]["data"] = {"reconciled": True}
+        effect.update({"state": "acked", "resultRef": step.get("resultRef"),
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None,
+                       "reconciliationReason": None})
+        return {"state": "acked", "head": self.head}
+
+    def _op_effectCancel(self, step):
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            raise _StoreModelError("unknownEffect")
+        if effect["state"] in TERMINAL_EFFECT_STATES or effect["state"] == "cancel_requested":
+            return {"state": effect["state"], "head": self.head}
+        if effect["state"] == "needs_reconciliation":
+            raise _StoreModelError("invalidTransition")
+        if effect["state"] == "leased":
+            self._append_event(self._effect_event("effect.cancel_requested"), effect_event=True)
+            effect["state"] = "cancel_requested"
+        else:
+            self._append_event(self._effect_event("effect.canceled"), effect_event=True)
+            effect.update({"state": "canceled", "lastError": step.get("reason"),
+                           "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        return {"state": effect["state"], "head": self.head}
+
+    def _op_effectConfirmCancel(self, step):
+        lease, effect = self._check_lease(step, {"cancel_requested"})
+        self._append_event(self._effect_event("effect.canceled"), effect_event=True)
+        effect.update({"state": "canceled", "lastError": step.get("reason"),
+                       "leaseOwner": None, "leaseExpiresAt": None, "notBefore": None})
+        return {"state": effect["state"], "head": self.head}
+
+    def _op_effectRecord(self, step):
+        effect = self._effect(step.get("effectKey", ""))
+        if effect is None:
+            return {"exists": False}
+        observation = {"exists": True, **{key: effect.get(key) for key in (
+            "state", "attempt", "attempts", "generation", "enqueuedCommitSeq",
+            "leaseOwner", "resultRef", "reconciliationReason", "lastError",
+            "notBefore", "errorClass")}}
+        return observation
+
+    _op_effect = _op_effectRecord
+
+    def _op_effects(self, step):
+        ordered = sorted(self.effects.values(), key=lambda effect: (
+            effect["enqueuedCommitSeq"], effect["effectKey"]))
+        return {"keys": [effect["effectKey"] for effect in ordered],
+                "states": [effect["state"] for effect in ordered],
+                "enqueuedCommitSeq": [effect["enqueuedCommitSeq"] for effect in ordered]}
+
+    def _op_effectInbox(self, step):
+        receiver = step.get("receiver")
+        key = step.get("effectKey")
+        lease = self._step_lease(step)
+        repeat = step.get("repeat", 1)
+        deduped = 0
+        executions = self.inbox_executions.get((receiver, key), 0)
+        result_ref = None
+        for _ in range(repeat):
+            existing = self.inbox.get((receiver, key))
+            if existing is not None and existing["generation"] >= lease["generation"]:
+                deduped += 1
+                result_ref = existing["resultRef"]
+                continue
+            effect = self._effect(key)
+            if (effect is None or effect["state"] not in ("leased", "cancel_requested")
+                    or lease["generation"] != effect["generation"]
+                    or lease["attempt"] != effect["attempt"]
+                    or lease["leaseOwner"] != effect["leaseOwner"]):
+                raise _StoreModelError("staleLease")
+            executions += 1
+            result_ref = step.get("resultRef")
+            self.inbox[(receiver, key)] = {"generation": lease["generation"],
+                                           "resultRef": result_ref}
+            self.inbox_executions[(receiver, key)] = executions
+        return {"dedupedCount": deduped, "executions": executions, "resultRef": result_ref}
+
+    def _op_action(self, step):
+        action = step["action"]
+        plan = step["plan"]
+        key = (action["botID"], action["nonce"])
+        if key in self.nonces:
+            return {"status": "duplicate", "eventID": self.nonces[key], "head": self.head}
+        reason = _validate_action(action)
+        if reason is not None:
+            status, value = reason
+            return {"status": status, "reason": value, "head": self.head}
+        event = plan["event"]
+        effects = plan.get("effects", [])
+        if self._is_ephemeral(event["type"]) or event["principal"]["botId"] != action["botID"]:
+            raise _StoreModelError("invalidTransition")
+        if event["eventId"] in self.ids:
+            raise _StoreModelError("invalidTransition")
+        effect_keys = [effect["effectKey"] for effect in effects]
+        if len(set(effect_keys)) != len(effect_keys):
+            raise _StoreModelError("invalidTransition")
+        if any(effect_key in self.effects for effect_key in effect_keys):
+            raise _StoreModelError("invalidTransition")
+        self._append_event(event)
+        event_types = [event["type"]]
+        sequences = [self.head]
+        for effect in effects:
+            enqueue = self._op_effectEnqueue({"effect": effect, "expect": None})
+            event_types.append("effect.enqueued")
+            sequences.append(enqueue["head"])
+        self.nonces[key] = event["eventId"]
+        return {"status": "accepted", "eventID": event["eventId"], "head": self.head,
+                "eventTypes": event_types, "sequences": sequences}
+
+    def _op_nonce(self, step):
+        event_id = self.nonces.get((step.get("botID"), step.get("nonce")))
+        if event_id is None:
+            return {"exists": False}
+        return {"eventID": event_id}
+
+
+def _validate_action(action):
+    if not action.get("nonce") or not action.get("botID"):
+        return "rejected", "invalid_action"
+    kind = action.get("kind")
+    if kind != "chat" and "attachments" in action:
+        return "rejected", "unexpected_attachments"
+    if kind == "chat":
+        attachments = action.get("attachments") or []
+        if not (action.get("text") or "").strip() and not attachments:
+            return "rejected", "missing_text"
+    elif kind == "cardAnswer":
+        if not action.get("cardID"):
+            return "rejected", "missing_card_id"
+        if "text" in action:
+            return "rejected", "unexpected_card_answer_field"
+        if not action.get("optionID"):
+            return "rejected", "missing_card_answer"
+    elif kind == "cardDismiss":
+        if not action.get("cardID"):
+            return "rejected", "missing_card_id"
+    elif kind == "approval":
+        if not action.get("approvalID") or action.get("decision") is None:
+            return "rejected", "invalid_approval"
+        if not action.get("digest"):
+            return "stale", "digest_mismatch"
+    elif kind == "stopTask":
+        if not action.get("threadID"):
+            return "rejected", "missing_thread_id"
+    return None
+
+
+def _walk_store_case(case, vector_name):
+    name = case.get("name")
+    if not isinstance(name, str) or not name:
+        raise AssertionError(f"{vector_name}: case without name")
+    _store_source(case.get("source"), f"{vector_name}.{name}")
+    steps = case.get("steps")
+    if not isinstance(steps, list):
+        raise AssertionError(f"{vector_name}.{name}: steps must be an array")
+    open_error = case.get("openError")
+    if open_error is not None:
+        if open_error not in STORE_ERRORS:
+            raise AssertionError(f"{vector_name}.{name}: unknown openError {open_error!r}")
+        if steps:
+            raise AssertionError(f"{vector_name}.{name}: openError case must not have steps")
+        return 1
+    if not steps:
+        raise AssertionError(f"{vector_name}.{name}: case without steps")
+    model = _StoreModel(case)
+    for index, step in enumerate(steps):
+        where = f"{vector_name}.{name}.steps[{index}]"
+        expect = step.get("expect")
+        try:
+            observation = model.step(step)
+        except _StoreModelError as error:
+            if not isinstance(expect, dict) or "error" not in expect:
+                raise AssertionError(f"{where}: unexpected model error {error.code}") from None
+            if expect["error"] != error.code:
+                raise AssertionError(
+                    f"{where}: expected error {expect['error']!r}, got {error.code!r}") from None
+            continue
+        if isinstance(expect, dict) and "error" in expect:
+            raise AssertionError(f"{where}: expected error {expect['error']!r}, got success")
+        _expect_store(expect, observation, where)
+    return len(steps)
+
+
+def validate_store_fixture(fixture):
+    if fixture.get("vector") != "store.phone":
+        raise AssertionError("store.phone: vector must be store.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("store.phone: phone-only vector must declare upstream: []")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("store.phone: delta must be a non-empty array")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("store.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("store.phone: invalid must be a non-empty array")
+    names = set()
+    count = 0
+    for case in valid + invalid:
+        if case.get("name") in names:
+            raise AssertionError(f"store.phone: duplicate case name {case.get('name')!r}")
+        names.add(case.get("name"))
+        count += _walk_store_case(case, "store.phone")
+    # Mutation self-check: the expected sequence is part of the contract, not a comment.
+    mutated = copy.deepcopy(valid[0])
+    mutated["steps"][0]["expect"]["sequence"] = 2
+    expect_rule_violation("store-sequence", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "payload-canonical-bytes-and-digest"))
+    mutated["steps"][0]["expect"]["sha256"] = "0" * 64
+    expect_rule_violation("store-payload-digest", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-transient-exhaustion-dead-letters-atomically"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectFail":
+            step["expect"]["state"] = "acked"
+            break
+    expect_rule_violation("store-effect-state", lambda: _walk_store_case(mutated, "store.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "outbox-network-idempotent-backoff"))
+    for step in mutated["steps"]:
+        if step["op"] == "effectLease" and step.get("now") == 1999:
+            step["expect"] = {
+                "attempt": 2, "generation": 1,
+                "leaseOwner": "owner", "leaseExpiresAt": 31999}
+            break
+    expect_rule_violation("store-backoff", lambda: _walk_store_case(mutated, "store.phone"))
+    return count
+
+
+def validate_user_action_fixture(fixture):
+    if fixture.get("vector") != "user-action-transaction.phone":
+        raise AssertionError("user-action-transaction.phone: vector must be "
+                             "user-action-transaction.phone")
+    if fixture.get("upstream") != []:
+        raise AssertionError("user-action-transaction.phone: phone-only vector must "
+                             "declare upstream: []")
+    if not isinstance(fixture.get("delta"), list) or not fixture["delta"]:
+        raise AssertionError("user-action-transaction.phone: delta must be a non-empty array")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    if not isinstance(valid, list) or not valid:
+        raise AssertionError("user-action-transaction.phone: valid must be a non-empty array")
+    if not isinstance(invalid, list) or not invalid:
+        raise AssertionError("user-action-transaction.phone: invalid must be a non-empty array")
+    names = set()
+    count = 0
+    for case in valid + invalid:
+        if case.get("name") in names:
+            raise AssertionError(f"user-action-transaction.phone: duplicate case name "
+                                 f"{case.get('name')!r}")
+        names.add(case.get("name"))
+        if not isinstance(case.get("steps"), list):
+            raise AssertionError(f"user-action-transaction.phone.{case.get('name')}: "
+                                 f"steps must be an array")
+        count += _walk_store_case(case, "user-action-transaction.phone")
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "action-duplicate-survives-reopen"))
+    for step in mutated["steps"]:
+        if step["op"] == "action" and step["expect"].get("status") == "duplicate":
+            step["expect"]["status"] = "accepted"
+            break
+    expect_rule_violation("action-duplicate",
+                   lambda: _walk_store_case(mutated, "user-action-transaction.phone"))
+    mutated = copy.deepcopy(next(case for case in valid if case["name"] ==
+                                 "action-event-effects-and-nonce-commit-atomically"))
+    mutated["steps"][0]["expect"]["head"] = 4
+    expect_rule_violation("action-head",
+                   lambda: _walk_store_case(mutated, "user-action-transaction.phone"))
+    mutated = copy.deepcopy(next(case for case in invalid if case["name"] ==
+                                 "action-event-id-conflict-fails-closed-without-consuming-nonce"))
+    for step in mutated["steps"]:
+        if step["op"] == "nonce" and step["expect"].get("eventID") == "evt-shared":
+            step["expect"]["eventID"] = "evt-wrong"
+            break
+    expect_rule_violation("action-nonce",
+                   lambda: _walk_store_case(mutated, "user-action-transaction.phone"))
+    return count
+
+
+
+
 def main() -> int:
     check_overlays()
     check_event(load("event-envelope.json")["valid"]["event"],
@@ -1748,6 +2568,8 @@ def main() -> int:
     if not any("commitSeq" in case["event"] for case in ephemeral_invalid):
         raise AssertionError("event-envelope.phone: ephemeral negative vectors must cover commitSeq")
 
+    store_steps = validate_store_fixture(load(STORE_VECTOR))
+    action_steps = validate_user_action_fixture(load(USER_ACTION_VECTOR))
     check(load("tool-catalog.json")["valid"], "tool-catalog.schema.json", "tool-catalog")
     # phoneDSH P26 additive: the content-card `final` flag lives in the
     # append-only overlay, so the runtime view is the merged p0/p1 catalog.
@@ -1863,7 +2685,8 @@ def main() -> int:
           f"{verify_budget_valid} valid / {verify_budget_invalid} invalid budgets, "
           f"{verify_valid_reports} valid / {verify_invalid_reports} invalid reports, "
           f"{verify_mutations} mutation checks; "
-          f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks)")
+          f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks; "
+          f"store {store_steps} steps, user-action {action_steps} steps)")
     return 0
 
 

@@ -253,154 +253,163 @@ A real 403/SSE test is device/desktop-host evidence, not a JVM mock.
 
 ---
 
-### D1 — P25 envelope presence, ephemeral envelope, grant-snapshot type (S)
+### D1 — P25 envelope presence, ephemeral envelope, grant-snapshot and memory-document types (S) — FROZEN
 
-**Target.** `spec/bot/v1/event-envelope.schema.json` + a new normative section
-`spec/bot/v1/README.md` §1.2 “Envelope presence and encoding”; a new
-`spec/bot/v1/event-envelope.ephemeral.schema.json` if the owner prefers a separate file.
+**Status.** Frozen. The presence rule, ephemeral envelope and `authz.grant_snapshot` type were frozen by
+[PC-20261112-bot-contract-repairs](../../docs/protocol-changes/PC-20261112-bot-contract-repairs.md)
+(`contract_revision c48f5f13831bc17d53afc5a6552ae813520394bb`). The two `memory.document_*` durable types were
+added by PC-20261112-android-bot-w4 lane C2 under `P25-store-v3`. This section is now a record of what is
+frozen and where; it is not a proposal, and the original “explicit null writer” outline is superseded.
 
-**Why.** CCR-1: required nullable members are omitted by Swift; ephemeral events have no schema;
-CCR-2: `authz.grant_snapshot` is not in the enum. The stored-bytes mismatch is not cosmetic: the event
-payload is the authoritative record, and Kotlin replay must decode iOS rows and vice versa.
+**Frozen decisions (normative).**
 
-**Section outline.**
+1. **Presence.** For `principal.botId`, `principal.sessionId`, `causationId`, `correlationId` and the routine
+   snapshot members, **absent ≡ null**. A reader MUST accept absent and explicit `null` as the same nil value.
+   A writer MUST omit a nil member; it MUST NOT write explicit `null` for them. The one exception is each
+   `authz.grant_snapshot` grant entry, whose 11 fields are all required and whose `sessionId`/`expiresAt` are
+   written as explicit `null` when nil. See `spec/bot/v1/README.md` §1.2.
+2. **Optional members.** `turnId`, `runId`, `attempt`, `batch`, `ignorable` stay optional and omitted when
+   absent; `ignorable` may only be `true` or omitted. Other required members are always present.
+3. **Canonical encoding.** UTF-8 JSON, sorted object keys, `/` not escaped, no insignificant whitespace.
+   The stored payload bytes and the digest over them are the canonical bytes (the store profile is
+   `spec/bot/v1/store.md` §5).
+4. **Durable vs ephemeral.** `event-envelope.schema.json` is durable-only (`commitSeq >= 1`). Ephemeral
+   events never carry `commitSeq`, are never stored, and use the closed
+   `event-envelope.ephemeral.schema.json`. The closed type lists are
+   `BotEventEnvelopeCodec.durableEventTypes` / `ephemeralEventTypes`.
+5. **Type registration.** `authz.grant_snapshot` is a durable type; its data is frozen by
+   `authz-grant-snapshot.schema.json` (11 fields per entry, no unknown members). `memory.document_written`
+   and `memory.document_deleted` are durable types (already present in
+   `Sources/PhoneDSHBot/Journal/BotEventEnvelopeCodec.swift:27-48`) and are now also in
+   `event-envelope.schema.json`'s `type` enum. Their `data` is the memory write/delete object owned by the
+   bot/v2 memory contract; the envelope does not open it.
+6. **Unchanged.** The origin and principal closed sets, non-empty `eventId`/`traceId`, the batch rules and the
+   frozen validation error codes (`INVALID_EVENT`, `SCHEMA_TOO_NEW`, `EPHEMERAL_HAS_COMMIT_SEQ`,
+   `UNKNOWN_REQUIRED_EVENT`, `COMMIT_SEQ_ASSIGNED_BY_STORE`, `MISSING_COMMIT_SEQ`) stay as they are.
 
-1. **Presence.** Every `required` member is present in the encoded object. A member whose type includes
-   `null` is encoded as explicit `null` when absent, not omitted. This applies to
-   `principal.botId`, `principal.sessionId`, `causationId`, `correlationId` (and to the routine
-   snapshot’s `run_state`, `quiet_defer`, `next_run_at`, `last_result`, see CCR-7).
-2. **Optional members.** `turnId`, `runId`, `attempt`, `batch`, `ignorable` are omitted when absent;
-   `ignorable` may only be `true` or omitted.
-3. **Canonical encoding.** UTF-8 JSON, object keys sorted, `/` not escaped, no insignificant
-   whitespace, exactly the fields of the schema. The canonical bytes are what the store persists and
-   what digests cover.
-4. **Durable vs ephemeral.** A durable event has `commitSeq ≥ 1`; an ephemeral event has no
-   `commitSeq`, is never stored, and its types are the closed set
-   `model.delta|model.started|model.settled|tool.progress|agent.status|fish.action|runtime.stderr|
-   runtime.notification|projection.invalidated|journal.backpressure|approval.card_available`
-   (`BotEventEnvelopeCodec.swift:47-51`). An unknown durable type is accepted only when
-   `ignorable:true`; an unknown non-ignorable type is rejected with `UNKNOWN_REQUIRED_EVENT`.
-5. **Numeric domain.** `time` is an integer count of milliseconds since Unix epoch, `0…2^63-1`; it is
-   not a JSON float. `commitSeq` is a positive JSON integer. Kotlin uses `Long`; JavaScript readers
-   must not treat it as a double.
-6. **Type registration.** Add `authz.grant_snapshot` to the enum and durable set, with `ignorable:true`
-   and the snapshot data shape owned by D8. If the owner rejects a durable BotEvent, replace §2.3 with
-   a dedicated record and remove the code path.
-7. **Unchanged.** The origin closed sets, principal kinds, eventId/traceId non-empty, batch rules and
-   the validation error codes stay as they are (`BotEventEnvelopeCodec.swift:72-157`).
+**Where frozen.**
 
-**Fixtures.**
+- **Location decision.** The `type` enum lives in `spec/bot/v1/event-envelope.schema.json`. That file is
+  phone-owned, not an upstream export: `export-manifest.json` lists only `golden/*.json`, and earlier
+  contract repairs already edited the schema. The phone addition therefore goes in the schema's enum and in
+  the `event-envelope.phone.json` overlay; no upstream-pinned file is touched and no contract change request
+  is needed for the location.
+- `spec/bot/v1/README.md` §1.2; `spec/bot/v1/event-envelope.schema.json`;
+  `spec/bot/v1/event-envelope.ephemeral.schema.json`; `spec/bot/v1/authz-grant-snapshot.schema.json`.
+- Shared vectors: `spec/bot/v1/golden/event-envelope.phone.json` (13 valid / 4 invalid, plus one valid and
+  one invalid ephemeral case). The two memory-document cases are `memory-document-written` and
+  `memory-document-deleted`; the invalid pair removes `commitSeq` from the written event
+  (`MISSING_COMMIT_SEQ`) and replaces the deleted event's `data` with an array (`INVALID_EVENT`, field
+  `data`).
+- Swift conformance: `Tests/PhoneDSHBotTests/Journal/BotEventEnvelopeTests.swift` reads the merged golden
+  through the real `BotEventEnvelopeCodec`; it asserts the two types are durable and that the canonical
+  writer bytes equal the golden bytes.
 
-- `event-envelope.json` (upstream): unchanged, byte-identical.
-- New `event-envelope.phone.json` cases appended (not replacing): a valid event with
-  `principal.botId:null`, `principal.sessionId:null`, `causationId:null`, `correlationId:null`; an
-  invalid event omitting one of them (reuse `INVALID_EVENT` with `field` naming the missing member, or
-  let the schema rejection be the vector’s expected result; do not add a second code for the same
-  meaning); an ephemeral valid/invalid pair; an `authz.grant_snapshot` valid pair.
-- `validate_vectors.py` already schema-validates events (`check`/`rejects`,
-  `spec/bot/v1/tools/validate_vectors.py:613-660`); the omission case is missing from the vectors, not
-  from the validator. Add it so the Swift/Kotlin encoder change has a failing gate first.
+**Compatibility.** Old iOS rows omit the nullable members and the new reader decodes them as nil; explicit
+`null` in the upstream golden also decodes. A new writer still omits nil, so old readers (`decodeIfPresent`)
+accept new rows. The enum repair only accepts events Swift already wrote; an old schema-only validator that
+rejects unknown enum values would reject those rows, and the repair makes the schema match the writer. No
+`schemaVersion` bump and no data rewrite. Rollback to an old writer is allowed; it omits again.
 
-**Compatibility.** Old Swift rows omit the keys and must remain decodable; `decodeIfPresent` already
-accepts both. New rows with explicit null are decodable by old Swift. The byte change affects only new
-writes; old rows are not rewritten. Rollback to an old writer is allowed (it will omit again) but a
-new reader must accept both. The schema change is a presence rule, not a new field/version; no
-`BotEvent.schemaVersion` bump is needed if the owner chooses “explicit null” over “optional”.
+**Remaining.** Kotlin has no Bot runtime yet, so the Kotlin encoder/decoder has not run these vectors
+(Android B1/A1). The memory document `data` shape has its own v2 owner and validators; this delta does not
+freeze its field semantics. If a future upstream export starts writing a different enum, the upstream golden
+must be re-exported, not hand-edited.
 
 **Acceptance.**
 ```bash
-python3 spec/bot/v1/tools/validate_vectors.py                 # schema-validates every vector
-swift test --filter PhoneDSHBotTests.BotEventEnvelopeTests   # reference; not the Kotlin gate
+python3 spec/bot/v1/tools/validate_vectors.py     # schema-validates every envelope case
+swift test --filter PhoneDSHBotTests.BotEventEnvelopeTests
 ```
-Kotlin: `:bot:testDebugUnitTest --tests '*BotEventEnvelope*'` must decode the explicit-null and
-omitted-null pairs to the same `BotEvent` and re-encode to the canonical bytes.
 
 ---
 
-### D2 — P25 store/outbox persistence profile (L)
+### D2 — P25 store/outbox persistence profile (L) — FROZEN
 
-**Target.** New `spec/bot/v1/store.md` (normative); optionally a `store` section in
-`spec/bot/v1/README.md` that links to it. No new wire format.
+**Status.** Frozen by `spec/bot/v1/store.md` at contract revision `P25-store-v3`
+(PC-20261112-android-bot-w4 lane C2). This supersedes the original outline’s `user_version=2` and
+single `bot_events` table: the implemented and frozen profile is **`user_version=3`** with
+`bot_event_headers` + `bot_event_payloads` + the read-only `bot_events` view. The file is the owning
+description of what runs in `Sources/PhoneDSHBot/{Store,Journal}` today.
 
-**Why.** A port that follows only the current prose will invent table names, lease timing and retry
-semantics. The Swift store is the only place those exist
-(`Store/SQLiteDomainStore.swift:73-90`, `:222-285`; `Journal/BotEffectOutbox.swift:5-13`, `:117-193`,
-`:284-353`, `:480-540`; `Journal/SQLiteDomainStore+BotEventLog.swift:101-165`). The eventId namespaces
-are the idempotency keys for user actions, routines, wake and grants; without them two implementations
-cannot dedupe the same replay.
+**Frozen decisions.** The short form; `store.md` is authoritative:
 
-**Section outline.**
+1. **File and open.** `<app-private support root>/PhoneDSHBot/domain.sqlite` plus `-wal`/`-shm`; one
+   database per App. `journal_mode=WAL` (confirmed `wal`), `synchronous=FULL`, `foreign_keys=ON`,
+   `secure_delete=ON`, 5,000 ms busy timeout, `quick_check=ok`; `user_version` 1/2 migrates, 3 opens,
+   `>3` is `schemaTooNew` without touching the file.
+2. **Schema.** Exact DDL in `store.md` §3: `bot_event_headers` (append-only triggers), `bot_event_payloads`
+   (erasure-only UPDATE, no DELETE), the four-column `bot_events` view (JSON1), `bot_effects` (26 columns,
+   lease candidate index), `bot_effect_inbox` (`receiver, effect_key, generation` PK) and
+   `bot_user_action_nonces` (`bot_id, nonce` PK; unique `event_id` FK to `bot_event_headers(event_id)`).
+3. **commitSeq.** Assigned only inside the store’s `BEGIN IMMEDIATE`, starting at 1, `+1` per durable
+   event, contiguous per batch. Caller supply is `COMMIT_SEQ_ASSIGNED_BY_STORE`. A single duplicate
+   `eventId` returns the committed sequence and appends nothing; a batch with a committed or repeated
+   `eventId` is `invalidTransition`. A gap is `commitGap(expected:actual:)`/`corrupted`.
+4. **Payload bytes.** `bot_event_payloads.payload` is canonical JSON of `data` only; `payload_digest` is
+   SHA-256 over those exact bytes; `payload_size` is their byte length; `header_meta` is the canonical full
+   envelope with `data:{}`. Erasure replaces bytes with `NULL`, keeps digest/size and writes an `erasure`
+   event; the view returns the `$erased` sentinel.
+5. **Migration.** v1/v2 → v3 decodes each old full-envelope payload, checks `commit_seq`/`event_id`/`type`,
+   splits, copies nonces, sets `user_version=3` in one transaction; idempotent on reopen. The reference
+   migrates before its contiguous scan; a v2 gap therefore becomes a v3 file that is refused at open (the
+   vector asserts the refusal, not the post-failure version).
+6. **Effects outbox.** States, enqueue generation idempotence, lease candidate order
+   `(not_before, enqueued_commit_seq, effect_key)`, lease TTL (default 30,000 ms), attempt/attempts
+   semantics, expiry takeover (`generation+1`), terminal states, permanent/exhausted dead-letter, unknown
+   outcome `needs_reconciliation` with reason `unknown-outcome`, retry delay only for
+   `network-idempotent` = `min(1000*2^(attempt-1), 300000)` ms, reconciliation/cancel rules, and inbox
+   dedupe by `(receiver, effect_key, generation)` returning the stored result without re-executing.
+7. **User action.** One transaction appends the action event, every `effect.enqueued` event and the
+   `(bot_id, nonce)` row. Result codes are exactly `accepted`/`duplicate`/`stale`/`rejected`; a replay
+   returns `duplicate` with the original `eventID`; validation rejects/stales without consuming the nonce;
+   an event-id conflict or duplicate/used effect key is `invalidTransition` and consumes no nonce.
+8. **Integrity.** Open and `verifyIntegrity()` check `quick_check`, `foreign_key_check`, contiguous
+   `commit_seq`, header/metadata agreement, payload size/digest, erasure references and nonce references;
+   any failure is `corrupted`/`commitGap` and the store does not open.
 
-1. **Database and files.** Logical path `PhoneDSHBot/domain.sqlite` under the app’s private support
-   root; sidecars `-wal`/`-shm`; directory 0700 and files 0600 on iOS; Android uses the app-private
-   files dir with the same logical subtree. One database per app, not per Bot.
-2. **Open.** WAL mode must be confirmed, `synchronous=FULL`, `foreign_keys=ON`, busy timeout 5,000 ms,
-   `user_version` 2, `quick_check` must return exactly `ok`, `schemaTooNew` above 2. On Android, state
-   the exact `SQLiteDatabase` configuration and whether `PRAGMA synchronous=FULL` is honoured; if it
-   cannot be, say so and do not claim Level 2.
-3. **Schema.** The exact `CREATE TABLE`/`CREATE INDEX`/`CREATE TRIGGER` statements:
-   `bot_events` (append-only triggers), `bot_effects` (all columns and checks), `bot_effect_inbox`,
-   `bot_user_action_nonces` (FK to `bot_events`). Name every column, type, constraint and index in
-   `SQLiteDomainStore.swift:222-285`. A reader may add indexes, not rename/drop columns.
-4. **commitSeq.** Assigned by the store inside the writing transaction, starting at 1, strictly +1, no
-   gaps. A batch is atomic and contiguous. A duplicate `eventId` returns the already-committed
-   sequence and does not append; a duplicate inside one batch is an error. The caller may not supply a
-   `commitSeq` on append (`BotEventEnvelopeCodec.swift:140-156`).
-5. **Ephemeral buffer.** 256 entries, drop-oldest, a dropped counter, never persisted, appended only
-   in memory (`SQLiteDomainStore+BotEventLog.swift:9-16`).
-6. **Outbox state machine.** States `pending|leased|failed|acked|dead_letter|
-   needs_reconciliation|cancel_requested|canceled`; transitions and guards exactly as
-   `BotEffectOutbox.swift:5-13`, `:117-193`, `:284-353`. Lease owner/TTL; `attempts` counts all
-   attempts; `attempt` is the current lease attempt; a lease may be renewed; an expired lease can be
-   re-leased; terminal states are `acked`, `dead_letter`, `canceled`; `needs_reconciliation` blocks
-   cancellation until resolved.
-7. **Retry.** `maxAttempts`: `network-idempotent=5`, `local-idempotent=2`,
-   `local-nonidempotent|network-nonidempotent=1` (`BotEventLog.swift:49-56`). Backoff:
-   `network-idempotent` only, `min(1000*2^(attempt-1), 300000)` ms; others 0
-   (`BotEffectOutbox.swift:534-540`). `errorClass` `permanent` dead-letters regardless of attempts.
-   `unknown` on the executor throw marks `needs_reconciliation` with reason `unknown-outcome`.
-8. **Reconciliation.** Reasons are exactly `unknown-outcome|generation-conflict|receiver-mismatch`;
-   `retryNeedsReconciliation` increments generation and resets the record; `ackReconciled` requires the
-   matching generation/attempt.
-9. **Inbox dedupe.** `(receiver, effect_key, generation)` unique; an apply with an existing entry at
-   the same or newer generation returns `deduped:true` with the stored result
-   (`BotEffectOutbox.swift:419-445`).
-10. **Snapshots.** `routine.*`, `comm.inbound|outbound|reply`, `task.*` use
-    `{"botId":<string>,"document":<object>}` (`Routines/DurableSnapshot.swift:5-19`); the document has
-    its own `version`; the latest event by `commit_seq` wins; an unknown version fails closed (do not
-    silently reset).
-11. **Event IDs.** Register the namespaces that are idempotency keys: `evt:<uuid>`,
-    `routine-snapshot:<runId>:<attempt>:started`, `wake-inbox:<enqueue|stage|commit|revert|recover>:…`,
-    `agent.comm:…`, `authz-snapshot-<uuid>`, `automation:<deliveryKey>`, `created:<taskId>`,
-    `ledger.usage_recorded:<uuid>`, `watchdog.flagged:<unitKind>:<unitId>:<check>` (the unit id is
-    SHA-256-truncated when the raw id exceeds 400 chars). A replay of the same logical operation
-    must reuse the id; a new operation must not.
-12. **Integrity/recovery.** On open, verify `quick_check`, `foreign_key_check`, contiguous
-    `commit_seq`, payload/row eventId and principal/nonce references; a mismatch is `corrupted` and the
-    store refuses writes (`Store/SQLiteDomainStore.swift:338-381`). A crash before/after commit leaves
-    either the old or the new state, never a partial batch.
-13. **Executor contract.** Effects are executed at least once, in `(not_before, enqueued_commit_seq,
-    effect_key)` order, by a lease owner; a handler must be idempotent for `idempotent:true` and must
-    not claim exactly-once. The 250 ms poll in the iOS app is an implementation detail, not a contract
-    value.
+**Fixtures and shared evidence.**
 
-**Fixtures.** New `spec/bot/v1/golden/store-cases.jsonl` (phone-only, registered in the manifest) with
-operations and expected rows: append/duplicate/batch/gap/ephemeral/lease-expiry/renew/ack/fail/
-dead-letter/reconcile/retry/cancel/inbox-dedupe/nonce-duplicate. These are not upstream exports; the
-file must say `"upstream": []` and be loaded by `golden_overlay.py`/the Kotlin loader.
+- `spec/bot/v1/golden/store.phone.json`: 17 valid / 11 invalid cases (140 executable steps), covering
+  sequence assignment/dedupe/batch/ephemeral, canonical payload bytes + digests (27-byte v2 example), the
+  v1/v2→v3 split rows and nonce copy, gap/future-version refusal, and outbox enqueue/lease/expiry/renew/
+  retry/dead-letter/reconciliation/cancel/inbox/crash-rollback.
+- `spec/bot/v1/golden/user-action-transaction.phone.json`: 5 valid / 9 invalid cases (70 steps), covering
+  accepted event+effects+nonce atomicity, duplicate after reopen, before/after-commit crash behavior,
+  per-Bot nonce isolation, event-id conflict, and the rejected/stale reasons.
+- `python3 spec/bot/v1/tools/validate_vectors.py` recomputes the canonical payloads/digests and runs a
+  reference state model with mutation self-checks for the sequence, digest, effect state, backoff,
+  duplicate and nonce values.
+- Swift `Tests/PhoneDSHBotTests/Store/BotStoreVectorTests.swift` and
+  `BotUserActionTransactionVectorTests.swift` run the same JSON through the real `SQLiteDomainStore`,
+  `BotEffectOutbox` and `performAndRecord`.
 
-**Compatibility.** Existing v1 databases open in place and get `user_version=2`; old events are
-unchanged. A rollback to a v1-only app must refuse the v2 DB rather than silently downgrade
-(`spec/bot/v1/README.md:15`). The table/column names are not a new wire version; they are the on-disk
-contract. If the owner adds a column later, it must be optional/backfilled.
+**Compatibility.** v1/v2 files migrate in place; no event bytes of existing rows are rewritten except the
+v3 split (same event identity, same `data`). A v1/v2-only App opening a v3 file refuses it with
+`schemaTooNew`; no downgrade. The table/column names are the on-disk contract: a reader may add indexes,
+not rename/drop columns; a new column needs a backfill or an optional default. Old rows without the
+`erasure` markers keep their payloads. The store vectors are phone-only (`"upstream": []`); the upstream
+`event-envelope.json` remains byte-identical.
+
+**Remaining / not frozen.**
+
+- Android implementation (`:bot` B1) and its real SQLite build: `Context.filesDir`, WAL,
+  `synchronous=FULL`, `foreign_keys`, `secure_delete`, JSON1 availability and the 5 s timeout are not yet
+  verified on a device. If a pragma cannot be honoured, report it; do not claim Level 2 durability.
+- Power-loss/kill/reopen (`SqliteRecovery`) is not in this repository; no repository test cuts power.
+- Erasure has DDL/triggers and reference tests but no dedicated shared vector yet.
+- Two Swift-path divergences are recorded as contract change requests in the wave-4 handoff and are **not**
+  frozen here: the v2-gap migration-order asymmetry (`store.md` §7 item 8, CCR-W4-C2-2) and the App runner’s
+  second lease ordering (`store.md` §9.7, CCR-W4-C2-1). The Android port must not copy either until the owner rules.
+- `store.md` is not yet linked from `spec/README.md` §3.1/§4 (P25 row) or `spec/bot/v1/README.md` §1; those
+  registry edits belong to the contract owner.
 
 **Acceptance.**
 ```bash
-python3 spec/tools/bot/check_golden.py --root .     # manifest + overlay append-only
-python3 spec/bot/v1/tools/validate_vectors.py       # store-cases schema
+python3 spec/bot/v1/tools/validate_vectors.py
+swift test --filter 'BotStoreVectorTests|BotUserActionTransactionVectorTests'
+python3 spec/tools/bot/check_golden.py --root .
 ```
-Kotlin: `:bot:testDebugUnitTest --tests '*Store*' --tests '*EffectOutbox*'`; device:
-`:bot:connectedDebugAndroidTest --tests '*SqliteRecovery*'` (kill process, reopen, `quick_check`).
 
 ---
 

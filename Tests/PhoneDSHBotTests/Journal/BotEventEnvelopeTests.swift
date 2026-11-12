@@ -42,7 +42,7 @@ final class BotEventEnvelopeTests: XCTestCase {
     func testPhoneGoldenDurableCasesUseRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
         let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
-        XCTAssertEqual(valid.count, 11)
+        XCTAssertEqual(valid.count, 13)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
@@ -82,6 +82,17 @@ final class BotEventEnvelopeTests: XCTestCase {
             case "authz-grant-snapshot":
                 XCTAssertEqual(decoded.type, "authz.grant_snapshot")
                 XCTAssertEqual(decoded.ignorable, true)
+            case "memory-document-written":
+                XCTAssertEqual(decoded.type, "memory.document_written")
+                XCTAssertTrue(BotEventEnvelopeCodec.isDurable(decoded.type))
+                XCTAssertEqual(decoded.origin, .local(source: "memory-service"))
+                XCTAssertEqual(decoded.data["path"]?.stringValue, "agent/notes/plan.md")
+                XCTAssertEqual(decoded.data["expected_version"]?.intValue, 1)
+            case "memory-document-deleted":
+                XCTAssertEqual(decoded.type, "memory.document_deleted")
+                XCTAssertTrue(BotEventEnvelopeCodec.isDurable(decoded.type))
+                XCTAssertEqual(decoded.origin, .local(source: "memory-service"))
+                XCTAssertEqual(decoded.data["reason"]?.stringValue, "forget")
             default:
                 XCTFail("unhandled phone event case \(vector["name"] ?? "?")")
             }

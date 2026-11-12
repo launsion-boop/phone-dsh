@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BotEventEnvelope v1 (durable)",
-  "description": "P25 durable stored-event envelope. This schema is durable-only: every valid event carries commitSeq >= 1. Ephemeral events are never stored and use event-envelope.ephemeral.schema.json instead. For principal.botId, principal.sessionId, causationId and correlationId, absent is equivalent to null (readers accept both); writers omit a nil member. See spec/bot/v1/README.md §1.2.",
+  "description": "P25 durable stored-event envelope. This schema is durable-only: every valid event carries commitSeq >= 1. Ephemeral events are never stored and use event-envelope.ephemeral.schema.json instead. For principal.botId, principal.sessionId, causationId and correlationId, absent is equivalent to null (readers accept both); writers omit a nil member. See spec/bot/v1/README.md §1.2. memory.document_written and memory.document_deleted are the phoneDSH memory-document durable types; their data shapes are owned by the bot/v2 memory contract, not by this envelope.",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -67,6 +67,8 @@
         "routine.run_finished",
         "memory.written",
         "memory.forgotten",
+        "memory.document_written",
+        "memory.document_deleted",
         "memory.imported",
         "memory.review_requested",
         "memory.review_resolved",
