@@ -38,7 +38,7 @@ import { XlExecBridge } from '../exec-bridge/src/index.ts'
 import { XlSubprocessRuntime } from '../subprocess-xl/src/index.ts'
 import type { XlWorkerSpawnSpec } from '../subprocess-xl/src/index.ts'
 import type { WorkerJobEvent } from '../subprocess-xl/src/jobs.ts'
-import { ToolJournal } from '../tool-journal/src/index.ts'
+import { ToolJournal, canonicalHash } from '../tool-journal/src/index.ts'
 import type { ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import {
   MemoryVfsBackend, PARTIAL_WRITE_SUFFIX, VfsProxyError, WasiToolbox, encodeRequests,
@@ -294,10 +294,18 @@ function settledJob(events: readonly WorkerJobEvent[]): WorkerJobEvent['job'] | 
   return events.find(event => event.type === 'job/settled')?.job
 }
 
-function journalRecords(fixture: Fixture): Array<{ t: string; result?: { isError?: boolean } }> {
+/** One raw tool-journal line: only the fields these regressions read. */
+interface JournalLine {
+  readonly t: string
+  readonly call_id?: string
+  readonly result?: { readonly isError?: boolean; readonly content?: unknown }
+  readonly result_ref?: { readonly jseq: number; readonly sha256: string }
+}
+
+function journalRecords(fixture: Fixture): JournalLine[] {
   const journal = fixture.ctx.get('toolJournal') as ToolJournal
   const text = readFileSync(journal.store.path(SESSION_ID), 'utf8')
-  return text.trim().split('\n').map(line => JSON.parse(line) as { t: string; done?: { isError?: boolean } })
+  return text.trim().split('\n').map(line => JSON.parse(line) as JournalLine)
 }
 
 /**
@@ -307,7 +315,7 @@ function journalRecords(fixture: Fixture): Array<{ t: string; result?: { isError
  */
 async function waitForJournalDone(
   fixture: Fixture,
-): Promise<Array<{ t: string; result?: { isError?: boolean } }>> {
+): Promise<JournalLine[]> {
   const deadline = Date.now() + 3_000
   for (;;) {
     try {
@@ -319,6 +327,39 @@ async function waitForJournalDone(
     if (Date.now() > deadline) assert.fail('the tool journal never recorded its terminal done record')
     await new Promise(resolve => setTimeout(resolve, 10))
   }
+}
+
+/**
+ * exec.md §8 (PC-20261112-w4-writepath-append): the terminal `done` record
+ * references the `executed` record's ordinal and canonical result hash instead
+ * of duplicating the result bytes. Resolve that reference through the real
+ * store, prove the hash covers the executed bytes, and return the same result
+ * the store folds back into the call entry.
+ */
+function referencedDoneResult(
+  fixture: Fixture,
+  callId: string,
+): { readonly isError: boolean; readonly content: unknown[] } {
+  const done = journalRecords(fixture).at(-1)
+  if (done?.t !== 'done') assert.fail('the journal does not end with a done record')
+  assert.equal(done.result, undefined, 'done must not duplicate the result bytes')
+  const ref = done.result_ref
+  if (ref === undefined) assert.fail('done references the executed result ordinal/hash')
+
+  const journal = fixture.ctx.get('toolJournal') as ToolJournal
+  const executed = journal.store.journaled(SESSION_ID)
+    .find(entry => entry.jseq === BigInt(ref.jseq))?.record
+  if (executed?.t !== 'executed') assert.fail('the reference names the executed record')
+  assert.equal(executed.call_id, callId, 'the reference stays inside the tool call')
+  assert.equal(canonicalHash(executed.result), ref.sha256,
+    'the reference hash covers the same result bytes')
+
+  const resolved = journal.store.entries(SESSION_ID).calls.get(callId)?.done
+  if (resolved === undefined) assert.fail('the store resolves the reference to a result')
+  assert.equal(canonicalHash(resolved), canonicalHash(executed.result),
+    'the resolved done result is byte-equal to the executed record')
+  assert.deepEqual(resolved, executed.result)
+  return resolved
 }
 
 function markerFor(fixture: Fixture): Record<string, unknown> | undefined {
@@ -407,7 +448,13 @@ test('G2-FIX-104: a host drain settles the blocked interpreter inside the window
 
     const records = await waitForJournalDone(h)
     assert.equal(records.at(-1)?.t, 'done', `the journal ends even when the drain cut the command off`)
-    assert.equal(records.at(-1)?.result?.isError, true)
+    // exec.md §8 (PC-20261112-w4-writepath-append): `done` references the
+    // `executed` result by ordinal/hash instead of embedding its bytes, so
+    // resolve that reference before asserting the result.
+    const terminal = referencedDoneResult(h, h.callId)
+    assert.equal(terminal.isError, true)
+    assert.deepEqual(terminal.content, result.content,
+      'the resolved journal end is the same result the tool returned')
 
     // Admission reopens (a park/resume path): the lane is usable again.
     h.mock.emit(FrameType.LIFECYCLE, encodeUtf8(JSON.stringify({
