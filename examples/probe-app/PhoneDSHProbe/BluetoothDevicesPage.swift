@@ -8,6 +8,10 @@ struct BluetoothDevicesPage: View {
     @State private var message = ""
     @State private var showOtherDevices = false
     @State private var legacyInspection = LegacyTaskInspectionModel()
+    /// device-panel.md §5 / PC-20261112-device-panel §3: the panel is behind a
+    /// feature flag that defaults to OFF on every launch. It is in-memory only
+    /// on purpose: a persisted key would add a new P18 surface.
+    @State private var devicePanelsEnabled = false
     #if PDSH_ENABLE_DEVICE_TASKS
     @State private var taskManager = DeviceTaskManager.shared
     #endif
@@ -34,6 +38,12 @@ struct BluetoothDevicesPage: View {
                 Text(store.status)
                 Button(store.scanning ? "停止扫描" : "扫描附近 BLE 设备") {
                     if store.scanning { store.stopScan() } else { store.scan() }
+                }
+                Toggle("显示设备面板（实验）", isOn: $devicePanelsEnabled)
+                    .accessibilityIdentifier("ble-device-panels-enabled")
+                if devicePanelsEnabled {
+                    Text("仅为已连接并协商 PDSH Tools v1 的设备显示面板入口。面板只在你点按时调用工具；开关不持久化，下次启动默认关闭。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Text("只在此页主动扫描。选择设备后发现标准服务；每次连接需单独授权 Agent 读取或提醒控制。设备名称和系统标识不代表已验证身份。")
                     .font(.footnote).foregroundStyle(.secondary)
@@ -112,6 +122,16 @@ struct BluetoothDevicesPage: View {
                     if let value = device.readings[profile.rawValue] { Text(value).font(.caption) }
                 }
                 Text(device.linkState).font(.footnote)
+                // device-panel.md §1: a device that did not negotiate PDSH
+                // Tools v1 has no panel. There is no placeholder page either.
+                if devicePanelsEnabled && !device.linkTools.isEmpty {
+                    NavigationLink {
+                        DevicePanelPage(device: device, store: store)
+                    } label: {
+                        Label("打开设备面板", systemImage: "slider.horizontal.3")
+                    }
+                    .accessibilityIdentifier("ble-device-panel-\(device.id.uuidString)")
+                }
                 #if PDSH_ENABLE_DEVICE_TASKS
                 if !device.identityError.isEmpty {
                     Text(device.identityError)
