@@ -213,6 +213,31 @@ class HostBackChainTest {
     }
 
     @Test
+    fun `both PC drawer destinations close the drawer in the same transition`() {
+        // The reported regression: tapping PC › 连接电脑 pushed the pairing page
+        // but the DRAWER overlay stayed open on top until Back. The two routes the
+        // PC drawer owns must close the overlay and push atomically.
+        for (route in listOf(PdshRoute.PcPairing, PdshRoute.ConnectedComputer)) {
+            val open = HostBackChain(nav = PdshNavState(listOf(PdshRoute.Chat)))
+                .openDrawer()
+            assertTrue("precondition: the drawer is open", open.drawerOpen)
+
+            val after = open.navigateFromDrawer(route)
+
+            assertFalse("$route: the drawer closes", after.drawerOpen)
+            assertEquals("$route: the destination is on top", route, after.nav.current)
+            assertEquals("$route: the PC card is one page above the floor", 1, after.depth)
+            // The close motion finishes with HomeDrawer's onClose; the chain must
+            // already look closed so the drawer cannot paint over the new page.
+            assertEquals(
+                "$route: only the route stack changes",
+                listOf(route),
+                after.nav.stack.drop(1),
+            )
+        }
+    }
+
+    @Test
     fun `the tab bar is hidden at depth greater than zero and while the keyboard is up`() {
         assertTrue("root without keyboard", HostBackChain().pushBack.tabBarVisible)
         assertFalse(

@@ -4,17 +4,25 @@ package com.phonedsh.ui.nav
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ClipboardManager
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.page.ConnectedComputerUiState
@@ -313,6 +321,39 @@ class PcDrawerTest {
         }
         compose.waitForIdle()
         compose.onNodeWithText(UiStrings.PC_PAIRING_TITLE).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the pairing route prints the host install command and copies it`() {
+        val command = "curl -fsSL https://example.test/pclink/install.sh | bash"
+        var copied: AnnotatedString? = null
+        val clipboard = object : ClipboardManager {
+            override fun getText(): AnnotatedString? = copied
+            override fun setText(annotatedString: AnnotatedString) {
+                copied = annotatedString
+            }
+        }
+        compose.setContent {
+            CompositionLocalProvider(LocalClipboardManager provides clipboard) {
+                PdshTheme {
+                    PdshNavHost(
+                        nav = PdshNavState(stack = listOf(PdshRoute.Home, PdshRoute.PcPairing)),
+                        facts = PdshNavFacts(),
+                        onNavigate = {},
+                        onBack = {},
+                        onHome = {},
+                        onHostAction = {},
+                        home = { Box(Modifier.fillMaxSize()) },
+                        webSurface = { Box(Modifier.fillMaxSize()) },
+                        pcInstallCommand = command,
+                    )
+                }
+            }
+        }
+        compose.onNodeWithText(command).assertIsDisplayed()
+        compose.onNode(hasContentDescription("复制安装命令") and hasClickAction())
+            .performSemanticsAction(SemanticsActions.OnClick)
+        compose.runOnIdle { assertEquals(command, copied?.text) }
     }
 
     @Test

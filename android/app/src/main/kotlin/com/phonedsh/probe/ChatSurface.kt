@@ -170,6 +170,7 @@ internal fun transcriptAfterSubagentPageFailure(
 internal fun projectSubagentHistory(
     chatId: String,
     rawEvents: List<JsonObject>,
+    nonTextPlaceholder: String? = null,
 ): SubagentHistoryProjection {
     val nodes = ArrayList<UiStateNode>()
     var ordinal = 0
@@ -178,7 +179,9 @@ internal fun projectSubagentHistory(
             ordinal++
             if (event.kind == HostEventKind.USER_MESSAGE) {
                 val content = event.data?.get("content")
-                    ?: return SubagentHistoryProjection(emptyList(), "用户消息历史内容无法读取；未打开子会话。")
+                if (content == null && nonTextPlaceholder == null) {
+                    return SubagentHistoryProjection(emptyList(), "用户消息历史内容无法读取；未打开子会话。")
+                }
                 val textParts = ArrayList<String>()
                 var unsupported = false
                 when (content) {
@@ -195,7 +198,10 @@ internal fun projectSubagentHistory(
                     else -> unsupported = true
                 }
                 if (unsupported) {
-                    return SubagentHistoryProjection(emptyList(), "子会话包含本机未支持的历史消息类型；未打开子会话。")
+                    if (nonTextPlaceholder == null) {
+                        return SubagentHistoryProjection(emptyList(), "子会话包含本机未支持的历史消息类型；未打开子会话。")
+                    }
+                    textParts += nonTextPlaceholder
                 }
                 val text = textParts.joinToString("\n")
                 if (text.isNotBlank()) nodes += durableUserNode(chatId, event, text, ordinal)
@@ -206,6 +212,19 @@ internal fun projectSubagentHistory(
     }
     return SubagentHistoryProjection(nodes.distinctBy { it.nodeID })
 }
+
+internal fun projectPcSessionHistory(
+    sessionId: String,
+    rawEvents: List<JsonObject>,
+): SubagentHistoryProjection = projectSubagentHistory(
+    sessionId,
+    rawEvents.filterNot { event ->
+        val source = (event["data"] as? JsonObject)?.get("source") as? JsonObject
+        val kind = (source?.get("kind") as? JsonString)?.value
+        (event["type"] as? JsonString)?.value == "user/message" && kind != null && kind != "user"
+    },
+    nonTextPlaceholder = "电脑上的这段消息含有暂无法显示的内容。",
+)
 
 private fun durableUserNode(
     chatId: String,
