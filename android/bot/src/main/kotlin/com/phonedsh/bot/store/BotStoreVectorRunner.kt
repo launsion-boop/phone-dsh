@@ -587,18 +587,6 @@ public class BotStoreVectorRunner(
     public fun assertError(error: Throwable, expected: String, label: String) {
         val actual = errorCode(error)
         if (actual == expected) return
-        // Version skew only: the pre-W4-C2-2 store.phone case expected
-        // `commitGap:<e>:<a>` for a migration gap and had no steps. S1 replaces
-        // it with `openError: "corrupted"` plus `openErrorContains`. The
-        // condition is identical (same first gap); the merged vector takes the
-        // exact branch above and never reaches this adapter.
-        val gap = Regex("^commitGap:(\\d+):(\\d+)$").find(expected)
-        if (gap != null && error is BotStoreException && error.code == "corrupted" &&
-            errorDetail(error) ==
-            "commit_seq gap: expected ${gap.groupValues[1]}, found ${gap.groupValues[2]}"
-        ) {
-            return
-        }
         throw AssertionError("$label: error expected $expected, got $actual (${error.message})", error)
     }
 
