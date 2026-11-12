@@ -2777,4 +2777,21 @@ public object UiStrings {
     public const val PC_UNPAIR: String = "解除配对"
     public const val PC_UNPAIR_CURRENT: String = "解除当前配对"
     public const val PC_KNOW_IT: String = "知道了"
+
+    // Turn usage (iOS `NativeTurnUsageDetails`, `NativeMessageActions.swift:73-92`;
+    // `NativeTurnTail.swift:117-119`). The page contract currently names only the
+    // sheet destination and its detent, so these strings are the Swift provenance
+    // and are recorded as a contract change request in the handoff.
+    public const val TURN_USAGE_TITLE: String = "本轮用量"
+    public const val TURN_USAGE_ACTION: String = TURN_USAGE_TITLE
+    public const val TURN_USAGE_PREFIX: String = ACTIVITY_USAGE
+    public const val TURN_USAGE_CACHE_HIT: String = "缓存命中"
+    public const val TURN_USAGE_UNCACHED_INPUT: String = "未缓存输入"
+    public const val TURN_USAGE_CACHE_READ: String = "缓存读取"
+    public const val TURN_USAGE_CACHE_WRITE: String = "缓存写入"
+    public const val TURN_USAGE_OUTPUT: String = "输出"
+    public const val TURN_USAGE_REASONING: String = "其中推理"
+    public const val TURN_USAGE_TOTAL: String = "合计"
+    public const val TURN_USAGE_TOKENS_SUFFIX: String = " tok"
+    public const val TURN_USAGE_PERCENT_SUFFIX: String = "%"
 }
