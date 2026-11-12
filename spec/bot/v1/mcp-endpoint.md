@@ -5,7 +5,9 @@
 Status: normative for the App/Worker `phone` MCP endpoint introduced by the Bot
 runtime. Contracts: P05 (HTTP/MCP gateway), P16 (Worker environment), P25
 (BotEventLog), P26 (BotToolSurface). Contract revision:
-`bot-identity-reclaim-v1` (PC-20261111-bot-identity-reclaim).
+`bot-identity-reclaim-v1` (PC-20261111-bot-identity-reclaim); the D13 JSON-RPC,
+identity/approval, credential, listener and HTTP-body clauses (§7–§11) are
+revision `bot-mcp-d13-v1` (PC-20261113-bot-mcp-d13).
 
 This document is the owning contract for the single `phone` MCP endpoint the
 Worker sees. It does not define a new transport: it reuses MCP Streamable HTTP,
@@ -367,3 +369,415 @@ allowed only when the caller has no durable identity. `mode` remains
 - Task status `interrupted` is an additive string value inside the existing
   free-form `task.*` event data; consumers that do not know it already render an
   unknown task status conservatively.
+
+## 7. JSON-RPC surface
+
+Status: `implemented` on the Swift end (`BotMCPHandler`, `BotMCPHTTPServer`); Kotlin is `not started`.
+D13 of `docs/design/android-bot-spec-deltas.md` is the proposal; where it differs from the frozen
+text below, this section and the shared fixtures are authoritative and the difference is recorded in
+`docs/protocol-changes/PC-20261113-bot-mcp-d13.md`.
+
+This section freezes the JSON bodies carried by `/mcp`. It does not add a transport: the framing is
+MCP Streamable HTTP as already fixed by §2. The `jsonrpc` member is accepted but not validated
+(`BotMCPHTTPServer.respond`, `BotMCPHandler.rpc`); a message is a request iff its `id` member is
+present, including `"id": null` (`BotMCPHTTPServer.swift:477-510`).
+
+### 7.1 `initialize`
+
+- `params` is optional; `params.protocolVersion` is optional. A requested version equal to
+  `"2025-11-25"`, `"2025-06-18"` or `"2025-03-26"` is echoed byte-for-byte; every other value,
+  including a missing or non-string value, selects the first entry, `"2025-11-25"`
+  (`BotMCPHandler.swift:17`, `:46-56`).
+- The result is exactly
+  `{"protocolVersion": <selected>, "capabilities": {"tools": {}}, "serverInfo": {"name": "phone", "version": "1.0.0"}}`.
+  No `resources`, `prompts`, `logging` or experimental capability is advertised.
+- When a native forwarder is attached and its `initialize` result contains a non-empty
+  `instructions` string, the Bot result gains `"instructions": <native instructions>`. No other
+  native result member is merged and a native error or absent result is silently ignored
+  (`BotMCPHandler.swift:52-55`, `:220-235`).
+- `initialize` has no session precondition, is not attributed and never creates state.
+
+### 7.2 `ping`
+
+The result is the empty object `{}` (`BotMCPHandler.swift:57`). `params` is ignored. `ping` never
+consults identity, the catalog or the native forwarder.
+
+### 7.3 `tools/list`
+
+- The result is `{"tools": [{"name", "description", "inputSchema"}, ...]}`. Each entry is the
+  JSON encoding of `BotMCPToolDefinition` with sorted keys (`BotMCPHandler.swift:58-73`,
+  `BotMCPTypes.swift:5-15`). No `nextCursor` is emitted.
+- Caller resolution: the optional request header `x-pdsh-bot-session` (case-insensitive name,
+  surrounding whitespace trimmed, empty treated as absent) is the App-minted MCP session id. The
+  value is resolved through the same token registry as `tools/call` attribution; an unknown,
+  revoked, expired or empty value yields the static catalog
+  (`BotMCPHandler.swift:21-24`, `:296-304`; `BotMCPRuntime.swift:554-571`).
+- With a resolved caller the list is `toolDefinitions(callerBotID:)`: the P0 catalog plus
+  `FishAction`, `BotVolatileContext` and the team tools, minus `CreateTeammate` for a non-main Bot.
+  A standard MCP client without the header keeps the static catalog.
+- Native tools are appended after every Bot tool, in the native server's order. A native tool is
+  included only when its `name` does not already occur in the Bot list; the Bot entry wins on
+  collision. Duplicate native names are likewise included once. Native order is not otherwise
+  changed and the combined list is not re-sorted (`BotMCPHandler.swift:58-73`, `:209-218`).
+- A `tools/list` encoding failure is JSON-RPC error `-32603` with message
+  `"tool catalog encoding failed"` (`BotMCPHandler.swift:72`).
+- This method is read-only: it never registers, approves, mutates a grant or writes an event.
+
+### 7.4 `tools/call`
+
+- `params` MUST be an object with a string `name`. A missing or non-string name is JSON-RPC error
+  `-32602` with `"tools/call requires name"`. `arguments` defaults to `{}` and MUST be an object
+  when present, else `-32602` with `"arguments must be an object"`
+  (`BotMCPHandler.swift:74-82`).
+- The bare name strips a leading `mcp__<server>__` by taking the last `__`-separated component
+  (`mcp__phone__ask_user` -> `ask_user`; `mcp__a__b__c` -> `c`) (`BotMCPHandler.swift:280-283`).
+  Both ends strip the same way; a call is registered and approved under the bare name.
+- Dispatch order (`BotMCPHandler.swift:83-101`):
+  1. A registered Bot tool (`BotToolCatalog.isRegistered`: the 17 P0 names plus
+     `BotVolatileContext`) or a host-registered team tool runs in the Bot runtime.
+  2. Every other name is forwarded to the attached native forwarder with the original
+     `id`, `params` and HTTP headers. A native `error` or `result` is returned unchanged under the
+     Bot response envelope.
+  3. If no forwarder claims the name, the result is the Bot failure result
+     `unknown_tool`: `content: [{"type": "text", "text": "Unknown tool: <bare>"}]`,
+     `structuredContent: {"ok": false, "error": {"code": "unknown_tool", "message": "Unknown tool: <bare>"}}`,
+     `isError: true` (`BotMCPTypes.swift:52-60`; `BotMCPHandler.swift:86-96`).
+- The result of a Bot tool is the `BotMCPCallResult` shape (`BotMCPTypes.swift:39-68`):
+  `content` is always present and is an array of content blocks; the canonical success/failure
+  block is `{"type": "text", "text": <string>}`. `structuredContent` is present for every Bot tool
+  result. `isError` is omitted for success and is exactly `true` for a failure. A failure result's
+  `structuredContent` is `{"ok": false, "error": {"code": <code>, "message": <message>}}` and its
+  text block carries the same human message. There is no other error channel inside a `tools/call`
+  result; the JSON-RPC `error` member is reserved for the framing failures in §7.5.
+- Default text: a success whose handler does not supply custom text sets `content[0].text` to the
+  canonical JSON encoding of `structuredContent` (sorted keys, `/` unescaped). `ask_user` and
+  `show_next_steps` use the fixed sentences in `cards.md` §7; `RequestApproval` uses the summary
+  required by `tool-contracts.md` §7. A client MUST treat `content` as display text and
+  `structuredContent` as the machine result.
+- The per-caller catalog is enforced after attribution and before any effect: a name present in the
+  Bot catalog but absent from `toolDefinitions(callerBotID: principal.botId)` fails with
+  `permission_denied` and no handler runs (§2; `BotMCPRuntime.swift:1274-1284`). An unknown name
+  stays `unknown_tool`; native names keep native authorization (`CreateTeammate`'s main-Bot check
+  remains an additional check).
+- Before dispatch, the runtime removes the claimed registration and its argument copy; a second
+  `tools/call` with the same id therefore needs a new registration
+  (`BotMCPRuntime.swift:1285-1287`). A missing registration yields `unattributed`
+  (`:1268-1272`).
+
+### 7.5 Errors, batches and notifications
+
+- JSON-RPC error codes used by the Bot endpoint:
+  | code | meaning | messages (exact) |
+  | --- | --- | --- |
+  | `-32601` | method not found and no native forwarder | `method not found: <method>` |
+  | `-32602` | invalid `tools/call` params / unknown tool with no forwarder and no encodable failure | `tools/call requires name`, `arguments must be an object`, `unknown tool: <bare>` |
+  | `-32603` | internal encoding failure | `tool catalog encoding failed`, `tool result encoding failed` |
+- An unknown method is forwarded to the native forwarder first; only when no forwarder produces a
+  response is `-32601` returned (`BotMCPHandler.swift:103-109`). Native errors are returned verbatim
+  and are not remapped.
+- A single JSON object request is answered with one JSON object. A JSON array is a batch: each
+  element MUST be an object with a string `method`, otherwise the whole request is answered
+  HTTP 400 with `{"error":"invalid JSON-RPC message"}` and no reply is produced for any element.
+  Replies keep request order; elements without an `id` are notifications and produce no reply
+  (`BotMCPHTTPServer.swift:477-511`).
+- A batch containing only notifications is answered `202` with an empty body and the
+  `Mcp-Session-Id` header. A batch with at least one request is answered `200` with a JSON array of
+  exactly the replies for the requests, in request order. A single request keeps the `200` object
+  form; an array body always gets an array reply, including an array of length one.
+- Notifications are not forwarded to native, never create identity/approval state and are never
+  answered with a JSON-RPC error. JSON-RPC-level validation of `jsonrpc`, `method` prefixes or
+  unknown `params` members does not exist; the HTTP framing checks above are the only envelope
+  validation.
+
+### 7.6 Native forwarding (including the `/mcp/native` limitation)
+
+- A forwarder is optional and replaceable. `initialize` merges native `instructions` only (§7.1);
+  `tools/list` appends undeclared native names only (§7.3); `tools/call` forwards a non-Bot name
+  unchanged with the original headers; any other method is forwarded before `-32601` is chosen
+  (`BotMCPHandler.swift:195-235`). The native server keeps its own authorization, idempotency
+  receipts, timeout and cancellation semantics; the Bot endpoint adds no second check for a
+  forwarded call.
+- Forwarded requests carry the Bot listener's HTTP headers unchanged, including
+  `X-PDSH-Idempotency-Key`; the Bot listener does not rewrite, add or drop one.
+- **GAP-36 is frozen as a known failure, not hidden.** `/mcp/native` (`NativeMCPServing`) answers
+  one buffered JSON body and has no SSE form. A native tool call made directly against
+  `/mcp/native` that runs longer than the 60 s idle limits on that path still fails; the same call
+  through the Bot listener streams after 5 s (§2) and does not. Only a native-only configuration
+  uses `/mcp/native` as the Worker's `phone` server. Implementations MUST NOT lengthen the idle
+  limits, claim SSE support on `/mcp/native`, or move this limitation into a comment instead of
+  this clause.
+
+## 8. Identity and approval bodies
+
+Status: `implemented` on the Swift end; Kotlin is `not started`. All four routes keep the §2
+transport rules (POST only, exact path, origin, bearer, 1 MiB). Every route answers HTTP 200 with a
+JSON object for a syntactically valid JSON body, including application-level refusals; HTTP status
+is reserved for the transport failures in §11.
+
+### 8.1 `/identity/register`
+
+Request body (`BotMCPHandler.swift:112-155`):
+
+| member | type | required | meaning |
+| --- | --- | --- | --- |
+| `runtimeId` | string | yes | MUST equal the handler's runtime id, `phone-worker` |
+| `sessionId` | string | yes | the session the caller claims; **not identity evidence** |
+| `callId` | string | yes | the model tool-call id shared with `/approval` |
+| `name` | string | yes | tool name; a leading `mcp__<server>__` is stripped |
+| `arguments` | any JSON | no | default `{}`; the digest is computed from its canonical encoding |
+| `argsDigest` | string | no | 64 lowercase hex; when present with `arguments`, the body digest MUST match |
+| `sessionToken` | string | no | the App-issued `dshg_` credential |
+
+- A missing/wrong-typed required member, or `runtimeId` different from `phone-worker`, answers
+  `{"ok":false,"error":"invalid identity registration"}` and registers nothing
+  (`BotMCPHandler.swift:113-120`).
+- A missing or empty `sessionToken` answers `{"ok":false,"error":"unauthorized"}` and registers
+  nothing; the App's one reclaim retry (§3) may run before that answer
+  (`BotMCPHandler.swift:126-139`).
+- The token resolves the principal. A missing, unknown, revoked, expired, malformed (>512 bytes),
+  or different-session token is one `unauthorized` answer. `principal.sessionId` MUST equal the
+  body `sessionId`; the body value never replaces the token lookup
+  (`BotMCPRuntime.swift:781-820`; `BotTokenRegistry.swift:129-168`).
+- When `argsDigest` is present together with `arguments`, a mismatch between the supplied digest and
+  `SHA-256(canonical JSON(arguments))` answers
+  `{"ok":false,"error":"argument digest mismatch"}` before any registration
+  (`BotMCPHandler.swift:141-148`). When `argsDigest` is absent the runtime computes it from
+  `arguments`; when `arguments` is absent but `argsDigest` is present the supplied digest is
+  validated and stored (`BotMCPRuntime.swift:708-757`).
+- The bare tool name MUST be one of: the 17 P0 names plus `BotVolatileContext`; `bash`, `write`,
+  `edit`, `phone`; a host-registered device tool; or a host-registered team tool. Any other name
+  answers `{"ok":false,"error":"unknown_tool"}` (`BotMCPRuntime.swift:713-723`).
+- Success is `{"ok":true,"id":"<32 lowercase hex>"}`, where `id` is the attribution id used by
+  `/identity/cancel`. A repeat registration with the same runtime generation, session, call id,
+  tool and digest refreshes the existing entry instead of publishing a duplicate
+  (`BotMCPRuntime.swift:724-745`).
+- Error strings are exactly: `invalid identity registration`, `unauthorized`,
+  `argument digest mismatch`, `unknown_tool`, `invalid_request`, `unattributed`,
+  `cross_session_denied`, `timeout`, `unavailable`, `identity registration refused`
+  (`BotMCPHandler.swift:273-286`; the last is the catch-all for a non-`BotMCPError` failure).
+  `identity registration refused` is not an enum value of its own; it is the fallback sentence.
+- A rotation or revoke between token resolution and registration fails closed: the gateway
+  re-reads the current incarnation before and after publishing the attribution
+  (`BotGateway.swift:72-96`). No registration survives it.
+
+### 8.2 `/identity/cancel`
+
+- Body `{"id": <string>}`. A valid id answers `{"ok": true}` only when both the local registration
+  and the gateway entry were cancelled; an unknown id, an already-removed gateway entry, a
+  non-object body or a non-string `id` answers `{"ok": false}` (`BotMCPHandler.swift:157-162`; `BotMCPRuntime.swift:837-853`).
+- A successful cancel also cancels every **interactive** approval pending for that registration's
+  principal session and `callId` — one `approval.decided` with `decision:"deny"`,
+  `status:"cancelled"`, `reason:"consumer_cancelled"` and the waiting request answered
+  `{ok:false,allowed:false,message:"approval cancelled"}`. Durable (`pending:true`) approvals are
+  never cancelled this way (§3; `BotMCPRuntime.swift:842-851`;
+  `BotApprovalCoordinator.swift:581-593`).
+- A dropped `/approval` connection is not a cancellation signal; only this route (or a Worker
+  restart, §4) cancels.
+
+### 8.3 `/approval`
+
+Request body (`BotMCPHandler.swift:164-187`):
+
+| member | type | required | default / rule |
+| --- | --- | --- | --- |
+| `sessionId` | non-empty string | yes | narrows the registration lookup; the principal's session must match |
+| `callId` | string | yes | the registered call id |
+| `tool` | string | yes | bare or `mcp__<server>__`-prefixed; both ends strip |
+| `argsDigest` | string | yes | 64 hex, case-insensitive, compared to the registration digest |
+| `alwaysScope` | string | yes | `until`, `session` or `none` (§8.4) |
+| `action` | string | no | defaults to `tool`; human label on the card |
+| `detail` | string | no | default `""` |
+| `command` | string | no | default `""`; for `bash` it MUST equal the registered `arguments.command` |
+| `effects` | array | no | only used by a sandbox escalation; malformed entries are dropped |
+| `askAction` | string | no | default `"tool-call"`; `"sandbox-escalation"` selects §8.4 |
+
+- A body missing any required member or carrying an empty `sessionId` answers
+  `{"ok":false,"allowed":false,"message":"invalid approval request"}`. The response object always
+  contains `ok`, `allowed` and `pending` (a boolean; `false` for every interactive outcome). It
+  gains `approvalId`, `message`, `expiresAt`, `approvalDecision` and `scope` only when defined
+  (`BotApprovalCoordinator.swift:5-56`).
+- Validation order and exact refusal messages (`BotMCPRuntime.swift:937-995`):
+  1. A registration that is missing, expired, from another Worker generation, from another
+     session, registered under another tool, or whose principal incarnation is no longer current is
+     `unattributed`. Exactly one live registration must match the scoped runtime and `callId`
+     (`BotMCPRuntime.swift:855-875`).
+  2. A malformed supplied digest, or a digest different from both the registration digest and the
+     digest of the stored arguments, is `stale:digest_mismatch`.
+  3. For `bash`, a `command` different from the registered `arguments.command` is
+     `stale:command_mismatch`. The comparison is exact string equality.
+  4. A Task-session authorization denial is one of `task_scope:missing_authorization`,
+     `task_scope:path_denied` (see `tool-contracts.md` §4) and is returned before a card exists.
+  5. A malformed sandbox escalation is `stale:sandbox_effect` (§8.4).
+  6. An `alwaysScope` outside the enum, or different from the expected scope (§8.4) and not
+     `none`, is `stale:always_scope`.
+  7. When the computed effect set is empty the call is auto-allowed with
+     `{"ok":true,"allowed":true,"pending":false,"message":"auto-policy"}`; no card is created.
+- Decision outcomes:
+  | decision | response |
+  | --- | --- |
+  | allow once | `ok:true, allowed:true, pending:false, approvalId, message:"allowed", approvalDecision:"allowOnce", scope:"once"` |
+  | always + `until` | same but `approvalDecision:"always", scope:"until"` |
+  | always + `session` | same but `approvalDecision:"always", scope:"session"` |
+  | always + `none` | same but `approvalDecision:"always", scope:"once"` (the effective grant is one-shot) |
+  | deny | `ok:false, allowed:false, pending:false, approvalId, message:"approval denied", approvalDecision:"deny"`; no `scope` |
+  | interactive timeout | `ok:false, allowed:false, pending:false, approvalId, message:"approval timed out"`; no decision or scope |
+  | consumer cancel | `ok:false, allowed:false, pending:false, approvalId, message:"approval cancelled"` |
+  | durable pending | `ok:true, allowed:false, pending:true, approvalId, message:"approval pending", expiresAt` |
+  (`BotApprovalCoordinator.swift:414-506`, `:953-970`).
+- The `once` grant is consumed atomically at decision time for an interactive approval unless
+  every effect declares an `execution` seam, in which case consumption is deferred to execution.
+  A durable approval never consumes at decision time; its once grant is consumed by the resumed
+  retry, and a second concurrent consumer gets a closed failure
+  (`BotApprovalCoordinator.swift:289-300`, `:455-470`).
+
+### 8.4 effect set, expected scope and sandbox escalation
+
+- The effect set is derived by the App from the registered tool and arguments, not from the body:
+  `BotVolatileContext` yields no effect; `bash` uses the frozen destructive-command patterns;
+  `write`/`edit` use directory-granular file effects inside/outside the Bot workspace; other tools
+  use `BotToolEffectClassifier`. A read/UI/auto effect yields no card; a write/ask or unknown effect
+  yields one (`BotMCPRuntime.swift:1973-1998`; `BotToolEffects.swift:56-225`).
+- Expected scope is `"until"` when the effect set is non-empty and at least one effect has
+  `known:true`; it is `"session"` when every effect has `known:false`. An `alwaysScope` of `"none"`
+  is accepted for every tool and resolves an `always` decision to a one-shot grant. Otherwise the
+  supplied scope MUST equal the expected scope (`BotMCPRuntime.swift:984-992`). This is the frozen
+  Swift rule; D13's narrower reading (`none` only for sandbox escalation) is superseded here.
+- Sandbox escalation (`askAction:"sandbox-escalation"`) requires: bare tool `bash`,
+  `alwaysScope:"none"`, exactly one body effect whose `operation` is `"sandbox-escalation"` and
+  whose normalized `resource` is non-empty. The App replaces tool/operation/mutability/policy with
+  `bash` / `sandbox-escalation` / `write` / `ask`, takes `label` from `action`, `detail` from
+  `detail`, and `target` from the body effect. A violation is `stale:sandbox_effect`
+  (`BotMCPHandler.swift:179-186`, `:282-304`; `BotMCPRuntime.swift:963-975`).
+- An interactive card is pending for 300,000 ms. Expiry writes one `approval.decided` with
+  `decision:"deny"`, `status:"denied"`, `timedOut:true`, closes the card and answers the waiter
+  `approval timed out` (`BotApprovalCoordinator.swift:202-205`, `:953-970`). A durable todo expires
+  after 24 h with `status:"expired"`, `reason:"approval_expired"`, `expired:true`,
+  `timedOut:false`; its waiter gets `approval expired`
+  (`BotApprovalCoordinator.swift:205`, `:916-951`).
+
+## 9. Session credentials and attribution
+
+Status: `implemented` on the Swift end; Kotlin is `not started`. §3 owns the ordering and the
+Worker-side lifetime; this section freezes the registry limits and the attribution tuple.
+
+### 9.1 Session credential registry
+
+- **Token.** `dshg_` + unpadded URL-safe Base64 of 32 bytes from `SystemRandomNumberGenerator`
+  (`A-Za-z0-9-_`, 43 characters, 48 total). The raw token is returned only to the in-process
+  caller of `issueSessionToken`; the registry stores only `SHA-256(token)` and compares digests in
+  constant time. Token lookups accept at most 512 UTF-8 bytes and reject the empty token
+  (`BotTokenRegistry.swift:119-127`, `:129-151`, `:267-276`).
+- **Incarnation.** 16 random bytes as 32 lowercase hex characters, regenerated on every issue and
+  rotate; it is never reused. It is not a secret and grants no authority by itself
+  (`BotTokenRegistry.swift:120`, `:31-50`).
+- **TTL and capacity.** Default TTL 12 h (43,200,000 ms); `expiresAt = now + ttl`, overflowing or
+  non-positive expiry is rejected. At most 4,096 live records after pruning; the next issue fails
+  with `registryFull`. `prune` removes expired records (`BotTokenRegistry.swift:57-58`, `:98-117`,
+  `:238-241`).
+- **Issue per session.** `issueSession(botId:sessionId:kind:)` first revokes every existing token
+  for that session, then issues one token, so a session has one current incarnation. `issue`
+  alone does not revoke; the host's session-claim path MUST use `issueSession`/`issueSessionToken`
+  (`BotTokenRegistry.swift:87-96`).
+- **Lookup.** `lookup(token)` returns the principal of the unique unexpired record; an expired
+  record is removed. `lookupSession(sessionId)` returns the record whose incarnation is the current
+  one for that session. `lookupBearer` accepts exactly two whitespace-separated fields with a
+  case-insensitive `Bearer` scheme (the MCP listener's own bearer check is separate and stricter,
+  §11) (`BotTokenRegistry.swift:129-168`).
+- **Revocation and rotation.** `revoke(token)` removes one; `revokeSession` removes all records of
+  a session; `revokeBot` removes all records of a Bot; `rotate(token, capabilities?, expiresAt?,
+  ttl?)` issues a replacement with the same bot/session/kind, the new token and incarnation, keeps
+  the old expiry unless `expiresAt`/`ttl` is given, then removes the old record. An unknown or
+  expired token rotates to `nil`. Every revoke/rotate immediately invalidates registrations that
+  bound the old incarnation (`BotTokenRegistry.swift:192-236`).
+- The token, digest and incarnation are memory-only: never an environment variable, `/dsh/home`
+  file, `UserDefaults`, Keychain, BotEvent, log or UI notice (§3). A Worker restart loses the
+  Worker copy; the App re-claims the current token (§4).
+
+### 9.2 Attribution registration
+
+- **TTL and capacity.** Default TTL = approval timeout + 30,000 ms = 330,000 ms; at most 4,096
+  entries. Expired entries are pruned on registration, claim, approval lookup and by the runtime's
+  30 s maintenance task (`BotAttributionRegistry.swift:42-43`; `BotMCPRuntime.swift:231`, `:360-366`,
+  `:917-935`).
+- **Registration tuple.** `(scopedRuntimeId, sessionId, callId)` is the key; the stored value also
+  binds `incarnation`, bare `name`, `argsDigest`, unscoped `runtimeId`, `createdAt`, `expiresAt`.
+  `scopedRuntimeId` is `<runtimeId>@<generation>`; the Worker always sends `phone-worker` and the
+  generation starts at 0 (`BotMCPRuntime.swift:704-706`, `:877-903`).
+- **Duplicate rule.** The registry rejects a second entry with the same session, incarnation,
+  digest, name and runtime id as `duplicate`. The runtime normally intercepts this case first and
+  refreshes the existing entry, returning the same `id`
+  (`BotAttributionRegistry.swift:91-103`; `BotMCPRuntime.swift:724-745`).
+- **Valid names.** The same set as §8.1: P0 + `BotVolatileContext`, `bash`/`write`/`edit`/`phone`,
+  device tools and handled team tools. Anything else is `unknownTool` and no entry is written.
+- **Lifetime in the call.** The Worker registers on `tools/pre-execute`; the entry stays live
+  through `tools/execute` because the actual `tools/call` and a sandbox escalation arrive there.
+  The execute hook cleans up; the runtime also removes the entry when it resolves the call at the
+  start of execution. A denied approval, a throwing body, an aborted call and an engine restart all
+  cancel the registration (§3; `BotMCPRuntime.swift:837-853`, `:1285-1287`).
+- **Claim.** `identityForApproval` requires exactly one live entry for the scoped runtime and
+  `callId` (narrowed by `sessionId` when supplied), `expiresAt > now`, and a current principal
+  incarnation. Zero or many matches are `unattributed`. The bare tool name and the digest are
+  checked again by `/approval`; a registration for another tool, another session or another
+  generation can never be claimed or approved (`BotMCPRuntime.swift:855-875`, `:944-960`).
+- **Generation.** `workerRestarted()` cancels every pending interactive card, removes every
+  registration, cancels the gateway entries for the previous scoped runtime, increments the
+  generation and rebuilds durable approvals from the log. Entries from the previous generation can
+  never be claimed (`BotMCPRuntime.swift:877-903`).
+- `x-pdsh-bot-session` is not a registration and never authorizes `tools/call`; it only selects the
+  `tools/list` catalog (§7.3).
+
+## 10. Listener recovery
+
+Status: `implemented` on the Swift end; Kotlin is `not started`.
+
+- The listener binds IPv4 loopback only and starts on an ephemeral port. `ensureListening()` first
+  probes the current endpoint with a TCP connect bounded by 1.5 s; if it succeeds the endpoint is
+  unchanged (`BotMCPHTTPServer.swift:121-143`, `:340-368`).
+- On a failed probe or an unexpected listener `.failed`/`.cancelled`, the old listener is cancelled
+  and the previous port is tried up to two times with 100 ms between attempts. If it cannot be
+  rebound, a new ephemeral port is bound. A URL change is published through `onEndpointChange`
+  before the new endpoint is used (`BotMCPHTTPServer.swift:145-216`, `:218-260`).
+- Every Worker start/resume path heals the listener before reading its URL. A listener that only
+  observed `.ready`/`.failed` once is not sufficient: iOS may reap the socket while the process
+  lives (`BotMCPHTTPServer.swift:29-45`).
+- The listener bearer is fixed for the lifetime of the `BotMCPHTTPServer` instance. A rebind on the
+  same host does **not** rotate it; a Worker restart reuses the same instance and therefore the same
+  value; a host restart creates a new instance and a new random token
+  (`BotMCPHTTPServer.swift:44-80`, `:590-594`). The P16 egress token follows the same host-start
+  rule (§1.1). The new URL and token are delivered to the rebuilt Worker before its next turn.
+- A probe is a liveness check only: it carries no HTTP request, no bearer and no MCP message, and
+  it never counts as a tool call or an approval.
+
+## 11. HTTP limits and error forms
+
+Status: `implemented` on the Swift end; Kotlin is `not started`. §2 owns the rules; this table
+freezes the exact byte forms so a second implementation does not invent near-miss bodies.
+
+| condition | status | body (exact) |
+| --- | --- | --- |
+| `Origin` present and not the listener origin (case-insensitive comparison) | 403 | `{"error":"origin mismatch"}` |
+| missing, wrong, case-shifted or previous `Authorization` value | 401 | `{"error":"unauthorized"}` |
+| method other than `POST` (including `GET`, `DELETE`, `PUT`) | 405 | `{"error":"method not allowed"}` |
+| empty target, query string, fragment, `..` segment, or a target not starting with `/` | 400 | `{"error":"invalid request target"}` |
+| exact path not one of the four routes (`/mcp`, `/identity/register`, `/identity/cancel`, `/approval`) | 404 | `{"error":"not found"}` |
+| `Content-Length` greater than 1,048,576, or a read that exceeds 1,048,576 + 65,536 bytes | 413 | `{"error":"request too large"}` |
+| body is not valid JSON | 400 | `{"error":"invalid JSON"}` |
+| a batch element is not an object with a string `method` | 400 | `{"error":"invalid JSON-RPC message"}` |
+| `/mcp` body contains only notifications | 202 | empty body |
+| any valid route result | 200 | the JSON object/array from §7-§8 |
+
+- `Authorization` is compared as the whole UTF-8 byte string against `"Bearer <token>"` in
+  constant time; the scheme is case-sensitive, the token is byte-exact, and a trailing space is a
+  different value (`BotMCPHTTPServer.swift:437-441`, `:577-588`).
+- Every JSON answer sets `Content-Type: application/json`, `Content-Length` and
+  `Connection: close`. `/mcp` JSON answers and the SSE answer to a long `tools/call` carry
+  `Mcp-Session-Id`; `/approval` never carries it; the `/approval` SSE answer is
+  `text/event-stream` with no `Content-Length` (§2; `BotMCPHTTPServer.swift:519-565`).
+- The body limit is 1,048,576 bytes (`BotMCPHTTPServer.maximumBodyBytes`). The
+  `+65,536` transport read headroom exists only to return the 413 instead of closing a socket;
+  it is not a second accepted limit (`BotMCPHTTPServer.swift:45`, `:378-390`, `:414-419`).
+- The check order is origin -> bearer -> method -> target -> JSON parse -> route. A request failing
+  several checks gets only the first one in that order; an application refusal from
+  `/identity/*` or `/approval` is always HTTP 200.
+- Paths are never normalized: `/mcp/` is 404, `/MCP` is 404, `/mcp?x=1` is 400, and
+  `/identity/../mcp` is 400. `DELETE` never succeeds on any path (§2).

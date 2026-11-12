@@ -43,6 +43,9 @@ PROJECTION_VECTOR = "projection.phone.json"
 # A phone-only vector has no dsh-bot upstream export to extend. Keep this list
 # explicit; `check_golden.py` has the same registration.
 PHONE_ONLY_VECTORS = frozenset({
+    "tool-call-cases.phone.json",
+    "identity-approval-cases.phone.json",
+    "mcp-rpc-cases.phone.json",
     TURN_ORIGIN_VECTOR, MCP_EGRESS_VECTOR, AUTHORITY_VECTOR,
     RECORD_REFERENCE_VECTOR, OBSERVATION_ENVELOPE_VECTOR, RECORD_QUERY_VECTOR,
     ERASURE_EVENT_VECTOR,
@@ -3824,8 +3827,463 @@ def validate_session_lifecycle_fixture_inner(fixture):
                 raise AssertionError("runtime.started members")
 
 
+MCP_RPC_VECTOR = "mcp-rpc-cases.phone.json"
+IDENTITY_APPROVAL_VECTOR = "identity-approval-cases.phone.json"
+TOOL_CALL_VECTOR = "tool-call-cases.phone.json"
+VOLATILE_PHONE_VECTOR = "volatile-context.phone.json"
+
+MCP_RPC_TRANSPORTS = frozenset({"single", "batch", "notification"})
+MCP_RPC_INVALID_TRANSPORTS = frozenset({"single", "batch", "http"})
+MCP_RPC_ERROR_CODES = frozenset({-32601, -32602, -32603})
+MCP_RPC_HTTP_ERRORS = frozenset({
+    "invalid request target", "not found", "origin mismatch", "unauthorized",
+    "invalid JSON", "invalid JSON-RPC message", "request too large", "method not allowed",
+})
+MCP_RPC_REQUIRED_VALID = frozenset({
+    "initialize-echo-2025-06-18", "initialize-echo-2025-11-25", "initialize-echo-2025-03-26",
+    "initialize-fallback-unknown-version", "initialize-missing-version", "ping",
+    "tools-list-static-with-native-merge", "tools-list-per-caller-hides-create-teammate",
+    "tools-call-success", "tools-call-server-prefix", "tools-call-native-forward",
+    "tools-call-unknown-tool-result", "unknown-method", "unknown-method-forwarded-native",
+    "batch-mixed", "batch-single-request", "notification-only", "batch-notifications-only",
+})
+MCP_RPC_REQUIRED_INVALID = frozenset({
+    "tools-call-missing-name", "tools-call-arguments-not-object", "batch-element-not-object",
+    "batch-element-missing-method", "http-get", "http-delete", "http-query-string",
+    "http-dotdot-segment", "http-trailing-slash", "http-different-case", "http-unknown-path",
+    "http-origin-mismatch", "http-missing-bearer", "http-wrong-bearer", "http-invalid-json",
+    "http-body-too-large",
+})
+
+IDENTITY_APPROVAL_ERRORS = frozenset({
+    "invalid identity registration", "unauthorized", "argument digest mismatch", "unknown_tool",
+    "invalid_request", "unattributed", "cross_session_denied", "timeout", "unavailable",
+    "identity registration refused",
+})
+IDENTITY_TOKEN_MODES = frozenset({"current", "none", "wrong", "revoked", "foreign"})
+APPROVAL_SCOPES = frozenset({"until", "session", "none"})
+APPROVAL_DECISIONS = frozenset({"allowOnce", "always", "deny"})
+IDENTITY_REQUIRED_VALID = frozenset({
+    "register-success", "register-prefixed-name", "cancel-success", "cancel-twice",
+    "approval-allow-once", "approval-always-until", "approval-always-session",
+    "approval-sandbox-escalation", "approval-cancel-cascade", "approval-pending-durable",
+})
+IDENTITY_REQUIRED_INVALID = frozenset({
+    "register-unauthorized-missing-token", "register-unauthorized-wrong-token",
+    "register-unauthorized-revoked-token", "register-unauthorized-foreign-session",
+    "register-digest-mismatch", "register-invalid-body", "register-unknown-tool",
+    "cancel-invalid", "approval-deny", "approval-timeout-interactive",
+    "approval-scope-mismatch", "approval-digest-mismatch", "approval-bash-command-mismatch",
+    "approval-unattributed", "approval-invalid-body", "approval-sandbox-wrong-scope",
+    "approval-pending-expired",
+})
+
+TOOL_ERROR_CODES = frozenset({
+    "invalid_arguments", "unknown_tool", "unattributed", "cross_session_read_denied",
+    "permission_denied", "timeout", "unavailable", "execution_failed", "memory_unavailable",
+    "memory-evidence-invalid", "record_erased",
+})
+TOOL_NAMES = (
+    "ask_user", "show_next_steps", "show_attachment", "show_document", "show_progress",
+    "show_checklist", "show_link", "UpdateMemory", "ReadMemory", "RecallMemory", "Task",
+    "AwaitTask", "StopSubagent", "UpdateRoutine", "ListRoutines", "RequestApproval", "SendToUser",
+)
+
+
+def _canonical_digest(arguments):
+    payload = json.dumps(arguments, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _require(condition, message):
+    if not condition:
+        raise AssertionError(message)
+
+
+def _unique_names(cases, where):
+    names = [case.get("name") for case in cases]
+    _require(all(isinstance(name, str) and name for name in names), f"{where}: every case needs a name")
+    _require(len(names) == len(set(names)), f"{where}: duplicate case name")
+
+
+def _cases_by_name(cases):
+    return {case["name"]: case for case in cases}
+
+
+def validate_mcp_rpc_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "mcp-rpc-cases.phone: schemaVersion must be 1")
+    _require(fixture.get("vector") == "mcp-rpc-cases.phone", "mcp-rpc-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "mcp-rpc-cases.phone: upstream must be []")
+    _require(fixture.get("protocolVersions") == ["2025-11-25", "2025-06-18", "2025-03-26"],
+             "mcp-rpc-cases.phone: protocolVersions")
+    _require(fixture.get("maximumBodyBytes") == 1_048_576,
+             "mcp-rpc-cases.phone: maximumBodyBytes must be 1048576")
+    native = fixture.get("native")
+    _require(isinstance(native, dict) and isinstance(native.get("instructions"), str)
+             and native["instructions"], "mcp-rpc-cases.phone: native.instructions")
+    native_tools = native.get("tools")
+    _require(isinstance(native_tools, list) and native_tools, "mcp-rpc-cases.phone: native.tools")
+    for index, tool in enumerate(native_tools):
+        _require(isinstance(tool, dict) and isinstance(tool.get("name"), str)
+                 and isinstance(tool.get("inputSchema"), dict),
+                 f"mcp-rpc-cases.phone.native.tools[{index}]")
+    _require(any(tool["name"] == "ask_user" for tool in native_tools),
+             "mcp-rpc-cases.phone: native collision case needs a native ask_user")
+    _require(len({tool["name"] for tool in native_tools}) == len(native_tools),
+             "mcp-rpc-cases.phone: duplicate native tool name")
+
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "mcp-rpc-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "mcp-rpc-cases.phone: invalid")
+    _unique_names(valid, "mcp-rpc-cases.phone.valid")
+    _unique_names(invalid, "mcp-rpc-cases.phone.invalid")
+    _require(MCP_RPC_REQUIRED_VALID <= set(_cases_by_name(valid)),
+             "mcp-rpc-cases.phone: missing frozen valid case")
+    _require(MCP_RPC_REQUIRED_INVALID <= set(_cases_by_name(invalid)),
+             "mcp-rpc-cases.phone: missing frozen invalid case")
+
+    for case in valid:
+        transport = case.get("transport")
+        _require(transport in MCP_RPC_TRANSPORTS, f"{case['name']}: transport")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict) and expect, f"{case['name']}: expect")
+        if transport == "single":
+            request = case.get("request")
+            _require(isinstance(request, dict) and isinstance(request.get("method"), str),
+                     f"{case['name']}: request.method")
+            kinds = [key for key in ("result", "error", "toolList") if key in expect]
+            _require(len(kinds) == 1, f"{case['name']}: expect exactly one outcome")
+            if "error" in expect:
+                _require(expect["error"].get("code") in MCP_RPC_ERROR_CODES,
+                         f"{case['name']}: error code")
+            if "toolList" in expect:
+                listed = expect["toolList"]
+                names = listed.get("names")
+                if names is not None:
+                    _require(names.count("ask_user") == 1 and names[-1] == "native_echo",
+                             f"{case['name']}: static list must append native once and keep the Bot collision")
+                    _require(len(names) == listed.get("count"),
+                             f"{case['name']}: count must equal names length")
+        elif transport == "batch":
+            _require(isinstance(case.get("messages"), list), f"{case['name']}: messages")
+            _require(expect.get("status") in {200, 202, 400}, f"{case['name']}: batch status")
+            if expect["status"] == 200:
+                requests = [m for m in case["messages"]
+                            if isinstance(m, dict) and "id" in m]
+                _require(expect.get("replyCount") == len(requests),
+                         f"{case['name']}: replyCount must equal request count")
+                _require(expect.get("ids") == [m["id"] for m in requests],
+                         f"{case['name']}: ids must preserve request order")
+            else:
+                _require(expect.get("empty") is True or expect.get("error") == "invalid JSON-RPC message",
+                         f"{case['name']}: terminal batch form")
+        else:
+            _require(isinstance(case.get("message"), dict), f"{case['name']}: message")
+            _require(expect.get("status") == 202 and expect.get("empty") is True,
+                     f"{case['name']}: notification must be 202 empty")
+
+    for case in invalid:
+        transport = case.get("transport")
+        _require(transport in MCP_RPC_INVALID_TRANSPORTS, f"{case['name']}: transport")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict), f"{case['name']}: expect")
+        if transport == "single":
+            _require(expect.get("error", {}).get("code") in MCP_RPC_ERROR_CODES,
+                     f"{case['name']}: error code")
+        elif transport == "batch":
+            _require(expect.get("status") == 400
+                     and expect.get("error") == "invalid JSON-RPC message",
+                     f"{case['name']}: invalid batch frame")
+        else:
+            _require(expect.get("status") in {400, 401, 403, 404, 405, 413},
+                     f"{case['name']}: http status")
+            _require(expect.get("error") in MCP_RPC_HTTP_ERRORS,
+                     f"{case['name']}: http error body")
+    return len(valid), len(invalid)
+
+
+def mcp_rpc_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_mcp_rpc_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"mcp-rpc mutation not detected: {label}")
+
+    expect_failure("drop-protocol-version", lambda f: f["protocolVersions"].pop())
+    expect_failure("wrong-max-body", lambda f: f.update({"maximumBodyBytes": 1_048_577}))
+    expect_failure("duplicate-case", lambda f: f["valid"].append(json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("bad-batch-count", lambda f: next(
+        c for c in f["valid"] if c["name"] == "batch-mixed")["expect"].update({"replyCount": 3}))
+    expect_failure("unknown-http-body", lambda f: next(
+        c for c in f["invalid"] if c["name"] == "http-get")["expect"].update({"error": "nope"}))
+    return 5
+
+
+def validate_identity_approval_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "identity-approval-cases.phone: schemaVersion")
+    _require(fixture.get("vector") == "identity-approval-cases.phone", "identity-approval-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "identity-approval-cases.phone: upstream must be []")
+    defaults = fixture.get("defaults")
+    _require(defaults == {"approvalTimeoutMs": 300_000, "approvalExpiryMs": 86_400_000},
+             "identity-approval-cases.phone: defaults")
+    credential = fixture.get("credentialContract")
+    _require(credential == {
+        "tokenPrefix": "dshg_",
+        "tokenLength": 48,
+        "tokenURLSafeAlphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
+        "incarnationHexLength": 32,
+        "defaultTTLMilliseconds": 43_200_000,
+        "maximumTokens": 4_096,
+        "attributionTTLMilliseconds": 330_000,
+        "attributionMaximumEntries": 4_096,
+    }, "identity-approval-cases.phone: credentialContract")
+    valid = fixture.get("valid")
+    invalid = fixture.get("invalid")
+    _require(isinstance(valid, list) and valid, "identity-approval-cases.phone: valid")
+    _require(isinstance(invalid, list) and invalid, "identity-approval-cases.phone: invalid")
+    _unique_names(valid, "identity-approval-cases.phone.valid")
+    _unique_names(invalid, "identity-approval-cases.phone.invalid")
+    _require(IDENTITY_REQUIRED_VALID <= set(_cases_by_name(valid)),
+             "identity-approval-cases.phone: missing valid case")
+    _require(IDENTITY_REQUIRED_INVALID <= set(_cases_by_name(invalid)),
+             "identity-approval-cases.phone: missing invalid case")
+
+    for where, cases in (("valid", valid), ("invalid", invalid)):
+        for case in cases:
+            name = case["name"]
+            setup = case.get("setup")
+            _require(isinstance(setup, dict) and isinstance(setup.get("botId"), str)
+                     and isinstance(setup.get("sessionId"), str)
+                     and setup.get("kind") in {"chat", "task", "routine"},
+                     f"{name}: setup")
+            kind = case.get("kind")
+            _require(kind in {"register", "cancel", "approval"}, f"{name}: kind")
+            expect = case.get("expect")
+            _require(isinstance(expect, dict) and expect, f"{name}: expect")
+            if kind == "register":
+                registration = case.get("registration")
+                _require(isinstance(registration, dict)
+                         and isinstance(registration.get("callId"), str)
+                         and isinstance(registration.get("tool"), str)
+                         and isinstance(registration.get("arguments"), dict),
+                         f"{name}: registration")
+                _require(case.get("token", "current") in IDENTITY_TOKEN_MODES, f"{name}: token mode")
+                _require(case.get("argsDigest", "computed") in {"computed", "mismatch"},
+                         f"{name}: digest mode")
+                if expect.get("ok") is True:
+                    _require(where == "valid", f"{name}: success in invalid list")
+                else:
+                    _require(expect.get("error") in IDENTITY_APPROVAL_ERRORS
+                             or expect.get("error") in {"argument digest mismatch"},
+                             f"{name}: exact register error")
+            elif kind == "cancel":
+                if "body" not in case:
+                    _require(isinstance(case.get("registration"), dict), f"{name}: registration")
+                _require(isinstance(expect.get("ok"), bool) or isinstance(expect.get("first"), bool),
+                         f"{name}: cancel outcome")
+            else:
+                registration = case.get("registration")
+                _require(isinstance(registration, dict)
+                         and isinstance(registration.get("callId"), str)
+                         and isinstance(registration.get("tool"), str)
+                         and isinstance(registration.get("arguments"), dict),
+                         f"{name}: registration")
+                approval = case.get("approval")
+                _require(isinstance(approval, dict), f"{name}: approval")
+                if "alwaysScope" in approval:
+                    _require(approval["alwaysScope"] in APPROVAL_SCOPES, f"{name}: alwaysScope")
+                if case.get("argsDigest") not in (None, "0" * 64):
+                    _require(re.fullmatch(r"[0-9a-f]{64}", case["argsDigest"]) is not None,
+                             f"{name}: argsDigest shape")
+                    _require(case["argsDigest"] == _canonical_digest(registration["arguments"]),
+                             f"{name}: argsDigest must be SHA-256 of the canonical arguments")
+                if "decision" in case:
+                    _require(case["decision"] in APPROVAL_DECISIONS, f"{name}: decision")
+                for key in ("approvalTimeoutMs", "approvalExpiryMs", "expireAfterMs"):
+                    if key in case:
+                        _require(isinstance(case[key], int) and not isinstance(case[key], bool)
+                                 and case[key] > 0, f"{name}: {key}")
+    return len(valid), len(invalid)
+
+
+def identity_approval_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_identity_approval_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"identity-approval mutation not detected: {label}")
+
+    expect_failure("wrong-timeout", lambda f: f["defaults"].update({"approvalTimeoutMs": 300_001}))
+    expect_failure("bad-digest", lambda f: next(
+        c for c in f["valid"] if c["name"] == "approval-allow-once").update({"argsDigest": "a" * 64}))
+    expect_failure("unknown-register-error", lambda f: next(
+        c for c in f["invalid"] if c["name"] == "register-unauthorized-wrong-token"
+    )["expect"].update({"error": "nope"}))
+    expect_failure("duplicate-name", lambda f: f["valid"].append(json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("bad-scope", lambda f: next(
+        c for c in f["valid"] if c["name"] == "approval-always-until"
+    )["approval"].update({"alwaysScope": "forever"}))
+    expect_failure("wrong-token-length", lambda f: f["credentialContract"].update({"tokenLength": 47}))
+    return 6
+
+
+def validate_tool_call_fixture(fixture):
+    _require(fixture.get("schemaVersion") == 1, "tool-call-cases.phone: schemaVersion")
+    _require(fixture.get("vector") == "tool-call-cases.phone", "tool-call-cases.phone: vector")
+    _require(fixture.get("upstream") == [], "tool-call-cases.phone: upstream must be []")
+    tools = fixture.get("tools")
+    _require(tools == list(TOOL_NAMES), "tool-call-cases.phone: tools must list every P0 name")
+    for key in ("valid", "invalid", "denials", "unknown"):
+        _require(isinstance(fixture.get(key), list) and fixture[key],
+                 f"tool-call-cases.phone: {key}")
+        _unique_names(fixture[key], f"tool-call-cases.phone.{key}")
+
+    valid = fixture["valid"]
+    invalid = fixture["invalid"]
+    denials = fixture["denials"]
+    unknowns = fixture["unknown"]
+    _require(set(case.get("tool") for case in valid) == set(tools),
+             "tool-call-cases.phone: every tool needs a valid case")
+    _require(set(case.get("tool") for case in denials) == set(tools),
+             "tool-call-cases.phone: every tool needs a per-caller denial")
+    for tool in tools:
+        if tool == "ListRoutines":
+            continue
+        _require(any(case.get("tool") == tool for case in invalid),
+                 f"tool-call-cases.phone: {tool} needs an invalid-arguments case")
+
+    for where, cases in (("valid", valid), ("invalid", invalid),
+                         ("denials", denials), ("unknown", unknowns)):
+        for case in cases:
+            name = case["name"]
+            _require(case.get("tool") in set(tools) | {"show_table", "show_info", "no_such_tool"},
+                     f"{name}: tool")
+            _require(isinstance(case.get("setup"), dict), f"{name}: setup")
+            _require("arguments" in case, f"{name}: arguments")
+            expect = case.get("expect")
+            _require(isinstance(expect, dict), f"{name}: expect")
+            if case.get("layer") == "rpc":
+                _require(expect.get("rpcError") == -32602, f"{name}: rpc error")
+                continue
+            _require(isinstance(expect.get("isError"), bool), f"{name}: expect.isError")
+            if expect["isError"]:
+                _require(expect.get("errorCode") in TOOL_ERROR_CODES, f"{name}: errorCode")
+            else:
+                _require(isinstance(expect.get("structured"), dict), f"{name}: structured")
+    for case in denials:
+        _require(case["expect"]["errorCode"] == "permission_denied", f"{case['name']}: denial code")
+    for case in unknowns:
+        _require(case["expect"]["errorCode"] == "unknown_tool", f"{case['name']}: unknown code")
+        _require(case.get("skipRegistration") is True, f"{case['name']}: skipRegistration")
+    return len(valid), len(invalid), len(denials), len(unknowns)
+
+
+def tool_call_mutations(fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_tool_call_fixture(copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"tool-call mutation not detected: {label}")
+
+    expect_failure("drop-tool-valid", lambda f: f.update({"valid": [c for c in f["valid"] if c["tool"] != "ReadMemory"]}))
+    expect_failure("drop-tool-denial", lambda f: f["denials"].pop(0))
+    expect_failure("bad-denial-code", lambda f: f["denials"][0]["expect"].update({"errorCode": "unknown_tool"}))
+    expect_failure("duplicate-name", lambda f: f["valid"].append(json.loads(json.dumps(f["valid"][0]))))
+    expect_failure("missing-invalid", lambda f: f.update({"invalid": [c for c in f["invalid"] if c["tool"] != "ReadMemory"]}))
+    return 5
+
+
+def validate_volatile_phone_fixture(upstream, overlay):
+    _require(overlay.get("schemaVersion") == 1, "volatile-context.phone: schemaVersion")
+    _require(overlay.get("vector") == "volatile-context.phone", "volatile-context.phone: vector")
+    _require(overlay.get("upstream") == "volatile-context.json", "volatile-context.phone: upstream")
+    assembly = overlay.get("assemblyCases")
+    producer = overlay.get("producerCases")
+    _require(isinstance(assembly, list) and assembly, "volatile-context.phone: assemblyCases")
+    _require(isinstance(producer, list) and producer, "volatile-context.phone: producerCases")
+    _unique_names(assembly, "volatile-context.phone.assemblyCases")
+    _unique_names(producer, "volatile-context.phone.producerCases")
+    for case in assembly:
+        input_data = case.get("input")
+        _require(isinstance(input_data, dict), f"{case['name']}: input")
+        _require(input_data.get("kind") in {"chat", "task", "routine"}, f"{case['name']}: kind")
+        _require(isinstance(case.get("expect"), dict) and case["expect"], f"{case['name']}: expect")
+    for case in producer:
+        principal = case.get("principal")
+        _require(isinstance(principal, dict) and principal.get("kind") == "chat",
+                 f"{case['name']}: principal")
+        request = case.get("request")
+        _require(isinstance(request, dict), f"{case['name']}: request")
+        if case["name"] != "request-extra-key":
+            _require(set(request) == {"sessionId"},
+                     f"{case['name']}: request must contain only sessionId")
+        else:
+            _require(set(request) == {"sessionId", "botID"},
+                     f"{case['name']}: extra-key case shape")
+        _require(isinstance(case.get("provider"), dict), f"{case['name']}: provider")
+        expect = case.get("expect")
+        _require(isinstance(expect, dict) and ("error" in expect) != ("response" in expect),
+                 f"{case['name']}: expect exactly one of error/response")
+        if "error" in expect:
+            _require(expect["error"] in {"invalid_arguments", "cross_session_read_denied",
+                                         "timeout", "unavailable"},
+                     f"{case['name']}: producer error")
+    names = set(_cases_by_name(producer))
+    for required in ("caps-variant-overflow", "caps-persona-overflow", "caps-memory-overflow",
+                     "caps-automation-overflow", "caps-total-overflow", "credential-shaped-content",
+                     "provider-timeout", "no-stale-after-failure", "snapshot-valid-blocks"):
+        _require(required in names, f"volatile-context.phone: missing producer case {required}")
+    merged = merged_fixture(upstream, overlay)
+    _require(merged.get("valid") is not None and merged.get("invalid") is not None,
+             "volatile-context.phone: upstream cases must survive the merge")
+    return len(assembly), len(producer)
+
+
+def volatile_phone_mutations(upstream, fixture):
+    def expect_failure(label, mutate):
+        copy = json.loads(json.dumps(fixture))
+        mutate(copy)
+        try:
+            validate_volatile_phone_fixture(upstream, copy)
+        except AssertionError:
+            return
+        raise AssertionError(f"volatile-context mutation not detected: {label}")
+
+    expect_failure("drop-caps", lambda f: f["producerCases"].pop(0))
+    expect_failure("extra-request-key", lambda f: next(
+        c for c in f["producerCases"] if c["name"] == "snapshot-valid-blocks"
+    )["request"].update({"botID": "other"}))
+    expect_failure("ambiguous-expect", lambda f: next(
+        c for c in f["producerCases"] if c["name"] == "snapshot-valid-blocks"
+    )["expect"].update({"error": "unavailable"}))
+    expect_failure("duplicate-assembly", lambda f: f["assemblyCases"].append(
+        json.loads(json.dumps(f["assemblyCases"][0]))))
+    return 4
+
+
 def main() -> int:
     check_overlays()
+    rpc_valid, rpc_invalid = validate_mcp_rpc_fixture(load(MCP_RPC_VECTOR))
+    rpc_mutations = mcp_rpc_mutations(load(MCP_RPC_VECTOR))
+    identity_valid, identity_invalid = validate_identity_approval_fixture(load(IDENTITY_APPROVAL_VECTOR))
+    identity_mutations = identity_approval_mutations(load(IDENTITY_APPROVAL_VECTOR))
+    tool_valid, tool_invalid, tool_denials, tool_unknowns = validate_tool_call_fixture(load(TOOL_CALL_VECTOR))
+    tool_mutations = tool_call_mutations(load(TOOL_CALL_VECTOR))
+    volatile_assembly, volatile_producer = validate_volatile_phone_fixture(
+        load("volatile-context.json"), load(VOLATILE_PHONE_VECTOR))
+    volatile_mutations = volatile_phone_mutations(
+        load("volatile-context.json"), load(VOLATILE_PHONE_VECTOR))
     check_event(load("event-envelope.json")["valid"]["event"],
                 "event-envelope.schema.json", "event")
     for index, case in enumerate(load("event-envelope.json")["invalid"]):
@@ -4020,6 +4478,13 @@ def main() -> int:
           f"{verify_budget_valid} valid / {verify_budget_invalid} invalid budgets, "
           f"{verify_valid_reports} valid / {verify_invalid_reports} invalid reports, "
           f"{verify_mutations} mutation checks; "
+          f"mcp-rpc {rpc_valid} valid / {rpc_invalid} invalid, {rpc_mutations} mutation checks; "
+          f"identity-approval {identity_valid} valid / {identity_invalid} invalid, "
+          f"{identity_mutations} mutation checks; "
+          f"tool-call {tool_valid} valid / {tool_invalid} invalid / {tool_denials} denials / "
+          f"{tool_unknowns} unknown, {tool_mutations} mutation checks; "
+          f"volatile-phone {volatile_assembly} assembly / {volatile_producer} producer, "
+          f"{volatile_mutations} mutation checks; "
           f"content-card-final {content_cards} tools / {content_card_mutations} mutation checks; "
           f"store {store_steps} steps, user-action {action_steps} steps)")
     return 0

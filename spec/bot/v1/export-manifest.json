@@ -19,9 +19,11 @@
     "event-envelope.json",
     "event-envelope.phone.json",
     "fish-director.json",
+    "identity-approval-cases.phone.json",
     "llm-ledger.json",
     "llm-ledger.phone.json",
     "mcp-egress.phone.json",
+    "mcp-rpc-cases.phone.json",
     "model-purpose-policy.json",
     "observation-envelope.phone.json",
     "projection.phone.json",
@@ -32,6 +34,7 @@
     "row-protocol.phone.json",
     "session-lifecycle.phone.json",
     "store.phone.json",
+    "tool-call-cases.phone.json",
     "tool-catalog.json",
     "tool-catalog.phone.json",
     "tool-effects.json",
@@ -40,6 +43,7 @@
     "user-action-transaction.phone.json",
     "verification.phone.json",
     "volatile-context.json",
+    "volatile-context.phone.json",
     "watchdog.json"
   ],
   "upstream": [
@@ -67,8 +71,10 @@
     "card-payload.phone.json",
     "erasure-event.phone.json",
     "event-envelope.phone.json",
+    "identity-approval-cases.phone.json",
     "llm-ledger.phone.json",
     "mcp-egress.phone.json",
+    "mcp-rpc-cases.phone.json",
     "observation-envelope.phone.json",
     "projection.phone.json",
     "record-query.phone.json",
@@ -76,11 +82,13 @@
     "row-protocol.phone.json",
     "session-lifecycle.phone.json",
     "store.phone.json",
+    "tool-call-cases.phone.json",
     "tool-catalog.phone.json",
     "tool-effects.phone.json",
     "turn-origin.phone.json",
     "user-action-transaction.phone.json",
-    "verification.phone.json"
+    "verification.phone.json",
+    "volatile-context.phone.json"
   ],
   "sha256": {
     "approval-patterns.json": "8dbac06c60729e3042e210cf07dd085d592c61e8074c32d23b5631ba2debf8cb",
@@ -90,7 +98,7 @@
     "bot-attachments.phone.json": "d6adcc32b19b9259e67ae6b8072e1f2245e80201f2838c6d093398bc5f9f96f6",
     "bot-profile.json": "fc8de274d26a95063b2e61e5e83749c07bb1ba5624a9dee216ca11e55319de40",
     "card-payload.json": "5e16774a4b08bbb68039b6d724b56e9eda6d5f09e3ee51523bb791ee4ef721c2",
-    "card-payload.phone.json": "fb45750521d8342536afed7bc1b5aca40dde6949ec2df3b82741867e5108874a",
+    "card-payload.phone.json": "c96222c66c5dc4bbb80f09c3eaf51fc849320c1a85934c2031e764b4d4493284",
     "context-lint.json": "5e36ddf248e782089c42a7316704b8144729dd1d76b20bb9d59055e874294777",
     "context-profiles.json": "d8aa3d5cc30e385e549e46ab34d8c4df75032dc83f97194ac0e93e76e0f96d86",
     "erasure-event.phone.json": "898dd47c2142cf858dcd98ae3876089e0e39348331ff8213ce67eb1ca243785e",
@@ -118,6 +126,10 @@
     "user-action-transaction.phone.json": "3dbd9d6d73b87dd11516782be7831f0d3d2373ec4156500008a7a39a647fa420",
     "verification.phone.json": "104e79db5af9de8b8e691b94417721accd5e6a28630c37dbe58f2d4b59128c28",
     "volatile-context.json": "91a7a4f330525a54df8af77deed40e5f0d1eac9f7f4e40871edc2ecced615cba",
-    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed"
+    "watchdog.json": "c2b30023b97596009fbb61efc5a35259b9c5c9b485454e2445e9f318999859ed",
+    "mcp-rpc-cases.phone.json": "6898da2627811b036b93f8cc71e80a7715ca19239c26de9883a3db9410b0d685",
+    "identity-approval-cases.phone.json": "4e421e3efa3f5ebe8332cdf8e11a2c1545b7ee670e47e7eb3c37c2f25fc349f5",
+    "tool-call-cases.phone.json": "74860b405ce93a9b6d4950ce9ba43642c698c07b6f882639f0e007174095ec53",
+    "volatile-context.phone.json": "30dccebb82399027990e4091e5e6fb10f4eff1b5338c9496ff20d1448f80d4f3"
   }
 }

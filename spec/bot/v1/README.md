@@ -59,6 +59,8 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 
 `golden/tool-effects.phone.json` 的 `nativeMcp` 数组登记原生 MCP 的 BLE 工具分类（`ble_devices`、`ble_read`、`ble_alert`、`ble_link_tools`、`ble_link_call`、`ble_link_result`；经 Bot MCP 转发后模型看到 `mcp__phone__ble_*`）。读类为 `read + ask`，发送类为 `external-send + ask`；`resource` 取裁剪后的 `device_id`，没有则 `ble:*`，`ble_link_call` 还带 `name`。工具名来自 `spec/v1/native-mcp.md`「BLE tools」；設備須先在「設定 → 藍牙設備」中逐連接授權，Bot 的 ask 只是附加層。该数组是 phoneDSH 增量，与团队工具增量同在 `.phone.json` 覆盖文件；上游 `tool-effects.json` 保持原样导出。
 
+[mcp-endpoint.md](mcp-endpoint.md) §7–§11 and [tool-contracts.md](tool-contracts.md) own the Bot JSON-RPC methods, `/identity/register|cancel`, `/approval`, session-credential/attribution limits, listener recovery, native forwarding and the exact HTTP error forms. [cards.md](cards.md) owns the seven P0 card builders. Their shared fixtures are `golden/mcp-rpc-cases.phone.json`, `golden/identity-approval-cases.phone.json`, `golden/tool-call-cases.phone.json`, the appended cases in `golden/card-payload.phone.json`, and the assembly cases in `golden/volatile-context.phone.json`; the Swift tests read the files, not a copied table. The frozen change is `docs/protocol-changes/PC-20261113-bot-mcp-d13.md`.
+
 ### 2.1 volatile 上下文快照（WP2 CCR）
 
 宿主通过既有 `phone` App MCP 提供 `BotVolatileContext`，Worker 中的发现名为 `mcp__phone__BotVolatileContext`。不新增环境变量、ordered-channel Remote 或第二种传输。WP2 是 consumer，WP7 是 Swift producer。
@@ -615,6 +617,10 @@ python3 spec/bot/v1/tools/validate_vectors.py
 - `store.phone.json`、`user-action-transaction.phone.json`：P25 SQLite store v3（追加、`commitSeq` 连续性、载荷清除、effect outbox 租约、v2→v3 迁移）与用户动作事务（nonce 幂等、`performAndRecord`）的手机专属步骤向量，规则见 [store.md](store.md)；`"upstream": []` 登记，Swift `Tests/PhoneDSHBotTests/Store` 用真实 `SQLiteDomainStore` 跑同一份向量。
 - `session-lifecycle.phone.json`、`projection.phone.json`：P27 会话生命周期（workspace、session token、`runtime.started`、恢复／重建）与 DSH→row 投影（rowID/entrySeq、tombstone、history 分页、streaming）的手机专属向量，规则见 [session-lifecycle.md](session-lifecycle.md)、[projection.md](projection.md)；`"upstream": []` 登记，Swift `BotSessionLifecycleGoldenTests`／`BotProjectionGoldenTests` 读同一份向量。
 - `authority.phone.json`：routine 设立者/放宽判定、Task 授权子集和 CreateTeammate 作者的手机专属向量；用 `"upstream": []` 登记，含 schema 负例、解析负例和 mutation 自检。
+- `mcp-rpc-cases.phone.json`：`initialize`/`ping`/`tools/list`/`tools/call` 成功与失败、batch、notification、unknown method、invalid params，以及 native 工具合并／同名冲突；`"upstream": []` 登记，Swift `BotMCPRPCCasesTests` 用真实 `BotMCPHandler`/`BotMCPHTTPServer` 逐条执行，Python 校验器校验 case 形状与 mutation。
+- `identity-approval-cases.phone.json`：`/identity/register|cancel` 与 `/approval` 的注册成功／未授权／digest 不匹配／cancel、allow/deny/timeout/alwaysScope/sandbox escalation、pending→timeout；`"upstream": []`，Swift `BotMCPIdentityApprovalCasesTests` 驱动真实 handler/coordinator。
+- `tool-call-cases.phone.json`：每个 P0 工具的 valid/invalid 参数、unknown 与 per-caller denial；`"upstream": []`，Swift `BotMCPToolCallCasesTests` 驱动真实 runtime（含真实 card builder、memory、routine、task executor 和 approval coordinator）。
+- `volatile-context.phone.json`：`volatile-context.json` 的覆盖文件，只追加 assembly/caps/persona/teammates/stale 用例；上游 `valid`/`invalid` 不改，Swift `BotVolatileContextPhoneCasesTests` 读取合并结果。
 - `mcp-egress.phone.json`：MCP 出口凭证、会话凭证与 `tools/call` 调用者目录的手机专属向量；同样用 `"upstream": []` 登记。`valid` / `invalid` 的每条用例带 `suite`（`egress` / `identity` / `tools-call` / `egress-approval` / `grant-directory`）；`egress` 由精确路由集合与常量时间 token 比较判定，`identity` 由 token 登记表（含撤销／过期／轮换）解析 principal 并比较 `sessionId`，`tools-call` 由与 `tools/list` 相同的 per-caller 目录判定；`egress-approval` 逐条覆盖登记/job 生命周期、同 Bot 分组、无登记时的单/多/无 Bot 与工作台回合，以及 Task 授权子集（无 `task.network-write` 拒绝且不出卡、有授权照常送审、主对话不受影响），`grant-directory` 覆盖目录 Grant 命中和不命中。`validate_vectors.py` 逐条校验并按 suite 强制边界覆盖，内部 mutation 变异预期值；`check_golden.py` 在 `PHONE_ONLY_VECTORS` 显式登记该文件。
 
 覆盖文件的合并语义由 `spec/tools/bot/golden_overlay.py`、Swift `BotGoldenFixture` 与 `plugins/tests/bot-golden.ts` 一致实现：
