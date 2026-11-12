@@ -1,8 +1,12 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# BotChatPage / Bot 卡片页面（target）
+# BotChatPage / Bot 卡片页面（normative for both ends）
 
-契约：P09、P27。上游：dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6` 的 `FEISHU-CARD-SYSTEM.md`、`CARD-UX-AUDIT.md`、`displayContract.js`、`cardPayloads.cjs`、卡片组件、Transcript、Composer、ActivityLine 和 FishDirector。目标实现路径：`examples/probe-app/PhoneDSHProbe/Bot/**`；当前不声明已有页面或运行时证据。
+契约：P09、P27。上游：dsh-bot `bf4075b0a2e8092b04b726c59a7b085d5a37e6f6` 的 `FEISHU-CARD-SYSTEM.md`、`CARD-UX-AUDIT.md`、`displayContract.js`、`cardPayloads.cjs`、卡片组件、Transcript、Composer、ActivityLine 和 FishDirector。参考实现：`examples/probe-app/PhoneDSHProbe/Bot/**`。
+
+Status: normative for both ends（PC-20261112-android-bot-w4 C4 / B7b / D15）。
+Android: planned (wave 4 round 2)。
+值类型、intent、派生状态与字符串数据以 [../bot/ui-state.md](../bot/ui-state.md) 为唯一权威；本页只冻结页面结构、几何、入口和 accessibility id。两处冲突时 ui-state.md 优先。
 
 ## 1. 页面与 session
 
@@ -73,7 +77,7 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
   TextField 文本与按钮中心对齐；多行 TextField 的回车只换行，不直接发送。**没有麦克风、语音模式或语音入口。**
 - 附件：胶囊左侧 36pt「+」（id `bot.composer.attach`）打开「照片」（`PhotosPicker`，多选）与「文件」（`fileImporter`，`.data`，多选）。选中后在胶囊上方显示横向 chip（类型图标 + 文件名 + 大小/类型 + 移除 ×，id `bot.composer.attachment.<index>`）；每条最多 10 个、单个 ≤ 25 MiB，超限当场提示且不加入。有附件时无文字也可发送；运行中（steering）同样可带附件。发送时先经 `BotAttachmentImporting` 写入该 Bot 的 DSH 工作区，失败的逐个提示「附件「名」未附加：原因」（显示在头部状态行），不阻止其余附件和文字。用户行在正文下方显示附件卡片（名字、大小、类型），复用同一紧凑卡片语言。输入框上方不再显示 runtimeNotice 红字提示，失败统一走头部状态行；steering 提示保持原功能并与胶囊样式协调。
 - 简洁回复：persona 与 runtime context 必须保留最新简洁回复预算和明确 next-step 文案，不允许为了显示卡片强凑选项；卡片是否提供由 Agent 根据真实下一步价值决定。
-- 头像状态：`turn_started → thinking`、`model.delta → speaking/thinking`、工具调用 → working、审批/Watchdog → alerting、成功 → celebrate、失败/拒绝 → sad、turn_end → idle 的优先级、one-shot TTL 和去重沿最新 FishDirector。待审批时 UI 覆盖为 alerting；空闲 60s 进入 sleeping，用户任何输入、发送或点按页面唤醒。状态只来自当前 Bot 的真实事件，不能由 UI 自报或虚构。状态行额外使用 App 端 `.lively` 动作档：thinking 头部约 ±6° 慢摆、眼睛上望来回看，三个点按约 0.12s 错开依次上下跳动；working 为点头 + 身体约 ±5.5–7° 左右摆 + 周期性压缩回弹，并可按 App 端 `BotFishWorkStyle` 选择 `generic` / `reading` / `searching` / `running` / `writing`——它只是渲染子样式，不是新的 lifecycle 状态，不进入 `spec/bot/v1/fish-director.schema.json`；streaming/speaking 有嘴型动作和约 ±10° 头部摆动；celebrate/done 为约 1.2s 的开心小跳。所有状态按 3–5s 周期眨眼（0.26s），状态切换用约 320ms 稳定的弹簧过渡；reduce motion、低电量模式、`botFishPaused` 或不可见时仍冻结为单帧。
+- 头像状态：`turn_started → thinking`、`model.delta → speaking/thinking`、工具调用 → working、审批/Watchdog → alerting、成功 → celebrate、失败/拒绝 → sad、turn_end → idle 的优先级、one-shot TTL 和去重沿最新 FishDirector。待审批时 UI 覆盖为 alerting 是两端已经一致的子规则；空闲 60s 进入 sleeping、live/durable 的优先级和 `idle → working` 的强制仍在 CCR-UI-1 中未裁决（见 ui-state.md §4.7/§9），本页不声明 chat 头部与侧边栏的 fish 状态等价。状态只来自当前 Bot 的真实事件，不能由 UI 自报或虚构。状态行额外使用 App 端 `.lively` 动作档：thinking 头部约 ±6° 慢摆、眼睛上望来回看，三个点按约 0.12s 错开依次上下跳动；working 为点头 + 身体约 ±5.5–7° 左右摆 + 周期性压缩回弹，并可按 App 端 `BotFishWorkStyle` 选择 `generic` / `reading` / `searching` / `running` / `writing`——它只是渲染子样式，不是新的 lifecycle 状态，不进入 `spec/bot/v1/fish-director.schema.json`；streaming/speaking 有嘴型动作和约 ±10° 头部摆动；celebrate/done 为约 1.2s 的开心小跳。所有状态按 3–5s 周期眨眼（0.26s），状态切换用约 320ms 稳定的弹簧过渡；reduce motion、低电量模式、`botFishPaused` 或不可见时仍冻结为单帧。
 - 头像资产采用 `BotFish/` 的分层 PNG（body 为灰度，按当前 Bot 资料的颜色 LUT 着色；发型取 `BotFish/base` 或 `BotFish/hair/<style>` 图层）与 `expressive/{eyes,mouths}.png` 3×4 表情 sprite；36/60/120pt 使用同一 anchor。所有头像由 `BotProfileStore` 的 `BotFishAppearance`（颜色 + 发型）渲染，默认 `blue/long`；没有资料时回退 `.classic`。P0 生命周期所需 idle/thinking/streaming/working/sleeping/alerting/listening/speaking/happy/sad 必须有资源；其他状态按实际事件接入。设置页等静态位置使用 `still: true` 冻结在 650ms 姿态。头像只做圆形裁切，不加白色底盘、描边或投影，直接叠在宿主表面上。只有 `bot.activity.line` 的鱼使用 `.lively`；聊天头、抽屉、空状态、个人页等其余位置保持 `.standard`，尺寸、帧率与动作不变。
 
 ## 5. 验收
@@ -85,10 +89,10 @@ Task 卡在标题下显示独立验证结论（`body.verification`，P26 §2.8�
 | 区域 | 结构 | accessibility id |
 | --- | --- | --- |
 | 左侧抽屉入口 | 44pt 圆形白色按钮，两条黑 Capsule 线，16pt 左边距；点按按 `selectedTab` 打开 Bot 列表抽屉 | `bot.drawer.open` |
-| 居中 Bot 胶囊 | 32pt `BotFishView`（主 Bot 皇冠，可带 `reaction:`）+ 17pt semibold 名字 + 14pt 活动小图标（三点 / 铅笔 / 红色「!」；空闲隐藏），44pt 高白色 Capsule；右上 6pt 提示圆点 | `bot.info.open` |
+| 居中 Bot 胶囊 | 32pt `BotFishView`（主 Bot 皇冠，可带 `reaction:`）+ 17pt semibold 名字；**没有**活动小图标、红色「!」或右上提示圆点，44pt 高白色 Capsule；活动只由下方 `bot.activity.line` 与头像动效表达 | `bot.info.open` |
 | 右侧共享胶囊 | 与 DSH 页同一 `HeaderActionPill`：连接设备（在线 6pt 圆点）+「…」菜单 | `bot.connect-device`、`bot.header.menu` |
 | 空状态 | 96pt 动态大肥鱼，标题 15/22 semibold，正文 13/18，间距 12，可用高度居中 | `bot.chat.empty` |
-| 工作状态行 | 13/18 居中单行文字，位于头部头像胶囊正下方，叠在消息流顶部（不带头像，运行中头部大肥鱼切到 `.lively`）；从点发送到回合结束都显示；停止或最终回复后立即隐藏、已流出的文字保留；待审批固定「等你确认」，正文流出显示 replying，其余用工具类别短语；模型 description 优先并截 20 字；800ms latest-wins；只有通用短语 2.4s 轮换、60s 后追加「 · N 分钟」；切换上滑淡入淡出带轻微模糊、静止时呼吸 + shimmer | `bot.activity.line` |
+| 工作状态行 | 13/18 居中单行文字，位于头部头像胶囊正下方，叠在消息流顶部（不带头像，运行中头部大肥鱼切到 `.lively`）；从点发送到回合结束都显示；停止或最终回复后立即隐藏、已流出的文字保留；待审批固定「等你确认」，正文流出显示 replying，其余用工具类别短语；模型 description 优先并截 20 字；800ms latest-wins；只有通用短语 2.4s 轮换、60s 后追加「 · N 分钟」；切换上滑淡入淡出带轻微模糊、静止时呼吸 + shimmer。计时、文案和优先级以 ui-state.md §4.8 为准 | `bot.activity.line` |
 | 输入胶囊 | 最小高 52、r26、白色、细描边、浮动阴影；左/右 8，左侧「+」、右侧单按钮三态（空闲发送·置灰 / 运行中空输入停止 / 运行中带文字发送并入当前回合），单行居中、多行贴底 8pt | `bot.composer.input`、`bot.composer.attach`、`bot.composer.send`、`bot.composer.stop` |
 | 附件 chip / 用户行附件卡片 | 胶囊上方横向 chip（图标 + 名 + 大小/类型 + ×），最多 10 个；用户行气泡内附件卡片（图标 + 名 + 大小/类型） | `bot.composer.attachment.<index>`、`bot.composer.attachment.notice`、`bot.message.attachment` |
 

@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/drawer-intent.schema.json",
+  "title": "BotDrawerIntent v1 (P09 view -> projection)",
+  "description": "One closure of BotDrawerActions expressed as data. create returns the created profile; rename/delete may throw.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "botID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "select"
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "name",
+        "color",
+        "hairstyle"
+      ],
+      "properties": {
+        "kind": {
+          "const": "create"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "color": {
+          "enum": [
+            "white",
+            "brown",
+            "red",
+            "orange",
+            "amber",
+            "green",
+            "teal",
+            "blue",
+            "purple",
+            "magenta",
+            "gray",
+            "black",
+            "silver",
+            "peach",
+            "sky"
+          ]
+        },
+        "hairstyle": {
+          "enum": [
+            "long",
+            "twin-tail",
+            "bob",
+            "side-braid"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "botID",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "const": "rename"
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "botID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "setMain"
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "botID",
+        "hidden"
+      ],
+      "properties": {
+        "kind": {
+          "const": "setHidden"
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hidden": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "botID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "delete"
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind",
+        "botID"
+      ],
+      "properties": {
+        "kind": {
+          "const": "appearance"
+        },
+        "botID": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "manage"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "retry"
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "close"
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

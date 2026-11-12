@@ -1,0 +1,736 @@
+{
+ "schemaVersion": 1,
+ "locale": "zh-Hans",
+ "description": "Normative UI strings for the Bot pages named by ui-state.md. Values are data; source anchors are evidence and the checker keeps them live.",
+ "sourceRoot": "examples/probe-app/PhoneDSHProbe/Bot",
+ "strings": [
+  {
+   "id": "settlement.dismissed",
+   "value": "已关闭",
+   "source": "BotChatModel.swift:446",
+   "expect": "已关闭",
+   "note": "question/steps settled by local dismiss id or durable status dismissed"
+  },
+  {
+   "id": "settlement.selected",
+   "value": "已选择：{label}",
+   "source": "BotChatModel.swift:452",
+   "expect": "已选择：",
+   "note": "durable answered or accepted action; label resolved from optionID"
+  },
+  {
+   "id": "settlement.sent",
+   "value": "已送出",
+   "source": "BotChatModel.swift:452",
+   "expect": "已送出",
+   "note": "answered/accepted but the option label cannot be resolved"
+  },
+  {
+   "id": "settlement.skipped",
+   "value": "已略过",
+   "source": "BotChatModel.swift:456",
+   "expect": "已略过",
+   "note": "card precedes the latest user text and was never handled"
+  },
+  {
+   "id": "settlement.checklistSent",
+   "value": "已发送勾选结果",
+   "source": "BotChatModel.swift:487",
+   "expect": "已发送勾选结果",
+   "note": "checklist result accepted"
+  },
+  {
+   "id": "settlement.checklistDetail",
+   "value": "{title} · 已完成 {done}/{total}",
+   "source": "BotChatModel.swift:485",
+   "expect": "· 已完成",
+   "note": "checklist settled detail"
+  },
+  {
+   "id": "settlement.approvalAutoDeclined",
+   "value": "已略过，视为拒绝",
+   "source": "BotChatModel.swift:508",
+   "expect": "已略过，视为拒绝",
+   "note": "approval auto-denied by the next send"
+  },
+  {
+   "id": "settlement.approvalAllowedOnce",
+   "value": "已允许一次",
+   "source": "BotChatModel.swift:519",
+   "expect": "已允许一次"
+  },
+  {
+   "id": "settlement.approvalSessionAllowed",
+   "value": "本次对话允许",
+   "source": "BotChatModel.swift:520",
+   "expect": "本次对话允许",
+   "note": "status always + scope session"
+  },
+  {
+   "id": "settlement.approvalAlways",
+   "value": "已总是允许",
+   "source": "BotChatModel.swift:520",
+   "expect": "已总是允许",
+   "note": "status always + any other scope"
+  },
+  {
+   "id": "settlement.approvalDenied",
+   "value": "已拒绝",
+   "source": "BotChatModel.swift:521",
+   "expect": "已拒绝",
+   "note": "status denied/never"
+  },
+  {
+   "id": "settlement.approvalTimedOut",
+   "value": "已超时，视为拒绝",
+   "source": "BotChatModel.swift:522",
+   "expect": "已超时，视为拒绝"
+  },
+  {
+   "id": "settlement.approvalExpired",
+   "value": "已过期，视为拒绝",
+   "source": "BotChatModel.swift:523",
+   "expect": "已过期，视为拒绝"
+  },
+  {
+   "id": "settlement.approvalHandled",
+   "value": "已处理",
+   "source": "BotChatModel.swift:524",
+   "expect": "已处理",
+   "note": "unknown settled status"
+  },
+  {
+   "id": "settlement.approvalDefaultAction",
+   "value": "操作",
+   "source": "BotChatModel.swift:501",
+   "expect": "操作",
+   "note": "fallback when neither the card nor ask carries an action"
+  },
+  {
+   "id": "settlement.stepsSuggestion",
+   "value": "建议下一步",
+   "source": "BotChatModel.swift:465",
+   "expect": "建议下一步",
+   "note": "steps prompt detail fallback"
+  },
+  {
+   "id": "header.waiting.plural",
+   "value": "{count} 项等你确认",
+   "source": "BotHeaderPresence.swift:70",
+   "expect": "项等你确认"
+  },
+  {
+   "id": "header.waiting.single",
+   "value": "",
+   "source": "BotHeaderPresence.swift:70",
+   "expect": "pendingApprovals == 1",
+   "note": "single pending approval renders an empty detail; the activity line shows the waiting phrase"
+  },
+  {
+   "id": "header.problem.join",
+   "value": "；",
+   "source": "BotHeaderPresence.swift:89",
+   "expect": "joined(separator",
+   "note": "separator for multi-line problem notices"
+  },
+  {
+   "id": "activity.thinking.primary",
+   "value": "思考中",
+   "source": "BotActivityPhrases.swift:311",
+   "expect": "思考中"
+  },
+  {
+   "id": "activity.reading.primary",
+   "value": "在翻文件",
+   "source": "BotActivityPhrases.swift:312",
+   "expect": "在翻文件"
+  },
+  {
+   "id": "activity.searching.primary",
+   "value": "在搜内容",
+   "source": "BotActivityPhrases.swift:313",
+   "expect": "在搜内容"
+  },
+  {
+   "id": "activity.browsing.primary",
+   "value": "在开网页",
+   "source": "BotActivityPhrases.swift:314",
+   "expect": "在开网页"
+  },
+  {
+   "id": "activity.running.primary",
+   "value": "处理中",
+   "source": "BotActivityPhrases.swift:315",
+   "expect": "处理中"
+  },
+  {
+   "id": "activity.writing.primary",
+   "value": "在写文件",
+   "source": "BotActivityPhrases.swift:316",
+   "expect": "在写文件"
+  },
+  {
+   "id": "activity.memory.primary",
+   "value": "在翻记忆",
+   "source": "BotActivityPhrases.swift:317",
+   "expect": "在翻记忆"
+  },
+  {
+   "id": "activity.messaging.primary",
+   "value": "整理回复",
+   "source": "BotActivityPhrases.swift:318",
+   "expect": "整理回复"
+  },
+  {
+   "id": "activity.reviewing.primary",
+   "value": "看看结果",
+   "source": "BotActivityPhrases.swift:319",
+   "expect": "看看结果"
+  },
+  {
+   "id": "activity.waiting.primary",
+   "value": "等你确认",
+   "source": "BotActivityPhrases.swift:320",
+   "expect": "等你确认",
+   "note": "fixed, never rotates"
+  },
+  {
+   "id": "activity.replying.primary",
+   "value": "正在回复",
+   "source": "BotActivityPhrases.swift:321",
+   "expect": "正在回复"
+  },
+  {
+   "id": "activity.generic.primary",
+   "value": "处理中",
+   "source": "BotActivityPhrases.swift:322",
+   "expect": "处理中"
+  },
+  {
+   "id": "activity.thinking.rotation.0",
+   "value": "思考中…",
+   "source": "BotActivityPhrases.swift:298",
+   "expect": "思考中…"
+  },
+  {
+   "id": "activity.thinking.rotation.1",
+   "value": "整理思绪…",
+   "source": "BotActivityPhrases.swift:298",
+   "expect": "整理思绪…"
+  },
+  {
+   "id": "activity.thinking.rotation.2",
+   "value": "准备下一步…",
+   "source": "BotActivityPhrases.swift:298",
+   "expect": "准备下一步…"
+  },
+  {
+   "id": "activity.reviewing.rotation.0",
+   "value": "看看结果…",
+   "source": "BotActivityPhrases.swift:299",
+   "expect": "看看结果…"
+  },
+  {
+   "id": "activity.reviewing.rotation.1",
+   "value": "检查一下…",
+   "source": "BotActivityPhrases.swift:299",
+   "expect": "检查一下…"
+  },
+  {
+   "id": "activity.reviewing.rotation.2",
+   "value": "整理结论…",
+   "source": "BotActivityPhrases.swift:299",
+   "expect": "整理结论…"
+  },
+  {
+   "id": "activity.replying.rotation.0",
+   "value": "正在回复…",
+   "source": "BotActivityPhrases.swift:300",
+   "expect": "正在回复…"
+  },
+  {
+   "id": "activity.replying.rotation.1",
+   "value": "组织语言…",
+   "source": "BotActivityPhrases.swift:300",
+   "expect": "组织语言…"
+  },
+  {
+   "id": "activity.replying.rotation.2",
+   "value": "写回复中…",
+   "source": "BotActivityPhrases.swift:300",
+   "expect": "写回复中…"
+  },
+  {
+   "id": "activity.generic.rotation.0",
+   "value": "处理中…",
+   "source": "BotActivityPhrases.swift:302",
+   "expect": "处理中…"
+  },
+  {
+   "id": "activity.generic.rotation.1",
+   "value": "正在处理…",
+   "source": "BotActivityPhrases.swift:302",
+   "expect": "正在处理…"
+  },
+  {
+   "id": "activity.generic.rotation.2",
+   "value": "马上就好…",
+   "source": "BotActivityPhrases.swift:302",
+   "expect": "马上就好…"
+  },
+  {
+   "id": "activity.text.ellipsis",
+   "value": "…",
+   "source": "BotActivityPhrases.swift:241",
+   "expect": "…",
+   "note": "model text cap: 19 characters + ellipsis (20 total)"
+  },
+  {
+   "id": "activity.target.ellipsis",
+   "value": "…",
+   "source": "BotActivityPhrases.swift:269",
+   "expect": "…",
+   "note": "target cap: 39 characters + ellipsis (42 total)"
+  },
+  {
+   "id": "activity.minutes",
+   "value": " · {minutes} 分钟",
+   "source": "BotActivityPhrases.swift:455",
+   "expect": "分钟",
+   "note": "sustained-activity suffix"
+  },
+  {
+   "id": "drawer.title",
+   "value": "Bot",
+   "source": "BotDrawer.swift:251",
+   "expect": "Text(\"Bot\")"
+  },
+  {
+   "id": "drawer.manage",
+   "value": "管理 Bot",
+   "source": "BotDrawer.swift:541",
+   "expect": "管理 Bot"
+  },
+  {
+   "id": "drawer.add",
+   "value": "添加 Bot",
+   "source": "BotDrawer.swift:283",
+   "expect": "添加 Bot"
+  },
+  {
+   "id": "drawer.empty",
+   "value": "还没有 Bot。点上面的「添加 Bot」创建一个。",
+   "source": "BotDrawer.swift:214",
+   "expect": "还没有 Bot"
+  },
+  {
+   "id": "drawer.pending",
+   "value": "{count} 项待审批",
+   "source": "BotDrawer.swift:393",
+   "expect": "项待审批"
+  },
+  {
+   "id": "drawer.state.thinking",
+   "value": "思考中",
+   "source": "BotDrawer.swift:403",
+   "expect": "思考中"
+  },
+  {
+   "id": "drawer.state.working",
+   "value": "执行工具中",
+   "source": "BotDrawer.swift:404",
+   "expect": "执行工具中"
+  },
+  {
+   "id": "drawer.state.replying",
+   "value": "回复中",
+   "source": "BotDrawer.swift:405",
+   "expect": "回复中"
+  },
+  {
+   "id": "drawer.state.alerting",
+   "value": "等待确认",
+   "source": "BotDrawer.swift:406",
+   "expect": "等待确认"
+  },
+  {
+   "id": "drawer.state.sleeping",
+   "value": "休息中",
+   "source": "BotDrawer.swift:407",
+   "expect": "休息中"
+  },
+  {
+   "id": "drawer.state.running",
+   "value": "运行中",
+   "source": "BotDrawer.swift:408",
+   "expect": "运行中"
+  },
+  {
+   "id": "drawer.noMessages",
+   "value": "还没有消息",
+   "source": "BotDrawer.swift:414",
+   "expect": "还没有消息"
+  },
+  {
+   "id": "drawer.unread",
+   "value": "{count} 条未读",
+   "source": "BotDrawer.swift:447",
+   "expect": "条未读"
+  },
+  {
+   "id": "drawer.unread.overflow",
+   "value": "99+",
+   "source": "BotDrawer.swift:441",
+   "expect": "99+"
+  },
+  {
+   "id": "drawer.menu.rename",
+   "value": "改名",
+   "source": "BotDrawer.swift:483",
+   "expect": "改名"
+  },
+  {
+   "id": "drawer.menu.appearance",
+   "value": "外观",
+   "source": "BotDrawer.swift:484",
+   "expect": "外观"
+  },
+  {
+   "id": "drawer.menu.setMain",
+   "value": "设为主 Bot",
+   "source": "BotDrawer.swift:486",
+   "expect": "设为主 Bot"
+  },
+  {
+   "id": "drawer.menu.hide",
+   "value": "隐藏",
+   "source": "BotDrawer.swift:488",
+   "expect": "隐藏"
+  },
+  {
+   "id": "drawer.menu.unhide",
+   "value": "取消隐藏",
+   "source": "BotDrawer.swift:488",
+   "expect": "取消隐藏"
+  },
+  {
+   "id": "drawer.menu.delete",
+   "value": "删除 Bot",
+   "source": "BotDrawer.swift:495",
+   "expect": "删除 Bot"
+  },
+  {
+   "id": "drawer.menu.lastBot",
+   "value": "这是最后一个 Bot，不能删除。",
+   "source": "BotDrawer.swift:493",
+   "expect": "这是最后一个 Bot"
+  },
+  {
+   "id": "drawer.delete.confirm",
+   "value": "删除会中止运行、拒绝待审批、撤销授权、归档会话，并清除这个 Bot 的记忆、例行任务和待处理消息，无法撤销。",
+   "source": "BotDrawer.swift:245",
+   "expect": "删除会中止运行"
+  },
+  {
+   "id": "drawer.error.lastBot",
+   "value": "这是最后一个 Bot，不能删除。",
+   "source": "BotDrawer.swift:798",
+   "expect": "这是最后一个 Bot"
+  },
+  {
+   "id": "drawer.error.unknownBot",
+   "value": "这个 Bot 已经不存在。",
+   "source": "BotDrawer.swift:799",
+   "expect": "这个 Bot 已经不存在"
+  },
+  {
+   "id": "drawer.error.renameFailed",
+   "value": "改名失败：{error}",
+   "source": "BotDrawer.swift:355",
+   "expect": "改名失败"
+  },
+  {
+   "id": "validation.name.empty",
+   "value": "名称不能为空。",
+   "source": "BotDrawer.swift:48",
+   "expect": "名称不能为空"
+  },
+  {
+   "id": "validation.name.tooLong",
+   "value": "名称最多 {max} 个字符，当前 {count} 个。",
+   "source": "BotDrawer.swift:50",
+   "expect": "名称最多",
+   "note": "UTF-16 units, not grapheme clusters"
+  },
+  {
+   "id": "drawer.create",
+   "value": "创建",
+   "source": "BotDrawer.swift:766",
+   "expect": "创建"
+  },
+  {
+   "id": "drawer.creating",
+   "value": "创建中…",
+   "source": "BotDrawer.swift:766",
+   "expect": "创建中…"
+  },
+  {
+   "id": "chat.drawer.open",
+   "value": "打开 Bot 列表",
+   "source": "BotChatPage.swift:145",
+   "expect": "打开 Bot 列表"
+  },
+  {
+   "id": "chat.info.label",
+   "value": "Bot 信息",
+   "source": "BotChatPage.swift:181",
+   "expect": "Bot 信息"
+  },
+  {
+   "id": "chat.menu.summary",
+   "value": "跟进中 {following} · 需要你处理 {attention}",
+   "source": "BotChatPage.swift:242",
+   "expect": "跟进中"
+  },
+  {
+   "id": "chat.menu.info",
+   "value": "Bot 信息与设置",
+   "source": "BotChatPage.swift:244",
+   "expect": "Bot 信息与设置"
+  },
+  {
+   "id": "chat.deeplink.unavailable",
+   "value": "这条消息不可用或已过期。",
+   "source": "BotChatModel.swift:1102",
+   "expect": "这条消息不可用或已过期"
+  },
+  {
+   "id": "error.runtimeUnavailable",
+   "value": "Bot 运行时未连接：动作未执行。",
+   "source": "BotChatModel.swift:59",
+   "expect": "Bot 运行时未连接"
+  },
+  {
+   "id": "error.watchFailed",
+   "value": "Bot 实时更新失败：{error}",
+   "source": "BotChatModel.swift:929",
+   "expect": "Bot 实时更新失败"
+  },
+  {
+   "id": "error.historyFailed",
+   "value": "历史加载失败：{error}",
+   "source": "BotChatModel.swift:1095",
+   "expect": "历史加载失败"
+  },
+  {
+   "id": "error.attachmentFailed",
+   "value": "附件「{name}」未附加：{reason}",
+   "source": "BotChatModel.swift:628",
+   "expect": "未附加"
+  },
+  {
+   "id": "runtime.connecting",
+   "value": "正在连接 Bot…",
+   "source": "BotProductionPage.swift:339",
+   "expect": "正在连接 Bot"
+  },
+  {
+   "id": "runtime.notReady",
+   "value": "Bot 运行时还没有准备好。请先启动引擎，然后重试。",
+   "source": "BotProductionPage.swift:77",
+   "expect": "Bot 运行时还没有准备好"
+  },
+  {
+   "id": "info.rename.empty",
+   "value": "Bot 名不能为空。",
+   "source": "BotInfoPage.swift:329",
+   "expect": "Bot 名不能为空"
+  },
+  {
+   "id": "info.rename.syncFailed",
+   "value": "名字已写入对话，但资料同步失败：{error}",
+   "source": "BotInfoPage.swift:339",
+   "expect": "资料同步失败"
+  },
+  {
+   "id": "info.rename.failed",
+   "value": "改名失败：{error}",
+   "source": "BotInfoPage.swift:342",
+   "expect": "改名失败"
+  },
+  {
+   "id": "info.forget.failed",
+   "value": "忘记失败：{error}",
+   "source": "BotInfoPage.swift:351",
+   "expect": "忘记失败"
+  },
+  {
+   "id": "info.erase.failed",
+   "value": "抹除失败：{error}",
+   "source": "BotInfoPage.swift:371",
+   "expect": "抹除失败"
+  },
+  {
+   "id": "info.eraseShared.failed",
+   "value": "抹除共享 user/ 记忆失败：{error}",
+   "source": "BotInfoPage.swift:397",
+   "expect": "抹除共享"
+  },
+  {
+   "id": "info.maintenance.saveFailed",
+   "value": "保存记忆整理开关失败：{error}",
+   "source": "BotInfoPage.swift:408",
+   "expect": "保存记忆整理开关失败"
+  },
+  {
+   "id": "info.maintenance.rollbackFailed",
+   "value": "回滚记忆整理失败：{error}",
+   "source": "BotInfoPage.swift:418",
+   "expect": "回滚记忆整理失败"
+  },
+  {
+   "id": "info.proactive.saveFailed",
+   "value": "打扰设置保存失败：{error}",
+   "source": "BotInfoPage.swift:450",
+   "expect": "打扰设置保存失败"
+  },
+  {
+   "id": "info.routine.updateFailed",
+   "value": "例行任务更新失败：{error}",
+   "source": "BotInfoPage.swift:476",
+   "expect": "例行任务更新失败"
+  },
+  {
+   "id": "info.routine.cancelFailed",
+   "value": "取消运行失败：{error}",
+   "source": "BotInfoPage.swift:485",
+   "expect": "取消运行失败"
+  },
+  {
+   "id": "info.grant.revokeFailed",
+   "value": "撤销授权失败：{error}",
+   "source": "BotInfoPage.swift:494",
+   "expect": "撤销授权失败"
+  },
+  {
+   "id": "info.reconcile.failed",
+   "value": "处理对账失败：{error}",
+   "source": "BotInfoPage.swift:508",
+   "expect": "处理对账失败"
+  },
+  {
+   "id": "info.readFailed",
+   "value": "读取失败",
+   "source": "BotInfoPage.swift:796",
+   "expect": "读取失败"
+  },
+  {
+   "id": "info.memory.readFailed",
+   "value": "记忆读取失败：{error}。这不代表没有记忆。",
+   "source": "BotInfoPage.swift:827",
+   "expect": "记忆读取失败"
+  },
+  {
+   "id": "info.memory.agentRoot",
+   "value": "本 Bot 的记忆",
+   "source": "BotInfoPage.swift:859",
+   "expect": "本 Bot 的记忆"
+  },
+  {
+   "id": "info.memory.userRoot",
+   "value": "所有 Bot 共享的记忆",
+   "source": "BotInfoPage.swift:863",
+   "expect": "所有 Bot 共享的记忆"
+  },
+  {
+   "id": "info.memory.forget",
+   "value": "忘记",
+   "source": "BotInfoPage.swift:890",
+   "expect": "忘记"
+  },
+  {
+   "id": "info.memory.eraseBot",
+   "value": "抹除这个 Bot 的记忆（含全部版本）",
+   "source": "BotInfoPage.swift:939",
+   "expect": "抹除这个 Bot 的记忆"
+  },
+  {
+   "id": "info.memory.eraseShared",
+   "value": "抹除所有 Bot 共享的记忆（含全部版本）",
+   "source": "BotInfoPage.swift:946",
+   "expect": "抹除所有 Bot 共享的记忆"
+  },
+  {
+   "id": "info.maintenance.title",
+   "value": "后台整理",
+   "source": "BotInfoPage.swift:840",
+   "expect": "后台整理"
+  },
+  {
+   "id": "info.maintenance.rollback",
+   "value": "回滚这次整理",
+   "source": "BotInfoPage.swift:998",
+   "expect": "回滚这次整理"
+  },
+  {
+   "id": "info.routine.cancel",
+   "value": "取消运行",
+   "source": "BotInfoPage.swift:1326",
+   "expect": "取消运行"
+  },
+  {
+   "id": "info.reconcile.ack",
+   "value": "确认完成",
+   "source": "BotInfoPage.swift:1580",
+   "expect": "确认完成"
+  },
+  {
+   "id": "info.reconcile.retry",
+   "value": "重试",
+   "source": "BotInfoPage.swift:1583",
+   "expect": "重试"
+  },
+  {
+   "id": "info.routine.readFailed",
+   "value": "例行任务读取失败：{error}。这不代表没有例行任务。",
+   "source": "BotInfoPage.swift:1293",
+   "expect": "例行任务读取失败"
+  },
+  {
+   "id": "info.grant.readFailed",
+   "value": "常设授权读取失败：{error}。这不代表没有授权。",
+   "source": "BotInfoPage.swift:1658",
+   "expect": "常设授权读取失败"
+  },
+  {
+   "id": "info.approvals.readFailed",
+   "value": "审批记录读取失败：{error}。",
+   "source": "BotInfoPage.swift:1816",
+   "expect": "审批记录读取失败"
+  },
+  {
+   "id": "glyph.dismissed",
+   "value": "xmark.circle",
+   "source": "BotChatModel.swift:446",
+   "expect": "xmark.circle"
+  },
+  {
+   "id": "glyph.accepted",
+   "value": "checkmark.circle",
+   "source": "BotChatModel.swift:451",
+   "expect": "checkmark.circle"
+  },
+  {
+   "id": "glyph.approvalAllowed",
+   "value": "checkmark.circle.fill",
+   "source": "BotChatModel.swift:526",
+   "expect": "checkmark.circle.fill"
+  },
+  {
+   "id": "glyph.skipped",
+   "value": "minus.circle",
+   "source": "BotChatModel.swift:456",
+   "expect": "minus.circle"
+  }
+ ]
+}

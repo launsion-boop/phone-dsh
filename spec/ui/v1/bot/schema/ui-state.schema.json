@@ -1,0 +1,736 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/ui-state.schema.json",
+  "title": "BotUIStateVector v1 (P09 vector envelope)",
+  "description": "Input snapshot -> expected derived state. rows/presentation/info subsections have their own schemas and are validated separately by check_bot_ui.py.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "vector",
+    "cases"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "vector": {
+      "const": "bot-ui-state"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "input",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string"
+          },
+          "input": {
+            "type": "object",
+            "required": [
+              "context",
+              "rows",
+              "actionStates",
+              "dismissedCardIDs",
+              "autoDeclinedApprovalIDs",
+              "answeredOptionIDs",
+              "checklistProgress",
+              "runtimePresentation",
+              "livePresentation",
+              "live",
+              "runningTurnID",
+              "awaitingTurn",
+              "lineSuppressed",
+              "idleSleeping",
+              "streaming",
+              "pageFishState",
+              "problem",
+              "now",
+              "drawer"
+            ],
+            "properties": {
+              "context": {
+                "type": "object",
+                "required": [
+                  "botID",
+                  "botName",
+                  "followingCount"
+                ],
+                "properties": {
+                  "botID": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "botName": {
+                    "type": "string"
+                  },
+                  "followingCount": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "$comment": "row.schema.json"
+                }
+              },
+              "actionStates": {
+                "type": "object",
+                "additionalProperties": {
+                  "enum": [
+                    "pending",
+                    "accepted",
+                    "failed"
+                  ]
+                }
+              },
+              "dismissedCardIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "autoDeclinedApprovalIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "answeredOptionIDs": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "checklistProgress": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "required": [
+                    "done",
+                    "total",
+                    "sending",
+                    "sent"
+                  ],
+                  "properties": {
+                    "done": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sending": {
+                      "type": "boolean"
+                    },
+                    "sent": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "runtimePresentation": {
+                "$comment": "presentation.schema.json"
+              },
+              "livePresentation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "$comment": "presentation.schema.json"
+                  }
+                ]
+              },
+              "live": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "turn",
+                      "ended"
+                    ],
+                    "properties": {
+                      "turn": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 0
+                      },
+                      "ended": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "runningTurnID": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "awaitingTurn": {
+                "type": "boolean"
+              },
+              "lineSuppressed": {
+                "type": "boolean"
+              },
+              "idleSleeping": {
+                "type": "boolean"
+              },
+              "streaming": {
+                "type": "object",
+                "required": [
+                  "pendingDelta",
+                  "streamingText",
+                  "liveBuffer"
+                ],
+                "properties": {
+                  "pendingDelta": {
+                    "type": "string"
+                  },
+                  "streamingText": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "liveBuffer": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "pageFishState": {
+                "enum": [
+                  "idle",
+                  "thinking",
+                  "streaming",
+                  "working",
+                  "sleeping",
+                  "alerting",
+                  "listening",
+                  "speaking",
+                  "happy",
+                  "sad",
+                  "surprised",
+                  "confused",
+                  "laughing",
+                  "love",
+                  "angry",
+                  "wink",
+                  "nod",
+                  "shrug",
+                  "celebrate",
+                  "poke",
+                  "waking",
+                  "waiting",
+                  "loading",
+                  "done",
+                  "standby",
+                  "spawning",
+                  "bouncing",
+                  "dancing",
+                  "waving",
+                  "shy",
+                  "smug",
+                  "crying",
+                  "sighing",
+                  "cheering",
+                  "bowing",
+                  "clapping",
+                  "stretching",
+                  "yawning",
+                  "kiss",
+                  "shaking-head",
+                  "high-five",
+                  "powering-down"
+                ]
+              },
+              "problem": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "now": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "drawer": {
+                "type": "object",
+                "required": [
+                  "isRunning",
+                  "lastMessageAt",
+                  "unreadCount"
+                ],
+                "properties": {
+                  "isRunning": {
+                    "type": "boolean"
+                  },
+                  "lastMessageAt": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "unreadCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "activity": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "fishState": {
+                    "enum": [
+                      "idle",
+                      "thinking",
+                      "streaming",
+                      "working",
+                      "sleeping",
+                      "alerting",
+                      "listening",
+                      "speaking",
+                      "happy",
+                      "sad",
+                      "surprised",
+                      "confused",
+                      "laughing",
+                      "love",
+                      "angry",
+                      "wink",
+                      "nod",
+                      "shrug",
+                      "celebrate",
+                      "poke",
+                      "waking",
+                      "waiting",
+                      "loading",
+                      "done",
+                      "standby",
+                      "spawning",
+                      "bouncing",
+                      "dancing",
+                      "waving",
+                      "shy",
+                      "smug",
+                      "crying",
+                      "sighing",
+                      "cheering",
+                      "bowing",
+                      "clapping",
+                      "stretching",
+                      "yawning",
+                      "kiss",
+                      "shaking-head",
+                      "high-five",
+                      "powering-down"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          "expected": {
+            "type": "object",
+            "required": [
+              "visibleRowIDs",
+              "displayRowIDs",
+              "mutedCardIDs",
+              "settledRowIDs",
+              "settlements",
+              "pendingApprovalCount",
+              "needsAttentionCount",
+              "followingCount",
+              "header",
+              "lineActivity",
+              "activityLine",
+              "drawerStatus",
+              "unreadBadge"
+            ],
+            "properties": {
+              "visibleRowIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "displayRowIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "mutedCardIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "settledRowIDs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "settlements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "rowID",
+                    "glyph",
+                    "title",
+                    "detail",
+                    "tone",
+                    "monospacedDetail"
+                  ],
+                  "properties": {
+                    "rowID": {
+                      "type": "string"
+                    },
+                    "glyph": {
+                      "enum": [
+                        "xmark.circle",
+                        "checkmark.circle",
+                        "checkmark.circle.fill",
+                        "minus.circle"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "tone": {
+                      "enum": [
+                        "neutral",
+                        "success"
+                      ]
+                    },
+                    "monospacedDetail": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "pendingApprovalCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "needsAttentionCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "followingCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "header": {
+                "type": "object",
+                "required": [
+                  "phase",
+                  "line",
+                  "fishState",
+                  "motion",
+                  "workStyle",
+                  "lineIsQuiet",
+                  "lineIsProblem"
+                ],
+                "properties": {
+                  "phase": {
+                    "enum": [
+                      "idle",
+                      "problem",
+                      "working",
+                      "waitingForYou"
+                    ]
+                  },
+                  "line": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "status",
+                          "detail",
+                          "category",
+                          "startedAt"
+                        ],
+                        "properties": {
+                          "status": {
+                            "enum": [
+                              "thinking",
+                              "tool-running",
+                              "streaming"
+                            ]
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "enum": [
+                              "thinking",
+                              "reading",
+                              "searching",
+                              "browsing",
+                              "running",
+                              "writing",
+                              "memory",
+                              "messaging",
+                              "reviewing",
+                              "waiting",
+                              "replying",
+                              "generic"
+                            ]
+                          },
+                          "startedAt": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "fishState": {
+                    "enum": [
+                      "idle",
+                      "thinking",
+                      "streaming",
+                      "working",
+                      "sleeping",
+                      "alerting",
+                      "listening",
+                      "speaking",
+                      "happy",
+                      "sad",
+                      "surprised",
+                      "confused",
+                      "laughing",
+                      "love",
+                      "angry",
+                      "wink",
+                      "nod",
+                      "shrug",
+                      "celebrate",
+                      "poke",
+                      "waking",
+                      "waiting",
+                      "loading",
+                      "done",
+                      "standby",
+                      "spawning",
+                      "bouncing",
+                      "dancing",
+                      "waving",
+                      "shy",
+                      "smug",
+                      "crying",
+                      "sighing",
+                      "cheering",
+                      "bowing",
+                      "clapping",
+                      "stretching",
+                      "yawning",
+                      "kiss",
+                      "shaking-head",
+                      "high-five",
+                      "powering-down"
+                    ]
+                  },
+                  "motion": {
+                    "enum": [
+                      "standard",
+                      "lively"
+                    ]
+                  },
+                  "workStyle": {
+                    "enum": [
+                      "generic",
+                      "reading",
+                      "searching",
+                      "running",
+                      "writing"
+                    ]
+                  },
+                  "lineIsQuiet": {
+                    "type": "boolean"
+                  },
+                  "lineIsProblem": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "lineActivity": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "status",
+                      "detail",
+                      "category",
+                      "startedAt"
+                    ],
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "thinking",
+                          "tool-running",
+                          "streaming"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      },
+                      "category": {
+                        "enum": [
+                          "thinking",
+                          "reading",
+                          "searching",
+                          "browsing",
+                          "running",
+                          "writing",
+                          "memory",
+                          "messaging",
+                          "reviewing",
+                          "waiting",
+                          "replying",
+                          "generic"
+                        ]
+                      },
+                      "startedAt": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "activityLine": {
+                "type": "object",
+                "required": [
+                  "text",
+                  "nextDeadline"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "nextDeadline": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              "drawerStatus": {
+                "type": "object",
+                "required": [
+                  "text",
+                  "color"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "color": {
+                    "enum": [
+                      "warning",
+                      "secondary"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "unreadBadge": {
+                "type": "object",
+                "required": [
+                  "shown",
+                  "text",
+                  "accessibility"
+                ],
+                "properties": {
+                  "shown": {
+                    "type": "boolean"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "accessibility": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "now": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

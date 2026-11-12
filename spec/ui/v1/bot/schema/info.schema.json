@@ -1,0 +1,576 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/info.schema.json",
+  "title": "BotInfoSnapshot v1 (P09 inbound value)",
+  "description": "One info load result. Dates are Unix epoch milliseconds at the JSON edge; a null maintenance means no real batch has run.",
+  "type": "object",
+  "required": [
+    "botName",
+    "memories",
+    "routines",
+    "approvals"
+  ],
+  "properties": {
+    "botName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "memories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "scope",
+          "content",
+          "version",
+          "updatedAt",
+          "author",
+          "evidence",
+          "versions"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "enum": [
+              "agent",
+              "user"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "author": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "version",
+                "content",
+                "deleted",
+                "deletionReason",
+                "updatedAt",
+                "author",
+                "evidence"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "content": {
+                  "type": "string"
+                },
+                "deleted": {
+                  "type": "boolean"
+                },
+                "deletionReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "updatedAt": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "author": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "routines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "schedule",
+          "timeZone",
+          "delivery",
+          "quiet",
+          "urgent",
+          "lastResult",
+          "enabled"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "delivery": {
+            "type": "string"
+          },
+          "quiet": {
+            "type": "boolean"
+          },
+          "urgent": {
+            "type": "boolean"
+          },
+          "urgentReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastResult": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "creator": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "completionCriteria": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "routineConstraints": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runID": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextDue": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "quietDeferredFrom": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "quietDeferredUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "creatorDetail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastResultDetail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "parameterSummary",
+          "decision",
+          "decidedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "parameterSummary": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "tool",
+          "operation",
+          "resource",
+          "scope",
+          "createdAt",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "sessionID": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "reconciliations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "routineID",
+          "routineTitle",
+          "attempt",
+          "runID"
+        ],
+        "properties": {
+          "routineID": {
+            "type": "string",
+            "minLength": 1
+          },
+          "routineTitle": {
+            "type": "string"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "runID": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectSummary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effectDetail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "presence": {
+      "type": "object",
+      "required": [
+        "level",
+        "deferred",
+        "scheduledNotificationCount"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "foreground",
+            "backgroundKeepAlive",
+            "scheduledNotification"
+          ]
+        },
+        "deferred": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "routineId",
+              "title",
+              "scheduledFor",
+              "deferredUntil"
+            ],
+            "properties": {
+              "routineId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "title": {
+                "type": "string"
+              },
+              "scheduledFor": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "deferredUntil": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "scheduledNotificationCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "proactiveSettings": {
+      "type": "object",
+      "required": [
+        "mode",
+        "dnd",
+        "quietStart",
+        "quietEnd",
+        "routineQuietWeekends",
+        "timeZone"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "off",
+            "would",
+            "on"
+          ]
+        },
+        "dnd": {
+          "type": "boolean"
+        },
+        "quietStart": {
+          "type": "string",
+          "pattern": "^[0-9]{1,2}:[0-9]{2}$"
+        },
+        "quietEnd": {
+          "type": "string",
+          "pattern": "^[0-9]{1,2}:[0-9]{2}$"
+        },
+        "routineQuietWeekends": {
+          "type": "boolean"
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "maintenance": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "batchID",
+            "status",
+            "trigger",
+            "startedAt",
+            "finishedAt",
+            "changedDocuments",
+            "changes",
+            "checksPassed",
+            "rolledBack",
+            "canRollback",
+            "tokensUsed",
+            "notification"
+          ],
+          "properties": {
+            "batchID": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string"
+            },
+            "trigger": {
+              "type": "string"
+            },
+            "startedAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "finishedAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "changedDocuments": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "path",
+                  "scope",
+                  "beforeVersion",
+                  "afterVersion",
+                  "deleted"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "scope": {
+                    "enum": [
+                      "agent",
+                      "user"
+                    ]
+                  },
+                  "beforeVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "afterVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "deleted": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "failureCode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "checksPassed": {
+              "type": "boolean"
+            },
+            "rolledBack": {
+              "type": "boolean"
+            },
+            "canRollback": {
+              "type": "boolean"
+            },
+            "tokensUsed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "notification": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "maintenanceEnabled": {
+      "type": "boolean"
+    },
+    "maintenanceDailyTokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "maintenanceDailyBudget": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

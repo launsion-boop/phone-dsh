@@ -1,0 +1,552 @@
+{
+ "schemaVersion": 1,
+ "vector": "activity-phrases",
+ "now": 1760000000000,
+ "toolCases": [
+  {
+   "id": "bash",
+   "source": "BotActivityPhrases.swift:62",
+   "note": "Known native tool with no target.",
+   "input": {
+    "tool": "bash",
+    "arguments": {}
+   },
+   "expected": {
+    "category": "running",
+    "text": "跑个命令"
+   }
+  },
+  {
+   "id": "mcp-memory",
+   "source": "BotActivityPhrases.swift:105, BotActivityPhrases.swift:213",
+   "note": "mcp__phone__ prefix is stripped before the table lookup; the path target keeps its last component.",
+   "input": {
+    "tool": "mcp__phone__ReadMemory",
+    "arguments": {
+     "path": "user/diary.md"
+    }
+   },
+   "expected": {
+    "category": "memory",
+    "text": "在翻记忆 · diary.md"
+   }
+  },
+  {
+   "id": "read-path",
+   "source": "BotActivityPhrases.swift:63",
+   "note": "read keeps the last path component.",
+   "input": {
+    "tool": "read",
+    "arguments": {
+     "path": "/tmp/report.md"
+    }
+   },
+   "expected": {
+    "category": "reading",
+    "text": "在翻文件 · report.md"
+   }
+  },
+  {
+   "id": "read-long-path",
+   "source": "BotActivityPhrases.swift:265-270",
+   "note": "A target longer than 42 characters truncates at 39 + ellipsis.",
+   "input": {
+    "tool": "read",
+    "arguments": {
+     "path": "/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+   },
+   "expected": {
+    "category": "reading",
+    "text": "在翻文件 · aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+   }
+  },
+  {
+   "id": "web-fetch-host",
+   "source": "BotActivityPhrases.swift:75, BotActivityPhrases.swift:272-278",
+   "note": "URL targets render the host and strip www.",
+   "input": {
+    "tool": "web_fetch",
+    "arguments": {
+     "url": "https://www.example.test/a/b"
+    }
+   },
+   "expected": {
+    "category": "browsing",
+    "text": "在开网页 · example.test"
+   }
+  },
+  {
+   "id": "web-search-array",
+   "source": "BotActivityPhrases.swift:73, BotActivityPhrases.swift:247-263",
+   "note": "Array targets use the first non-empty string.",
+   "input": {
+    "tool": "web_search",
+    "arguments": {
+     "queries": [
+      "first query",
+      "second"
+     ]
+    }
+   },
+   "expected": {
+    "category": "searching",
+    "text": "在网上搜 · first query"
+   }
+  },
+  {
+   "id": "model-description",
+   "source": "BotActivityPhrases.swift:191-210",
+   "note": "A model description wins over the table phrase; trailing sentence punctuation is stripped.",
+   "input": {
+    "tool": "bash",
+    "arguments": {
+     "description": "运行构建。"
+    }
+   },
+   "expected": {
+    "category": "running",
+    "text": "运行构建"
+   }
+  },
+  {
+   "id": "model-description-cap",
+   "source": "BotActivityPhrases.swift:231-244",
+   "note": "A description longer than 20 characters truncates at 19 + ellipsis; the category stays with the tool.",
+   "input": {
+    "tool": "bash",
+    "arguments": {
+     "description": "一一一一一一一一一一一一一一一一一一一一一"
+    }
+   },
+   "expected": {
+    "category": "running",
+    "text": "一一一一一一一一一一一一一一一一一一一…"
+   }
+  },
+  {
+   "id": "grep-target",
+   "source": "BotActivityPhrases.swift:71",
+   "note": "grep target keys are tried in order (pattern first).",
+   "input": {
+    "tool": "grep",
+    "arguments": {
+     "pattern": "needle",
+     "include": "*.swift"
+    }
+   },
+   "expected": {
+    "category": "searching",
+    "text": "在搜内容 · needle"
+   }
+  },
+  {
+   "id": "unknown-tool",
+   "source": "BotActivityPhrases.swift:186-210",
+   "note": "Unknown tools never leak their raw name; the line rotates generic phrases.",
+   "input": {
+    "tool": "mystery_tool",
+    "arguments": {}
+   },
+   "expected": {
+    "category": "generic",
+    "text": ""
+   }
+  },
+  {
+   "id": "unknown-mcp",
+   "source": "BotActivityPhrases.swift:213-219",
+   "note": "An unknown mcp__phone__ name is still generic.",
+   "input": {
+    "tool": "mcp__phone__MysteryTool",
+    "arguments": {}
+   },
+   "expected": {
+    "category": "generic",
+    "text": ""
+   }
+  },
+  {
+   "id": "ask-user",
+   "source": "BotActivityPhrases.swift:92",
+   "note": "A question target is shown as the short target.",
+   "input": {
+    "tool": "ask_user",
+    "arguments": {
+     "question": "要不要继续？"
+    }
+   },
+   "expected": {
+    "category": "messaging",
+    "text": "想问问你 · 要不要继续？"
+   }
+  },
+  {
+   "id": "show-link",
+   "source": "BotActivityPhrases.swift:103",
+   "note": "show_link uses url/links and renders the host.",
+   "input": {
+    "tool": "show_link",
+    "arguments": {
+     "url": "https://example.test/docs"
+    }
+   },
+   "expected": {
+    "category": "messaging",
+    "text": "放上链接 · example.test"
+   }
+  },
+  {
+   "id": "android-package",
+   "source": "BotActivityPhrases.swift:143",
+   "note": "Package names have no slash, so the whole package is the target.",
+   "input": {
+    "tool": "android_launch_app",
+    "arguments": {
+     "package": "com.example.app"
+    }
+   },
+   "expected": {
+    "category": "running",
+    "text": "打开应用 · com.example.app"
+   }
+  },
+  {
+   "id": "fishaction-hidden",
+   "source": "BotActivityPhrases.swift:186, BotActivityPhrases.swift:172-206",
+   "note": "FishAction is not in the table and the factory hides it before the line; if asked directly it is generic/empty.",
+   "input": {
+    "tool": "fishaction",
+    "arguments": {}
+   },
+   "expected": {
+    "category": "generic",
+    "text": ""
+   }
+  },
+  {
+   "id": "empty-tool-name",
+   "source": "BotActivityPhrases.swift:191-210",
+   "note": "An empty tool name is unknown, not an error.",
+   "input": {
+    "tool": "",
+    "arguments": {}
+   },
+   "expected": {
+    "category": "generic",
+    "text": ""
+   }
+  },
+  {
+   "id": "non-string-description",
+   "source": "BotActivityPhrases.swift:222-228",
+   "note": "Only string description/summary/label values are considered.",
+   "input": {
+    "tool": "bash",
+    "arguments": {
+     "description": 42
+    }
+   },
+   "expected": {
+    "category": "running",
+    "text": "跑个命令"
+   }
+  }
+ ],
+ "textCases": [
+  {
+   "id": "trim",
+   "source": "BotActivityPhrases.swift:231-244",
+   "input": {
+    "raw": "  整理一下  "
+   },
+   "expected": "整理一下"
+  },
+  {
+   "id": "punctuation",
+   "source": "BotActivityPhrases.swift:231-244",
+   "input": {
+    "raw": "看看结果。！？"
+   },
+   "expected": "看看结果"
+  },
+  {
+   "id": "all-punctuation",
+   "source": "BotActivityPhrases.swift:231-244",
+   "input": {
+    "raw": "。。。"
+   },
+   "expected": null
+  },
+  {
+   "id": "blank",
+   "source": "BotActivityPhrases.swift:231-244",
+   "input": {
+    "raw": "   "
+   },
+   "expected": null
+  },
+  {
+   "id": "exactly-20",
+   "source": "BotActivityPhrases.swift:231-244",
+   "input": {
+    "raw": "中中中中中中中中中中中中中中中中中中中中"
+   },
+   "expected": "中中中中中中中中中中中中中中中中中中中中"
+  },
+  {
+   "id": "twenty-one",
+   "source": "BotActivityPhrases.swift:231-244",
+   "input": {
+    "raw": "中中中中中中中中中中中中中中中中中中中中中"
+   },
+   "expected": "中中中中中中中中中中中中中中中中中中中…"
+  }
+ ],
+ "targetCases": [
+  {
+   "id": "last-component",
+   "source": "BotActivityPhrases.swift:265-278",
+   "input": {
+    "raw": "/a/b/report.md"
+   },
+   "expected": "report.md"
+  },
+  {
+   "id": "exactly-42",
+   "source": "BotActivityPhrases.swift:265-278",
+   "input": {
+    "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "id": "forty-three",
+   "source": "BotActivityPhrases.swift:265-278",
+   "input": {
+    "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   },
+   "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+  },
+  {
+   "id": "backslash",
+   "source": "BotActivityPhrases.swift:265-278",
+   "input": {
+    "raw": "C:\\tmp\\report.txt"
+   },
+   "expected": "report.txt"
+  },
+  {
+   "id": "url-host",
+   "source": "BotActivityPhrases.swift:265-278",
+   "input": {
+    "raw": "https://www.example.test/a"
+   },
+   "expected": "a"
+  }
+ ],
+ "reviewingCases": [
+  {
+   "id": "read",
+   "source": "BotActivityPhrases.swift:281-291",
+   "input": {
+    "tool": "read",
+    "arguments": {
+     "path": "/tmp/report.md"
+    }
+   },
+   "expected": "看看结果 · report.md"
+  },
+  {
+   "id": "bash",
+   "source": "BotActivityPhrases.swift:281-291",
+   "input": {
+    "tool": "bash",
+    "arguments": {}
+   },
+   "expected": ""
+  },
+  {
+   "id": "memory",
+   "source": "BotActivityPhrases.swift:281-291",
+   "input": {
+    "tool": "mcp__phone__ReadMemory",
+    "arguments": {
+     "path": "user/a.md"
+    }
+   },
+   "expected": "看看结果 · a.md"
+  }
+ ],
+ "rotationCases": [
+  {
+   "id": "thinking",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "thinking",
+   "detail": "",
+   "expected": [
+    "思考中…",
+    "整理思绪…",
+    "准备下一步…"
+   ]
+  },
+  {
+   "id": "reading",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "reading",
+   "detail": "",
+   "expected": [
+    "在翻文件"
+   ]
+  },
+  {
+   "id": "searching",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "searching",
+   "detail": "",
+   "expected": [
+    "在搜内容"
+   ]
+  },
+  {
+   "id": "browsing",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "browsing",
+   "detail": "",
+   "expected": [
+    "在开网页"
+   ]
+  },
+  {
+   "id": "running",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "running",
+   "detail": "",
+   "expected": [
+    "处理中"
+   ]
+  },
+  {
+   "id": "writing",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "writing",
+   "detail": "",
+   "expected": [
+    "在写文件"
+   ]
+  },
+  {
+   "id": "memory",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "memory",
+   "detail": "",
+   "expected": [
+    "在翻记忆"
+   ]
+  },
+  {
+   "id": "messaging",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "messaging",
+   "detail": "",
+   "expected": [
+    "整理回复"
+   ]
+  },
+  {
+   "id": "reviewing",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "reviewing",
+   "detail": "",
+   "expected": [
+    "看看结果…",
+    "检查一下…",
+    "整理结论…"
+   ]
+  },
+  {
+   "id": "waiting",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "waiting",
+   "detail": "",
+   "expected": [
+    "等你确认"
+   ]
+  },
+  {
+   "id": "replying",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "replying",
+   "detail": "",
+   "expected": [
+    "正在回复…",
+    "组织语言…",
+    "写回复中…"
+   ]
+  },
+  {
+   "id": "generic",
+   "source": "BotActivityPhrases.swift:295-306",
+   "category": "generic",
+   "detail": "",
+   "expected": [
+    "处理中…",
+    "正在处理…",
+    "马上就好…"
+   ]
+  },
+  {
+   "id": "detail-suppresses-rotation",
+   "source": "BotActivityPhrases.swift:296",
+   "category": "reading",
+   "detail": "在翻文件 · report.md",
+   "expected": [
+    "在翻文件 · report.md"
+   ]
+  }
+ ],
+ "minuteCases": [
+  {
+   "id": "zero",
+   "source": "BotActivityPhrases.swift:344-348",
+   "startedAt": 1759999940001,
+   "now": 1760000000000,
+   "expected": 0
+  },
+  {
+   "id": "one",
+   "source": "BotActivityPhrases.swift:344-348",
+   "startedAt": 1759999940000,
+   "now": 1760000000000,
+   "expected": 1
+  },
+  {
+   "id": "two",
+   "source": "BotActivityPhrases.swift:344-348",
+   "startedAt": 1759999875000,
+   "now": 1760000000000,
+   "expected": 2
+  },
+  {
+   "id": "future",
+   "source": "BotActivityPhrases.swift:344-348",
+   "startedAt": 1760000001000,
+   "now": 1760000000000,
+   "expected": 0
+  },
+  {
+   "id": "unset",
+   "source": "BotActivityPhrases.swift:344-348",
+   "startedAt": 0,
+   "now": 1760000000000,
+   "expected": 0
+  }
+ ],
+ "constants": {
+  "minimumVisibleMillis": 800,
+  "rotationIntervalMillis": 2400,
+  "minuteMillis": 60000,
+  "cleanedMax": 20,
+  "targetMax": 42
+ }
+}

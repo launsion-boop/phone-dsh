@@ -1365,6 +1365,39 @@ Expected after D15: the Bot pages are either checked with 0 divergences or expli
 recorded reason; the pre-existing 12 divergences are not made worse. Android:
 `:lib:testDebugUnitTest --tests 'com.phonedsh.ui.bot.*'` and the screenshot suite on an emulator.
 
+**Resolution (2026-11-12, C4 / B7b round 1; PC-20261112-android-bot-w4).**
+Frozen as `spec/ui/v1/bot/ui-state.md` (normative for both ends) + `strings.json` +
+`activity-phrases.json` + `schema/` + `golden/` + `tools/check_bot_ui.py` (+ unittest). Decisions:
+
+1. **Bottom bar.** Option (b) stands (CCR-4): shipped four equal columns (`HomeTabBar.swift:9-21`);
+   `bot-dock.md` stays a superseded non-normative proposal. The Bot tab is `HomeTab.bot`; the app
+   opens on `.tasks` (`NativeShell.swift:97`) and `botPageActive` requires the Bot tab + active scene
+   (`NativeShell.swift:379-382`). README §1 gained one Bot row covering BotChatPage, BotDrawer,
+   BotInfoPage and its data subpages.
+2. **Agent-comm.** CCR-3 stands: the agent-comm row is P0 and renders as one line with the peer avatar
+   (crown when the peer is the main Bot); no new wire fields.
+3. **Machine-readable pages.** No page JSON was added. The Bot pages stay outside
+   `page_structure_check.py`; D15 §3's alternative is taken: a Bot-specific checker
+   (`check_bot_ui.py`) freezes the value seam, and the pages remain prose structure contracts. This is
+   an explicit exclusion, not a lowered floor: no whitelist row and no `_baseline.json` entry changed.
+4. **Capsule contradiction.** The current Swift draws no activity icon, no red “!” and no 6 pt dot on
+   the header capsule (`BotChatPage.swift:130-201`, `HeaderActionPill(showsMenuActivityDot: false)`);
+   `bot-chat.md` §1 was already right, §6 was stale and is corrected. Activity is the single
+   `bot.activity.line` plus the avatar motion.
+5. **Deep link.** `phonedsh://bot/<botID>/<row|routine>/<id>` parser frozen in ui-state.md §2.6/§4.13;
+   unknown/expired rows show `这条消息不可用或已过期。` and never jump to another session.
+6. **Conformance.** The iOS derived logic is app code under `examples/probe-app/PhoneDSHProbe/Bot/**`;
+   no SwiftPM target compiles it and the bot-ui capture harness is an XCUITest app that does not read
+   the JSON vectors. iOS real-code conformance is therefore **NOT_RUN** (reason recorded in
+   ui-state.md §8), not PASS. Android is planned for wave 4 round 2.
+7. **Open CCR.** CCR-UI-1: `BotChatModel.fishState` and `BotRuntimeUnit.statusSnapshot` are different
+   functions (idle→working coercion, remoteBusy/routineRunning, durable/live precedence, one-shot
+   fallback, sleeping guard). The shared fish-state priority is withheld from the contract; only
+   “pending approval → alerting” and the header `workingFish` mapping are normative until the owner
+   decides (`ui-state.md` §4.7/§9). CCR-UI-2 is also open: a failed `cardDismiss` is not retryable
+   while a failed answer/approval is, so the retry-policy rule is scoped and the dismiss case is
+   withheld (`ui-state.md` §3.1/§9).
+
 ## 3. Delta → checkpoint matrix
 
 | Checkpoint | Deltas that must be frozen first | What cannot start without them |

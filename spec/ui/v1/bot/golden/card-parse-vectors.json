@@ -1,0 +1,1809 @@
+{
+ "schemaVersion": 1,
+ "vector": "card-parse",
+ "cases": [
+  {
+   "id": "question-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A registered widget with options parses and surfaces as a widget card.",
+   "row": {
+    "id": "q",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "question",
+     "question": "要把这份整理好的内容保存到哪里？",
+     "helpText": "推荐保存到文档库，之后可以继续编辑。",
+     "options": [
+      {
+       "id": "library",
+       "label": "保存到文档库",
+       "description": "保留版本并方便之后查找",
+       "recommended": true
+      },
+      {
+       "id": "pdf",
+       "label": "导出 PDF"
+      },
+      {
+       "id": "later",
+       "label": "稍后决定"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-q"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "要把这份整理好的内容保存到哪里？",
+    "kind": "question",
+    "choices": [
+     {
+      "id": "library",
+      "label": "保存到文档库",
+      "value": "保存到文档库",
+      "description": "保留版本并方便之后查找",
+      "recommended": true,
+      "danger": false
+     },
+     {
+      "id": "pdf",
+      "label": "导出 PDF",
+      "value": "导出 PDF",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     },
+     {
+      "id": "later",
+      "label": "稍后决定",
+      "value": "稍后决定",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     }
+    ]
+   }
+  },
+  {
+   "id": "steps-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "Steps are choices in the steps key.",
+   "row": {
+    "id": "s",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "steps",
+     "steps": [
+      {
+       "id": "review",
+       "label": "查看验收结果",
+       "recommended": true
+      },
+      {
+       "id": "pr",
+       "label": "创建 Pull Request"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-s"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "s",
+    "kind": "steps",
+    "steps": [
+     {
+      "id": "review",
+      "label": "查看验收结果",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "pr",
+      "label": "创建 Pull Request",
+      "state": "pending",
+      "detail": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "task-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A task card needs a title or tasks.",
+   "row": {
+    "id": "t",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "task",
+     "title": "整理并验证发布材料",
+     "status": "running",
+     "tasks": [
+      {
+       "id": "a",
+       "label": "收集来源",
+       "state": "done"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-t"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "agent-thread-row",
+    "copyText": "整理并验证发布材料",
+    "kind": "task"
+   }
+  },
+  {
+   "id": "task-empty",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A task with neither title nor tasks fails closed.",
+   "row": {
+    "id": "t2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "task",
+     "status": "running"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-t2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "t2"
+   }
+  },
+  {
+   "id": "attachment-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "An attachment card needs a file name/name/path.",
+   "row": {
+    "id": "a",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "attachment",
+     "cardType": "attachment",
+     "path": "/tmp/report.pdf",
+     "fileName": "report.pdf",
+     "mimeType": "application/pdf"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-a"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "attachment-card",
+    "copyText": "report.pdf",
+    "kind": "attachment"
+   }
+  },
+  {
+   "id": "attachment-empty",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A nameless attachment does not parse.",
+   "row": {
+    "id": "a2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "attachment",
+     "cardType": "attachment"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-a2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "a2"
+   }
+  },
+  {
+   "id": "document-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A document needs one content-bearing string.",
+   "row": {
+    "id": "d",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "document",
+     "title": "验收报告",
+     "summary": "汇总证据。"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-d"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "document-card",
+    "copyText": "验收报告",
+    "kind": "document"
+   }
+  },
+  {
+   "id": "document-empty",
+   "source": "BotUIModels.swift:654-717",
+   "note": "An empty document does not parse.",
+   "row": {
+    "id": "d2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "document",
+     "docKind": "markdown"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-d2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "d2"
+   }
+  },
+  {
+   "id": "progress-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "Progress needs a title or name.",
+   "row": {
+    "id": "p",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "progress",
+     "title": "生成发布材料",
+     "state": "running"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-p"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "progress-card",
+    "copyText": "生成发布材料",
+    "kind": "progress"
+   }
+  },
+  {
+   "id": "progress-empty",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A progress card without a title does not parse.",
+   "row": {
+    "id": "p2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "progress",
+     "state": "running"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-p2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "p2"
+   }
+  },
+  {
+   "id": "checklist-valid",
+   "source": "BotUIModels.swift:654-717",
+   "note": "Checklist needs a title and at least one parsed item.",
+   "row": {
+    "id": "c",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "checklist",
+     "title": "发布前检查",
+     "items": [
+      {
+       "id": "c0",
+       "text": "运行 CI",
+       "done": true
+      },
+      {
+       "id": "c1",
+       "text": "检查截图"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-c"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "checklist-card",
+    "copyText": "发布前检查",
+    "kind": "checklist",
+    "checklist": [
+     {
+      "id": "c0",
+      "text": "运行 CI",
+      "done": true,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "c1",
+      "text": "检查截图",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     }
+    ]
+   }
+  },
+  {
+   "id": "checklist-empty-items",
+   "source": "BotUIModels.swift:654-717",
+   "note": "A checklist with no items does not parse.",
+   "row": {
+    "id": "c2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "checklist",
+     "title": "发布前检查",
+     "items": []
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-c2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "发布前检查"
+   }
+  },
+  {
+   "id": "link-valid",
+   "source": "BotUIModels.swift:624-642",
+   "note": "Only http/https with a host parse; site strips www.",
+   "row": {
+    "id": "l",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "link",
+     "title": "参考资料",
+     "links": [
+      {
+       "id": "docs",
+       "url": "https://www.example.test/docs/cards",
+       "title": "卡片内容模型"
+      },
+      {
+       "url": "http://example.test/x"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-l"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "link-card",
+    "copyText": "参考资料",
+    "kind": "link",
+    "links": [
+     {
+      "id": "docs",
+      "url": "https://www.example.test/docs/cards",
+      "title": "卡片内容模型",
+      "site": "example.test",
+      "description": null,
+      "kind": "other"
+     },
+     {
+      "id": "link-1",
+      "url": "http://example.test/x",
+      "title": "example.test",
+      "site": "example.test",
+      "description": null,
+      "kind": "other"
+     }
+    ]
+   }
+  },
+  {
+   "id": "link-invalid-scheme",
+   "source": "BotUIModels.swift:624-642",
+   "note": "An ftp link is skipped; only the http link remains.",
+   "row": {
+    "id": "l2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "link",
+     "title": "参考资料",
+     "links": [
+      {
+       "url": "ftp://example.test/x"
+      },
+      {
+       "url": "https://example.test/ok"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-l2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "link-card",
+    "copyText": "参考资料",
+    "kind": "link",
+    "links": [
+     {
+      "id": "link-1",
+      "url": "https://example.test/ok",
+      "title": "example.test",
+      "site": "example.test",
+      "description": null,
+      "kind": "other"
+     }
+    ]
+   }
+  },
+  {
+   "id": "link-invalid-host",
+   "source": "BotUIModels.swift:624-642",
+   "note": "A link without a host is skipped.",
+   "row": {
+    "id": "l3",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "link",
+     "title": "参考资料",
+     "links": [
+      {
+       "url": "https:///nohost"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-l3"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "参考资料"
+   }
+  },
+  {
+   "id": "approval-pending-valid",
+   "source": "BotUIModels.swift:681-717",
+   "note": "Pending approval renders only with id + digest + action.",
+   "row": {
+    "id": "ap",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "approval",
+     "approvalID": "a1",
+     "digest": "sha256:x",
+     "status": "pending",
+     "action": "删除旧报告",
+     "command": "rm -f /tmp/x"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ap"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "approval-card",
+    "copyText": "ap",
+    "kind": "approval"
+   }
+  },
+  {
+   "id": "approval-missing-digest",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A pending approval without a digest fails closed.",
+   "row": {
+    "id": "ap2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "approval",
+     "approvalID": "a1",
+     "status": "pending",
+     "action": "删除旧报告"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ap2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "ap2"
+   }
+  },
+  {
+   "id": "approval-settled-no-action",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A settled approval needs an action string.",
+   "row": {
+    "id": "ap3",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "approval",
+     "approvalID": "a1",
+     "digest": "sha256:x",
+     "status": "allowed"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ap3"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "ap3"
+   }
+  },
+  {
+   "id": "approval-settled-valid",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A settled approval with an action renders.",
+   "row": {
+    "id": "ap4",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "approval",
+     "approvalID": "a1",
+     "digest": "sha256:x",
+     "status": "allowed",
+     "action": "删除旧报告"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ap4"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "approval-card",
+    "copyText": "ap4",
+    "kind": "approval"
+   }
+  },
+  {
+   "id": "automation-valid",
+   "source": "BotUIModels.swift:681-717",
+   "note": "Automation needs a title/name/automationId.",
+   "row": {
+    "id": "au",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "automation",
+     "title": "晨间简报",
+     "status": "sent"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-au"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "automation-row",
+    "copyText": "晨间简报",
+    "kind": "automation"
+   }
+  },
+  {
+   "id": "automation-empty",
+   "source": "BotUIModels.swift:681-717",
+   "note": "An automation without a name does not parse.",
+   "row": {
+    "id": "au2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "automation",
+     "status": "sent"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-au2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "au2"
+   }
+  },
+  {
+   "id": "notice-error",
+   "source": "BotUIModels.swift:681-717",
+   "note": "An error notice parses as a notice (the chat transcript still hides it).",
+   "row": {
+    "id": "n",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "notice",
+     "tone": "error",
+     "text": "生成报告失败。"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-n"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "notice",
+    "copyText": "生成报告失败。",
+    "kind": "notice"
+   }
+  },
+  {
+   "id": "notice-info",
+   "source": "BotUIModels.swift:681-717",
+   "note": "Only error/denied/denial tones parse.",
+   "row": {
+    "id": "n2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "notice",
+     "tone": "info",
+     "text": "普通提示"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-n2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "普通提示"
+   }
+  },
+  {
+   "id": "notice-blank",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A blank notice text does not parse.",
+   "row": {
+    "id": "n3",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "notice",
+     "tone": "denied",
+     "text": "   "
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-n3"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "   "
+   }
+  },
+  {
+   "id": "widget-unregistered",
+   "source": "BotUIModels.swift:654-680",
+   "note": "P1/unknown widget kinds are not rendered.",
+   "row": {
+    "id": "w",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "table",
+     "columns": [],
+     "rows": []
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-w"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "w"
+   }
+  },
+  {
+   "id": "text-assistant",
+   "source": "BotUIModels.swift:719-733",
+   "note": "A non-empty assistant text bubble is renderable.",
+   "row": {
+    "id": "tx",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "message",
+    "role": "assistant",
+    "body": {
+     "type": "text",
+     "text": "已完成"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-tx"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "bubble",
+    "copyText": "已完成"
+   }
+  },
+  {
+   "id": "text-blank",
+   "source": "BotUIModels.swift:719-733",
+   "note": "A whitespace-only text row is not renderable.",
+   "row": {
+    "id": "tx2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "message",
+    "role": "assistant",
+    "body": {
+     "type": "text",
+     "text": "  \n "
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-tx2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "  \n "
+   }
+  },
+  {
+   "id": "text-user-attachment-only",
+   "source": "BotUIModels.swift:719-733",
+   "note": "A user text row with attachments and no text is renderable.",
+   "row": {
+    "id": "tx3",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "sendMessage",
+    "role": "user",
+    "body": {
+     "type": "text",
+     "text": "",
+     "attachments": [
+      {
+       "name": "周报.pdf",
+       "size": 2048,
+       "mimeType": "application/pdf",
+       "kind": "pdf"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-tx3"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "bubble",
+    "copyText": "tx3"
+   }
+  },
+  {
+   "id": "text-deleted",
+   "source": "BotUIModels.swift:719-733",
+   "note": "A deleted body is never renderable.",
+   "row": {
+    "id": "tx4",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "message",
+    "role": "assistant",
+    "body": {
+     "type": "deleted"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-tx4"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "tx4"
+   }
+  },
+  {
+   "id": "text-copy-fallback",
+   "source": "BotUIModels.swift:752-755",
+   "note": "copyText falls back to the row id when no display string exists.",
+   "row": {
+    "id": "tx5",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "task",
+     "status": "running"
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-tx5"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": false,
+    "surface": "hidden",
+    "copyText": "tx5"
+   }
+  },
+  {
+   "id": "choices-bare-string",
+   "source": "BotUIModels.swift:540-568",
+   "note": "A bare string choice gets index:label and value=label.",
+   "row": {
+    "id": "ch",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "question",
+     "question": "选一个",
+     "options": [
+      "第一个",
+      "  ",
+      "第二个"
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ch"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "选一个",
+    "kind": "question",
+    "choices": [
+     {
+      "id": "0:第一个",
+      "label": "第一个",
+      "value": "第一个",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     },
+     {
+      "id": "2:第二个",
+      "label": "第二个",
+      "value": "第二个",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     }
+    ]
+   }
+  },
+  {
+   "id": "choices-recommended",
+   "source": "BotUIModels.swift:540-568",
+   "note": "Only the first recommended non-danger choice keeps recommended.",
+   "row": {
+    "id": "ch2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "question",
+     "question": "选一个",
+     "options": [
+      {
+       "label": "A",
+       "recommended": true
+      },
+      {
+       "label": "B",
+       "style": "primary"
+      },
+      {
+       "label": "危险",
+       "style": "danger",
+       "recommended": true
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ch2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "选一个",
+    "kind": "question",
+    "choices": [
+     {
+      "id": "0:A",
+      "label": "A",
+      "value": "A",
+      "description": null,
+      "recommended": true,
+      "danger": false
+     },
+     {
+      "id": "1:B",
+      "label": "B",
+      "value": "B",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     },
+     {
+      "id": "2:危险",
+      "label": "危险",
+      "value": "危险",
+      "description": null,
+      "recommended": false,
+      "danger": true
+     }
+    ]
+   }
+  },
+  {
+   "id": "choices-danger",
+   "source": "BotUIModels.swift:540-568",
+   "note": "style danger sets danger and suppresses recommended.",
+   "row": {
+    "id": "ch3",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "question",
+     "question": "选一个",
+     "options": [
+      {
+       "label": "删除",
+       "style": "danger",
+       "recommended": true
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ch3"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "选一个",
+    "kind": "question",
+    "choices": [
+     {
+      "id": "0:删除",
+      "label": "删除",
+      "value": "删除",
+      "description": null,
+      "recommended": false,
+      "danger": true
+     }
+    ]
+   }
+  },
+  {
+   "id": "choices-limit",
+   "source": "BotUIModels.swift:540-568",
+   "note": "parseList stops at four.",
+   "row": {
+    "id": "ch4",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "question",
+     "question": "选一个",
+     "options": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5"
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ch4"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "选一个",
+    "kind": "question",
+    "choices": [
+     {
+      "id": "0:1",
+      "label": "1",
+      "value": "1",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     },
+     {
+      "id": "1:2",
+      "label": "2",
+      "value": "2",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     },
+     {
+      "id": "2:3",
+      "label": "3",
+      "value": "3",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     },
+     {
+      "id": "3:4",
+      "label": "4",
+      "value": "4",
+      "description": null,
+      "recommended": false,
+      "danger": false
+     }
+    ]
+   }
+  },
+  {
+   "id": "steps-aliases",
+   "source": "BotUIModels.swift:572-593",
+   "note": "State aliases map onto the allowed set; unknown states become pending.",
+   "row": {
+    "id": "st",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "steps",
+     "steps": [
+      {
+       "label": "a",
+       "state": "in_progress"
+      },
+      {
+       "label": "b",
+       "status": "completed"
+      },
+      {
+       "label": "c",
+       "state": "error"
+      },
+      {
+       "label": "d",
+       "state": "weird"
+      },
+      "e"
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-st"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "st",
+    "kind": "steps",
+    "steps": [
+     {
+      "id": "step-0",
+      "label": "a",
+      "state": "active",
+      "detail": null
+     },
+     {
+      "id": "step-1",
+      "label": "b",
+      "state": "done",
+      "detail": null
+     },
+     {
+      "id": "step-2",
+      "label": "c",
+      "state": "failed",
+      "detail": null
+     },
+     {
+      "id": "step-3",
+      "label": "d",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-4",
+      "label": "e",
+      "state": "pending",
+      "detail": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "steps-limit",
+   "source": "BotUIModels.swift:572-593",
+   "note": "parseList stops at eight.",
+   "row": {
+    "id": "st2",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "steps",
+     "steps": [
+      {
+       "label": "0"
+      },
+      {
+       "label": "1"
+      },
+      {
+       "label": "2"
+      },
+      {
+       "label": "3"
+      },
+      {
+       "label": "4"
+      },
+      {
+       "label": "5"
+      },
+      {
+       "label": "6"
+      },
+      {
+       "label": "7"
+      },
+      {
+       "label": "8"
+      },
+      {
+       "label": "9"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-st2"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "widget-card",
+    "copyText": "st2",
+    "kind": "steps",
+    "steps": [
+     {
+      "id": "step-0",
+      "label": "0",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-1",
+      "label": "1",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-2",
+      "label": "2",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-3",
+      "label": "3",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-4",
+      "label": "4",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-5",
+      "label": "5",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-6",
+      "label": "6",
+      "state": "pending",
+      "detail": null
+     },
+     {
+      "id": "step-7",
+      "label": "7",
+      "state": "pending",
+      "detail": null
+     }
+    ]
+   }
+  },
+  {
+   "id": "checklist-parse",
+   "source": "BotUIModels.swift:601-615",
+   "note": "Plain strings, notes and synthetic are parsed; limit is 12.",
+   "row": {
+    "id": "cl",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "checklist",
+     "title": "清单",
+     "items": [
+      "第一项",
+      {
+       "text": "第二项",
+       "done": true,
+       "note": "今天",
+       "synthetic": true
+      },
+      {
+       "text": "0"
+      },
+      {
+       "text": "1"
+      },
+      {
+       "text": "2"
+      },
+      {
+       "text": "3"
+      },
+      {
+       "text": "4"
+      },
+      {
+       "text": "5"
+      },
+      {
+       "text": "6"
+      },
+      {
+       "text": "7"
+      },
+      {
+       "text": "8"
+      },
+      {
+       "text": "9"
+      },
+      {
+       "text": "10"
+      },
+      {
+       "text": "11"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-cl"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "checklist-card",
+    "copyText": "清单",
+    "kind": "checklist",
+    "checklist": [
+     {
+      "id": "item-0",
+      "text": "第一项",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-1",
+      "text": "第二项",
+      "done": true,
+      "note": "今天",
+      "synthetic": true
+     },
+     {
+      "id": "item-2",
+      "text": "0",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-3",
+      "text": "1",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-4",
+      "text": "2",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-5",
+      "text": "3",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-6",
+      "text": "4",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-7",
+      "text": "5",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-8",
+      "text": "6",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-9",
+      "text": "7",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-10",
+      "text": "8",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     },
+     {
+      "id": "item-11",
+      "text": "9",
+      "done": false,
+      "note": null,
+      "synthetic": false
+     }
+    ]
+   }
+  },
+  {
+   "id": "links-www",
+   "source": "BotUIModels.swift:624-642",
+   "note": "Site/title fall back to the de-www host; description uses summary.",
+   "row": {
+    "id": "ln",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "event",
+    "role": null,
+    "body": {
+     "type": "widget",
+     "cardType": "link",
+     "links": [
+      {
+       "url": "https://www.example.test/x",
+       "summary": "说明"
+      }
+     ]
+    },
+    "provenance": {
+     "eventIDs": [
+      "evt-ln"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000001000
+   },
+   "expected": {
+    "renderable": true,
+    "surface": "link-card",
+    "copyText": "ln",
+    "kind": "link",
+    "links": [
+     {
+      "id": "link-0",
+      "url": "https://www.example.test/x",
+      "title": "example.test",
+      "site": "example.test",
+      "description": "说明",
+      "kind": "other"
+     }
+    ]
+   }
+  }
+ ]
+}

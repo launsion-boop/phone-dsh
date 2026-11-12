@@ -133,6 +133,7 @@ GOLDEN_READERS = (
     ("spec/device/v1/golden", "standard-gatt-discovery-mutations.json", "spec/v1/tools/test_spec_golden.py", False),
     ("spec/pclink/v1/golden", "pclink-v1-vectors.json", "spec/pclink/v1/tools/vectors.mjs", False),
     ("spec/pclink/v1/golden", "schema-samples.json", "spec/pclink/v1/tools/check_samples.py", False),
+    ("spec/ui/v1/bot/golden", "*.json", "spec/ui/v1/bot/tools/check_bot_ui.py", False),
 )
 
 
