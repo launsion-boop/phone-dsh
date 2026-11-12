@@ -98,7 +98,8 @@ public final class NativeStreamDraftStore {
         }
     }
 
-    /// Removes the rows that a reload either painted once or found settled. The
+    /// Removes the rows a reload found settled or covered by durable text. A
+    /// row that was merely shown stays on disk for the next relaunch. The
     /// read-modify-write happens on the writer queue so it cannot race a
     /// streamed write for a new turn.
     public func consume(backend: BackendID, sessionID: String, itemIDs: [String]) {

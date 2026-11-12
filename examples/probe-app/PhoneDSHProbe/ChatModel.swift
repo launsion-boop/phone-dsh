@@ -835,6 +835,9 @@ final class ChatModel {
     private var pumpTask: Task<Void, Never>?
     private var hostEventTask: Task<Void, Never>?
     private var lastSeq: UInt64?
+    /// Last durable seq carried by the cached transcript snapshot read for a
+    /// session. The draft evidence line reports it without another disk read.
+    private var cachedSnapshotLastSeq: [String: UInt64] = [:]
     private var trajectoryThroughSeq: Int?
     private var trajectoryBeforeSeq: Int?
     private var trajectoryRefreshTask: Task<Void, Never>?
@@ -3264,11 +3267,24 @@ final class ChatModel {
             operation: "prompt", text: prompt, attachments: attachments,
             scope: backendID.storageScope, sessionID: sessionID)
         let dispatchStart = ProcessInfo.processInfo.systemUptime
+        // Sending while no turn is open starts a new turn, which supersedes the
+        // previous interrupted turn's draft. A send during a running turn may
+        // only be queued, so its live draft must stay.
+        let supersedesPreviousTurn = !turnRunning
         Self.persistStatus("latency client-observed phase=prompt-rpc-start request=\(requestID)")
         do {
             try await harness.send(.prompt(text: prompt, attachments: attachments, requestID: requestID), to: sessionID)
             Self.persistStatus("latency client-observed phase=prompt-rpc-accepted request=\(requestID) elapsed_ms=\(Int((ProcessInfo.processInfo.systemUptime - dispatchStart) * 1000))")
             Self.completeRetryableRequest(fingerprint: fingerprint, requestID: requestID)
+            if supersedesPreviousTurn {
+                // The prompt is accepted, so the old draft can no longer be
+                // shown beside this turn. Drop both the painted row and the
+                // file before the new stream starts writing a fresh row.
+                streamDraftTracker.clearAll()
+                items.removeAll { $0.isInterruptedDraft }
+                NativeStreamDraftStore.shared.delete(backend: backendID,
+                                                     sessionID: sessionID)
+            }
             // The drawer needs a readable row before DSH publishes its own
             // title projection.
             SessionTitleHints.remember(prompt, for: sessionID, backend: backendID)
@@ -3411,8 +3427,8 @@ final class ChatModel {
         var throughSeq: Int?
         var turnFacts: SessionTurnFacts
         var inputReceipts: [String: Int]
-        /// Draft rows this load either painted once or found settled; the
-        /// caller removes them from the per-session draft file.
+        /// Draft rows this load found settled or covered by durable text. Rows
+        /// that merely stay visible are kept on disk for the next reload.
         var consumedDraftItemIDs: [String] = []
     }
 
@@ -3454,6 +3470,9 @@ final class ChatModel {
         let turnFacts = snapshot.turnFacts
         let inputReceipts = snapshot.inputReceipts
         let backend = backendID
+        // Read before leaving the main actor. This is the seq of the snapshot
+        // that was restored for a cold paint or a preview, not a new scan.
+        let snapshotLastSeq = cachedSnapshotLastSeq[sessionID]
         let history = await Task.detached(priority: .userInitiated) {
             // The draft is tiny and its decoder belongs with the projection: a
             // corrupt or foreign file is ignored, never fatal.
@@ -3468,11 +3487,13 @@ final class ChatModel {
                                        throughSeq: throughSeq,
                                        turnFacts: turnFacts,
                                        inputReceipts: inputReceipts,
-                                       drafts: drafts)
+                                       drafts: drafts,
+                                       snapshotLastSeq: snapshotLastSeq)
         }.value
         if !history.consumedDraftItemIDs.isEmpty {
-            // A draft that was painted once (or superseded by the settled
-            // message) must not survive to the next load.
+            // Only a normal settlement or durable text that covers the draft
+            // removes it. A row that was shown stays in the file so a second
+            // kill still repaints it.
             streamDraftTracker.remove(itemIDs: history.consumedDraftItemIDs)
             NativeStreamDraftStore.shared.consume(backend: backend,
                                                   sessionID: sessionID,
@@ -3492,17 +3513,30 @@ final class ChatModel {
                                                     throughSeq: Int?,
                                                     turnFacts: SessionTurnFacts,
                                                     inputReceipts: [String: Int],
-                                                    drafts: [NativeStreamDraftItem]) -> SessionHistory {
+                                                    drafts: [NativeStreamDraftItem],
+                                                    snapshotLastSeq: UInt64?) -> SessionHistory {
         let projected = transcriptItems(from: records, sessionID: sessionID)
         // Interrupted-stream drafts are inserted only after the durable
         // projection, so the settled text is always the authority. The policy
-        // returns the rows to paint and the rows to delete from the file.
+        // keeps every row that is still needed; only genuine replacements are
+        // consumed.
         let draftResolution = NativeStreamDraftPolicy.resolve(
             drafts: drafts,
             history: projected,
             turnEndReasons: turnFacts.endReasons,
             engineReportsRunningTurn: turnRunning,
             sessionID: sessionID)
+        // Exactly one evidence line per history load, built off the main actor
+        // from values this load already read. `appendRaw` only queues; it does
+        // not touch the file or the main actor.
+        let activeTurn = turnRunning ? turnFacts.starts.keys.max() : nil
+        StatusLogWriter.shared.appendRaw(NativeStreamDraftEvidence.evidenceLine(
+            sessionID: sessionID,
+            dshLastSeq: throughSeq,
+            snapshotLastSeq: snapshotLastSeq,
+            drafts: drafts,
+            resolution: draftResolution,
+            activeTurn: activeTurn))
         return SessionHistory(items: draftResolution.items,
                               after: after,
                               turnRunning: turnRunning,
@@ -3928,6 +3962,7 @@ final class ChatModel {
             // step. Only the settled text remains.
             streamDraftTracker.clear(kind: .reasoning, turn: activeTurn)
             streamDraftTracker.clear(kind: .assistant, turn: activeTurn)
+            removeInterruptedDraftRows(turn: activeTurn)
             clearStreamDraft()
             scheduleNativeMetricsRefresh()
         case .userMessage(let text, let source):
@@ -4039,6 +4074,7 @@ final class ChatModel {
             // is kept and flushed before the process can be killed.
             if NativeStreamDraftPolicy.isNormalTurnEnd(rawEndKind) {
                 streamDraftTracker.clear(turn: finishedTurn)
+                removeInterruptedDraftRows(turn: finishedTurn)
                 clearStreamDraft()
             } else {
                 flushStreamDraft(immediately: true)
@@ -4173,6 +4209,14 @@ final class ChatModel {
                                              backend: backendID,
                                              sessionID: sessionID,
                                              flushNow: immediately)
+    }
+
+    /// Drops the painted display-only rows for a turn whose durable text has
+    /// arrived or whose end was normal. The draft file is handled separately by
+    /// `clearStreamDraft()`.
+    private func removeInterruptedDraftRows(turn: Int?) {
+        guard let turn else { return }
+        items.removeAll { $0.isInterruptedDraft && $0.turn == turn }
     }
 
     /// Delete-or-rewrite after a durable settlement. Submitting the remaining
@@ -4406,9 +4450,17 @@ final class ChatModel {
             guard let data = try? Data(contentsOf: url) else { continue }
             if let snapshot = CachedTranscriptCodec.decode(data, backend: backendID,
                                                            sessionID: sessionID) {
+                if let lastSeq = snapshot.lastSeq {
+                    cachedSnapshotLastSeq[sessionID] = lastSeq
+                } else {
+                    cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+                }
                 return snapshot
             }
         }
+        // No readable snapshot: do not let an earlier read's seq describe a
+        // cache that no longer exists.
+        cachedSnapshotLastSeq.removeValue(forKey: sessionID)
         return nil
     }
 
@@ -4481,6 +4533,13 @@ final class ChatModel {
                                                backend: backendID,
                                                sessionID: sessionID,
                                                lastSeq: lastSeq)
+        // Remember the seq of the snapshot this process just published so a
+        // later evidence line can report it without re-reading the file.
+        if let lastSeq {
+            cachedSnapshotLastSeq[sessionID] = lastSeq
+        } else {
+            cachedSnapshotLastSeq.removeValue(forKey: sessionID)
+        }
         MainThreadHangMonitor.mark("persistTranscriptSnapshot.end")
     }
 

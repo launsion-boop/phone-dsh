@@ -5,9 +5,10 @@
 // (`assistant/message`). If the App or WebContent dies mid-stream, the durable
 // session is repaired with `turn/end{kind:'interrupted'}` and the text that was
 // already shown on screen is simply gone. The App keeps a small per-session
-// file beside the transcript snapshot so a relaunch can paint that text once,
-// clearly marked as not part of the session. This file owns the on-disk shape,
-// the byte bound and the reload policy; the App target owns the queue/writer.
+// file beside the transcript snapshot so every relaunch can paint that text,
+// clearly marked as not part of the session, until the turn has a durable
+// replacement. This file owns the on-disk shape, the byte bound and the reload
+// policy; the App target owns the queue/writer.
 
 import Foundation
 import PhoneDSHAgentCore
@@ -227,27 +228,50 @@ public enum NativeStreamDraftPolicy {
         return digits.isEmpty ? nil : Int(digits)
     }
 
+    /// The aggregate outcome of one reload, used by the evidence line.
+    public enum Verdict: String, Equatable, Sendable {
+        /// At least one draft is still visible and still needed.
+        case kept
+        /// The turn's durable assistant/reasoning text now covers the draft.
+        case superseded
+        /// The turn ended normally, so the draft is obsolete.
+        case settled
+        /// The load had no draft rows.
+        case none
+    }
+
     public struct Resolution {
-        /// The history with any display-only rows inserted at the end of their
-        /// turn.
+        /// The history with any display-only rows updated in place or inserted
+        /// at the end of their turn. Display-only rows are never appended twice.
         public var items: [ChatItem]
-        /// Draft rows that must be removed from the file: normal settlement,
-        /// already-covered text, malformed rows and rows that were just shown.
+        /// Draft rows physically removed from the file: normal settlement,
+        /// durable text that covers the row, and malformed rows. Erase,
+        /// archive and a superseding new turn delete the file through the
+        /// store instead.
         public var consumedItemIDs: [String]
-        /// Draft rows kept for a turn that is still running; they may be shown
-        /// after the next relaunch.
+        /// Draft rows that are still visible and still needed. They stay on
+        /// disk so the next reload can repaint the same stable row.
         public var keptItemIDs: [String]
+        /// Policy outcome for this load (`kept` wins when drafts are mixed).
+        public var verdict: Verdict
     }
 
     /// Decides which draft rows to paint after a durable history load.
     ///
-    /// - A draft is shown only when its turn ended non-normally, or did not end
-    ///   while the engine reports no running turn.
-    /// - If history already carries assistant/reasoning text at or after the
-    ///   draft's journal position in that turn, the settled text wins and the
-    ///   draft is consumed silently.
-    /// - Shown rows are consumed too: one draft paints once after a reload and
-    ///   a second reload cannot duplicate it.
+    /// - A draft stays visible and on disk until its turn either has durable
+    ///   assistant/reasoning text at or after the draft's journal position, or
+    ///   ends normally, or a durable row shows that a later turn superseded it.
+    ///   A turn that is still running (or whose end fact is not in the loaded
+    ///   page) keeps the draft visible.
+    /// - Re-running the projector must not append a second row: every shown
+    ///   draft uses the stable id `<sessionID>:draft-<turn>-<kind>`, and an
+    ///   existing row with that id is updated in place.
+    /// - `consumedItemIDs` is only for the real removals above; a row that was
+    ///   shown remains in `keptItemIDs`.
+    ///
+    /// `engineReportsRunningTurn` is retained as an input because the loader
+    /// already has it, but it no longer hides a draft: a running turn with no
+    /// durable replacement is exactly the case that must stay visible.
     public static func resolve(drafts: [NativeStreamDraftItem],
                                history: [ChatItem],
                                turnEndReasons: [Int: String],
@@ -257,19 +281,32 @@ public enum NativeStreamDraftPolicy {
         var kept: [String] = []
         var shown: [(turn: Int, seq: Int?, index: Int, item: ChatItem)] = []
         var items = history
+        var removedAsSettled = false
+        var removedAsSuperseded = false
 
         for (index, draft) in drafts.enumerated() {
             guard let turn = draft.turn else {
+                // A row without a turn cannot be placed; it is not a visible
+                // draft and must not survive forever.
                 consumed.append(draft.itemID)
+                removedAsSettled = true
                 continue
             }
             if let endKind = turnEndReasons[turn] {
                 guard isNonNormalTurnEnd(endKind) else {
                     consumed.append(draft.itemID)
+                    removedAsSettled = true
                     continue
                 }
-            } else if engineReportsRunningTurn {
-                kept.append(draft.itemID)
+            }
+            // A durable row in a later turn means the user moved on. The send
+            // path deletes the file, but this also repairs a kill that landed
+            // between the accepted prompt and that delete.
+            if history.contains(where: {
+                !$0.isInterruptedDraft && ($0.turn ?? Int.min) > turn
+            }) {
+                consumed.append(draft.itemID)
+                removedAsSuperseded = true
                 continue
             }
 
@@ -277,10 +314,12 @@ public enum NativeStreamDraftPolicy {
             if isCovered(draft: draft, seq: seq, turn: turn,
                          history: items, sessionID: sessionID) {
                 consumed.append(draft.itemID)
+                removedAsSuperseded = true
                 continue
             }
 
-            var item = ChatItem(id: shownItemID(for: draft.itemID, index: index),
+            var item = ChatItem(id: draftItemID(sessionID: sessionID, turn: turn,
+                                                kind: draft.kind),
                                 kind: draft.kind.chatKind,
                                 title: draft.kind.title,
                                 text: draft.text,
@@ -291,8 +330,14 @@ public enum NativeStreamDraftPolicy {
             item.isInterruptedDraft = true
             item.isInterruptedDraftTruncated = draft.truncated
             shown.append((turn: turn, seq: seq, index: index, item: item))
-            consumed.append(draft.itemID)
+            kept.append(draft.itemID)
         }
+
+        // A prior load may already have painted this draft. Replace that row
+        // instead of appending a second one, and drop rows whose turn has now
+        // been superseded or settled.
+        let shownIDs = Set(shown.map(\.item.id))
+        items.removeAll { $0.isInterruptedDraft && !shownIDs.contains($0.id) }
 
         // Insert by turn (and journal position inside one turn) so a single
         // draft stays at the tail of the turn whose text it continues.
@@ -303,6 +348,12 @@ public enum NativeStreamDraftPolicy {
             if left != right { return left < right }
             return lhs.index < rhs.index
         }) {
+            if let existing = items.firstIndex(where: {
+                $0.id == entry.item.id && $0.isInterruptedDraft
+            }) {
+                items[existing] = entry.item
+                continue
+            }
             let position: Int
             if let last = items.lastIndex(where: { $0.turn == entry.turn }) {
                 position = last + 1
@@ -317,7 +368,18 @@ public enum NativeStreamDraftPolicy {
             items.insert(entry.item, at: position)
         }
 
-        return Resolution(items: items, consumedItemIDs: consumed, keptItemIDs: kept)
+        let verdict: Verdict
+        if !kept.isEmpty {
+            verdict = .kept
+        } else if removedAsSuperseded {
+            verdict = .superseded
+        } else if removedAsSettled {
+            verdict = .settled
+        } else {
+            verdict = .none
+        }
+        return Resolution(items: items, consumedItemIDs: consumed,
+                          keptItemIDs: kept, verdict: verdict)
     }
 
     /// Display-only rows never become model context. `ChatModel.send` builds its
@@ -327,8 +389,12 @@ public enum NativeStreamDraftPolicy {
         items.filter { !$0.isInterruptedDraft }
     }
 
-    private static func shownItemID(for itemID: String, index: Int) -> String {
-        "\(itemID):interrupted-draft-\(index)"
+    /// Stable display id for one draft kind in one turn. A reload updates this
+    /// row instead of appending another one.
+    public static func draftItemID(sessionID: String,
+                                   turn: Int,
+                                   kind: NativeStreamDraftKind) -> String {
+        "\(sessionID):draft-\(turn)-\(kind.rawValue)"
     }
 
     private static func isCovered(draft: NativeStreamDraftItem,
@@ -346,6 +412,61 @@ public enum NativeStreamDraftPolicy {
             else { return false }
             return settledSeq >= seq
         }
+    }
+}
+
+/// One-line, pure evidence formatter for `chat-status.log`. The loader already
+/// has the DSH cursor, the cached snapshot seq and the draft resolution, so
+/// this function only formats those values; it never reads the WAL or event
+/// log. The writer owns the timestamp and the file I/O.
+public enum NativeStreamDraftEvidence {
+    public static func evidenceLine(sessionID: String,
+                                    dshLastSeq: Int?,
+                                    snapshotLastSeq: UInt64?,
+                                    drafts: [NativeStreamDraftItem],
+                                    resolution: NativeStreamDraftPolicy.Resolution,
+                                    activeTurn: Int?) -> String {
+        let representative = representativeDraft(drafts, sessionID: sessionID)
+        let draftTurn = representative?.turn
+        let draftSeq = representative.flatMap {
+            NativeStreamDraftPolicy.journalSeq(of: $0.itemID, sessionID: sessionID)
+        }
+        return "draft-evidence"
+            + " session=\(sessionID)"
+            + " dsh_last_seq=\(number(dshLastSeq))"
+            + " snapshot_last_seq=\(number(snapshotLastSeq))"
+            + " drafts=\(drafts.count)"
+            + " kept=\(ids(resolution.keptItemIDs))"
+            + " consumed=\(ids(resolution.consumedItemIDs))"
+            + " active_turn=\(number(activeTurn))"
+            + " draft_turn=\(number(draftTurn))"
+            + " draft_seq=\(number(draftSeq))"
+            + " verdict=\(resolution.verdict.rawValue)"
+    }
+
+    /// Newest draft by turn, then journal position. The format has one
+    /// `draft_turn`/`draft_seq` pair; with the normal two rows of the same
+    /// stream this picks the furthest position.
+    private static func representativeDraft(_ drafts: [NativeStreamDraftItem],
+                                             sessionID: String) -> NativeStreamDraftItem? {
+        drafts.max { lhs, rhs in
+            let leftTurn = lhs.turn ?? Int.min
+            let rightTurn = rhs.turn ?? Int.min
+            if leftTurn != rightTurn { return leftTurn < rightTurn }
+            let leftSeq = NativeStreamDraftPolicy.journalSeq(of: lhs.itemID,
+                                                             sessionID: sessionID) ?? Int.min
+            let rightSeq = NativeStreamDraftPolicy.journalSeq(of: rhs.itemID,
+                                                              sessionID: sessionID) ?? Int.min
+            return leftSeq < rightSeq
+        }
+    }
+
+    private static func number<T: BinaryInteger>(_ value: T?) -> String {
+        value.map(String.init) ?? "none"
+    }
+
+    private static func ids(_ values: [String]) -> String {
+        values.isEmpty ? "-" : values.joined(separator: ",")
     }
 }
 
