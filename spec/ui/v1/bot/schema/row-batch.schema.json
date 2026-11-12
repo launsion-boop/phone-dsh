@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/row-batch.schema.json",
+  "title": "BotUIRowBatch v1 (P09 view value)",
+  "description": "One watch result. rows are validated separately against row.schema.json.",
+  "type": "object",
+  "required": ["rows", "deletes", "cursor", "reset"],
+  "properties": {
+    "rows": {"type": "array", "items": {"$comment": "row.schema.json"}},
+    "deletes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "cursor": {"type": "integer", "minimum": 0},
+    "reset": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

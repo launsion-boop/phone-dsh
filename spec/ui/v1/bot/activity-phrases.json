@@ -1,0 +1,1197 @@
+{
+ "schemaVersion": 1,
+ "locale": "zh-Hans",
+ "description": "Normative tool -> category/phrase table, rotation phrases, work-style map and activity-line timing. Values are data; source anchors are evidence checked by check_bot_ui.py.",
+ "categories": [
+  {
+   "category": "thinking",
+   "primary": {
+    "value": "思考中",
+    "source": "BotActivityPhrases.swift:311",
+    "expect": "思考中"
+   },
+   "rotation": [
+    {
+     "value": "思考中…",
+     "source": "BotActivityPhrases.swift:298",
+     "expect": "思考中…"
+    },
+    {
+     "value": "整理思绪…",
+     "source": "BotActivityPhrases.swift:298",
+     "expect": "整理思绪…"
+    },
+    {
+     "value": "准备下一步…",
+     "source": "BotActivityPhrases.swift:298",
+     "expect": "准备下一步…"
+    }
+   ]
+  },
+  {
+   "category": "reading",
+   "primary": {
+    "value": "在翻文件",
+    "source": "BotActivityPhrases.swift:312",
+    "expect": "在翻文件"
+   },
+   "rotation": [
+    {
+     "value": "在翻文件",
+     "source": "BotActivityPhrases.swift:312",
+     "expect": "在翻文件"
+    }
+   ]
+  },
+  {
+   "category": "searching",
+   "primary": {
+    "value": "在搜内容",
+    "source": "BotActivityPhrases.swift:313",
+    "expect": "在搜内容"
+   },
+   "rotation": [
+    {
+     "value": "在搜内容",
+     "source": "BotActivityPhrases.swift:313",
+     "expect": "在搜内容"
+    }
+   ]
+  },
+  {
+   "category": "browsing",
+   "primary": {
+    "value": "在开网页",
+    "source": "BotActivityPhrases.swift:314",
+    "expect": "在开网页"
+   },
+   "rotation": [
+    {
+     "value": "在开网页",
+     "source": "BotActivityPhrases.swift:314",
+     "expect": "在开网页"
+    }
+   ]
+  },
+  {
+   "category": "running",
+   "primary": {
+    "value": "处理中",
+    "source": "BotActivityPhrases.swift:315",
+    "expect": "处理中"
+   },
+   "rotation": [
+    {
+     "value": "处理中",
+     "source": "BotActivityPhrases.swift:315",
+     "expect": "处理中"
+    }
+   ]
+  },
+  {
+   "category": "writing",
+   "primary": {
+    "value": "在写文件",
+    "source": "BotActivityPhrases.swift:316",
+    "expect": "在写文件"
+   },
+   "rotation": [
+    {
+     "value": "在写文件",
+     "source": "BotActivityPhrases.swift:316",
+     "expect": "在写文件"
+    }
+   ]
+  },
+  {
+   "category": "memory",
+   "primary": {
+    "value": "在翻记忆",
+    "source": "BotActivityPhrases.swift:317",
+    "expect": "在翻记忆"
+   },
+   "rotation": [
+    {
+     "value": "在翻记忆",
+     "source": "BotActivityPhrases.swift:317",
+     "expect": "在翻记忆"
+    }
+   ]
+  },
+  {
+   "category": "messaging",
+   "primary": {
+    "value": "整理回复",
+    "source": "BotActivityPhrases.swift:318",
+    "expect": "整理回复"
+   },
+   "rotation": [
+    {
+     "value": "整理回复",
+     "source": "BotActivityPhrases.swift:318",
+     "expect": "整理回复"
+    }
+   ]
+  },
+  {
+   "category": "reviewing",
+   "primary": {
+    "value": "看看结果",
+    "source": "BotActivityPhrases.swift:319",
+    "expect": "看看结果"
+   },
+   "rotation": [
+    {
+     "value": "看看结果…",
+     "source": "BotActivityPhrases.swift:299",
+     "expect": "看看结果…"
+    },
+    {
+     "value": "检查一下…",
+     "source": "BotActivityPhrases.swift:299",
+     "expect": "检查一下…"
+    },
+    {
+     "value": "整理结论…",
+     "source": "BotActivityPhrases.swift:299",
+     "expect": "整理结论…"
+    }
+   ]
+  },
+  {
+   "category": "waiting",
+   "primary": {
+    "value": "等你确认",
+    "source": "BotActivityPhrases.swift:320",
+    "expect": "等你确认"
+   },
+   "rotation": [
+    {
+     "value": "等你确认",
+     "source": "BotActivityPhrases.swift:301",
+     "expect": "等你确认"
+    }
+   ]
+  },
+  {
+   "category": "replying",
+   "primary": {
+    "value": "正在回复",
+    "source": "BotActivityPhrases.swift:321",
+    "expect": "正在回复"
+   },
+   "rotation": [
+    {
+     "value": "正在回复…",
+     "source": "BotActivityPhrases.swift:300",
+     "expect": "正在回复…"
+    },
+    {
+     "value": "组织语言…",
+     "source": "BotActivityPhrases.swift:300",
+     "expect": "组织语言…"
+    },
+    {
+     "value": "写回复中…",
+     "source": "BotActivityPhrases.swift:300",
+     "expect": "写回复中…"
+    }
+   ]
+  },
+  {
+   "category": "generic",
+   "primary": {
+    "value": "处理中",
+    "source": "BotActivityPhrases.swift:322",
+    "expect": "处理中"
+   },
+   "rotation": [
+    {
+     "value": "处理中…",
+     "source": "BotActivityPhrases.swift:302",
+     "expect": "处理中…"
+    },
+    {
+     "value": "正在处理…",
+     "source": "BotActivityPhrases.swift:302",
+     "expect": "正在处理…"
+    },
+    {
+     "value": "马上就好…",
+     "source": "BotActivityPhrases.swift:302",
+     "expect": "马上就好…"
+    }
+   ]
+  }
+ ],
+ "toolRules": [
+  {
+   "tool": "bash",
+   "category": "running",
+   "phrase": "跑个命令",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:62",
+   "expect": "\"bash\": Rule("
+  },
+  {
+   "tool": "read",
+   "category": "reading",
+   "phrase": "在翻文件",
+   "targetKeys": [
+    "path",
+    "file_path",
+    "filePath"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:63",
+   "expect": "\"read\": Rule("
+  },
+  {
+   "tool": "write",
+   "category": "writing",
+   "phrase": "在写文件",
+   "targetKeys": [
+    "path",
+    "file_path",
+    "filePath"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:65",
+   "expect": "\"write\": Rule("
+  },
+  {
+   "tool": "edit",
+   "category": "writing",
+   "phrase": "在改文件",
+   "targetKeys": [
+    "path",
+    "file_path",
+    "filePath"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:67",
+   "expect": "\"edit\": Rule("
+  },
+  {
+   "tool": "glob",
+   "category": "searching",
+   "phrase": "在找文件",
+   "targetKeys": [
+    "pattern",
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:69",
+   "expect": "\"glob\": Rule("
+  },
+  {
+   "tool": "grep",
+   "category": "searching",
+   "phrase": "在搜内容",
+   "targetKeys": [
+    "pattern",
+    "include",
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:71",
+   "expect": "\"grep\": Rule("
+  },
+  {
+   "tool": "web_search",
+   "category": "searching",
+   "phrase": "在网上搜",
+   "targetKeys": [
+    "query",
+    "queries"
+   ],
+   "targetIsURL": false,
+   "targetArray": true,
+   "source": "BotActivityPhrases.swift:73",
+   "expect": "\"web_search\": Rule("
+  },
+  {
+   "tool": "web_fetch",
+   "category": "browsing",
+   "phrase": "在开网页",
+   "targetKeys": [
+    "url"
+   ],
+   "targetIsURL": true,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:75",
+   "expect": "\"web_fetch\": Rule("
+  },
+  {
+   "tool": "job_list",
+   "category": "running",
+   "phrase": "看看后台",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:77",
+   "expect": "\"job_list\": Rule("
+  },
+  {
+   "tool": "job_output",
+   "category": "running",
+   "phrase": "等个结果",
+   "targetKeys": [
+    "job_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:78",
+   "expect": "\"job_output\": Rule("
+  },
+  {
+   "tool": "job_kill",
+   "category": "running",
+   "phrase": "停掉任务",
+   "targetKeys": [
+    "job_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:80",
+   "expect": "\"job_kill\": Rule("
+  },
+  {
+   "tool": "todo_write",
+   "category": "writing",
+   "phrase": "整理待办",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:82",
+   "expect": "\"todo_write\": Rule("
+  },
+  {
+   "tool": "create_goal",
+   "category": "writing",
+   "phrase": "定个目标",
+   "targetKeys": [
+    "objective"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:83",
+   "expect": "\"create_goal\": Rule("
+  },
+  {
+   "tool": "get_goal",
+   "category": "reading",
+   "phrase": "看看目标",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:85",
+   "expect": "\"get_goal\": Rule("
+  },
+  {
+   "tool": "update_goal",
+   "category": "writing",
+   "phrase": "更新目标",
+   "targetKeys": [
+    "objective"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:86",
+   "expect": "\"update_goal\": Rule("
+  },
+  {
+   "tool": "sendtouser",
+   "category": "messaging",
+   "phrase": "整理回复",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:90",
+   "expect": "\"sendtouser\": Rule("
+  },
+  {
+   "tool": "send_to_user",
+   "category": "messaging",
+   "phrase": "整理回复",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:91",
+   "expect": "\"send_to_user\": Rule("
+  },
+  {
+   "tool": "ask_user",
+   "category": "messaging",
+   "phrase": "想问问你",
+   "targetKeys": [
+    "question"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:92",
+   "expect": "\"ask_user\": Rule("
+  },
+  {
+   "tool": "show_next_steps",
+   "category": "messaging",
+   "phrase": "给你选项",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:94",
+   "expect": "\"show_next_steps\": Rule("
+  },
+  {
+   "tool": "show_attachment",
+   "category": "messaging",
+   "phrase": "送上附件",
+   "targetKeys": [
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:95",
+   "expect": "\"show_attachment\": Rule("
+  },
+  {
+   "tool": "show_document",
+   "category": "reading",
+   "phrase": "打开文档",
+   "targetKeys": [
+    "title",
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:97",
+   "expect": "\"show_document\": Rule("
+  },
+  {
+   "tool": "show_progress",
+   "category": "writing",
+   "phrase": "更新进度",
+   "targetKeys": [
+    "title"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:99",
+   "expect": "\"show_progress\": Rule("
+  },
+  {
+   "tool": "show_checklist",
+   "category": "writing",
+   "phrase": "列个清单",
+   "targetKeys": [
+    "title"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:101",
+   "expect": "\"show_checklist\": Rule("
+  },
+  {
+   "tool": "show_link",
+   "category": "messaging",
+   "phrase": "放上链接",
+   "targetKeys": [
+    "url",
+    "links"
+   ],
+   "targetIsURL": true,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:103",
+   "expect": "\"show_link\": Rule("
+  },
+  {
+   "tool": "updatememory",
+   "category": "memory",
+   "phrase": "在记笔记",
+   "targetKeys": [
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:105",
+   "expect": "\"updatememory\": Rule("
+  },
+  {
+   "tool": "readmemory",
+   "category": "memory",
+   "phrase": "在翻记忆",
+   "targetKeys": [
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:107",
+   "expect": "\"readmemory\": Rule("
+  },
+  {
+   "tool": "recallmemory",
+   "category": "memory",
+   "phrase": "回想一下",
+   "targetKeys": [
+    "query"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:109",
+   "expect": "\"recallmemory\": Rule("
+  },
+  {
+   "tool": "task",
+   "category": "messaging",
+   "phrase": "委派任务",
+   "targetKeys": [
+    "task_title",
+    "agent_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:111",
+   "expect": "\"task\": Rule("
+  },
+  {
+   "tool": "awaittask",
+   "category": "running",
+   "phrase": "等任务结果",
+   "targetKeys": [
+    "task_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:113",
+   "expect": "\"awaittask\": Rule("
+  },
+  {
+   "tool": "stopsubagent",
+   "category": "running",
+   "phrase": "停掉任务",
+   "targetKeys": [
+    "task_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:115",
+   "expect": "\"stopsubagent\": Rule("
+  },
+  {
+   "tool": "updateroutine",
+   "category": "writing",
+   "phrase": "改例行任务",
+   "targetKeys": [
+    "title",
+    "routine_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:117",
+   "expect": "\"updateroutine\": Rule("
+  },
+  {
+   "tool": "listroutines",
+   "category": "reading",
+   "phrase": "看看例行",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:119",
+   "expect": "\"listroutines\": Rule("
+  },
+  {
+   "tool": "requestapproval",
+   "category": "messaging",
+   "phrase": "请你确认",
+   "targetKeys": [
+    "action",
+    "detail"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:120",
+   "expect": "\"requestapproval\": Rule("
+  },
+  {
+   "tool": "sendtoagent",
+   "category": "messaging",
+   "phrase": "给队友发消息",
+   "targetKeys": [
+    "bot_name",
+    "name",
+    "agent_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:122",
+   "expect": "\"sendtoagent\": Rule("
+  },
+  {
+   "tool": "createteammate",
+   "category": "messaging",
+   "phrase": "创建新队友",
+   "targetKeys": [
+    "name"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:124",
+   "expect": "\"createteammate\": Rule("
+  },
+  {
+   "tool": "botvolatilecontext",
+   "category": "reading",
+   "phrase": "读读上下文",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:126",
+   "expect": "\"botvolatilecontext\": Rule("
+  },
+  {
+   "tool": "bluetooth.scan",
+   "category": "searching",
+   "phrase": "找找设备",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:129",
+   "expect": "\"bluetooth.scan\": Rule("
+  },
+  {
+   "tool": "network.browse",
+   "category": "searching",
+   "phrase": "看看网络",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:130",
+   "expect": "\"network.browse\": Rule("
+  },
+  {
+   "tool": "android_connect",
+   "category": "running",
+   "phrase": "连接手机",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:133",
+   "expect": "\"android_connect\": Rule("
+  },
+  {
+   "tool": "android_status",
+   "category": "reading",
+   "phrase": "看看手机",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:134",
+   "expect": "\"android_status\": Rule("
+  },
+  {
+   "tool": "android_device_info",
+   "category": "reading",
+   "phrase": "看设备信息",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:135",
+   "expect": "\"android_device_info\": Rule("
+  },
+  {
+   "tool": "android_shell",
+   "category": "running",
+   "phrase": "跑条命令",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:136",
+   "expect": "\"android_shell\": Rule("
+  },
+  {
+   "tool": "android_screenshot",
+   "category": "reading",
+   "phrase": "看看屏幕",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:137",
+   "expect": "\"android_screenshot\": Rule("
+  },
+  {
+   "tool": "android_ui_dump",
+   "category": "reading",
+   "phrase": "看看界面",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:138",
+   "expect": "\"android_ui_dump\": Rule("
+  },
+  {
+   "tool": "android_tap",
+   "category": "running",
+   "phrase": "点点屏幕",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:139",
+   "expect": "\"android_tap\": Rule("
+  },
+  {
+   "tool": "android_swipe",
+   "category": "running",
+   "phrase": "滑一下屏幕",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:140",
+   "expect": "\"android_swipe\": Rule("
+  },
+  {
+   "tool": "android_key",
+   "category": "running",
+   "phrase": "按一下键",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:141",
+   "expect": "\"android_key\": Rule("
+  },
+  {
+   "tool": "android_input_text",
+   "category": "running",
+   "phrase": "输入文字",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:142",
+   "expect": "\"android_input_text\": Rule("
+  },
+  {
+   "tool": "android_launch_app",
+   "category": "running",
+   "phrase": "打开应用",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:143",
+   "expect": "\"android_launch_app\": Rule("
+  },
+  {
+   "tool": "android_force_stop",
+   "category": "running",
+   "phrase": "关掉应用",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:145",
+   "expect": "\"android_force_stop\": Rule("
+  },
+  {
+   "tool": "android_clear_app_data",
+   "category": "running",
+   "phrase": "清应用数据",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:147",
+   "expect": "\"android_clear_app_data\": Rule("
+  },
+  {
+   "tool": "android_set_app_enabled",
+   "category": "running",
+   "phrase": "启用或停用",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:149",
+   "expect": "\"android_set_app_enabled\": Rule("
+  },
+  {
+   "tool": "android_install_apk",
+   "category": "running",
+   "phrase": "安装应用",
+   "targetKeys": [
+    "package",
+    "packageName",
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:151",
+   "expect": "\"android_install_apk\": Rule("
+  },
+  {
+   "tool": "android_install_existing_app",
+   "category": "running",
+   "phrase": "恢复应用",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:153",
+   "expect": "\"android_install_existing_app\": Rule("
+  },
+  {
+   "tool": "android_uninstall_app",
+   "category": "running",
+   "phrase": "卸载应用",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:155",
+   "expect": "\"android_uninstall_app\": Rule("
+  },
+  {
+   "tool": "android_app_permission",
+   "category": "running",
+   "phrase": "改应用权限",
+   "targetKeys": [
+    "package",
+    "permission"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:157",
+   "expect": "\"android_app_permission\": Rule("
+  },
+  {
+   "tool": "android_list_packages",
+   "category": "searching",
+   "phrase": "列一下应用",
+   "targetKeys": [
+    "kind",
+    "query"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:159",
+   "expect": "\"android_list_packages\": Rule("
+  },
+  {
+   "tool": "android_package_info",
+   "category": "reading",
+   "phrase": "看看应用信息",
+   "targetKeys": [
+    "package",
+    "packageName"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:161",
+   "expect": "\"android_package_info\": Rule("
+  },
+  {
+   "tool": "android_list_users",
+   "category": "reading",
+   "phrase": "看看用户",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:163",
+   "expect": "\"android_list_users\": Rule("
+  },
+  {
+   "tool": "android_open_uri",
+   "category": "browsing",
+   "phrase": "打开链接",
+   "targetKeys": [
+    "uri",
+    "url"
+   ],
+   "targetIsURL": true,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:164",
+   "expect": "\"android_open_uri\": Rule("
+  },
+  {
+   "tool": "android_logcat",
+   "category": "reading",
+   "phrase": "翻翻日志",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:166",
+   "expect": "\"android_logcat\": Rule("
+  },
+  {
+   "tool": "android_list_apk_files",
+   "category": "searching",
+   "phrase": "找找安装包",
+   "targetKeys": [
+    "directory"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:167",
+   "expect": "\"android_list_apk_files\": Rule("
+  },
+  {
+   "tool": "android_delete_apk_file",
+   "category": "running",
+   "phrase": "删个安装包",
+   "targetKeys": [
+    "path"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:169",
+   "expect": "\"android_delete_apk_file\": Rule("
+  },
+  {
+   "tool": "android_command_help",
+   "category": "reading",
+   "phrase": "看看命令帮助",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:171",
+   "expect": "\"android_command_help\": Rule("
+  },
+  {
+   "tool": "ble_devices",
+   "category": "searching",
+   "phrase": "找找设备",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:174",
+   "expect": "\"ble_devices\": Rule("
+  },
+  {
+   "tool": "ble_read",
+   "category": "reading",
+   "phrase": "读设备数据",
+   "targetKeys": [
+    "profile",
+    "device_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:175",
+   "expect": "\"ble_read\": Rule("
+  },
+  {
+   "tool": "ble_alert",
+   "category": "running",
+   "phrase": "给设备提醒",
+   "targetKeys": [
+    "device_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:177",
+   "expect": "\"ble_alert\": Rule("
+  },
+  {
+   "tool": "ble_link_tools",
+   "category": "reading",
+   "phrase": "看看设备能力",
+   "targetKeys": [],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:179",
+   "expect": "\"ble_link_tools\": Rule("
+  },
+  {
+   "tool": "ble_link_call",
+   "category": "running",
+   "phrase": "调用设备",
+   "targetKeys": [
+    "name"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:180",
+   "expect": "\"ble_link_call\": Rule("
+  },
+  {
+   "tool": "ble_link_result",
+   "category": "reading",
+   "phrase": "取设备结果",
+   "targetKeys": [
+    "request_id"
+   ],
+   "targetIsURL": false,
+   "targetArray": false,
+   "source": "BotActivityPhrases.swift:182",
+   "expect": "\"ble_link_result\": Rule("
+  }
+ ],
+ "genericFallback": {
+  "category": "generic",
+  "phrase": "",
+  "note": "unknown tools and known tools deliberately left generic return an empty text; the line rotates the generic phrases"
+ },
+ "textPolicy": {
+  "modelTextKeys": [
+   "description",
+   "summary",
+   "label"
+  ],
+  "stripTrailingPunctuation": "。！？!?；;，,、.…",
+  "maxCharacters": 20,
+  "ellipsis": "…",
+  "truncateAt": 19,
+  "targetMaxCharacters": 42,
+  "targetTruncateAt": 39,
+  "targetArrayUsesFirstNonEmpty": true,
+  "urlTargetRendersHost": true,
+  "stripWWWPrefix": true,
+  "pathTargetUsesLastComponent": true,
+  "pathSeparators": "/\\",
+  "sources": [
+   {
+    "source": "BotActivityPhrases.swift:231",
+    "expect": "func cleanedModelText"
+   },
+   {
+    "source": "BotActivityPhrases.swift:241",
+    "expect": "text.count > 20"
+   },
+   {
+    "source": "BotActivityPhrases.swift:247",
+    "expect": "func targetText"
+   },
+   {
+    "source": "BotActivityPhrases.swift:265",
+    "expect": "func shortTarget"
+   },
+   {
+    "source": "BotActivityPhrases.swift:269",
+    "expect": "base.count > 42"
+   },
+   {
+    "source": "BotActivityPhrases.swift:272",
+    "expect": "func urlHost"
+   }
+  ]
+ },
+ "reviewing": {
+  "phraseFromCategory": "reviewing",
+  "detailPattern": "<reviewing primary> · <target>",
+  "emptyWhenNoTarget": true,
+  "source": "BotActivityPhrases.swift:281",
+  "expect": "func reviewingText"
+ },
+ "bareToolName": {
+  "prefix": "mcp__",
+  "rule": "drop the first two MCP components when the name starts with mcp__ and has more than 3 components",
+  "source": "BotActivityPhrases.swift:213",
+  "expect": "func bareToolName"
+ },
+ "workStyle": {
+  "reading": {
+   "value": "reading",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "memory": {
+   "value": "reading",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "searching": {
+   "value": "searching",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "browsing": {
+   "value": "searching",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "running": {
+   "value": "running",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "writing": {
+   "value": "writing",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "thinking": {
+   "value": "generic",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "reviewing": {
+   "value": "generic",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "messaging": {
+   "value": "generic",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "waiting": {
+   "value": "generic",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "replying": {
+   "value": "generic",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  },
+  "generic": {
+   "value": "generic",
+   "source": "BotActivityPhrases.swift:331",
+   "expect": "func workStyle(for category"
+  }
+ },
+ "timing": {
+  "minimumVisibleMillis": {
+   "value": 800,
+   "source": "BotActivityPhrases.swift:359",
+   "expect": "minimumVisibleMillis"
+  },
+  "rotationIntervalMillis": {
+   "value": 2400,
+   "source": "BotActivityPhrases.swift:360",
+   "expect": "rotationIntervalMillis"
+  },
+  "minuteMillis": {
+   "value": 60000,
+   "source": "BotActivityPhrases.swift:361",
+   "expect": "minuteMillis"
+  },
+  "minuteSuffixTemplate": {
+   "value": " · {minutes} 分钟",
+   "source": "BotActivityPhrases.swift:455",
+   "expect": "分钟"
+  },
+  "sustainedMinutes": {
+   "source": "BotActivityPhrases.swift:344",
+   "expect": "func sustainedMinutes"
+  }
+ }
+}

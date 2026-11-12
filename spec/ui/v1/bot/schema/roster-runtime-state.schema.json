@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/roster-runtime-state.schema.json",
+  "title": "BotRosterRuntimeState v1 (P09 inbound value)",
+  "type": "object",
+  "properties": {
+    "fishState": {
+      "enum": [
+        "idle",
+        "thinking",
+        "streaming",
+        "working",
+        "sleeping",
+        "alerting",
+        "listening",
+        "speaking",
+        "happy",
+        "sad",
+        "surprised",
+        "confused",
+        "laughing",
+        "love",
+        "angry",
+        "wink",
+        "nod",
+        "shrug",
+        "celebrate",
+        "poke",
+        "waking",
+        "waiting",
+        "loading",
+        "done",
+        "standby",
+        "spawning",
+        "bouncing",
+        "dancing",
+        "waving",
+        "shy",
+        "smug",
+        "crying",
+        "sighing",
+        "cheering",
+        "bowing",
+        "clapping",
+        "stretching",
+        "yawning",
+        "kiss",
+        "shaking-head",
+        "high-five",
+        "powering-down"
+      ]
+    },
+    "activity": {
+      "$comment": "activity.schema.json or null"
+    },
+    "isRunning": {
+      "type": "boolean"
+    },
+    "pendingApprovalCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reaction": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "kind",
+            "name",
+            "startedAt",
+            "durationMs"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "botID": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "action",
+                "expression"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "startedAt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "runtimeState": {
+      "$comment": "runtime-state.schema.json"
+    }
+  },
+  "additionalProperties": false
+}

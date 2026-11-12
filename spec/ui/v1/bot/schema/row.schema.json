@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/row.schema.json",
+  "title": "BotUIRow v1 (P09 view value)",
+  "description": "The row value a Bot page consumes. Body payload keys are P27's row body; this schema adds no wire field.",
+  "type": "object",
+  "required": [
+    "id",
+    "botID",
+    "seq",
+    "updatedSeq",
+    "kind",
+    "body",
+    "provenance",
+    "streaming",
+    "createdAt"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "botID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updatedSeq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "kind": {
+      "enum": [
+        "message",
+        "sendMessage",
+        "event"
+      ]
+    },
+    "role": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "body": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "text",
+            "widget",
+            "attachment",
+            "approval",
+            "automation",
+            "notice",
+            "deleted"
+          ]
+        },
+        "cardType": {
+          "enum": [
+            "question",
+            "steps",
+            "task",
+            "document",
+            "progress",
+            "checklist",
+            "link",
+            "table",
+            "callout",
+            "info",
+            "payload",
+            "library",
+            "attachment"
+          ],
+          "description": "Widget card types plus the UI-only 'attachment' value some fixtures carry; P27 never serializes attachment/approval/automation/notice in cardType."
+        },
+        "cardKey": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "eventIDs",
+        "trust",
+        "tainted"
+      ],
+      "properties": {
+        "eventIDs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "trust": {
+          "type": "string"
+        },
+        "tainted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "streaming": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

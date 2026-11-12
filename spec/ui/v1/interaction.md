@@ -111,7 +111,7 @@
 | `disclosurePayload` | `ChatPage.swift:5132` | 複製事件數據 |
 | `botLink` | `BotWorkCardView.swift:224` | 打開鏈接；複製鏈接 |
 | `botRow` | `BotDrawer.swift:324` | 改名；外觀；設為主 Bot（notMainBot）；隱藏／取消隱藏；分隔線；刪除 Bot（destructive，notLastBot）或「這是最後一個 Bot，不能刪除。」（info，lastBot） |
-| `botMessageRow` | `BotChatPage.swift:751` | 複製；查看來源 |
+| `botMessageRow` | `BotChatPage.swift:802` | 複製；查看來源 |
 | `hostAddress` | `NativeShell.swift:636` | 刪除這個地址（destructive） |
 | `sessionsRow` | `SessionsPage.swift:612` | 重命名會話；歸檔會話 |
 

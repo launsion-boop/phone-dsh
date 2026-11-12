@@ -1,10 +1,14 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# BotInfoPage（target）
+# BotInfoPage（normative for both ends）
 
-契约：P09、P25、P26。目标实现路径：`examples/probe-app/PhoneDSHProbe/Bot/**`。
+契约：P09、P25、P26。参考实现：`examples/probe-app/PhoneDSHProbe/Bot/BotInfoPage.swift`。
 
-Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展示并编辑由 runtime-context 注入的 Bot 名，提供记忆、Routines、审批记录三个真实数据入口，并在同一分组列表内展示在场状态、编辑打扰设置。头部 80pt 头像调用冻结的 `BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)`（不跑帧循环）；Bot 页「…」菜单可直接打开与数据区相同的记忆／例行任务／审批记录目标页。页面不得伪造条目数、授权状态或后台 session 过程；读取失败显示失败，不显示为零。
+Status: normative for both ends（PC-20261112-android-bot-w4 C4 / B7b / D15）。
+Android: planned (wave 4 round 2)。
+`BotInfoSnapshot` 的字段、`BotInfoDriver` 的 intent、三个数据区的 load 状态和每一条错误文案以 [../bot/ui-state.md](../bot/ui-state.md) §2.5/§3.5/§4.12 为唯一权威；本页只冻结页面的分组、导航、几何和 accessibility id。
+
+Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展示并编辑由 runtime-context 注入的 Bot 名，提供记忆、Routines、审批记录三个真实数据入口，并在同一分组列表内展示在场状态、编辑打扰设置。页面只消费一次 `BotInfoDriver.load()` 的 `BotInfoSnapshot`；driver 存在且尚未返回时三个数据区同时为 `loading`，失败时同时为 `failed(<reason>)`，显示「读取失败」与原因，绝不显示为零。fixture 注入的 snapshot 为 `loaded`。头部 80pt 头像调用冻结的 `BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)`（不跑帧循环）；Bot 页「…」菜单可直接打开与数据区相同的记忆／例行任务／审批记录目标页。页面不得伪造条目数、授权状态或后台 session 过程；读取失败显示失败，不显示为零。
 
 ## 外观（P26）
 
