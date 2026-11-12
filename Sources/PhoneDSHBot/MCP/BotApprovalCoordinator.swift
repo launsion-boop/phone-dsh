@@ -11,16 +11,33 @@ public struct BotApprovalOutcome: Codable, Sendable, Equatable {
     /// call did not run and the current turn must stop instead of retrying.
     public let pending: Bool
     public let expiresAt: Int64?
+    /// The actual user decision. It is only present after an interactive
+    /// decision; the tool result carries it so the card can render the real
+    /// grant ("allow once" vs "this conversation") instead of guessing.
+    public let decision: BotApprovalDecision?
+    /// The effective grant scope (`once`, `session` or `until`) for an allowed
+    /// decision. `nil` for pending/denied outcomes.
+    public let scope: String?
+    /// Grants created by this decision that the waiting request must consume
+    /// before it sends. Empty when the coordinator already consumed them or
+    /// the decision was not a fresh `allowOnce` (for example a standing Grant).
+    /// This keeps one durable egress approval usable for exactly one retried
+    /// write even when the original request was aborted.
+    public let onceGrantIDs: [String]
 
     public init(ok: Bool, allowed: Bool, approvalId: String? = nil,
                 message: String? = nil, pending: Bool = false,
-                expiresAt: Int64? = nil) {
+                expiresAt: Int64? = nil, decision: BotApprovalDecision? = nil,
+                scope: String? = nil, onceGrantIDs: [String] = []) {
         self.ok = ok
         self.allowed = allowed
         self.approvalId = approvalId
         self.message = message
         self.pending = pending
         self.expiresAt = expiresAt
+        self.decision = decision
+        self.scope = scope
+        self.onceGrantIDs = onceGrantIDs
     }
 
     public var jsonValue: BotJSONValue {
@@ -30,6 +47,8 @@ public struct BotApprovalOutcome: Codable, Sendable, Equatable {
         if let approvalId { fields["approvalId"] = .string(approvalId) }
         if let message { fields["message"] = .string(message) }
         if let expiresAt { fields["expiresAt"] = .number(Double(expiresAt)) }
+        if let decision { fields["approvalDecision"] = .string(decision.rawValue) }
+        if let scope { fields["scope"] = .string(scope) }
         return .object(fields)
     }
 }
@@ -203,6 +222,10 @@ public actor BotApprovalCoordinator {
         let expiresAt: Int64
         var continuation: CheckedContinuation<BotApprovalOutcome, Never>?
         var timeout: Task<Void, Never>?
+        /// Bounded interactive wait for a durable egress approval. It is
+        /// cancelled when the decision arrives; a timeout leaves the card
+        /// pending so the approved retry can consume its once Grant.
+        var waitTimeout: Task<Void, Never>?
     }
 
     private let grants: BotGrantStore
@@ -268,11 +291,20 @@ public actor BotApprovalCoordinator {
                         alwaysScope: String,
                         persistence: BotApprovalPersistence = .interactive,
                         origin: String = "structural",
-                        onPending: (@Sendable (String) -> Void)? = nil) async -> BotApprovalOutcome {
+                        onPending: (@Sendable (String) -> Void)? = nil,
+                        interactiveWaitMilliseconds: Int64 = 0) async -> BotApprovalOutcome {
         await ensureRestored()
         let deferConsumption = effects.allSatisfy { $0.execution != nil }
         if let standing = await standingDecision(
             call: call, effects: effects, deferConsumption: deferConsumption) { return standing }
+        // One Bot write already has a pending card for the same host+method.
+        // Do not create a second card when the model retries while the user is
+        // deciding; the first card's decision authorizes the retry.
+        if origin == "egress",
+           let existing = matchingPendingEgress(principal: call.principal, effects: effects) {
+            return Self.pendingOutcome(
+                approvalId: existing.id, expiresAt: existing.expiresAt)
+        }
         let approvalId = "approval-\(UUID().uuidString.lowercased())"
         let principal = call.principal
         let digest = call.attribution.argsDigest
@@ -301,19 +333,36 @@ public actor BotApprovalCoordinator {
         }
         if persistence.isPersistent {
             // The worker must not keep a tool call blocked for five minutes.
-            // Return immediately; the user decision later wakes the parked
-            // task/routine through `setResolutionHandler`.
+            // Return immediately (or after a short bounded wait for a present
+            // user); the user decision later wakes the parked task/routine, or
+            // leaves the once Grant for an egress retry.
             pending[approvalId] = Pending(
                 principal: principal, callId: call.callId, effects: effects, digest: digest,
                 action: action, detail: detail, command: command,
                 alwaysScope: alwaysScope, deferConsumption: deferConsumption,
                 persistent: true, origin: origin, requestedAt: requestedAt,
-                expiresAt: expiresAt, continuation: nil, timeout: nil)
+                expiresAt: expiresAt, continuation: nil, timeout: nil,
+                waitTimeout: nil)
             scheduleExpiry(approvalId: approvalId, expiresAt: expiresAt)
             onPending?(approvalId)
-            return BotApprovalOutcome(
-                ok: true, allowed: false, approvalId: approvalId,
-                message: "approval pending", pending: true, expiresAt: expiresAt)
+            let pendingOutcome = Self.pendingOutcome(
+                approvalId: approvalId, expiresAt: expiresAt)
+            let wait = max(0, interactiveWaitMilliseconds)
+            guard wait > 0 else { return pendingOutcome }
+            return await withCheckedContinuation { continuation in
+                guard var current = pending[approvalId] else {
+                    continuation.resume(returning: pendingOutcome)
+                    return
+                }
+                current.continuation = continuation
+                let timeout = Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000)
+                    guard !Task.isCancelled else { return }
+                    await self?.expireDurableWait(approvalId: approvalId)
+                }
+                current.waitTimeout = timeout
+                pending[approvalId] = current
+            }
         }
         return await withCheckedContinuation { continuation in
             pending[approvalId] = Pending(
@@ -321,7 +370,8 @@ public actor BotApprovalCoordinator {
                 action: action, detail: detail, command: command,
                 alwaysScope: alwaysScope, deferConsumption: deferConsumption,
                 persistent: false, origin: origin, requestedAt: requestedAt,
-                expiresAt: 0, continuation: continuation, timeout: nil)
+                expiresAt: 0, continuation: continuation, timeout: nil,
+                waitTimeout: nil)
             onPending?(approvalId)
             let timeoutMs = approvalTimeoutMs
             let timeout = Task { [weak self] in
@@ -331,6 +381,33 @@ public actor BotApprovalCoordinator {
             }
             pending[approvalId]?.timeout = timeout
         }
+    }
+
+    private static func pendingOutcome(approvalId: String,
+                                       expiresAt: Int64) -> BotApprovalOutcome {
+        BotApprovalOutcome(
+            ok: true, allowed: false, approvalId: approvalId,
+            message: "approval pending", pending: true, expiresAt: expiresAt)
+    }
+
+    /// The oldest durable egress card for the same Bot session, operation and
+    /// host resource. An egress retry reuses it instead of stacking cards.
+    private func matchingPendingEgress(
+        principal: BotGatewayPrincipal, effects: [BotToolEffect]
+    ) -> (id: String, expiresAt: Int64)? {
+        guard let effect = effects.first else { return nil }
+        let matches = pending
+            .filter { _, request in
+                request.persistent && request.origin == "egress"
+                    && request.principal.botId == principal.botId
+                    && request.principal.sessionId == principal.sessionId
+                    && request.effects.contains {
+                        $0.operation == effect.operation && $0.resource == effect.resource
+                    }
+            }
+            .sorted { ($0.value.requestedAt, $0.key) < ($1.value.requestedAt, $1.key) }
+        guard let first = matches.first else { return nil }
+        return (first.key, first.value.expiresAt)
     }
 
     @discardableResult
@@ -352,6 +429,7 @@ public actor BotApprovalCoordinator {
         }
         pending.removeValue(forKey: approvalId)
         request.timeout?.cancel()
+        request.waitTimeout?.cancel()
         var allowed = decision != .deny
         var createdGrantIDs: [String] = []
         var effectiveScope: BotGrantScope = .once
@@ -411,7 +489,11 @@ public actor BotApprovalCoordinator {
         }
         let outcome = BotApprovalOutcome(
             ok: allowed, allowed: allowed, approvalId: approvalId,
-            message: allowed ? "allowed" : "approval denied")
+            message: allowed ? "allowed" : "approval denied",
+            decision: decision, scope: allowed ? effectiveScope.rawValue : nil,
+            onceGrantIDs: allowed && effectiveScope == .once
+                && request.persistent && request.origin == "egress"
+                ? createdGrantIDs : [])
         request.continuation?.resume(returning: outcome)
         if request.persistent {
             let notice = BotApprovalResolutionNotice(
@@ -452,6 +534,7 @@ public actor BotApprovalCoordinator {
         guard let request = pending[approvalId], request.persistent else { return false }
         pending.removeValue(forKey: approvalId)
         request.timeout?.cancel()
+        request.waitTimeout?.cancel()
         try? await eventWriter.append(
             type: "approval.decided", principal: request.principal,
             data: .object([
@@ -463,6 +546,9 @@ public actor BotApprovalCoordinator {
         let notice = BotApprovalResolutionNotice(
             approvalID: approvalId, principal: request.principal,
             allowed: false, cancelled: true, decision: .deny, decidedAt: now())
+        request.continuation?.resume(returning: BotApprovalOutcome(
+            ok: false, allowed: false, approvalId: approvalId,
+            message: "approval cancelled"))
         record(notice)
         await deliver(notice)
         return true
@@ -474,7 +560,7 @@ public actor BotApprovalCoordinator {
     public func cancelAll(reason: String = "worker_restarted") async -> Int {
         await cancelAll(
             matching: { _ in true }, reason: reason,
-            noticeText: "The app restarted and cancelled the pending approval.")
+            noticeText: Self.cancellationNotice(reason))
     }
 
     /// Cancels only interactive pending cards; durable todos are preserved
@@ -483,7 +569,7 @@ public actor BotApprovalCoordinator {
     public func cancelInteractive(reason: String = "worker_restarted") async -> Int {
         await cancelAll(
             matching: { !$0.persistent }, reason: reason,
-            noticeText: "The app restarted and cancelled the pending approval.")
+            noticeText: Self.cancellationNotice(reason))
     }
 
     /// Ends the interactive approvals that belong to one cancelled
@@ -513,7 +599,16 @@ public actor BotApprovalCoordinator {
     public func cancelAll(botID: String, reason: String = "bot_deleted") async -> Int {
         await cancelAll(
             matching: { $0.principal.botId == botID }, reason: reason,
-            noticeText: "This Bot was deleted and its pending approval was cancelled.")
+            noticeText: Self.cancellationNotice(reason))
+    }
+
+    /// The one user-facing cancellation sentence. Approval history maps the
+    /// durable `reason` through ``BotApprovalReceipt/cancellationReason(_:)``;
+    /// the notice shown in the chat must use the same wording instead of a
+    /// second hardcoded English string.
+    static func cancellationNotice(_ reason: String) -> String {
+        let sentence = BotApprovalReceipt.cancellationReason(reason) ?? "审批已取消"
+        return sentence.hasSuffix("。") ? sentence : sentence + "。"
     }
 
     private func cancelAll(matching include: (Pending) -> Bool,
@@ -524,6 +619,7 @@ public actor BotApprovalCoordinator {
         for id in requests.keys { pending.removeValue(forKey: id) }
         for (id, request) in requests {
             request.timeout?.cancel()
+            request.waitTimeout?.cancel()
             var data: [String: BotJSONValue] = [
                 "approvalID": .string(id), "decision": .string("deny"),
                 "status": .string("cancelled"), "reason": .string(reason),
@@ -557,6 +653,15 @@ public actor BotApprovalCoordinator {
 
     public func pendingDigest(approvalId: String) -> String? {
         pending[approvalId]?.digest
+    }
+
+    /// Consumes the grants a durable egress decision handed to the waiting
+    /// request. `true` when every grant was still available and is now used.
+    /// A false result means a concurrent retry already consumed it; the
+    /// caller must fail closed instead of sending a second write.
+    public func consumeOnceGrants(_ ids: [String]) async -> Bool {
+        guard !ids.isEmpty else { return true }
+        return (try? await grants.consumeOnceAtomically(ids: ids)) ?? false
     }
 
     public var pendingIDs: [String] { pending.keys.sorted() }
@@ -681,7 +786,7 @@ public actor BotApprovalCoordinator {
                         "kind": .string("approval_cancelled"),
                         "approvalID": .string(id),
                         "reason": .string("worker_restarted"),
-                        "text": .string("The app restarted and cancelled the pending approval."),
+                        "text": .string(Self.cancellationNotice("worker_restarted")),
                     ]),
                     eventId: "notice:\(id)")
                 continue
@@ -752,7 +857,7 @@ public actor BotApprovalCoordinator {
             persistent: true,
             origin: data["origin"]?.stringValue ?? "structural",
             requestedAt: requestedAt, expiresAt: expiresAt,
-            continuation: nil, timeout: nil)
+            continuation: nil, timeout: nil, waitTimeout: nil)
     }
 
     private static func notice(from event: BotEvent,
@@ -812,6 +917,7 @@ public actor BotApprovalCoordinator {
         guard let request = pending[approvalId], request.persistent else { return }
         pending.removeValue(forKey: approvalId)
         request.timeout?.cancel()
+        request.waitTimeout?.cancel()
         try? await eventWriter.append(
             type: "approval.decided", principal: request.principal,
             data: .object([
@@ -821,11 +927,27 @@ public actor BotApprovalCoordinator {
                 "persistent": .bool(true),
             ]),
             eventId: "expired:\(approvalId)")
+        request.continuation?.resume(returning: BotApprovalOutcome(
+            ok: false, allowed: false, approvalId: approvalId,
+            message: "approval expired"))
         let notice = BotApprovalResolutionNotice(
             approvalID: approvalId, principal: request.principal,
             allowed: false, expired: true, decision: .deny, decidedAt: now())
         record(notice)
         await deliver(notice)
+    }
+
+    /// The bounded egress wait elapsed while the card is still pending. Leave
+    /// the durable card in place (and its once Grant uncreated) so the user can
+    /// still approve; the retried write then consumes that Grant.
+    private func expireDurableWait(approvalId: String) async {
+        guard var request = pending[approvalId], request.persistent,
+              let continuation = request.continuation else { return }
+        request.continuation = nil
+        request.waitTimeout = nil
+        pending[approvalId] = request
+        continuation.resume(returning: Self.pendingOutcome(
+            approvalId: approvalId, expiresAt: request.expiresAt))
     }
 
     private func expireInteractive(approvalId: String) async {

@@ -331,7 +331,7 @@ struct NativeShell: View {
     }
 
     private func tabRoot(_ tab: HomeTab) -> TabRootTracker {
-        TabRootTracker(tab: tab, pushedTabs: $pushedTabs)
+        TabRootTracker(tab: tab, selectedTab: selectedTab, pushedTabs: $pushedTabs)
     }
 
     private func tabPage<Content: View>(_ tab: HomeTab, @ViewBuilder content: () -> Content) -> some View {
@@ -1210,11 +1210,119 @@ enum PreviewChatItems {
 /// leave the root on screen, so only navigation pushes hide the bar.
 private struct TabRootTracker: ViewModifier {
     let tab: HomeTab
+    let selectedTab: HomeTab
     @Binding var pushedTabs: Set<HomeTab>
+
+    private var selected: Bool { selectedTab == tab }
 
     func body(content: Content) -> some View {
         content
+            // The outer `tabPage` already applies `accessibilityHidden`, but a
+            // `NavigationStack`/`List` is backed by UIKit. The inner modifier
+            // and the UIKit gate below cover the collection-view rows that the
+            // field AX tree still exposed for an unselected tab.
+            .accessibilityHidden(!selected)
+            .background(HomeTabAccessibilityGate(hidden: !selected, tab: tab))
             .onAppear { pushedTabs.remove(tab) }
             .onDisappear { pushedTabs.insert(tab) }
+    }
+}
+
+/// Removes an unselected tab's UIKit-backed content from the accessibility
+/// tree without removing it from the view hierarchy. All tab pages stay
+/// mounted (drafts, scroll offsets and running turns survive a tab switch), so
+/// conditional construction is not an option: a hidden `List` kept its rows in
+/// the AX tree, and XCUITest's `isHittable` then reported the Bot card below it
+/// as not hittable even though taps passed through.
+///
+/// Set `PDSH_TAB_AX_TRACE=1` to print which UIKit view was hidden; tests and
+/// the field A/B can confirm the gate found the navigation/collection view.
+private struct HomeTabAccessibilityGate: UIViewRepresentable {
+    let hidden: Bool
+    let tab: HomeTab
+
+    func makeUIView(context: Context) -> GateView {
+        GateView()
+    }
+
+    func updateUIView(_ uiView: GateView, context: Context) {
+        uiView.configure(hidden: hidden, traceLabel: "tab=\(tab.rawValue)")
+    }
+
+    final class GateView: UIView {
+        private var configured = false
+        private var hiddenValue = false
+        private var traceLabel = ""
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            isUserInteractionEnabled = false
+            isAccessibilityElement = false
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            applyIfConfigured()
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyIfConfigured()
+        }
+
+        func configure(hidden: Bool, traceLabel: String) {
+            configured = true
+            hiddenValue = hidden
+            self.traceLabel = traceLabel
+            applyIfConfigured()
+        }
+
+        private func applyIfConfigured() {
+            guard configured, window != nil else { return }
+            let target = findAccessibilityTarget()
+            target?.accessibilityElementsHidden = hiddenValue
+            target?.isAccessibilityElement = false
+            if ProcessInfo.processInfo.environment["PDSH_TAB_AX_TRACE"] == "1" {
+                let name = target.map { String(describing: type(of: $0)) } ?? "none"
+                NSLog("[tab-ax] %@ hidden=%@ target=%@",
+                      traceLabel, hiddenValue ? "true" : "false", name)
+            }
+        }
+
+        /// A navigation controller is the whole tab page; otherwise fall back
+        /// to the nearest list container. The window's root view is never
+        /// hidden: if the only navigation controller found is the app root
+        /// (some SwiftUI versions do not install one per NavigationStack), the
+        /// collection view is the safe boundary.
+        private func findAccessibilityTarget() -> UIView? {
+            var current = superview
+            var list: UIView?
+            while let view = current {
+                if let navigation = view as? UINavigationController,
+                   let target = safeTarget(navigation.view) {
+                    return target
+                }
+                if let navigation = view.next as? UINavigationController,
+                   let target = safeTarget(navigation.view) {
+                    return target
+                }
+                if list == nil, view is UICollectionView || view is UITableView {
+                    list = view
+                }
+
+                current = view.superview
+            }
+            return list
+        }
+
+        private func safeTarget(_ target: UIView) -> UIView? {
+            if target.superview is UIWindow { return nil }
+            if let root = target.window?.rootViewController?.view, root === target { return nil }
+            return target
+        }
     }
 }

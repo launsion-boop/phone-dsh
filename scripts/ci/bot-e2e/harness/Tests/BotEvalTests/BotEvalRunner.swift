@@ -158,7 +158,9 @@ final class BotEvalRunnerTests: XCTestCase {
         try echo.start()
         defer { echo.stop() }
         let scenario = scenario.resolvingEchoFixture(echo)
-        let schedulerClock = EvalSchedulerClock()
+        // Deterministic baseline: local noon, outside the production quiet
+        // window. See EvalSchedulerClock.deterministicStart.
+        let schedulerClock = EvalSchedulerClock(now: EvalSchedulerClock.deterministicStart)
         let workspaceRoot = runRoot.appendingPathComponent("host", isDirectory: true)
         let store = try SQLiteDomainStore(fileURL: runRoot.appendingPathComponent("domain.sqlite"))
         let profileStore = BotProfileStore(directory: runRoot.appendingPathComponent("profiles"))
@@ -563,11 +565,21 @@ final class BotEvalRunnerTests: XCTestCase {
             let mode = action.mode ?? "planned_restart"
             let before = await context.host.diagnostics().workerHelloCount
             try await pumped(timeout: 300) {
-                try await context.host.plannedRestart(reason: "bot-eval restart \(mode)")
-                // plannedRestart returns before the composition has necessarily
-                // observed `.restarted` and rebound every unit. Wait for a new
-                // Worker HELLO *and* a ready composition; otherwise a turn can
-                // race the recovery's attachTransport and be cancelled.
+                if mode == "park_resume" {
+                    // The production App path on lock screen/foreground return.
+                    // The resumed Worker is a new boot with an empty identity
+                    // map; the composition must observe its new HELLO and
+                    // re-claim every session before the next turn.
+                    try await context.host.park()
+                    try await context.host.resume()
+                } else {
+                    try await context.host.plannedRestart(reason: "bot-eval restart \(mode)")
+                }
+                // The restart/resume returns before the composition has
+                // necessarily observed the new Worker boot and rebound every
+                // unit. Wait for a new Worker HELLO *and* a ready composition;
+                // otherwise a turn can race the recovery's attachTransport and
+                // be cancelled.
                 try await harnessWait(1.0)
                 let deadline = Date().addingTimeInterval(180)
                 var sawRecovering = false
@@ -594,7 +606,9 @@ final class BotEvalRunnerTests: XCTestCase {
                 status: mode == "worker_kill" ? "degraded" : "ok",
                 detail: mode == "worker_kill"
                     ? "worker_kill is approximated by the production plannedRestart path"
-                    : "plannedRestart completed",
+                    : mode == "park_resume"
+                        ? "park/resume completed on a fresh Worker boot"
+                        : "plannedRestart completed",
                 replies: [])
 
         case "run_maintenance":

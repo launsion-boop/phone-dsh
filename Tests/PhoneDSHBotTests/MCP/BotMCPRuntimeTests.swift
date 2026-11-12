@@ -161,7 +161,7 @@ final class BotMCPRuntimeTests: XCTestCase {
         ]))
         XCTAssertEqual(suppressed.isError, true)
         XCTAssertEqual(suppressed.structuredContent?["error"]?["message"],
-                       .string("Text output is suppressed for this turn"))
+                       .string("这一回合的正文输出已被卡片收尾"))
 
         // beginTurn clears the previous suppression for the next synthetic turn.
         await beginUserTurn(fixture.runtime)

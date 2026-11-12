@@ -16,6 +16,15 @@ package com.phonedsh.gateway
 
 import java.nio.charset.StandardCharsets
 
+/** Which upstream a sensitive response belongs to. */
+enum class SensitiveResponseKind {
+    /** A host-managed MCP endpoint (exact-URL grant or the Worker placeholder). */
+    MCP,
+
+    /** The official/independent DeepSeek-compatible Search/Fetch web tool. */
+    WEB_TOOL,
+}
+
 /** Decides whether one exchange takes the sensitive response path. */
 interface SensitiveCallClassifier {
     fun isSensitive(
@@ -64,12 +73,50 @@ class CanonicalSensitiveBodyRedactor(
         return status in 100..199 || status == 204 || status == 205 || status == 304
     }
 
-    fun controlledDiagnostic(status: Int): ByteArray = diagnostic(
-        "MCP upstream returned HTTP $status; response body withheld",
-    )
+    fun controlledDiagnostic(
+        status: Int,
+        kind: SensitiveResponseKind = SensitiveResponseKind.MCP,
+    ): ByteArray = diagnostic(diagnosticMessage(status, kind))
 
-    fun controlledOversizeDiagnostic(): ByteArray = diagnostic(
-        "MCP upstream response exceeded the host-managed body limit; response body withheld",
+    /**
+     * Human-readable, secret-free reason for one controlled diagnostic. Only
+     * the status and call kind are read; no upstream byte, header or request
+     * body can enter the message.
+     */
+    fun diagnosticMessage(status: Int, kind: SensitiveResponseKind): String =
+        when (kind) {
+            SensitiveResponseKind.MCP ->
+                "MCP upstream returned HTTP $status; response body withheld"
+            SensitiveResponseKind.WEB_TOOL ->
+                "${webToolReason(status)} (HTTP $status). " +
+                    "The upstream response body was withheld by the host."
+        }
+
+    private fun webToolReason(status: Int): String = when (status) {
+        400 -> "the web tool rejected the request body or headers as invalid"
+        401 -> "the upstream web service rejected the saved API key"
+        402 -> "the upstream web service account has insufficient balance"
+        403 -> "the upstream web service's security policy rejected the target"
+        404 -> "the web tool could not retrieve usable target content: " +
+            "the URL may be missing, blocked by the site, an unsupported " +
+            "content type, or have no extractable Markdown"
+        408 -> "the web tool timed out while reading the request body"
+        413 -> "the request is too large for the web tool"
+        429 -> "the upstream web service rate limit was exceeded; wait before retrying"
+        in 500..599 -> "the upstream web service failed; retry later"
+        else -> "the web tool returned an unexpected status"
+    }
+
+    fun controlledOversizeDiagnostic(
+        kind: SensitiveResponseKind = SensitiveResponseKind.MCP,
+    ): ByteArray = diagnostic(
+        when (kind) {
+            SensitiveResponseKind.MCP ->
+                "MCP upstream response exceeded the host-managed body limit; response body withheld"
+            SensitiveResponseKind.WEB_TOOL ->
+                "the web tool response exceeded the host-managed body limit; " +
+                    "the upstream response body was withheld by the host"
+        },
     )
 
     private fun diagnostic(message: String): ByteArray {

@@ -445,7 +445,14 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             default:
                 break
             }
+            // Derived copies (conversation text, observation envelopes,
+            // redaction traces) are matched by version text/unique markers.
+            // A memory-document event is never a "copy": another document may
+            // legitimately quote the same marker, and clearing its version
+            // would leave a hole in a document that must survive. Target
+            // documents were already selected by path/scope above.
             if eventBelongs(event, scope: scope), !needleList.isEmpty,
+               !Self.isMemoryDocumentEvent(event.type),
                Self.payloadContains(event.data, any: needleList) {
                 targetSequences.insert(sequence)
             }
@@ -542,6 +549,16 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             uncoveredRecords: uncovered.map(\.record).sorted(),
             erasedSessionRecords: sessionReport.erasedSessionRecords,
             sessionEpochs: sessionReport.sessionEpochs)
+    }
+
+    private static func isMemoryDocumentEvent(_ type: String) -> Bool {
+        switch type {
+        case "memory.document_written", "memory.document_deleted",
+             "memory.written", "memory.forgotten":
+            return true
+        default:
+            return false
+        }
     }
 
     private func legacyFactBelongs(_ fact: BotMemoryFact, event: BotEvent,
@@ -741,7 +758,12 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             }
             return
         }
-        guard document.version == latest + 1 else {
+        guard document.version > latest else {
+            // A version older than the live one that is not in the history is
+            // an out-of-order/corrupt log. A *forward* jump is not: erasure
+            // replaces a version event's payload with a tombstone, and the
+            // tombstone cannot carry the path/version it used to. Skipping the
+            // erased versions is exactly "the payload is gone".
             throw BotMemoryFactStoreError.corrupted(
                 "non-contiguous document version \(document.path)#\(document.version)")
         }
@@ -771,7 +793,7 @@ public actor SQLiteBotMemoryDocumentStore: BotMemoryDocumentStore {
             }
             return
         }
-        guard data.version == latest + 1 else {
+        guard data.version > latest else {
             throw BotMemoryFactStoreError.corrupted(
                 "non-contiguous document version \(data.path)#\(data.version)")
         }

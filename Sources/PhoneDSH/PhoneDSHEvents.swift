@@ -37,6 +37,43 @@ public struct PhoneDSHWorkerHello: Equatable, Sendable {
     }
 }
 
+/// Diagnostic snapshot of the ordered-channel connections the host can route
+/// an API request to right now.
+///
+/// The App's Bot rebind logs this before it opens a transport, so a hang can
+/// be attributed to the connection choice without recording any payload. The
+/// ids are process-local UUIDs and the boot id is the Worker's public identity;
+/// neither is a credential.
+public struct PhoneDSHChannelSelection: Equatable, Sendable {
+    /// The connection `waitForChannel` would return right now, if any.
+    public var currentConnectionID: UUID?
+    /// Boot id of the HELLO recorded on that connection, when it HELLOed.
+    public var currentWorkerBootID: String?
+    /// Connection whose HELLO the coordinator recorded last.
+    public var latestHelloConnectionID: UUID?
+    /// Host-monotonic HELLO count (0 when this host has seen none).
+    public var latestHelloCount: UInt64
+    /// Every connection the coordinator still holds, including retired ones
+    /// that have not been cleared by a reboot.
+    public var connectionCount: Int
+    /// Whether `currentConnectionID` is the newest HELLO's connection.
+    public var isCurrentConnectionLatestHello: Bool
+
+    public init(currentConnectionID: UUID? = nil,
+                currentWorkerBootID: String? = nil,
+                latestHelloConnectionID: UUID? = nil,
+                latestHelloCount: UInt64 = 0,
+                connectionCount: Int = 0,
+                isCurrentConnectionLatestHello: Bool = false) {
+        self.currentConnectionID = currentConnectionID
+        self.currentWorkerBootID = currentWorkerBootID
+        self.latestHelloConnectionID = latestHelloConnectionID
+        self.latestHelloCount = latestHelloCount
+        self.connectionCount = connectionCount
+        self.isCurrentConnectionLatestHello = isCurrentConnectionLatestHello
+    }
+}
+
 /// One bounded reference to an orphan step the host settled. It carries only
 /// the D6 session id and the D20 step key; no tool arguments, output or file
 /// content is ever part of this diagnostic.

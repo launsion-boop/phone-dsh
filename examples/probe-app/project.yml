@@ -235,6 +235,7 @@ targets:
       # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeToolRowIdentity.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
       - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
@@ -272,6 +273,9 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # Live turn projection: dedupe live replay, finished process rows and
+      # the exact unauthorized event sequence in the regression suite.
+      - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
       # The scripted model upstream, the smoke evidence readers (WAL
@@ -367,6 +371,7 @@ targets:
       # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeToolRowIdentity.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
       - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
@@ -402,6 +407,9 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # Live turn projection: dedupe live replay, finished process rows and
+      # the exact unauthorized event sequence in the regression suite.
+      - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
     dependencies:

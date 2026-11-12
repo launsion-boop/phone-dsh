@@ -169,6 +169,43 @@ test('curl: the Worker allow-list and a host 403 fail without a second path', as
   assert.match(result.stderr, /host allow-list rejected/)
 })
 
+test('curl: the host 403 named cause and human message reach stderr', async () => {
+  const { fs } = fixture()
+  await fs.mkdir('/dsh/workspace', { recursive: true })
+  const body = JSON.stringify({
+    error: {
+      code: 'task_network_write_denied',
+      message: 'Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出',
+    },
+    xl_error: {
+      code: 'egress_approval_denied',
+      host: 'example.com',
+      detail: 'Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出',
+    },
+  })
+  const { fetch } = recorder(body, 403, { 'content-type': 'application/json' })
+  const shell = fixtureShell(fs, fetch)
+  const result = await shell.run(
+    ['bash', '-c', 'curl -sS -X POST -d "marker=C2" https://example.com/'],
+    { cwd: '/dsh/workspace' })
+  assert.equal(result.exitCode, 22)
+  assert.match(result.stderr, /task_network_write_denied/)
+  assert.match(result.stderr, /Task 子任务没有网络写权限/)
+  assert.match(result.stderr, /reason=network-denied/)
+  assert.doesNotMatch(result.stderr, /host allow-list rejected/)
+})
+
+test('curl: a plain upstream 403 keeps the generic allow-list sentence', async () => {
+  const { fs } = fixture()
+  await fs.mkdir('/dsh/workspace', { recursive: true })
+  const denied = recorder('forbidden', 403)
+  const shell = fixtureShell(fs, denied.fetch)
+  const result = await shell.run(
+    ['bash', '-c', 'curl -s https://blocked.example.com/x'], { cwd: '/dsh/workspace' })
+  assert.equal(result.exitCode, 22)
+  assert.match(result.stderr, /host allow-list rejected/)
+})
+
 /** Build the standard shell for one recorder. */
 function fixtureShell(fs: VfsFileSystem, fetchImpl: typeof fetch): WorkerShell {
   return new WorkerShell({

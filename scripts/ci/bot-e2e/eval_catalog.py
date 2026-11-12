@@ -282,8 +282,9 @@ def _check_action(errors, path, action, aliases):
         if not (action.get("text") or "").strip():
             _error(errors, path, "seed_held_item requires non-empty text")
     elif kind == "restart_worker":
-        if action.get("mode") not in (None, "planned_restart", "worker_kill"):
-            _error(errors, path, "restart_worker mode must be planned_restart or worker_kill")
+        if action.get("mode") not in (None, "planned_restart", "park_resume", "worker_kill"):
+            _error(errors, path,
+                   "restart_worker mode must be planned_restart, park_resume or worker_kill")
     elif kind == "run_maintenance":
         for name in ("enabled", "force"):
             if name in action and not isinstance(action[name], bool):

@@ -40,6 +40,13 @@ final class SessionLogErasureTests: XCTestCase {
         _ = try await log!.append(VfsMutationBody(
             op: .write, mode: 0o644, path: oldPath, data: Data(oldGeneration.utf8)))
         _ = try await log!.closeEpoch()
+        // DSH keeps a derived projection cache next to the materialized log.
+        // It is not part of the WAL, so the rewrite proof must remove it too.
+        let projectionCache = root.appendingPathComponent(
+            "materialized/home/storages/session_projcache/sessions/gb-main.json")
+        try FileManager.default.createDirectory(
+            at: projectionCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"cwd\":\"remember QUOKKA_7F3A9\"}".utf8).write(to: projectionCache)
 
         let tombstone = try BotTombstone.line(
             sessionID: "gb-main", seq: 0, time: 1_760_000_001_000, erasureID: "erasure-test")
@@ -73,6 +80,8 @@ final class SessionLogErasureTests: XCTestCase {
         XCTAssertTrue(text.contains("kept context"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent(
             "materialized/home/sessions/project/gb-main/session.v3.jsonl").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: projectionCache.path),
+                       "the derived session projection cache must be removed")
         _ = try await recovered.closeEpoch()
     }
 

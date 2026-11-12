@@ -57,9 +57,15 @@ enum BotActivityPhrases {
     /// in `Sources/PhoneDSHBot/MCP/BotToolCatalog.swift`, the device discovery
     /// tools, and the native Android/Bluetooth tools forwarded through the
     /// same `mcp__phone__` namespace. Keys are the bare, lowercased tool name.
+    ///
+    /// `targetKeys` may only name human-readable values: a file name, search
+    /// term, site domain, task title, Bot name, routine title or device display
+    /// name. Internal IDs (job/agent/task/routine/device/request), Android
+    /// package/permission values and approval action codes are deliberately
+    /// absent, so a tool with no human value renders its phrase alone.
     private static let rules: [String: Rule] = [
         // DSH native tools (PHONE_NATIVE_TOOLS).
-        "bash": Rule(category: .running, phrase: "跑个命令"),
+        "bash": Rule(category: .running, phrase: "正在处理"),
         "read": Rule(category: .reading, phrase: "在翻文件",
                      targetKeys: ["path", "file_path", "filePath"]),
         "write": Rule(category: .writing, phrase: "在写文件",
@@ -74,11 +80,9 @@ enum BotActivityPhrases {
                            targetKeys: ["query", "queries"], targetArray: true),
         "web_fetch": Rule(category: .browsing, phrase: "在开网页",
                           targetKeys: ["url"], targetIsURL: true),
-        "job_list": Rule(category: .running, phrase: "看看后台"),
-        "job_output": Rule(category: .running, phrase: "等个结果",
-                           targetKeys: ["job_id"]),
-        "job_kill": Rule(category: .running, phrase: "停掉任务",
-                         targetKeys: ["job_id"]),
+        "job_list": Rule(category: .running, phrase: "看看进展"),
+        "job_output": Rule(category: .running, phrase: "等待结果"),
+        "job_kill": Rule(category: .running, phrase: "停止任务"),
         "todo_write": Rule(category: .writing, phrase: "整理待办"),
         "create_goal": Rule(category: .writing, phrase: "定个目标",
                             targetKeys: ["objective"]),
@@ -108,22 +112,20 @@ enum BotActivityPhrases {
                            targetKeys: ["path"]),
         "recallmemory": Rule(category: .memory, phrase: "回想一下",
                              targetKeys: ["query"]),
-        "task": Rule(category: .messaging, phrase: "委派任务",
-                     targetKeys: ["task_title", "agent_id"]),
-        "awaittask": Rule(category: .running, phrase: "等任务结果",
-                          targetKeys: ["task_id"]),
-        "stopsubagent": Rule(category: .running, phrase: "停掉任务",
-                             targetKeys: ["task_id"]),
-        "updateroutine": Rule(category: .writing, phrase: "改例行任务",
-                              targetKeys: ["title", "routine_id"]),
-        "listroutines": Rule(category: .reading, phrase: "看看例行"),
+        "task": Rule(category: .messaging, phrase: "启动子任务",
+                     targetKeys: ["task_title", "description"]),
+        "awaittask": Rule(category: .running, phrase: "等子任务结果"),
+        "stopsubagent": Rule(category: .running, phrase: "停止子任务"),
+        "updateroutine": Rule(category: .writing, phrase: "修改例行任务",
+                              targetKeys: ["title"]),
+        "listroutines": Rule(category: .reading, phrase: "看看例行任务"),
         "requestapproval": Rule(category: .messaging, phrase: "请你确认",
-                                targetKeys: ["action", "detail"]),
-        "sendtoagent": Rule(category: .messaging, phrase: "给队友发消息",
-                            targetKeys: ["bot_name", "name", "agent_id"]),
-        "createteammate": Rule(category: .messaging, phrase: "创建新队友",
+                                targetKeys: ["detail"]),
+        "sendtoagent": Rule(category: .messaging, phrase: "给其他 Bot 发消息",
+                            targetKeys: ["bot_name"]),
+        "createteammate": Rule(category: .messaging, phrase: "创建协作 Bot",
                                targetKeys: ["name"]),
-        "botvolatilecontext": Rule(category: .reading, phrase: "读读上下文"),
+        "botvolatilecontext": Rule(category: .reading, phrase: "看看情况"),
 
         // Device discovery (BotDeviceToolProvider).
         "bluetooth.scan": Rule(category: .searching, phrase: "找找设备"),
@@ -131,59 +133,54 @@ enum BotActivityPhrases {
 
         // Native Android tools forwarded through mcp__phone__.
         "android_connect": Rule(category: .running, phrase: "连接手机"),
-        "android_status": Rule(category: .reading, phrase: "看看手机"),
+        "android_status": Rule(category: .reading, phrase: "看看手机状态"),
         "android_device_info": Rule(category: .reading, phrase: "看设备信息"),
-        "android_shell": Rule(category: .running, phrase: "跑条命令"),
+        "android_shell": Rule(category: .running, phrase: "在手机上操作"),
         "android_screenshot": Rule(category: .reading, phrase: "看看屏幕"),
         "android_ui_dump": Rule(category: .reading, phrase: "看看界面"),
         "android_tap": Rule(category: .running, phrase: "点点屏幕"),
         "android_swipe": Rule(category: .running, phrase: "滑一下屏幕"),
         "android_key": Rule(category: .running, phrase: "按一下键"),
         "android_input_text": Rule(category: .running, phrase: "输入文字"),
-        "android_launch_app": Rule(category: .running, phrase: "打开应用",
-                                   targetKeys: ["package", "packageName"]),
-        "android_force_stop": Rule(category: .running, phrase: "关掉应用",
-                                   targetKeys: ["package", "packageName"]),
-        "android_clear_app_data": Rule(category: .running, phrase: "清应用数据",
-                                       targetKeys: ["package", "packageName"]),
-        "android_set_app_enabled": Rule(category: .running, phrase: "启用或停用",
-                                        targetKeys: ["package", "packageName"]),
+        "android_launch_app": Rule(category: .running, phrase: "打开应用"),
+        "android_force_stop": Rule(category: .running, phrase: "关掉应用"),
+        "android_clear_app_data": Rule(category: .running, phrase: "清除应用数据"),
+        "android_set_app_enabled": Rule(category: .running, phrase: "启用或停用应用"),
         "android_install_apk": Rule(category: .running, phrase: "安装应用",
-                                    targetKeys: ["package", "packageName", "path"]),
-        "android_install_existing_app": Rule(category: .running, phrase: "恢复应用",
-                                             targetKeys: ["package", "packageName"]),
-        "android_uninstall_app": Rule(category: .running, phrase: "卸载应用",
-                                      targetKeys: ["package", "packageName"]),
-        "android_app_permission": Rule(category: .running, phrase: "改应用权限",
-                                       targetKeys: ["package", "permission"]),
-        "android_list_packages": Rule(category: .searching, phrase: "列一下应用",
-                                      targetKeys: ["kind", "query"]),
-        "android_package_info": Rule(category: .reading, phrase: "看看应用信息",
-                                     targetKeys: ["package", "packageName"]),
+                                    targetKeys: ["path"]),
+        "android_install_existing_app": Rule(category: .running, phrase: "恢复应用"),
+        "android_uninstall_app": Rule(category: .running, phrase: "卸载应用"),
+        "android_app_permission": Rule(category: .running, phrase: "调整应用权限"),
+        "android_list_packages": Rule(category: .searching, phrase: "看看有哪些应用",
+                                      targetKeys: ["query"]),
+        "android_package_info": Rule(category: .reading, phrase: "看看应用信息"),
         "android_list_users": Rule(category: .reading, phrase: "看看用户"),
         "android_open_uri": Rule(category: .browsing, phrase: "打开链接",
                                  targetKeys: ["uri", "url"], targetIsURL: true),
-        "android_logcat": Rule(category: .reading, phrase: "翻翻日志"),
-        "android_list_apk_files": Rule(category: .searching, phrase: "找找安装包",
-                                       targetKeys: ["directory"]),
-        "android_delete_apk_file": Rule(category: .running, phrase: "删个安装包",
+        "android_logcat": Rule(category: .reading, phrase: "看看手机情况"),
+        "android_list_apk_files": Rule(category: .searching, phrase: "找找安装包"),
+        "android_delete_apk_file": Rule(category: .running, phrase: "删除安装包",
                                         targetKeys: ["path"]),
-        "android_command_help": Rule(category: .reading, phrase: "看看命令帮助"),
+        "android_command_help": Rule(category: .reading, phrase: "看看怎么操作"),
 
         // Native Bluetooth tools forwarded through mcp__phone__.
         "ble_devices": Rule(category: .searching, phrase: "找找设备"),
-        "ble_read": Rule(category: .reading, phrase: "读设备数据",
-                         targetKeys: ["profile", "device_id"]),
-        "ble_alert": Rule(category: .running, phrase: "给设备提醒",
-                          targetKeys: ["device_id"]),
-        "ble_link_tools": Rule(category: .reading, phrase: "看看设备能力"),
-        "ble_link_call": Rule(category: .running, phrase: "调用设备",
-                              targetKeys: ["name"]),
-        "ble_link_result": Rule(category: .reading, phrase: "取设备结果",
-                                targetKeys: ["request_id"]),
+        "ble_read": Rule(category: .reading, phrase: "看看设备状态",
+                         targetKeys: ["device_name", "deviceName"]),
+        "ble_alert": Rule(category: .running, phrase: "让设备提醒",
+                          targetKeys: ["device_name", "deviceName"]),
+        "ble_link_tools": Rule(category: .reading, phrase: "看看设备功能",
+                               targetKeys: ["device_name", "deviceName"]),
+        "ble_link_call": Rule(category: .running, phrase: "操作设备",
+                              targetKeys: ["device_name", "deviceName"]),
+        "ble_link_result": Rule(category: .reading, phrase: "看看设备反馈",
+                                targetKeys: ["device_name", "deviceName"]),
     ]
 
     private static let genericRule = Rule(category: .generic, phrase: "处理中")
+    /// Chat tool rows have no "running…" tense of their own; unknown tools
+    /// still get a readable row title instead of the raw wire name.
+    private static let genericToolRowLabel = "工具操作"
 
     /// Resolve one `tool/call`. A model-written `description`/`summary`/`label`
     /// always wins over the category phrase; the category still follows the
@@ -202,6 +199,39 @@ enum BotActivityPhrases {
         let target = targetText(rule: rule, arguments: arguments)
         return BotToolActivityPhrase(category: rule.category,
                                      text: target.isEmpty ? rule.phrase : "\(rule.phrase) · \(target)")
+    }
+
+    /// Human action name for one Bot chat tool row. UI-card tools reuse the
+    /// host's zh effect labels (「询问用户」「显示进度卡片」…); every other
+    /// tool reuses the activity phrase table. Unknown tools fall back to a
+    /// generic label, never the raw wire name.
+    static func toolRowLabel(forToolNamed rawName: String) -> String {
+        let effect = BotToolEffectClassifier.effect(for: rawName)
+        if effect.known, effect.ui, !effect.label.isEmpty { return effect.label }
+        let rule = rules[bareToolName(rawName).lowercased()] ?? genericRule
+        return rule.category == .generic ? genericToolRowLabel : rule.phrase
+    }
+
+    /// The collapsed Bot tool row's one-line summary for a failed call. The
+    /// recorded output can be a wire error with internal terms; keep the user
+    /// action instead. `NativeDisclosureRow` applies the single-line limit.
+    static func toolRowSummary(forErrorText raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.contains("unauthorized") || lower.contains("identity-bridge")
+            || lower.contains("did not accept the call registration")
+            || raw.contains("与 App 的连接已失效") {
+            // The Worker's final identity-reclaim error and this row share one
+            // short sentence; see IDENTITY_RECLAIM_FAILED_REASON.
+            return "与 App 的连接已失效，已尝试恢复，请稍后重试。"
+        }
+        if lower.contains("timed out") || lower.contains("timeout") || raw.contains("超时") {
+            return "操作超时，请稍后再试"
+        }
+        if lower.contains("not allowed") || lower.contains("denied") || lower.contains("rejected")
+            || raw.contains("未允许") || raw.contains("拒绝") {
+            return "操作未被允许"
+        }
+        return "操作没有完成，请稍后再试"
     }
 
     /// The category alone, for callers that only need the avatar style.
@@ -347,6 +377,21 @@ enum BotActivityPhrases {
         guard elapsed >= BotActivityLineState.minuteMillis else { return 0 }
         return max(1, Int(elapsed / BotActivityLineState.minuteMillis))
     }
+
+    /// Append the contract's `· N 分钟` suffix to one activity text. The chat
+    /// line and the drawer both call this so the wording cannot drift.
+    static func textWithDurationSuffix(_ base: String, for activity: BotActivity,
+                                       now: Int64) -> String {
+        let minutes = sustainedMinutes(for: activity, now: now)
+        return minutes > 0 ? "\(base) · \(minutes) 分钟" : base
+    }
+
+    /// The drawer keeps one stable line: the activity detail, or the category's
+    /// primary phrase when the model wrote none, plus the duration suffix.
+    static func drawerStatusText(for activity: BotActivity, now: Int64) -> String {
+        let base = activity.detail.isEmpty ? primaryPhrase(for: activity.category) : activity.detail
+        return textWithDurationSuffix(base, for: activity, now: now)
+    }
 }
 
 /// Timing/selection machine for the one activity line. Each displayed
@@ -451,8 +496,7 @@ struct BotActivityLineState: Equatable {
                 base = phrases[(phraseStart + step) % phrases.count]
             }
         }
-        let minutes = BotActivityPhrases.sustainedMinutes(for: activity, now: now)
-        text = minutes > 0 ? "\(base) · \(minutes) 分钟" : base
+        text = BotActivityPhrases.textWithDurationSuffix(base, for: activity, now: now)
         updateDeadline(now: now)
     }
 

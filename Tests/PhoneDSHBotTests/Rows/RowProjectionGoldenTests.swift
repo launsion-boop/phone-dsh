@@ -27,6 +27,37 @@ final class RowProjectionGoldenTests: XCTestCase {
         }
     }
 
+    func testApprovalReceiptGoldenMatchesTheSharedLabels() throws {
+        let fixture = try RowTestSupport.golden("row-protocol.phone")
+        let receipts = try RowTestSupport.array(
+            fixture["approvalReceipts"], in: "row-protocol.phone.approvalReceipts")
+        XCTAssertFalse(receipts.isEmpty)
+        for entry in receipts {
+            let status = try XCTUnwrap(entry["status"] as? String)
+            let scope = try XCTUnwrap(entry["scope"] as? String)
+            let label = try XCTUnwrap(entry["label"] as? String)
+            XCTAssertEqual(BotApprovalReceipt.label(for: status, scope: scope), label)
+        }
+        XCTAssertEqual(BotApprovalReceipt.label(for: "allowed"), "已允许一次")
+        XCTAssertEqual(BotApprovalReceipt.label(for: "allowed-session"), "本次对话都允许")
+        XCTAssertEqual(BotApprovalReceipt.label(for: "always", scope: "session"), "本次对话都允许")
+    }
+
+    /// F7: a cancelled approval keeps its durable reason code, but the history
+    /// page shows one human sentence. Unknown codes never leak the raw token.
+    func testCancelledApprovalReasonIsHumanReadable() {
+        XCTAssertEqual(BotApprovalReceipt.cancellationReason("worker_restarted"),
+                       "App 重启时取消")
+        XCTAssertEqual(BotApprovalReceipt.cancellationReason("consumer_cancelled"),
+                       "请求已结束，已取消")
+        XCTAssertEqual(BotApprovalReceipt.cancellationReason("bot_deleted"),
+                       "Bot 已删除时取消")
+        XCTAssertEqual(BotApprovalReceipt.cancellationReason("some_future_reason"),
+                       "审批已取消")
+        XCTAssertNil(BotApprovalReceipt.cancellationReason(nil))
+        XCTAssertNil(BotApprovalReceipt.cancellationReason(""))
+    }
+
     func testPhoneAttachmentProjectionVectorUsesTheRealProjector() throws {
         let fixture = try RowTestSupport.golden("row-protocol.phone")
         let vectors = try RowTestSupport.array(fixture["projection"], in: "row-protocol.phone.projection")

@@ -2,7 +2,7 @@
   "id": "gw-resp-006",
   "rule": "response-redaction",
   "kind": "response",
-  "source": "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:110",
+  "source": "Sources/PhoneDSHGateway/SensitiveResponseBody.swift:175",
   "references": [
     "spec/v1/gateway-security.md:136"
   ],

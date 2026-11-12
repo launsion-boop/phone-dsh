@@ -4,6 +4,20 @@ import Combine
 import PhoneDSHBot
 import SwiftUI
 
+/// One sentence appended to every erasure confirmation. The erasure scope is
+/// the session logs and memory documents (P02 §5.3); the App's tool operation
+/// journal is outside that scope and may still hold the original text. The
+/// wording is user-facing only and never exposes the journal path.
+private let botErasureToolLogNotice = "；App 内部的操作日志可能仍保留原文。"
+
+/// Fixture-only seam: open one erasure confirmation directly so the UI capture
+/// proves the appended scope sentence without driving a destructive action.
+enum BotMemoryConfirmationPreview: Equatable {
+    case eraseMemory
+    case eraseShared
+    case eraseSharedFinal
+}
+
 struct BotMemoryVersionInfo: Identifiable, Hashable {
     let id: String
     var version: Int
@@ -119,6 +133,9 @@ struct BotApprovalRecord: Identifiable, Equatable {
     let id: String
     var parameterSummary: String
     var decision: String
+    /// Durable reason code for a cancellation; mapped to one human sentence by
+    /// `BotApprovalReceipt.cancellationReason` in the row.
+    var reason: String? = nil
     var decidedAt: Date
 }
 
@@ -135,6 +152,16 @@ struct BotInfoSnapshot {
     var maintenanceEnabled = false
     var maintenanceDailyTokens = 0
     var maintenanceDailyBudget = 0
+    /// One human-readable line from the host's last failed identity
+    /// registration; nil when the runtime has no current bridge error.
+    var bridgeStatus: String?
+    /// Per-entry failures. Each entry is independent: one failed projection
+    /// must not mark the other pages as failed. The value is human-facing
+    /// copy; the host logs the raw error separately.
+    var memoryError: String? = nil
+    var routinesError: String? = nil
+    var approvalsError: String? = nil
+    var grantsError: String? = nil
 }
 
 struct BotInfoDriver {
@@ -178,10 +205,12 @@ final class BotInfoModel: ObservableObject {
     @Published private(set) var maintenanceEnabled = false
     @Published private(set) var maintenanceDailyTokens = 0
     @Published private(set) var maintenanceDailyBudget = 0
+    @Published private(set) var bridgeStatus: String?
     @Published var highlightedRoutineID: String?
     @Published private(set) var memoryState: BotInfoLoadState
     @Published private(set) var routinesState: BotInfoLoadState
     @Published private(set) var approvalsState: BotInfoLoadState
+    @Published private(set) var grantsState: BotInfoLoadState
     @Published var actionError: String?
     /// The profile's appearance is the authority for the preview and for the
     /// 4 hairstyle thumbnails; selecting one saves immediately.
@@ -210,12 +239,14 @@ final class BotInfoModel: ObservableObject {
         maintenanceEnabled = snapshot?.maintenanceEnabled ?? false
         maintenanceDailyTokens = snapshot?.maintenanceDailyTokens ?? 0
         maintenanceDailyBudget = snapshot?.maintenanceDailyBudget ?? 0
+        bridgeStatus = snapshot?.bridgeStatus
         let initial: BotInfoLoadState
         if let fixtureError { initial = .failed(fixtureError) }
         else { initial = snapshot == nil && driver != nil ? .loading : .loaded }
         memoryState = initial
         routinesState = initial
         approvalsState = initial
+        grantsState = initial
         self.appearance = profileCenter?.appearance ?? appearance
         self.driver = driver
         self.fixtureError = fixtureError
@@ -286,16 +317,19 @@ final class BotInfoModel: ObservableObject {
                 memoryState = .failed(fixtureError)
                 routinesState = .failed(fixtureError)
                 approvalsState = .failed(fixtureError)
+                grantsState = .failed(fixtureError)
             } else {
                 memoryState = .loaded
                 routinesState = .loaded
                 approvalsState = .loaded
+                grantsState = .loaded
             }
             return
         }
         memoryState = .loading
         routinesState = .loading
         approvalsState = .loading
+        grantsState = .loading
         do {
             let snapshot = try await driver.load()
             let name = profileCenter?.displayName ?? snapshot.botName
@@ -312,14 +346,22 @@ final class BotInfoModel: ObservableObject {
             maintenanceEnabled = snapshot.maintenanceEnabled
             maintenanceDailyTokens = snapshot.maintenanceDailyTokens
             maintenanceDailyBudget = snapshot.maintenanceDailyBudget
-            memoryState = .loaded
-            routinesState = .loaded
-            approvalsState = .loaded
+            bridgeStatus = snapshot.bridgeStatus
+            memoryState = snapshot.memoryError.map(BotInfoLoadState.failed) ?? .loaded
+            routinesState = snapshot.routinesError.map(BotInfoLoadState.failed) ?? .loaded
+            approvalsState = snapshot.approvalsError.map(BotInfoLoadState.failed) ?? .loaded
+            grantsState = snapshot.grantsError.map(BotInfoLoadState.failed) ?? .loaded
         } catch {
-            let message = error.localizedDescription
+            // The page never prints a host type name, an English
+            // `localizedDescription` or an internal error code. The raw error
+            // belongs to the diagnostic log.
+            BotRebindDiagnostics.emit(
+                "bot-info refresh error=\(String(reflecting: error))")
+            let message = "暂时读不出来，请稍后重试。"
             memoryState = .failed(message)
             routinesState = .failed(message)
             approvalsState = .failed(message)
+            grantsState = .failed(message)
         }
     }
 
@@ -536,8 +578,14 @@ struct BotInfoPage: View {
     /// Fixture/preview override for the profile description. Production reads
     /// `BotProfile.description` through the model and leaves this nil.
     private let descriptionOverride: String?
+    /// Fixture-only erasure-confirmation preview; production leaves this nil.
+    private let memoryConfirmationPreview: BotMemoryConfirmationPreview?
     @Environment(\.dismiss) private var dismiss
-    @State private var path: [BotInfoSection]
+    /// A type-erased path: the same stack pushes both `BotInfoSection` and the
+    /// memory document detail. A `[BotInfoSection]` path silently refuses the
+    /// second value type, which left a tapped memory row highlighted but never
+    /// pushed (F5).
+    @State private var path = NavigationPath()
     @State private var confirmDelete = false
     @State private var deleting = false
     @State private var deleteError: String?
@@ -546,13 +594,17 @@ struct BotInfoPage: View {
          initialSection: BotInfoSection? = nil,
          highlightRoutineID: String? = nil,
          onDelete: (() async throws -> Void)? = nil,
-         description: String? = nil) {
+         description: String? = nil,
+         memoryConfirmationPreview: BotMemoryConfirmationPreview? = nil) {
         self.model = model
         self.isMainBot = isMainBot
         self.highlightRoutineID = highlightRoutineID
         self.onDelete = onDelete
         self.descriptionOverride = description
-        _path = State(initialValue: initialSection.map { [$0] } ?? [])
+        self.memoryConfirmationPreview = memoryConfirmationPreview
+        var initialPath = NavigationPath()
+        if let initialSection { initialPath.append(initialSection) }
+        _path = State(initialValue: initialPath)
     }
 
     private var nameChanged: Bool {
@@ -643,7 +695,7 @@ struct BotInfoPage: View {
                     }
                     .accessibilityIdentifier("bot.info.approvals")
                     NavigationLink(value: BotInfoSection.grants) {
-                        BotInfoEntryLabel(title: "常设授权", systemImage: "key", state: model.approvalsState,
+                        BotInfoEntryLabel(title: "常设授权", systemImage: "key", state: model.grantsState,
                                           count: model.grants.count)
                     }
                     .accessibilityIdentifier("bot.info.grants")
@@ -686,7 +738,8 @@ struct BotInfoPage: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: BotInfoSection.self) { section in
                 switch section {
-                case .memory: BotMemoryPage(model: model)
+                case .memory: BotMemoryPage(
+                    model: model, preview: memoryConfirmationPreview)
                 case .routines: BotRoutinesPage(model: model)
                 case .approvals: BotApprovalHistoryPage(model: model)
                 case .grants: BotGrantsPage(model: model)
@@ -714,7 +767,11 @@ struct BotInfoPage: View {
                     model.highlightedRoutineID = highlightRoutineID
                 }
                 model.setMainBot(isMainBot)
-                if model.memoryState == .loading { await model.refresh() }
+                // The sheet can be reopened long after the first load (for
+                // example after the Bot created a routine in chat). Re-read the
+                // host authority every time it appears; a cached snapshot must
+                // not turn a real routine into "还没有例行任务".
+                await model.refresh()
             }
             .onChange(of: isMainBot) { _, newValue in
                 model.setMainBot(newValue)
@@ -804,11 +861,17 @@ private struct BotInfoEntryLabel: View {
 
 private struct BotMemoryPage: View {
     @ObservedObject var model: BotInfoModel
+    private let preview: BotMemoryConfirmationPreview?
     @State private var forgetting: BotMemoryDocumentInfo?
     @State private var confirmErase = false
     @State private var confirmShared = false
     @State private var confirmSharedAgain = false
     @State private var confirmRollback = false
+
+    init(model: BotInfoModel, preview: BotMemoryConfirmationPreview? = nil) {
+        self.model = model
+        self.preview = preview
+    }
 
     private var botDocuments: [BotMemoryDocumentInfo] {
         model.memories.filter { $0.scope != "user" }
@@ -824,7 +887,7 @@ private struct BotMemoryPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "记忆读取失败：\(message)。这不代表没有记忆。") {
+                BotFailureRow(message: "记忆读取失败：\(message)这不代表没有记忆。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -869,6 +932,11 @@ private struct BotMemoryPage: View {
         }
         .homeGroupedList()
         .navigationTitle("记忆")
+        .task {
+            // Each data entry re-reads the host authority when it appears; a
+            // snapshot cached by the sheet must not hide a newer record.
+            if model.memoryState != .loading { await model.refresh() }
+        }
         .navigationDestination(for: BotMemoryDocumentInfo.self) { document in
             BotMemoryDocumentView(
                 document: document,
@@ -899,7 +967,7 @@ private struct BotMemoryPage: View {
             Button("抹除这个 Bot 的记忆", role: .destructive) { Task { await model.erase() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销。")
+            Text("会永久删除这个 Bot 的记忆和全部历史版本，相关内容也会从旧对话里移除，共享记忆不受影响，无法撤销\(botErasureToolLogNotice)")
         }
         .confirmationDialog("抹除所有 Bot 共享的记忆？", isPresented: $confirmShared) {
             Button("继续", role: .destructive) {
@@ -910,13 +978,24 @@ private struct BotMemoryPage: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销。")
+            Text("所有 Bot 共享的记忆和全部历史版本会被永久删除，相关内容也会从旧对话里移除，无法撤销\(botErasureToolLogNotice)")
         }
         .confirmationDialog("最后确认：抹除全部共享记忆？", isPresented: $confirmSharedAgain) {
             Button("抹除共享记忆", role: .destructive) { Task { await model.eraseShared() } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销。")
+            Text("所有 Bot 会立即失去这些共享记忆，全部历史版本也会被永久删除，无法撤销\(botErasureToolLogNotice)")
+        }
+        .task {
+            // Fixture/preview only: production passes nil and never opens a
+            // destructive confirmation by itself.
+            guard let preview else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            switch preview {
+            case .eraseMemory: confirmErase = true
+            case .eraseShared: confirmShared = true
+            case .eraseSharedFinal: confirmSharedAgain = true
+            }
         }
     }
 
@@ -1117,6 +1196,8 @@ struct BotMemoryDocumentView: View {
     let document: BotMemoryDocumentInfo
     let onForget: () -> Void
     let onErase: () -> Void
+    /// Fixture-only: open the erasure confirmation on appearance.
+    var autoConfirmErase = false
     @State private var confirmErase = false
     @Environment(\.dismiss) private var dismiss
 
@@ -1230,7 +1311,12 @@ struct BotMemoryDocumentView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销。")
+            Text("会永久删除这份文档和全部历史版本，相关内容也会从旧对话里移除，共享记忆的其他文档不受影响，无法撤销\(botErasureToolLogNotice)")
+        }
+        .task {
+            guard autoConfirmErase else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            confirmErase = true
         }
         .homeGroupedList()
         .navigationTitle(document.fileName)
@@ -1290,7 +1376,7 @@ private struct BotRoutinesPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "例行任务读取失败：\(message)。这不代表没有例行任务。") {
+                BotFailureRow(message: "例行任务读取失败：\(message)这不代表没有例行任务。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -1312,6 +1398,12 @@ private struct BotRoutinesPage: View {
         .homeGroupedList()
         .navigationTitle("例行任务")
         .task {
+            // Entering the data entry re-reads the host authority even when the
+            // sheet's shared model is already loaded. The first open is owned
+            // by the sheet's root task (state is `.loading`), so this avoids a
+            // duplicate initial load while still catching a routine created
+            // after the last snapshot.
+            if model.routinesState != .loading { await model.refresh() }
             guard let id = model.highlightedRoutineID else { return }
             try? await Task.sleep(for: .milliseconds(150))
             withAnimation { proxy.scrollTo("bot.routine.row.\(id)", anchor: .center) }
@@ -1651,11 +1743,11 @@ private struct BotGrantsPage: View {
 
     var body: some View {
         List {
-            switch model.approvalsState {
+            switch model.grantsState {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "常设授权读取失败：\(message)。这不代表没有授权。") {
+                BotFailureRow(message: "常设授权读取失败：\(message)这不代表没有授权。") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -1665,6 +1757,11 @@ private struct BotGrantsPage: View {
         }
         .homeGroupedList()
         .navigationTitle("常设授权")
+        .task {
+            // Each data entry re-reads the host authority when it appears; a
+            // snapshot cached by the sheet must not hide a newer record.
+            if model.grantsState != .loading { await model.refresh() }
+        }
     }
 
     @ViewBuilder
@@ -1742,11 +1839,21 @@ struct BotPresenceSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             LabeledContent("当前级别", value: model.presence.level.displayName)
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("bot.info.presence.level")
-            if model.presence.level == .scheduledNotification {
-                LabeledContent("已登记提醒", value: "\(model.presence.scheduledNotificationCount) 条")
-                    .accessibilityIdentifier("bot.info.presence.notifications")
+            if let bridgeStatus = model.bridgeStatus {
+                LabeledContent("连接状态", value: bridgeStatus)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("bot.info.presence.bridge")
             }
+            // The count is host authority, not a level decoration: a foreground
+            // App can still have routine-due notifications registered, and the
+            // matrix checks this line in the foreground. Show the actual count
+            // even when it is zero (permission denied / DND) instead of hiding
+            // the row; add the earliest registered fire time when one exists.
+            LabeledContent("已登记提醒", value: notificationSummary)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("bot.info.presence.notifications")
             if model.presence.deferred.isEmpty {
                 Text("没有因安静时段延后的例行任务。")
                     .botCaptionFont()
@@ -1765,7 +1872,18 @@ struct BotPresenceSection: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bot.info.presence")
+    }
+
+    /// Host-registered count plus the earliest registered time. The time is
+    /// shown only when the host has one; the count is never inferred from the
+    /// routine list.
+    private var notificationSummary: String {
+        let count = "\(model.presence.scheduledNotificationCount) 条"
+        guard let at = model.presence.nextNotificationAt else { return count }
+        let date = Date(timeIntervalSince1970: Double(at) / 1_000)
+        return "\(count) · 下次 \(BotUIFormat.dateTime(date))"
     }
 }
 
@@ -1813,7 +1931,7 @@ private struct BotApprovalHistoryPage: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity)
             case .failed(let message):
-                BotFailureRow(message: "审批记录读取失败：\(message)。") {
+                BotFailureRow(message: "审批记录读取失败：\(message)") {
                     Task { await model.refresh() }
                 }
                 .listRowBackground(Color.clear)
@@ -1837,6 +1955,16 @@ private struct BotApprovalHistoryPage: View {
                                     .botCaptionFont()
                                     .foregroundStyle(HomeSpec.textTertiary)
                             }
+                            // F7: a cancelled decision must say why in one
+                            // human sentence. Old events may have no reason;
+                            // they still get the generic sentence instead of
+                            // leaking a raw code or showing nothing.
+                            if record.decision.hasPrefix("已取消") {
+                                Text("原因：\(BotApprovalReceipt.cancellationReason(record.reason) ?? "审批已取消")")
+                                    .botCaptionFont()
+                                    .foregroundStyle(HomeSpec.textTertiary)
+                                    .accessibilityIdentifier("bot.approval.reason.\(record.id)")
+                            }
                         }
                         .padding(.vertical, 4)
                     }
@@ -1845,6 +1973,11 @@ private struct BotApprovalHistoryPage: View {
         }
         .homeGroupedList()
         .navigationTitle("审批记录")
+        .task {
+            // Each data entry re-reads the host authority when it appears; a
+            // snapshot cached by the sheet must not hide a newer record.
+            if model.approvalsState != .loading { await model.refresh() }
+        }
     }
 }
 

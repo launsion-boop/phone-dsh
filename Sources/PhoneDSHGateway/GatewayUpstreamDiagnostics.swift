@@ -12,6 +12,7 @@
 // formatted. The gateway's credential never enters the line.
 
 import Foundation
+import PhoneDSHStandardError
 
 private let gatewayStderrLock = NSLock()
 
@@ -23,10 +24,9 @@ public final class GatewayUpstreamDiagnostics: @unchecked Sendable {
     /// The process-wide default: the scenario runner tees stderr into its run
     /// log. The App injects the boot-timings sink instead.
     public static let standardError = GatewayUpstreamDiagnostics(sink: { line in
-        guard let data = (line + "\n").data(using: .utf8) else { return }
         gatewayStderrLock.lock()
         defer { gatewayStderrLock.unlock() }
-        FileHandle.standardError.write(data)
+        PhoneDSHStandardError.write(line)
     })
 
     /// A request at or above this duration emits one slow line.

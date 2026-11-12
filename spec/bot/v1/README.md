@@ -21,7 +21,7 @@
 
 phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json`（`schemaVersion: 3`）和 `runtime-settings.json` 的 `mainAgentId`；每个 Bot 有独立的 DSH 会话、记忆、例行任务、授权、held inbox 与未读计数。首个 Bot 成为主 Bot；主 Bot 是指针，不是记录字段。删除主 Bot 时指针移到剩余第一个 Bot；隐藏的 Bot 仍留在名册，但不进入模型可见的工具描述。
 
-- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在线程链路中也按环路拒绝。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
+- `SendToAgent`：`agent_id` 必填（接受 id 或名字；兼容别名 `target_id`/`bot_name`/`agentId`），`message` 必填（别名 `text`），可选 `title`。必须提供 `priority: Bool` 或 `delivery: "now"|"queued"` 之一；两者冲突、缺失或非法都 fail-closed，缺失时返回上游原句 `SendToAgent requires priority (true = wake now, false = hold for their next turn).`。发送者只能取已登记 principal 的 `botId`；目标必须存在，禁止发给自己；入站深度 + 1 超过 2 跳拒绝，目标已在同一条**进行中的**转交链上也按环路拒绝。转交链只描述一次进行中的转交：`now` 的对方回合结束后释放，`queued` 在目标消费该 held 项时释放；对方回复写回发送方的 `agent-held` 项是这次转交的结束通知，不是新的转交，不给发送方安装链。真环（A→B→A 仍在同一条进行中的链里）仍拒绝，错误文案用 Bot 名字而不是内部 id。`queued` 只写目标 held inbox（`kind: agent-held`），不唤醒目标；`now` 在目标空闲时开启可见回合，目标忙时排在当前回合之后（不打断）。目标回合最后一段 assistant 文本在 300 秒内返回，作为发送方的 `inbound` 行；phoneDSH 有意再把它作为一条 `agent-held` 回复写回发送方 held inbox，在发送方下一回合进入上下文，且不唤醒发送方。`requestId` 取调用 id，重复调用返回同一 `threadId`，不重复投递。
 - `CreateTeammate`：只有当前主 Bot 可调用；其他 Bot 得到 `permission_denied`。`name` 去空格后 1–60 字符，`description` 截 300，`color` 为 15 色枚举，`hairstyle` 为 4 发型枚举，`section_id` 接受但忽略。没有用户消息来源的回合（见 §4.1）调用时必须先经现有审批卡确认；确认后宿主把作者（`rpcId`/`turnId`/`origin`/`authorization`/`approvalID`）写入 `ui.system_event{event:"teammate.created"}` 的 durable 记录，描述随 Bot 资料保存。用户回合的记录同样写入，`authorization:"user-turn"` 且没有 `approvalID`。
 - 行：发送方 `outbound`/`inbound`、目标 `incoming`/`reply` 都使用上游 `toAgent`/`fromAgent`/`agentComm{direction,…}` 与 `threadId = <rowID>@<seq>:agent-comm`；发送方交换按 `summarizeCommRows` 汇总为 `single`/`fanout`/`thread`。
 - `agent.comm` 是 P27 的 additive UI event type，也是 P25 的 additive durable event；outbound/inbound 都写入 `origin = local/comm-service`。契约冻结见 [PC-20261111-bot-agent-comm-envelope](../../../docs/protocol-changes/PC-20261111-bot-agent-comm-envelope.md)。
@@ -78,8 +78,8 @@ Bot 会话经宿主 `/v1/http` 发出的网络写不再是 Worker 命令文本�
 - **归属跟随 `bash` 调用与后台 job。** 宿主把出口写归属到**当前存活的 `bash` identity registration**。普通调用在 `tools/execute` 返回时释放；DSH job registry 保留的命令（`run_in_background: true` 或前台超时转后台）在工具结果返回后继续持有同一登记，Worker 每 120 秒用同一 call/digest 重发 `/identity/register` 续期，宿主在原 id 上延长有效期（不超过会话 token 过期），直到 `job/settled`/`removed`、Worker 代次轮换或 24 小时硬上限。这样 job 后续发出的 `/v1/http` 写仍能归到发起它的 Bot/session。
 - **同一 Bot 的多个活动登记不是歧义。** 多个后台 job 或 chat/task 会话同时活动时，宿主按 Bot 归组；同一 Bot 只有一个 owner，选其中一条仍存活的登记送审。不同 Bot 之间才用外层命令是否含目标主机做唯一消歧；仍不唯一 → `bot_egress_ambiguous` 拒绝，不猜 principal。会话 token 已撤销/过期 → `bot_egress_unattributed`。
 - **失败关闭兜底（B）。** 完全没有存活登记时，宿主询问 App“是否有工作台会话正在运行回合”（由 `PhoneDSHHost` 的 journal turn state 回答，排除活动 Bot 会话）。有工作台回合 → `notBot`，工作台维持原 allow-list；没有工作台回合 → 该写只能是 Bot 的后台任务：恰好一个活动 Bot → 归该 Bot 送审；多个活动 Bot → `bot_egress_ambiguous` 拒绝；没有任何活动 Bot credential → `bot_egress_unattributed` 拒绝。兜底只在登记缺失时生效，已归属的 job 写不会被工作台活动改判给另一个 Bot。
-- **审批与 Grant。** 无对应 Grant 时复用现有 Bot 审批卡：`tool=egress`、`operation=egress.<method>`、`resource=host=<lowercased host>`（不含 scheme、端口、路径、query），`alwaysScope=until`。用户选「总是」写入 30 天 `until` Grant；交互出口审批的 `allow_once` 在放行后立即消费；持久待办 egress 的一次性 Grant 保留给恢复后的重试消费（§2.7）；同一「主机 + 方法」的后续写不再出卡。拒绝、超时（300 s）、取消、Worker 重启/Bot 删除取消都 fail-closed，返回 HTTP 403；`xl_error.code` 统一为 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 为具体原因（拒绝/超时/取消 `egress_approval_denied`，多活动调用 `bot_egress_ambiguous`，会话凭证失效 `bot_egress_unattributed`，Task 缺少网络写授权 `task_network_write_denied`），且不解析凭据、不开 socket、不写 response log。
-- **Task 子会话的网络写。** `approveEgress` 先完成归属，再检查被归属会话的授权子集：`kind=task` 且 capabilities 不含 `task.network-write` 时，直接以 403 `task_network_write_denied` 拒绝，不创建审批卡、不写 Grant，也不依赖任何 `curl-post`/`network-egress` 命令分类。带 `task.network-write` 的 Task 会话（夹具或兼容数据；本修订的 `Task` 工具不会生成）仍走与其他 Bot 会话相同的主机 + 方法审批卡。主对话没有这个子集检查，行为不变。
+- **审批与 Grant。** 无对应 Grant 时复用现有 Bot 审批卡：`tool=egress`、`operation=egress.<method>`、`resource=host=<lowercased host>`（不含 scheme、端口、路径、query），`alwaysScope=until`。用户选「总是」写入 30 天 `until` Grant；交互出口审批的 `allow_once` 在放行后消费。**出口写审批不阻塞 `/v1/http` 请求超过调用方可承受的窗口**：chat 会话最多等待 20 秒（present user 可让同一请求完成）；Task/routine 立即返回。窗口内没有决定时返回 HTTP 403 `egress_approval_denied`，message 为人话「已提交审批，批准后请重试；这次网络写入没有发出」，卡片保持 pending；用户批准后写出的 `once` Grant **保留给重试消费**，重试不再重复要审批。批准前重试复用同一会话 + 主机 + 方法的 pending 卡，不叠加第二张卡。拒绝、超时（300 s）、取消、Worker 重启/Bot 删除取消都 fail-closed，返回 HTTP 403；`xl_error.code` 统一为 `egress_approval_denied`，`error.code`/`X-PDSH-Proxy-Error` 为具体原因（拒绝/超时/取消 `egress_approval_denied`，多活动调用 `bot_egress_ambiguous`，会话凭证失效 `bot_egress_unattributed`，Task 缺少网络写授权 `task_network_write_denied`），且不解析凭据、不开 socket、不写 response log。
+- **Task 子会话的网络写。** `approveEgress` 先完成归属，再检查被归属会话的授权子集：`kind=task` 且 capabilities 不含 `task.network-write` 时，直接以 403 `task_network_write_denied` 拒绝，不创建审批卡、不写 Grant，也不依赖任何 `curl-post`/`network-egress` 命令分类。**这个 Task 子集判断先于宿主 allow-list**：Task 写即使目标主机不在 allow-list，也返回具名 `task_network_write_denied`；非 Task 的未列入主机仍返回普通 `host_not_allowed`，不出卡。带 `task.network-write` 的 Task 会话（夹具或兼容数据；本修订的 `Task` 工具不会生成）仍走与其他 Bot 会话相同的主机 + 方法审批卡。主对话没有这个子集检查，行为不变。
 - **取消传播。** Worker 的 `/v1/http` 消费者取消 → 宿主取消对应 pending 审批（写 `approval.decided`，`status=cancelled`，`reason=consumer_cancelled`）；`workerRestarted`/Bot 删除继续走既有 `cancelAll`。同一被批准写不跟随重定向：3xx 原样返回，调用方需对新目标另行审批。
 - **Bot 工作区根。** Bot 会话 cwd（及 DSH 文件沙箱的 `workspaceRoot`）是 `BotWorkspaceLayout.botRoot(botId:)`，即 `/dsh/workspace/.dshbot/agents/<safe botID>`；chat/task/routine 共享该 Bot 根，不同 Bot 不共享。根内 `write`/`edit` 不需要结构审批，DSH 文件沙箱是该层的执行边界；根外写是跨出口。
 - **文件 Grant 粒度。** 根外 `write`/`edit` 的效果为 `tool=write|edit`、`operation=file.write|file.edit`、`resource=dir=<标准化绝对父目录>`；文件名、内容和参数摘要不参与。同一目录的连续写复用同一 `until` Grant；`..` 在包含判断前解析，`file_path` 缺失/为空按 `tool.unclassified` fail-closed。显式 `sandbox_permissions` 仍需走既有 sandbox escalation，二者是独立的两层。
@@ -102,7 +102,7 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 - `allowed_write_directories` 接受绝对路径或相对于 Bot 工作区根的路径；`~` 展开，`.`/`..` 规范化，重复项合并，最多 32 项。省略或为空表示只允许 Bot 工作区根。任一项在根外时 `canWriteOutsideWorkspace` 才为 `true`。
 - 子会话的 DSH principal capabilities 由该子集派生：`task.workspace:<root>`、`task.write-dir:<abs>`、`task.write-outside-workspace`、`task.network-write`、`task.delegate`。
-- 结构审批门禁对 `write`/`edit` 的路径和可识别的 `bash` 写入目标按 `task.write-dir:*` 拒绝越界。网络写不再由命令文本效果判断：Task 子会话在宿主 `/v1/http` 出口按 `task.network-write` 处理，没有该 capability 时直接 403 `task_network_write_denied`（见 §2.4），不创建审批卡；有该 capability 的会话才进入与其他 Bot 会话相同的主机 + 方法审批卡。拒绝发生在向用户出审批卡之前，不执行。
+- 结构审批门禁对 `write`/`edit` 的路径和可识别的 `bash` 写入目标按 `task.write-dir:*` 拒绝越界。网络写不再由命令文本效果判断：Task 子会话在宿主 `/v1/http` 出口按 `task.network-write` 处理，没有该 capability 时直接 403 `task_network_write_denied`（见 §2.4），不创建审批卡；该判断先于 allow-list，所以不在白名单的主机也返回这个具名原因。有该 capability 的会话才进入与其他 Bot 会话相同的主机 + 方法审批卡。拒绝发生在向用户出审批卡之前，不执行。
 - 本修订没有提高子会话权限的 Task 参数：`canNetworkWrite` 与 `canDelegateTasks` 恒为 `false`。因此 `Task` 的子会话默认不能再派 `Task`，`startTask` 对缺少 `task.delegate` 的调用 fail-closed。
 - 结果与 `AwaitTask` 都带同一个 `authorization` 对象；durable `persistedTask` 保存它，Worker 重启后仍能对同一任务继续执行同一子集。
 
@@ -114,12 +114,12 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 
 ### 2.7 持久待办审批（S5 实现）
 
-审批按**会话 kind 是否有可挂起的宿主恢复点**分两类；分类只看宿主 principal，不看模型文本：
+审批按**是否存在可挂起的宿主恢复点，以及请求方是否还能等待**分两类；`structural` 只看宿主 principal，`egress` 一律按持久处理：
 
-- **持久待办**：`principal.kind` 为 `routine` 或 `task` 的回合。这两类会话由宿主拥有独立的 run/task 记录，可以在审批期间停在原地并由决定唤醒。宿主**立即**返回等待：`/approval` 响应 `{ok:true,allowed:false,pending:true,approvalID,expiresAt}`。审批事件的 pending 状态是 durable 事实，不依赖内存 continuation、Worker 进程或身份登记。
-- **交互审批**：`chat` 会话，包括主对话前台回合和 `task-settled`/held/`agent:` 等隐藏唤醒。它的回合仍在原 DSH session 内活着，宿主没有可回放的原 prompt；因此保持 300,000 ms 等待，超时写 `approval.decided{decision:"deny",status:"denied",timedOut:true}` 并返回拒绝。隐藏唤醒不会因为“用户不在场”被转成无法恢复的待办。`verifier`/`maintainer` 的受限工具面不发审批卡。
+- **持久待办**：`principal.kind` 为 `routine` 或 `task` 的 `structural` 回合，以及**所有 `origin=egress` 的出口写**（任何 kind）。前两类会话由宿主拥有独立的 run/task 记录，可以在审批期间停在原地并由决定唤醒。宿主**立即**返回等待：`/approval` 响应 `{ok:true,allowed:false,pending:true,approvalID,expiresAt}`。出口写的 `/v1/http` 请求同样不能为等用户而无限挂起：chat 会话最多等待 20 秒（用户在场时同一请求可以完成），之后以 403 pending 回答；Task/routine 立即回答。pending 状态是 durable 事实，不依赖内存 continuation、Worker 进程或身份登记。用户批准后 `once` Grant 保留给重试消费，批准前的重试复用同一张 pending 卡。
+- **交互审批**：`chat` 会话的 `structural` 审批，包括主对话前台回合和 `task-settled`/held/`agent:` 等隐藏唤醒。它的回合仍在原 DSH session 内活着，宿主没有可回放的原 prompt；因此保持 300,000 ms 等待，超时写 `approval.decided{decision:"deny",status:"denied",timedOut:true}` 并返回拒绝。隐藏唤醒不会因为“用户不在场”被转成无法恢复的待办。`verifier`/`maintainer` 的受限工具面不发审批卡。
 
-“用户在场”不改变上述分类：routine/task 无论用户是否正在看 App 都是持久待办；chat 回合无论前台还是隐藏唤醒都在本回合完成审批。这样只有存在 `waiting_approval`/`waiting-approval` 恢复点的会话才进入持久语义，不会出现审批通过后没有恢复对象的待办。
+“用户在场”不改变 `structural` 的分类：routine/task 无论用户是否正在看 App 都是持久待办；chat 回合无论前台还是隐藏唤醒都在本回合完成审批。出口写是例外，因为它的等待方是一个随时会被 Worker `curl --max-time`/fetch 超时中止的 HTTP 请求，所以一律持久化并返回 pending。这样只有存在 `waiting_approval`/`waiting-approval` 恢复点的会话才进入 `structural` 持久语义；egress 的重试方是模型/用户的下一次 `/v1/http` 写，不需要额外恢复点。
 
 **请求与等待。** 持久审批仍写既有 `approval.requested`，追加 `persistent:true`、`kind`、`requestedAt`、`expiresAt`、`origin`（`structural` 或 `egress`）。`approvalID + digest` 是唯一决定键。`origin` 决定 Worker 侧处置：
 
@@ -133,6 +133,14 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 - 宿主写 `task.resumed`，把同一任务记录改回 `running`，在同一 DSH 会话开一个新的隐藏回合，`session/prompt.requestId` 为 `task-turn:<taskId>:approval:<approvalID>`，提示词明确“用户已批准、从停下的位置继续、不要重放已完成的副作用”。
 - 拒绝或过期则写 `task.settled`，`status:"denied"`，`error` 为 `approval_denied`/`approval_expired`，异步 chat 任务照旧只唤醒父对话一次。
 
+**主会话纪元与 Task 唤醒。** `switchMainSessionForErasure` 只切换 Bot 的主对话纪元，不改写 Task
+自己的会话或 durable `persistedTask.parentSessionId`。切换前由旧主会话派生的 Task 在完成、拒绝或
+中断后仍只产生一次父对话唤醒；若原父会话是因纪元切换而归档的前一主会话，该唤醒投递到同一 Bot
+的当前主会话，旧主会话不再收到该唤醒。`AwaitTask`/`StopSubagent` 的父会话校验接受记录中的原父
+会话，以及当前主会话作为它的纪元继任者；其他 Bot 或会话仍返回 unauthorized。只有
+`parentKind:"chat"` 且原父会话确实是本 Bot 前一主会话时进入该继任规则；team、routine 等其他
+来源的 Task 保持原归属与唤醒行为。
+
 **routine 挂起与恢复。** routine 运行停在 `run_state.status:"waiting-approval"`，并记录 `waiting_approval_id` 与 `waiting_session_id`；该次 attempt 不产生交付，调度的 tick 跳过它。批准后同一 `runId`/attempt 恢复为 `started` 并继续同一个会话；拒绝/过期按失败结束（`error` 同上），走普通交付。进程重启后该状态保留。
 
 **出口审批。** 持久 `egress` 审批的 `allow_once` 在决定时不消费 Grant，留给恢复后的同一次网络写重试消费；`always` 按主机 + 方法写 30 天 `until` Grant。这样“批准一次”不会因为首个 HTTP 请求已被 fail-closed 而丢失。交互出口审批维持原语义（决定后当次请求立即使用并消费一次 Grant）。
@@ -142,6 +150,8 @@ Task 派发时宿主生成并持久化一个授权子集，随结果返回并在
 **重启与取消。** App/Worker 重启保留持久待办：协调器从 `approval.requested` 减去 `approval.decided` 恢复 pending（不需要旧登记或旧 continuation），任务/routine 的 waiting 状态随既有 durable snapshot 恢复，并在决定/重启时与审批状态对账。旧的、非持久的未决请求在恢复时写 `cancelled`/`worker_restarted` 和一条 `ui.notice`，不伪装成用户拒绝。Worker `/v1/http` 消费者取消只取消**交互**审批；持久待办需要用户决定或显式终止。Bot 删除、`StopSubagent`、routine 手动取消是显式终止：分别写 `status:"cancelled"`、`reason` 为 `bot_deleted`/`task_stopped`/`routine_stopped`，不唤醒被停住的工作。
 
 **行与 App 入口。** pending 仍由既有 durable `approval.requested` 投影为消息流里的审批卡（UI 权威规则见 [bot-chat.md](../../ui/v1/pages/bot-chat.md)），重启后重新投影为 pending；抽屉/头像的待处理计数来自同一事件差集。宿主为持久待办预登记一条本地通知（标识 `approval-pending:<botId>:<approvalID>`，触达深链回到该审批卡），决定、过期或 Bot 删除时撤销；这条通知不是新的 wire 事件。
+
+**回执与实际决定一致。** 审批卡的决定回执必须对应用户实际按下的按钮：允许一次显示「已允许一次」；`decision=always` 且 `alwaysScope=session` 显示「本次对话都允许」；`decision=always` 且 `alwaysScope=until` 显示「已总是允许」；拒绝、超时、过期、取消各自显示对应结果。`RequestApproval` 的工具结果在既有 `allowed`/`decision` 之外追加可选 `approvalDecision`（`allowOnce|always|deny`）和 `scope`（`once|session|until`），供行投影区分一次性与常设授权；缺省时按既有字段回退为一次性允许/拒绝，旧读者不受影响。UI 共享向量见 [golden/row-protocol.phone.json](golden/row-protocol.phone.json) 的 `approvalReceipts`。
 
 **兼容。** 本修订只追加事件字段与自由文本状态值，不新增事件类型、HTTP 路由或 JSON-RPC 方法。旧读者把 `waiting_approval`/`waiting-approval`/`denied` 当未知状态保守显示，把 pending approval 按既有审批卡显示；旧 App 与旧 Worker 的 300 秒混合行为不获得持久语义。持久审批只由新 App + 新 Worker 提供。
 
@@ -187,6 +197,9 @@ DSH 会把祖先作用域的过滤器也应用到祖先自己注册的工具上�
 受限会话的 `bash` 仍走与普通 Bot 相同的身份登记；可用性 liveness 的证据是宿主签发并已认领的
 session token，按同一份 `restricted-session` 保留前缀解析，不能依赖已被 allow-list 隐藏的
 `BotVolatileContext` 工具（否则 verifier 的只读 bash 会在登记前被拒，读不到 `phone record`）。
+宿主即使没有链接 Rust `pdsh-shell`，只要装配了 Swift 侧只读 `phone record` 桥，就必须把
+`accelerator:phone` 放进 HELLO 并让该桥接住 `PDSH_TOOL_CALL_SESSION`；否则 verifier 的提示词
+承诺了一个 shell 里 `not-available` 的命令，证据条件只能得到 `uncertain`。
 volatile 注入也在同一处按“创建头或保留前缀”排除两种会话。两类会话
 的差别只有工具白名单与 bash 规则，不存在第二套 guard。即使 preset 作用域没有生效，全局
 guard 也只允许同一白名单。普通 Session 的创建头也会记录控制器默认 preset（例如 `standard`），
@@ -456,7 +469,8 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
   全部历史版本、检索结果、UI 行、`phone record` 结果、观察信封/脱敏留痕中指向被抹除事件的内容，
   以及已关闭会话纪元的 DSH 会话日志行。当前主会话在抹除时先切换到新纪元（旧会话归档、新会话从
   未抹除记录和记忆索引接续），然后宿主按 [P02 WAL §5.3](../../v1/wal.md) 的受控改写把旧会话的命中行
-  替换成墓碑；确认文案与结果不得再声称会话日志未覆盖。
+  替换成墓碑；确认文案与结果不得再声称会话日志未覆盖。纪元切换不改变既有 Task 的会话归属；
+  由旧主会话派生的未结束 Task 的父唤醒按 §2.7 投递到新主会话。
 
 **事件存储。** 拆分为事件头与载荷（§1）。只有宿主的抹除路径能清空载荷；每次抹除追加一条 durable
 `erasure` 事件，列出目标（`memory` scope/path）、每个路径被抹除的版本号、被清除事件的
@@ -473,7 +487,9 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
 
 1. 该路径的 `memory.document_written`/`memory.document_deleted` 载荷（包括历史版本）；
 2. 共享 `user/` scope 跨 Bot；`agent/` scope 只限该 Bot（`erasure` 事件按写入者的 principal 限定）；
-3. 与版本文本相同的事件载荷，以及由版本文本中唯一标记（含 `_` 或数字、长度 ≥ 8）匹配到的副本；
+3. 非记忆事件中与版本文本相同的事件载荷，以及由版本文本中唯一标记（含 `_` 或数字、长度 ≥ 8）
+   匹配到的副本；其他 `memory.document_*`/`memory.*` 文档事件不是副本，只按目标路径/scope 选择，
+   不得因为正文包含相同标记被清除；
 4. `redaction.applied`、观察信封等非 memory 事件中指向被清除 `record://event/...` 的内容；
 5. 版本文本和证据中的 `record://session/...` 引用，以及由版本文本唯一标记匹配到的会话日志行：
    先切换/关闭会话纪元，再按 P02 §5.3 用墓碑替换；替换成功后才清空事件载荷并写 `erasure` 事件。
@@ -486,6 +502,9 @@ Worker 在最后一个文本块尾部追加一行系统标记（规则名排序�
 
 **与只追加的关系。** 只追加约束进程和 agent，不约束有权的用户。宿主抹除路径是唯一的例外：它不
 删除事件头，不重编序号，不改变既有事件 id/类型/摘要；它只把载荷置 NULL 并追加 `erasure` 事件。
+被清除载荷的 `memory.document_*` 事件是墓碑：来源不可恢复，因此回放遇到该路径的版本号前向跳号
+时必须按“中间版本已抹除”处理，不得报数据损坏；版本连续性、缺失版本与 INDEX/事实的幸存规则以
+[v2 §1.1/§1.8](../v2/README.md#11-权威与版本) 为准。
 `verifyIntegrity` 在打开与 `verifyIntegrity()` 时仍要求序号从 1 无缺口、每个载荷摘要匹配、每个
 被抹除行指向一条更晚的 `erasure` 事件。
 

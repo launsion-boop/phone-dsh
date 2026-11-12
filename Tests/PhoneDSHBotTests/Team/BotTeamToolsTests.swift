@@ -71,7 +71,7 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertEqual(result.isError, true)
         XCTAssertEqual(result.structuredContent?["error"]?["code"], .string("invalid_arguments"))
         XCTAssertEqual(botTeamResultText(result),
-                       "SendToAgent requires priority (true = wake now, false = hold for their next turn).")
+                       "SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。")
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
     }
@@ -126,7 +126,7 @@ final class BotTeamToolsTests: XCTestCase {
         ])
         XCTAssertEqual(result.isError, true)
         XCTAssertEqual(botTeamResultText(result),
-                       "SendToAgent cannot target the same bot that is running; answer the request yourself.")
+                       "SendToAgent 不能发给自己；请直接回答当前请求。")
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
     }
@@ -140,7 +140,7 @@ final class BotTeamToolsTests: XCTestCase {
             "priority": .bool(true),
         ])
         XCTAssertEqual(result.isError, true)
-        XCTAssertTrue(botTeamResultText(result).contains("delegation depth limit reached (max 2 hops)"))
+        XCTAssertTrue(botTeamResultText(result).contains("最多 2 层"))
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
 
@@ -152,7 +152,7 @@ final class BotTeamToolsTests: XCTestCase {
         XCTAssertNotEqual(allowed.isError, true, botTeamResultText(allowed))
     }
 
-    func testHandOffCycleIsRejected() async {
+    func testHandOffCycleIsRejectedWithNamesNotInternalIDs() async {
         let host = FakeBotTeamHost()
         await host.setContext(
             BotAgentCommContext(depth: 1, chain: ["bot-a", "bot-b"]), for: "bot-a")
@@ -162,10 +162,66 @@ final class BotTeamToolsTests: XCTestCase {
             "priority": .bool(true),
         ])
         XCTAssertEqual(result.isError, true)
-        XCTAssertTrue(botTeamResultText(result).contains("delegation cycle detected: Bee"))
-        XCTAssertTrue(botTeamResultText(result).contains("bot-a → bot-b"))
+        let text = botTeamResultText(result)
+        XCTAssertTrue(text.contains("Alpha → Bee → Bee"), text)
+        XCTAssertTrue(text.contains("不能再转回去"), text)
+        XCTAssertFalse(text.contains("bot-a"), text)
+        XCTAssertFalse(text.contains("bot-b"), text)
+        XCTAssertFalse(text.contains("agent-"), text)
         let delivered = await host.delivered
         XCTAssertTrue(delivered.isEmpty)
+    }
+
+    func testTeammateReplyDoesNotInstallAChainOnTheSender() async throws {
+        let host = FakeBotTeamHost()
+        await host.setReply(BotAgentDeliveryReply(text: "first answer"))
+        let tools = makeTools(host)
+
+        let first = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("first"),
+            "priority": .bool(true),
+        ], callID: "round-trip-1")
+        XCTAssertNotEqual(first.isError, true, botTeamResultText(first))
+        let firstHeld = await host.heldRequests
+        XCTAssertEqual(firstHeld.count, 1)
+        XCTAssertNil(firstHeld[0].handOff,
+                     "a reply must not open or extend a hand-off chain")
+
+        // A second message to the same teammate is not a cycle: the first
+        // hand-off ended when its reply arrived.
+        await host.setReply(BotAgentDeliveryReply(text: "second answer"))
+        let second = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("second"),
+            "priority": .bool(true),
+        ], callID: "round-trip-2")
+        XCTAssertNotEqual(second.isError, true, botTeamResultText(second))
+        let secondHeld = await host.heldRequests
+        XCTAssertEqual(secondHeld.count, 2)
+        XCTAssertNil(secondHeld[1].handOff)
+    }
+
+    func testQueuedDeliveryCarriesItsHandOffChainButReplyDoesNot() async throws {
+        let host = FakeBotTeamHost()
+        let tools = makeTools(host)
+        let queued = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("hold this"),
+            "priority": .bool(false),
+        ], callID: "queued-chain")
+        XCTAssertNotEqual(queued.isError, true, botTeamResultText(queued))
+        let queuedHeld = await host.heldRequests
+        XCTAssertEqual(queuedHeld.count, 1)
+        XCTAssertEqual(queuedHeld[0].handOff?.depth, 1)
+        XCTAssertEqual(queuedHeld[0].handOff?.chain, ["bot-a", "bot-b"])
+
+        await host.setReply(BotAgentDeliveryReply(text: "answer"))
+        let immediate = await execute(tools, [
+            "agent_id": .string("bot-b"), "message": .string("ask"),
+            "priority": .bool(true),
+        ], callID: "reply-no-chain")
+        XCTAssertNotEqual(immediate.isError, true, botTeamResultText(immediate))
+        let allHeld = await host.heldRequests
+        XCTAssertEqual(allHeld.count, 2)
+        XCTAssertNil(allHeld[1].handOff)
     }
 
     // MARK: - Idempotency and delivery
@@ -371,22 +427,22 @@ final class BotTeamToolsTests: XCTestCase {
         let tools = makeTools(host)
 
         let missing = await executeCreate(tools, [:])
-        XCTAssertEqual(botTeamResultText(missing), "CreateTeammate requires name.")
+        XCTAssertEqual(botTeamResultText(missing), "CreateTeammate 需要提供名字。")
         let blank = await executeCreate(tools, ["name": .string("   ")])
-        XCTAssertEqual(botTeamResultText(blank), "CreateTeammate requires name.")
+        XCTAssertEqual(botTeamResultText(blank), "CreateTeammate 需要提供名字。")
         let tooLong = await executeCreate(tools, [
             "name": .string(String(repeating: "a", count: 61)),
         ])
-        XCTAssertTrue(botTeamResultText(tooLong).contains("too long (61 > 60)"))
+        XCTAssertTrue(botTeamResultText(tooLong).contains("名字太长了（61 个字符，最多 60 个）"))
 
         let invalidColor = await executeCreate(tools, [
             "name": .string("Builder"), "color": .string("rainbow"),
         ])
-        XCTAssertTrue(botTeamResultText(invalidColor).contains("color must be one of"))
+        XCTAssertTrue(botTeamResultText(invalidColor).contains("color 只能是这些值之一"))
         let invalidHairstyle = await executeCreate(tools, [
             "name": .string("Builder"), "hairstyle": .string("mohawk"),
         ])
-        XCTAssertTrue(botTeamResultText(invalidHairstyle).contains("hairstyle must be one of"))
+        XCTAssertTrue(botTeamResultText(invalidHairstyle).contains("hairstyle 只能是这些值之一"))
         let created = await host.created
         XCTAssertTrue(created.isEmpty)
 

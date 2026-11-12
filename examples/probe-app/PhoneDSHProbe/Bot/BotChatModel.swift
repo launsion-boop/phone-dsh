@@ -399,6 +399,28 @@ final class BotChatModel: ObservableObject {
             ?? BotActivity(status: .thinking, detail: "", category: .thinking)
     }
 
+    /// The newest row that is still waiting for a person: a pending approval
+    /// or an unanswered question/steps/checklist card. The transcript scrolls
+    /// to this row's bottom when it exists, because the live text of the same
+    /// turn is rendered *after* the durable rows and scrolling to the tail
+    /// would push the card's buttons above the keyboard (the field failure).
+    /// A card that already collapsed into its one-line settled summary is not
+    /// actionable any more; `settlement(for:)` is the single rule for that,
+    /// including cards skipped by the next user message.
+    var newestActionableCard: BotUIRow? {
+        guard let row = displayRows.last,
+              let card = BotUICardContent.parse(row: row) else { return nil }
+        switch card.kind {
+        case .approval, .question, .steps, .checklist:
+            if card.kind == .checklist, card.body["interactive"]?.bool == false {
+                return nil
+            }
+            return settlement(for: row) == nil ? row : nil
+        default:
+            return nil
+        }
+    }
+
     /// Interactive cards that were already on screen before the latest user
     /// text and were never handled. Question, steps and the sendable checklist
     /// all follow this one rule; approvals are auto-denied on send instead.
@@ -512,17 +534,13 @@ final class BotChatModel: ObservableObject {
             return BotCardSettlement(glyph: "xmark.circle", title: "已略过，视为拒绝",
                                      detail: detail, monospacedDetail: !command.isEmpty)
         }
-        let allowed = status == "allowed" || status == "always"
+        // The durable projection may carry `allowed-session` for a session
+        // grant; the shared receipt mapping is the single source of truth for
+        // matching the label to the button the user actually pressed (P26
+        // §2.7), so a session grant never renders as a one-off or「已处理」.
+        let allowed = status == "allowed" || status == "allowed-session" || status == "always"
         let scope = card.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until"
-        let label: String
-        switch status {
-        case "allowed": label = "已允许一次"
-        case "always": label = scope == "session" ? "本次对话允许" : "已总是允许"
-        case "denied", "never": label = "已拒绝"
-        case "timed-out": label = "已超时，视为拒绝"
-        case "expired": label = "已过期，视为拒绝"
-        default: label = "已处理"
-        }
+        let label = BotApprovalReceipt.label(for: status, scope: scope)
         return BotCardSettlement(glyph: allowed ? "checkmark.circle.fill" : "xmark.circle",
                                  title: label, detail: detail,
                                  tone: allowed ? .success : .neutral,
@@ -791,9 +809,29 @@ final class BotChatModel: ObservableObject {
     }
 
     private func applyDurablePresentation(_ presentation: BotRuntimePresentation) {
-        runtimePresentation = presentation
-        if live == nil { reaction = presentation.reaction }
-        guard live == nil else { return }
+        // `@Published` publishes on every assignment, even an equal value. The
+        // 800ms watch re-reads the same durable projection while the user
+        // reads a card; assigning it unconditionally re-rendered the whole
+        // dense transcript every poll.
+        if presentation != runtimePresentation { runtimePresentation = presentation }
+        if let liveTurn = live {
+            // The durable projection is authoritative for whether a turn is
+            // still open. A `turn/end` live frame can be lost when the scene
+            // pauses or the Worker is replaced; without this check the live
+            // turn (and its failed tool rows) stayed mounted forever, keeping
+            // the lazy transcript in a placement loop after the incident.
+            if presentation.runningTurnID == nil {
+                let committed = liveTurn.turn.map { number in
+                    rows.contains { Self.isAnswer($0) && Self.turn(of: $0) == number }
+                } ?? false
+                if liveTurn.ended || committed {
+                    settleDurableLive(presentation)
+                    return
+                }
+            }
+            return
+        }
+        if reaction != presentation.reaction { reaction = presentation.reaction }
         if let turn = presentation.runningTurnID {
             if runningTurnID == nil, !cancelledTurnIDs.contains(turn) {
                 runningTurnID = turn
@@ -808,6 +846,25 @@ final class BotChatModel: ObservableObject {
             stream.cancel()
         }
         scheduleIdleSleep()
+    }
+
+    /// Drop a live turn the durable projection has already closed. The next
+    /// watch poll renders the durable answer row and its folded process row
+    /// instead of the live tool group that was being re-measured forever.
+    private func settleDurableLive(_ presentation: BotRuntimePresentation) {
+        live = nil
+        livePresentation = nil
+        reaction = presentation.reaction
+        liveFish = BotLiveFishProjection(botID: context.botID)
+        fishExpiryTask?.cancel()
+        fishExpiryTask = nil
+        stream.cancel()
+        deltaFlush?.cancel()
+        deltaFlush = nil
+        pendingDelta = ""
+        streamingText = nil
+        runningTurnID = nil
+        scheduleIdleSleep(reset: true)
     }
 
     private func scheduleIdleSleep(reset: Bool = false) {
@@ -899,7 +956,27 @@ final class BotChatModel: ObservableObject {
         }
         if let index {
             if rows[index].id == row.id && rows[index].updatedSeq > row.updatedSeq { return }
-            rows[index] = row
+            if rows[index] == row { return }
+            var next = row
+            if rows[index].id != row.id {
+                // An in-place card update (same `cardKey`) may still carry a
+                // fresh producer id — the durable projection used to mint a
+                // new `card.presented` row id for every progress update. The
+                // transcript's identity is the first row id: replacing it
+                // makes `ForEach` tear down and rebuild the lazy item on every
+                // update, which feeds the placement loop. Keep the original
+                // identity and ordering; merge the provenance instead.
+                next.id = rows[index].id
+                next.seq = rows[index].seq
+                next.createdAt = rows[index].createdAt
+                var eventIDs = rows[index].provenance.eventIDs
+                for eventID in row.provenance.eventIDs where !eventIDs.contains(eventID) {
+                    eventIDs.append(eventID)
+                }
+                next.provenance.eventIDs = eventIDs
+            }
+            if next == rows[index] { return }
+            rows[index] = next
         } else {
             rows.append(row)
         }
@@ -976,7 +1053,7 @@ final class BotChatModel: ObservableObject {
             if live == nil { lineSuppressed = false }
             var turn = live ?? BotLiveTurn()
             turn.buffer = ""
-            live = turn
+            if turn != live { live = turn }
         case .textDelta(let text):
             if live == nil {
                 lineSuppressed = false
@@ -1006,7 +1083,7 @@ final class BotChatModel: ObservableObject {
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
-            live = turn
+            if turn != live { live = turn }
             if type == "turn/start" {
                 runningTurnID = liveFish.presentation().runningTurnID
                 streamingText = nil
@@ -1022,8 +1099,8 @@ final class BotChatModel: ObservableObject {
 
     private func refreshLiveFishPresentation() {
         let presentation = liveFish.presentation()
-        livePresentation = presentation
-        reaction = presentation.reaction
+        if livePresentation != presentation { livePresentation = presentation }
+        if reaction != presentation.reaction { reaction = presentation.reaction }
         scheduleFishExpiry(presentation)
     }
 
@@ -1048,13 +1125,13 @@ final class BotChatModel: ObservableObject {
     private func flushDelta() {
         deltaFlush?.cancel()
         deltaFlush = nil
-        guard !pendingDelta.isEmpty, var turn = live, !turn.ended else {
+        guard !pendingDelta.isEmpty, var turn = live, !turn.ended, !turn.suppressesText else {
             pendingDelta = ""
             return
         }
         turn.buffer += pendingDelta
         pendingDelta = ""
-        live = turn
+        if turn != live { live = turn }
     }
 
     /// After `turn/end` the live view stays until the row projection shows
@@ -1068,7 +1145,7 @@ final class BotChatModel: ObservableObject {
         if (committed && turn.pollsSinceEnd >= 2) || turn.pollsSinceEnd >= 4 {
             live = nil
             scheduleIdleSleep(reset: true)
-        } else {
+        } else if turn != live {
             live = turn
         }
     }

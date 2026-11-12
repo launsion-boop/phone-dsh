@@ -281,13 +281,120 @@ test('a claim without a token stores no credential and registration omits the fi
       })
       assert.equal(result.isError, true, 'the host must reject a registration without a token')
     }
-    assert.equal(registrations.length, 2)
+    assert.equal(registrations.length, 4,
+      'each denied call retries the unauthorized registration exactly once')
     for (const registration of registrations) {
       assert.equal('sessionToken' in registration, false,
         'the bridge must not fabricate a token')
     }
   } finally {
     hub.close()
+    await ctx.fiber.dispose()
+  }
+})
+
+test('an unauthorized registration retries once after the App re-claims the lost credential', async () => {
+  const ctx = await mount()
+  const tokens: Array<string | undefined> = []
+  let attempts = 0
+  let executed = 0
+  try {
+    botOwnedSessions(ctx).add('gb-main')
+    ctx.tools.register(defineTool({
+      name: 'mcp__phone__ListRoutines', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { executed += 1; return 'ok' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        attempts += 1
+        tokens.push(payload.sessionToken as string | undefined)
+        if (attempts === 1) {
+          // The Swift host re-claims the session's current token before it
+          // answers the first request; the retry must read the new value.
+          botOwnedSessions(ctx).add('gb-main', 'dshg_reclaimed_credential')
+          return { ok: false, error: 'unauthorized' }
+        }
+        return payload.sessionToken === 'dshg_reclaimed_credential'
+          ? { ok: true, id: 'reclaimed-registration' }
+          : { ok: false, error: 'unauthorized' }
+      },
+      cancel: async () => {},
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('reclaimed-registration'), name: 'mcp__phone__ListRoutines',
+      arguments: {}, signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, false)
+    assert.equal(executed, 1)
+    assert.equal(attempts, 2)
+    assert.deepEqual(tokens, [undefined, 'dshg_reclaimed_credential'])
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a permanently lost credential retries once, fails closed and explains why', async () => {
+  const ctx = await mount()
+  let attempts = 0
+  let executed = 0
+  try {
+    ctx.tools.register(defineTool({
+      name: 'mcp__phone__ListRoutines', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { executed += 1; return 'must-not-run' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => {
+        attempts += 1
+        return { ok: false, error: 'unauthorized' }
+      },
+      cancel: async () => {},
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('permanently-lost'), name: 'mcp__phone__ListRoutines',
+      arguments: {}, signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, true)
+    assert.equal(executed, 0)
+    assert.equal(attempts, 2, 'exactly one retry, never a storm')
+    assert.match(JSON.stringify(result), /与 App 的连接已失效，已尝试恢复，请稍后重试。/)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('a second claim for the same session replaces the stored token', async () => {
+  const ctx = await mount()
+  const tokens: Array<string | undefined> = []
+  try {
+    await ctx.plugin(channelCtx => { new BotRuntimeRemote(channelCtx, new BotStreamHub()) })
+    const remote = ctx.get('botRuntimeRemote') as {
+      botClaimSession(request: { sessionId: string, sessionToken?: string }): { ok: boolean, sessionId: string }
+    }
+    const expected = { ok: true, sessionId: 'gb-main' }
+    assert.deepEqual(remote.botClaimSession({
+      sessionId: 'gb-main', sessionToken: 'dshg_reissued_1',
+    }), expected)
+    assert.deepEqual(remote.botClaimSession({
+      sessionId: 'gb-main', sessionToken: 'dshg_reissued_2',
+    }), expected)
+    registerProbe(ctx)
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async payload => {
+        tokens.push(payload.sessionToken as string | undefined)
+        return { ok: true, id: 'reissued-registration' }
+      },
+      cancel: async () => {},
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('reissued-token'), name: 'mcp__phone__ListRoutines',
+      arguments: {}, signal: new AbortController().signal, agent: agent('gb-main'),
+    })
+    assert.equal(result.isError, false)
+    assert.deepEqual(tokens, ['dshg_reissued_2'],
+      'the latest claim must overwrite the previous token for the same session')
+  } finally {
     await ctx.fiber.dispose()
   }
 })
@@ -675,6 +782,33 @@ test('structural bash approval carries recomputable effects and consumes at its 
     const effects = payloads[0]!.effects as { operation: string; resource: string }[]
     assert.deepEqual(effects.map(effect => effect.operation), ['rm-destructive'])
     assert.equal(effects[0]!.resource, '/tmp/wp7-artifact')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+test('an unattributed approval explains the lost identity instead of saying only unattributed', async () => {
+  const ctx = await mount()
+  let executed = 0
+  try {
+    registerProbe(ctx, 'bash')
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registered-before-approval' }),
+      cancel: async () => {},
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => ({ ok: false, message: 'unattributed' }),
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('unattributed-approval'), name: 'bash',
+      arguments: { command: 'printf NEVER' },
+      signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, true)
+    assert.equal(executed, 0)
+    const text = JSON.stringify(result)
+    assert.match(text, /这个对话与 App 的身份登记已失效或未完成/)
+    assert.doesNotMatch(text, /\[structural approval gate\] unattributed The tool call/)
   } finally {
     await ctx.fiber.dispose()
   }
