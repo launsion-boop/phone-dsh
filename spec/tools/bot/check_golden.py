@@ -10,8 +10,10 @@ Offline mode (used by CI) checks that
     declares ``upstream: []`` for one of the small, explicit phone-only
     vectors (currently ``turn-origin.phone.json``, ``mcp-egress.phone.json``,
     ``authority.phone.json``, ``record-reference.phone.json``,
-    ``observation-envelope.phone.json``, ``record-query.phone.json`` and
-    ``erasure-event.phone.json``) that have no dsh-bot counterpart.
+    ``observation-envelope.phone.json``, ``record-query.phone.json``,
+    ``erasure-event.phone.json``, ``verification.phone.json``,
+    ``store.phone.json`` and ``user-action-transaction.phone.json``) that have no
+    dsh-bot counterpart.
 
 With ``--checkout`` it also runs the real exporter into a temporary directory
 and requires every upstream golden file to be byte-identical to the export.
@@ -57,6 +59,8 @@ PHONE_ONLY_VECTORS = frozenset({
     "record-reference.phone.json", "observation-envelope.phone.json", "record-query.phone.json",
     "erasure-event.phone.json",
     "verification.phone.json",
+    "store.phone.json",
+    "user-action-transaction.phone.json",
 })
 
 
