@@ -326,12 +326,25 @@ final class BotCaptureUITests: XCTestCase {
         }, "tapping the option did not send the answer")
 
         // The approval card is next. Scrolling may interactively dismiss the
-        // keyboard; focus the field again so the approval tap happens with the
-        // keyboard up, as in the field failure.
+        // keyboard, and focusing the composer after scrolling shortens the
+        // viewport, which can push the button under the keyboard again. Focus
+        // first, then scroll with the keyboard up; repeat because a swipe can
+        // dismiss the keyboard. The assertion only passes in the state the
+        // field failure was about: keyboard on screen and the button above it.
         let always = app.buttons["bot.approval.always"]
-        scrollTo(always)
-        input.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(always.waitForExistence(timeout: 5))
+        var approvalHittableWithKeyboard = false
+        for _ in 0..<10 {
+            input.tap()
+            guard app.keyboards.firstMatch.waitForExistence(timeout: 2) else { continue }
+            if always.isHittable {
+                approvalHittableWithKeyboard = true
+                break
+            }
+            app.swipeUp()
+        }
+        XCTAssertTrue(approvalHittableWithKeyboard && app.keyboards.firstMatch.exists,
+                      "approval always button never became hittable with the keyboard up: \(always.frame)")
         XCTAssertTrue(always.isHittable,
                       "approval always button is visible but not hittable: \(always.frame)")
         XCTAssertTrue(input.exists, "composer is not resolvable before the approval tap")

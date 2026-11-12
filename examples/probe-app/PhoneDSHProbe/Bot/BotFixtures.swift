@@ -15,6 +15,7 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case runningProgress
     case chatLayoutStress
     case chatLayoutKeyboard
+    case chatLayoutTyping
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
@@ -260,6 +261,8 @@ enum BotUIFixtures {
             return layoutStressRows()
         case .chatLayoutKeyboard:
             return interactiveCardsRows()
+        case .chatLayoutTyping:
+            return typingLayoutRows()
         case .checklist:
             body = widget("checklist", [
                 "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
@@ -589,11 +592,37 @@ enum BotUIFixtures {
         return [middle, finished]
     }
 
-    /// Mimics the production watch cadence for the keyboard fixture without a
-    /// Bot runtime: every 800ms the page receives an (unchanged) durable
-    /// presentation, exactly like `BotProductionPage`'s watch loop. This is
-    /// what kept re-rendering the dense transcript while a turn waited for
-    /// the user's choice.
+    /// The typing regression: a dense card history is already on screen, the
+    /// composer starts with a multi-line draft (so its height has grown), and
+    /// the page appends new assistant rows while the keyboard is up. The
+    /// conformance check waits for the last append and then proves the model
+    /// and the transcript rows stay quiet for two seconds.
+    static func typingLayoutRows() -> [BotUIRow] {
+        var rows = interactiveCardsRows()
+        rows.insert(BotUIRow.text(
+            id: "typing-older-user", seq: 0, role: "user",
+            text: "先留着这段较早的对话，确认追加新行时旧行不会被重建。"), at: 0)
+        return rows
+    }
+
+    /// Appended one at a time (300ms apart), like a live turn committing
+    /// messages under an open keyboard.
+    static func typingLayoutAppends() -> [BotUIRow] {
+        (0..<6).map { index in
+            BotUIRow.text(
+                id: "typing-append-\(index)", seq: 7 + index, role: "assistant",
+                text: """
+                追加消息 \(index + 1)：键盘保持打开，输入框已经有 \(3 + index) 行文本。
+                这一行只用于验证 transcript 稳定后不再重建旧的卡片行。
+                """)
+        }
+    }
+
+    /// Mimics the production watch cadence for the keyboard/typing fixtures
+    /// without a Bot runtime: every 800ms the page receives an (unchanged)
+    /// durable presentation, exactly like `BotProductionPage`'s watch loop.
+    /// This is what kept re-rendering the dense transcript while a turn waited
+    /// for the user's choice.
     static func keyboardPollingDriver() -> BotChatDriver {
         BotChatDriver(
             history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
@@ -910,6 +939,13 @@ struct BotUIFixtureRootView: View {
                 context: .fixture,
                 driver: BotUIFixtures.keyboardPollingDriver(),
                 fixtureActions: true)
+        } else if fixture == .chatLayoutTyping {
+            self.playback = nil
+            chat = BotChatModel(
+                rows: BotUIFixtures.typingLayoutRows(),
+                context: .fixture,
+                driver: BotUIFixtures.keyboardPollingDriver(),
+                fixtureActions: true)
         } else {
             self.playback = nil
             chat = BotChatModel(
@@ -1082,7 +1118,13 @@ struct BotUIFixtureRootView: View {
                                 },
                                 peerAppearance: BotUIFixtures.peerAppearance,
                                 peerIsMainBot: { $0 == "main" },
-                                initialComposerFocus: fixture == .chatLayoutKeyboard,
+                                initialComposerFocus: fixture == .chatLayoutKeyboard
+                                    || fixture == .chatLayoutTyping,
+                                initialComposerText: fixture == .chatLayoutTyping
+                                    ? "布局压力：键盘打开、输入框已经增高。\n第二行用于撑开胶囊。\n第三行继续输入。"
+                                    : "",
+                                transcriptProbe: fixture == .chatLayoutTyping
+                                    ? BotTranscriptStabilityProbe.shared.renderProbe : nil,
                                 initialAttachments: fixture == .composerAttachments
                                     ? BotUIFixtures.composerAttachments : [],
                                 initialAttachmentNotice: fixture == .composerAttachments
@@ -1119,6 +1161,26 @@ struct BotUIFixtureRootView: View {
                 // Keep the production 800ms durable watch alive while the
                 // keyboard is up (pageActive defaults true for the fixture).
                 Task { await chatModel.watchLoop() }
+            }
+            if fixture == .chatLayoutTyping {
+                // The production watch keeps running (equal presentations are
+                // deduped); six new rows arrive while the keyboard is up and
+                // the initial draft already makes the composer taller. The
+                // conformance check reads the probe after `markSettled`.
+                BotTranscriptStabilityProbe.shared.attach(model: chatModel)
+                Task { await chatModel.watchLoop() }
+                for (index, row) in BotUIFixtures.typingLayoutAppends().enumerated() {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    chatModel.apply(BotUIRowBatch(rows: [row], deletes: [],
+                                                  cursor: index + 1, reset: false))
+                }
+                // Let the last published row render and the keyboard/focus
+                // animation finish before the probe declares the fixture
+                // settled; otherwise the conformance snapshot can precede the
+                // final legitimate body evaluation.
+                try? await Task.sleep(for: .milliseconds(600))
+                BotTranscriptStabilityProbe.shared.markSettled()
+                return
             }
             if fixture == .chatLayoutStress || fixture == .chatLayoutKeyboard {
                 // Same-cardKey updates in the same transcript: the second and
@@ -1459,7 +1521,8 @@ enum BotUIFixtureCheckError: Error, CustomStringConvertible {
 
 @MainActor
 enum BotUIFixtureChecks {
-    static func run(cardPayloadURL: URL, rowProtocolURL: URL) async throws -> [String] {
+    static func run(cardPayloadURL: URL, rowProtocolURL: URL,
+                    activeFixture: BotUIFixtureCase? = nil) async throws -> [String] {
         // Let the first fixture render before the timing-sensitive stream
         // check. A cold simulator launch spends its first moments loading the
         // layered avatar, which used to leave too little of the coalescer's
@@ -1470,6 +1533,25 @@ enum BotUIFixtureChecks {
         passed.append("shared-card-payload-decoding")
         try checkRowProtocol(at: rowProtocolURL)
         passed.append("shared-row-protocol-decoding")
+
+        // The keyboard + grown composer + append fixture must reach a stable
+        // state and stay there: neither the model's `objectWillChange` nor a
+        // transcript row body may keep firing after the appends stop. This
+        // drives the real `BotChatPage` on screen, not a mirrored view.
+        if activeFixture == .chatLayoutTyping {
+            let probe = BotTranscriptStabilityProbe.shared
+            let settled = await probe.waitUntilSettled(timeout: 12)
+            try require(settled, "typing fixture did not finish appending rows")
+            let before = probe.snapshot()
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            let after = probe.snapshot()
+            try require(before.rowCount > 0, "typing fixture did not render transcript rows")
+            try require(after.publishes == before.publishes,
+                        "chat model published \(after.publishes - before.publishes) time(s) after the typing fixture settled")
+            try require(after.rowBodyEvaluations == before.rowBodyEvaluations,
+                        "transcript rows rebuilt \(after.rowBodyEvaluations - before.rowBodyEvaluations) time(s) after the typing fixture settled")
+            passed.append("typing-fixture-settles-without-rebuilds")
+        }
 
         let progressRows = BotUIFixtures.rows(for: .progress)
         let model = BotChatModel(rows: progressRows, context: .fixture, fixtureActions: true)
