@@ -18,5 +18,31 @@
     {"name": "wildcard is not an explicit SSE accept", "method": "tools/call", "batch": false, "accept": "*/*", "slow": true, "expect": "json"},
     {"name": "other method", "method": "tools/list", "batch": false, "accept": "application/json, text/event-stream", "slow": true, "expect": "json"},
     {"name": "batch", "method": "tools/call", "batch": true, "accept": "application/json, text/event-stream", "slow": true, "expect": "json"}
-  ]
+  ],
+  "approval": {
+    "note": "spec/bot/v1/mcp-endpoint.md §2 Long approvals (PC-20261112-bot-approval-keepalive). Same constants and framing as tools/call; the data line is the unchanged approval outcome object. Producer: the Bot listener /approval. Consumer: plugins/bot-runtime postApproval.",
+    "route": "/approval",
+    "worker_accept": "application/json, text/event-stream",
+    "decisions": [
+      {"name": "slow approval, Worker accepts SSE", "accept": "application/json, text/event-stream", "slow": true, "expect": "stream"},
+      {"name": "SSE first in Accept, with a parameter", "accept": "text/event-stream;q=0.9, application/json", "slow": true, "expect": "stream"},
+      {"name": "fast outcome stays JSON", "accept": "application/json, text/event-stream", "slow": false, "expect": "json"},
+      {"name": "old Worker without SSE accept", "accept": "application/json", "slow": true, "expect": "json"},
+      {"name": "no Accept header", "accept": null, "slow": true, "expect": "json"},
+      {"name": "wildcard is not an explicit SSE accept", "accept": "*/*", "slow": true, "expect": "json"}
+    ],
+    "valid_streams": [
+      {"name": "allowed after keepalives", "body": ": keepalive\n\n: keepalive\n\nevent: message\ndata: {\"ok\":true,\"allowed\":true,\"approvalId\":\"approval-fixture-1\",\"message\":\"allowed\"}\n\n", "expect": {"ok": true, "allowed": true, "approvalId": "approval-fixture-1", "message": "allowed"}},
+      {"name": "denied without keepalive", "body": "event: message\ndata: {\"ok\":false,\"allowed\":false,\"approvalId\":\"approval-fixture-2\",\"message\":\"approval denied\"}\n\n", "expect": {"ok": false, "allowed": false, "approvalId": "approval-fixture-2", "message": "approval denied"}},
+      {"name": "cancelled by the call ending", "body": ": keepalive\n\nevent: message\ndata: {\"ok\":false,\"allowed\":false,\"approvalId\":\"approval-fixture-3\",\"message\":\"approval cancelled\"}\n\n", "expect": {"ok": false, "allowed": false, "approvalId": "approval-fixture-3", "message": "approval cancelled"}}
+    ],
+    "invalid_streams": [
+      {"name": "keepalives then close without a message", "body": ": keepalive\n\n: keepalive\n\n", "expect": "fail_closed"},
+      {"name": "empty body", "body": "", "expect": "fail_closed"},
+      {"name": "two message events", "body": "event: message\ndata: {\"ok\":true,\"allowed\":true,\"message\":\"allowed\"}\n\nevent: message\ndata: {\"ok\":true,\"allowed\":true,\"message\":\"allowed\"}\n\n", "expect": "fail_closed"},
+      {"name": "data is not JSON", "body": "event: message\ndata: allowed\n\n", "expect": "fail_closed"},
+      {"name": "data is a JSON array", "body": "event: message\ndata: [true]\n\n", "expect": "fail_closed"},
+      {"name": "another event name", "body": "event: progress\ndata: {\"ok\":true,\"allowed\":true,\"message\":\"allowed\"}\n\n", "expect": "fail_closed"}
+    ]
+  }
 }
