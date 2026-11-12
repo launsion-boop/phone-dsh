@@ -38,6 +38,7 @@ MODULES = (
     "core",
     "net",
     "pclink",
+    "bot",
     "controller",
     "engine",
     "shell",
@@ -69,6 +70,7 @@ include(":domain")
 include(":core")
 include(":net")
 include(":pclink")
+include(":bot")
 include(":controller")
 include(":engine")
 include(":shell")

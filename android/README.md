@@ -2,7 +2,7 @@
 # PDSH Android 适配树
 
 > **状态：可构建、可测试、可在模拟器上跑通 boot→HELLO。**
-> 14 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE 仅有未接入的 target 解码器、LAN 发现为 partial（扫描与候选已接入 MCP 页，授权流程未接），SSH 映射到 `:app` 的 `com.phonedsh.ssh`，ADB 合并进 `:net`（原生 MCP 工具，无 Worker 文件传输加速器），DeviceTasks 在 Android 无对应实现，PCLink（P28）是独立 JVM 模块 `:pclink` 且**只完成协议 codec/crypto 层（partial，in progress；不是 implemented）**。另 7 个模块不属于原有 7 个映射
+> 15 个 Gradle 模块：原有 11 个 Swift 模块由 **7 个模块映射**（合并规则见下）；新增加的 Swift 模块中，BLE 仅有未接入的 target 解码器、LAN 发现为 partial（扫描与候选已接入 MCP 页，授权流程未接），SSH 映射到 `:app` 的 `com.phonedsh.ssh`，ADB 合并进 `:net`（原生 MCP 工具，无 Worker 文件传输加速器），DeviceTasks 在 Android 无对应实现，PCLink（P28）是独立 JVM 模块 `:pclink` 且**只完成协议 codec/crypto 层（partial，in progress；不是 implemented）**；Bot（P25–P27）是独立 JVM 模块 `:bot`，只消费已冻结的 golden（partial，GAP-38）。另 7 个模块不属于原有 7 个映射
 > （`:platform` 承载 SPI、`:platform-android` 承载 SPI 的 Android 实现、`:domain` 承载设备能力契约
 > 与手机权限读数、`:lib` 是可发布 AAR、`:app` 是 probe-app、`:lib-consumer-test` 以发布坐标
 > `com.phonedsh:lib:0.1.0` 消费 AAR、`:pclink` 是 PCLink 协议的 JVM 实现，不进 AAR）。`:domain` 的 **DomainStore 已删除**（2026-11-01：
@@ -120,7 +120,7 @@ fixture 用临时目录或拼接构造路径，只有嵌入的 shebang 行被跳
 
 ```text
 android/
-├── settings.gradle.kts        # 14 个 Gradle 模块 + version catalog
+├── settings.gradle.kts        # 15 个 Gradle 模块 + version catalog
 ├── build.gradle.kts           # 根 plugins（apply false）
 ├── gradle.properties          # AndroidX / R 类 / JVM 最小开关
 ├── gradle/libs.versions.toml  # AGP/Kotlin/Compose 占位 pin（全部 unverified）
@@ -159,7 +159,7 @@ android/
 | PhoneDSHADB | `com.phonedsh.adb` | `:net` | mapped | 合并进 `:net`；`/mcp/native` 的 26 个 android_* 工具、RSA 身份（SecureStore）、回执与设置页；无 Worker `adb push/pull/stat` 加速器（见 PC-20261108-android-adb-host） |
 | PhoneDSHSSH | `com.phonedsh.ssh` | `:app` | mapped | 原生 `ssh`/`scp` 加速器（JSch + Bouncy Castle，仅在 `:app`，不进 AAR）；设置页「SSH 主机」，凭据走 Android Keystore；见 `docs/native-ssh.md` |
 | PhoneDSHBLE | `com.phonedsh.domain.connector.ble` | `:domain` | target | 仅未接线的 Link 编解码与状态机；没有 GATT、授权或设备任务 |
-| PhoneDSHBot | — | — | absent | Android 无 Kotlin 实现；路线图第 4 波计划移植 Bot runtime（memory → routines/wake → proactive → MCP → team）及 Bot tab、大肥鱼 |
+| PhoneDSHBot | `com.phonedsh.bot` | `:bot` | target | partial（in progress，**不是 implemented**）：独立 JVM 模块（PC-20261112-android-bot-w4 A1）只消费已冻结的 `spec/bot/v1` golden：rows/user action、card payload、display projection、attachments、profile/roster、fish director；store、session、MCP listener、Bot tab 与大肥鱼渲染尚未实现（GAP-38 未关闭） |
 | PhoneDSHLAN | `com.phonedsh.domain.connector.lan` | `:domain` | target | 状态列由 `spec/platform/android-module-map.json` 拥有，待契约 owner 更新为 partial。有界 DNS 报文解析＋DNS-SD 折叠＋候选解码（`:domain`），`:app` 的 `AndroidLanDiscovery` 在 Wi-Fi 上做用户发起的 mDNS 扫描并列出未验证候选；不连接、不授权、不持久化（见 PC-20261108-android-lan-mdns） |
 | PhoneDSHDeviceTasks | — | — | absent | Android 无对应实现 |
 
