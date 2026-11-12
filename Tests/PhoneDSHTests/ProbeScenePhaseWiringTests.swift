@@ -27,7 +27,10 @@ final class ProbeScenePhaseWiringTests: XCTestCase {
 
     func testViewsDoNotObserveScenePhase() throws {
         let root = probeRoot()
-        for name in ["RootView.swift", "ChatPage.swift"] {
+        // PCPairingPage needs to show its "keep this page open" interruption
+        // notice, but it reads AppModel.isSceneActive (the app entry's derived
+        // projection), never SwiftUI's scenePhase itself.
+        for name in ["RootView.swift", "ChatPage.swift", "PCPairingPage.swift"] {
             let text = try contents(root.appendingPathComponent(name))
             XCTAssertFalse(text.contains("scenePhase"), "\(name) must leave scene phase to PhoneDSHProbeApp")
         }
