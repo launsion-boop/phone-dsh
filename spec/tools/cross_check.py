@@ -102,6 +102,7 @@ GOLDEN_READERS = (
     ("spec/ui/v1/golden", "composer-send.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "pressed-states.golden.json", "spec/ui/v1/tools/ui_check.py", False),
     ("spec/ui/v1/golden", "disclosure-motion.golden.json", "spec/ui/v1/tools/ui_check.py", False),
+    ("spec/ui/v1/bot/fish/golden", "*.json", "spec/ui/v1/bot/fish/tools/check_fish.py", False),
     ("spec/v1/golden/native-mcp", "*.json", "spec/v1/tools/native_mcp_check.py", False),
     ("spec/ui/v1/golden/page-completeness", "fixture.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
     ("spec/ui/v1/golden/page-completeness", "cases.schema.json", "spec/ui/v1/tools/test_extract_ios_pages.py", False),
