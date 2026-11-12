@@ -16,6 +16,11 @@
 // tar entry) so a warm boot only recompresses files whose lstat identity
 // changed. The system zlib is the only compressor; no package is added. The
 // decompressed ustar stays byte-identical to the pre-D21 packer.
+//
+// One bounded `overlay-compose` line per pack makes the tree composition and
+// the fragment-cache hit visible in `boot-timings.log`: the walk that already
+// feeds the archive also rolls file bytes up to the top-level directories, so
+// no second filesystem pass is added.
 
 import Darwin
 import Foundation
@@ -34,6 +39,39 @@ public struct OverlayPackResult: Equatable, Sendable {
     }
 }
 
+/// Composition of one boot-overlay pack, reported once through the boot log.
+///
+/// `bytes` is the sum of the regular files' source bytes, `entries` counts every
+/// ustar entry (directories included) and `files` only regular files. `top` is
+/// the three largest top-level directories below `home/` or `workspace/`,
+/// ordered by bytes descending (name ascending on a tie). `unchanged` counts
+/// files whose cached DEFLATE fragment was reused and `reused_bytes` is their
+/// source-byte total, so `reused_bytes / bytes` is the byte hit rate; the cold
+/// path reports both as zero.
+struct OverlayComposition: Equatable, Sendable {
+    struct TopDirectory: Equatable, Sendable {
+        var directory: String
+        var bytes: Int
+    }
+
+    var bytes: Int
+    var entries: Int
+    var topDirectories: [TopDirectory]
+    var files: Int
+    var unchanged: Int
+    var reusedBytes: Int
+
+    /// `overlay-compose bytes=<n> entries=<n> top=<dir>:<bytes>,... files=<n>
+    /// unchanged=<n> reused_bytes=<n>` — one line, at most three directories.
+    var line: String {
+        let top = topDirectories
+            .map { "\($0.directory):\($0.bytes)" }
+            .joined(separator: ",")
+        return "overlay-compose bytes=\(bytes) entries=\(entries) top=\(top) "
+            + "files=\(files) unchanged=\(unchanged) reused_bytes=\(reusedBytes)"
+    }
+}
+
 /// Packs `materialized/{home,workspace}` as a deterministic gzip-compressed tar
 /// (wal.md §8, D21).
 public struct OverlayPacker: Sendable {
@@ -48,14 +86,15 @@ public struct OverlayPacker: Sendable {
     public init(materializedDirectory: URL) {
         self.materializedDirectory = materializedDirectory
         self.fragmentCacheDirectory = nil
-        self.diagnostics = nil
+        self.diagnostics = Self.defaultDiagnostics(for: materializedDirectory)
     }
 
     /// Convenience initializer for a workspace root.
     public init(root: URL) {
-        self.materializedDirectory = WorkspacePaths(root: root).materializedDirectory
+        let materializedDirectory = WorkspacePaths(root: root).materializedDirectory
+        self.materializedDirectory = materializedDirectory
         self.fragmentCacheDirectory = nil
-        self.diagnostics = nil
+        self.diagnostics = Self.defaultDiagnostics(for: materializedDirectory)
     }
 
     /// Internal initializer used by `WorkspaceLog` (durable cache) and by the
@@ -65,15 +104,29 @@ public struct OverlayPacker: Sendable {
          diagnostics: OverlayFragmentCacheDiagnostics? = nil) {
         self.materializedDirectory = materializedDirectory
         self.fragmentCacheDirectory = fragmentCacheDirectory
-        self.diagnostics = diagnostics
+        self.diagnostics = diagnostics ?? Self.defaultDiagnostics(for: materializedDirectory)
     }
 
     init(root: URL,
          fragmentCacheDirectory: URL?,
          diagnostics: OverlayFragmentCacheDiagnostics? = nil) {
-        self.materializedDirectory = WorkspacePaths(root: root).materializedDirectory
+        let materializedDirectory = WorkspacePaths(root: root).materializedDirectory
+        self.materializedDirectory = materializedDirectory
         self.fragmentCacheDirectory = fragmentCacheDirectory
-        self.diagnostics = diagnostics
+        self.diagnostics = diagnostics ?? Self.defaultDiagnostics(for: materializedDirectory)
+    }
+
+    /// The public packer reports through the same `boot-timings.log` the host
+    /// already owns. The log sits beside the workspace root, so a failure to
+    /// append can never fail the pack.
+    private static func defaultDiagnostics(for materializedDirectory: URL)
+        -> OverlayFragmentCacheDiagnostics {
+        let bootLog = materializedDirectory.deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("boot-timings.log")
+        return OverlayFragmentCacheDiagnostics(sink: { line in
+            LogFile.appendLine(line, to: bootLog)
+        })
     }
 
     /// Returns the complete gzip-compressed overlay bytes (D21).
@@ -283,6 +336,10 @@ public struct OverlayPacker: Sendable {
         try body(OverlayZlib.gzipHeader)
         var totalLength: UInt64 = 0
         var checksum: uLong = 0
+        var fileCount = 0
+        var sourceBytes = 0
+        var unchangedFiles = 0
+        var reusedBytes = 0
 
         for entry in entries {
             let header = try tarHeader(for: entry)
@@ -298,6 +355,8 @@ public struct OverlayPacker: Sendable {
             guard let url = entry.url else {
                 throw LogError.materializationFailed("overlay entry has no file")
             }
+            fileCount += 1
+            sourceBytes += entry.size
             let key = entry.fragmentKey
             if let cached = cache?.fragment(for: key) {
                 try body(cached.bytes)
@@ -305,6 +364,8 @@ public struct OverlayPacker: Sendable {
                 checksum = OverlayZlib.combine(checksum,
                                                uLong(cached.crc),
                                                length: cached.uncompressedLength)
+                unchangedFiles += 1
+                reusedBytes += entry.size
                 continue
             }
 
@@ -343,8 +404,59 @@ public struct OverlayPacker: Sendable {
                                        length: 1024)
         try body(OverlayZlib.finalEmptyBlock)
         try body(OverlayZlib.gzipTrailer(crc: checksum, size: totalLength))
+        if let diagnostics {
+            // Everything here comes from the walk above; there is no second
+            // pass over the materialized tree.
+            let composition = OverlayComposition(
+                bytes: sourceBytes,
+                entries: entries.count,
+                topDirectories: Self.topDirectories(from: entries),
+                files: fileCount,
+                unchanged: unchangedFiles,
+                reusedBytes: reusedBytes)
+            diagnostics.recordComposition(composition)
+        }
         cache?.finish()
         return entries.count
+    }
+
+    /// Rolls file bytes up to the first directory below `home/` or `workspace/`
+    /// and returns the three largest. Files directly under either root are not
+    /// part of a directory rollup. Names are bounded/sanitized so one hostile
+    /// path cannot break the single log line or make it unbounded.
+    private static func topDirectories(from entries: [Entry]) -> [OverlayComposition.TopDirectory] {
+        var rollup: [String: Int] = [:]
+        for entry in entries where !entry.isDirectory {
+            let parts = entry.name.split(separator: "/", omittingEmptySubsequences: true)
+            guard parts.count >= 3,
+                  parts[0] == "home" || parts[0] == "workspace" else { continue }
+            let directory = "\(parts[0])/\(parts[1])"
+            rollup[directory, default: 0] += entry.size
+        }
+        return rollup
+            .filter { $0.value > 0 }
+            .sorted {
+                if $0.value != $1.value { return $0.value > $1.value }
+                return $0.key < $1.key
+            }
+            .prefix(3)
+            .map {
+                OverlayComposition.TopDirectory(directory: boundedLogToken($0.key),
+                                                bytes: $0.value)
+            }
+    }
+
+    private static func boundedLogToken(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn:
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/@+")
+        var sanitized = String.UnicodeScalarView()
+        for scalar in value.unicodeScalars {
+            sanitized.append(allowed.contains(scalar)
+                ? scalar
+                : UnicodeScalar(UInt8(ascii: "_")))
+        }
+        let text = String(sanitized)
+        return text.count <= 80 ? text : String(text.prefix(80))
     }
 
     /// The cache key comes from the lstat performed by ``entries()``. If the

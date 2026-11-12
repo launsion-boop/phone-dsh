@@ -534,6 +534,20 @@ enum LogFile {
         }
     }
 
+    /// Best-effort append to an existing diagnostic log (`boot-timings.log`).
+    /// `O_APPEND` keeps a line written by the log actor and the boot recorder
+    /// from replacing each other; a missing directory or a full disk only
+    /// loses the line, never the overlay that was already packed.
+    static func appendLine(_ line: String, to url: URL) {
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        let descriptor = url.path.withCString {
+            Darwin.open($0, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        }
+        guard descriptor >= 0 else { return }
+        defer { Darwin.close(descriptor) }
+        try? writeAll(fd: descriptor, data: data)
+    }
+
     /// `F_FULLFSYNC`: the level-2 durability primitive of D7/D18.
     static func fullFsync(fd: Int32) throws {
         guard fcntl(fd, F_FULLFSYNC) == 0 else {
