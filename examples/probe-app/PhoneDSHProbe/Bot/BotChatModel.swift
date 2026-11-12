@@ -72,6 +72,14 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var rows: [BotUIRow]
     @Published private(set) var streamingText: String?
     @Published private(set) var runningTurnID: String?
+    /// A send was appended locally but the host has not started the turn yet.
+    /// The status line covers that gap too; the flag is cleared when the turn
+    /// starts, the action fails, the user stops, or the 120s fallback expires.
+    @Published private(set) var awaitingTurn = false
+    /// The user stopped this turn or its final reply arrived and the host's
+    /// `turn/end` has not arrived yet. The status line stays hidden while the
+    /// live text remains visible until the durable rows take over.
+    @Published private(set) var lineSuppressed = false
     /// The durable runtime projection: fish lifecycle and current action.
     @Published private(set) var runtimePresentation = BotRuntimePresentation()
     /// The same projection rebuilt from the live turn frames, which are the
@@ -111,6 +119,7 @@ final class BotChatModel: ObservableObject {
     @Published private(set) var turnProcesses: [Int: BotTurnProcess] = [:]
     private var pendingDelta = ""
     private var deltaFlush: Task<Void, Never>?
+    private var awaitingTurnTimeout: Task<Void, Never>?
     /// Live frames of the open turn, replayed through the one director mapper.
     private var liveFish: BotLiveFishProjection
     private var fishExpiryTask: Task<Void, Never>?
@@ -246,30 +255,49 @@ final class BotChatModel: ObservableObject {
         return runtimePresentation.fishState
     }
 
-    /// The single composer activity line. `BotActivity` is the factory's own
-    /// status/detail; no separate mapping lives here.
+    /// The durable drawer/header activity: the factory's own status/detail.
+    /// The status line uses `lineActivity` instead; this property keeps the
+    /// previous "running turn, no pending approval" behavior for other callers.
     var activity: BotActivity? {
         guard runningTurnID != nil, pendingApprovalCount == 0 else { return nil }
         if live != nil { return livePresentation?.activity }
         return runtimePresentation.activity
     }
 
-    /// Hide the activity line once the reply body is visible, as the DSH page
-    /// and upstream `liveActivityFor` do.
-    var isReplyStreaming: Bool {
-        if !pendingDelta.isEmpty || streamingText?.isEmpty == false { return true }
+    /// Whether reply text is arriving right now. Committed `.text` segments do
+    /// not count: once a paragraph is committed the line returns to the tool
+    /// phrase if the turn goes on to call one.
+    var isStreamingNow: Bool {
+        if !pendingDelta.isEmpty { return true }
+        if streamingText?.isEmpty == false { return true }
         guard let live else { return false }
-        if !live.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-        return live.segments.contains { segment in
-            if case .text(let text) = segment {
-                return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            return false
-        }
+        return !live.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// The status line spans the whole turn: from the local send (before the
+    /// host starts the turn) until final/turn end. Streaming and approvals do
+    /// not hide it; stop/final suppress it while the live text stays.
     var showsActivityLine: Bool {
-        activity != nil && !isReplyStreaming
+        if awaitingTurn { return true }
+        if runningTurnID != nil { return true }
+        if let live, !live.ended, !lineSuppressed { return true }
+        return false
+    }
+
+    /// What the single status line shows, in priority order:
+    /// pending approval → waiting; streaming text → replying; the factory's
+    /// current phase; thinking fallback while waiting for the first event.
+    var lineActivity: BotActivity? {
+        guard showsActivityLine else { return nil }
+        if pendingApprovalCount > 0 {
+            return BotActivity(status: .thinking, detail: "", category: .waiting)
+        }
+        if isStreamingNow {
+            return BotActivity(status: .streaming, detail: "", category: .replying)
+        }
+        let factoryActivity = live != nil ? livePresentation?.activity : runtimePresentation.activity
+        return factoryActivity
+            ?? BotActivity(status: .thinking, detail: "", category: .thinking)
     }
 
     var mutedCardIDs: Set<String> {
@@ -305,6 +333,11 @@ final class BotChatModel: ObservableObject {
                                      eventID: "local:\(nonce)")
         local.provenance.trust = "owner_direct"
         rows.append(local)
+        // The line starts on the local echo and only spans a new turn; steering
+        // into an already running turn keeps the existing line. A stopped or
+        // finalized turn keeps its live text, so `live != nil` alone does not
+        // mean this send is steering.
+        if runningTurnID == nil { markAwaitingTurn() }
         if files.isEmpty, driver == nil, fixtureActions, runningTurnID == nil {
             beginTurn(turnID: "fixture-turn")
         }
@@ -341,6 +374,7 @@ final class BotChatModel: ObservableObject {
         }
         guard !text.isEmpty || !imported.isEmpty else {
             rows.removeAll { $0.id == localID }
+            clearAwaitingTurn()
             return
         }
         if driver == nil && fixtureActions && runningTurnID == nil {
@@ -383,6 +417,8 @@ final class BotChatModel: ObservableObject {
     }
 
     func stop() {
+        clearAwaitingTurn()
+        lineSuppressed = true
         guard let turnID = runningTurnID else { return }
         cancelledTurnIDs.insert(turnID)
         runningTurnID = nil
@@ -394,12 +430,35 @@ final class BotChatModel: ObservableObject {
     }
 
     func beginTurn(turnID: String) {
+        clearAwaitingTurn()
+        lineSuppressed = false
         cancelledTurnIDs.remove(turnID)
         runningTurnID = turnID
         streamingText = nil
         sleepTask?.cancel()
         sleepTask = nil
         idleSleeping = false
+    }
+
+    /// Start the "sent, waiting for the host to open the turn" window. If no
+    /// turn starts within 120s the fallback clears it so the line cannot hang.
+    private func markAwaitingTurn() {
+        lineSuppressed = false
+        awaitingTurn = true
+        awaitingTurnTimeout?.cancel()
+        awaitingTurnTimeout = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000_000)
+            guard !Task.isCancelled, let self, self.awaitingTurn else { return }
+            self.awaitingTurnTimeout = nil
+            self.awaitingTurn = false
+        }
+    }
+
+    /// The turn started, the send failed, was dropped, or the user stopped it.
+    private func clearAwaitingTurn() {
+        awaitingTurnTimeout?.cancel()
+        awaitingTurnTimeout = nil
+        if awaitingTurn { awaitingTurn = false }
     }
 
     /// Any touch, keystroke or send wakes an idle fish and restarts the
@@ -448,7 +507,10 @@ final class BotChatModel: ObservableObject {
         }
         if reaction != presentation.reaction { reaction = presentation.reaction }
         if let turn = presentation.runningTurnID {
-            if runningTurnID == nil, !cancelledTurnIDs.contains(turn) { runningTurnID = turn }
+            if runningTurnID == nil, !cancelledTurnIDs.contains(turn) {
+                runningTurnID = turn
+            }
+            clearAwaitingTurn()
         } else if let turn = runningTurnID, !cancelledTurnIDs.contains(turn) {
             runningTurnID = nil
             streamingText = nil
@@ -506,6 +568,7 @@ final class BotChatModel: ObservableObject {
             stream.cancel()
             streamingText = nil
             runningTurnID = nil
+            lineSuppressed = true
             guard !text.isEmpty else { return }
             upsert(BotUIRow.text(id: "stream-\(turnID)", botID: context.botID,
                                  seq: (rows.map(\.seq).max() ?? 0) + 1,
@@ -649,11 +712,15 @@ final class BotChatModel: ObservableObject {
         switch frame {
         case .streamStart:
             pendingDelta = ""
+            if live == nil { lineSuppressed = false }
             var turn = live ?? BotLiveTurn()
             turn.buffer = ""
             if turn != live { live = turn }
         case .textDelta(let text):
-            if live == nil { live = BotLiveTurn() }
+            if live == nil {
+                lineSuppressed = false
+                live = BotLiveTurn()
+            }
             pendingDelta += text
             guard deltaFlush == nil else { return }
             deltaFlush = Task { [weak self] in
@@ -667,12 +734,14 @@ final class BotChatModel: ObservableObject {
                 pendingDelta = ""
                 deltaFlush?.cancel()
                 deltaFlush = nil
+                lineSuppressed = false
                 live = BotLiveTurn()
                 sleepTask?.cancel()
                 sleepTask = nil
                 idleSleeping = false
             } else {
                 flushDelta()
+                if live == nil { lineSuppressed = false }
             }
             var turn = live ?? BotLiveTurn()
             turn.apply(event: event)
@@ -685,6 +754,8 @@ final class BotChatModel: ObservableObject {
                 scheduleIdleSleep(reset: true)
             }
         }
+        // Any live frame means the host has picked up the turn.
+        if runningTurnID != nil || live != nil { clearAwaitingTurn() }
         refreshLiveFishPresentation()
     }
 
@@ -808,6 +879,7 @@ final class BotChatModel: ObservableObject {
             let reason = result.reason ?? "动作未完成"
             actionStates[key] = .failed(reason)
             if let localRowID { rows.removeAll { $0.id == localRowID } }
+            clearAwaitingTurn()
             runtimeNotice = reason
         }
     }

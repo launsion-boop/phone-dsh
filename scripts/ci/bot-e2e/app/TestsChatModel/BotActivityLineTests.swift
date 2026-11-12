@@ -236,6 +236,8 @@ final class BotActivityLineTests: XCTestCase {
             .thinking: .generic,
             .reviewing: .generic,
             .messaging: .generic,
+            .waiting: .generic,
+            .replying: .generic,
             .generic: .generic,
         ]
         XCTAssertEqual(expected.count, BotActivityCategory.allCases.count)
@@ -397,6 +399,36 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(generic.text, "处理中…")
         generic.tick(at: 2_400)
         XCTAssertEqual(generic.text, "正在处理…")
+    }
+
+    func testWaitingAndReplyingUseTheirOwnPhrasePools() {
+        let waiting = activity("", category: .waiting, startedAt: 0)
+        XCTAssertEqual(BotActivityPhrases.rotationPhrases(for: waiting), ["等你确认"])
+        XCTAssertEqual(BotActivityPhrases.primaryPhrase(for: .waiting), "等你确认")
+
+        let replying = activity("", category: .replying, startedAt: 0)
+        XCTAssertEqual(BotActivityPhrases.rotationPhrases(for: replying),
+                       ["正在回复…", "组织语言…", "写回复中…"])
+        XCTAssertEqual(BotActivityPhrases.primaryPhrase(for: .replying), "正在回复")
+    }
+
+    func testReplyingRotatesButWaitingDoesNot() {
+        var replying = BotActivityLineState()
+        replying.receive(activity("", category: .replying, startedAt: 0), at: 0,
+                         randomStart: { _ in 0 })
+        XCTAssertEqual(replying.text, "正在回复…")
+        XCTAssertEqual(replying.nextDeadline, 2_400)
+        replying.tick(at: 2_400)
+        XCTAssertEqual(replying.text, "组织语言…")
+        replying.tick(at: 4_800)
+        XCTAssertEqual(replying.text, "写回复中…")
+
+        var waiting = BotActivityLineState()
+        waiting.receive(activity("", category: .waiting, startedAt: 0), at: 0)
+        XCTAssertEqual(waiting.text, "等你确认")
+        XCTAssertNil(waiting.nextDeadline)
+        waiting.tick(at: 10_000)
+        XCTAssertEqual(waiting.text, "等你确认")
     }
 
     func testConcreteToolTextAndModelDescriptionNeverRotate() {

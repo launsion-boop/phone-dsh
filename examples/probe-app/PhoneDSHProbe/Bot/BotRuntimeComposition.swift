@@ -286,9 +286,18 @@ final class BotRuntimeComposition {
         let recordService = BotRecordService(
             store: store, gateway: gateway,
             workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot())
+        // The eval seam must govern routine timestamps too: `UpdateRoutine`
+        // computes `nextRunAt` from `BotMCPRuntime.now`, while the scheduler
+        // compares it against the injected clock. Using the wall clock here
+        // while the scheduler ran at the deterministic noon baseline made a
+        // routine created at 13:00 look due only after 13:01 even though
+        // `advance_clock` had moved the scenario clock only two minutes past
+        // noon. Production passes nil and keeps the wall clock.
+        let runtimeClock = now ?? { Int64(Date().timeIntervalSince1970 * 1_000) }
         let runtime = BotMCPRuntime(store: store, gateway: gateway,
                                     volatileProvider: deferred,
-                                    recordEvidence: recordService)
+                                    recordEvidence: recordService,
+                                    now: runtimeClock)
         let machine = await runtime.routineMachine
         let baseMemory = await runtime.memory(for: selectedCandidate)
         let language = Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh" : "en"

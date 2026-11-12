@@ -39,13 +39,16 @@ struct BotChatPage: View {
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
     @State private var preservingHistoryPosition = false
+    /// Height of the composer dock (activity line + notices + capsule), used to
+    /// keep the newest transcript row above it on iOS 17.
+    @State private var composerDockHeight: CGFloat = 0
+    /// Bumped by the send button so the transcript can scroll after layout.
+    @State private var sendScrollTick = 0
     /// One coalesced autoscroll at a time. A streamed answer changes its
     /// height on every delta; calling `scrollTo` synchronously from every
     /// `onChange` keeps the stack re-measuring while the keyboard is also
     /// changing the viewport.
     @State private var transcriptScrollTask: Task<Void, Never>?
-    /// Finished turns whose process row the user opened.
-    @State private var openTurns: Set<Int> = []
     /// Eager mode renders a bounded suffix of the loaded rows; this expands
     /// when the reader asks for older loaded rows.
     @State private var eagerRowLimit = 40
@@ -111,6 +114,9 @@ struct BotChatPage: View {
             composerDock
         }
         .background(HomeSpec.page.ignoresSafeArea())
+        .onPreferenceChange(BotComposerDockHeightKey.self) { height in
+            composerDockHeight = height
+        }
         .sheet(item: $sourceRow) { row in
             BotSourceSheet(row: row)
         }
@@ -298,6 +304,22 @@ struct BotChatPage: View {
                 scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-live-stream"),
                                          anchor: .bottom)
             }
+            // #126's extra keep-the-newest-row triggers. They keep main's
+            // product behavior (line appears, dock grows, send echoes) but use
+            // the same tail guard and 120ms coalescing as the streaming path,
+            // so a keyboard-only resize cannot restart the layout loop.
+            .onChange(of: model.showsActivityLine) { _, _ in
+                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
+                                         anchor: .bottom)
+            }
+            .onChange(of: composerDockHeight) { _, _ in
+                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
+                                         anchor: .bottom)
+            }
+            .onChange(of: sendScrollTick) { _, _ in
+                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
+                                         anchor: .bottom)
+            }
             .onChange(of: model.scrollRequestID) { _, rowID in
                 guard let rowID else { return }
                 followsTail = true
@@ -377,24 +399,12 @@ struct BotChatPage: View {
                 }
                 .accessibilityIdentifier("bot.chat.empty")
         }
-        let anchors = processAnchors
+        // #126: the transcript only shows user messages, answers, cards and
+        // agent-comm rows. Finished process rows and live tool rows are gone;
+        // the activity line above the composer carries the running phase.
         ForEach(window.rows) { row in
-            // One ForEach entry owns exactly one id. Emitting the
-            // process block and the row as two separately-id'd
-            // siblings used to change the lazy item's child count
-            // when turnProcesses arrived, re-creating the rows
-            // while the live turn was settling.
-            Group {
-                if let turn = anchors[row.id], let process = model.turnProcesses[turn] {
-                    BotTurnProcessBlock(process: process, isOpen: openTurns.contains(turn)) {
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            if openTurns.contains(turn) { openTurns.remove(turn) } else { openTurns.insert(turn) }
-                        }
-                    }
-                }
-                transcriptRow(row)
-            }
-            .id(row.id)
+            transcriptRow(row)
+                .id(row.id)
         }
         if let live = model.live {
             BotLiveTurnView(live: live)
@@ -447,7 +457,7 @@ struct BotChatPage: View {
     /// transcript busy indefinitely.
     private func scheduleTranscriptScroll(proxy: ScrollViewProxy, to id: AnyHashable,
                                           anchor: UnitPoint) {
-        guard followsTail else { return }
+        guard followsTail, !preservingHistoryPosition, model.scrollRequestID == nil else { return }
         transcriptScrollTask?.cancel()
         transcriptScrollTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
@@ -502,25 +512,13 @@ struct BotChatPage: View {
                         initialComposerFocus: initialComposerFocus,
                         initialComposerText: initialComposerText,
                         initialAttachments: initialAttachments,
-                        initialAttachmentNotice: initialAttachmentNotice)
-    }
-
-    /// The first answer row of each turn that has tool steps carries that
-    /// turn's process row above it, as on the DSH page.
-    private var processAnchors: [String: Int] {
-        var anchors: [String: Int] = [:]
-        var seen: Set<Int> = []
-        for row in model.displayRows where BotChatModel.isAnswer(row) {
-            guard let turn = BotChatModel.turn(of: row), model.turnProcesses[turn] != nil,
-                  seen.insert(turn).inserted else { continue }
-            anchors[row.id] = turn
-        }
-        return anchors
+                        initialAttachmentNotice: initialAttachmentNotice,
+                        onSend: { sendScrollTick &+= 1 })
     }
 
     private var liveScrollKey: String? {
         model.live.map { live in
-            "\(live.segments.count):\(live.buffer.count):\(live.tools.count):\(live.ended)"
+            "\(live.segments.count):\(live.buffer.count):\(live.ended)"
         }
     }
 
@@ -572,6 +570,9 @@ private struct BotComposerDock: View {
     @ObservedObject var model: BotChatModel
     var focus: FocusState<Bool>.Binding
     let initialComposerFocus: Bool
+    /// Main's #126 scroll contract: after a send, let the local echo and the
+    /// activity line lay out, then scroll the transcript once.
+    var onSend: () -> Void = {}
 
     @State private var draft: String
     @State private var pendingAttachments: [BotDraftAttachment]
@@ -582,10 +583,12 @@ private struct BotComposerDock: View {
 
     init(model: BotChatModel, focus: FocusState<Bool>.Binding,
          initialComposerFocus: Bool, initialComposerText: String,
-         initialAttachments: [BotDraftAttachment], initialAttachmentNotice: String?) {
+         initialAttachments: [BotDraftAttachment], initialAttachmentNotice: String?,
+         onSend: @escaping () -> Void = {}) {
         self.model = model
         self.focus = focus
         self.initialComposerFocus = initialComposerFocus
+        self.onSend = onSend
         _draft = State(initialValue: initialComposerText)
         _pendingAttachments = State(initialValue: initialAttachments)
         _attachmentNotice = State(initialValue: initialAttachmentNotice)
@@ -593,7 +596,7 @@ private struct BotComposerDock: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if model.showsActivityLine, let activity = model.activity {
+            if model.showsActivityLine, let activity = model.lineActivity {
                 BotActivityLine(activity: activity, fishState: model.fishState,
                                 appearance: model.appearance, reaction: model.reaction)
                     .transition(.opacity.combined(with: .offset(y: 6)))
@@ -665,11 +668,15 @@ private struct BotComposerDock: View {
             .homeComposerShadow()
             .simultaneousGesture(TapGesture().onEnded { model.noteInteraction() })
         }
-        .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.activity != nil)
+        .animation(.easeInOut(duration: 0.25), value: model.showsActivityLine && model.lineActivity != nil)
         .padding(.horizontal, HomeSpec.chromeInset)
         .padding(.top, 8)
         .padding(.bottom, 8)
         .background(HomeSpec.page)
+        .background(GeometryReader { proxy in
+            Color.clear.preference(key: BotComposerDockHeightKey.self,
+                                   value: proxy.size.height)
+        })
         .accessibilityElement(children: .contain)
         .onChange(of: draft) { _, _ in model.noteInteraction() }
         .task {
@@ -885,7 +892,19 @@ private struct BotComposerDock: View {
         pendingAttachments = []
         attachmentNotice = nil
         model.send(text: text, files: files)
+        onSend()
         focus.wrappedValue = true
+    }
+}
+
+/// The composer dock's rendered height (activity line included), so the
+/// transcript can scroll when it grows or shrinks. Measured with
+/// GeometryReader + PreferenceKey to stay on iOS 17.
+private struct BotComposerDockHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -1153,73 +1172,17 @@ private struct BotAnswerBubbleContent: View {
     }
 }
 
-/// Human title for one Bot chat tool row. UI-card tools keep the host's zh
-/// effect label; execution tools reuse the activity phrase. The raw wire name
-/// never becomes the visible title.
-private func botToolRowTitle(_ item: ChatItem) -> String {
-    // A failed call says so in the title; the action name alone read like the
-    // call was still working after both attempts were rejected. The projector
-    // keeps a correlated result on the `.toolCall` item and only moves
-    // `toolState` to `.error`, so test the state, not just the kind.
-    if item.toolState == .error || item.kind == .toolResult(isError: true) {
-        return "处理失败"
-    }
-    if let name = item.toolName, !name.isEmpty {
-        return BotActivityPhrases.toolRowLabel(forToolNamed: name)
-    }
-    if case .toolResult(false) = item.kind { return "处理结果" }
-    return BotActivityPhrases.toolRowLabel(forToolNamed: "")
-}
-
-/// The Bot page's tool-row input. A failed call is handed over with its wire
-/// output replaced by one short human line, so the collapsed summary and the
-/// expanded output never show `identity-bridge ... unauthorized`.
-private func botToolRowItems(_ items: [ChatItem]) -> [ChatItem] {
-    items.map { item in
-        let failed = item.toolState == .error || item.kind == .toolResult(isError: true)
-        guard failed else { return item }
-        var copy = item
-        let summary = BotActivityPhrases.toolRowSummary(forErrorText: item.toolOutput ?? item.text)
-        copy.toolOutput = summary
-        copy.text = summary
-        return copy
-    }
-}
-
-/// A finished turn's process row ("已完成，用时 …"); open, it lists the
-/// turn's tool calls as DSH tool rows.
-private struct BotTurnProcessBlock: View {
-    let process: BotTurnProcess
-    let isOpen: Bool
-    let onToggle: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            NativeTurnProcessRow(state: process.state, isOpen: isOpen, isFoldable: true, onToggle: onToggle)
-            if isOpen {
-                ToolRunRow(items: botToolRowItems(process.items), titleForItem: botToolRowTitle)
-            }
-        }
-        .padding(.horizontal, HomeSpec.contentInset)
-        .padding(.vertical, HomeSpec.blockGap / 2)
-    }
-}
-
-/// The running turn in arrival order: committed text bubbles, tool groups,
-/// the text still streaming, then DSH's running clock.
+/// The running turn in arrival order: committed text bubbles, then the text
+/// still streaming. Tool calls are not rendered in the Bot transcript; they
+/// exist only as the activity line's category/phrase.
 private struct BotLiveTurnView: View {
     let live: BotLiveTurn
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(live.segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .text(let text):
+                if case .text(let text) = segment {
                     BotAnswerBubbleContent(text: text, streaming: false)
-                        .padding(.horizontal, HomeSpec.contentInset)
-                        .padding(.vertical, HomeSpec.blockGap / 2)
-                case .tools(let ids):
-                    ToolRunRow(items: botToolRowItems(live.tools(for: ids)), titleForItem: botToolRowTitle)
                         .padding(.horizontal, HomeSpec.contentInset)
                         .padding(.vertical, HomeSpec.blockGap / 2)
                 }

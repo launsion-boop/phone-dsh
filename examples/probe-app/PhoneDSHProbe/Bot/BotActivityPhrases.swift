@@ -17,6 +17,10 @@ enum BotActivityCategory: String, Equatable, Sendable, CaseIterable {
     case memory
     case messaging
     case reviewing
+    /// A pending human decision always wins over the current work phase.
+    case waiting
+    /// Reply text is arriving right now (not committed paragraphs).
+    case replying
     case generic
 }
 
@@ -316,13 +320,15 @@ enum BotActivityPhrases {
     // MARK: - Generic phrases
 
     /// Phrases used only when the activity has no model description and no
-    /// concrete tool target. Thinking/reviewing/generic each have variants;
-    /// every other category is a single static phrase.
+    /// concrete tool target. Thinking/reviewing/generic/replying each have
+    /// variants; `waiting` has one fixed phrase and never rotates.
     static func rotationPhrases(for activity: BotActivity) -> [String] {
         guard activity.detail.isEmpty else { return [primaryPhrase(for: activity.category)] }
         switch activity.category {
         case .thinking: return ["思考中…", "整理思绪…", "准备下一步…"]
         case .reviewing: return ["看看结果…", "检查一下…", "整理结论…"]
+        case .replying: return ["正在回复…", "组织语言…", "写回复中…"]
+        case .waiting: return ["等你确认"]
         case .generic: return ["处理中…", "正在处理…", "马上就好…"]
         default: return [primaryPhrase(for: activity.category)]
         }
@@ -341,6 +347,8 @@ enum BotActivityPhrases {
         case .memory: return "在翻记忆"
         case .messaging: return "整理回复"
         case .reviewing: return "看看结果"
+        case .waiting: return "等你确认"
+        case .replying: return "正在回复"
         case .generic: return "处理中"
         }
     }
@@ -356,7 +364,7 @@ enum BotActivityPhrases {
         case .searching, .browsing: return .searching
         case .running: return .running
         case .writing: return .writing
-        case .thinking, .reviewing, .messaging, .generic: return .generic
+        case .thinking, .reviewing, .messaging, .waiting, .replying, .generic: return .generic
         }
     }
 
@@ -414,8 +422,8 @@ struct BotActivityLineState: Equatable {
     }
 
     /// Feed the current factory activity. Passing nil hides the line at once
-    /// (turn end/streaming); a different activity arriving inside the 800 ms
-    /// window is remembered as the latest pending one.
+    /// (turn end); a different activity arriving inside the 800 ms window is
+    /// remembered as the latest pending one.
     mutating func receive(_ next: BotActivity?, at now: Int64,
                           randomStart: (Int) -> Int = { count in
                               count <= 1 ? 0 : Int.random(in: 0..<count)
