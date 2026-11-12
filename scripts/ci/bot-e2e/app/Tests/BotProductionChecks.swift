@@ -248,8 +248,11 @@ enum BotProductionChecks {
                                         data: ["channel": .string("text")])
         let speaking = BotRuntimePresentationFactory.make(
             botID: "main", sessionID: "main", sessionEvents: [turn, stream], uiEvents: [], now: 1_200)
+        // The factory deliberately keeps its activity nil while text streams;
+        // the Bot page overlays the replying status line from its own pending
+        // delta / live buffer state, so this is not the old visibility rule.
         try require(speaking.fishState == .speaking && speaking.activity == nil,
-                    "stream did not hide activity")
+                    "stream changed the factory activity; the page owns the replying line")
         let approval = BotEvent(type: "approval.requested", eventId: "fish-approval", time: 1_300,
                                 origin: .local(source: "card-bridge"), traceId: "fish-approval",
                                 principal: BotPrincipal(botId: "main", sessionId: "main", kind: "chat"),
