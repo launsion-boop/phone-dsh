@@ -1271,7 +1271,7 @@
     headroomTokens: 65536
     retainRatio: 0.16
     maxTokens: 65536
-    summarizationProvider: ""
+    summarizationProvider: "deepseek-official"
     summarizationModel: "deepseek-flash"
     compactionRetries: 1
     maxOverflowRetries: 1
