@@ -81,7 +81,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | NativeConfigurationPage | 会话级与插件配置 | 页头 `⋯` → 本会话设置；设置 › 插件与工具 | sheet | must |
 | WebSearchSettingsPage | 网页搜索开关与后端 | 插件配置 → 网页搜索与抓取 | push / sheet | must |
 | MCPSettingsPage | MCP 服务器列表与编辑 | 设置 › 权限与隐私 › MCP 与局域网设备 | push；编辑子页 MCPEditorPage | must |
-| NativeAutomationPage | 定时任务、计划详情与历史 | 设置 › 定时任务；`-uiPreview sessions.schedules` | push；子页 ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
+| NativeAutomationPage | 定时任务、计划详情与历史 | 设置 › 定时任务；`-uiPreview sessions.schedules` | sheet（`NavigationStack`，`SettingsPage.swift:115`）；子页 push：ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
 | EgressAllowListPage | 出网白名单 | 设置 › 网络访问 | push | must |
 | RuntimeDetailsPage | 运行时状态、停止与重启 | 设置 › 引擎 › 运行状态；Chat 页头运行状态 | sheet | must |
 | SettingsAboutPage | 版本、许可、开发者入口 | 设置 › 关于 Phone DSH | push；子页 LicensesPage | must |
