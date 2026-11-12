@@ -102,6 +102,40 @@ class FishCheckTests(unittest.TestCase):
         self.mutate_trajectory(mutate)
         self.assert_fails("pose.offsetX", "pose/boost/quantum")
 
+    # -- head-slice quantum (FISH-1) -------------------------------------
+    def test_lively_slice_restores_with_standard_quantum_fails(self) -> None:
+        def mutate(value):
+            case = next(c for c in value["headSlice"]["cases"]
+                        if c["id"] == "lively-values")
+            # The old bug: a lively level restored at the standard 0.1.
+            case["displacement"]["headX"] = case["levels"]["headX"] * 0.1
+        self.mutate_trajectory(mutate)
+        self.assert_fails("displacement.headX", "lively quantum")
+
+    def test_slice_profile_quantum_mutation_fails(self) -> None:
+        def mutate(value):
+            case = next(c for c in value["headSlice"]["cases"]
+                        if c["id"] == "lively-values")
+            case["quantum"] = 0.1
+        self.mutate_trajectory(mutate)
+        self.assert_fails("must be the lively quantum")
+
+    def test_slice_half_away_mutation_fails(self) -> None:
+        def mutate(value):
+            case = next(c for c in value["headSlice"]["cases"]
+                        if c["id"] == "standard-half-away")
+            case["levels"]["headX"] = 0
+        self.mutate_trajectory(mutate)
+        self.assert_fails("levels.headX", "expected 1")
+
+    def test_slice_missing_profile_fails(self) -> None:
+        def mutate(value):
+            value["headSlice"]["cases"] = [
+                c for c in value["headSlice"]["cases"]
+                if c["profile"] != "lively"]
+        self.mutate_trajectory(mutate)
+        self.assert_fails("both profiles")
+
     def test_alpha_mutation_fails(self) -> None:
         def mutate(value):
             value["cases"][0]["frames"][0]["alpha"] = 0.5
@@ -187,7 +221,8 @@ class FishCheckTests(unittest.TestCase):
 
     def test_grant_scope_mutation_fails(self) -> None:
         def mutate(value):
-            value["source"]["grant"]["androidGranted"] = True
+            # The extended grant is ios+android; a false flag contradicts it.
+            value["source"]["grant"]["androidGranted"] = False
         self.mutate_assets(mutate)
         self.assert_fails("androidGranted")
 

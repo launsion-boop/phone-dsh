@@ -535,11 +535,48 @@ def problem_text(raw):
 def working_fish(state):
     return 'thinking' if state in ('idle', 'sleeping', 'standby', 'waking', 'done') else state
 
+def unexpired_one_shot(presentation, now):
+    if not isinstance(presentation, dict):
+        return None
+    shot = presentation.get('oneShot')
+    if isinstance(shot, dict) and shot.get('endsAt', 0) > now:
+        return shot
+    return None
+
+def fish_lifecycle(inp, pending):
+    """The one shared projection (ui-state.md §4.7)."""
+    if pending > 0:
+        return 'alerting'
+    now = inp['now']
+    shot = (unexpired_one_shot(inp['livePresentation'], now)
+            or unexpired_one_shot(inp['runtimePresentation'], now))
+    if shot is not None:
+        return shot['state']
+    live_turn = inp['live'] is not None
+    if live_turn and isinstance(inp['livePresentation'], dict):
+        base = inp['livePresentation'].get('fishState') or 'idle'
+    else:
+        base = inp['runtimePresentation'].get('fishState') or 'idle'
+    if inp['running']:
+        return 'working' if base == 'idle' else base
+    if inp['idleSleeping']:
+        return 'sleeping'
+    return base
+
+def action_retry_allowed(action, card_kind, state):
+    """ui-state.md §3.1 retry policy; `None` means the key is absent."""
+    if action == 'dismiss':
+        return card_kind == 'question' and state in (None, 'failed')
+    if action == 'answer':
+        return state in (None, 'failed')
+    if action == 'approval':
+        return state in (None, 'failed')
+    return False
+
 def work_style(cat):
     return PH['workStyle'][cat]['value']
 
-def header(inp, turn_active, line, pending):
-    fish = inp['pageFishState']
+def header(inp, turn_active, line, pending, fish):
     prob = problem_text(inp['problem'])
     if prob is not None:
         return {'phase': 'problem', 'line': act('thinking', prob, 'generic', 0), 'fishState': fish,
@@ -683,9 +720,10 @@ def derive(inp):
         if st is not None:
             settlements.append({'rowID': r['id'], **st})
     pending, attention, following = counts(inp, vis)
+    fish = fish_lifecycle(inp, inp['pendingApprovalCount'])
     turn_active = shows_activity(inp)
     line = line_activity(inp, pending)
-    hdr = header(inp, turn_active, line, pending)
+    hdr = header(inp, turn_active, line, pending, fish)
     return {
         'visibleRowIDs': [r['id'] for r in vis],
         'displayRowIDs': [r['id'] for r in display],
@@ -695,6 +733,7 @@ def derive(inp):
         'pendingApprovalCount': pending,
         'needsAttentionCount': attention,
         'followingCount': following,
+        'fishState': fish,
         'header': hdr,
         'lineActivity': line,
         'activityLine': activity_line(hdr['line'], inp['now']),
@@ -916,7 +955,9 @@ def check_doc() -> int:
         "## 2. Presentation value types",
         "## 3. Intents",
         "## 4. Derived-state rules (view-owned, pure)",
-        "### 4.7 Fish lifecycle — WITHHELD (CCR-UI-1)",
+        "### 4.7 Fish lifecycle — normative",
+        "BotFishLifecycleProjection.resolve",
+        "Status: DECIDED",
         "CONTRACT CHANGE REQUEST",
         "## 8. Conformance status",
         "**NOT_RUN**",
@@ -1151,11 +1192,13 @@ def check_ui_state_vectors() -> int:
     validate(doc, _schema("ui-state"), "ui-state-vectors")
     now = doc.get("now")
     seen = set()
+    covers = set()
     for case in doc["cases"]:
         cid = case["id"]
         if cid in seen:
             raise CheckError(f"ui-state[{cid}]: duplicate id")
         seen.add(cid)
+        covers.update(case.get("covers", []))
         where = f"ui-state[{cid}]"
         check_source_expression(case["source"], where)
         inp = case["input"]
@@ -1171,11 +1214,59 @@ def check_ui_state_vectors() -> int:
             validate_presentation(inp["livePresentation"], f"{where}.livePresentation")
         computed = derive(inp)
         _compare(computed, case["expected"], where + ".expected")
+        if inp["pendingApprovalCount"] != computed["pendingApprovalCount"]:
+            raise CheckError(
+                f"{where}: input.pendingApprovalCount is not the derived count "
+                f"({inp['pendingApprovalCount']} != {computed['pendingApprovalCount']})")
         if computed["header"]["line"] is not None:
             validate(computed["header"]["line"], _schema("activity"), f"{where}.header.line")
     if len(seen) < 20:
         raise CheckError(f"ui-state-vectors has only {len(seen)} cases; the derived rules are under-covered")
-    return len(seen)
+    required_covers = {
+        "priority.pending", "priority.one-shot", "priority.live-over-durable",
+        "priority.running-idle-to-working", "priority.running-keeps-non-idle",
+        "priority.idle-sleeping", "priority.idle-default",
+    }
+    missing = required_covers - covers
+    if missing:
+        raise CheckError(
+            f"ui-state-vectors misses projection priority coverage {sorted(missing)}")
+
+    intents = doc.get("intentCases", [])
+    if len(intents) < 6:
+        raise CheckError("ui-state-vectors.intentCases is under-covered")
+    seen_intents = set()
+    intent_tuples = set()
+    for case in intents:
+        cid = case["id"]
+        if cid in seen_intents:
+            raise CheckError(f"intent[{cid}]: duplicate id")
+        seen_intents.add(cid)
+        where = f"intent[{cid}]"
+        check_source_expression(case["source"], where)
+        accepted = action_retry_allowed(
+            case["action"], case["cardKind"], case["state"])
+        if accepted is not case["accepted"]:
+            raise CheckError(
+                f"{where}: action {case['action']!r} on {case['cardKind']!r} "
+                f"with state {case['state']!r} must be "
+                f"{'accepted' if accepted else 'rejected'}")
+        intent_tuples.add((case["action"], case["cardKind"],
+                           case["state"], case["accepted"]))
+    required_intents = {
+        ("dismiss", "question", None, True),
+        ("dismiss", "question", "failed", True),
+        ("dismiss", "question", "pending", False),
+        ("dismiss", "question", "accepted", False),
+        ("dismiss", "steps", None, False),
+        ("answer", "question", "failed", True),
+        ("approval", "question", "failed", True),
+    }
+    missing = required_intents - intent_tuples
+    if missing:
+        raise CheckError(
+            f"ui-state-vectors misses retry coverage {sorted(missing)}")
+    return len(seen) + len(intents)
 
 
 def _card_expected(row):
@@ -1334,6 +1425,15 @@ def check_invalid_vectors() -> int:
         if validator == "rule:deep-link":
             if parse_deep_link(value) is not None:
                 raise CheckError(f"{where}: deep link parsed but must be rejected")
+            continue
+        if validator == "rule:action-retry":
+            if not isinstance(value, dict):
+                raise CheckError(f"{where}: value must be an action-retry object")
+            if action_retry_allowed(value.get("action"), value.get("cardKind"),
+                                    value.get("state")):
+                raise CheckError(
+                    f"{where}: action was accepted but must be rejected "
+                    f"({case['reason']})")
             continue
         if validator == "rule:approval-renderability":
             row = {"id": "x", "body": value}

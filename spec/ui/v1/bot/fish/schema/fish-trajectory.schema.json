@@ -15,6 +15,7 @@
     "clips",
     "spriteOrder",
     "palettes",
+    "headSlice",
     "anchors",
     "cases"
   ],
@@ -435,6 +436,156 @@
       },
       "minItems": 15,
       "maxItems": 15
+    },
+    "headSlice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profiles",
+        "cases"
+      ],
+      "properties": {
+        "profiles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "standard",
+            "lively"
+          ],
+          "properties": {
+            "standard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "quantum"
+              ],
+              "properties": {
+                "quantum": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "lively": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "quantum"
+              ],
+              "properties": {
+                "quantum": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "profile",
+              "quantum",
+              "input",
+              "levels",
+              "displacement"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "profile": {
+                "enum": [
+                  "standard",
+                  "lively"
+                ]
+              },
+              "quantum": {
+                "type": "number",
+                "minimum": 0
+              },
+              "input": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headX",
+                  "headY",
+                  "hairSway",
+                  "earFlutter"
+                ],
+                "properties": {
+                  "headX": {
+                    "type": "number"
+                  },
+                  "headY": {
+                    "type": "number"
+                  },
+                  "hairSway": {
+                    "type": "number"
+                  },
+                  "earFlutter": {
+                    "type": "number"
+                  }
+                }
+              },
+              "levels": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headX",
+                  "headY",
+                  "hairSway",
+                  "earFlutter"
+                ],
+                "properties": {
+                  "headX": {
+                    "type": "integer"
+                  },
+                  "headY": {
+                    "type": "integer"
+                  },
+                  "hairSway": {
+                    "type": "integer"
+                  },
+                  "earFlutter": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "displacement": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "headX",
+                  "headY",
+                  "hairSway",
+                  "earFlutter"
+                ],
+                "properties": {
+                  "headX": {
+                    "type": "number"
+                  },
+                  "headY": {
+                    "type": "number"
+                  },
+                  "hairSway": {
+                    "type": "number"
+                  },
+                  "earFlutter": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "minItems": 4
+        }
+      }
     },
     "anchors": {
       "type": "array",

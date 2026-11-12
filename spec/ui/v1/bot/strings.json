@@ -7,109 +7,109 @@
   {
    "id": "settlement.dismissed",
    "value": "已关闭",
-   "source": "BotChatModel.swift:446",
+   "source": "BotChatModel.swift:453",
    "expect": "已关闭",
    "note": "question/steps settled by local dismiss id or durable status dismissed"
   },
   {
    "id": "settlement.selected",
    "value": "已选择：{label}",
-   "source": "BotChatModel.swift:452",
+   "source": "BotChatModel.swift:459",
    "expect": "已选择：",
    "note": "durable answered or accepted action; label resolved from optionID"
   },
   {
    "id": "settlement.sent",
    "value": "已送出",
-   "source": "BotChatModel.swift:452",
+   "source": "BotChatModel.swift:459",
    "expect": "已送出",
    "note": "answered/accepted but the option label cannot be resolved"
   },
   {
    "id": "settlement.skipped",
    "value": "已略过",
-   "source": "BotChatModel.swift:456",
+   "source": "BotChatModel.swift:463",
    "expect": "已略过",
    "note": "card precedes the latest user text and was never handled"
   },
   {
    "id": "settlement.checklistSent",
    "value": "已发送勾选结果",
-   "source": "BotChatModel.swift:487",
+   "source": "BotChatModel.swift:494",
    "expect": "已发送勾选结果",
    "note": "checklist result accepted"
   },
   {
    "id": "settlement.checklistDetail",
    "value": "{title} · 已完成 {done}/{total}",
-   "source": "BotChatModel.swift:485",
+   "source": "BotChatModel.swift:492",
    "expect": "· 已完成",
    "note": "checklist settled detail"
   },
   {
    "id": "settlement.approvalAutoDeclined",
    "value": "已略过，视为拒绝",
-   "source": "BotChatModel.swift:508",
+   "source": "BotChatModel.swift:515",
    "expect": "已略过，视为拒绝",
    "note": "approval auto-denied by the next send"
   },
   {
    "id": "settlement.approvalAllowedOnce",
    "value": "已允许一次",
-   "source": "BotChatModel.swift:519",
+   "source": "BotChatModel.swift:526",
    "expect": "已允许一次"
   },
   {
    "id": "settlement.approvalSessionAllowed",
    "value": "本次对话允许",
-   "source": "BotChatModel.swift:520",
+   "source": "BotChatModel.swift:527",
    "expect": "本次对话允许",
    "note": "status always + scope session"
   },
   {
    "id": "settlement.approvalAlways",
    "value": "已总是允许",
-   "source": "BotChatModel.swift:520",
+   "source": "BotChatModel.swift:527",
    "expect": "已总是允许",
    "note": "status always + any other scope"
   },
   {
    "id": "settlement.approvalDenied",
    "value": "已拒绝",
-   "source": "BotChatModel.swift:521",
+   "source": "BotChatModel.swift:528",
    "expect": "已拒绝",
    "note": "status denied/never"
   },
   {
    "id": "settlement.approvalTimedOut",
    "value": "已超时，视为拒绝",
-   "source": "BotChatModel.swift:522",
+   "source": "BotChatModel.swift:529",
    "expect": "已超时，视为拒绝"
   },
   {
    "id": "settlement.approvalExpired",
    "value": "已过期，视为拒绝",
-   "source": "BotChatModel.swift:523",
+   "source": "BotChatModel.swift:530",
    "expect": "已过期，视为拒绝"
   },
   {
    "id": "settlement.approvalHandled",
    "value": "已处理",
-   "source": "BotChatModel.swift:524",
+   "source": "BotChatModel.swift:531",
    "expect": "已处理",
    "note": "unknown settled status"
   },
   {
    "id": "settlement.approvalDefaultAction",
    "value": "操作",
-   "source": "BotChatModel.swift:501",
+   "source": "BotChatModel.swift:508",
    "expect": "操作",
    "note": "fallback when neither the card nor ask carries an action"
   },
   {
    "id": "settlement.stepsSuggestion",
    "value": "建议下一步",
-   "source": "BotChatModel.swift:465",
+   "source": "BotChatModel.swift:472",
    "expect": "建议下一步",
    "note": "steps prompt detail fallback"
   },
@@ -501,7 +501,7 @@
   {
    "id": "chat.deeplink.unavailable",
    "value": "这条消息不可用或已过期。",
-   "source": "BotChatModel.swift:1102",
+   "source": "BotChatModel.swift:1121",
    "expect": "这条消息不可用或已过期"
   },
   {
@@ -513,19 +513,19 @@
   {
    "id": "error.watchFailed",
    "value": "Bot 实时更新失败：{error}",
-   "source": "BotChatModel.swift:929",
+   "source": "BotChatModel.swift:948",
    "expect": "Bot 实时更新失败"
   },
   {
    "id": "error.historyFailed",
    "value": "历史加载失败：{error}",
-   "source": "BotChatModel.swift:1095",
+   "source": "BotChatModel.swift:1114",
    "expect": "历史加载失败"
   },
   {
    "id": "error.attachmentFailed",
    "value": "附件「{name}」未附加：{reason}",
-   "source": "BotChatModel.swift:628",
+   "source": "BotChatModel.swift:635",
    "expect": "未附加"
   },
   {
@@ -711,25 +711,25 @@
   {
    "id": "glyph.dismissed",
    "value": "xmark.circle",
-   "source": "BotChatModel.swift:446",
+   "source": "BotChatModel.swift:453",
    "expect": "xmark.circle"
   },
   {
    "id": "glyph.accepted",
    "value": "checkmark.circle",
-   "source": "BotChatModel.swift:451",
+   "source": "BotChatModel.swift:458",
    "expect": "checkmark.circle"
   },
   {
    "id": "glyph.approvalAllowed",
    "value": "checkmark.circle.fill",
-   "source": "BotChatModel.swift:526",
+   "source": "BotChatModel.swift:533",
    "expect": "checkmark.circle.fill"
   },
   {
    "id": "glyph.skipped",
    "value": "minus.circle",
-   "source": "BotChatModel.swift:456",
+   "source": "BotChatModel.swift:463",
    "expect": "minus.circle"
   }
  ]

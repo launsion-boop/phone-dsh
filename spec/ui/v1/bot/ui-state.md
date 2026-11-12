@@ -251,10 +251,10 @@ mapping, the local duplicate rules, and the drawer/info/appearance surfaces that
 `"card:<rowID>"`, `"approval:<rowID>"`, `"dismiss:<rowID>"` or `"chat:<localRowID>"`. Rules:
 
 - A second tap while the key is `pending` or `accepted` is ignored by the view (no duplicate intent).
-- A `failed` `chat`, `cardAnswer` or `approval` key is retryable; `pending` and `failed` keep the card full (§4.3).
-- A failed `cardDismiss` is **not** retryable in the reference view (`BotChatModel.dismiss` accepts only an
-  absent state key), so the question card stays full with no dismiss action. This retry-policy
-  inconsistency is withheld pending CCR-UI-2; the rest of the failed-action rule above stands.
+- A `failed` `chat`, `cardAnswer`, `cardDismiss` or `approval` key is retryable; `pending` and
+  `accepted` are not. A failed dismiss therefore leaves the question card full with the dismiss
+  action available again (§4.3). `answer`, `dismiss` and `beginApproval` use the same guard
+  (`state == nil || state == .failed`).
 - `accepted`/`duplicate` set `accepted`; any other result sets `failed` and clears the awaiting-turn
   window.
 - A failing `chat` removes its local row; a failing attachment import is reported per file and never
@@ -382,7 +382,7 @@ Per-kind data checks:
 
 ### 4.3 Settlement (one rule for interactive cards)
 
-`settlement(for:)` (`BotChatModel.swift:425-524`) returns `nil` (keep the full card) or
+`settlement(for:)` (`BotChatModel.swift:432-531`) returns `nil` (keep the full card) or
 `BotCardSettlement{glyph, title, detail: String?, tone: neutral|success, monospacedDetail: bool}`.
 `glyph` is a semantic id (`xmark.circle`, `checkmark.circle`, `checkmark.circle.fill`,
 `minus.circle`); the platform maps it to its icon. The only exception is **question/steps/checklist**
@@ -424,7 +424,7 @@ bottom once after a collapse animation when this set changes (`BotChatModel.swif
 
 ### 4.4 Muted cards
 
-`mutedCardIDs` (`BotChatModel.swift:405-423`): find the **last** `visibleRows` index with
+`mutedCardIDs` (`BotChatModel.swift:412-430`): find the **last** `visibleRows` index with
 `role == "user"` and `body.type == "text"`. No such row → empty set. For each earlier row, if it parses
 to `question`, `steps` or `checklist`, its `"card:<id>"` action state is absent (never attempted), and
 (for checklist) progress is neither `sending` nor `sent` and `interactive != false`, the id is muted.
@@ -436,13 +436,13 @@ they are auto-denied on send (§3.1).
 Inputs: `visibleRows`, `actionStates`, `dismissedCardIDs`, `answeredOptionIDs`,
 `autoDeclinedApprovalIDs`, `checklistProgress`, `context.followingCount: int|null`.
 
-- `pendingApprovalCount` (`BotChatModel.swift:302-310`): visible rows with `body.type == approval`,
+- `pendingApprovalCount` (`BotChatModel.swift:302-304`): visible rows with `body.type == approval`,
   status (`body.status|ask.status`, default `pending`) equal to `pending`, and
   `"approval:<id>"` not `pending|accepted`. A failed approval action counts again (retryable).
-- `needsAttentionCount` (`:306-315`) = `pendingApprovalCount` +
+- `needsAttentionCount` (`:306-321`) = `pendingApprovalCount` +
   - question/steps: `"card:<id>"` not `pending` and settlement is nil;
   - checklist: `interactive != false`, progress `sending != true`, settlement is nil.
-- `followingCount` (`:323-343`): if `context.followingCount` is non-null, return it verbatim (no local
+- `followingCount` (`:323-345`): if `context.followingCount` is non-null, return it verbatim (no local
   computation); otherwise count visible rows: automation status (`body.status|automation.status`,
   default `sent`) in `running|confirming`; progress state (`body.state`, default `running`) equal to
   `running`; task status (`body.status|task.status`, default `""`) in
@@ -470,38 +470,56 @@ empty result is nil. `workingFish` (`:94-101`) maps `idle|sleeping|standby|wakin
 every other state is unchanged. `lineIsQuiet` = `phase == problem || line?.category == waiting`;
 `lineIsProblem` = `phase == problem`. Unanswered question/steps cards never hold the header.
 
-### 4.7 Fish lifecycle — WITHHELD (CCR-UI-1)
+### 4.7 Fish lifecycle — normative
 
-The two Swift derivations are **not** provably the same function on the same inputs:
+There is exactly one fish-lifecycle projection. The pure function is
+`BotFishLifecycleProjection.resolve` in `Sources/PhoneDSHBot/UI/BotUIProjection.swift`.
+`BotRuntimeUnit.statusSnapshot` computes it for the roster and `BotChatModel.fishState` consumes the
+same function for the header (§4.6) and the empty state, so the page and the roster drawer render the
+same value on the same inputs. The header's `workingFish` mapping (§4.6) still applies on top of this
+base value.
 
-- `BotChatModel.fishState` (`BotChatModel.swift:345-358`): pending approval → `alerting`; else if
-  `idleSleeping && runningTurnID == nil && live == nil` → `sleeping`; else if a live presentation
-  exists, a live turn's presentation wins, otherwise an unexpired one-shot's state; else the durable
-  presentation's `fishState`.
-- `BotRuntimeUnit.statusSnapshot` (`BotRuntimeUnit.swift:277-303`): pending approval → `alerting`;
-  else `running = liveRunning || remoteBusy || routineRunning` → `live.fishState`, with `idle`
-  coerced to `working`; else `liveFish.isIdleSleeping` → `sleeping`; else `live.fishState`.
+Inputs (all explicit; `now` is never read from the wall clock inside the rule):
 
-They differ on at least: (a) the `idle → working` coercion while `running`; (b) whether
-`remoteBusy`/`routineRunning` participate; (c) the durable-vs-live precedence; (d) the unexpired
-`oneShot` fallback; (e) the `idleSleeping` guard. **No shared fish-state priority is frozen here.**
-Pending approval → `alerting` is the only subcase both implement identically and is normative for
-both surfaces. The header's `workingFish` mapping (§4.6) is frozen independently. See CCR-UI-1 in §9;
-until it is decided, a port MUST NOT claim cross-surface fish parity, and the checker/vectors take the
-page's resolved base lifecycle as an input (`input.pageFishState`).
+| Input | Type | Meaning |
+| --- | --- | --- |
+| `pendingApprovalCount` | int ≥ 0 | §4.5 |
+| `running` | bool | `liveRunning ∨ remoteBusy ∨ routineRunning`; the page's local equivalent is `runningTurnID != nil ∨ live != nil` |
+| `idleSleeping` | bool | the 60 s idle clock (§4.11) |
+| `livePresentation` | `{fishState, oneShot?}?` | the live turn's presentation (§2.3); absent/null means none |
+| `durablePresentation` | `{fishState, oneShot?}` | the durable presentation; absent members default to `idle`/null |
+| `liveTurn` | bool | a live turn exists |
+| `now` | int ms | pinned input |
+
+Priority, first match:
+
+1. `pendingApprovalCount > 0` → `alerting`.
+2. An unexpired one-shot → that one-shot's `state`. The live presentation's one-shot is checked first,
+   then the durable presentation's; "unexpired" is `now < endsAt`. The last live one-shot is still
+   honoured after the live turn settles, until the durable projection catches up.
+3. Base presentation: when `liveTurn` is true **and** `livePresentation` exists, its `fishState`; else
+   `durablePresentation.fishState` (absent → `idle`). This is the live-over-durable precedence.
+4. `running` → `base == idle ? working : base`. Running never coerces a non-idle state.
+5. Not running **and** `idleSleeping` → `sleeping`.
+6. Otherwise `base` (so a Bot with no presentation state is `idle`).
+
+Pending approval outranks everything, including an unexpired one-shot. An expired one-shot is ignored.
+Running outranks idle sleep, so a Bot with a live turn, a remote turn or a routine running is never
+shown asleep. The views MUST NOT add a local precedence or a fallback state of their own; they pass
+these inputs and render the result.
 
 ### 4.8 Activity line
 
 Inputs: `awaitingTurn`, `runningTurnID`, `live`, `lineSuppressed`, `pendingDelta`,
 `streamingText`, `liveBuffer`, `pendingApprovalCount`, `livePresentation?`, `runtimePresentation`.
 
-`showsActivityLine` (`BotChatModel.swift:379-386`) = `awaitingTurn` **or** `runningTurnID != nil`
+`showsActivityLine` (`BotChatModel.swift:386-394`) = `awaitingTurn` **or** `runningTurnID != nil`
 **or** (`live != nil && !live.ended && !lineSuppressed`). When false, the line is hidden.
 
-`isStreamingNow` (`BotChatModel.swift:369-376`) = `pendingDelta` non-empty **or** `streamingText` non-empty **or**
+`isStreamingNow` (`BotChatModel.swift:376-384`) = `pendingDelta` non-empty **or** `streamingText` non-empty **or**
 (`live != nil` and `liveBuffer` trimmed non-empty). Committed paragraphs do not count.
 
-`lineActivity` (`BotChatModel.swift:389-403`), first match:
+`lineActivity` (`BotChatModel.swift:396-410`), first match:
 1. `pendingApprovalCount > 0` → `(thinking, "", waiting, 0)`.
 2. `isStreamingNow` → `(streaming, "", replying, 0)`.
 3. factory = `live != nil ? livePresentation?.activity : runtimePresentation.activity`; if non-nil,
@@ -571,12 +589,12 @@ must reject the same two cases; a client-side cap never weakens the store rule.
 
 | Timer | Value | Trigger/effect |
 | --- | --- | --- |
-| awaiting turn | 120 000 ms | armed by a local send when no turn is running; cleared by any live frame, turn start, send failure, stop, or expiry (`BotChatModel.swift:753-769`) |
+| awaiting turn | 120 000 ms | armed by a local send when no turn is running; cleared by any live frame, turn start, send failure, stop, or expiry (`BotChatModel.swift:772-783`) |
 | runtime notice | 6 000 ms | armed whenever `runtimeNotice` becomes non-nil; a repeated failure re-arms; cleared by the next send (`BotChatModel.swift:142-147, BotChatModel.swift:252-262`) |
-| idle sleep | 60 000 ms | armed when no running turn/live/approval; any touch/send/turn start cancels it; expiry sets `idleSleeping` (`BotChatModel.swift:813-831`) |
+| idle sleep | 60 000 ms | armed when no running turn/live/approval; any touch/send/turn start cancels it; expiry sets `idleSleeping` (`BotChatModel.swift:832-850`) |
 | stream coalescer | 100 ms | at most one flush per 100 ms while text is pending; `finish` delivers the final text immediately and cancels (`BotChatModel.swift:9-52`) |
-| live text flush | 80 ms | `textDelta` accumulates and flushes into the live buffer at most every 80 ms (`BotChatModel.swift:1048-1057`) |
-| watch poll | 800 ms | one `watch` + `turnProcesses` + `presentation` per poll while the page is active (`BotChatModel.swift:914-939`) |
+| live text flush | 80 ms | `textDelta` accumulates and flushes into the live buffer at most every 80 ms (`BotChatModel.swift:1067-1075`) |
+| watch poll | 800 ms | one `watch` + `turnProcesses` + `presentation` per poll while the page is active (`BotChatModel.swift:933-956`) |
 | activity min visible | 800 ms | §4.8 |
 | activity rotation | 2 400 ms | §4.8 |
 | minute suffix | 60 000 ms | §4.8 |
@@ -652,12 +670,17 @@ is a convenience for round 2, not conformance evidence.
 ## 7. Vectors and checker
 
 - `golden/ui-state-vectors.json` — input `{context, rows, actionStates, dismissedCardIDs,
-  autoDeclinedApprovalIDs, answeredOptionIDs, checklistProgress, runtimePresentation,
-  livePresentation, live, runningTurnID, awaitingTurn, lineSuppressed, idleSleeping, streaming,
-  pageFishState, problem, now}` → expected `{visibleRowIDs, displayRowIDs, mutedCardIDs,
-  settledRowIDs, settlements, pendingApprovalCount, needsAttentionCount, followingCount, header,
-  lineActivity, activityLine, drawerStatus}`. Cases are labeled `source` with the Swift lines that
-  define the expectation. `now` is pinned.
+  autoDeclinedApprovalIDs, answeredOptionIDs, checklistProgress, pendingApprovalCount, running,
+  runtimePresentation, livePresentation, live, runningTurnID, awaitingTurn, lineSuppressed,
+  idleSleeping, streaming, problem, now, drawer}` → expected `{visibleRowIDs, displayRowIDs,
+  mutedCardIDs, settledRowIDs, settlements, pendingApprovalCount, needsAttentionCount,
+  followingCount, fishState, header, lineActivity, activityLine, drawerStatus, unreadBadge}`. Cases
+  are labeled `source` with the Swift lines that define the expectation; the projection cases also
+  carry `covers` labels, and the checker requires every §4.7 priority branch. `input.pendingApprovalCount`
+  must equal the count derived from rows/actionStates. `now` is pinned.
+- `golden/ui-state-vectors.json#intentCases` — `{action, cardKind, state, accepted}`; recomputes the
+  §3.1 retry policy. It covers an absent key, a failed dismiss retry, pending/accepted rejection and
+  the steps-card refusal.
 - `golden/card-parse-vectors.json` — body → `{parses, kind?, choices?, steps?, checklist?, links?,
   attachments?}`; includes fail-closed cases.
 - `golden/activity-phrase-vectors.json` — tool name + arguments → `{category, text}`; includes
@@ -665,53 +688,57 @@ is a convenience for round 2, not conformance evidence.
   `FishAction` (no line), reviewing text, and rotation/minute samples.
 - `golden/invalid-vectors.json` — values that MUST be rejected, each with `validator`
   (`schema:row`, `schema:presentation`, `schema:info`, `schema:intents`, `rule:user-action`,
-  `rule:name-cap`, `rule:deep-link`) and a `reason`.
+  `rule:action-retry`, `rule:name-cap`, `rule:deep-link`) and a `reason`.
 - `tools/check_bot_ui.py --root .` validates every schema/vector/data file, recomputes the expected
-  derived values, checks the 60-unit cap, deep-link parser, and every `source` anchor. Its unittest
-  lives in `tools/test_check_bot_ui.py`.
+  derived values including every fish-lifecycle priority branch and the retry policy, checks the
+  60-unit cap, deep-link parser, and every `source` anchor. Its unittest lives in
+  `tools/test_check_bot_ui.py` and mutates the projection/retry expectations, so a checker that
+  stopped recomputing them fails.
 
 ## 8. Conformance status
 
 | End | Status | Evidence |
 | --- | --- | --- |
 | Python contract checker | implemented | `tools/check_bot_ui.py`, `tools/test_check_bot_ui.py` |
-| iOS real-code conformance | **NOT_RUN** | The derived logic is app code (`examples/probe-app/PhoneDSHProbe/Bot/**`); no SwiftPM target compiles it. `Tests/PhoneDSHBotTests` only reads a few app source files as text (`Rows/BotFixtureIsolationTests.swift`), and `scripts/ci/bot-ui/capture.sh` builds an XCUITest capture app that does not read these JSON vectors. No route exists, and app code may not move into a package target in this lane. |
+| iOS projection (pure function) | implemented | `Sources/PhoneDSHBot/UI/BotUIProjection.swift`; `Tests/PhoneDSHBotTests/UI/BotUIProjectionVectorTests.swift` reads `golden/ui-state-vectors.json` and runs every projection/retry vector through the real Swift function. The head-slice golden is read by the same test class. |
+| iOS app wiring | **NOT_RUN** | `BotRuntimeUnit.statusSnapshot`, `BotChatModel.fishState` and `BotFishRenderer` are app code (`examples/probe-app/PhoneDSHProbe/Bot/**`); no SwiftPM target compiles them. The app build is a compile check, not vector conformance: `scripts/ci/bot-ui/capture.sh` is an XCUITest capture app that does not read these JSON vectors. |
 | Android | not started (wave 4 round 2) | `android/bot` / `android/lib/.../ui/bot` do not exist yet |
 
 ## 9. Contract change requests
 
+Both CCRs below were decided by the owner in `PC-20261112-android-bot-w4` §7. They stay in the
+record with their decision; the clauses above are now normative.
+
 ```
 CONTRACT CHANGE REQUEST
 Contract: P09 @ PC-20261112-android-bot-w4 (C4)   Clause: ui/v1/bot/ui-state.md §4.7
-Problem: The page and the roster derive the fish lifecycle with different functions
-  (BotChatModel.swift:345-358 vs BotRuntimeUnit.swift:277-303). They disagree on
+Status: DECIDED (PC-20261112-android-bot-w4 §7, UI-1)
+Problem: The page and the roster derived the fish lifecycle with different functions
+  (BotChatModel.swift:347-364 vs BotRuntimeUnit.swift:278-301). They disagreed on
   idle->working coercion while a turn/remote/routine is running, on whether
   remoteBusy/routineRunning participate, on durable-vs-live precedence, on the
   unexpired oneShot fallback, and on the idleSleeping guard. Both draw the same
   Bot avatar on the same screen, so the divergence is visible, not cosmetic.
-Proposal: Freeze one shared lifecycle projection with explicit inputs
+Decision: One shared lifecycle projection with explicit inputs
   {pendingApprovalCount, running (liveRunning|remoteBusy|routineRunning), idleSleeping,
-  livePresentation?, durablePresentation?, liveTurn?, now} and a stated priority;
-  implement it in the runtime unit and have BotChatModel consume that value instead of
-  recomputing it. Until decided, no cross-surface fish parity is claimed and §4.7 stays
-  withheld; only "pending approval -> alerting" and the header workingFish mapping are
-  normative.
+  livePresentation?, durablePresentation?, liveTurn?, now} and the §4.7 priority:
+  pending approval -> alerting; unexpired one-shot; live over durable presentation;
+  running coerces idle to working; idleSleeping -> sleeping; else idle.
+  `BotRuntimeUnit` computes it and `BotChatModel` consumes the same function.
 Affects: iOS Bot page header/empty state/roster drawer; Android B7b; future Harmony.
 ```
 
 ```
 CONTRACT CHANGE REQUEST
 Contract: P09 @ PC-20261112-android-bot-w4 (C4)   Clause: ui/v1/bot/ui-state.md §3.1
-Problem: The failed-action retry policy is inconsistent in the reference view.
-  `BotChatModel.answer`/`beginApproval` accept a key whose state is `.failed`, but
-  `BotChatModel.dismiss` accepts only an absent key (BotChatModel.swift:690-697 vs
-  :676-688, :731-740). A failed `cardDismiss` therefore leaves the question card
-  permanently undismissable until the row identity changes; the UI shows the
-  failure as a runtime notice.
-Proposal: Decide whether a failed dismiss is retryable like answer/approval (and
-  make the guard `state == nil || state == .failed`) or intentionally one-shot (and
-  say so in the page copy / disable the control). Until decided, §3.1 keeps the
-  general retry rule for chat/cardAnswer/approval only and marks dismiss withheld.
+Status: DECIDED (PC-20261112-android-bot-w4 §7, UI-2)
+Problem: The failed-action retry policy was inconsistent in the reference view.
+  `BotChatModel.answer`/`beginApproval` accepted a key whose state was `.failed`, but
+  `BotChatModel.dismiss` accepted only an absent key. A failed `cardDismiss` therefore
+  left the question card permanently undismissable until the row identity changed; the
+  UI showed the failure as a runtime notice.
+Decision: A failed `dismiss` is retryable like `answer` and `approval`; all three use
+  `state == nil || state == .failed`. Pending and accepted keys stay ignored.
 Affects: iOS BotChatPage question card; Android B7b question card.
 ```
 

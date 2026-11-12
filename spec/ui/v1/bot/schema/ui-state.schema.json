@@ -7,7 +7,8 @@
   "required": [
     "schemaVersion",
     "vector",
-    "cases"
+    "cases",
+    "intentCases"
   ],
   "properties": {
     "schemaVersion": {
@@ -57,10 +58,11 @@
               "lineSuppressed",
               "idleSleeping",
               "streaming",
-              "pageFishState",
               "problem",
               "now",
-              "drawer"
+              "drawer",
+              "pendingApprovalCount",
+              "running"
             ],
             "properties": {
               "context": {
@@ -233,52 +235,6 @@
                 },
                 "additionalProperties": false
               },
-              "pageFishState": {
-                "enum": [
-                  "idle",
-                  "thinking",
-                  "streaming",
-                  "working",
-                  "sleeping",
-                  "alerting",
-                  "listening",
-                  "speaking",
-                  "happy",
-                  "sad",
-                  "surprised",
-                  "confused",
-                  "laughing",
-                  "love",
-                  "angry",
-                  "wink",
-                  "nod",
-                  "shrug",
-                  "celebrate",
-                  "poke",
-                  "waking",
-                  "waiting",
-                  "loading",
-                  "done",
-                  "standby",
-                  "spawning",
-                  "bouncing",
-                  "dancing",
-                  "waving",
-                  "shy",
-                  "smug",
-                  "crying",
-                  "sighing",
-                  "cheering",
-                  "bowing",
-                  "clapping",
-                  "stretching",
-                  "yawning",
-                  "kiss",
-                  "shaking-head",
-                  "high-five",
-                  "powering-down"
-                ]
-              },
               "problem": {
                 "type": [
                   "string",
@@ -369,6 +325,13 @@
                   }
                 },
                 "additionalProperties": false
+              },
+              "pendingApprovalCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "running": {
+                "type": "boolean"
               }
             },
             "additionalProperties": false
@@ -388,7 +351,8 @@
               "lineActivity",
               "activityLine",
               "drawerStatus",
-              "unreadBadge"
+              "unreadBadge",
+              "fishState"
             ],
             "properties": {
               "visibleRowIDs": {
@@ -472,6 +436,52 @@
               "followingCount": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "fishState": {
+                "enum": [
+                  "idle",
+                  "thinking",
+                  "streaming",
+                  "working",
+                  "sleeping",
+                  "alerting",
+                  "listening",
+                  "speaking",
+                  "happy",
+                  "sad",
+                  "surprised",
+                  "confused",
+                  "laughing",
+                  "love",
+                  "angry",
+                  "wink",
+                  "nod",
+                  "shrug",
+                  "celebrate",
+                  "poke",
+                  "waking",
+                  "waiting",
+                  "loading",
+                  "done",
+                  "standby",
+                  "spawning",
+                  "bouncing",
+                  "dancing",
+                  "waving",
+                  "shy",
+                  "smug",
+                  "crying",
+                  "sighing",
+                  "cheering",
+                  "bowing",
+                  "clapping",
+                  "stretching",
+                  "yawning",
+                  "kiss",
+                  "shaking-head",
+                  "high-five",
+                  "powering-down"
+                ]
               },
               "header": {
                 "type": "object",
@@ -722,6 +732,13 @@
               }
             },
             "additionalProperties": false
+          },
+          "covers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "additionalProperties": false
@@ -730,6 +747,59 @@
     "now": {
       "type": "integer",
       "minimum": 0
+    },
+    "intentCases": {
+      "type": "array",
+      "minItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source",
+          "action",
+          "cardKind",
+          "state",
+          "accepted"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string"
+          },
+          "action": {
+            "enum": [
+              "dismiss",
+              "answer",
+              "approval"
+            ]
+          },
+          "cardKind": {
+            "enum": [
+              "question",
+              "steps"
+            ]
+          },
+          "state": {
+            "enum": [
+              null,
+              "pending",
+              "accepted",
+              "failed"
+            ]
+          },
+          "accepted": {
+            "type": "boolean"
+          }
+        }
+      }
     }
   },
   "additionalProperties": false

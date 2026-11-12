@@ -20,9 +20,12 @@ What is checked (all failures are reported together, first 60 printed):
 * the clip table against `examples/probe-app/BotFish/atlas.json`, the sprite
   names against `expressive/atlas.json`, and the 15-colour LUT against the
   documented stop formula and the real hex table;
-* every case/frame: the fixedschedule, parameter key set, pose quantisation
+* every case/frame: the fixed schedule, parameter key set, pose quantisation
   (0.25 output px, 0.5/target scale, 0.1 degree roll, 1/64 alpha) and motion
   boost, all recomputed from the frame's own params;
+* `trajectory.json#headSlice`: the standard 0.1 and lively 0.25 quanta, the
+  levels under Swift half-away-from-zero rounding, and the displacement
+  restored with the same quantum;
 * the case inventory (97 cases, including 10 P0 states, the 4 one-shots, the
   15 colours x 4 hairstyles, 3 seeded replays);
 * `golden/assets.json`: one SHA-256 per shipped file (33 PNG + 2 atlas JSON),
@@ -146,6 +149,7 @@ REQUIRED_SOURCE_FILES = {
     "Sources/PhoneDSHBot/Avatar/BotFishDirector.swift",
     "Sources/PhoneDSHBot/Avatar/BotFishReactions.swift",
     "Sources/PhoneDSHBot/Profile/BotFishAppearance.swift",
+    "Sources/PhoneDSHBot/UI/BotUIProjection.swift",
     "examples/probe-app/BotFish/atlas.json",
     "examples/probe-app/BotFish/expressive/atlas.json",
     "examples/probe-app/BotFish/SOURCES.md",
@@ -509,6 +513,123 @@ def check_geometry(trajectory: dict, report: Report) -> None:
             report.error(path, f"expected {expected!r}, got {actual!r}")
 
     compare("$.geometry", geometry, EXPECTED_GEOMETRY)
+
+
+def check_head_slice(trajectory: dict, report: Report) -> None:
+    """FISH-1: both the quantiser and the restore use the active profile's
+    quantum. Recompute every level and displacement from the raw inputs."""
+    section = trajectory.get("headSlice")
+    if not isinstance(section, dict):
+        report.error("$.headSlice", "missing head-slice vectors")
+        return
+    geometry = trajectory.get("geometry", {}).get("headSlicing", {})
+    profile_expected = {
+        "standard": geometry.get("quantum"),
+        "lively": geometry.get("livelyQuantum"),
+    }
+    profiles = section.get("profiles")
+    if not isinstance(profiles, dict):
+        report.error("$.headSlice.profiles", "missing profiles")
+        return
+    for name, expected in profile_expected.items():
+        entry = profiles.get(name)
+        if not isinstance(entry, dict):
+            report.error(f"$.headSlice.profiles.{name}", "missing profile")
+            continue
+        quantum = entry.get("quantum")
+        if not isinstance(expected, (int, float)) or \
+                not isinstance(quantum, (int, float)) or \
+                isinstance(quantum, bool) or not close(quantum, expected):
+            report.error(f"$.headSlice.profiles.{name}.quantum",
+                         f"expected {expected!r}, got {quantum!r}")
+    extra = set(profiles) - set(profile_expected)
+    if extra:
+        report.error("$.headSlice.profiles", f"unexpected profiles {sorted(extra)}")
+
+    cases = section.get("cases")
+    if not isinstance(cases, list):
+        report.error("$.headSlice.cases", "must be an array")
+        return
+    if len(cases) < 4:
+        report.error("$.headSlice.cases", "need at least four slice cases")
+    seen = set()
+    seen_profiles = set()
+    raw_inputs = {"standard": set(), "lively": set()}
+    for index, case in enumerate(cases):
+        path = f"$.headSlice.cases[{index}]"
+        cid = case.get("id")
+        if not isinstance(cid, str) or not cid or cid in seen:
+            report.error(f"{path}.id", "must be a unique non-empty string")
+        else:
+            seen.add(cid)
+        profile = case.get("profile")
+        if profile not in profile_expected:
+            report.error(f"{path}.profile", f"unknown profile {profile!r}")
+            continue
+        seen_profiles.add(profile)
+        quantum = profile_expected[profile]
+        if not isinstance(quantum, (int, float)) or quantum <= 0:
+            report.error(f"{path}.quantum", "profile quantum is missing")
+            continue
+        actual_quantum = case.get("quantum")
+        if not isinstance(actual_quantum, (int, float)) or \
+                isinstance(actual_quantum, bool) or not close(actual_quantum, quantum):
+            report.error(f"{path}.quantum",
+                         f"must be the {profile} quantum {quantum!r}")
+        raw = case.get("input")
+        levels = case.get("levels")
+        displacement = case.get("displacement")
+        if not all(isinstance(value, dict) for value in (raw, levels, displacement)):
+            report.error(path, "input/levels/displacement must be objects")
+            continue
+        keys = ("headX", "headY", "hairSway", "earFlutter")
+        if set(raw) != set(keys) or set(levels) != set(keys) \
+                or set(displacement) != set(keys):
+            report.error(path, f"keys must be exactly {list(keys)!r}")
+            continue
+        raw_inputs[profile].add(tuple(raw[key] for key in keys))
+        for key in keys:
+            value = raw[key]
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                report.error(f"{path}.input.{key}", "must be a number")
+                continue
+            expected_level = int(away_round(value / quantum))
+            actual_level = levels[key]
+            if not isinstance(actual_level, int) or isinstance(actual_level, bool):
+                report.error(f"{path}.levels.{key}", "must be an integer")
+                continue
+            if actual_level != expected_level:
+                report.error(f"{path}.levels.{key}",
+                             f"expected {expected_level}, got {actual_level}")
+            expected_displacement = expected_level * quantum
+            if not close(displacement[key], expected_displacement, 1e-12):
+                report.error(f"{path}.displacement.{key}",
+                             f"expected {expected_displacement} with the "
+                             f"{profile} quantum {quantum}, got "
+                             f"{displacement[key]!r}")
+    if seen_profiles != {"standard", "lively"}:
+        report.error("$.headSlice.cases", "must cover both profiles")
+    shared = raw_inputs["standard"] & raw_inputs["lively"]
+    if not shared:
+        report.error("$.headSlice.cases",
+                     "one raw input must appear under both profiles so the "
+                     "two quanta are compared")
+    halves = 0
+    for case in cases:
+        profile = case.get("profile")
+        quantum = profile_expected.get(profile)
+        raw = case.get("input")
+        if not isinstance(quantum, (int, float)) or not isinstance(raw, dict):
+            continue
+        for key in ("headX", "headY", "hairSway", "earFlutter"):
+            value = raw.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                scaled = value / quantum
+                if abs(abs(scaled - math.floor(scaled)) - 0.5) <= 1e-12:
+                    halves += 1
+    if halves == 0:
+        report.error("$.headSlice.cases",
+                     "must exercise Swift half-away-from-zero rounding")
 
 
 def check_frame_clock(trajectory: dict, report: Report) -> None:
@@ -1060,6 +1181,9 @@ def check_assets(root: Path, assets: dict, trajectory: dict,
     if scope == "ios-only" and grant.get("androidGranted") is not False:
         report.error("$.source.grant.androidGranted",
                      "must be false while the grant names only iOS")
+    if scope == "ios+android" and grant.get("androidGranted") is not True:
+        report.error("$.source.grant.androidGranted",
+                     "must be true while the grant names every platform")
 
     for index, anchor in enumerate(assets.get("anchors", [])):
         check_anchor(root, anchor, report, f"$.anchors[{index}]")
@@ -1078,6 +1202,8 @@ def check_doc(root: Path, report: Report) -> None:
         "SOURCES.md",
         "Status: partial",
         "BotFishView(state: BotFishLifecycle",
+        "### 7.4.1 Head-slice quantum (normative, FISH-1)",
+        "trajectory.json#headSlice",
     ]
     for needle in required:
         if needle not in text:
@@ -1097,6 +1223,7 @@ def run(root: Path) -> Report:
     if trajectory is not None:
         check_source(root, trajectory, report)
         check_geometry(trajectory, report)
+        check_head_slice(trajectory, report)
         check_frame_clock(trajectory, report)
         atlas = None
         if assets is not None:
@@ -1135,8 +1262,10 @@ def main(argv: list) -> int:
     trajectory = json.loads((fish / "golden/trajectory.json").read_text())
     assets = json.loads((fish / "golden/assets.json").read_text())
     frames = sum(len(case["frames"]) for case in trajectory["cases"])
+    slices = len(trajectory.get("headSlice", {}).get("cases", []))
     print(f"check_fish: OK ({len(trajectory['cases'])} cases, {frames} frames, "
-          f"{len(assets['files'])} assets, {len(trajectory['clips'])} clips, "
+          f"{slices} head-slice cases, {len(assets['files'])} assets, "
+          f"{len(trajectory['clips'])} clips, "
           f"{len(trajectory['palettes'])} palettes)")
     return 0
 

@@ -1291,8 +1291,8 @@ rules, motion boost 2.2→1 over 40–64 pt with ±20/±9 clamps, pose quanta 0.
 0.1° / 1/64 alpha, the 15×768 tint LUT, sprite order/cel index and layer folder rule. Params/pose/
 time/alpha compare at absolute `1e-6`; enums/art names/bools are exact. Rasterisation, Bézier
 paths, antialiasing, crown shadow, cache keys and screenshots are explicitly not gated. Head-slice
-displacement is left out because two Swift paths disagree on the lively quantum — see the CCR in
-`fish.md` §11.1.
+displacement is frozen by `fish.md` §7.4.1 and `trajectory.json#headSlice`: the active profile's
+quantum (0.1 standard / 0.25 lively) is used for both quantise and restore (FISH-1 decided).
 
 **Generation (real code, not a re-implementation).** `generate_trajectory.py` writes a throw-away
 SwiftPM package under the temp directory whose executable target symlinks the original
@@ -1340,10 +1340,10 @@ bash scripts/ci/check.sh --only phone-spec,phone-cross-tree
 - Android comparator / Kotlin renderer → NOT_RUN; no Kotlin code exists in this round.
 
 **Remaining.** Kotlin renderer + `fish_trajectory_compare.py` (a D14 follow-up, after the Android
-renderer exists); the artwork-grant decision; the lively head-slice CCR; marking the atlas
-`file`/`frames` members `legacy` (outside this lane's ownership); a small screenshot regression set
-that is explicitly not cross-end pixel parity. The iOS end stays `partial` until the Android end
-passes the same vectors.
+renderer exists); the artwork-grant decision (now recorded as every platform, `NOTICE`/`SOURCES.md`);
+marking the atlas `file`/`frames` members `legacy` (outside this lane's ownership); a small screenshot
+regression set that is explicitly not cross-end pixel parity. The iOS end stays `partial` until the
+Android end passes the same vectors.
 
 ### D15 — P09 Bot page reconciliation (M)
 
@@ -1421,13 +1421,10 @@ Frozen as `spec/ui/v1/bot/ui-state.md` (normative for both ends) + `strings.json
    no SwiftPM target compiles it and the bot-ui capture harness is an XCUITest app that does not read
    the JSON vectors. iOS real-code conformance is therefore **NOT_RUN** (reason recorded in
    ui-state.md §8), not PASS. Android is planned for wave 4 round 2.
-7. **Open CCR.** CCR-UI-1: `BotChatModel.fishState` and `BotRuntimeUnit.statusSnapshot` are different
-   functions (idle→working coercion, remoteBusy/routineRunning, durable/live precedence, one-shot
-   fallback, sleeping guard). The shared fish-state priority is withheld from the contract; only
-   “pending approval → alerting” and the header `workingFish` mapping are normative until the owner
-   decides (`ui-state.md` §4.7/§9). CCR-UI-2 is also open: a failed `cardDismiss` is not retryable
-   while a failed answer/approval is, so the retry-policy rule is scoped and the dismiss case is
-   withheld (`ui-state.md` §3.1/§9).
+7. **Decided CCRs.** CCR-UI-1 and CCR-UI-2 were decided by the owner in
+   `PC-20261112-android-bot-w4` §7. `ui-state.md` §4.7 now freezes one shared fish-lifecycle
+   projection (`BotRuntimeUnit` computes it, `BotChatModel` consumes it), and §3.1 makes a failed
+   `cardDismiss` retryable exactly like answer/approval (`state == nil || state == .failed`).
 
 ## 3. Delta → checkpoint matrix
 
