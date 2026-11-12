@@ -2,11 +2,17 @@
 // SPDX-License-Identifier: MIT
 //
 // The card is content, so the assertions are the strings and the row count the
-// baseline shows, plus the two behaviours iOS gives it: the fold at four files and
-// the tap that routes a path to the host.
+// baseline shows, plus the behaviours iOS gives it: the fold at four files, the
+// rows 5..N body *above* the toggle, the 0°→180° chevron, and the tap that routes
+// a path to the host.
 package com.phonedsh.ui.surface
 
 import android.provider.Settings
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -19,7 +25,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.disclosure.DisclosureKind
 import com.phonedsh.ui.disclosure.DisclosureMotion
-import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.theme.PdshTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -57,6 +62,7 @@ class ChangedFilesCardSurfaceTest {
         compose.onNodeWithText("-6").assertIsDisplayed()
         compose.onAllNodesWithTag(CHANGED_FILES_ROW_TAG).assertCountEquals(4)
         compose.onNodeWithText(UiStrings.CHANGED_FILES_ALL.format(6)).assertIsDisplayed()
+        compose.onNodeWithTag(CHANGED_FILES_CHEVRON_TAG, useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
@@ -64,55 +70,141 @@ class ChangedFilesCardSurfaceTest {
         compose.setContent {
             PdshTheme { ChangedFilesCard(files(6)) }
         }
-        compose.onNodeWithTag(CHANGED_FILES_TOGGLE_TAG).performClick()
+        val toggle = compose.onNodeWithTag(CHANGED_FILES_TOGGLE_TAG)
+        toggle.assertContentDescriptionEquals(UiStrings.CHANGED_FILES_ALL.format(6))
+        toggle.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, UiStrings.COLLAPSED))
+        toggle.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+        toggle.performClick()
         compose.onAllNodesWithTag(CHANGED_FILES_ROW_TAG).assertCountEquals(6)
         // The card is now taller than the test window; the label existing is what
         // the fold changes, not the scroll position.
+        toggle.assertContentDescriptionEquals(UiStrings.CHANGED_FILES_COLLAPSE)
+        toggle.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, UiStrings.EXPANDED))
         compose.onNodeWithText(UiStrings.CHANGED_FILES_COLLAPSE).assertExists()
         compose.onNodeWithText(UiStrings.CHANGED_FILES_ALL.format(6)).assertDoesNotExist()
     }
 
     @Test
-    fun `the toggle body samples motion disclosure and the toggle stays put`() {
+    fun `expanding grows one body above the toggle, runs 160 ms, and rotates the chevron 180`() {
         Settings.Global.putFloat(
             ApplicationProvider.getApplicationContext<android.content.Context>().contentResolver,
             Settings.Global.ANIMATOR_DURATION_SCALE,
             1f,
         )
+        var rotation = 0f
         compose.setContent {
-            PdshTheme { ChangedFilesCard(files(6)) }
+            PdshTheme {
+                ChangedFilesCardWithChevronObserver(
+                    changes = files(6),
+                    onChevronRotationChanged = { rotation = it },
+                )
+            }
         }
         val durationMs = DisclosureMotion.specFor(DisclosureKind.BODY, reducedMotion = false).durationMs
-        val headerTag = PdshDisclosureTags.header(CHANGED_FILES_TOGGLE_TAG)
-        val bodyTag = PdshDisclosureTags.body(CHANGED_FILES_TOGGLE_TAG)
         compose.mainClock.autoAdvance = false
-        val before = compose.onNodeWithTag(headerTag).fetchSemanticsNode().boundsInRoot.top
-        compose.onNodeWithTag(bodyTag).assertDoesNotExist()
+        val row4TopBefore = rowBounds(3).top
+        val toggleTopBefore = nodeBounds(CHANGED_FILES_TOGGLE_TAG).top
+        compose.onNodeWithTag(CHANGED_FILES_BODY_TAG).assertDoesNotExist()
+        assertEquals("the chevron starts at zero", 0f, rotation, 0f)
 
-        compose.onNodeWithTag(headerTag).performClick()
+        compose.onNodeWithTag(CHANGED_FILES_TOGGLE_TAG).performClick()
         compose.mainClock.advanceTimeByFrame()
         var attempts = 0
-        while (attempts < 12 && runCatching { bodyHeight(bodyTag) }.getOrDefault(0f) <= 0.2f) {
+        while (attempts < 12 && runCatching { bodyHeightPx() }.getOrDefault(0f) <= 0.2f) {
             compose.mainClock.advanceTimeByFrame()
             attempts++
         }
-        val early = bodyHeight(bodyTag)
+        val early = bodyHeightPx()
         assertTrue("the extra file rows started animating (height=$early)", early > 0.2f)
+
         compose.mainClock.advanceTimeBy((durationMs / 2.0).roundToLong())
-        val mid = bodyHeight(bodyTag)
+        val mid = bodyHeightPx()
+        val midRotation = rotation
         assertTrue("the body is mid-motion at the half sample (height=$mid)", mid > 0.2f)
+        assertTrue(
+            "the chevron is between 0 and 180 degrees at the half sample (rotation=$midRotation)",
+            midRotation > 0f && midRotation < 180f,
+        )
+
         compose.mainClock.advanceTimeBy(durationMs + 40L)
         compose.mainClock.advanceTimeByFrame()
-        val end = bodyHeight(bodyTag)
+        val end = bodyHeightPx()
         assertTrue("the body settles taller than the half sample ($mid -> $end)", end > mid)
+        assertEquals("the chevron settles at 180 degrees", 180f, rotation, 0.01f)
         compose.onAllNodesWithTag(CHANGED_FILES_ROW_TAG).assertCountEquals(6)
         compose.onNodeWithTag(CHANGED_FILES_CHEVRON_TAG, useUnmergedTree = true).assertIsDisplayed()
+
+        // iOS order (`NativeChangedFilesCard.swift:54-90`): rows 5..N are above
+        // the toggle, not below it.
+        val row5Top = rowBounds(4).top
+        val toggleTopAfter = nodeBounds(CHANGED_FILES_TOGGLE_TAG).top
+        assertTrue(
+            "row 5 is above the toggle when expanded (row5=$row5Top, toggle=$toggleTopAfter)",
+            row5Top < toggleTopAfter,
+        )
+
+        // `interaction.md` §7 rule 6: the growth happens below row 4, so nothing
+        // above the toggle moves except by the body's own height.
         assertEquals(
-            "rule 6: the tapped toggle does not move",
-            before,
-            compose.onNodeWithTag(headerTag).fetchSemanticsNode().boundsInRoot.top,
+            "rule 6: row 4's top is unchanged by expanding",
+            row4TopBefore,
+            rowBounds(3).top,
             0.5f,
         )
+        assertEquals(
+            "rule 6: the toggle moves down by exactly the body height",
+            end,
+            toggleTopAfter - toggleTopBefore,
+            1f,
+        )
+    }
+
+    @Test
+    fun `animator duration scale zero snaps the body and the 180 degree chevron`() {
+        Settings.Global.putFloat(
+            ApplicationProvider.getApplicationContext<android.content.Context>().contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            0f,
+        )
+        var rotation = 0f
+        compose.setContent {
+            PdshTheme {
+                ChangedFilesCardWithChevronObserver(
+                    changes = files(6),
+                    onChevronRotationChanged = { rotation = it },
+                )
+            }
+        }
+        compose.mainClock.autoAdvance = false
+        val row4TopBefore = rowBounds(3).top
+        val toggleTopBefore = nodeBounds(CHANGED_FILES_TOGGLE_TAG).top
+        compose.onNodeWithTag(CHANGED_FILES_BODY_TAG).assertDoesNotExist()
+        assertEquals("the chevron starts at zero", 0f, rotation, 0f)
+
+        compose.onNodeWithTag(CHANGED_FILES_TOGGLE_TAG).performClick()
+        compose.mainClock.advanceTimeByFrame()
+
+        assertEquals("reduced motion snaps the chevron", 180f, rotation, 0.01f)
+        val bodyHeight = bodyHeightPx()
+        assertEquals(
+            "reduced motion skips every body frame",
+            rowBounds(4).height + rowBounds(5).height,
+            bodyHeight,
+            0.5f,
+        )
+        assertEquals(
+            "rule 6: row 4's top is unchanged by the snap",
+            row4TopBefore,
+            rowBounds(3).top,
+            0.5f,
+        )
+        assertEquals(
+            "rule 6: the toggle moves down by the snapped body height",
+            bodyHeight,
+            nodeBounds(CHANGED_FILES_TOGGLE_TAG).top - toggleTopBefore,
+            1f,
+        )
+        compose.onAllNodesWithTag(CHANGED_FILES_ROW_TAG).assertCountEquals(6)
     }
 
     @Test
@@ -159,8 +251,13 @@ class ChangedFilesCardSurfaceTest {
         compose.onAllNodesWithTag(CHANGED_FILES_TAG).assertCountEquals(0)
     }
 
-    private fun bodyHeight(tag: String): Float =
-        compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.height / compose.density.density
+    private fun nodeBounds(tag: String) = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+
+    private fun rowBounds(index: Int) =
+        compose.onAllNodesWithTag(CHANGED_FILES_ROW_TAG)[index].fetchSemanticsNode().boundsInRoot
+
+    private fun bodyHeightPx(): Float =
+        compose.onNodeWithTag(CHANGED_FILES_BODY_TAG).fetchSemanticsNode().boundsInRoot.height
 
     @After
     fun restoreAnimatorScale() {
