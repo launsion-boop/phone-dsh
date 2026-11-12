@@ -85,17 +85,39 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
-    /** 设置 › 定时任务; the drawer no longer carries a duplicate entry. */
+    /**
+     * 设置 › 定时任务; the drawer no longer carries a duplicate entry.
+     *
+     * iOS presents it as `NavigationStack { NativeAutomationPage() }` inside a
+     * `.sheet` with `homeSheetChrome()` and no `.presentationDetents`
+     * (`SettingsPage.swift:115`), so the row keeps SHEET and renders through the
+     * contract's default detent set (`interaction.md` §2 rule 2).
+     */
     public data object Automation : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
 
-    /** 页头 `⋯`; §1: sheet, closed by 完成. Read-only on this host. */
+    /**
+     * 页头 `⋯`; §1: sheet, closed by 完成. Read-only on this host.
+     *
+     * iOS presents `NativeConfigurationPage(presentedAsSheet: true)` in a
+     * `NavigationStack` with `homeSheetChrome()` and no `.presentationDetents`
+     * (`ChatPage.swift:526`–`:533`), so the sheet takes the contract default.
+     * The `configurationInfo` page id is the nested 插件说明 sheet
+     * (`NativeConfigurationPage.swift:66`–`:83`), not this route.
+     */
     public data object Configuration : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
 
-    /** 抽屉底行「设置」; §1: a sheet (NavigationStack). */
+    /**
+     * 抽屉底行「设置」; §1: a sheet (NavigationStack).
+     *
+     * iOS: `NavigationStack { SettingsPage(...) }.homeSheetChrome()` with no
+     * `.presentationDetents` (`ChatPage.swift:522`–`:525`), so the contract default
+     * applies. The sheet chrome owns the visible grabber; the settings content
+     * draws none (`SheetChrome.HomeSheet`).
+     */
     public data object Settings : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
@@ -119,7 +141,14 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.FULLSCREEN
     }
 
-    /** 设置首行; §1: sheet. */
+    /**
+     * 设置首行; §1: sheet.
+     *
+     * iOS also pushes it from the settings index, and presents it as `NavigationStack
+     * { ModelProviderSettingsPage().homeSheetDone() }.homeSheetChrome()` with no
+     * `.presentationDetents` (`ChatPage.swift:518`–`:521`), so the sheet consumes
+     * the contract default.
+     */
     public data object ModelProvider : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
@@ -178,7 +207,13 @@ public sealed interface PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
 
-    /** 设置内「运行时详情」, also the page-header status dot; §1: sheet. */
+    /**
+     * 设置内「运行时详情」, also the page-header status dot; §1: sheet.
+     *
+     * iOS: `NavigationStack { RuntimeDetailsPage(...).homeSheetDone() }
+     * .homeSheetChrome()` (`ChatPage.swift:541`–`:544`), no `.presentationDetents`
+     * → contract default.
+     */
     public data object Runtime : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
     }
@@ -190,6 +225,11 @@ public sealed interface PdshRoute {
 
     /**
      * The session workbench sheet, opened from a tool-written path in the turn.
+     *
+     * Not a PUSH: iOS presents `NativeWorkbenchPage(...)` in a `.sheet` with
+     * `.homeSheetChrome()` (`ChatPage.swift:504`–`:507`), and the page itself pins
+     * `.presentationDetents([.large])` (`NativeWorkbenchPage.swift:40`), i.e. the
+     * frozen page id `workbench` with the `large` set.
      *
      * @param previewPath the path the chat page was asked to preview, if any.
      * @param section the segment to show first; `null` keeps the page default.
@@ -241,8 +281,10 @@ public sealed interface PdshRoute {
     /**
      * 设备连接: which devices a connector publishes, and which session each opens.
      *
-     * The baseline presents it as a sheet closed by 完成 (`NativeDeviceConnectionPage`
-     * is the root of a `NavigationStack`), so it keeps that form here.
+     * The baseline presents it as `NavigationStack { NativeDeviceConnectionPage() }
+     * .homeSheetChrome()` (`ChatPage.swift:495`–`:497`), which is the site the
+     * contract records as `interaction.sheet.defaultDetents` (no
+     * `.presentationDetents`), so the sheet keeps the default set.
      */
     public data object DeviceConnection : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -264,7 +306,9 @@ public sealed interface PdshRoute {
     /**
      * 本 session 产物: the files one session's tools produced, plus the unassigned rest.
      *
-     * A sheet closed by 完成 in the baseline (`SessionArtifactsPage`'s toolbar).
+     * A sheet closed by 完成 in the baseline: `NavigationStack { SessionArtifactsPage(...) }`
+     * with `.presentationDetents([.medium, .large])` and `.homeSheetChrome()`
+     * (`ChatPage.swift:584`–`:590`), i.e. page id `chatArtifacts`.
      *
      * @param sessionId the session whose artifacts are listed.
      */
@@ -367,7 +411,9 @@ public sealed interface PdshRoute {
      * The baseline opens it from `executeCommand`'s success path
      * (`ChatPage.swift:2516`), never from a menu row, so there is no in-page entry
      * on this host either: a host that owns `commands/execute` pushes this route
-     * when the execution returns.
+     * when the execution returns. iOS presents it with `.homeSheetChrome()` and no
+     * `.presentationDetents` (`ChatPage.swift:534`–`:540`), so the sheet uses the
+     * contract default set.
      */
     public data object CommandResult : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -377,7 +423,9 @@ public sealed interface PdshRoute {
      * 后台任务: this session's background jobs (`ChatPage.swift:3554`).
      *
      * The page-head menu opens it only while the list has rows (`:247`), which is
-     * why this route has no other entrance.
+     * why this route has no other entrance. iOS presents `NativeJobListSheet` with
+     * `.presentationDetents([.medium, .large])` and `.homeSheetChrome()`
+     * (`ChatPage.swift:568`–`:575`), i.e. page id `chatJobs`.
      */
     public data object SessionJobs : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET
@@ -388,6 +436,9 @@ public sealed interface PdshRoute {
      *
      * Same entrance rule as [SessionJobs] (`:252`). Not to be confused with
      * [Automation], the drawer's schedule *catalog* page, which is a different read.
+     * iOS presents `NativeScheduleListSheet` with `.presentationDetents([.medium,
+     * .large])` and `.homeSheetChrome()` (`ChatPage.swift:576`–`:583`), i.e. page id
+     * `chatSchedules`.
      */
     public data object SessionSchedules : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.SHEET

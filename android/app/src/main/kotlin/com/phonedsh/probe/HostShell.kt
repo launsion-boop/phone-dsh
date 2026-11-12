@@ -1149,6 +1149,10 @@ internal fun HostShell(
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
+                        // §2 rule 9 / §4 rule 5: the same chain the SHEET layer
+                        // above dispatches to, so a page-owned or route-presented
+                        // sheet is the layer this host's back closes first.
+                        sheetBackHost = sheetBackHost,
                         onNavigate = { route ->
                             closeHostDrawer()
                             pushRoute(route)
