@@ -13,6 +13,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createGitCommand, createGitToolboxProgram, registerGitCommand, registerGitProgram, runGitForShell } from '../command.ts'
+import { GIT_PHONE_NOTE } from '../phone.ts'
 import type { GitShellContext } from '../command.ts'
 import { HAS_GIT, SKIP_NO_GIT, fixtureEnvironment, systemGit, tempDirectory } from './helpers.ts'
 import { VfsFileSystem } from '../../../shell-ext/src/filesystem.ts'
@@ -38,6 +39,7 @@ test('createGitCommand is a just-bash shaped command over the VFS', { skip }, as
     const command = createGitCommand()
     assert.equal(command.name, 'git')
     assert.match(command.description, /workspace-changes/)
+    assert.ok(command.description.includes(GIT_PHONE_NOTE), 'the shell description carries the phone note')
     const context = shellContext(repository, environment.env)
     const init = await command.execute(['init', '-b', 'main'], context)
     assert.equal(init.exitCode, 0)
@@ -157,4 +159,17 @@ test('the command runs inside the Worker shell core (just-bash)', { skip }, asyn
   } finally {
     temp.cleanup()
   }
+})
+
+test('git --help and both command descriptions carry the phone note', async () => {
+  const command = createGitCommand()
+  const help = await command.execute(['--help'], { cwd: '/' })
+  assert.equal(help.exitCode, 0)
+  assert.ok(help.stdout.includes(GIT_PHONE_NOTE), 'git --help prints the phone note')
+  assert.match(help.stdout, /--depth 1 --single-branch --no-tags/)
+  assert.match(help.stdout, /sparse-checkout/)
+  assert.ok(createGitToolboxProgram().description.includes(GIT_PHONE_NOTE))
+  const bare = await command.execute([], { cwd: '/' })
+  assert.equal(bare.exitCode, 1)
+  assert.ok(bare.stdout.includes(GIT_PHONE_NOTE), 'a bare git invocation prints the phone note')
 })

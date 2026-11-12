@@ -25,6 +25,7 @@ import { diffFlatTrees, parseMode, readWorktreeBlob } from './tree.ts'
 import type { TreeChange } from './tree.ts'
 import { countDiff, isBinary, splitLines, unifiedHunks, formatRange, renderHunkBody } from './textdiff.ts'
 import { ensureParent, removeWorktreePath, scanWorktree } from './worktree.ts'
+import { activeCone, coneSelectsFile } from './sparse.ts'
 import type { CommandContext } from './cli.ts'
 import { loadIndex, parsePathspec, pathspecSelector, quotePath, selectedByPathspecs } from './inspect.ts'
 import type { Pathspec } from './inspect.ts'
@@ -1628,25 +1629,49 @@ export async function switchTo(context: CommandContext, target: SwitchTarget): P
   const repository = await context.repository()
   const workTree = requireWorkTree(repository)
   const index = await loadIndex(repository)
-  const indexByPath = new Map<string, { mode: number; oid: string }>()
-  for (const entry of index.entries) if (entry.stage === 0) indexByPath.set(entry.path, { mode: entry.mode, oid: entry.oid })
+  const indexByPath = new Map<string, { mode: number; oid: string; skipWorktree?: boolean }>()
+  for (const entry of index.entries) {
+    if (entry.stage !== 0) continue
+    indexByPath.set(entry.path, { mode: entry.mode, oid: entry.oid, skipWorktree: entry.skipWorktree })
+  }
   const targetTree: Map<string, Snapshot> = target.commit === undefined
     ? new Map()
     : await flattenTree(repository, (await readCommit(repository, target.commit)).tree)
   const files = await scanWorktree(repository)
+  const cone = await activeCone(repository)
+  const inCone = (path: string): boolean => cone === undefined || coneSelectsFile(path, cone)
+  const missing: string[] = []
+  for (const [path, entry] of targetTree) {
+    if (!inCone(path) || entry.mode === '160000') continue
+    if (!(await repository.odb.has(entry.oid))) missing.push(entry.oid)
+  }
+  if (missing.length > 0) {
+    const { prefetchMissing } = await import('./remote.ts')
+    await prefetchMissing(context, repository, missing)
+  }
   // Refuse to overwrite work that is not recoverable: a target path that
   // differs from the index is a conflict when the path is dirty or untracked.
   const conflicts: string[] = []
   for (const [path, entry] of targetTree) {
+    if (entry.mode === '160000') continue
     const current = indexByPath.get(path)
     const unchangedInTarget = current !== undefined && current.oid === entry.oid && current.mode.toString(8) === entry.mode
-    if (unchangedInTarget) continue
+    if (unchangedInTarget && inCone(path)) continue
     const info = files.get(path)
     if (current === undefined && info !== undefined) {
+      // An untracked file at a target path is never overwritten, even when the
+      // path is outside the cone and would otherwise be removed.
       conflicts.push(path)
       continue
     }
     if (current !== undefined) {
+      if (info === undefined) {
+        // A missing file inside the cone is an unstaged deletion: checkout
+        // would overwrite that state, so it is a conflict. Outside the cone it
+        // is the normal skip-worktree shape.
+        if (inCone(path)) conflicts.push(path)
+        continue
+      }
       const blob = await readWorktreeBlob(context.fs, repository, workTree, path)
       if (blob === undefined || blob.oid !== current.oid) conflicts.push(path)
     }
@@ -1667,9 +1692,15 @@ export async function switchTo(context: CommandContext, target: SwitchTarget): P
   }
   // Materialize the target tree.
   for (const [path, entry] of targetTree) {
+    if (entry.mode === '160000') continue
     const current = indexByPath.get(path)
+    const selected = inCone(path)
+    if (!selected) {
+      if (await context.fs.exists(`${workTree}/${path}`)) await removeWorktreePath(context.fs, workTree, path)
+      continue
+    }
     const unchangedInTarget = current !== undefined && current.oid === entry.oid && current.mode.toString(8) === entry.mode
-    if (unchangedInTarget) continue
+    if (unchangedInTarget && current.skipWorktree !== true) continue
     const data = (await repository.odb.read(entry.oid)).data
     await ensureParent(context.fs, workTree, path)
     await removeWorktreePath(context.fs, workTree, path)
@@ -1688,10 +1719,11 @@ export async function switchTo(context: CommandContext, target: SwitchTarget): P
   const entries: IndexEntry[] = []
   for (const [path, entry] of [...targetTree.entries()].sort(([left], [right]) => compareStrings(left, right))) {
     const previous = previousEntries.get(path)
+    const skipWorktree = !inCone(path) || entry.mode === '160000'
     if (previous !== undefined && previous.oid === entry.oid && previous.mode.toString(8) === entry.mode) {
-      entries.push(previous)
+      entries.push({ ...previous, skipWorktree })
     } else {
-      entries.push(await statEntry(context.fs, workTree, path, entry.oid, parseMode(entry.mode)))
+      entries.push({ ...await statEntry(context.fs, workTree, path, entry.oid, parseMode(entry.mode)), skipWorktree })
     }
   }
   await writeIndex(context.fs, repository.indexPath, { version: 2, entries })
