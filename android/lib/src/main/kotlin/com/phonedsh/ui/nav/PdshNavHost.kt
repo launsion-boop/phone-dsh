@@ -461,6 +461,34 @@ public fun PdshNavHost(
     agentPresets: NativeAgentPresetsFacts = NativeAgentPresetsFacts(),
     /** The host's preset read/use handoffs; the default leaves them unavailable. */
     agentPresetActions: AgentPresetActions = AgentPresetActions(),
+    /**
+     * 连接电脑's host snapshot. The default is the honest idle page, so a host
+     * without a PCLink seam still renders the contract's install/scan/other body.
+     */
+    pcPairingState: PCPairingUiState = PCPairingUiState(),
+    /** 已连接的电脑's host snapshot; the default is its 还没有连接电脑 empty state. */
+    pcConnectedState: ConnectedComputerUiState = ConnectedComputerUiState(),
+    /** 已连接的电脑's trailing value (`未配对` / `离线` / the verified name). */
+    connectedComputerValue: String? = null,
+    /** The host's camera preview for the pairing page's scanner sheet. */
+    pcScannerContent: (@Composable () -> Unit)? = null,
+    onPcScan: () -> Unit = {},
+    onPcToggleOtherWays: () -> Unit = {},
+    onPcPairingLinkChange: (String) -> Unit = {},
+    onPcPairWithLink: () -> Unit = {},
+    onPcPairingCodeChange: (String) -> Unit = {},
+    onPcPairManually: () -> Unit = {},
+    /** `null` falls back to [onBack], the pre-glue behaviour. */
+    onPcCancelPairing: (() -> Unit)? = null,
+    onPcRetry: () -> Unit = {},
+    /** `null` falls back to [onBack], the pre-glue behaviour. */
+    onPcDone: (() -> Unit)? = null,
+    /** `null` falls back to [onBack], the pre-glue behaviour. */
+    onPcClose: (() -> Unit)? = null,
+    onPcCancelScanner: () -> Unit = {},
+    onPcUnpair: () -> Unit = {},
+    onPcDismissUnpairFailure: () -> Unit = {},
+    onPcConnectionScreenOpened: () -> Unit = {},
 ) {
     val route = nav.current
     if (route == PdshRoute.Home) {
@@ -535,6 +563,7 @@ public fun PdshNavHost(
                 onPhonePermissionSettings = onPhonePermissionSettings,
                 agentPresets = agentPresets,
                 agentPresetActions = agentPresetActions,
+                connectedComputerValue = connectedComputerValue,
             )
             PdshRoute.Discover -> com.phonedsh.ui.page.ConnectorsPage(
                 onOpen = { connector ->
@@ -615,19 +644,30 @@ public fun PdshNavHost(
             PdshRoute.CommandResult -> CommandResultRoute(chatSubpages, onBack)
             PdshRoute.SessionJobs -> SessionJobsRoute(chatSubpages, onBack, onHostAction)
             PdshRoute.SessionSchedules -> SessionSchedulesRoute(chatSubpages, onBack, onHostAction)
-            // C5 PCLink. The host half supplies the flow/record state once it is
-            // glued in; the library route renders the honest idle/empty snapshot
-            // rather than inventing a paired PC.
+            // C5 PCLink: the host half supplies the flow/record snapshot (the
+            // defaults keep this router's standalone preview honest).
             PdshRoute.PcPairing -> PCPairingPage(
-                state = PCPairingUiState(),
-                onDone = onBack,
-                onClose = onBack,
-                onCancelPairing = onBack,
+                state = pcPairingState,
+                onScan = onPcScan,
+                onToggleOtherWays = onPcToggleOtherWays,
+                onPairingLinkChange = onPcPairingLinkChange,
+                onPairWithLink = onPcPairWithLink,
+                onPairingCodeChange = onPcPairingCodeChange,
+                onPairManually = onPcPairManually,
+                onCancelPairing = onPcCancelPairing ?: onBack,
+                onRetry = onPcRetry,
+                onDone = onPcDone ?: onBack,
+                onClose = onPcClose ?: onBack,
+                onCancelScanner = onPcCancelScanner,
+                scannerContent = pcScannerContent,
             )
             PdshRoute.ConnectedComputer -> ConnectedComputerPage(
-                state = ConnectedComputerUiState(),
+                state = pcConnectedState,
                 onBack = onBack,
                 onOpenPairing = { onNavigate(PdshRoute.PcPairing) },
+                onUnpair = onPcUnpair,
+                onDismissUnpairFailure = onPcDismissUnpairFailure,
+                onConnectionScreenOpened = onPcConnectionScreenOpened,
             )
         }
     }
@@ -1574,6 +1614,8 @@ private fun SettingsRoute(
     onPhonePermissionSettings: (PhoneCapability) -> Unit = {},
     agentPresets: NativeAgentPresetsFacts = NativeAgentPresetsFacts(),
     agentPresetActions: AgentPresetActions = AgentPresetActions(),
+    /** 已连接的电脑's trailing value; `null` keeps the row's honest 未知. */
+    connectedComputerValue: String? = null,
 ) {
     // 新会话默认权限 is the settings sheet's own child page in the baseline, so it
     // is a local page swap here, not a route the stack owns.
@@ -1692,6 +1734,7 @@ private fun SettingsRoute(
             onOpenFolders = { onNavigate(PdshSettingsRows.targetOf(PdshSettingsRows.HostRow.FOLDERS)) },
             onOpenArchivedSessions = { archivedSessions = true },
             onOpenConnectedComputer = { onNavigate(PdshRoute.ConnectedComputer) },
+            connectedComputerValue = connectedComputerValue,
             onSelectDefaultPermission = { tier -> onSettingsWrite(SettingsWrite.DefaultPermissionTier(tier)) },
             onToggleDeveloperTools = onToggleDeveloperTools,
             onBack = onBack,

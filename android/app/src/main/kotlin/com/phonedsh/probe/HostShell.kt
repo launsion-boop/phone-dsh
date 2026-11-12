@@ -31,9 +31,12 @@
 package com.phonedsh.probe
 
 import com.phonedsh.dsh.localexec.UbuntuApproval
+import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import android.view.View
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
@@ -41,6 +44,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
@@ -54,6 +58,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,12 +77,16 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import com.phonedsh.engine.ChannelStatus
 import com.phonedsh.engine.EngineState
@@ -118,6 +127,30 @@ import com.phonedsh.ui.page.BusyEnterMode
 import com.phonedsh.ui.page.SettingsScreenState
 import com.phonedsh.ui.page.WorkbenchSection
 import com.phonedsh.ui.page.ShellRun
+import com.phonedsh.ui.page.ConnectedComputerUiState
+import com.phonedsh.ui.page.PCPairingUiState
+import com.phonedsh.ui.page.PcDrawerBackend
+import com.phonedsh.ui.page.PcDrawerUiState
+import com.phonedsh.probe.pc.PcBackend
+import com.phonedsh.probe.pc.PcCameraAvailability
+import com.phonedsh.probe.pc.PcQrScanner
+import com.phonedsh.probe.pc.PcWorkspaceController
+import com.phonedsh.probe.pc.PcWorkspaceState
+import com.phonedsh.probe.pc.cancelPcPairing
+import com.phonedsh.probe.pc.connectionScreenOpened
+import com.phonedsh.probe.pc.finishPcPairing
+import com.phonedsh.probe.pc.pairWithPcCode
+import com.phonedsh.probe.pc.pairWithPcLink
+import com.phonedsh.probe.pc.pairWithPcQr
+import com.phonedsh.probe.pc.retryPcPairing
+import com.phonedsh.probe.pc.retryPcRoster
+import com.phonedsh.probe.pc.selectPcBackend
+import com.phonedsh.probe.pc.startPcScan
+import com.phonedsh.probe.pc.toConnectedComputerUiState
+import com.phonedsh.probe.pc.toPcDrawerUiState
+import com.phonedsh.probe.pc.toPcPairingUiState
+import com.phonedsh.probe.pc.toPcSettingsValue
+import com.phonedsh.probe.pc.unpairPc
 import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.theme.PdshThemeValues
 import com.phonedsh.ui.theme.UiTypePreferences
@@ -356,6 +389,43 @@ internal fun HostShell(
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
     val context = LocalContext.current
+    // PCLink C5: the view model owns the controller's lifetime (`onCleared`), so
+    // this shell only observes its snapshot and maps it onto the plain `:lib`
+    // page state. The camera prompt stays the Activity's one CAMERA request.
+    val pcController = engine.pcWorkspace
+    val pcStateFlow: StateFlow<PcWorkspaceState?> = remember(pcController) {
+        pcController?.state ?: MutableStateFlow(null)
+    }
+    val pcState by pcStateFlow.collectAsState()
+    val pcWiring = remember(pcController, context) {
+        HostPcLinkWiring(pcController) {
+            (context as? MainActivity)?.requestPcCameraPermission()
+        }
+    }
+    val pcPairingState = pcWiring.pairingState(pcState)
+    val pcConnectedState = pcWiring.connectedState(pcState)
+    val pcDrawerState = pcWiring.drawerState(pcState)
+    val pcConnectedValue = pcWiring.settingsValue(pcState)
+    // One successful unpair ends the attempt; otherwise a later, unrelated error
+    // (a roster read, a turn) would reopen 解除没有完成 on a page with no pairing.
+    LaunchedEffect(pcState?.record?.machineId) {
+        if (pcState?.record == null) pcWiring.onDismissUnpairFailure()
+    }
+    val pcScannerController = pcController
+    val pcScannerContent: (@Composable () -> Unit)? =
+        if (pcScannerController != null && pcPairingState.scanning &&
+            pcState?.camera == PcCameraAvailability.AVAILABLE
+        ) {
+            {
+                PcQrScannerContent(
+                    controller = pcScannerController,
+                    onDecoded = { payload -> pcWiring.onQrDecoded(payload) },
+                    onUnavailable = { pcWiring.onCameraUnavailable() },
+                )
+            }
+        } else {
+            null
+        }
     // 蓝牙设备: the process-owned scan + standard GATT store (android-standard-gatt.md).
     val bleDevices = remember { AndroidBleDevices.get(context) }
     BindBluetoothHost(bleDevices)
@@ -986,6 +1056,14 @@ internal fun HostShell(
     // The drawer's open state is the contract's DRAWER overlay (`interaction.md`
     // §1 rule 9), so the system back and the close button consume the same layer.
     val drawerOpen = hostBack.drawerOpen
+    // Opening the drawer on the PC segment asks the PC for its own session list;
+    // the cached roster is already painted from the controller, so an offline or
+    // reconnecting PC never waits on this read (and never falls back to 手机).
+    LaunchedEffect(drawerOpen, pcState?.backend, pcState?.presence?.isOnline) {
+        if (drawerOpen && pcState?.backend == PcBackend.PC && pcState?.presence?.isOnline == true) {
+            pcController?.retryPcRoster()
+        }
+    }
     // The drawer stays mounted after the host closes it (selecting a session, a tab,
     // a route) so its close motion can run (spec/ui/v1/interaction.md §1 rule 8);
     // HomeDrawer reports the end of that motion through onClose.
@@ -1397,6 +1475,33 @@ internal fun HostShell(
                         // it (see `HostPhonePermissions.kt`).
                         onPhonePermissionRequest = onPhonePermissionRequest,
                         onPhonePermissionSettings = onPhonePermissionSettings,
+                        // PCLink C5: the two PC routes render the controller's
+                        // snapshot; the scanner is a host composable because :lib
+                        // carries no camera dependency.
+                        pcPairingState = pcPairingState,
+                        pcConnectedState = pcConnectedState,
+                        pcScannerContent = pcScannerContent,
+                        connectedComputerValue = pcConnectedValue,
+                        onPcScan = pcWiring::onScan,
+                        onPcToggleOtherWays = pcWiring::onToggleOtherWays,
+                        onPcPairingLinkChange = pcWiring::onPairingLinkChange,
+                        onPcPairWithLink = pcWiring::onPairWithLink,
+                        onPcPairingCodeChange = pcWiring::onPairingCodeChange,
+                        onPcPairManually = pcWiring::onPairManually,
+                        onPcCancelPairing = pcWiring::onCancelPairing,
+                        onPcRetry = pcWiring::onRetry,
+                        onPcDone = {
+                            pcWiring.onDone()
+                            popRoute()
+                        },
+                        onPcClose = {
+                            pcWiring.onClose()
+                            popRoute()
+                        },
+                        onPcCancelScanner = pcWiring::onCancelScanner,
+                        onPcUnpair = pcWiring::onUnpairConfirmed,
+                        onPcDismissUnpairFailure = pcWiring::onDismissUnpairFailure,
+                        onPcConnectionScreenOpened = pcWiring::onConnectionScreenOpened,
                         onOpenDrawer = { openHostDrawer() },
                         onOpenSubagentSession = engine::openSubagentSession,
                         onLoadEarlierChatTranscript = engine::loadEarlierSubagentTranscript,
@@ -1763,10 +1868,200 @@ internal fun HostShell(
                         } else HomeDrawerArchiveResult.Failed(request.requestId, request.sessionId, "归档未确认，原会话仍保留")
                         result
                     },
+                    // PCLink C5: the drawer's segment reads/writes the P18 value
+                    // through the controller. Selecting PC while unpaired opens the
+                    // PC empty card, never the phone list.
+                    pcDrawer = pcDrawerState,
+                    onSelectPcBackend = pcWiring::onSelectBackend,
+                    onOpenPcPairing = { pushRoute(PdshRoute.PcPairing) },
+                    onRetryPc = pcWiring::onRetryRoster,
+                    onOpenConnectedComputer = { pushRoute(PdshRoute.ConnectedComputer) },
                 )
             }
         }
     }
+}
+
+/**
+ * The host half of PCLink C5: it keeps the page-local draft stages and maps the
+ * controller snapshot through `PcUiMapping`. The controller stays the owner of
+ * the protocol/record/roster facts; this class only remembers what the page
+ * itself would remember (the 配对链接/配对码 drafts, the open scanner sheet and
+ * whether an unpair was attempted).
+ *
+ * It is deliberately a plain object rather than a second state machine: every
+ * callback is one controller intent from `PcUiMapping`, and the state getters
+ * are pure projections of the caller's latest [PcWorkspaceState]. The JVM wiring
+ * test drives the same methods the pages call.
+ */
+internal class HostPcLinkWiring(
+    private val controller: PcWorkspaceController?,
+    private val requestCameraPermission: () -> Unit = {},
+) {
+    /** The page-local pairing draft/scanner stage, before controller facts win. */
+    var pairingUiState by mutableStateOf(PCPairingUiState())
+        private set
+
+    private var unpairAttempted by mutableStateOf(false)
+
+    /** The pairing page snapshot the route renders. */
+    fun pairingState(source: PcWorkspaceState?): PCPairingUiState =
+        source?.toPcPairingUiState(pairingUiState) ?: pairingUiState
+
+    /** The connected-computer snapshot; an unpair failure is the attempt's own. */
+    fun connectedState(source: PcWorkspaceState?): ConnectedComputerUiState {
+        if (source == null) return ConnectedComputerUiState()
+        return source.toConnectedComputerUiState(
+            unpairFailure = if (unpairAttempted) source.lastError?.message else null,
+        )
+    }
+
+    /** The 手机 | PC segment plus the PC-scope list. */
+    fun drawerState(source: PcWorkspaceState?): PcDrawerUiState =
+        source?.toPcDrawerUiState() ?: PcDrawerUiState()
+
+    /** 已连接的电脑's trailing value, or `null` when the host has no seam. */
+    fun settingsValue(source: PcWorkspaceState?): String? = source?.toPcSettingsValue()
+
+    // ---- Pairing page callbacks ----------------------------------------
+
+    /** 扫码连接. A denied/absent camera becomes the page's one honest state. */
+    fun onScan() {
+        val target = controller ?: return
+        pairingUiState = target.startPcScan(pairingUiState)
+        if (target.state.value.camera == PcCameraAvailability.DENIED) {
+            requestCameraPermission()
+        }
+    }
+
+    fun onToggleOtherWays() {
+        pairingUiState = pairingUiState.toggleOtherWays()
+    }
+
+    fun onPairingLinkChange(value: String) {
+        pairingUiState = pairingUiState.withPairingLink(value)
+    }
+
+    fun onPairWithLink() {
+        val target = controller ?: return
+        pairingUiState = target.pairWithPcLink(pairingUiState)
+    }
+
+    fun onPairingCodeChange(value: String) {
+        pairingUiState = pairingUiState.withPairingCode(value)
+    }
+
+    fun onPairManually() {
+        val target = controller ?: return
+        pairingUiState = target.pairWithPcCode(pairingUiState)
+    }
+
+    fun onQrDecoded(payload: String) {
+        val target = controller ?: return
+        target.pairWithPcQr(payload)
+        pairingUiState = pairingUiState.scannerDismissed()
+    }
+
+    fun onCameraUnavailable() {
+        controller?.onCameraPermissionResult(false)
+        pairingUiState = pairingUiState.cameraUnavailable()
+    }
+
+    fun onCancelPairing() {
+        val target = controller
+        if (target != null) {
+            pairingUiState = target.cancelPcPairing()
+        } else {
+            pairingUiState = PCPairingUiState()
+        }
+    }
+
+    fun onRetry() {
+        val target = controller ?: return
+        pairingUiState = target.retryPcPairing(pairingUiState)
+        if (target.state.value.camera == PcCameraAvailability.DENIED) {
+            requestCameraPermission()
+        }
+    }
+
+    fun onDone() {
+        val target = controller
+        pairingUiState = target?.finishPcPairing() ?: PCPairingUiState()
+    }
+
+    fun onClose() {
+        if (controller?.state?.value?.pairing?.isBusy == true) controller.cancelPairing()
+        pairingUiState = PCPairingUiState()
+    }
+
+    fun onCancelScanner() {
+        pairingUiState = pairingUiState.scannerDismissed()
+    }
+
+    // ---- Drawer / connected page callbacks ------------------------------
+
+    fun onSelectBackend(backend: PcDrawerBackend) {
+        controller?.selectPcBackend(backend)
+    }
+
+    fun onRetryRoster() {
+        controller?.retryPcRoster()
+    }
+
+    fun onUnpairConfirmed() {
+        unpairAttempted = true
+        controller?.unpairPc()
+    }
+
+    fun onDismissUnpairFailure() {
+        unpairAttempted = false
+    }
+
+    fun onConnectionScreenOpened() {
+        controller?.connectionScreenOpened()
+    }
+}
+
+/**
+ * The scanner slot `PCPairingPage` hands to the host. `:lib` carries no camera
+ * dependency, so CameraX + ZXing live here and the page only sees a composable.
+ * A bind that fails after `checkCameraForScanning` reports the unavailable page
+ * state rather than leaving a dead preview on screen.
+ */
+@Composable
+private fun PcQrScannerContent(
+    controller: PcWorkspaceController,
+    onDecoded: (String) -> Unit,
+    onUnavailable: () -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = context.findLifecycleOwner()
+    if (lifecycleOwner == null) {
+        LaunchedEffect(Unit) { onUnavailable() }
+        return
+    }
+    val previewView = remember(context) { PreviewView(context) }
+    val scanner = remember(context, lifecycleOwner) { PcQrScanner(context, lifecycleOwner) }
+    val mainExecutor = remember(context) { ContextCompat.getMainExecutor(context) }
+    DisposableEffect(scanner) { onDispose { scanner.close() } }
+    AndroidView(
+        factory = { previewView },
+        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+    )
+    LaunchedEffect(scanner, previewView) {
+        val availability = scanner.start(previewView) { payload ->
+            // The analysis executor must not write Compose state directly.
+            mainExecutor.execute { onDecoded(payload) }
+        }
+        if (availability != PcCameraAvailability.AVAILABLE) onUnavailable()
+    }
+}
+
+/** The Activity in the context chain, or `null` when this is not an Activity tree. */
+private tailrec fun Context.findLifecycleOwner(): LifecycleOwner? = when (this) {
+    is LifecycleOwner -> this
+    is ContextWrapper -> baseContext.findLifecycleOwner()
+    else -> null
 }
 
 /**
@@ -2009,10 +2304,10 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null
 
-    // PCLink C5: the :lib pages exist, the :app workspace controller is not wired
-    // to them yet, so pairing and unpairing do nothing on this host.
-    PdshRoute.PcPairing, PdshRoute.ConnectedComputer ->
-        "本宿主尚未接入电脑连接（PCLink）；配对与解除配对暂不可用"
+    // PCLink C5 is live: both pages render the controller's own pairing/record
+    // state, and their failures are the page's own lines. A route-wide note would
+    // be a second, weaker version of that disclosure.
+    PdshRoute.PcPairing, PdshRoute.ConnectedComputer -> null
 
     // The rules are real: they are the App's own /v1/http policy. The note is
     // what keeps them from being mistaken for the DSH settings allow-list.
