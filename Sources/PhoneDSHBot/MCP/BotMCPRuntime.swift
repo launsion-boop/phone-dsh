@@ -836,8 +836,15 @@ public actor BotMCPRuntime {
     @discardableResult
     public func cancelIdentity(id: String) async -> Bool {
         guard let match = registrations.first(where: { $0.value.id == id }) else { return false }
+        let sessionId = match.value.sessionId
+        let callId = match.value.callId
         registrations.removeValue(forKey: match.key)
         registrationArguments.removeValue(forKey: match.key)
+        // A cancelled registration ends its call's interactive approvals
+        // (§3). Persist neither a connection state nor the host egress: the
+        // Worker's paired `/identity/cancel` is the cancellation signal, and a
+        // dropped `/approval` connection is not.
+        _ = await approvals.cancelInteractive(sessionId: sessionId, callId: callId)
         return await gateway.cancelToolCall(id: id)
     }
 

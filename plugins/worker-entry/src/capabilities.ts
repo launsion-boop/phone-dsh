@@ -42,7 +42,7 @@ import {
 } from '../../shell-ext/src/index.ts'
 import type { UbuntuCapability } from '../../shell-ext/src/index.ts'
 import type { WorkerToolbox } from '../../wasi-toolbox/src/index.ts'
-import { gitCapability } from '../../wasi-toolbox/git/capability.ts'
+import { GIT_PHONE_NOTE, gitCapability } from '../../wasi-toolbox/git/capability.ts'
 import type { GitCapability, GitTrimFact } from '../../wasi-toolbox/git/capability.ts'
 
 /** Persisted instruction file the upstream loader injects (`$DSH_HOME/AGENTS.md`). */
@@ -261,7 +261,7 @@ export interface HostRouteEnvironment {
 
 /** Reason `curl` carries when this boot has no host `/v1/http` route. */
 export const CURL_NO_HOST_ROUTE_REASON =
-  'no host /v1/http route in this boot: PDSH_CHANNEL_TOKEN is unset, so curl cannot reach any host'
+  'no host /v1/http route in this boot: PDSH_CHANNEL_TOKEN is unset, so curl and github cannot reach any host'
 
 /**
  * Commands this boot cannot run, derived only from facts the Worker observes.
@@ -278,7 +278,11 @@ export function workerUnavailableCommands(env: HostRouteEnvironment = {}): Capab
   const origin = env.PDSH_CHANNEL_ORIGIN ?? env.PDSH_EXEC_BRIDGE_URL
   const token = env.PDSH_CHANNEL_TOKEN ?? env.PDSH_EXEC_BRIDGE_TOKEN
   const hasHostRoute = origin !== undefined && origin !== '' && token !== undefined && token !== ''
-  return hasHostRoute ? [] : [{ command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON }]
+  if (hasHostRoute) return []
+  return [
+    { command: 'curl', reason: CURL_NO_HOST_ROUTE_REASON },
+    { command: 'github', reason: CURL_NO_HOST_ROUTE_REASON },
+  ]
 }
 
 /** One capability manifest build input; every field is a fact, not a guess. */
@@ -632,6 +636,17 @@ function gitSection(git: NonNullable<CapabilityManifestDocument['git']>): string
     '## Git',
     `- supported: ${git.supported_forms.join('; ')}.`,
     `- trimmed: ${git.trimmed.map(fact => fact.note).join('; ')}.`,
+    `- ${GIT_PHONE_NOTE}`,
+  ]
+}
+
+/** The no-clone GitHub tool, only when this boot's command table serves it. */
+function githubSection(): string[] {
+  return [
+    '## GitHub',
+    '- `github` reads and changes a GitHub repo with no local clone: `get`, `tree`, `search`, `branch`, `commit`, `pr`. `github --help` lists the flags.',
+    '- Only `get` and `tree` work anonymously. `search` needs a host-stored `api.github.com` credential (`PDSH_GITHUB_AUTH=1`); `branch`, `commit` and `pr` also need the host write opt-in (`PDSH_GITHUB_WRITE=1`). Without them the command fails before sending a request.',
+    '- Do not pass a token and do not put one in a script. Requests use the host `/v1/http` allow-list; the host credential gateway injects the stored credential. Keep commits small (at most 20 files, 256 KiB each); binary files go through `--base64`.',
   ]
 }
 
@@ -654,7 +669,7 @@ export const MOBILE_RESOURCE_MAX_BYTES = 600
 export function mobileResourceSection(workspaceBytes: number): string[] {
   return [
     MOBILE_RESOURCE_HEADING,
-    '- 克隆用 `git clone --depth 1 --single-branch`；只需个别文件时直接读，不要整库克隆。',
+    '- 克隆用 `git clone --depth 1 --single-branch --no-tags`（裸 `git clone` 已是这个默认）；只需个别文件时直接读，不要整库克隆。',
     '- 不在手机上安装依赖、不跑构建。',
     '- 搜索时排除 `.git`、`node_modules`。',
     '- 大文件按片读取。',
@@ -692,6 +707,7 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
     '',
     ...document.ubuntu === undefined ? [] : [...ubuntuSection(document.ubuntu), ''],
     ...document.git === undefined ? [] : [...gitSection(document.git), ''],
+    ...document.commands.includes('github') ? [...githubSection(), ''] : [],
     ...document.phone === undefined ? [] : [
       '## Host phone tools',
       'The catalog is host-owned; the Worker only forwards `phone <tool> <json-object>`. '

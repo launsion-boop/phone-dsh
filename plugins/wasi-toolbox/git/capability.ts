@@ -14,6 +14,8 @@
  */
 import { commandTable } from './commands.ts'
 
+export { GIT_PHONE_NOTE } from './phone.ts'
+
 /** One real gap between the Worker git and full git. */
 export interface GitTrimFact {
   /** Stable id a test and the model can refer to. */

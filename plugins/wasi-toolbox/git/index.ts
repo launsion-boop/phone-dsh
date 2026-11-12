@@ -21,7 +21,7 @@
 export { runGit, Output } from './cli.ts'
 export type { CommandContext, GitRunContext, GitRunResult } from './cli.ts'
 export { commandTable, historyCommands, inspectCommands, porcelainCommands, remoteCommands } from './commands.ts'
-export { GIT_SUPPORTED_FORMS, GIT_TRIM_FACTS, gitCapability, gitCommands } from './capability.ts'
+export { GIT_PHONE_NOTE, GIT_SUPPORTED_FORMS, GIT_TRIM_FACTS, gitCapability, gitCommands } from './capability.ts'
 export type { GitCapability, GitTrimFact } from './capability.ts'
 export {
   createGitCommand, createGitToolboxProgram, registerGitCommand, registerGitProgram, runGitForShell, shellEnvironment,

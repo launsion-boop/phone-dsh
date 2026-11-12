@@ -1634,6 +1634,7 @@ final class ChatModel {
             egressAllowHosts: egressHosts,
             replaySafeModelEndpoints: replaySafeModelEndpoints,
             credentialProvider: credentialProvider,
+            githubAgent: GitHubAgentSettings.configuration(),
             egressAuthorizer: mcpPolicy,
             workerEnvironment: environment.merging(botLaunch?.workerEnvironment ?? [:]) { _, new in new },
             // iphone_agent_run (UI-Venus over the TonoLink board) in front of the BLE tools, so one

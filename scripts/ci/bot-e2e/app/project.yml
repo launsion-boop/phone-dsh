@@ -124,6 +124,7 @@ targets:
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotHeaderPresence.swift
     dependencies:
       - package: PhoneDSH
         product: PhoneDSHBot

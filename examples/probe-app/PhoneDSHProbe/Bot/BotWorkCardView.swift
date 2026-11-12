@@ -112,7 +112,6 @@ private struct BotChecklistCardView: View {
     @ObservedObject var model: BotChatModel
     @State private var items: [BotUIChecklistItem]
     @State private var dirty = false
-    @State private var sent = false
 
     init(row: BotUIRow, model: BotChatModel) {
         self.row = row
@@ -123,6 +122,8 @@ private struct BotChecklistCardView: View {
     private var interactive: Bool { row.body["interactive"]?.bool != false }
     private var title: String { row.body["title"]?.string ?? "" }
     private var doneCount: Int { items.filter(\.done).count }
+    private var sending: Bool { model.checklistProgress[row.id]?.sending == true }
+    private var sent: Bool { model.checklistProgress[row.id]?.sent == true }
     private var message: String {
         let pending = items.filter { !$0.done && !$0.synthetic }.map(\.text)
         let head = "\(title)：已完成 \(doneCount)／\(items.count)。"
@@ -145,7 +146,7 @@ private struct BotChecklistCardView: View {
                         guard interactive, !item.synthetic else { return }
                         items[index].done.toggle()
                         dirty = true
-                        sent = false
+                        model.noteChecklistProgress(rowID: row.id, done: doneCount, total: items.count)
                     } label: {
                         BotCardRow(label: item.text,
                                    labelInk: item.done ? HomeSpec.textPlaceholder : HomeSpec.textPrimary,
@@ -159,19 +160,18 @@ private struct BotChecklistCardView: View {
                         }
                     }
                     .buttonStyle(BotCardRowButtonStyle())
-                    .disabled(!interactive || item.synthetic)
+                    .disabled(!interactive || item.synthetic || sending)
                     .accessibilityLabel(item.text)
                     .accessibilityValue(item.done ? "已完成" : "未完成")
                     .accessibilityIdentifier("bot.checklist.item.\(item.id)")
                 }
                 if interactive && dirty {
-                    Button(sent ? "已发送勾选结果" : "把勾选结果发给 Bot") {
-                        guard !sent else { return }
-                        sent = true
-                        model.send(text: message)
+                    Button(sent || sending ? "已发送勾选结果" : "把勾选结果发给 Bot") {
+                        guard !sent, !sending else { return }
+                        model.sendChecklist(row: row, done: doneCount, total: items.count, message: message)
                     }
                     .buttonStyle(BotCardButtonStyle(kind: .secondary))
-                    .disabled(sent)
+                    .disabled(sent || sending)
                     .padding(.top, BotCardMetrics.blockGap)
                     .accessibilityIdentifier("bot.checklist.send")
                 }
@@ -180,7 +180,6 @@ private struct BotChecklistCardView: View {
         .onChange(of: row.body) { _, _ in
             items = BotUIChecklistItem.parseList(row.body["items"])
             dirty = false
-            sent = false
         }
         .accessibilityElement(children: .contain)
     }

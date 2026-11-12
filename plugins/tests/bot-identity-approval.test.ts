@@ -1152,3 +1152,46 @@ test('durable approval stops the turn, cancels the registration and never execut
     await ctx.fiber.dispose()
   }
 })
+
+test('a delivery-timed-out approval fails closed and cancels its registration once', async () => {
+  // Failure path 2 from the device: llm-bridge's 60 s delivery watchdog ends
+  // the approval fetch, the gate denies the tool, and the paired
+  // `/identity/cancel` is what closes the App-side card (PC-20261112).
+  const ctx = await mount()
+  const cancellations: string[] = []
+  let approvals = 0
+  let executed = 0
+  try {
+    ctx.tools.register(defineTool({
+      name: 'bash', description: 'probe', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => { executed += 1; return 'must-not-run' },
+    }))
+    await ctx.plugin(dshbotIdentityBridge, {
+      request: async () => ({ ok: true, id: 'registration-delivery-timeout' }),
+      cancel: async id => { cancellations.push(id) },
+    })
+    await ctx.plugin(dshbotApprovalGate, {
+      request: async () => {
+        approvals += 1
+        return {
+          ok: false,
+          message: 'llm-bridge: model response headers delivery stalled for 60000 ms (PDSH_DELIVERY_TIMEOUT)',
+        }
+      },
+    })
+    const result = await executeTool(ctx, {
+      callId: ToolCallId('approval-delivery-timeout'), name: 'bash',
+      arguments: { command: 'rm -rf /tmp/approval-delivery-timeout' },
+      signal: new AbortController().signal, agent: agent(),
+    })
+    assert.equal(result.isError, true)
+    assert.equal(executed, 0, 'a timed-out approval must not run the tool body')
+    assert.equal(approvals, 1)
+    assert.deepEqual(cancellations, ['registration-delivery-timeout'],
+      'the registration is released exactly once so the App can cascade its card')
+    assert.match(String(result.error?.message ?? ''), /PDSH_DELIVERY_TIMEOUT/)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
