@@ -233,6 +233,11 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// the platform provides one; the budget monitor then uses only the VFS
     /// proxy.
     private var engineHeapBytes: Int?
+    /// Latest host-process `phys_footprint` booking (budgets.md §3, R1), at
+    /// most one per Worker epoch. Kept apart from ``engineHeapBytes``: the
+    /// footprint includes the App process and must never be evaluated as, or
+    /// added to, the Engine heap row.
+    private var hostFootprint: PhoneDSHHostFootprintReading?
     /// Remembered engine capability: a failed boot still lets ``harness()``
     /// explain that Lockdown Mode is the reason.
     private var lockdownModeObserved = false
@@ -5462,6 +5467,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
 
     /// Applies the existing pressure order for a system memory warning.
     ///
+    /// budgets.md §3 (R1) makes the warning and the host `phys_footprint` the
+    /// two engine-memory production inputs, so the warning books the current
+    /// footprint before anything else. The booking is once per Worker epoch and
+    /// never changes the action order or the numbers (see
+    /// ``reportHostFootprintBytes(_:)``).
+    ///
     /// `clearTmp` is a no-op at this layer: `/dsh/tmp` lives in the Worker's
     /// volatile VFS and is never materialized, so the host owns no tmp bytes to
     /// unlink. The planned restart is the release valve and only runs at a tool
@@ -5469,6 +5480,10 @@ public actor PhoneDSHHost: PhoneDSHHosting {
     /// state is produced (plan §1.2).
     internal func handleSystemMemoryPressureWarning() async {
         guard state == .running, let runtime else { return }
+        // Book the footprint for the event that was observed, including an
+        // episode the coalescing guard below drops: the footprint is an input,
+        // not an action, and the per-epoch booking keeps it to one reading.
+        await recordCurrentHostFootprint()
         let now = Date()
         if let last = lastMemoryReliefAt,
            now.timeIntervalSince(last) < 60 {
@@ -5478,6 +5493,15 @@ public actor PhoneDSHHost: PhoneDSHHosting {
               await runtime.stepMachine.atToolCallBoundary() else { return }
         lastMemoryReliefAt = now
         try? await plannedRestart(reason: "system memory warning")
+    }
+
+    /// Samples the host process footprint for the pressure event in flight.
+    /// A failed or absent syscall stays a missing sample, never zero.
+    private func recordCurrentHostFootprint() async {
+        guard let bytes = PhoneDSHHostFootprintSampler.sampleBytes() else {
+            return
+        }
+        await reportHostFootprintBytes(bytes)
     }
 
     /// Test seam: forces one memory-warning handling without a platform
@@ -5502,6 +5526,46 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         if let runtime {
             await evaluateBudget(runtime)
         }
+    }
+
+    /// Records one host-process `phys_footprint` sample for the current Worker
+    /// epoch (budgets.md §3, R1 2026-11-13; GAP-39).
+    ///
+    /// The sample is booked against §4's `App process` row and is published as
+    /// ``PhoneDSHBudgetSnapshot/appProcessFootprintBytesUsed``. It is not an
+    /// engine-heap sample: WebContent is a separate process with no readable
+    /// heap on iOS, so the Engine heap row stays permanently `target` and this
+    /// value is never compared with it or converted into a percentage of it.
+    /// ``reportEngineHeapBytes(_:)`` remains the test-only injection point for
+    /// that `target` row and is not called here.
+    ///
+    /// The booking is once per Worker epoch: the first sample of an epoch is
+    /// kept and later samples of the same epoch are ignored, so a per-second
+    /// sampler cannot turn the footprint into a stream of §4 readings. A `nil`
+    /// (or non-positive) sample is ignored, never booked as zero
+    /// (budgets.md §3).
+    ///
+    /// This API only records and reports. It never evaluates a budget and never
+    /// triggers `clearTmp -> plannedRestart`; the existing action order and
+    /// every §4 number are unchanged.
+    ///
+    /// - Parameter bytes: the sampled `phys_footprint`, or `nil` for no sample.
+    /// - Returns: `true` when the sample was booked for the current epoch.
+    @discardableResult
+    public func reportHostFootprintBytes(_ bytes: Int?) async -> Bool {
+        guard let bytes, bytes > 0 else { return false }
+        let epoch = await currentWorkerEpoch()
+        guard hostFootprint?.epoch != epoch else { return false }
+        hostFootprint = PhoneDSHHostFootprintReading(bytes: bytes, epoch: epoch)
+        return true
+    }
+
+    /// The Worker epoch a footprint booking belongs to: the last durably
+    /// closed WAL epoch. `0` before the first epoch close still limits a fresh
+    /// host to one booking.
+    private func currentWorkerEpoch() async -> UInt64 {
+        guard let runtime else { return 0 }
+        return await runtime.log.positions().lastDurableEpoch
     }
 
     private func evaluateBudget(_ runtime: RuntimeServices) async {
@@ -5554,6 +5618,7 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             responseLogBytesUsed: responseLogBytes,
             webContentTerminations: terminations,
             engineHeapBytesUsed: engineHeapBytes,
+            appProcessFootprintBytesUsed: hostFootprint?.bytes,
             lastAction: decision.action,
             hardFail: decision.hardFail)
     }

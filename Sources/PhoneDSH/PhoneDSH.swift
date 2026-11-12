@@ -650,7 +650,20 @@ public struct PhoneDSHBudgetSnapshot: Equatable, Sendable {
     /// WebContent process terminations observed by this boot.
     public var webContentTerminations: UInt64
     /// Last reported WebContent heap occupancy, when the engine has one.
+    /// Sampled engine heap is permanently `target` (budgets.md §3); its only
+    /// writer is the test-only ``PhoneDSHHost/reportEngineHeapBytes(_:)``
+    /// injection point, so this is `nil` in production.
     public var engineHeapBytesUsed: Int?
+    /// Last recorded host-process `phys_footprint`, booked against §4's
+    /// `App process` row (budgets.md §3, R1 2026-11-13), or `nil` until the
+    /// first memory-pressure observation.
+    ///
+    /// This is informational in this unit: it is **not** compared with the
+    /// `App process` row to drive an action yet, it is never added to the
+    /// Engine heap row, and it is never converted into an engine-heap
+    /// percentage. It exists so the pressure event and the footprint observed
+    /// with it are visible together.
+    public var appProcessFootprintBytesUsed: Int?
     /// The action this snapshot reports: the next pending action while an
     /// episode is active, or `nil` while clear. Reading a snapshot never
     /// consumes the episode (see ``PhoneDSHHost/reportEngineHeapBytes(_:)``).
@@ -668,6 +681,7 @@ public struct PhoneDSHBudgetSnapshot: Equatable, Sendable {
                 responseLogBytesUsed: Int = 0,
                 webContentTerminations: UInt64 = 0,
                 engineHeapBytesUsed: Int? = nil,
+                appProcessFootprintBytesUsed: Int? = nil,
                 lastAction: BudgetAction? = nil,
                 hardFail: Bool = false) {
         self.table = table
@@ -680,6 +694,7 @@ public struct PhoneDSHBudgetSnapshot: Equatable, Sendable {
         self.responseLogBytesUsed = responseLogBytesUsed
         self.webContentTerminations = webContentTerminations
         self.engineHeapBytesUsed = engineHeapBytesUsed
+        self.appProcessFootprintBytesUsed = appProcessFootprintBytesUsed
         self.lastAction = lastAction
         self.hardFail = hardFail
     }
