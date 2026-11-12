@@ -7,11 +7,11 @@
 ```yaml
 change: PC-20261112-github-agent-credential
 contracts: [P09, P16, P18]
-status: draft
+status: implemented
 breaking: false
 version_decision: Additive host-only record and one Worker environment fact. No existing key, env or wire shape changes; an old host ignores the new Keychain record and an old Worker ignores PDSH_GITHUB_AUTH.
 base: 20ef5ca4
-contract_revision: pending
+contract_revision: Sources/PhoneDSH/PhoneGitHubAgentSettings.swift@5f7943a6
 ```
 
 ## 1. 識別與角色
@@ -68,3 +68,9 @@ contract_revision: pending
 - 未驗證：真機 Keychain 解鎖時序、GitHub 真 token 的 write scope、App 重啟後 host 重建的 UI 流程。
 - 剩餘風險：使用者給唯讀 token 並開啟 write opt-in 時，`commit` 會收到 GitHub 401；
   設定頁已寫明需要 Contents/Pull requests write，且 401 不會刪除 token。
+
+## 5. 修訂紀錄
+
+| revision | 由誰 | 原因（含收到的 CONTRACT CHANGE REQUEST） | 通知了哪些端 |
+| --- | --- | --- | --- |
+| 5f7943a6 | host SDK | 初版接線；read token 與 write opt-in 分成 `PDSH_GITHUB_AUTH` / `PDSH_GITHUB_WRITE` | Worker #124、probe App |
