@@ -490,6 +490,46 @@ class VerifiedFontSizeRoleModelTests(unittest.TestCase):
         self.assertIsNone(self._read(source))
 
 
+class ContextMenuSurfaceTests(unittest.TestCase):
+    """`PdshContextMenu(surfaceId = …)` labels come from the frozen token surface."""
+
+    SURFACES = {
+        "drawerSession": [{"label": "编辑名称", "kind": "action"}, {"label": "归档", "kind": "action"}],
+        "botRow": [{"label": "隐藏", "altLabel": "取消隐藏", "kind": "action"},
+                   {"label": "这是最后一个 Bot，不能删除。", "kind": "info"}],
+    }
+
+    def actions(self, src: str) -> tuple:
+        masked = check.mask_kotlin(src)
+        consts = check.local_constants(src)
+        return check.context_menu_actions(src, masked, {}, consts, self.SURFACES)
+
+    def test_constant_surface_id_yields_every_item_at_the_call(self) -> None:
+        src = ('private const val S = "drawerSession"\n'
+               "fun Row() {\n    PdshContextMenu(\n        surfaceId = S,\n"
+               "        state = ContextMenuRowState(),\n    ) { Text(x) }\n}\n")
+        labels, unresolved = self.actions(src)
+        self.assertEqual([label for label, _ in labels], ["编辑名称", "归档"])
+        self.assertEqual(unresolved, [])
+        pos = src.index("PdshContextMenu(")
+        self.assertTrue(all(p == pos for _, p in labels))
+
+    def test_alt_label_counts_and_info_row_is_not_an_action(self) -> None:
+        labels, _ = self.actions('fun R() { PdshContextMenu(surfaceId = "botRow") {} }\n')
+        self.assertEqual([label for label, _ in labels], ["隐藏", "取消隐藏"])
+
+    def test_unknown_or_missing_surface_is_unresolved_not_skipped(self) -> None:
+        labels, unresolved = self.actions(
+            'fun R() { PdshContextMenu(surfaceId = "nope") {}; PdshContextMenu(state = s) {} }\n')
+        self.assertEqual(labels, [])
+        self.assertEqual(len(unresolved), 2)
+
+    def test_real_token_table_resolves_every_surface(self) -> None:
+        surfaces = check.load_context_menu_surfaces(Path(__file__).resolve().parents[4])
+        self.assertIn("sessionsRow", surfaces)
+        self.assertTrue(all(items for items in surfaces.values()))
+
+
 class DataLabelTests(unittest.TestCase):
     def test_host_data_only_expressions_are_data(self):
         for expr in ("row.name", "field.title", "mode.name", "state.note",

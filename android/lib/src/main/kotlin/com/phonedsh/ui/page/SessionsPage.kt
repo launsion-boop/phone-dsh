@@ -119,7 +119,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -840,7 +839,6 @@ public fun SessionsPage(
                 }
             }
         }
-        SessionsRowMenuInventory()
         // The baseline's alerts are real modal dialogs; using the standard
         // control keeps the interaction one design across pages.
         state.rename?.let { editor ->
@@ -1367,30 +1365,6 @@ private fun SessionsFailureLine(
                     .padding(tokens.spacing.iconText),
             )
         }
-    }
-}
-
-/**
- * Inspection-only mirror of the `sessionsRow` action labels.
- *
- * The live popup is rendered by [PdshContextMenu] from the frozen token
- * surface, so its labels never appear at a `Text` call site in this file. The
- * P09 page-structure checker reads labels from the page source; this mirror
- * keeps the two wordings explicit for it (and for previews) without composing a
- * second menu in a host, where [LocalInspectionMode] is false.
- */
-@Composable
-private fun SessionsRowMenuInventory() {
-    if (!LocalInspectionMode.current) return
-    DropdownMenu(expanded = true, onDismissRequest = {}) {
-        DropdownMenuItem(
-            text = { BasicText(text = UiStrings.SESSION_RENAME_TITLE) },
-            onClick = {},
-        )
-        DropdownMenuItem(
-            text = { BasicText(text = UiStrings.SESSIONS_ARCHIVE) },
-            onClick = {},
-        )
     }
 }
 

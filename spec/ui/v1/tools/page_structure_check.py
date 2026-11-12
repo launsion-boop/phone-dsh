@@ -1771,6 +1771,60 @@ def verified_developer_tools_action_positions(text: str, masked: str,
     return [(label, page["body_start"] + call.start())]
 
 
+_CONTEXT_MENU_SURFACES: dict = {}
+
+
+def load_context_menu_surfaces(root: Path) -> dict:
+    """`surfaceId` → item list from `tokens.json#interaction.contextMenu.surfaces`.
+
+    A tree without `tokens.json` (a test fixture root) has no surfaces; any
+    `PdshContextMenu` call there is then reported unresolved, never treated as present.
+    """
+    key = str(root)
+    if key not in _CONTEXT_MENU_SURFACES:
+        path = root / "spec/ui/v1/tokens.json"
+        tokens = load_json(path) if path.is_file() else {}
+        surfaces = tokens.get("interaction", {}).get("contextMenu", {}).get("surfaces", [])
+        _CONTEXT_MENU_SURFACES[key] = {s["id"]: s.get("items", []) for s in surfaces}
+    return _CONTEXT_MENU_SURFACES[key]
+
+
+def context_menu_actions(text: str, masked: str, strings: dict, consts: dict,
+                         surfaces: dict) -> tuple:
+    """Labels a `PdshContextMenu(surfaceId = …)` call renders, with the call position.
+
+    The shared menu draws its items from the frozen token surface (interaction.md §3
+    rule 2), so the labels never appear at a page `Text` call site. Each item's
+    `label` (and its `altLabel`) is an action of that page; `kind: info` rows are not
+    actions. An unknown or unresolvable surface id is returned as unresolved, never
+    skipped silently.
+    """
+    labels, unresolved = [], []
+    for m in re.finditer(r"\bPdshContextMenu[ \t]*\(", masked):
+        if is_declaration(masked, m.start()):
+            continue
+        open_paren = m.end() - 1
+        close = match_paren(masked, open_paren)
+        if close < 0:
+            continue
+        named, _ = named_args(masked, open_paren, close)
+        if "surfaceId" not in named:
+            unresolved.append("PdshContextMenu(<no surfaceId>)")
+            continue
+        expr = text[named["surfaceId"][0]:named["surfaceId"][1]].strip()
+        value, _ = resolve_kotlin_expr(expr, strings, consts)
+        if value not in surfaces:
+            unresolved.append(f"PdshContextMenu(surfaceId = {strip_kotlin_comments(expr)[:DYN_EXPR_MAX]})")
+            continue
+        for item in surfaces[value]:
+            if item.get("kind") == "info":
+                continue
+            for key in ("label", "altLabel"):
+                if item.get(key):
+                    labels.append((item[key], m.start()))
+    return labels, unresolved
+
+
 def android_actions(text: str, masked: str, strings: dict, consts: dict,
                     stats: dict | None = None, wrappers: frozenset | None = None,
                     positions: list | None = None,
@@ -2595,6 +2649,12 @@ def compare(root: Path, contract: dict, report: Report, strings: dict, shared_co
     android_labels, unresolved_labels, action_occurrences = android_actions(
         text, masked, strings, consts, wrappers=wrappers, positions=action_positions,
         fold_labels=fold_labels, wording_sets=wording_sets)
+    menu_labels, menu_unresolved = context_menu_actions(
+        text, masked, strings, consts, load_context_menu_surfaces(root))
+    android_labels.extend(label for label, _ in menu_labels)
+    action_occurrences.extend(menu_labels)
+    action_positions.extend(menu_labels)
+    unresolved_labels.extend(menu_unresolved)
     verified_model = verified_settings_index_model(text, masked, strings, consts)
     if verified_model is not None:
         model_titles, model_section_positions, model_labels, model_action_positions = verified_model
