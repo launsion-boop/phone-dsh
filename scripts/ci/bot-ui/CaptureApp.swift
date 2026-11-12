@@ -87,7 +87,8 @@ struct PhoneDSHBotUICaptureApp: App {
         do {
             let checks = try await BotUIFixtureChecks.run(
                 cardPayloadURL: URL(fileURLWithPath: cardPath),
-                rowProtocolURL: URL(fileURLWithPath: rowPath)
+                rowProtocolURL: URL(fileURLWithPath: rowPath),
+                activeFixture: fixture
             )
             result = ["status": "PASS", "checks": checks]
         } catch {

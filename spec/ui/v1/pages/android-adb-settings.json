@@ -7,13 +7,13 @@
   "sectionNote": null,
   "title": {
     "text": "Android ADB",
-    "provenance": "AndroidADBSettingsPage.swift:43",
+    "provenance": "AndroidADBSettingsPage.swift:109",
     "anchor": ".navigationTitle(\"Android ADB\")"
   },
   "source": {
     "file": "AndroidADBSettingsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/AndroidADBSettingsPage.swift",
-    "lines": 73,
+    "lines": 345,
     "structLine": 5,
     "renderedFrom": [
       "body"
@@ -27,12 +27,209 @@
   },
   "sections": [
     {
-      "id": "section-15",
-      "title": null,
+      "id": "发现的电视",
+      "title": "发现的电视",
       "titleTemplate": null,
       "dynamicTitle": false,
       "titleExpression": null,
-      "titleSource": "absent",
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "扫描局域网",
+          "label": "扫描局域网",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:27",
+          "anchor": "Button(NativeText(\"扫描局域网\", \"Scan local network\")) { scan() }",
+          "extraction": "syntax"
+        },
+        {
+          "id": "正在查找局域网里的电视",
+          "label": "正在查找局域网里的电视…",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "scanning",
+          "provenance": "AndroidADBSettingsPage.swift:30",
+          "anchor": "Text(NativeText(\"正在查找局域网里的电视…\", \"Looking for TVs on your local network…\"))",
+          "extraction": "syntax"
+        },
+        {
+          "id": "尚未发现电视-确认电视和这台-iphone-连接同一-wi-fi-并在电视上开启网络调试-也可以手动添加地址",
+          "label": "尚未发现电视。确认电视和这台 iPhone 连接同一 Wi-Fi，并在电视上开启网络调试；也可以手动添加地址。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "!scanning && candidates.isEmpty",
+          "provenance": "AndroidADBSettingsPage.swift:34",
+          "anchor": "Text(NativeText(\"尚未发现电视。确认电视和这台 iPhone 连接同一 Wi-Fi，并在电视上开启网络调试；也可以手动添加地址。\", \"No T",
+          "extraction": "syntax"
+        },
+        {
+          "id": "text-39",
+          "label": null,
+          "labelExpr": "candidate.displayName",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:39",
+          "anchor": "Text(candidate.displayName).font(.headline)",
+          "extraction": "manual",
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "text-43",
+          "label": null,
+          "labelExpr": "verbatim: \"\\(candidate.host):\\(candidate.port) · \\(tvKindLabel(candidate.kind)) · \\(tvControlLabel(candidate))\"",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:43",
+          "anchor": "Text(verbatim: \"\\(candidate.host):\\(candidate.port) · \\(tvKindLabel(candidate.ki",
+          "extraction": "manual",
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "正在连接",
+          "label": "正在连接…",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "case .probing = phase",
+          "provenance": "AndroidADBSettingsPage.swift:47",
+          "anchor": "Text(NativeText(\"正在连接…\", \"Connecting…\")).font(.footnote)",
+          "extraction": "syntax",
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "请在电视上点-允许-已等待-tvelapsedseconds-elapsed-秒",
+          "label": "请在电视上点“允许”…（已等待 {tvElapsedSeconds(elapsed)} 秒）",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "case .awaitingAuthorization(let elapsed) = phase",
+          "provenance": "AndroidADBSettingsPage.swift:49",
+          "anchor": "Text(NativeText(\"请在电视上点“允许”…（已等待 \\(tvElapsedSeconds(elapsed)) 秒）\", \"Tap “Allow” ",
+          "extraction": "manual",
+          "dynamicLabel": true,
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "已连接-model",
+          "label": "已连接：{model}",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "case .connected(let model) = phase",
+          "provenance": "AndroidADBSettingsPage.swift:52",
+          "anchor": "Text(NativeText(\"已连接：\\(model)\", \"Connected: \\(model)\")).font(.footnote)",
+          "extraction": "manual",
+          "dynamicLabel": true,
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "text-54",
+          "label": null,
+          "labelExpr": "message",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "case .failed(_, let message) = phase",
+          "provenance": "AndroidADBSettingsPage.swift:54",
+          "anchor": "Text(message).font(.footnote).foregroundStyle(.red)",
+          "extraction": "manual",
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "连接",
+          "label": "连接",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "AndroidADBSettingsPage.swift:58",
+          "anchor": "Button(NativeText(\"连接\", \"Connect\")) { connect(candidate) }",
+          "extraction": "syntax",
+          "collection": "sortedCandidates"
+        },
+        {
+          "id": "取消",
+          "label": "取消",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "isConnectionInProgress(candidate)",
+          "provenance": "AndroidADBSettingsPage.swift:61",
+          "anchor": "Button(NativeText(\"取消\", \"Cancel\"), role: .cancel) { cancelConnection() }",
+          "extraction": "syntax",
+          "collection": "sortedCandidates"
+        }
+      ],
+      "provenance": "AndroidADBSettingsPage.swift:67",
+      "anchor": "Text(NativeText(\"发现的电视\", \"Discovered TVs\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "只扫描这台 iPhone 当前 Wi-Fi 的局域网。开放端口只说明“像电视”，不代表已授权；连接后需要在电视上确认调试授权，等待授权时请保持此页打开。手动添加仍在下方可用。",
+        "labelExpr": null,
+        "provenance": "AndroidADBSettingsPage.swift:69",
+        "anchor": "Text(NativeText(\"只扫描这台 iPhone 当前 Wi-Fi 的局域网。开放端口只说明“像电视”，不代表已授权；连接后需要在电视上确认调试授权，"
+      }
+    },
+    {
+      "id": "手动添加-高级",
+      "title": "手动添加（高级）",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
       "condition": null,
       "collection": null,
       "rows": [
@@ -47,7 +244,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:16",
+          "provenance": "AndroidADBSettingsPage.swift:72",
           "anchor": "Toggle(\"允许控制 Android\", isOn: $enabled)",
           "extraction": "syntax"
         },
@@ -62,7 +259,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:17",
+          "provenance": "AndroidADBSettingsPage.swift:73",
           "anchor": "TextField(\"Android IP 地址或主机名\", text: $host)",
           "extraction": "syntax"
         },
@@ -77,7 +274,7 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:19",
+          "provenance": "AndroidADBSettingsPage.swift:75",
           "anchor": "TextField(\"ADB 端口\", text: $port).keyboardType(.numberPad)",
           "extraction": "syntax"
         },
@@ -92,8 +289,8 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:20",
-          "anchor": "Button(\"保存\") { save() }.disabled(busy)",
+          "provenance": "AndroidADBSettingsPage.swift:78",
+          "anchor": "Button(\"保存\") { save() }.disabled(busy || connectingID != nil)",
           "extraction": "syntax"
         },
         {
@@ -107,8 +304,8 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:21",
-          "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }.disabled(busy || !enabled)",
+          "provenance": "AndroidADBSettingsPage.swift:79",
+          "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }",
           "extraction": "syntax"
         },
         {
@@ -122,23 +319,19 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:22",
-          "anchor": "Button(\"停止当前 Android 操作\", role: .cancel) { Task { await ADBMCPServer.shared.canc",
+          "provenance": "AndroidADBSettingsPage.swift:81",
+          "anchor": "Button(\"停止当前 Android 操作\", role: .cancel) {",
           "extraction": "syntax"
         }
       ],
-      "provenance": "AndroidADBSettingsPage.swift:15",
-      "anchor": "Section {",
+      "provenance": "AndroidADBSettingsPage.swift:88",
+      "anchor": "Text(NativeText(\"手动添加（高级）\", \"Manual setup (advanced)\"))",
       "extraction": "syntax",
-      "criterion": {
-        "kind": "first-clickable-row",
-        "label": "允许控制 Android",
-        "provenance": "AndroidADBSettingsPage.swift:16"
-      },
+      "hasHeader": true,
       "footer": {
         "text": "可直接告诉模型“连接 Android 地址和端口”，由模型启用控制并保存连接，无需手动填写。保存后立即生效。模型可控制屏幕、查询和管理应用、安装或卸载 APK、读取日志和执行 Android shell。首次连接请解锁 Android，并允许这台 iPhone 的调试密钥。",
         "labelExpr": null,
-        "provenance": "AndroidADBSettingsPage.swift:24",
+        "provenance": "AndroidADBSettingsPage.swift:90",
         "anchor": "Text(\"可直接告诉模型“连接 Android 地址和端口”，由模型启用控制并保存连接，无需手动填写。保存后立即生效。模型可控制屏幕、查询和管理应用、安装或卸"
       }
     },
@@ -153,7 +346,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-28",
+          "id": "text-94",
           "label": null,
           "labelExpr": "status",
           "kind": "text",
@@ -163,12 +356,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:28",
+          "provenance": "AndroidADBSettingsPage.swift:94",
           "anchor": "Text(status).foregroundStyle(failed ? .red : .primary).textSelection(.enabled)",
           "extraction": "manual"
         }
       ],
-      "provenance": "AndroidADBSettingsPage.swift:27",
+      "provenance": "AndroidADBSettingsPage.swift:93",
       "anchor": "Section(\"连接状态\") {",
       "extraction": "syntax"
     },
@@ -193,7 +386,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:32",
+          "provenance": "AndroidADBSettingsPage.swift:98",
           "anchor": "Text(\"两台手机连接同一局域网，在 Android 上开启开发者选项和 USB 调试。\")",
           "extraction": "syntax"
         },
@@ -208,7 +401,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:33",
+          "provenance": "AndroidADBSettingsPage.swift:99",
           "anchor": "Text(\"当前支持 TCP/IP ADB。首次可用电脑通过 USB 执行 adb tcpip 5555，再填入 Android 的 IP 地址。部分设备可直接",
           "extraction": "syntax"
         },
@@ -223,7 +416,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:34",
+          "provenance": "AndroidADBSettingsPage.swift:100",
           "anchor": "Text(\"Android 11+「无线调试」里的六位配对码和 TLS 端口暂不支持。这里填写 TCP/IP ADB 端口，通常为 5555。\")",
           "extraction": "syntax"
         },
@@ -238,12 +431,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:35",
+          "provenance": "AndroidADBSettingsPage.swift:101",
           "anchor": "Text(\"文本输入支持可打印 ASCII。中文等 Unicode 输入需要 Android 输入法支持，当前会明确报错。\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "AndroidADBSettingsPage.swift:31",
+      "provenance": "AndroidADBSettingsPage.swift:97",
       "anchor": "Section(\"连接准备\") {",
       "extraction": "syntax"
     },
@@ -268,7 +461,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:38",
+          "provenance": "AndroidADBSettingsPage.swift:104",
           "anchor": "Text(\"可以说：列出 Android 上的第三方应用；查看某个应用的版本和权限；安装工作区里的 APK；卸载指定包名的应用。\")",
           "extraction": "syntax"
         },
@@ -283,7 +476,7 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:39",
+          "provenance": "AndroidADBSettingsPage.swift:105",
           "anchor": "Text(\"支持工作区或 Android 本机上的单个 APK。工作区安装上限 128 MiB；暂不支持 AAB、XAPK、APKS 和拆分 APK 组合。\")",
           "extraction": "syntax"
         },
@@ -298,17 +491,62 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "AndroidADBSettingsPage.swift:40",
+          "provenance": "AndroidADBSettingsPage.swift:106",
           "anchor": "Text(\"卸载应用和删除下载的 APK 文件是两种操作。应用管理默认作用于 Android 当前用户；清除应用数据会删除登录状态和本地数据。\")",
           "extraction": "syntax"
         }
       ],
-      "provenance": "AndroidADBSettingsPage.swift:37",
+      "provenance": "AndroidADBSettingsPage.swift:103",
       "anchor": "Section(\"应用与 APK\") {",
       "extraction": "syntax"
     }
   ],
   "actions": [
+    {
+      "id": "扫描局域网",
+      "label": "扫描局域网",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ scan()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:27",
+      "anchor": "Button(NativeText(\"扫描局域网\", \"Scan local network\")) { scan() }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "连接",
+      "label": "连接",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ connect(candidate)",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:58",
+      "anchor": "Button(NativeText(\"连接\", \"Connect\")) { connect(candidate) }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ cancelConnection()",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "AndroidADBSettingsPage.swift:61",
+      "anchor": "Button(NativeText(\"取消\", \"Cancel\"), role: .cancel) { cancelConnection() }",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
     {
       "id": "允许控制-android",
       "label": "允许控制 Android",
@@ -319,7 +557,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "AndroidADBSettingsPage.swift:16",
+      "provenance": "AndroidADBSettingsPage.swift:72",
       "anchor": "Toggle(\"允许控制 Android\", isOn: $enabled)",
       "extraction": "syntax"
     },
@@ -333,8 +571,8 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "AndroidADBSettingsPage.swift:20",
-      "anchor": "Button(\"保存\") { save() }.disabled(busy)",
+      "provenance": "AndroidADBSettingsPage.swift:78",
+      "anchor": "Button(\"保存\") { save() }.disabled(busy || connectingID != nil)",
       "extraction": "syntax",
       "labelAlternatives": []
     },
@@ -348,8 +586,8 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "AndroidADBSettingsPage.swift:21",
-      "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }.disabled(busy || !enabled)",
+      "provenance": "AndroidADBSettingsPage.swift:79",
+      "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }",
       "extraction": "syntax",
       "labelAlternatives": [
         "正在连接…"
@@ -361,12 +599,12 @@
       "labelExpr": null,
       "kind": "button",
       "trigger": "tap",
-      "semantic": "{ Task { await ADBMCPServer.shared.cancel() }",
+      "semantic": "{ // Same scope as the Android host: the label means the whole // Android operation, including a discovery connection or scan. cancelTasks() Task { await ADBMCPServer.shared.cancel() }",
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "AndroidADBSettingsPage.swift:22",
-      "anchor": "Button(\"停止当前 Android 操作\", role: .cancel) { Task { await ADBMCPServer.shared.canc",
+      "provenance": "AndroidADBSettingsPage.swift:81",
+      "anchor": "Button(\"停止当前 Android 操作\", role: .cancel) {",
       "extraction": "syntax",
       "labelAlternatives": []
     }
@@ -379,7 +617,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 15 | 连接状态 | 连接准备 | 应用与 APK",
+          "renders": "发现的电视 | 手动添加（高级） | 连接状态 | 连接准备 | 应用与 APK",
           "when": null,
           "provenance": "AndroidADBSettingsPage.swift:5",
           "anchor": "struct AndroidADBSettingsPage: View {",
@@ -390,10 +628,28 @@
       "unknown": [],
       "loading": [
         {
+          "renders": "正在查找局域网里的电视…",
+          "when": "scanning",
+          "provenance": "AndroidADBSettingsPage.swift:30",
+          "anchor": "Text(NativeText(\"正在查找局域网里的电视…\", \"Looking for TVs on your local network…\"))"
+        },
+        {
+          "renders": "正在连接…",
+          "when": "case .probing = phase",
+          "provenance": "AndroidADBSettingsPage.swift:47",
+          "anchor": "Text(NativeText(\"正在连接…\", \"Connecting…\")).font(.footnote)"
+        },
+        {
+          "renders": "请在电视上点“允许”…（已等待 \\(tvElapsedSeconds(elapsed)) 秒）",
+          "when": "case .awaitingAuthorization(let elapsed) = phase",
+          "provenance": "AndroidADBSettingsPage.swift:49",
+          "anchor": "Text(NativeText(\"请在电视上点“允许”…（已等待 \\(tvElapsedSeconds(elapsed)) 秒）\", \"Tap “Allow” "
+        },
+        {
           "renders": "正在连接…",
           "when": null,
-          "provenance": "AndroidADBSettingsPage.swift:21",
-          "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }.disabled(busy || !enabled)"
+          "provenance": "AndroidADBSettingsPage.swift:79",
+          "anchor": "Button(busy ? \"正在连接…\" : \"测试连接\") { check() }"
         }
       ]
     },
@@ -407,7 +663,7 @@
       "data": 1,
       "failure": 0,
       "unknown": 0,
-      "loading": 1
+      "loading": 4
     }
   },
   "subpages": [],
@@ -415,9 +671,9 @@
   "extraction": {
     "tool": "extract_ios_pages.py",
     "mode": "syntax",
-    "sectionKeywordsInPage": 4,
+    "sectionKeywordsInPage": 5,
     "regionsExtracted": 0,
-    "sectionsExtracted": 4,
+    "sectionsExtracted": 5,
     "warnings": []
   }
 }

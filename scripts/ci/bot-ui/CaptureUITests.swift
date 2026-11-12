@@ -72,7 +72,14 @@ final class BotCaptureUITests: XCTestCase {
         app.buttons["bot.checklist.send"].tap()
         usleep(300_000)
         assertCount("chat", 1)
-        XCTAssertFalse(app.buttons["bot.checklist.send"].isEnabled)
+        // #132 collapses a handled interactive card into one settled line, so
+        // the whole checklist form (including its send button) is gone. Query
+        // the settled line and the absent button explicitly: reading
+        // `isEnabled` on a non-existent element raises a snapshot error.
+        let settled = app.descendants(matching: .any)["bot.card.settled"]
+        XCTAssertTrue(settled.waitForExistence(timeout: 2))
+        XCTAssertTrue(settled.label.hasPrefix("已发送勾选结果"), settled.label)
+        XCTAssertFalse(app.buttons["bot.checklist.send"].exists)
     }
 
     func testApprovalDecisionAndAlwaysScopeNone() throws {
@@ -216,12 +223,220 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["审批记录"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["已超时（视为拒绝）"].exists)
         XCTAssertTrue(app.staticTexts["本次会话允许"].exists)
+        let cancellationReason = app.staticTexts["原因：App 重启时取消"]
+        scrollTo(cancellationReason)
+        XCTAssertTrue(cancellationReason.exists)
 
         launch("infoMemoryDocument")
-        XCTAssertTrue(app.navigationBars["agent/notes/acceptance.md"].waitForExistence(timeout: 3))
+        // The document detail's navigation title is the file name; the full
+        // path stays visible in the body footer.
+        XCTAssertTrue(app.navigationBars["acceptance.md"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["路径：agent/notes/acceptance.md"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS %@", "验收记录")
         ).firstMatch.exists)
+    }
+
+    /// F5: a memory row is a `NavigationLink(value: BotMemoryDocumentInfo)`.
+    /// The info page must use a type-erased path so the second value type is
+    /// pushed; a typed `[BotInfoSection]` path only highlights the row.
+    /// P09 bot-info §在场状态: the read-only connection line is human copy with
+    /// a time; the host's internal failure code stays in the diagnostic log.
+    func testInfoPresenceBridgeStatusIsHuman() throws {
+        launch("infoPresence")
+        let bridge = app.descendants(matching: .any)["bot.info.presence.bridge"]
+        XCTAssertTrue(bridge.waitForExistence(timeout: 3))
+        let label = bridge.label
+        XCTAssertTrue(label.contains("最近一次与 App 的连接校验失败"), "bridge label: \(label)")
+        for internalWord in ["unauthorized", "identity-bridge", "身份登记", "unknown_session"] {
+            XCTAssertFalse(label.localizedCaseInsensitiveContains(internalWord),
+                           "bridge label leaks \(internalWord): \(label)")
+        }
+        XCTAssertTrue(label.contains("月") && label.contains(":"), "bridge label has no local time: \(label)")
+    }
+
+    func testInfoMemoryDocumentRowPushesTheDetailPage() throws {
+        launch("infoMemory")
+        let row = app.descendants(matching: .any)["bot.memory.document.agent/profile.md"]
+        scrollToAndTap(row)
+        XCTAssertTrue(app.navigationBars["profile.md"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["路径：agent/profile.md"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "验收报告必须区分模拟器与真机证据")
+        ).firstMatch.exists)
+    }
+
+    // MARK: - Unauthorized tool turn
+
+    /// The incident's two rejected same-name calls after #126: the transcript
+    /// has no process/tool rows at all, so the replayed call must not leak the
+    /// wire error through a resurrected tool row. The live answer is shown
+    /// once (the reattached observer replays the same seqs), in human words.
+    func testUnauthorizedToolRowsAreHumanAndUnique() throws {
+        launch("runningToolReplay")
+        let answer = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 5), "human failure answer missing")
+        XCTAssertEqual(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).count, 1,
+            "the replayed call must not create a second answer")
+        // #126 removed transcript process rows; a replayed tool call must not
+        // bring one back, and no wire-visible error may appear anywhere.
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.tool.row").firstMatch.exists,
+            "a transcript tool row reappeared after #126")
+        for leaked in ["unauthorized", "identity-bridge"] {
+            XCTAssertFalse(app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS %@", leaked)).firstMatch.exists,
+                "wire error leaked into the transcript: \(leaked)")
+        }
+    }
+
+    /// A progress card is shown while the turn (and its header/activity
+    /// motion) is still running. XCUITest must be able to query and tap it;
+    /// otherwise the page is stuck in layout or never idles.
+    func testProgressCardDuringRunningTurnKeepsSnapshotsAvailable() throws {
+        launch("runningProgress")
+        let more = app.buttons["bot.progress.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10))
+        let title = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "生成发布验收材料")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        more.tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["约 2 分钟"].exists
+                      || app.staticTexts.matching(
+                        NSPredicate(format: "label CONTAINS %@", "约 2 分钟")).firstMatch.exists)
+    }
+
+    /// The F2/F3 incident history: long expandable headings, a checklist, a
+    /// document and an attachment next to a progress card whose cardKey is
+    /// updated in place. The fixture hands the model new ids for those
+    /// updates; the transcript must keep the first id, and XCUITest must still
+    /// resolve cards after the dense history has settled.
+    func testDenseCardsAndInPlaceProgressKeepSnapshotsAvailable() throws {
+        launch("chatLayoutStress")
+        let ids = app.descendants(matching: .any)["bot.fixture.ids"]
+        XCTAssertTrue(ids.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            let label = ids.label
+            return label.contains("layout-progress")
+                && !label.contains("layout-progress-update")
+                && !label.contains("layout-progress-final")
+        }, "progress card id changed: \(ids.label)")
+        let more = app.buttons["bot.progress.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        more.tap()
+        XCTAssertTrue(more.waitForExistence(timeout: 5))
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "布局回归记录")
+        ).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "bot.composer.input").firstMatch.exists)
+    }
+
+    /// P0 (2026-11-12): a keyboard-open turn with a question card, an
+    /// approval card, a checklist, a progress card and long text. The field
+    /// failure was the main thread looping in
+    /// `LazySubviewPlacements.updateValue/placeSubviews`: XCUITest could read
+    /// the element tree but the question option and approval button were
+    /// `Not hittable`, while `bot.composer.input` timed out resolving
+    /// snapshots. The cards must stay tappable and the composer must keep
+    /// answering snapshots before and after each tap, with the keyboard up.
+    func testKeyboardOpenDenseCardsStayHittableAndTappable() throws {
+        launch("chatLayoutKeyboard")
+        let input = app.textFields["bot.composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+
+        // Type without sending so the composer keeps focus and the software
+        // keyboard stays on screen for the whole interaction.
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3),
+                      "software keyboard did not open; the layout precondition is missing")
+        input.typeText("layout")
+
+        // The progress card updates in place while the keyboard is open. It
+        // lives below the fold here; the id row is how the test observes the
+        // fixture's update without dismissing the keyboard.
+        let ids = app.descendants(matching: .any)["bot.fixture.ids"]
+        XCTAssertTrue(ids.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 8) {
+            let label = ids.label
+            return label.contains("interactive-progress")
+                && !label.contains("interactive-progress-update")
+                && !label.contains("interactive-progress-final")
+        }, "progress card id changed: \(ids.label)")
+
+        // Composer snapshot before the taps.
+        XCTAssertTrue(input.exists, "composer is not resolvable before the taps")
+
+        // The question card is first: option A must be hittable while the
+        // keyboard covers the bottom of the transcript.
+        let option = app.buttons["bot.choice.option.o0"]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        XCTAssertTrue(option.isHittable,
+                      "question option is visible but not hittable: \(option.frame)")
+        option.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            (app.descendants(matching: .any)["bot.fixture.actions"].label).contains("cardAnswer")
+        }, "tapping the option did not send the answer")
+
+        // The answer starts the next step: the fixture appends the approval
+        // card while the keyboard stays up. The page must follow that new row
+        // and keep its buttons above the keyboard without a manual transcript
+        // scroll. This is the P0 field failure.
+        XCTAssertTrue(input.exists, "composer is not resolvable after the question tap")
+        let always = app.buttons["bot.approval.always"]
+        XCTAssertTrue(always.waitForExistence(timeout: 5))
+        if !app.keyboards.firstMatch.exists {
+            // Tapping a card may hand focus back; refocus is not a scroll.
+            input.tap()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        }
+        XCTAssertTrue(waitUntil(timeout: 5) { always.isHittable },
+                      "approval always button was not brought above the keyboard: \(always.frame)")
+        XCTAssertTrue(always.isHittable,
+                      "approval always button is visible but not hittable: \(always.frame)")
+        XCTAssertTrue(input.exists, "composer is not resolvable before the approval tap")
+        always.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            (app.descendants(matching: .any)["bot.fixture.actions"].label)
+                .contains("approval:always")
+        }, "tapping 本次对话都允许 did not send the approval")
+        XCTAssertFalse(app.buttons["bot.approval.always"].exists)
+
+        // Composer snapshot after both taps, still with the keyboard up.
+        XCTAssertTrue(input.exists, "composer is not resolvable after the taps")
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        input.typeText("ok")
+        XCTAssertTrue(input.exists)
+    }
+
+    /// A lost live `turn/end` must not pin the live turn forever. The 800ms
+    /// durable watch is authoritative; once it carries the answer the stop
+    /// control, the activity line and the live text all give way to the
+    /// durable answer. #126 keeps no process/tool row in between.
+    func testLostTurnEndSettlesToDurableRows() throws {
+        launch("runningToolUnauthorized")
+        let runtime = app.descendants(matching: .any)["bot.fixture.runtime"]
+        XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 8) { runtime.label.contains("running=none") },
+                      "live turn did not settle: \(runtime.label)")
+        XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).firstMatch
+            .waitForExistence(timeout: 4), "durable answer did not take over")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.activity.line").firstMatch.exists,
+            "the running activity line stayed after the durable turn settled")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.tool.row").firstMatch.exists,
+            "a process/tool row reappeared after #126")
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "已完成")).firstMatch.exists,
+            "the removed finished-process row is still rendered")
     }
 
     // MARK: - Bot drawer
@@ -312,6 +527,21 @@ final class BotCaptureUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["小舟"].waitForExistence(timeout: 4))
         XCTAssertFalse(app.buttons["bot.drawer.add"].waitForExistence(timeout: 1))
+    }
+
+    /// Every erasure confirmation (single document, this Bot's memory, shared
+    /// user/ memory — including its final confirmation) must say that the
+    /// App's tool operation log is outside the erasure scope and may still
+    /// keep the original text. The fixture opens each real dialog.
+    func testErasureConfirmationsNameTheToolLogBoundary() throws {
+        for fixture in ["infoEraseMemory", "infoEraseShared",
+                        "infoEraseSharedFinal", "infoEraseDocument"] {
+            launch(fixture)
+            let clause = app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS %@", "App 内部的操作日志可能仍保留原文")
+            ).firstMatch
+            XCTAssertTrue(clause.waitForExistence(timeout: 6), fixture)
+        }
     }
 
     func testBotManageShowsHiddenBot() throws {

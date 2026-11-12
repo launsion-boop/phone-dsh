@@ -89,6 +89,8 @@ SURFACE_ALIASES = {
 # Golden fixture families and the checker that reads each family.  A new
 # golden directory that is not listed here is reported as an orphan.
 GOLDEN_READERS = (
+    ("spec/v1/golden/github-oauth", "github-oauth-cases.json", "services/github-oauth/server.test.mjs", False),
+    ("spec/v1/golden/github-oauth", "github-oauth-cases.json", "examples/probe-app/PhoneDSHSimTests/GitHubOAuthTests.swift", False),
     ("spec/bot/v1/golden", "*.json", "spec/bot/v1/tools/validate_vectors.py", False),
     ("spec/bot/v2/golden", "*.json", "spec/bot/v2/tools/validate_vectors.py", False),
     ("spec/host/v1/golden", "*.json", "spec/host/v1/tools/host_check.py", False),

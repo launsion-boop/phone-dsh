@@ -333,6 +333,12 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         eventBus.stream()
     }
 
+    /// The Worker boot id this host currently expects. The Bot runtime seeds a
+    /// watcher from this value and treats a later `.workerHello` with a
+    /// different id as a replaced Worker that needs its sessions re-claimed.
+    /// Read-only; it carries no credential.
+    public var currentWorkerBootID: String { workerBootID }
+
     // MARK: - Lifecycle
 
     /// Opens the workspace, recovers the WAL, boots the Worker and opens
@@ -3243,6 +3249,17 @@ public actor PhoneDSHHost: PhoneDSHHosting {
         return makeTransport(runtime: runtime)
     }
 
+    /// Which ordered-channel connection `makeTransport()` would use right now.
+    ///
+    /// This is a diagnostic seam for the App's recovery timeline: a bind that
+    /// stalls can record whether its requests are addressed to the newest
+    /// Worker HELLO or to an older connection. Ids are process-local; the boot
+    /// id is the Worker's public identity. No frame or payload is exposed.
+    public func channelSelection() async -> PhoneDSHChannelSelection? {
+        guard let runtime else { return nil }
+        return await runtime.coordinator.channelSelectionSnapshot()
+    }
+
     private func makeTransport(runtime: RuntimeServices) -> any DSHRemoteTransport {
         let coordinator = runtime.coordinator
         let channel = ChannelDSHTransport(channelProvider: { excluding in
@@ -4143,6 +4160,13 @@ public actor PhoneDSHHost: PhoneDSHHosting {
             PhoneDSHWorkerEnvironment.gatewayURL: origin,
         ]
         environment.merge(overrides) { _, app in app }
+        // Bot finding #1: `just-bash`'s `date` reads `TZ` and otherwise falls
+        // back to UTC, while the runtime-context block promises the user's
+        // local zone. Publish the same zone the App uses; an explicit App
+        // override above still wins.
+        if environment[PhoneDSHWorkerEnvironment.timeZone] == nil {
+            environment[PhoneDSHWorkerEnvironment.timeZone] = TimeZone.current.identifier
+        }
         environment[PhoneDSHWorkerEnvironment.mcpEgressToken] = mcpEgressToken
         return environment
     }

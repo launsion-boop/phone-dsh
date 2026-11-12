@@ -116,7 +116,7 @@ final class BotEgressApprovalGatewayTests: XCTestCase {
         addTeardownBlock { server.stop() }
         let approver = RecordingApprover(.deny(
             code: "task_network_write_denied",
-            message: "the Task session has no task.network-write authorization"))
+            message: "Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出"))
         let gateway = makeGateway(port: server.port, approver: approver)
 
         let error = try await expectGatewayFailure(gateway.handle(request(port: server.port)))
@@ -125,7 +125,7 @@ final class BotEgressApprovalGatewayTests: XCTestCase {
             return
         }
         XCTAssertEqual(code, "task_network_write_denied")
-        XCTAssertEqual(message, "the Task session has no task.network-write authorization")
+        XCTAssertEqual(message, "Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出")
         XCTAssertEqual((error as? ModelGatewayError)?.structuredErrorCode,
                        "task_network_write_denied")
         XCTAssertEqual((error as? ModelGatewayError)?.proxyStatusCode, 403)
@@ -134,6 +134,52 @@ final class BotEgressApprovalGatewayTests: XCTestCase {
         XCTAssertEqual(server.requestCount, 0,
                        "a Task subset denial must not open a socket")
         XCTAssertEqual(approver.requests.count, 1)
+    }
+
+    /// A Task's named authorization denial must be the first answer even when
+    /// the host is outside the allow-list. The allow-list check still applies
+    /// to workbench (`notBot`) writes, but it must not mask the Task cause.
+    func testTaskDenialPrecedesTheHostAllowList() async throws {
+        let server = try MockUpstreamServer { _ in
+            .full(status: 200, headers: [:], body: Data("should not run".utf8))
+        }
+        _ = try await server.start()
+        addTeardownBlock { server.stop() }
+        let approver = RecordingApprover(.deny(
+            code: "task_network_write_denied",
+            message: "Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出"))
+        // Allow a different port so this target is outside the allow-list.
+        let gateway = makeGateway(port: server.port &+ 1, approver: approver)
+
+        let error = try await expectGatewayFailure(
+            gateway.handle(request(port: server.port)))
+        guard case .egressApprovalDenied(let code, _)? = error as? ModelGatewayError else {
+            XCTFail("expected the Task denial before host_not_allowed, got \(error)")
+            return
+        }
+        XCTAssertEqual(code, "task_network_write_denied")
+        XCTAssertEqual(approver.requests.count, 1,
+                       "the approver must run before the allow-list rejection")
+        XCTAssertEqual(server.requestCount, 0)
+    }
+
+    func testNotBotStillUsesTheOrdinaryHostAllowList() async throws {
+        let server = try MockUpstreamServer { _ in
+            .full(status: 200, headers: [:], body: Data("should not run".utf8))
+        }
+        _ = try await server.start()
+        addTeardownBlock { server.stop() }
+        let approver = RecordingApprover(.notBot)
+        let gateway = makeGateway(port: server.port &+ 1, approver: approver)
+
+        let error = try await expectGatewayFailure(
+            gateway.handle(request(port: server.port)))
+        guard case .hostNotAllowed? = error as? ModelGatewayError else {
+            XCTFail("expected hostNotAllowed for a non-Bot write, got \(error)")
+            return
+        }
+        XCTAssertEqual(approver.requests.count, 1)
+        XCTAssertEqual(server.requestCount, 0)
     }
 
     func testAllowedWriteReachesTheUpstreamOnce() async throws {

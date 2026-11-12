@@ -405,7 +405,7 @@ Priority and copy (first match wins):
 | checklist | id ∈ `mutedCardIDs` | `minus.circle` | `已略过` | same | |
 | approval | (`status == pending` **or any status**) and id ∈ `autoDeclinedApprovalIDs` | `xmark.circle` | `已略过，视为拒绝` | `command` else `action` | monospaced iff command non-empty |
 | approval | status `allowed` | `checkmark.circle.fill` | `已允许一次` | same | `tone = success` |
-| approval | status `always` | `checkmark.circle.fill` | `本次对话允许` if scope `session`, else `已总是允许` | same | `tone = success` |
+| approval | status `always` | `checkmark.circle.fill` | `本次对话都允许` if scope `session`, else `已总是允许` | same | `tone = success` |
 | approval | status `denied`/`never` | `xmark.circle` | `已拒绝` | same | |
 | approval | status `timed-out` | `xmark.circle` | `已超时，视为拒绝` | same | |
 | approval | status `expired` | `xmark.circle` | `已过期，视为拒绝` | same | |

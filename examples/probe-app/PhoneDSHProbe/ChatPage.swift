@@ -4510,10 +4510,19 @@ private struct ResourceStatusBanner: View {
 struct ToolRunRow: View {
     let items: [ChatItem]
     var onOpenFile: (String) -> Void = { _ in }
+    /// Optional human title override; the Bot page passes its action-name
+    /// mapping so wire tool names never reach the transcript. The main DSH
+    /// chat keeps the default official title table.
+    var titleForItem: ((ChatItem) -> String)? = nil
     @State private var expanded = true
     @State private var scrollMetrics = ProcessScrollMetrics()
-    @State private var displayedTitle = ""
-    @State private var titleTask: Task<Void, Never>?
+
+    /// `ForEach` requires unique ids. A resumed live observer can project the
+    /// same journal record twice; the second copy has the same `ChatItem.id`
+    /// and the lazy transcript can loop placing it. Keep the first occurrence
+    /// in transcript order here as a row-boundary guard, even though the live
+    /// projection already deduplicates its records.
+    private var uniqueItems: [ChatItem] { NativeToolRowIdentity.unique(items) }
 
     private var targetTitle: String {
         NativeProcessGroupModel.title(for: categories, running: isRunning)
@@ -4529,13 +4538,13 @@ struct ToolRunRow: View {
     }
 
     private var categories: [NativeProcessCategory] {
-        items.map {
+        uniqueItems.map {
             $0.kind == .reasoning ? .thinking : NativeProcessCategory.forTool($0.toolName ?? "")
         }
     }
 
     private var isRunning: Bool {
-        items.contains { $0.toolState == .running || $0.toolState == .preparing }
+        uniqueItems.contains { $0.toolState == .running || $0.toolState == .preparing }
     }
 
     var body: some View {
@@ -4543,17 +4552,20 @@ struct ToolRunRow: View {
         // its body members own the 6pt flow gap. Do not add a VStack gap
         // between the header and the first member (that would make 14pt).
         VStack(alignment: .leading, spacing: 0) {
-            if items.count > 1 {
+            if uniqueItems.count > 1 {
+                // Title is derived from the items; mirroring it into @State
+                // from onAppear/onChange wrote state during layout and kept
+                // the lazy stack placing subviews.
                 NativeProcessGroupHeader(
-                    title: displayedTitle.isEmpty ? targetTitle : displayedTitle,
+                    title: targetTitle,
                     glyph: categories.first?.glyph ?? .tools,
                     isRunning: isRunning,
                     isExpanded: expanded) {
                         withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
                     }
             }
-            if expanded || items.count == 1 {
-                if items.count > 4 {
+            if expanded || uniqueItems.count == 1 {
+                if uniqueItems.count > 4 {
                     ScrollView {
                         processRows
                             .background(GeometryReader { geometry in
@@ -4565,7 +4577,13 @@ struct ToolRunRow: View {
                             })
                     }
                     .coordinateSpace(name: "process-scroll")
-                    .onPreferenceChange(ProcessScrollMetricsKey.self) { scrollMetrics = $0 }
+                    .onPreferenceChange(ProcessScrollMetricsKey.self) { metrics in
+                        // A preference callback that writes even an unchanged
+                        // value invalidates layout again. Only a real value
+                        // change may feed the fade overlays.
+                        guard metrics != scrollMetrics else { return }
+                        scrollMetrics = metrics
+                    }
                     .scrollIndicators(.visible)
                     .frame(maxHeight: processViewport)
                     .overlay(alignment: .top) {
@@ -4579,20 +4597,6 @@ struct ToolRunRow: View {
                 }
             }
         }
-        .onAppear { displayedTitle = targetTitle }
-        .onChange(of: targetTitle) { _, next in
-            titleTask?.cancel()
-            if isRunning {
-                titleTask = Task {
-                    try? await Task.sleep(for: .milliseconds(150))
-                    guard !Task.isCancelled else { return }
-                    displayedTitle = next
-                }
-            } else {
-                displayedTitle = next
-            }
-        }
-        .onDisappear { titleTask?.cancel() }
     }
 
     /// An opened group sits in the white list card (HomeSpec): rows 8pt
@@ -4600,15 +4604,16 @@ struct ToolRunRow: View {
     @ViewBuilder
     private var processRows: some View {
         let rows = VStack(alignment: .leading, spacing: 8) {
-            ForEach(items) { item in
+            ForEach(uniqueItems) { item in
                 if item.kind == .reasoning {
                     NativeThinkingRow(item: item)
                 } else {
-                    NativeToolCallRow(item: item, onOpenFile: onOpenFile)
+                    NativeToolCallRow(item: item, onOpenFile: onOpenFile,
+                                      title: titleForItem?(item))
                 }
             }
         }
-        if items.count > 1 {
+        if uniqueItems.count > 1 {
             rows.homeListCard()
         } else {
             rows

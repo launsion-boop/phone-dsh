@@ -88,6 +88,11 @@ actor BotProductionEffectRunner {
 
     func start() {
         guard work == nil else { return }
+        // This task inherits the actor's isolation, not its caller's
+        // `@MainActor`: the 250ms effect poll runs on the cooperative pool.
+        // Field samples confirmed it is not a main-thread DB poll (the main
+        // thread was entirely inside SwiftUI's graph update while the effect
+        // runner appeared on `com.apple.root.user-initiated-qos.cooperative`).
         work = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }

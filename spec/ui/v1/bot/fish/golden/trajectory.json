@@ -292,7 +292,7 @@
     },
     {
       "contains": "- path: BotFish",
-      "line": 68,
+      "line": 71,
       "path": "examples/probe-app/project.yml"
     },
     {
@@ -83846,9 +83846,9 @@
         "sha256": "b8602e259aced5649eedcdd940f78662956312867a2bd38dbced712dbf5764d8"
       },
       {
-        "bytes": 9004,
+        "bytes": 9015,
         "path": "Sources/PhoneDSHBot/Avatar/BotFishReactions.swift",
-        "sha256": "aa9ee3e87546cbc3a20c71a7ab71e6ae51c86908cc383da7ccd55c913e660f6b"
+        "sha256": "5eef73fad5cc3d9b64cb70d21506eea5f101c67e596488990f5a5773357143b1"
       },
       {
         "bytes": 7059,

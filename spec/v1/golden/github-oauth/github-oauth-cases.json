@@ -1,0 +1,10 @@
+{
+  "state": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "wrong_state": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "code": "github-code_1234",
+  "code_verifier": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+  "access_token": "ghu_fixture012345678901234567890123456",
+  "expires_in": 28800,
+  "invalid_verifier": "too-short",
+  "invalid_token": "github_pat_fixture01234567890123456789"
+}

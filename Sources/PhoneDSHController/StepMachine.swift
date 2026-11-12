@@ -16,6 +16,7 @@
 // only by the App, after D6 validation of every identifier used in a path.
 
 import Foundation
+import PhoneDSHStandardError
 import CoreFoundation
 import PhoneDSHLog
 import PhoneDSHWire
@@ -373,8 +374,8 @@ public struct StderrControllerLogger: ControllerLogging {
     public init() {}
 
     public func log(_ level: ControllerLogLevel, _ message: String) {
-        FileHandle.standardError.write(Data(
-            "[PhoneDSHController] \(level.rawValue): \(message)\n".utf8))
+        PhoneDSHStandardError.write(
+            "[PhoneDSHController] \(level.rawValue): \(message)")
     }
 }
 

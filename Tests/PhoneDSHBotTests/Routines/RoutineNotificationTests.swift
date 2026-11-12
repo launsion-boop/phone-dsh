@@ -102,6 +102,32 @@ final class RoutineNotificationTests: XCTestCase {
         XCTAssertTrue(cancelled.contains(pending[0].identifier))
     }
 
+    func testPresenceSnapshotReportsRegisteredCountAndEarliestTime() async throws {
+        let root = try wp6TempDirectory(self)
+        let now = wp6Date(2026, 5, 12, 12)
+        let clock = WP6Clock(now)
+        let spy = WP6RoutineNotificationSpy()
+        let (scheduler, machine) = try makeScheduler(
+            root: root, clock: clock, settings: { wp6Settings() }, spy: spy)
+        let empty = await scheduler.presenceSnapshot(appActive: true, keepingAlive: false)
+        XCTAssertEqual(empty.scheduledNotificationCount, 0)
+        XCTAssertNil(empty.nextNotificationAt)
+
+        let first = try await machine.create(
+            botId: "bot-a", title: "较早", prompt: "one",
+            schedule: .interval(everyMinutes: 30, timezone: "UTC"), now: now, id: "routine-early")
+        _ = try await machine.create(
+            botId: "bot-a", title: "较晚", prompt: "two",
+            schedule: .interval(everyMinutes: 45, timezone: "UTC"), now: now, id: "routine-late")
+        try await scheduler.syncNotifications()
+        let presence = await scheduler.presenceSnapshot(appActive: true, keepingAlive: false)
+        XCTAssertEqual(presence.scheduledNotificationCount, 2)
+        XCTAssertEqual(presence.nextNotificationAt, first.nextRunAt)
+        XCTAssertEqual(presence.level, .foreground)
+        let pending = await spy.pending()
+        XCTAssertEqual(presence.nextNotificationAt, pending.first?.fireAt)
+    }
+
     func testQuietHoursDeferReminderAndUrgentBypasses() async throws {
         let root = try wp6TempDirectory(self)
         let now = wp6Date(2026, 5, 12, 22, timeZone: "Asia/Taipei")

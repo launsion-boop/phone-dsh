@@ -1557,6 +1557,46 @@
   {
    "scenario": "overflow",
    "reason": "not exported: an intentionally huge layout stress fixture; the card schema covers the shape. Add a pinned export when B7b writes layout tests."
+  },
+  {
+   "scenario": "chatLayoutKeyboard",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "chatLayoutStress",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "chatLayoutTyping",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "infoEraseDocument",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "infoEraseMemory",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "infoEraseShared",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "infoEraseSharedFinal",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "runningProgress",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "runningToolReplay",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
+  },
+  {
+   "scenario": "runningToolUnauthorized",
+   "reason": "SwiftUI-only screenshot fixture added on main after the round-1 export; the Android end renders this state from the ui-state/card vectors and the layout is not a shared JSON contract, so it is not exported as a fixture."
   }
  ]
 }

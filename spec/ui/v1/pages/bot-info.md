@@ -1,14 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# BotInfoPage（normative for both ends）
+# BotInfoPage（target）
 
-契约：P09、P25、P26。参考实现：`examples/probe-app/PhoneDSHProbe/Bot/BotInfoPage.swift`。
+契约：P09、P25、P26。目标实现路径：`examples/probe-app/PhoneDSHProbe/Bot/**`。
 
-Status: normative for both ends（PC-20261112-android-bot-w4 C4 / B7b / D15）。
-Android: planned (wave 4 round 2)。
-`BotInfoSnapshot` 的字段、`BotInfoDriver` 的 intent、三个数据区的 load 状态和每一条错误文案以 [../bot/ui-state.md](../bot/ui-state.md) §2.5/§3.5/§4.12 为唯一权威；本页只冻结页面的分组、导航、几何和 accessibility id。
-
-Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展示并编辑由 runtime-context 注入的 Bot 名，提供记忆、Routines、审批记录三个真实数据入口，并在同一分组列表内展示在场状态、编辑打扰设置。页面只消费一次 `BotInfoDriver.load()` 的 `BotInfoSnapshot`；driver 存在且尚未返回时三个数据区同时为 `loading`，失败时同时为 `failed(<reason>)`，显示「读取失败」与原因，绝不显示为零。fixture 注入的 snapshot 为 `loaded`。头部 80pt 头像调用冻结的 `BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)`（不跑帧循环）；Bot 页「…」菜单可直接打开与数据区相同的记忆／例行任务／审批记录目标页。页面不得伪造条目数、授权状态或后台 session 过程；读取失败显示失败，不显示为零。
+Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展示并编辑由 runtime-context 注入的 Bot 名，提供记忆、Routines、审批记录三个真实数据入口，并在同一分组列表内展示在场状态、编辑打扰设置。四个数据入口（含常设授权）**各自独立加载**：一处投影失败只把该入口标成读取失败，不得拖垮其他入口。信息页每次呈现、以及每次进入一个数据入口时都必须重读宿主权威，不得复用上一次打开页面时的缓存快照；因此对话中新建的 routine 再次进入时必须出现，不能显示成「还没有例行任务」。读取失败的文案必须是用户能看懂的中文，不得显示宿主错误类型名、英文 `localizedDescription`、内部错误码或 `error N`；具体错误只写宿主诊断日志。头部 80pt 头像调用冻结的 `BotFishView(state: .idle, size: 80, appearance: model.appearance, still: true)`（不跑帧循环）；Bot 页「…」菜单可直接打开与数据区相同的记忆／例行任务／审批记录目标页。页面不得伪造条目数、授权状态或后台 session 过程；读取失败显示失败，不显示为零。
 
 ## 外观（P26）
 
@@ -23,13 +19,13 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 
 - 记忆：按 `user/` 和 `agent/` 两个根分组展示文档树（分组标题为「本 Bot 的记忆」「所有 Bot 共享的记忆」，不再重复渲染 `agent`/`user` 根文件夹行），目录可展开；文档行显示文件名、当前版本、更新时间和来源条数。文档详情显示完整 Markdown、当前版本、更新时间、作者/会话类型的用户可读标签（如「对话中的你」「这个 Bot」「例行任务」「维护整理」）和 evidence（`record://` 引用）；原始 `record://` 引用、完整路径和原始版本号折叠在同一详情页的「来源」「查看详情」里，仍可查看。可查看历史版本列表和每个版本的正文/删除标记。路径、版本和 evidence 均来自宿主 `ReadMemory` 同一权威，不伪造条目或来源。删除有两个强度且文案不能混用：
   - 每份文档的「忘记」是逻辑删除：只移除 live 版本，历史版本和原始记录仍保留。
-  - 文档详情的「抹除这份文档和全部历史版本」、记忆页「危险操作」分组里针对本 Bot 的「抹除这个 Bot 的记忆（含全部版本）」和共享 `user/` 根的双重确认「抹除所有 Bot 共享的记忆（含全部版本）」是物理删除：清除文档、全部历史版本、事件载荷、检索/注入/UI 行中的对应内容，并追加 `erasure` 事件；其他 Bot 的 `agent/` 文档不受影响，`user/` 抹除影响所有 Bot。
-  - 所有抹除入口都必须有明确范围说明和不可撤销提示。抹除同时命中已关闭会话纪元的聊天记录：命中行被墓碑替换，`record://session` 不再返回原文；主对话切到新会话并显示一行「对话已接续」notice，旧纪元中未命中的内容仍可见。宿主确认后重读权威状态；失败显示失败，不把失败当成功或本地伪装已删除。
+  - 文档详情的「抹除这份文档和全部历史版本」、记忆页「危险操作」分组里针对本 Bot 的「抹除这个 Bot 的记忆（含全部版本）」和共享 `user/` 根的双重确认「抹除所有 Bot 共享的记忆（含全部版本）」是物理删除：清除文档、全部历史版本、事件载荷、检索/注入/UI 行中的对应内容，并追加 `erasure` 事件；其他 Bot 的 `agent/` 文档不受影响，`user/` 抹除影响所有 Bot。抹除范围只包含 Bot 会话日志与记忆文档；App 内部的操作日志（`journal.xljournal`）不在抹除范围内，可能仍保留工具参数或输出的原文。
+  - 所有抹除入口都必须有明确范围说明和不可撤销提示；确认框的后果说明必须写明「App 内部的操作日志可能仍保留原文」。抹除同时命中已关闭会话纪元的聊天记录：命中行被墓碑替换，`record://session` 不再返回原文；主对话切到新会话并显示一行「对话已接续」notice，旧纪元中未命中的内容仍可见。宿主确认后重读权威状态；失败显示失败，不把失败当成功或本地伪装已删除。
   - 不提供第一版未实现的自动抽取、反思或衰减开关，也不在页面内编辑文档正文。accessibility id 前缀 `bot.memory.*`、`bot.info.memory`，单文档抹除为 `bot.memory.document.erase`。
 - 记忆页顶部有「后台整理」开关（id `bot.memory.maintenance.toggle`），默认关闭；开关持久化为 P18 键 `phone-dsh.bot.memory-maintenance.v1`（`{enabled, runTokenBudget, dailyTokenBudget}`，所有 Bot 共享）。下方「上次整理」卡片（id `bot.memory.maintenance.batch`）只显示最近一次真实批次：主视图显示状态、时间、改动文档数、人类可读的文档名与前后版本/删除、检查是否通过；完整 `user/`/`agent/` 路径、失败码和准确 token 用量折叠在「查看详情」中，仍可查看。日额度在主视图只以百分比显示一次（如「今日整理额度已用 13%」），准确 token 不出现在主视图。数据来自 durable `memory.maintenance_finished` 事件，不伪造一次运行。批次仍可回滚时显示「回滚这次整理」（id `bot.memory.maintenance.rollback`），确认后调用宿主按 S2 版本恢复整批回滚；已回滚或不可回滚时不显示按钮，历史批次仍保留。页面不显示模型的过程文本，也不提供编辑批次内容的入口。
 - Routines：展示 schedule、timezone、delivery、quiet/urgent 标记、下一次到期/安静时段延后、运行结果、设立者、`completion_criteria` 与 `constraints`；动作通过 UserAction/宿主服务，不直接修改数据库。主行使用人类可读值：delivery 显示「下次聊天时送达」/「立即提醒」，时区显示「上海时间（UTC+8）」这类城市名与 UTC 偏移，设立者显示 `creator.authorization`／`creator.origin` 的人类可读来源（例如「由你在对话中创建」「你确认后创建」），运行结果状态显示中文；下一次到期来自 `next_run_at`，安静时段延后来自 `quiet_defer`。`creator.rpcId`／`turnId`／`sessionId`／`origin` 原始值、IANA 时区标识、运行编号和效果记录只放进可展开的「详情」，不进入主行。`completion_criteria` 与 `constraints` 是创建者写入的自由文本：其中包含工具名、提示词标记等内部片段时，主行只显示一句「原文包含执行提示」的说明，原文不改写地放进「详情」；不得从自由文本推断或伪造摘要。运行中（`run_state.status == "started"`）显示「取消运行」并使用危险操作样式；`run_state.status == "needs-reconciliation"` 只显示一处「这次运行的结果没有确认」说明（含已产生效果的人类可读摘要与原因），并提供「确认完成」和「重试」两个独立动作，分别走 `RoutineMachine.resolveReconciliation` 与 `BotEffectOutbox.ackReconciled`／`retryNeedsReconciliation`；原始 effect key/target/reason 只在「详情」展示。取消、对账后重读权威状态；读取失败显示失败，不显示为零。
 - 常设授权：单独入口，列出本 Bot 的 `scope != once` Grant（tool、operation、resource、scope、createdAt、source），主行显示人类可读的操作类别、资源摘要、有效范围、来源和创建时间；`tool`、`operation`、完整 `resource` 路径/URL 与原始 `sessionId` 放在该行的「详情」里，详情默认折叠。每行可撤销。撤销调用 `BotGrantStore.revoke(id:)` 并重读；不把 once 授权显示为常设，也不在撤销失败时本地移除。授权状态未知时显示读取失败，不伪造“无授权”。accessibility id 前缀 `bot.grant.*`。
-- 审批记录：只显示用户可读的参数摘要和实际决定，不显示密钥或完整敏感参数。参数摘要必须由动作和操作类别组成，不得直接拼接内部 ID、resource digest 或原始枚举。实际决定区分允许一次、本次会话允许、总是允许、拒绝、已超时（视为拒绝）、已过期（视为拒绝）和已取消。
+- 审批记录：只显示用户可读的参数摘要和实际决定，不显示密钥或完整敏感参数。参数摘要必须由动作和操作类别组成，不得直接拼接内部 ID、resource digest 或原始枚举。实际决定区分允许一次、本次会话允许、总是允许、拒绝、已超时（视为拒绝）、已过期（视为拒绝）和已取消。已取消的行必须再显示一句人话原因（例如「App 重启时取消」）；原始原因码（`worker_restarted`、`consumer_cancelled` 等）只留在事件与诊断里，不进入页面。
 - 深链 `phonedsh://bot/<botID>/row/<rowID>` 定位真实行；未知或过期行显示不可用，不跳到无关会话。routine 到期通知使用 `phonedsh://bot/<botID>/routine/<routineID>`，打开本页的例行任务区并定位该 routine 行；未知或已删除的 routine 显示不可用，不跳到无关页面。
 - 上述条目和动作只增不改：分组列表、导航和 token 沿用现有 Bot 信息页，不新增独立页面框架。
 
@@ -38,9 +34,10 @@ Bot 信息页使用 phoneDSH 现有设置页分组、列表和导航 token，展
 名称编辑与外观之后、数据入口之前增加只读「在场」区，数据和文案来自宿主，不由页面推断：
 
 - 一行「当前级别」：`前台` / `后台保活` / `预定通知`。App 处于 active 时为前台；App 不在前台且静音音频保活开启（任一 Bot 有回合，或保活窗口内有到期的 routine）时为后台保活；否则为预定通知。页面不把「有 routine」写成「正在运行」。
-- 一行 `已登记提醒 N 条`：N 是宿主实际登记成功的 routine 到期通知数，不是 routine 总数；登记失败或被系统丢弃时显示实际值或读取失败，不伪造 0。
+- 一行 `已登记提醒 N 条`：N 是宿主实际登记成功的 routine 到期通知数，不是 routine 总数；登记失败或被系统丢弃时显示实际值或读取失败，不伪造 0。该行在前台、后台保活和预定通知三种级别都显示（前台也可能已有登记成功的提醒），不得只在预定通知级别显示。宿主有已登记的最近一条通知时，在同一行追加其本地时间（`N 条 · 下次 <时间>`）；没有可显示的时间时只显示数量。
+- 一行只读「连接状态」：仅在宿主内存里存在最近一次失败的连接校验时显示。文案固定为用户能看懂的中文「最近一次与 App 的连接校验失败 · <本地时间>」（例如「最近一次与 App 的连接校验失败 · 11月11日 22:44」），时间用共享格式器；错误码只写宿主诊断日志，页面不显示英文内部词、错误码、token、参数、请求体或完整 session id。页面不推断连接已经恢复，也不把失败写成成功；成功后宿主清除记录，页面不缓存旧错误。没有错误时不显示这一行，也不显示「正常」占位。
 - 「因安静时段延后」列表：每项显示 routine 标题、原定时间和延后到的时间，来自 `quiet_defer`；没有延后时不显示假条目。列表只读，运行/暂停仍在例行任务区操作。
-- accessibility id：`bot.info.presence`、`bot.info.presence.level`、`bot.info.presence.notifications`、`bot.info.presence.deferred.<routineID>`。
+- accessibility id：`bot.info.presence`、`bot.info.presence.level`、`bot.info.presence.notifications`、`bot.info.presence.bridge`、`bot.info.presence.deferred.<routineID>`。
 
 ## 打扰设置（P26 §3.8）
 

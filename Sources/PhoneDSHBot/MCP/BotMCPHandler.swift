@@ -119,9 +119,16 @@ public actor BotMCPHandler {
         }
         // The body `sessionId` is never identity evidence. A missing, empty,
         // unknown, revoked, expired or mismatched token is one `unauthorized`
-        // answer and registers nothing.
+        // answer and registers nothing. Record the exact refusal for the
+        // read-only Bot status line; the token itself is never kept.
         guard case .string(let sessionToken)? = object["sessionToken"],
               !sessionToken.isEmpty else {
+            await runtime.noteBridgeError(code: "unauthorized", sessionId: session)
+            // The HTTP handler short-circuits a missing token before the
+            // runtime's token path. The lost-Worker case lands here, so the
+            // App's reclaim seam must run here too; the Worker's one retry
+            // then reads the re-claimed credential.
+            await runtime.recoverSessionCredential(sessionId: session, suppliedToken: "")
             return .object(["ok": .bool(false), "error": .string("unauthorized")])
         }
         let arguments = object["arguments"] ?? .object([:])
@@ -140,6 +147,7 @@ public actor BotMCPHandler {
         } catch let error as BotMCPError {
             return .object(["ok": .bool(false), "error": .string(Self.registrationError(error))])
         } catch BotGatewayError.unknownSession {
+            await runtime.noteBridgeError(code: "unknown_session", sessionId: session)
             return .object(["ok": .bool(false), "error": .string("unauthorized")])
         } catch {
             return .object(["ok": .bool(false), "error": .string("identity registration refused")])

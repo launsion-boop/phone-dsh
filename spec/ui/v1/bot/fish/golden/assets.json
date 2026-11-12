@@ -27,12 +27,12 @@
     },
     {
       "contains": "- path: BotFish",
-      "line": 68,
+      "line": 71,
       "path": "examples/probe-app/project.yml"
     },
     {
       "contains": "type: folder",
-      "line": 57,
+      "line": 60,
       "path": "examples/probe-app/project.yml"
     },
     {
@@ -52,7 +52,7 @@
     },
     {
       "contains": "Artwork: the mascot in docs/assets/logo.png",
-      "line": 90,
+      "line": 93,
       "path": "NOTICE"
     },
     {

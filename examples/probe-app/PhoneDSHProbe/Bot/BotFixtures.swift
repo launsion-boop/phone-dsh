@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #if DEBUG
+import Combine
 import Foundation
 import PhoneDSHAgentCore
 import PhoneDSHBot
@@ -10,11 +11,19 @@ enum BotUIFixtureCase: String, CaseIterable, Identifiable {
     case chat, question, steps, task, attachment, document, progress, checklist, link
     case approval, approvalAutoDeclined, settledCards, sendCollapse, automation, error, denial, overflow, failClosed
     case empty, runningThinking, runningTool, runningToolDescribed, runningToolReviewing, runningToolPhone
-    case runningStreamingWithLine, runningAwaitingApproval, agentComm
+    case runningToolUnauthorized, runningToolReplay, agentComm
+    case runningProgress
+    case chatLayoutStress
+    case chatLayoutKeyboard
+    case chatLayoutTyping
+    case runningStreamingWithLine, runningAwaitingApproval
     case drawer, drawerAdd, drawerManage, reactionLive, reactionHeader
     case composerAttachments, composerLongDraft, infoAppearance
     case info, infoEmpty, infoError, infoLong, infoMemory, infoGrants, infoRoutines, infoReconcile
     case infoPresence, infoApprovals, infoMemoryDocument
+    /// Each erasure confirmation is captured with its real dialog so the
+    /// "tool operation log may still keep the original text" clause is visible.
+    case infoEraseMemory, infoEraseShared, infoEraseSharedFinal, infoEraseDocument
 
     var id: String { rawValue }
 
@@ -57,6 +66,124 @@ enum BotUIFixtures {
             "time": .number(Date().timeIntervalSince1970 * 1_000),
             "data": .object(values),
         ])
+    }
+
+    /// The real incident's turn: two `bash` calls rejected by the session
+    /// bridge as `unauthorized`, then the model's explanation. Kept as the
+    /// exact journal records so the live projection, the finished process row
+    /// and the tests all consume the same event shapes as production.
+    static func unauthorizedRecords(turn: Int = 1, replayed: Bool = false,
+                                    includeEnd: Bool = true) -> [JSONValue] {
+        let error = "Error: [identity-bridge] App MCP did not accept the call registration: unauthorized"
+        func result(seq: Int, callID: String) -> JSONValue {
+            liveEvent("tool/result", turn: turn, seq: seq, data: [
+                "message": .object([
+                    "toolCallId": .string(callID),
+                    "content": .array([
+                        .object(["type": .string("text"), "text": .string(error)]),
+                    ]),
+                    "isError": .bool(true),
+                ]),
+            ])
+        }
+        var records: [JSONValue] = [
+            liveEvent("turn/start", turn: turn, seq: 1),
+            liveEvent("tool/call", turn: turn, seq: 2, data: [
+                "callId": .string("call_unauthorized_first"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"echo probe-15\",\"description\":\"执行 echo 探测\"}"),
+            ]),
+            result(seq: 3, callID: "call_unauthorized_first"),
+            liveEvent("tool/call", turn: turn, seq: 4, data: [
+                "callId": .string("call_unauthorized_retry"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"echo probe-15\",\"description\":\"重试 echo 探测\"}"),
+            ]),
+            result(seq: 5, callID: "call_unauthorized_retry"),
+        ]
+        if replayed {
+            // A re-attached observer replays the same open-turn records with
+            // their original seqs. The second copy must not create a second
+            // ChatItem with the same id.
+            records.append(liveEvent("tool/call", turn: turn, seq: 2, data: [
+                "callId": .string("call_unauthorized_first"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"echo probe-15\",\"description\":\"执行 echo 探测\"}"),
+            ]))
+            records.append(result(seq: 3, callID: "call_unauthorized_first"))
+        }
+        records.append(liveEvent("assistant/message", turn: turn, seq: 6, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([
+                    .object([
+                        "type": .string("text"),
+                        "text": .string("probe-15 没有跑成：两次都没有连上 App，没有输出可报。"),
+                    ]),
+                ]),
+            ]),
+        ]))
+        if includeEnd {
+            records.append(liveEvent("turn/end", turn: turn, seq: 7, data: [
+                "reason": .object(["kind": .string("completed")]),
+            ]))
+        }
+        return records
+    }
+
+    /// The durable rows the journal projects to after the failed turn: the
+    /// prompt, the answer the process block anchors above. The driver below
+    /// returns the same rows on every poll, so `settleLive` performs the same
+    /// live → durable transition production does.
+    static func unauthorizedRows() -> [BotUIRow] {
+        var user = BotUIRow.text(id: "unauthorized-user", seq: 1, role: "user",
+                                 text: "用 bash 执行 echo probe-15，只回结果")
+        user.body.values["turn"] = .number(1)
+        var answer = BotUIRow.text(id: "unauthorized-answer", seq: 7, role: "assistant",
+                                   text: "probe-15 没有跑成：两次都没有连上 App，没有输出可报。")
+        answer.body.values["turn"] = .number(1)
+        return [user, answer]
+    }
+
+    @MainActor
+    static func unauthorizedDriver(rows: [BotUIRow], process: BotTurnProcess) -> BotChatDriver {
+        BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { _ in BotUIRowBatch(rows: rows, deletes: [], cursor: 1, reset: true) },
+            perform: { _ in .rejected(reason: "fixture") },
+            stopCurrentTurn: { _ in },
+            turnProcesses: { [1: process] },
+            presentation: { BotRuntimePresentation() })
+    }
+
+    /// One live-turn playback for the unauthorized fixture. The real page
+    /// observes frames after it has mounted, so the fixture must not hand the
+    /// whole turn to the model before the first body pass.
+    @MainActor
+    final class UnauthorizedPlayback {
+        var durableRows: [BotUIRow]
+        var process: BotTurnProcess
+        let records: [JSONValue]
+
+        init(durableRows: [BotUIRow], process: BotTurnProcess, records: [JSONValue]) {
+            self.durableRows = durableRows
+            self.process = process
+            self.records = records
+        }
+
+        var liveRows: [BotUIRow] { durableRows }
+
+        func driver() -> BotChatDriver {
+            BotChatDriver(
+                history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+                watch: { [self] _ in
+                    BotUIRowBatch(rows: durableRows, deletes: [], cursor: 1, reset: true)
+                },
+                perform: { _ in .rejected(reason: "fixture") },
+                stopCurrentTurn: { _ in },
+                turnProcesses: { [self] in [1: process] },
+                presentation: { BotRuntimePresentation() })
+        }
     }
 
     static func rows(for fixture: BotUIFixtureCase, diagnostics: Bool = false) -> [BotUIRow] {
@@ -105,7 +232,7 @@ enum BotUIFixtures {
             body = widget("document", [
                 "title": "phoneDSH Bot 验收报告",
                 "summary": "汇总交互、卡片和两种外观的模拟器证据。",
-                "docKind": "markdown", "docTypeLabel": "Markdown",
+                "docKind": "document", "docTypeLabel": "Document",
                 "fileName": "acceptance.md", "size": "18 kB",
                 "content": "# phoneDSH Bot 验收报告\n\n## 交互\n\nSteering、停止和迟到输出。\n\n## 卡片\n\n所有 P0 卡片。",
                 "toc": ["交互", "卡片", "剩余风险"],
@@ -122,6 +249,25 @@ enum BotUIFixtures {
                     ["id": "p4", "label": "创建 PR", "state": "pending"],
                 ],
             ])
+        case .runningProgress:
+            return introRows + [cardRow("running-progress", body: widget("progress", [
+                "title": "生成发布验收材料", "state": "running", "percent": 42,
+                "summary": "已完成数据核对，正在生成两种外观的截图。", "eta": "约 2 分钟",
+                "cardKey": "fixture-running-progress",
+                "steps": [
+                    ["id": "p0", "label": "读取契约与共享向量", "state": "done", "detail": "完成"],
+                    ["id": "p1", "label": "编译并运行模拟器", "state": "active", "detail": "12/24"],
+                    ["id": "p2", "label": "检查长文本与动态字体", "state": "pending"],
+                    ["id": "p3", "label": "汇总剩余风险", "state": "pending"],
+                    ["id": "p4", "label": "创建 PR", "state": "pending"],
+                ],
+            ]), seq: 2)]
+        case .chatLayoutStress:
+            return layoutStressRows()
+        case .chatLayoutKeyboard:
+            return interactiveCardsRows()
+        case .chatLayoutTyping:
+            return typingLayoutRows()
         case .checklist:
             body = widget("checklist", [
                 "title": "发布前检查", "summary": "发布前需要确认 CI、截图和交互检查。",
@@ -151,6 +297,17 @@ enum BotUIFixtures {
                 "detail": "文件位于临时目录，删除后无法在页面内恢复。",
                 "alwaysScope": "until", "risk": ["level": "high", "tags": ["irreversible"]],
             ])
+            // A decided session grant from an earlier turn: the receipt must
+            // say "本次对话都允许", never "已允许一次".
+            return introRows + [
+                cardRow("card-\(fixture.rawValue)", body: body),
+                cardRow("approval-decided-session", body: BotUIBody(type: "approval", values: [
+                    "approvalID": "approval-session-fixture", "status": "allowed-session",
+                    "scope": "session", "action": "整理今天的联调发现",
+                    "command": "write notes/sim-int-2-findings.md",
+                    "text": "本次对话都允许：整理今天的联调发现",
+                ]), seq: 3),
+            ]
         case .settledCards:
             // The fixture root closes the dismissed question and sends the
             // checklist below, which also auto-denies the pending approval.
@@ -304,6 +461,9 @@ enum BotUIFixtures {
              .runningToolReviewing, .runningToolPhone:
             return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
+        case .runningToolUnauthorized, .runningToolReplay:
+            return [BotUIRow.text(id: "\(fixture.rawValue)-user", seq: 1, role: "user",
+                                  text: "用 bash 执行 echo probe-15，只回结果")]
         case .runningStreamingWithLine:
             return [BotUIRow.text(id: "running-streaming-user", seq: 1, role: "user",
                                   text: "帮我检查一下构建结果。")]
@@ -375,12 +535,292 @@ enum BotUIFixtures {
             ]
         case .infoAppearance, .info, .infoEmpty, .infoError, .infoLong, .infoMemory,
              .infoGrants, .infoRoutines, .infoReconcile, .infoPresence, .infoApprovals,
-             .infoMemoryDocument:
+             .infoMemoryDocument, .infoEraseMemory, .infoEraseShared,
+             .infoEraseSharedFinal, .infoEraseDocument:
             return []
         case .drawer, .drawerAdd, .drawerManage, .reactionLive, .reactionHeader:
             return []
         }
         return introRows + [cardRow("card-\(fixture.rawValue)", body: body)]
+    }
+
+    /// Dense history for the layout-loop regression: long expandable
+    /// headings, a progress card that is updated in place several times, a
+    /// checklist, a document card, an attachment and a long answer. The
+    /// in-place updates deliberately hand the model a *new* row id for the
+    /// same `cardKey`; a stable transcript must not rebuild the lazy item.
+    static func layoutStressRows() -> [BotUIRow] {
+        let longTitle = "多卡片布局压力检查：进度、检查清单、文档与附件连续出现时标题必须限制在两行以内"
+        let longSummary = String(repeating: "长摘要需要在窄屏上保持稳定，不能因为测量高度而再次触发布局。", count: 3)
+        let progress = cardRow("layout-progress", body: widget("progress", [
+            "title": .string(longTitle),
+            "state": .string("running"),
+            "percent": .number(25),
+            "summary": .string(longSummary),
+            "cardKey": .string("fixture-layout-progress"),
+            "eta": .string("约 3 分钟"),
+            "steps": .array((0..<7).map { index in
+                .object([
+                    "id": .string("layout-step-\(index)"),
+                    "label": .string("第 \(index + 1) 步：读取并核对历史卡片"),
+                    "state": .string(index < 2 ? "done" : index == 2 ? "active" : "pending"),
+                    "detail": .string("\(index + 1)/7"),
+                ])
+            }),
+        ]), seq: 2)
+        let checklist = cardRow("layout-checklist", body: widget("checklist", [
+            "title": .string("发布前检查"),
+            "summary": .string("这些项目与进度卡、文档卡和附件同时出现。"),
+            "interactive": .bool(false),
+            "items": .array((0..<4).map { index in
+                .object([
+                    "id": .string("layout-check-\(index)"),
+                    "text": .string("检查第 \(index + 1) 项：卡片高度变化后仍可交互"),
+                    "done": .bool(index < 2),
+                    "note": .string(index == 2 ? "必填" : "已核对"),
+                ])
+            }),
+        ]), seq: 3)
+        let document = BotUIRow.fixture(
+            id: "layout-document", seq: 4, kind: "sendMessage", role: "assistant",
+            body: widget("document", [
+                "title": .string("布局回归记录"),
+                "summary": .string("这是与进度卡相邻的文档卡，用来累积历史高度。"),
+                "docKind": .string("markdown"),
+                "fileName": .string("layout-regression.md"),
+                "size": .string("12 kB"),
+                "content": .string("# 布局回归记录\n\n" + String(repeating: "长文本段落用于验证卡片展开与滚动。\n\n", count: 8)),
+                "toc": .array([.string("交互"), .string("卡片"), .string("滚动")]),
+            ]))
+        let attachment = cardRow("layout-attachment", body: BotUIBody(type: "attachment", values: [
+            "cardType": .string("attachment"),
+            "path": .string("/tmp/phone-dsh-layout-report.pdf"),
+            "fileName": .string("layout-report.pdf"),
+            "caption": .string("布局回归证据 · 96 kB"),
+            "mimeType": .string("application/pdf"),
+        ]), seq: 5)
+        let user = BotUIRow.text(id: "layout-user", seq: 1, role: "user",
+                                 text: "把进度、检查清单、文档和附件放在同一段对话里，再更新几次进度卡。")
+        let answer = BotUIRow.text(
+            id: "layout-answer", seq: 6, role: "assistant",
+            text: """
+            已完成密集卡片检查。
+            - 进度卡使用同一个 cardKey 原位更新。
+            - 检查清单、文档和附件保持在原来的位置。
+            - 长文本只在展开控件内变化，不影响外层滚动。
+            """ + "\n\n" + String(repeating: "补充说明：卡片密集时页面仍应能查询和滚动。\n", count: 6))
+        return [user, progress, checklist, document, attachment, answer]
+    }
+
+    /// The same-cardKey updates used by the dense fixture. The ids differ on
+    /// purpose so the model must keep the first row id instead of replacing it.
+    static func layoutStressUpdates() -> [BotUIRow] {
+        let base = layoutStressRows()[1]
+        var middle = base
+        middle.id = "layout-progress-update"
+        middle.updatedSeq = 7
+        middle.body.values["percent"] = .number(60)
+        middle.body.values["summary"] = .string("更新一次：仍在运行，卡片必须原位更新。")
+        var finished = middle
+        finished.id = "layout-progress-final"
+        finished.updatedSeq = 8
+        finished.body.values["state"] = .string("done")
+        finished.body.values["percent"] = .number(100)
+        finished.body.values["summary"] = .string("更新完成：同一个 cardKey 现在是 final 完成卡。")
+        finished.body.values["eta"] = .string("已完成")
+        return [middle, finished]
+    }
+
+    /// The keyboard-open card regression: one turn emits a question card, an
+    /// approval card, an interactive checklist, a progress card and a long
+    /// markdown answer. The capture page focuses the composer for this
+    /// fixture, so a layout loop that only appears while the keyboard changes
+    /// the viewport is reproducible without an XCUITest tap.
+    static func interactiveCardsRows() -> [BotUIRow] {
+        let progress = cardRow("interactive-progress", body: widget("progress", [
+            "title": .string("多卡压力检查：进度、长文本、审批、检查清单和问题卡在同一屏出现时，标题必须限制在两行以内并且展开控件不能反复触发布局"),
+            "state": .string("running"),
+            "percent": .number(35),
+            "summary": .string("键盘打开时，卡片仍然可以点击。"),
+            "cardKey": .string("interactive-progress"),
+            "eta": .string("约 2 分钟"),
+            "steps": .array((0..<6).map { index in
+                .object([
+                    "id": .string("interactive-step-\(index)"),
+                    "label": .string("第 \(index + 1) 步：核对键盘打开时的卡片布局"),
+                    "state": .string(index < 2 ? "done" : index == 2 ? "active" : "pending"),
+                ])
+            }),
+        ]), seq: 3)
+        let longAnswer = BotUIRow.text(
+            id: "interactive-long", seq: 4, role: "assistant",
+            text: """
+            密集卡片已经就位。
+
+            - 第一段：进度卡在同一个 cardKey 上原位更新，不能改变行身份。
+            - 第二段：长文本需要保持可滚动，不能撑开键盘上方的布局。
+            - 第三段：审批卡、检查清单和问题卡都必须保持可点击。
+
+            """ + String(repeating: "补充说明：键盘打开时主线程不能反复测量同一批卡片。\n\n", count: 5))
+        let checklist = cardRow("interactive-checklist", body: widget("checklist", [
+            "title": .string("提交前检查"),
+            "summary": .string("勾选后一起发回给 Bot。"),
+            "interactive": .bool(true),
+            "items": .array((0..<3).map { index in
+                .object([
+                    "id": .string("interactive-check-\(index)"),
+                    "text": .string("检查第 \(index + 1) 项：键盘打开时仍可点击"),
+                    "done": .bool(false),
+                ])
+            }),
+        ]), seq: 2)
+        let question = cardRow("interactive-question", body: widget("question", [
+            "question": .string("要选 A 还是 B？"),
+            "helpText": .string("选好后输入框仍然可用。"),
+            "options": .array([
+                .object(["id": .string("o0"), "label": .string("A"), "recommended": .bool(true)]),
+                .object(["id": .string("o1"), "label": .string("B")]),
+            ]),
+        ]), seq: 5)
+        let user = BotUIRow.text(
+            id: "interactive-user", seq: 1, role: "user",
+            text: "键盘保持打开：先出问题卡和审批卡，下面再放检查清单、进度卡和长文本。")
+        // The dense history stays above the newest question card. That makes
+        // the launch scroll land on the card's action area (A/B options) while
+        // the keyboard is up. The approval card is emitted by the driver only
+        // after the answer, so the "a new card must become tappable above the
+        // keyboard" behavior is exercised instead of pre-seeding it.
+        return [user, checklist, progress, longAnswer, question]
+    }
+
+    /// The approval card the keyboard fixture's driver delivers after the
+    /// question is answered. Its seq is newer than every seeded row.
+    static func interactiveApprovalRow() -> BotUIRow {
+        cardRow("interactive-approval", body: BotUIBody(type: "approval", values: [
+            "title": .string("允许执行这个操作吗？"),
+            "action": .string("写入验收记录"),
+            "command": .string("printf 'layout-ok' > /tmp/phone-dsh-layout-ok.txt"),
+            "detail": .string("这次操作只写入模拟器的工作区。"),
+            "status": .string("pending"),
+            "approvalID": .string("approval-interactive-1"),
+            "digest": .string("digest-interactive-1"),
+            "alwaysScope": .string("session"),
+        ]), seq: 6)
+    }
+
+    /// The same-cardKey progress updates for ``interactiveCardsRows``. The ids
+    /// differ on purpose so the model must keep the first row id.
+    static func interactiveCardsUpdates() -> [BotUIRow] {
+        let base = interactiveCardsRows().first { $0.body.cardType == "progress" }!
+        var middle = base
+        middle.id = "interactive-progress-update"
+        middle.updatedSeq = 7
+        middle.body.values["percent"] = .number(70)
+        middle.body.values["summary"] = .string("更新一次：仍在运行，卡片必须原位更新。")
+        var finished = middle
+        finished.id = "interactive-progress-final"
+        finished.updatedSeq = 8
+        finished.body.values["state"] = .string("done")
+        finished.body.values["percent"] = .number(100)
+        finished.body.values["summary"] = .string("更新完成：键盘仍然打开。")
+        finished.body.values["eta"] = .string("已完成")
+        return [middle, finished]
+    }
+
+    /// The typing regression: a dense card history is already on screen, the
+    /// composer starts with a multi-line draft (so its height has grown), and
+    /// the page appends new assistant rows while the keyboard is up. The
+    /// conformance check waits for the last append and then proves the model
+    /// and the transcript rows stay quiet for two seconds.
+    static func typingLayoutRows() -> [BotUIRow] {
+        var rows = interactiveCardsRows()
+        rows.insert(BotUIRow.text(
+            id: "typing-older-user", seq: 0, role: "user",
+            text: "先留着这段较早的对话，确认追加新行时旧行不会被重建。"), at: 0)
+        return rows
+    }
+
+    /// Appended one at a time (300ms apart), like a live turn committing
+    /// messages under an open keyboard.
+    static func typingLayoutAppends() -> [BotUIRow] {
+        (0..<6).map { index in
+            BotUIRow.text(
+                id: "typing-append-\(index)", seq: 7 + index, role: "assistant",
+                text: """
+                追加消息 \(index + 1)：键盘保持打开，输入框已经有 \(3 + index) 行文本。
+                这一行只用于验证 transcript 稳定后不再重建旧的卡片行。
+                """)
+        }
+    }
+
+    /// Mimics the production watch cadence for the keyboard/typing fixtures
+    /// without a Bot runtime: every 800ms the page receives an (unchanged)
+    /// durable presentation, exactly like `BotProductionPage`'s watch loop.
+    /// This is what kept re-rendering the dense transcript while a turn waited
+    /// for the user's choice.
+    /// Mirrors the production sequence for the keyboard interaction fixture:
+    /// answering the question starts the next step, and an approval card is
+    /// appended while the keyboard stays up. The watch loop must bring that
+    /// new card's buttons above the keyboard without a manual scroll.
+    static func keyboardInteractionDriver() -> BotChatDriver {
+        let state = KeyboardInteractionState()
+        return BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { cursor in state.batch(cursor: cursor) },
+            perform: { action in
+                if case .cardAnswer = action { state.answer() }
+                return .accepted(eventID: "evt-fixture-action")
+            },
+            stopCurrentTurn: { _ in },
+            presentation: {
+                BotRuntimePresentation(
+                    fishState: .working,
+                    runningTurnID: "fixture-turn",
+                    activity: BotActivity(status: .toolRunning,
+                                          detail: "核对键盘打开时的卡片布局"))
+            })
+    }
+
+    /// Serial state shared by the fixture driver's `watch`/`perform` closures.
+    final class KeyboardInteractionState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var answered = false
+        private var delivered = false
+
+        func answer() {
+            lock.lock()
+            answered = true
+            lock.unlock()
+        }
+
+        func batch(cursor: Int) -> BotUIRowBatch {
+            lock.lock()
+            let deliver = answered && !delivered
+            if deliver { delivered = true }
+            lock.unlock()
+            guard deliver else {
+                return BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false)
+            }
+            return BotUIRowBatch(rows: [BotUIFixtures.interactiveApprovalRow()],
+                                 deletes: [], cursor: cursor + 1, reset: false)
+        }
+    }
+
+    static func keyboardPollingDriver() -> BotChatDriver {
+        BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { cursor in
+                BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false)
+            },
+            perform: { _ in .accepted(eventID: "evt-fixture-action") },
+            stopCurrentTurn: { _ in },
+            presentation: {
+                BotRuntimePresentation(
+                    fishState: .working,
+                    runningTurnID: "fixture-turn",
+                    activity: BotActivity(status: .toolRunning,
+                                          detail: "核对键盘打开时的卡片布局"))
+            })
     }
 
     static var composerAttachments: [BotDraftAttachment] {
@@ -438,6 +878,22 @@ enum BotUIFixtures {
                 approvals: full.approvals, grants: full.grants,
                 reconciliations: full.reconciliations)
         }
+        if fixture == .infoPresence {
+            // The capture case exists to show all three presence rows, including
+            // the read-only bridge line after a rejected identity registration.
+            // Use the same human shape the production adapter builds.
+            var snapshot = infoSnapshot(for: .info)
+            var components = DateComponents()
+            components.year = 2026
+            components.month = 11
+            components.day = 11
+            components.hour = 22
+            components.minute = 44
+            let bridgeDate = Calendar.current.date(from: components) ?? Date()
+            snapshot.bridgeStatus = BotUIFormat.bridgeFailure(
+                atMilliseconds: Int64(bridgeDate.timeIntervalSince1970 * 1_000))
+            return snapshot
+        }
         if fixture == .infoLong {
             return BotInfoSnapshot(botName: "大肥鱼 · 一个用于验证长名称的 Bot", memories: [
                 memoryDocument(
@@ -465,7 +921,8 @@ enum BotUIFixtures {
                 deferred: [RoutinePresenceDelay(
                     routineId: "long-routine", title: String(repeating: "很长的例行任务名称", count: 3),
                     scheduledFor: 1_760_003_600_000, deferredUntil: 1_760_006_800_000)],
-                scheduledNotificationCount: 2),
+                scheduledNotificationCount: 2,
+                nextNotificationAt: 1_760_006_800_000),
                proactiveSettings: ProactiveSettings(
                     mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
                     timeZone: "Asia/Shanghai"))
@@ -521,6 +978,7 @@ enum BotUIFixtures {
                            at: 1_760_000_600),
             approvalRecord(id: "record-7", summary: "执行命令 · 构建检查",
                            decision: "deny", status: "cancelled",
+                           reason: "worker_restarted",
                            at: 1_760_000_700),
         ], grants: [
             BotGrantInfo(id: "grant-1", tool: "write", operation: "write.file",
@@ -542,11 +1000,12 @@ enum BotUIFixtures {
                 effectSummary: "已尝试发送提醒，送达结果未确认。",
                 effectDetail: "routine.deliver · routine-2:3 · unknown-outcome"),
         ], presence: RoutinePresence(
-            level: .scheduledNotification,
+            level: .foreground,
             deferred: [RoutinePresenceDelay(
                 routineId: "routine-1", title: "晨间简报",
                 scheduledFor: 1_760_018_400_000, deferredUntil: 1_760_021_600_000)],
-            scheduledNotificationCount: 1),
+            scheduledNotificationCount: 1,
+            nextNotificationAt: 1_760_021_600_000),
            proactiveSettings: ProactiveSettings(
                 mode: .on, dnd: false, quietStart: "23:00", quietEnd: "08:00",
                 timeZone: "Asia/Shanghai"),
@@ -584,12 +1043,14 @@ enum BotUIFixtures {
         decision: String,
         scope: String? = nil,
         status: String? = nil,
+        reason: String? = nil,
         at seconds: TimeInterval
     ) -> BotApprovalRecord {
         BotApprovalRecord(
             id: id,
             parameterSummary: summary,
             decision: BotUIFormat.approvalDecision(decision, scope: scope, status: status),
+            reason: reason,
             decidedAt: Date(timeIntervalSince1970: seconds))
     }
 
@@ -646,20 +1107,64 @@ struct BotUIFixtureRootView: View {
     @State private var showInfo = false
     @State private var infoSection: BotInfoSection?
     @State private var hostActions: [String] = []
+    private let playback: BotUIFixtures.UnauthorizedPlayback?
 
     init(fixture: BotUIFixtureCase, diagnostics: Bool = false) {
         self.fixture = fixture
         self.diagnostics = diagnostics
-        let chat = BotChatModel(
-            rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
-            context: .fixture,
-            driver: fixture == .settledCards || fixture == .approvalAutoDeclined
-                || fixture == .sendCollapse
-                ? BotUIFixtures.settlementDriver() : nil,
-            fixtureHistory: fixture == .failClosed || fixture == .empty
-                ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
-            fixtureActions: true
-        )
+        let chat: BotChatModel
+        if fixture == .runningToolUnauthorized {
+            let durable = BotUIFixtures.unauthorizedRows()
+            let records = BotUIFixtures.unauthorizedRecords(includeEnd: false)
+            let process = BotTurnProcessProjector.make(records: records)[1]
+                ?? BotTurnProcess(turn: 1, items: BotTurnProcessProjector.processItems(records))
+            let playback = BotUIFixtures.UnauthorizedPlayback(
+                durableRows: Array(durable.prefix(1)), process: process, records: records)
+            self.playback = playback
+            chat = BotChatModel(
+                rows: playback.liveRows,
+                context: .fixture,
+                driver: playback.driver(),
+                fixtureActions: true)
+        } else if fixture == .runningToolReplay {
+            // Keep the live turn mounted so the replayed tool rows stay on
+            // screen for the error-row screenshot and the UI test.
+            let rows = BotUIFixtures.unauthorizedRows()
+            let records = BotUIFixtures.unauthorizedRecords(replayed: true)
+            let process = BotTurnProcessProjector.make(records: records)[1]
+                ?? BotTurnProcess(turn: 1, items: BotTurnProcessProjector.processItems(records))
+            self.playback = nil
+            chat = BotChatModel(
+                rows: rows,
+                context: .fixture,
+                driver: BotUIFixtures.unauthorizedDriver(rows: rows, process: process),
+                fixtureActions: true)
+        } else if fixture == .chatLayoutKeyboard {
+            self.playback = nil
+            chat = BotChatModel(
+                rows: BotUIFixtures.interactiveCardsRows(),
+                context: .fixture,
+                driver: BotUIFixtures.keyboardInteractionDriver(),
+                fixtureActions: true)
+        } else if fixture == .chatLayoutTyping {
+            self.playback = nil
+            chat = BotChatModel(
+                rows: BotUIFixtures.typingLayoutRows(),
+                context: .fixture,
+                driver: BotUIFixtures.keyboardPollingDriver(),
+                fixtureActions: true)
+        } else {
+            self.playback = nil
+            chat = BotChatModel(
+                rows: BotUIFixtures.rows(for: fixture, diagnostics: diagnostics),
+                context: .fixture,
+                driver: fixture == .settledCards || fixture == .approvalAutoDeclined
+                    || fixture == .sendCollapse
+                    ? BotUIFixtures.settlementDriver() : nil,
+                fixtureHistory: fixture == .failClosed || fixture == .empty
+                    ? [] : [BotUIRow.text(id: "older-fixture", seq: 0, role: "assistant", text: "更早的历史消息")],
+                fixtureActions: true)
+        }
         switch fixture {
         case .infoPresence:
             break
@@ -708,6 +1213,18 @@ struct BotUIFixtureRootView: View {
             chat.receive(.event(BotUIFixtures.liveEvent("tool/result", turn: 1, seq: 3, data: [
                 "message": .object(["toolCallId": .string("fixture-review")]),
             ])))
+        case .runningProgress:
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        case .chatLayoutKeyboard:
+            // The real incident's turn is still open while the question card
+            // waits for the user, so the live turn and its 800ms durable watch
+            // are part of the layout condition.
+            chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+            chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+                "callId": .string("interactive-call"),
+                "name": .string("bash"),
+                "arguments": .string("{\"command\":\"sleep 1\",\"description\":\"核对键盘布局\"}"),
+            ])))
         case .runningToolPhone:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
             chat.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
@@ -715,6 +1232,12 @@ struct BotUIFixtureRootView: View {
                 "name": .string("mcp__phone__ReadMemory"),
                 "arguments": .string("{\"path\":\"user/diary.md\"}"),
             ])))
+        case .runningToolReplay:
+            // The replay variant re-delivers the first call/result pair, as a
+            // resumed live observer does.
+            for record in BotUIFixtures.unauthorizedRecords(replayed: true) {
+                chat.receive(.event(record))
+            }
         case .runningStreamingWithLine:
             // The body is streaming while the status line stays visible as
             // replying (the old rule hid it as soon as text arrived).
@@ -773,6 +1296,28 @@ struct BotUIFixtureRootView: View {
                         onForget: {},
                         onErase: {})
                 }
+            case .infoEraseDocument:
+                NavigationStack {
+                    BotMemoryDocumentView(
+                        document: BotUIFixtures.memoryDocument(
+                            path: "agent/notes/acceptance.md",
+                            scope: "agent",
+                            content: "# 验收记录\n\n- 发布材料已按最新契约整理。",
+                            version: 4,
+                            evidence: ["record://session/gb-main#12"]),
+                        onForget: {},
+                        onErase: {},
+                        autoConfirmErase: true)
+                }
+            case .infoEraseMemory:
+                BotInfoPage(model: infoModel, initialSection: .memory,
+                            memoryConfirmationPreview: .eraseMemory)
+            case .infoEraseShared:
+                BotInfoPage(model: infoModel, initialSection: .memory,
+                            memoryConfirmationPreview: .eraseShared)
+            case .infoEraseSharedFinal:
+                BotInfoPage(model: infoModel, initialSection: .memory,
+                            memoryConfirmationPreview: .eraseSharedFinal)
             case .infoPresence:
                 NavigationStack {
                     List {
@@ -811,12 +1356,18 @@ struct BotUIFixtureRootView: View {
                                 },
                                 peerAppearance: BotUIFixtures.peerAppearance,
                                 peerIsMainBot: { $0 == "main" },
+                                initialComposerFocus: fixture == .chatLayoutKeyboard
+                                    || fixture == .chatLayoutTyping,
+                                initialComposerText: fixture == .chatLayoutTyping
+                                    ? "布局压力：键盘打开、输入框已经增高。\n第二行用于撑开胶囊。\n第三行继续输入。"
+                                    : fixture == .composerLongDraft
+                                        ? BotUIFixtures.composerLongDraft : "",
+                                transcriptProbe: fixture == .chatLayoutTyping
+                                    ? BotTranscriptStabilityProbe.shared.renderProbe : nil,
                                 initialAttachments: fixture == .composerAttachments
                                     ? BotUIFixtures.composerAttachments : [],
                                 initialAttachmentNotice: fixture == .composerAttachments
-                                    ? "附件「录屏.mov」未附加：文件超过 25 MiB（48.2 MB）。" : nil,
-                                initialDraft: fixture == .composerLongDraft
-                                    ? BotUIFixtures.composerLongDraft : "")
+                                    ? "附件「录屏.mov」未附加：文件超过 25 MiB（48.2 MB）。" : nil)
                     if diagnostics {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("actions=\(chatModel.actionLog.joined(separator: ","));host=\(hostActions.joined(separator: ","))")
@@ -827,6 +1378,10 @@ struct BotUIFixtureRootView: View {
                                 .accessibilityIdentifier("bot.fixture.visible")
                             Text("fish=\(chatModel.fishState.rawValue);activity=\(chatModel.activity?.status.rawValue ?? "none");detail=\(chatModel.activity?.detail ?? "")")
                                 .accessibilityIdentifier("bot.fixture.presentation")
+                            if fixture == .chatLayoutStress || fixture == .chatLayoutKeyboard {
+                                Text("ids=\(chatModel.visibleRows.map(\.id).joined(separator: ","))")
+                                    .accessibilityIdentifier("bot.fixture.ids")
+                            }
                         }
                         .font(.system(size: 10, design: .monospaced))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -839,6 +1394,64 @@ struct BotUIFixtureRootView: View {
                         .id(infoSection)
                 }
             }
+        }
+        .task {
+            if fixture == .chatLayoutKeyboard {
+                // Keep the production 800ms durable watch alive while the
+                // keyboard is up (pageActive defaults true for the fixture).
+                Task { await chatModel.watchLoop() }
+                // The field order: the turn's text arrives before its card and
+                // is mounted after the durable rows. Scrolling to the live tail
+                // would cover the question card; the page must target the card.
+                chatModel.receive(.textDelta(String(repeating: "这段是审批卡之前的回复，滚动到下面会挡住卡片的按钮。\n", count: 10)))
+            }
+            if fixture == .chatLayoutTyping {
+                // The production watch keeps running (equal presentations are
+                // deduped); six new rows arrive while the keyboard is up and
+                // the initial draft already makes the composer taller. The
+                // conformance check reads the probe after `markSettled`.
+                BotTranscriptStabilityProbe.shared.attach(model: chatModel)
+                Task { await chatModel.watchLoop() }
+                for (index, row) in BotUIFixtures.typingLayoutAppends().enumerated() {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    chatModel.apply(BotUIRowBatch(rows: [row], deletes: [],
+                                                  cursor: index + 1, reset: false))
+                }
+                // Let the last published row render and the keyboard/focus
+                // animation finish before the probe declares the fixture
+                // settled; otherwise the conformance snapshot can precede the
+                // final legitimate body evaluation.
+                try? await Task.sleep(for: .milliseconds(600))
+                BotTranscriptStabilityProbe.shared.markSettled()
+                return
+            }
+            if fixture == .chatLayoutStress || fixture == .chatLayoutKeyboard {
+                // Same-cardKey updates in the same transcript: the second and
+                // third batches carry different row ids, so a ForEach keyed by
+                // the incoming id would rebuild the lazy item on every poll.
+                // Keeping the first id is part of the layout-loop fix.
+                let updates = fixture == .chatLayoutKeyboard
+                    ? BotUIFixtures.interactiveCardsUpdates()
+                    : BotUIFixtures.layoutStressUpdates()
+                for (index, update) in updates.enumerated() {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    chatModel.apply(BotUIRowBatch(rows: [update], deletes: [],
+                                                  cursor: index + 1, reset: false))
+                }
+                return
+            }
+            // The production page owns the 800ms watch loop. The lost-end
+            // fixture needs it too: the durable projection is what closes the
+            // live turn when the live `turn/end` frame never arrives.
+            guard fixture == .runningToolUnauthorized, let playback else { return }
+            Task { await chatModel.watchLoop() }
+            for record in playback.records {
+                chatModel.receive(.event(record))
+                try? await Task.sleep(for: .milliseconds(120))
+            }
+            // The durable answer lands while the live turn is still open; the
+            // live `turn/end` frame is the one that was lost in the incident.
+            playback.durableRows = BotUIFixtures.unauthorizedRows()
         }
     }
 
@@ -1119,9 +1732,11 @@ struct BotDrawerFixtureRootView: View {
                 roster.setRuntimeState(
                     BotRosterRuntimeState(
                         fishState: .working,
-                        activity: BotActivity(status: .toolRunning, detail: "跑个命令",
+                        activity: BotActivity(status: .toolRunning, detail: "正在处理",
                                               category: .running,
-                                              startedAt: BotLiveFishProjection.now),
+                                              // Older than a minute so drawer.png
+                                              // also exercises the suffix.
+                                              startedAt: BotLiveFishProjection.now - 65_000),
                         isRunning: true),
                     for: main.id)
             }
@@ -1149,7 +1764,8 @@ enum BotUIFixtureCheckError: Error, CustomStringConvertible {
 
 @MainActor
 enum BotUIFixtureChecks {
-    static func run(cardPayloadURL: URL, rowProtocolURL: URL) async throws -> [String] {
+    static func run(cardPayloadURL: URL, rowProtocolURL: URL,
+                    activeFixture: BotUIFixtureCase? = nil) async throws -> [String] {
         // Let the first fixture render before the timing-sensitive stream
         // check. A cold simulator launch spends its first moments loading the
         // layered avatar, which used to leave too little of the coalescer's
@@ -1161,6 +1777,25 @@ enum BotUIFixtureChecks {
         try checkRowProtocol(at: rowProtocolURL)
         passed.append("shared-row-protocol-decoding")
 
+        // The keyboard + grown composer + append fixture must reach a stable
+        // state and stay there: neither the model's `objectWillChange` nor a
+        // transcript row body may keep firing after the appends stop. This
+        // drives the real `BotChatPage` on screen, not a mirrored view.
+        if activeFixture == .chatLayoutTyping {
+            let probe = BotTranscriptStabilityProbe.shared
+            let settled = await probe.waitUntilSettled(timeout: 12)
+            try require(settled, "typing fixture did not finish appending rows")
+            let before = probe.snapshot()
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            let after = probe.snapshot()
+            try require(before.rowCount > 0, "typing fixture did not render transcript rows")
+            try require(after.publishes == before.publishes,
+                        "chat model published \(after.publishes - before.publishes) time(s) after the typing fixture settled")
+            try require(after.rowBodyEvaluations == before.rowBodyEvaluations,
+                        "transcript rows rebuilt \(after.rowBodyEvaluations - before.rowBodyEvaluations) time(s) after the typing fixture settled")
+            passed.append("typing-fixture-settles-without-rebuilds")
+        }
+
         let progressRows = BotUIFixtures.rows(for: .progress)
         let model = BotChatModel(rows: progressRows, context: .fixture, fixtureActions: true)
         var updated = progressRows[0]
@@ -1169,9 +1804,92 @@ enum BotUIFixtureChecks {
         updated.updatedSeq = 3
         updated.body.values["percent"] = 100
         model.upsert(updated)
-        try require(model.visibleRows.filter { $0.body.cardType == "progress" }.count == 1,
+        let progressCards = model.visibleRows.filter { $0.body.cardType == "progress" }
+        try require(progressCards.count == 1,
                     "progress cardKey appended a second row")
+        try require(progressCards.first?.id == progressRows[0].id,
+                    "progress cardKey changed the row id; the lazy ForEach would rebuild the item")
         passed.append("progress-cardKey-in-place")
+
+        // The keyboard regression fixture must actually carry the four
+        // interactive/dense card kinds; an unparseable card would silently
+        // change what the XCUITest is exercising.
+        // The interaction fixture seeds the dense rows and the driver emits the
+        // approval card after the question is answered; both sides together
+        // must carry every card kind the XCUITest exercises.
+        let keyboardRows = BotUIFixtures.rows(for: .chatLayoutKeyboard)
+            + [BotUIFixtures.interactiveApprovalRow()]
+        let keyboardKinds = Set(keyboardRows.compactMap { BotUICardContent.parse(row: $0)?.kind })
+        try require(keyboardKinds.isSuperset(of: [.progress, .approval, .checklist, .question]),
+                    "keyboard fixture lost a card kind: \(keyboardKinds)")
+        passed.append("keyboard-card-fixture-shape")
+
+        // The production watch re-reads the same durable presentation every
+        // 800ms while a card waits for the user. A second, equal read must not
+        // publish, otherwise the whole dense transcript is re-laid out while
+        // the keyboard is up. Drive the real BotChatModel twice.
+        let dedupeModel = BotChatModel(
+            context: .fixture,
+            driver: BotChatDriver(
+                history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+                watch: { cursor in BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false) },
+                perform: { _ in .accepted(eventID: "evt-dedupe") },
+                stopCurrentTurn: { _ in },
+                presentation: {
+                    BotRuntimePresentation(fishState: .working,
+                                           runningTurnID: "fixture-turn",
+                                           activity: BotActivity(status: .toolRunning,
+                                                                 detail: "核对布局"))
+                }),
+            fixtureActions: true)
+        var publishes = 0
+        let cancellable = dedupeModel.objectWillChange.sink { _ in publishes += 1 }
+        await dedupeModel.refreshPresentation()
+        let afterFirst = publishes
+        await dedupeModel.refreshPresentation()
+        await dedupeModel.refreshPresentation()
+        cancellable.cancel()
+        try require(publishes == afterFirst,
+                    "an equal durable presentation was republished \(publishes - afterFirst) time(s)")
+        passed.append("durable-presentation-dedupe")
+
+        // P26 §2.9 also has an App-side live projection. Once a final:true
+        // card succeeds, later deltas and committed text must not be drawn;
+        // otherwise the sentence that the host suppressed flashes in the live
+        // turn and can survive until the durable rows replace it.
+        let finalLive = BotChatModel(context: .fixture, fixtureActions: true)
+        finalLive.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
+        finalLive.receive(.event(BotUIFixtures.liveEvent("tool/call", turn: 1, seq: 2, data: [
+            "callId": .string("layout-final-card"),
+            "name": .string("mcp__phone__show_progress"),
+            "arguments": .string("{\"title\":\"完成\",\"final\":true}"),
+        ])))
+        finalLive.receive(.event(BotUIFixtures.liveEvent("tool/result", turn: 1, seq: 3, data: [
+            "message": .object([
+                "toolCallId": .string("layout-final-card"),
+                "isError": .bool(false),
+                "content": .array([.object(["type": .string("text"),
+                                            "text": .string("card sent")])]),
+            ]),
+        ])))
+        finalLive.receive(.textDelta("must not render after final card"))
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try require(finalLive.live?.buffer.isEmpty == true,
+                    "final:true card leaked a live text delta into the transcript")
+        finalLive.receive(.event(BotUIFixtures.liveEvent("assistant/message", turn: 1, seq: 4, data: [
+            "message": .object([
+                "role": .string("assistant"),
+                "content": .array([.object(["type": .string("text"),
+                                            "text": .string("must not render after final card")])]),
+            ]),
+        ])))
+        let leaked = finalLive.live?.segments.contains { segment in
+            guard case .text(let text) = segment else { return false }
+            return text.contains("must not render after final card")
+        } ?? false
+        try require(!leaked,
+                    "final:true card leaked committed live text into the transcript")
+        passed.append("final-card-live-text-suppressed")
 
         model.beginTurn(turnID: "cancel-check")
         model.receiveStream(turnID: "cancel-check", text: "early")
@@ -1499,6 +2217,36 @@ enum BotUIFixtureChecks {
             try require(!BotUIRendering.isRenderable(row), "incomplete P0 \(name) rendered")
         }
         passed.append("fail-closed-every-P0")
+
+        // P09 bot-info §在场状态: the presence line is human copy with a time;
+        // the internal code (and the old "身份登记" wording) never reach it.
+        let bridgeCopy = BotUIFormat.bridgeFailure(atMilliseconds: 1_764_000_000_000)
+        try require(bridgeCopy.hasPrefix("最近一次与 App 的连接校验失败 · "),
+                    "presence bridge copy is not the contract shape: \(bridgeCopy)")
+        for internalWord in ["unauthorized", "identity-bridge", "身份登记", "unknown_session"] {
+            try require(!bridgeCopy.localizedCaseInsensitiveContains(internalWord),
+                        "presence bridge copy leaks \(internalWord): \(bridgeCopy)")
+        }
+        passed.append("presence-bridge-human-copy")
+
+        // A durable `approval.requested` row with its id/digest is a card that
+        // must be visible while it waits: the field failure showed the event in
+        // the DB with no card on screen. Lock the pending predicate; the scroll
+        // chain that brings it above the keyboard is covered by the capture
+        // interaction test.
+        let pendingApproval = BotUIRow.fixture(
+            id: "e-main-approval-check",
+            body: BotUIBody(type: "approval", values: [
+                "approvalID": .string("approval-check"),
+                "digest": .string("digest-check"),
+                "status": .string("pending"),
+                "action": .string("写入验收记录"),
+            ]))
+        try require(BotUIRendering.isRenderable(pendingApproval),
+                    "a pending approval with id/digest/action is not renderable")
+        try require(BotUIRendering.surface(pendingApproval) == "approval-card",
+                    "pending approval surface is not approval-card")
+        passed.append("pending-approval-visible")
         return passed
     }
 

@@ -22,6 +22,9 @@ options:
 packages:
   PhoneDSH:
     path: ../..
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    exactVersion: 9.2.0
   SwiftMarkdown:
     url: https://github.com/swiftlang/swift-markdown
     from: 0.9.0
@@ -108,6 +111,8 @@ targets:
         product: PhoneDSHVenus
       - package: PhoneDSH
         product: PhoneDSHPCLink
+      - package: GoogleSignIn
+        product: GoogleSignIn
       - package: SwiftMarkdown
         product: Markdown
       - package: SwiftMath
@@ -118,6 +123,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.probe
         PRODUCT_NAME: PhoneDSHProbe
         INFOPLIST_FILE: Config/PhoneDSHProbe-Info.plist
+        PDSH_GMAIL_IOS_CLIENT_ID: ""
+        PDSH_GMAIL_REDIRECT_SCHEME: dev.phone-dsh.gmail.unconfigured
         # The app's own Keychain items (model provider API keys) need the
         # default access group; a build without this entitlement gets
         # errSecMissingEntitlement for every keychain query.
@@ -212,6 +219,10 @@ targets:
     platform: iOS
     sources:
       - path: PhoneDSHSimTests
+      # The frozen GitHub OAuth fixture is shared with the broker and the spec;
+      # copy the one contract-owned file instead of keeping a test-only clone.
+      - path: ../../spec/v1/golden/github-oauth/github-oauth-cases.json
+        buildPhase: resources
       # The production native MCP settings model is host-agnostic (the app
       # injects ChatModel) so the simulator suite can exercise the
       # unknown-registry settlement branches against a real settings document.
@@ -224,6 +235,7 @@ targets:
       # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeToolRowIdentity.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
       - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
@@ -261,6 +273,9 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # Live turn projection: dedupe live replay, finished process rows and
+      # the exact unauthorized event sequence in the regression suite.
+      - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
       # The scripted model upstream, the smoke evidence readers (WAL
@@ -356,6 +371,7 @@ targets:
       # the test targets import ProbeKit instead.
       - path: PhoneDSHProbe/NativeStreamAccumulator.swift
       - path: PhoneDSHProbe/NativeToolOutputFold.swift
+      - path: PhoneDSHProbe/NativeToolRowIdentity.swift
       - path: PhoneDSHProbe/NativeLogRedaction.swift
       - path: PhoneDSHProbe/WorkspaceFileIndex.swift
       - path: PhoneDSHProbe/WorkspaceFileRefresh.swift
@@ -391,6 +407,9 @@ targets:
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
       # against an injected fake listener without constructing ChatModel.
       - path: PhoneDSHProbe/Bot/BotMCPListenerSupervisor.swift
+      # Live turn projection: dedupe live replay, finished process rows and
+      # the exact unauthorized event sequence in the regression suite.
+      - path: PhoneDSHProbe/Bot/BotLiveTurn.swift
       # Shared Bot display formatting; Foundation-only so both suites can test it.
       - path: PhoneDSHProbe/Bot/BotUIFormat.swift
     dependencies:

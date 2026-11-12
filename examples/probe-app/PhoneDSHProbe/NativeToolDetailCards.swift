@@ -7,13 +7,18 @@ import PhoneDSHAgentCore
 struct NativeToolCallRow: View {
     let item: ChatItem
     var onOpenFile: (String) -> Void
+    /// Optional human title from the caller (the Bot page's action mapping).
+    /// The main DSH chat leaves it nil and keeps the official title table.
+    let title: String?
     @State private var expanded = false
     /// Built once per row construction, not on every `model` access.
     private let model: NativeToolCallModel
 
-    init(item: ChatItem, onOpenFile: @escaping (String) -> Void) {
+    init(item: ChatItem, onOpenFile: @escaping (String) -> Void,
+         title: String? = nil) {
         self.item = item
         self.onOpenFile = onOpenFile
+        self.title = title
         self.model = NativeToolCallModel(item: item)
     }
 
@@ -22,7 +27,8 @@ struct NativeToolCallRow: View {
             if let subagent = model.subagentRowData {
                 NativeSubagentToolRow(data: subagent)
             } else {
-                NativeDisclosureRow(icon: model.icon, title: model.title, summary: model.summary,
+                NativeDisclosureRow(icon: model.icon, title: title ?? model.title,
+                                    summary: model.summary,
                                     hint: model.heavyOperationHint,
                                     running: model.state == .running || model.state == .preparing,
                                     expandable: model.hasDetails, showsSummaryWhenExpanded: true,

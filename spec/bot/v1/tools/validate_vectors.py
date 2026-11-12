@@ -3961,6 +3961,24 @@ def main() -> int:
     check_v2_tree()
     check_many(load("row-projection.json")["valid"], "row-projection.schema.json", "row-projection")
     row_fixture = load_merged("row-protocol.json")
+    receipts = row_fixture.get("approvalReceipts")
+    if not isinstance(receipts, list) or not receipts:
+        raise AssertionError("row-protocol.phone: approvalReceipts must be a non-empty array")
+    receipt_statuses = set()
+    for index, case in enumerate(receipts):
+        if not isinstance(case, dict):
+            raise AssertionError(f"row-protocol.phone.approvalReceipts[{index}] must be an object")
+        if set(case) != {"name", "status", "scope", "label"}:
+            raise AssertionError(
+                f"row-protocol.phone.approvalReceipts[{index}] must contain exactly name/status/scope/label")
+        for key in ("name", "status", "scope", "label"):
+            if not isinstance(case[key], str) or not case[key]:
+                raise AssertionError(
+                    f"row-protocol.phone.approvalReceipts[{index}].{key} must be a non-empty string")
+        if case["status"] in receipt_statuses:
+            raise AssertionError(
+                f"row-protocol.phone.approvalReceipts: duplicate status {case['status']}")
+        receipt_statuses.add(case["status"])
     protocol = row_fixture["valid"]
     check(protocol["row"], "row.schema.json", "row")
     check(protocol["widgetRow"], "row.schema.json", "widgetRow")
@@ -4132,7 +4150,7 @@ def validate_verification_fixture(fixture):
                 or command.startswith("phone record read ")
                 or command.split(" ", 1)[0] in {
                     "cat", "ls", "grep", "rg", "head", "tail", "wc", "pwd",
-                    "stat", "file", "diff", "git",
+                    "stat", "file", "diff", "git", "od",
                 }):
             raise AssertionError(f"verification: unexpected read-only command {command!r}")
     for command in bash["denied"]:

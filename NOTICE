@@ -18,6 +18,9 @@ including (non-exhaustive):
   - Cordis (cordis, cosmokit)                MIT, Shigma
   - just-bash                                Apache-2.0
   - QuickJS                                  MIT, Fabrice Bellard
+  - Google Sign-In for iOS and its SDK dependencies (AppAuth, App Check,
+    GTMAppAuth, GTMSessionFetcher, GoogleUtilities, Interop, Promises)
+                                              Apache-2.0
   - CPython (python.wasm)                    PSF-2.0
   - wasi-sdk runtime components              Apache-2.0 WITH LLVM-exception / MIT
   - zlib, bzip2, xz                          zlib / bzip2-1.0.6 / 0BSD

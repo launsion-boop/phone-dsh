@@ -107,7 +107,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(outcome, .denied(
             code: "bot_egress_unattributed",
-            message: "no live Bot session can own the network write"))
+            message: "没有活动的 Bot 会话可以承接这次网络写入"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }
@@ -136,7 +136,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(outcome, .denied(
             code: "task_network_write_denied",
-            message: "the Task session has no task.network-write authorization"))
+            message: "Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出"))
 
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0,
@@ -158,7 +158,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(outcome, .denied(
             code: "task_network_write_denied",
-            message: "the Task session has no task.network-write authorization"))
+            message: "Task 子任务没有网络写权限（未授权 task.network-write），这次请求没有发出"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }
@@ -186,7 +186,7 @@ final class BotEgressApprovalTests: XCTestCase {
             return
         }
         XCTAssertEqual(code, "egress_approval_denied")
-        XCTAssertTrue(message.contains("resume"))
+        XCTAssertTrue(message.contains("用户决定后会继续"))
         let requested = try await waitForApproval(fixture.store)
         let event = try XCTUnwrap(requested)
         let effects = event.data["effects"]?.arrayValue ?? []
@@ -246,7 +246,7 @@ final class BotEgressApprovalTests: XCTestCase {
         XCTAssertEqual(effects.first?["operation"]?.stringValue, "egress.post")
         XCTAssertEqual(effects.first?["resource"]?.stringValue, "host=127.0.0.1")
         XCTAssertEqual(requested.data["command"]?.stringValue,
-                       "background network write with no live shell registration")
+                       "后台网络写入找不到仍然活动的命令登记")
         try await resolve(fixture.runtime, event: requested, decision: .deny)
         let outcome = await approval.value
         XCTAssertEqual(outcome, .denied(
@@ -264,7 +264,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(outcome, .denied(
             code: "bot_egress_ambiguous",
-            message: "more than one Bot session is active; the network write is not attributable"))
+            message: "同时有多个 Bot 会话在运行，无法判断这次网络写入属于谁"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }
@@ -327,6 +327,87 @@ final class BotEgressApprovalTests: XCTestCase {
             code: "egress_approval_denied", message: "approval denied"))
     }
 
+    func testChatEgressCompletesTheSameRequestWhenTheUserAnswersInsideTheWindow() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        await fixture.runtime.setEgressInteractiveWaitMilliseconds(2_000)
+        let issued = try await fixture.runtime.issueSessionToken(
+            botId: "main", sessionId: "gb-main", kind: .chat)
+        try await registerBash(
+            fixture.runtime, command: "curl -X POST http://127.0.0.1:8787/x",
+            callId: "same-request", token: issued.token)
+        await beginUserTurn(fixture.runtime)
+
+        let approval = Task { await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787) }
+        let eventRequest = try await waitForApproval(fixture.store)
+        let event = try XCTUnwrap(eventRequest)
+        try await resolve(fixture.runtime, event: event, decision: .allowOnce)
+        let outcome = await approval.value
+
+        // A present user completes the original request; the gateway then
+        // sends it with this `.allowed` answer.
+        XCTAssertEqual(outcome, .allowed)
+        let grants = await fixture.runtime.grants.list(botId: "main")
+        XCTAssertFalse(grants.contains { $0.scope == .once },
+                       "the live request consumes its once Grant before writing")
+        let requests = try await botEvents(fixture.store)
+            .filter { $0.type == "approval.requested" }
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testChatEgressReturnsPendingBeforeTheClientAbortAndRetryReusesTheCard() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        // Simulate the user taking longer than the caller's fetch budget: the
+        // host must answer with the human pending sentence, keep the card, and
+        // let the approved retry consume the once Grant.
+        await fixture.runtime.setEgressInteractiveWaitMilliseconds(0)
+        let issued = try await fixture.runtime.issueSessionToken(
+            botId: "main", sessionId: "gb-main", kind: .chat)
+        try await registerBash(
+            fixture.runtime, command: "curl -X POST http://127.0.0.1:8787/x",
+            callId: "slow-approval", token: issued.token)
+        await beginUserTurn(fixture.runtime)
+
+        let clock = Date()
+        let first = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        let elapsed = Date().timeIntervalSince(clock)
+        guard case .denied(let code, let message) = first else {
+            XCTFail("expected the pending denial: \(first)")
+            return
+        }
+        XCTAssertEqual(code, "egress_approval_denied")
+        XCTAssertTrue(message.contains("已提交审批，批准后请重试"),
+                      "the caller must get a human pending sentence: \(message)")
+        XCTAssertLessThan(elapsed, 0.5, "the pending answer must not wait for the user")
+        let pendingIDs = await fixture.runtime.approvals.pendingIDs
+        XCTAssertEqual(pendingIDs.count, 1)
+        let eventRequest = try await waitForApproval(fixture.store)
+        let event = try XCTUnwrap(eventRequest)
+
+        // A retry while the card is pending reuses it instead of stacking a
+        // second card.
+        let duplicate = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        guard case .denied(_, let duplicateMessage) = duplicate else {
+            XCTFail("expected the same pending answer: \(duplicate)")
+            return
+        }
+        XCTAssertTrue(duplicateMessage.contains("批准后请重试"))
+        let requests = try await botEvents(fixture.store)
+            .filter { $0.type == "approval.requested" }
+        XCTAssertEqual(requests.count, 1, "one pending card per session+method+host")
+
+        try await resolve(fixture.runtime, event: event, decision: .allowOnce)
+        let retry = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        XCTAssertEqual(retry, .allowed, "the approved retry consumes the once Grant")
+        let grants = await fixture.runtime.grants.list(botId: "main")
+        XCTAssertFalse(grants.contains { $0.scope == .once })
+    }
+
     func testRoutineAndEgressCardsCancelIndependently() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
@@ -371,14 +452,22 @@ final class BotEgressApprovalTests: XCTestCase {
             "the egress card keeps its own host+method wording")
 
         let egressID = try XCTUnwrap(egressEvent.data["approvalID"]?.stringValue)
+        // The egress card is a durable todo now: an interactive cancel (worker
+        // restart / consumer disconnect) must not throw away the user's chance
+        // to authorize the retried write.
         let cancelled = await fixture.runtime.approvals.cancel(approvalId: egressID)
-        XCTAssertTrue(cancelled)
+        XCTAssertFalse(cancelled, "a durable egress card survives interactive cancellation")
+        let pending = await fixture.runtime.approvals.pendingIDs
+        XCTAssertTrue(pending.contains(egressID))
+        let egressDigest = try XCTUnwrap(egressEvent.data["digest"]?.stringValue)
+        let egressResolved = await fixture.runtime.approvals.resolve(
+            approvalId: egressID, decision: .allowOnce, digest: egressDigest)
+        XCTAssertEqual(egressResolved, .resolved)
         let egressOutcome = await egressApproval.value
-        XCTAssertEqual(egressOutcome, .denied(
-            code: "egress_approval_denied", message: "approval cancelled"))
+        XCTAssertEqual(egressOutcome, .allowed)
 
         // The routine card is still pending and can be answered after the
-        // egress consumer cancellation.
+        // egress decision.
         let routineDigest = try XCTUnwrap(
             routineEvent.data["digest"]?.stringValue)
         let resolved = await fixture.runtime.approvals.resolve(
@@ -388,7 +477,7 @@ final class BotEgressApprovalTests: XCTestCase {
         XCTAssertNotEqual(routineResult.isError, true, String(describing: routineResult))
         let created = try await fixture.runtime.routineMachine.list(botId: "main")
             .contains { $0.title == "Shared coordinator" }
-        XCTAssertTrue(created, "cancelling the egress card must not cancel the routine card")
+        XCTAssertTrue(created, "resolving the egress card must not consume the routine card")
 
         let decisions = try await botEvents(fixture.store)
             .filter { $0.type == "approval.decided" }
@@ -398,7 +487,7 @@ final class BotEgressApprovalTests: XCTestCase {
         let routineDecision = decisions.first {
             $0.data["approvalID"]?.stringValue == firstID
         }
-        XCTAssertEqual(egressDecision?.data["status"]?.stringValue, "cancelled")
+        XCTAssertEqual(egressDecision?.data["status"]?.stringValue, "allowed")
         XCTAssertEqual(routineDecision?.data["status"]?.stringValue, "allowed")
     }
 
@@ -549,32 +638,50 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(ambiguous, .denied(
             code: "bot_egress_ambiguous",
-            message: "more than one Bot session is active; the network write is not attributable"))
+            message: "同时有多个 Bot 会话在运行，无法判断这次网络写入属于谁"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }
 
-    func testConsumerCancellationCancelsThePendingCard() async throws {
+    func testConsumerCancellationKeepsTheDurableEgressCard() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
+        await fixture.runtime.setEgressInteractiveWaitMilliseconds(0)
         let issued = try await fixture.runtime.issueSessionToken(
             botId: "main", sessionId: "gb-main", kind: .chat)
         try await registerBash(fixture.runtime, command: "curl -X POST http://127.0.0.1:8787/a",
                                callId: "cancel-me", token: issued.token)
         await beginUserTurn(fixture.runtime)
-        let approval = Task { await fixture.runtime.approveEgress(
-            method: "POST", host: host, scheme: "http", port: 8787) }
-        let pending = try await waitForApproval(fixture.store)
-        _ = try XCTUnwrap(pending)
-        approval.cancel()
-        let outcome = await approval.value
-        if case .denied(let code, _) = outcome {
-            XCTAssertEqual(code, "egress_approval_denied")
-        } else {
-            XCTFail("cancelled egress approval must fail closed: \(outcome)")
+
+        // The /v1/http consumer can abort (curl --max-time) while the user is
+        // deciding. The card is durable and the allowOnce Grant must survive
+        // for the retried request instead of being consumed by the dead one.
+        let outcome = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        guard case .denied(let code, let message) = outcome else {
+            XCTFail("expected the durable pending denial: \(outcome)")
+            return
         }
+        XCTAssertEqual(code, "egress_approval_denied")
+        XCTAssertTrue(message.contains("批准后请重试"))
+        let pendingRequest = try await waitForApproval(fixture.store)
+        let pending = try XCTUnwrap(pendingRequest)
+        let approvalID = try XCTUnwrap(pending.data["approvalID"]?.stringValue)
+        let cancelled = await fixture.runtime.approvals.cancel(approvalId: approvalID)
+        XCTAssertFalse(cancelled, "consumer cancellation must not cancel a durable egress card")
+
+        let digest = try XCTUnwrap(pending.data["digest"]?.stringValue)
+        let resolved = await fixture.runtime.approvals.resolve(
+            approvalId: approvalID, decision: .allowOnce, digest: digest)
+        XCTAssertEqual(resolved, .resolved)
+        let retry = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        XCTAssertEqual(retry, .allowed, "the retry consumes the preserved once Grant")
+        let grants = await fixture.runtime.grants.list(botId: "main")
+        XCTAssertFalse(grants.contains { $0.scope == .once },
+                       "the retried write consumed the once Grant")
         let decided = try await botEvents(fixture.store).filter { $0.type == "approval.decided" }
-        XCTAssertEqual(decided.last?.data["status"]?.stringValue, "cancelled")
+        XCTAssertEqual(decided.last?.data["status"]?.stringValue, "allowed")
     }
 
     func testFileWriteEffectIsDirectoryGranularAndWorkspaceScoped() {

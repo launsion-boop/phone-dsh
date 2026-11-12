@@ -766,6 +766,9 @@ public fun PdshNavHost(
                 onSave = { onHostAction(PdshHostAction.AndroidAdbSave(it)) },
                 onCheck = { onHostAction(PdshHostAction.AndroidAdbCheck(it)) },
                 onCancel = { onHostAction(PdshHostAction.AndroidAdbCancel) },
+                onScan = { onHostAction(PdshHostAction.AndroidAdbScan) },
+                onConnect = { onHostAction(PdshHostAction.AndroidAdbConnect(it)) },
+                onCancelConnection = { onHostAction(PdshHostAction.AndroidAdbCancelConnect) },
             )
             PdshRoute.TonoAccount -> com.phonedsh.ui.page.TonoAccountPage(
                 facts = facts.tonoAccount,

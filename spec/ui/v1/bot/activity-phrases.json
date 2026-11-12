@@ -7,23 +7,23 @@
    "category": "thinking",
    "primary": {
     "value": "思考中",
-    "source": "BotActivityPhrases.swift:311",
+    "source": "BotActivityPhrases.swift:328",
     "expect": "思考中"
    },
    "rotation": [
     {
      "value": "思考中…",
-     "source": "BotActivityPhrases.swift:298",
+     "source": "BotActivityPhrases.swift:328",
      "expect": "思考中…"
     },
     {
      "value": "整理思绪…",
-     "source": "BotActivityPhrases.swift:298",
+     "source": "BotActivityPhrases.swift:328",
      "expect": "整理思绪…"
     },
     {
      "value": "准备下一步…",
-     "source": "BotActivityPhrases.swift:298",
+     "source": "BotActivityPhrases.swift:328",
      "expect": "准备下一步…"
     }
    ]
@@ -32,13 +32,13 @@
    "category": "reading",
    "primary": {
     "value": "在翻文件",
-    "source": "BotActivityPhrases.swift:312",
+    "source": "BotActivityPhrases.swift:342",
     "expect": "在翻文件"
    },
    "rotation": [
     {
      "value": "在翻文件",
-     "source": "BotActivityPhrases.swift:312",
+     "source": "BotActivityPhrases.swift:342",
      "expect": "在翻文件"
     }
    ]
@@ -47,13 +47,13 @@
    "category": "searching",
    "primary": {
     "value": "在搜内容",
-    "source": "BotActivityPhrases.swift:313",
+    "source": "BotActivityPhrases.swift:343",
     "expect": "在搜内容"
    },
    "rotation": [
     {
      "value": "在搜内容",
-     "source": "BotActivityPhrases.swift:313",
+     "source": "BotActivityPhrases.swift:343",
      "expect": "在搜内容"
     }
    ]
@@ -62,13 +62,13 @@
    "category": "browsing",
    "primary": {
     "value": "在开网页",
-    "source": "BotActivityPhrases.swift:314",
+    "source": "BotActivityPhrases.swift:344",
     "expect": "在开网页"
    },
    "rotation": [
     {
      "value": "在开网页",
-     "source": "BotActivityPhrases.swift:314",
+     "source": "BotActivityPhrases.swift:344",
      "expect": "在开网页"
     }
    ]
@@ -77,13 +77,13 @@
    "category": "running",
    "primary": {
     "value": "处理中",
-    "source": "BotActivityPhrases.swift:315",
+    "source": "BotActivityPhrases.swift:332",
     "expect": "处理中"
    },
    "rotation": [
     {
      "value": "处理中",
-     "source": "BotActivityPhrases.swift:315",
+     "source": "BotActivityPhrases.swift:332",
      "expect": "处理中"
     }
    ]
@@ -92,13 +92,13 @@
    "category": "writing",
    "primary": {
     "value": "在写文件",
-    "source": "BotActivityPhrases.swift:316",
+    "source": "BotActivityPhrases.swift:346",
     "expect": "在写文件"
    },
    "rotation": [
     {
      "value": "在写文件",
-     "source": "BotActivityPhrases.swift:316",
+     "source": "BotActivityPhrases.swift:346",
      "expect": "在写文件"
     }
    ]
@@ -107,13 +107,13 @@
    "category": "memory",
    "primary": {
     "value": "在翻记忆",
-    "source": "BotActivityPhrases.swift:317",
+    "source": "BotActivityPhrases.swift:347",
     "expect": "在翻记忆"
    },
    "rotation": [
     {
      "value": "在翻记忆",
-     "source": "BotActivityPhrases.swift:317",
+     "source": "BotActivityPhrases.swift:347",
      "expect": "在翻记忆"
     }
    ]
@@ -122,13 +122,13 @@
    "category": "messaging",
    "primary": {
     "value": "整理回复",
-    "source": "BotActivityPhrases.swift:318",
+    "source": "BotActivityPhrases.swift:348",
     "expect": "整理回复"
    },
    "rotation": [
     {
      "value": "整理回复",
-     "source": "BotActivityPhrases.swift:318",
+     "source": "BotActivityPhrases.swift:348",
      "expect": "整理回复"
     }
    ]
@@ -137,23 +137,23 @@
    "category": "reviewing",
    "primary": {
     "value": "看看结果",
-    "source": "BotActivityPhrases.swift:319",
+    "source": "BotActivityPhrases.swift:329",
     "expect": "看看结果"
    },
    "rotation": [
     {
      "value": "看看结果…",
-     "source": "BotActivityPhrases.swift:299",
+     "source": "BotActivityPhrases.swift:329",
      "expect": "看看结果…"
     },
     {
      "value": "检查一下…",
-     "source": "BotActivityPhrases.swift:299",
+     "source": "BotActivityPhrases.swift:329",
      "expect": "检查一下…"
     },
     {
      "value": "整理结论…",
-     "source": "BotActivityPhrases.swift:299",
+     "source": "BotActivityPhrases.swift:329",
      "expect": "整理结论…"
     }
    ]
@@ -162,13 +162,13 @@
    "category": "waiting",
    "primary": {
     "value": "等你确认",
-    "source": "BotActivityPhrases.swift:320",
+    "source": "BotActivityPhrases.swift:331",
     "expect": "等你确认"
    },
    "rotation": [
     {
      "value": "等你确认",
-     "source": "BotActivityPhrases.swift:301",
+     "source": "BotActivityPhrases.swift:331",
      "expect": "等你确认"
     }
    ]
@@ -177,23 +177,23 @@
    "category": "replying",
    "primary": {
     "value": "正在回复",
-    "source": "BotActivityPhrases.swift:321",
+    "source": "BotActivityPhrases.swift:330",
     "expect": "正在回复"
    },
    "rotation": [
     {
      "value": "正在回复…",
-     "source": "BotActivityPhrases.swift:300",
+     "source": "BotActivityPhrases.swift:330",
      "expect": "正在回复…"
     },
     {
      "value": "组织语言…",
-     "source": "BotActivityPhrases.swift:300",
+     "source": "BotActivityPhrases.swift:330",
      "expect": "组织语言…"
     },
     {
      "value": "写回复中…",
-     "source": "BotActivityPhrases.swift:300",
+     "source": "BotActivityPhrases.swift:330",
      "expect": "写回复中…"
     }
    ]
@@ -202,23 +202,23 @@
    "category": "generic",
    "primary": {
     "value": "处理中",
-    "source": "BotActivityPhrases.swift:322",
+    "source": "BotActivityPhrases.swift:332",
     "expect": "处理中"
    },
    "rotation": [
     {
      "value": "处理中…",
-     "source": "BotActivityPhrases.swift:302",
+     "source": "BotActivityPhrases.swift:332",
      "expect": "处理中…"
     },
     {
      "value": "正在处理…",
-     "source": "BotActivityPhrases.swift:302",
+     "source": "BotActivityPhrases.swift:332",
      "expect": "正在处理…"
     },
     {
      "value": "马上就好…",
-     "source": "BotActivityPhrases.swift:302",
+     "source": "BotActivityPhrases.swift:332",
      "expect": "马上就好…"
     }
    ]
@@ -232,7 +232,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:62",
+   "source": "BotActivityPhrases.swift:68",
    "expect": "\"bash\": Rule("
   },
   {
@@ -246,7 +246,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:63",
+   "source": "BotActivityPhrases.swift:69",
    "expect": "\"read\": Rule("
   },
   {
@@ -260,7 +260,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:65",
+   "source": "BotActivityPhrases.swift:71",
    "expect": "\"write\": Rule("
   },
   {
@@ -274,7 +274,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:67",
+   "source": "BotActivityPhrases.swift:73",
    "expect": "\"edit\": Rule("
   },
   {
@@ -287,7 +287,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:69",
+   "source": "BotActivityPhrases.swift:75",
    "expect": "\"glob\": Rule("
   },
   {
@@ -301,7 +301,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:71",
+   "source": "BotActivityPhrases.swift:77",
    "expect": "\"grep\": Rule("
   },
   {
@@ -314,7 +314,7 @@
    ],
    "targetIsURL": false,
    "targetArray": true,
-   "source": "BotActivityPhrases.swift:73",
+   "source": "BotActivityPhrases.swift:79",
    "expect": "\"web_search\": Rule("
   },
   {
@@ -326,7 +326,7 @@
    ],
    "targetIsURL": true,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:75",
+   "source": "BotActivityPhrases.swift:81",
    "expect": "\"web_fetch\": Rule("
   },
   {
@@ -336,7 +336,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:77",
+   "source": "BotActivityPhrases.swift:83",
    "expect": "\"job_list\": Rule("
   },
   {
@@ -348,7 +348,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:78",
+   "source": "BotActivityPhrases.swift:84",
    "expect": "\"job_output\": Rule("
   },
   {
@@ -360,7 +360,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:80",
+   "source": "BotActivityPhrases.swift:85",
    "expect": "\"job_kill\": Rule("
   },
   {
@@ -370,7 +370,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:82",
+   "source": "BotActivityPhrases.swift:86",
    "expect": "\"todo_write\": Rule("
   },
   {
@@ -382,7 +382,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:83",
+   "source": "BotActivityPhrases.swift:87",
    "expect": "\"create_goal\": Rule("
   },
   {
@@ -392,7 +392,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:85",
+   "source": "BotActivityPhrases.swift:89",
    "expect": "\"get_goal\": Rule("
   },
   {
@@ -404,7 +404,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:86",
+   "source": "BotActivityPhrases.swift:90",
    "expect": "\"update_goal\": Rule("
   },
   {
@@ -414,7 +414,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:90",
+   "source": "BotActivityPhrases.swift:94",
    "expect": "\"sendtouser\": Rule("
   },
   {
@@ -424,7 +424,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:91",
+   "source": "BotActivityPhrases.swift:95",
    "expect": "\"send_to_user\": Rule("
   },
   {
@@ -436,7 +436,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:92",
+   "source": "BotActivityPhrases.swift:96",
    "expect": "\"ask_user\": Rule("
   },
   {
@@ -446,7 +446,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:94",
+   "source": "BotActivityPhrases.swift:98",
    "expect": "\"show_next_steps\": Rule("
   },
   {
@@ -458,7 +458,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:95",
+   "source": "BotActivityPhrases.swift:99",
    "expect": "\"show_attachment\": Rule("
   },
   {
@@ -471,7 +471,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:97",
+   "source": "BotActivityPhrases.swift:101",
    "expect": "\"show_document\": Rule("
   },
   {
@@ -483,7 +483,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:99",
+   "source": "BotActivityPhrases.swift:103",
    "expect": "\"show_progress\": Rule("
   },
   {
@@ -495,7 +495,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:101",
+   "source": "BotActivityPhrases.swift:105",
    "expect": "\"show_checklist\": Rule("
   },
   {
@@ -508,7 +508,7 @@
    ],
    "targetIsURL": true,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:103",
+   "source": "BotActivityPhrases.swift:107",
    "expect": "\"show_link\": Rule("
   },
   {
@@ -520,7 +520,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:105",
+   "source": "BotActivityPhrases.swift:109",
    "expect": "\"updatememory\": Rule("
   },
   {
@@ -532,7 +532,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:107",
+   "source": "BotActivityPhrases.swift:111",
    "expect": "\"readmemory\": Rule("
   },
   {
@@ -544,7 +544,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:109",
+   "source": "BotActivityPhrases.swift:113",
    "expect": "\"recallmemory\": Rule("
   },
   {
@@ -557,7 +557,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:111",
+   "source": "BotActivityPhrases.swift:115",
    "expect": "\"task\": Rule("
   },
   {
@@ -569,7 +569,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:113",
+   "source": "BotActivityPhrases.swift:117",
    "expect": "\"awaittask\": Rule("
   },
   {
@@ -581,7 +581,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:115",
+   "source": "BotActivityPhrases.swift:118",
    "expect": "\"stopsubagent\": Rule("
   },
   {
@@ -594,7 +594,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:117",
+   "source": "BotActivityPhrases.swift:119",
    "expect": "\"updateroutine\": Rule("
   },
   {
@@ -604,7 +604,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:119",
+   "source": "BotActivityPhrases.swift:121",
    "expect": "\"listroutines\": Rule("
   },
   {
@@ -617,7 +617,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:120",
+   "source": "BotActivityPhrases.swift:122",
    "expect": "\"requestapproval\": Rule("
   },
   {
@@ -631,7 +631,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:122",
+   "source": "BotActivityPhrases.swift:124",
    "expect": "\"sendtoagent\": Rule("
   },
   {
@@ -643,7 +643,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:124",
+   "source": "BotActivityPhrases.swift:126",
    "expect": "\"createteammate\": Rule("
   },
   {
@@ -653,7 +653,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:126",
+   "source": "BotActivityPhrases.swift:128",
    "expect": "\"botvolatilecontext\": Rule("
   },
   {
@@ -663,7 +663,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:129",
+   "source": "BotActivityPhrases.swift:131",
    "expect": "\"bluetooth.scan\": Rule("
   },
   {
@@ -673,7 +673,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:130",
+   "source": "BotActivityPhrases.swift:132",
    "expect": "\"network.browse\": Rule("
   },
   {
@@ -683,7 +683,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:133",
+   "source": "BotActivityPhrases.swift:135",
    "expect": "\"android_connect\": Rule("
   },
   {
@@ -693,7 +693,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:134",
+   "source": "BotActivityPhrases.swift:136",
    "expect": "\"android_status\": Rule("
   },
   {
@@ -703,7 +703,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:135",
+   "source": "BotActivityPhrases.swift:137",
    "expect": "\"android_device_info\": Rule("
   },
   {
@@ -713,7 +713,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:136",
+   "source": "BotActivityPhrases.swift:138",
    "expect": "\"android_shell\": Rule("
   },
   {
@@ -723,7 +723,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:137",
+   "source": "BotActivityPhrases.swift:139",
    "expect": "\"android_screenshot\": Rule("
   },
   {
@@ -733,7 +733,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:138",
+   "source": "BotActivityPhrases.swift:140",
    "expect": "\"android_ui_dump\": Rule("
   },
   {
@@ -743,7 +743,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:139",
+   "source": "BotActivityPhrases.swift:141",
    "expect": "\"android_tap\": Rule("
   },
   {
@@ -753,7 +753,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:140",
+   "source": "BotActivityPhrases.swift:142",
    "expect": "\"android_swipe\": Rule("
   },
   {
@@ -763,7 +763,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:141",
+   "source": "BotActivityPhrases.swift:143",
    "expect": "\"android_key\": Rule("
   },
   {
@@ -773,7 +773,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:142",
+   "source": "BotActivityPhrases.swift:144",
    "expect": "\"android_input_text\": Rule("
   },
   {
@@ -786,7 +786,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:143",
+   "source": "BotActivityPhrases.swift:145",
    "expect": "\"android_launch_app\": Rule("
   },
   {
@@ -799,7 +799,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:145",
+   "source": "BotActivityPhrases.swift:146",
    "expect": "\"android_force_stop\": Rule("
   },
   {
@@ -825,7 +825,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:149",
+   "source": "BotActivityPhrases.swift:148",
    "expect": "\"android_set_app_enabled\": Rule("
   },
   {
@@ -839,7 +839,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:151",
+   "source": "BotActivityPhrases.swift:149",
    "expect": "\"android_install_apk\": Rule("
   },
   {
@@ -852,7 +852,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:153",
+   "source": "BotActivityPhrases.swift:151",
    "expect": "\"android_install_existing_app\": Rule("
   },
   {
@@ -865,7 +865,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:155",
+   "source": "BotActivityPhrases.swift:152",
    "expect": "\"android_uninstall_app\": Rule("
   },
   {
@@ -878,7 +878,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:157",
+   "source": "BotActivityPhrases.swift:153",
    "expect": "\"android_app_permission\": Rule("
   },
   {
@@ -891,7 +891,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:159",
+   "source": "BotActivityPhrases.swift:154",
    "expect": "\"android_list_packages\": Rule("
   },
   {
@@ -904,7 +904,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:161",
+   "source": "BotActivityPhrases.swift:156",
    "expect": "\"android_package_info\": Rule("
   },
   {
@@ -914,7 +914,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:163",
+   "source": "BotActivityPhrases.swift:157",
    "expect": "\"android_list_users\": Rule("
   },
   {
@@ -927,7 +927,7 @@
    ],
    "targetIsURL": true,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:164",
+   "source": "BotActivityPhrases.swift:158",
    "expect": "\"android_open_uri\": Rule("
   },
   {
@@ -937,7 +937,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:166",
+   "source": "BotActivityPhrases.swift:160",
    "expect": "\"android_logcat\": Rule("
   },
   {
@@ -949,7 +949,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:167",
+   "source": "BotActivityPhrases.swift:161",
    "expect": "\"android_list_apk_files\": Rule("
   },
   {
@@ -961,7 +961,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:169",
+   "source": "BotActivityPhrases.swift:162",
    "expect": "\"android_delete_apk_file\": Rule("
   },
   {
@@ -971,7 +971,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:171",
+   "source": "BotActivityPhrases.swift:164",
    "expect": "\"android_command_help\": Rule("
   },
   {
@@ -981,7 +981,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:174",
+   "source": "BotActivityPhrases.swift:167",
    "expect": "\"ble_devices\": Rule("
   },
   {
@@ -994,7 +994,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:175",
+   "source": "BotActivityPhrases.swift:168",
    "expect": "\"ble_read\": Rule("
   },
   {
@@ -1006,7 +1006,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:177",
+   "source": "BotActivityPhrases.swift:170",
    "expect": "\"ble_alert\": Rule("
   },
   {
@@ -1016,7 +1016,7 @@
    "targetKeys": [],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:179",
+   "source": "BotActivityPhrases.swift:172",
    "expect": "\"ble_link_tools\": Rule("
   },
   {
@@ -1028,7 +1028,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:180",
+   "source": "BotActivityPhrases.swift:174",
    "expect": "\"ble_link_call\": Rule("
   },
   {
@@ -1040,7 +1040,7 @@
    ],
    "targetIsURL": false,
    "targetArray": false,
-   "source": "BotActivityPhrases.swift:182",
+   "source": "BotActivityPhrases.swift:176",
    "expect": "\"ble_link_result\": Rule("
   }
  ],
@@ -1068,27 +1068,27 @@
   "pathSeparators": "/\\",
   "sources": [
    {
-    "source": "BotActivityPhrases.swift:231",
+    "source": "BotActivityPhrases.swift:261",
     "expect": "func cleanedModelText"
    },
    {
-    "source": "BotActivityPhrases.swift:241",
+    "source": "BotActivityPhrases.swift:271",
     "expect": "text.count > 20"
    },
    {
-    "source": "BotActivityPhrases.swift:247",
+    "source": "BotActivityPhrases.swift:277",
     "expect": "func targetText"
    },
    {
-    "source": "BotActivityPhrases.swift:265",
+    "source": "BotActivityPhrases.swift:295",
     "expect": "func shortTarget"
    },
    {
-    "source": "BotActivityPhrases.swift:269",
+    "source": "BotActivityPhrases.swift:299",
     "expect": "base.count > 42"
    },
    {
-    "source": "BotActivityPhrases.swift:272",
+    "source": "BotActivityPhrases.swift:302",
     "expect": "func urlHost"
    }
   ]
@@ -1097,100 +1097,100 @@
   "phraseFromCategory": "reviewing",
   "detailPattern": "<reviewing primary> · <target>",
   "emptyWhenNoTarget": true,
-  "source": "BotActivityPhrases.swift:281",
+  "source": "BotActivityPhrases.swift:311",
   "expect": "func reviewingText"
  },
  "bareToolName": {
   "prefix": "mcp__",
   "rule": "drop the first two MCP components when the name starts with mcp__ and has more than 3 components",
-  "source": "BotActivityPhrases.swift:213",
+  "source": "BotActivityPhrases.swift:243",
   "expect": "func bareToolName"
  },
  "workStyle": {
   "reading": {
    "value": "reading",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "memory": {
    "value": "reading",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "searching": {
    "value": "searching",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "browsing": {
    "value": "searching",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "running": {
    "value": "running",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "writing": {
    "value": "writing",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "thinking": {
    "value": "generic",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "reviewing": {
    "value": "generic",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "messaging": {
    "value": "generic",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "waiting": {
    "value": "generic",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "replying": {
    "value": "generic",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   },
   "generic": {
    "value": "generic",
-   "source": "BotActivityPhrases.swift:331",
+   "source": "BotActivityPhrases.swift:361",
    "expect": "func workStyle(for category"
   }
  },
  "timing": {
   "minimumVisibleMillis": {
    "value": 800,
-   "source": "BotActivityPhrases.swift:359",
+   "source": "BotActivityPhrases.swift:404",
    "expect": "minimumVisibleMillis"
   },
   "rotationIntervalMillis": {
    "value": 2400,
-   "source": "BotActivityPhrases.swift:360",
+   "source": "BotActivityPhrases.swift:405",
    "expect": "rotationIntervalMillis"
   },
   "minuteMillis": {
    "value": 60000,
-   "source": "BotActivityPhrases.swift:361",
+   "source": "BotActivityPhrases.swift:377",
    "expect": "minuteMillis"
   },
   "minuteSuffixTemplate": {
    "value": " · {minutes} 分钟",
-   "source": "BotActivityPhrases.swift:455",
+   "source": "BotActivityPhrases.swift:401",
    "expect": "分钟"
   },
   "sustainedMinutes": {
-   "source": "BotActivityPhrases.swift:344",
+   "source": "BotActivityPhrases.swift:374",
    "expect": "func sustainedMinutes"
   }
  }

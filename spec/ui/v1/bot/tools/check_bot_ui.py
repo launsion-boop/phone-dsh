@@ -991,7 +991,21 @@ def check_strings() -> int:
         match = SOURCE_RE.match(source or "")
         if match is None:
             raise CheckError(f"{where}: malformed source {source!r}")
-        check_anchor(match.group(1), int(match.group(2)), entry.get("expect", ""), where)
+        relative, line = match.group(1), int(match.group(2))
+        if "/" in relative:
+            # A string introduced by the shared Bot module (for example
+            # `BotApprovalReceipt`) has no probe-app copy; anchor it at the
+            # repo-relative owner instead of inventing a duplicate literal.
+            lines = _read_repo_lines(relative)
+            if line < 1 or line > len(lines):
+                raise CheckError(f"{where}: {relative}:{line} is outside the file")
+            expect = entry.get("expect", "")
+            if expect and expect not in lines[line - 1]:
+                raise CheckError(
+                    f"{where}: {relative}:{line} does not contain the expected snippet {expect!r}: "
+                    f"{lines[line - 1].strip()!r}")
+        else:
+            check_anchor(relative, line, entry.get("expect", ""), where)
         if entry.get("expect") == "":
             raise CheckError(f"{where}: expect must be a non-empty snippet")
         placeholders = set(re.findall(r"\{([a-z][a-z0-9_]*)\}", entry["value"]))

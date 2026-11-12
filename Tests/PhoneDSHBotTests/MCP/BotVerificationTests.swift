@@ -67,6 +67,28 @@ final class BotVerificationTests: XCTestCase {
         """))
     }
 
+    func testVerifierPromptNamesOnlyTheFrozenReadOnlyForensics() throws {
+        let value = try fixture()
+        let policy = try XCTUnwrap(value["policy"] as? [String: Any])
+        let bash = try XCTUnwrap(policy["bash"] as? [String: Any])
+        let allowed = try XCTUnwrap(bash["allowed"] as? [String])
+        let prompt = BotVerifierPrompt.build(
+            subjectKind: "task", subjectId: "task-1",
+            completion: "REPORT.md exists", purpose: nil, constraints: [],
+            refs: ["record://session/gb-task#1"], subjectSessionId: "gb-task")
+        XCTAssertTrue(prompt.contains("`phone record search`"))
+        XCTAssertTrue(prompt.contains("`phone record read <ref>`"))
+        XCTAssertTrue(prompt.contains("`od`"))
+        XCTAssertTrue(allowed.contains { $0.hasPrefix("phone record search ") })
+        XCTAssertTrue(allowed.contains { $0.hasPrefix("phone record read ") })
+        XCTAssertTrue(allowed.contains { $0.hasPrefix("od ") })
+        // The prompt must not teach a command the read-only policy would deny.
+        for forbidden in ["`find ", "`sed ", "`curl ", "`python3 "]
+        where prompt.contains(forbidden) {
+            XCTFail("verifier prompt teaches a denied command: \(forbidden)")
+        }
+    }
+
     func testTaskToolSurfaceFreezesTheCompletionContract() throws {
         let task = try XCTUnwrap(BotToolCatalog.allDefinitions.first { $0.name == "Task" })
         let properties = try XCTUnwrap(task.inputSchema["properties"]?.objectValue)
@@ -112,8 +134,8 @@ final class BotVerificationTests: XCTestCase {
         XCTAssertTrue(wake.contains("[verification] failed"))
         XCTAssertTrue(wake.contains("REPORT.md is missing."))
         XCTAssertTrue(wake.contains("record://session/gb-task#2"))
-        XCTAssertTrue(wake.contains("Tell the user honestly"))
-        XCTAssertTrue(wake.contains("Do not present it as done"))
+        XCTAssertTrue(wake.contains("如实告诉用户"))
+        XCTAssertTrue(wake.contains("不要把它说成已完成"))
 
         let passed = BotVerification(
             verdict: .passed, summary: "All checks passed.", refs: ["record://event/1"],
@@ -121,8 +143,8 @@ final class BotVerificationTests: XCTestCase {
         let passedWake = BotDSHRemoteRuntime.verificationWakeBody(
             passed, title: "Write REPORT.md", status: "completed", taskID: "task-1")
         XCTAssertTrue(passedWake.contains("[verification] passed"))
-        XCTAssertTrue(passedWake.contains("No message is required"))
-        XCTAssertFalse(passedWake.contains("Tell the user honestly"))
+        XCTAssertTrue(passedWake.contains("不需要再发消息"))
+        XCTAssertFalse(passedWake.contains("如实告诉用户"))
     }
 
     func testReportShapeMatchesTheDurableContract() throws {

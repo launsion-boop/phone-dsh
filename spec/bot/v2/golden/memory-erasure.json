@@ -191,6 +191,56 @@
         "uncoveredRecords": [],
         "legacyFactIDs": []
       }
+    },
+    {
+      "name": "agent-scope-keeps-shared-user-document-with-matching-text",
+      "target": { "kind": "memory", "scope": "agent" },
+      "botID": "main",
+      "state": {
+        "documents": [
+          {
+            "path": "agent/notes/secret.md",
+            "scope": "agent",
+            "botId": "main",
+            "live": true,
+            "versions": [
+              { "version": 1, "content": "# Secret\n- SHARED_COPY_MARKER_7A9" }
+            ],
+            "evidence": []
+          },
+          {
+            "path": "user/INDEX.md",
+            "scope": "user",
+            "botId": "main",
+            "live": true,
+            "versions": [
+              { "version": 1, "content": "# Index\n- baseline" },
+              { "version": 2, "content": "# Index\n- copied SHARED_COPY_MARKER_7A9" },
+              { "version": 3, "content": "# Index\n- still here" }
+            ],
+            "evidence": []
+          }
+        ],
+        "events": [
+          { "seq": 1, "type": "memory.document_written", "botId": "main", "path": "agent/notes/secret.md" },
+          { "seq": 2, "type": "memory.document_written", "botId": "main", "path": "user/INDEX.md" },
+          { "seq": 3, "type": "memory.document_written", "botId": "main", "path": "user/INDEX.md" },
+          { "seq": 4, "type": "memory.document_written", "botId": "main", "path": "user/INDEX.md" },
+          { "seq": 5, "type": "conversation.tool_result", "botId": "main", "text": "copied SHARED_COPY_MARKER_7A9" }
+        ],
+        "erasureEventSeq": 6
+      },
+      "expect": {
+        "ok": true,
+        "scope": "agent",
+        "paths": ["agent/notes/secret.md"],
+        "removedDocuments": 1,
+        "removedVersions": 1,
+        "erasedEvents": [1, 5],
+        "survivingPaths": ["user/INDEX.md"],
+        "uncoveredRecords": [],
+        "legacyFactIDs": []
+      }
     }
   ],
   "invalid": [

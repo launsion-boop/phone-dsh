@@ -37,6 +37,7 @@
 // An `HTTPEgress` implementation may also throw this type directly.
 
 import Foundation
+import PhoneDSHStandardError
 
 // MARK: - Failure taxonomy
 
@@ -441,10 +442,9 @@ enum LoopbackEgressDiagnostics {
         // credential produces no log entry at all. The rejection is not an
         // upstream or transport fact, and the target may itself be sensitive.
         guard failure.code != "mcp_egress_forbidden" else { return }
-        let line = failure.diagnosticLine(target: target) + "\n"
-        guard let data = line.data(using: .utf8) else { return }
+        let line = failure.diagnosticLine(target: target)
         lock.lock()
         defer { lock.unlock() }
-        FileHandle.standardError.write(data)
+        PhoneDSHStandardError.write(line)
     }
 }

@@ -232,10 +232,16 @@ public protocol MCPEgressGating: EgressHostAuthorizing {
 public struct BotEgressWriteRequest: Equatable, Sendable {
     public var method: String
     public var url: URL
+    /// Whether the target is inside the gateway's allow-list. The approval
+    /// layer uses it to let the ordinary `host_not_allowed` answer through for
+    /// non-Task writes; a Task's missing `task.network-write` is still denied
+    /// first with its named cause.
+    public var hostAllowed: Bool
 
-    public init(method: String, url: URL) {
+    public init(method: String, url: URL, hostAllowed: Bool = true) {
         self.method = method
         self.url = url
+        self.hostAllowed = hostAllowed
     }
 
     /// Operation name of the Grant this write needs, for example `egress.post`.
@@ -263,10 +269,12 @@ public enum BotEgressWriteDecision: Equatable, Sendable {
 /// Host-composition seam that decides Bot network writes at the `/v1/http`
 /// exit (spec/v1/gateway-security.md §5, spec/bot/v1/README.md §2.4).
 ///
-/// The gateway calls this only for POST/PUT/PATCH/DELETE, after the allow-list
-/// and the exact-MCP egress gate, and before credential resolution, response
-/// logging, redirect following or any socket. An implementation that has no
-/// Bot runtime returns ``BotEgressWriteDecision/notBot``.
+/// The gateway calls this only for POST/PUT/PATCH/DELETE, before enforcing the
+/// allow-list and before credential resolution, response logging, redirect
+/// following or any socket. The request carries the allow-list decision so the
+/// Bot runtime can distinguish a Task subset denial (which must be the first,
+/// named answer) from ordinary not-allowed workbench traffic. An implementation
+/// that has no Bot runtime returns ``BotEgressWriteDecision/notBot``.
 public protocol BotEgressWriteApproving: Sendable {
     func approveBotEgressWrite(_ request: BotEgressWriteRequest) async -> BotEgressWriteDecision
 }
@@ -772,10 +780,12 @@ public actor ModelGateway {
             downstream.finish(throwing: ModelGatewayError.invalidRequest("upstream URL must be http(s)"))
             return
         }
-        guard coordinator.isAllowed(url) else {
-            downstream.finish(throwing: ModelGatewayError.hostNotAllowed(url.host ?? ""))
-            return
-        }
+        // The allow-list decision is computed before the Bot approval seam but
+        // enforced after it: a Task session without `task.network-write` must
+        // return its named denial even for a host outside the list. The Bot
+        // runtime returns `notBot` for every other not-allowed host, so the
+        // ordinary `host_not_allowed` answer (and no card) is preserved.
+        let hostAllowed = coordinator.isAllowed(url)
         // Before the response log, the resume path and any credential
         // resolution: an exact MCP route without the current host credential
         // is refused with no side effect at all.
@@ -797,24 +807,33 @@ public actor ModelGateway {
 
         // Bot egress write approval (spec/v1/gateway-security.md §5): only the
         // four network-write methods, never an exact MCP route, never a
-        // configured model-inference endpoint, and only after the allow-list
-        // and exact-MCP credential gate. The approval runs before the response
-        // log, any credential resolution, any redirect and any socket. A
-        // deployment without the Bot seam leaves this branch off.
+        // configured model-inference endpoint. The approval runs before the
+        // allow-list enforcement, the response log, any credential resolution,
+        // any redirect and any socket. A deployment without the Bot seam
+        // leaves this branch off.
         var refusesBotEgressRedirects = false
         if !admittedByMCPGrant,
            Self.isBotEgressWriteMethod(method),
            !Self.isReplaySafeRequest(method: method, url: url,
                                      replaySafeModelEndpoints: configuration.replaySafeModelEndpoints),
            let approver = botEgressApprover {
-            let request = BotEgressWriteRequest(method: method, url: url)
+            let request = BotEgressWriteRequest(
+                method: method, url: url, hostAllowed: hostAllowed)
             let approval = Task { await approver.approveBotEgressWrite(request) }
-            // A Worker disconnect cancels the pending card; the coordinator's
-            // 300 s deadline and workerRestarted/cancelAll remain the other
-            // terminal paths.
+            // A Worker disconnect cancels the pending card; workerRestarted
+            // and the durable expiry remain the other terminal paths.
             downstream.onCancellation { approval.cancel() }
             switch await approval.value {
             case .allow:
+                // The caller may have timed out while the user was deciding.
+                // Do not turn a dead request into a real upstream write: the
+                // durable egress card keeps its once Grant for the retry.
+                guard !downstream.isCancelled else {
+                    downstream.finish(throwing: ModelGatewayError.egressApprovalDenied(
+                        code: "egress_approval_denied",
+                        message: "已提交审批，批准后请重试；这次网络写入没有发出"))
+                    return
+                }
                 refusesBotEgressRedirects = true
             case .notBot:
                 break
@@ -823,6 +842,10 @@ public actor ModelGateway {
                     code: code, message: message))
                 return
             }
+        }
+        guard hostAllowed else {
+            downstream.finish(throwing: ModelGatewayError.hostNotAllowed(url.host ?? ""))
+            return
         }
 
         let webProvider = OfficialDeepSeekWebRoute.matchesScope(url)
@@ -929,8 +952,17 @@ public actor ModelGateway {
             // (including the credential part of a standard Authorization
             // scheme) are redacted; JSON structure and the JSON-RPC id are
             // preserved. This is intentionally not a full pass-through.
-            let sensitive = webProvider != nil || Self.isSensitiveMCPResponse(
-                request, credential: credential, admittedByMCPGrant: admittedByMCPGrant)
+            //
+            // The official Search/Fetch route is sensitive for the same
+            // reason, but its diagnostic must name the web tool rather than
+            // an MCP server: a 404 there means DeepSeek could not retrieve
+            // usable page content, not that an MCP endpoint was missing.
+            let sensitiveKind = Self.sensitiveResponseKind(
+                webTool: webProvider != nil,
+                request: request,
+                credential: credential,
+                admittedByMCPGrant: admittedByMCPGrant)
+            let sensitive = sensitiveKind != nil
             let redactedValues = Self.credentialSecretValues(credential)
             let upstreamRequest = makeURLRequest(request, method: method, url: url,
                                                  credential: credential, officialWeb: webProvider != nil)
@@ -1030,7 +1062,8 @@ public actor ModelGateway {
                             // The status is the diagnostic; the upstream body
                             // is never forwarded for a host-managed row.
                             let diagnostic = SensitiveResponseBody.controlledDiagnostic(
-                                status: status)
+                                status: status,
+                                kind: sensitiveKind ?? .mcp)
                             sensitiveMode = .controlled(diagnostic)
                             responseHeaders["content-type"] = "application/json; charset=utf-8"
                         } else if SensitiveResponseBody.isEventStream(headers) {
@@ -1074,7 +1107,8 @@ public actor ModelGateway {
                                 if !downstream.isCancelled {
                                     downstream.yield(GatewayResponseChunk(
                                         body: SensitiveResponseBody
-                                            .controlledEventStreamOversizeEvent(),
+                                            .controlledEventStreamOversizeEvent(
+                                                kind: sensitiveKind ?? .mcp),
                                         isFinal: false))
                                 }
                                 sensitiveMode = .suppressed
@@ -1092,7 +1126,8 @@ public actor ModelGateway {
                             guard data.count <= remaining else {
                                 sensitiveBuffer.removeAll(keepingCapacity: false)
                                 sensitiveMode = .controlled(
-                                    SensitiveResponseBody.controlledOversizeDiagnostic())
+                                    SensitiveResponseBody.controlledOversizeDiagnostic(
+                                        kind: sensitiveKind ?? .mcp))
                                 attempt.cancel()
                                 break attemptLoop
                             }
@@ -1558,6 +1593,26 @@ public actor ModelGateway {
             }
         }
         return isValidContentTypeToken(value)
+    }
+
+    /// The sensitive-response kind for this exchange, or `nil` for an ordinary
+    /// pass-through. The official Search/Fetch route is always sensitive even
+    /// though it is neither an MCP grant nor a header-map credential, so the
+    /// boolean "is sensitive" alone would mislabel its diagnostic as MCP.
+    /// Internal so the kind selection is pinned independently of URLSession.
+    nonisolated static func sensitiveResponseKind(
+        webTool: Bool,
+        request: GatewayRequest,
+        credential: Credential,
+        admittedByMCPGrant: Bool
+    ) -> SensitiveResponseKind? {
+        if webTool { return .webTool }
+        if isSensitiveMCPResponse(request,
+                                  credential: credential,
+                                  admittedByMCPGrant: admittedByMCPGrant) {
+            return .mcp
+        }
+        return nil
     }
 
     /// True when this exchange must take the sensitive response path. MCP is a

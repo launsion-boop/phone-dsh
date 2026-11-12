@@ -53,6 +53,33 @@ public struct ADBClient: ADBCommandExecuting, Sendable {
 
     static func shell(transport: any ADBTransport, identity: ADBIdentity, command: String, stdin: Data = Data(),
                       timeout: TimeInterval, outputLimit: Int, inputFile: FileHandle? = nil, outputFile: FileHandle? = nil) async throws -> ADBShellResult {
+        do {
+            return try await runShell(transport: transport, identity: identity, command: command, stdin: stdin,
+                                      timeout: timeout, outputLimit: outputLimit, inputFile: inputFile, outputFile: outputFile)
+        } catch {
+            throw shellFailure(error)
+        }
+    }
+
+    /// Tags failures that escape the framing layer. Explicit kinds are kept and
+    /// existing messages are preserved; cancellation gets a stable description.
+    private static func shellFailure(_ error: Error) -> Error {
+        if let failure = error as? ADBFailure {
+            if failure.kind == .device, Task.isCancelled {
+                return ADBFailure(failure.message, kind: .cancelled)
+            }
+            return failure
+        }
+        if error is CancellationError || Task.isCancelled {
+            return ADBFailure("ADB command cancelled", kind: .cancelled)
+        }
+        return error
+    }
+
+    private static func runShell(transport: any ADBTransport, identity: ADBIdentity, command: String, stdin: Data,
+                                 timeout: TimeInterval, outputLimit: Int, inputFile: FileHandle?,
+                                 outputFile: FileHandle?) async throws -> ADBShellResult {
+        try Task.checkCancellation()
         let inputSize: Int
         if let inputFile {
             let size = try inputFile.seekToEnd()
@@ -74,21 +101,26 @@ public struct ADBClient: ADBCommandExecuting, Sendable {
                                             payload: Data("host::features=shell_v2;\0".utf8)).encoded)
         var authStep = 0
         while true {
-            let packet = try await ADBPacket.read(from: transport)
+            let packet: ADBPacket
+            do {
+                packet = try await ADBPacket.read(from: transport)
+            } catch let failure as ADBFailure where authStep > 0 && failure.kind == .unreachable && !Task.isCancelled {
+                throw ADBFailure(failure.message, kind: .unauthorized)
+            }
             if packet.command == ADBPacket.connect {
                 let banner = String(decoding: packet.payload, as: UTF8.self)
                 let features = banner.components(separatedBy: "features=").dropFirst().first?
                     .split(whereSeparator: { $0 == ";" || $0 == "\0" }).first?
                     .split(separator: ",") ?? []
-                guard features.contains("shell_v2") else { throw ADBFailure("Android does not advertise shell_v2 (Android 7+ required)") }
-                guard packet.arg1 >= 4096 else { throw ADBFailure("Unsupported ADB packet limit") }
+                guard features.contains("shell_v2") else { throw ADBFailure("Android does not advertise shell_v2 (Android 7+ required)", kind: .protocolViolation) }
+                guard packet.arg1 >= 4096 else { throw ADBFailure("Unsupported ADB packet limit", kind: .protocolViolation) }
                 break
             }
             if packet.command == ADBPacket.tls {
                 throw ADBFailure("TLS wireless-debugging ports are not supported; use the Android TCP/IP ADB port, usually 5555")
             }
             guard packet.command == ADBPacket.auth, packet.arg0 == 1, authStep < 2 else {
-                throw ADBFailure("ADB authorization refused; unlock Android and accept this iPhone's debugging key")
+                throw ADBFailure("ADB authorization refused; unlock Android and accept this iPhone's debugging key", kind: .unauthorized)
             }
             let data = authStep == 0 ? try identity.sign(packet.payload) : try identity.publicKey()
             try await transport.write(ADBPacket(command: ADBPacket.auth, arg0: authStep == 0 ? 2 : 3, payload: data).encoded)
@@ -129,7 +161,7 @@ public struct ADBClient: ADBCommandExecuting, Sendable {
         while true {
             try Task.checkCancellation()
             let packet = try await ADBPacket.read(from: transport)
-            guard packet.arg0 == remote, packet.arg1 == 1 else { throw ADBFailure("ADB stream identity mismatch") }
+            guard packet.arg0 == remote, packet.arg1 == 1 else { throw ADBFailure("ADB stream identity mismatch", kind: .protocolViolation) }
             switch packet.command {
             case ADBPacket.write:
                 try decoder.append(packet.payload)
@@ -150,7 +182,7 @@ public struct ADBClient: ADBCommandExecuting, Sendable {
                 return result
             case ADBPacket.okay:
                 if !inputClosed && !decoder.exited { try await sendInput() }
-            default: throw ADBFailure("Unexpected ADB stream packet")
+            default: throw ADBFailure("Unexpected ADB stream packet", kind: .protocolViolation)
             }
         }
     }

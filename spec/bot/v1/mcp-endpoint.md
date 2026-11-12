@@ -5,7 +5,7 @@
 Status: normative for the App/Worker `phone` MCP endpoint introduced by the Bot
 runtime. Contracts: P05 (HTTP/MCP gateway), P16 (Worker environment), P25
 (BotEventLog), P26 (BotToolSurface). Contract revision:
-`mcp-egress-capability-v1` (PC-20261110-bot-mcp-egress-capability).
+`bot-identity-reclaim-v1` (PC-20261111-bot-identity-reclaim).
 
 This document is the owning contract for the single `phone` MCP endpoint the
 Worker sees. It does not define a new transport: it reuses MCP Streamable HTTP,
@@ -187,12 +187,41 @@ the existing Bot JSON-RPC messages and the existing BotEvent log.
   deletion invalidate the token; the next registration fails closed. A Worker
   restart loses the in-memory credential, so the App must re-claim every active
   session with its current token before its next turn; until then registration
-  fails closed. `gb-` ids are Bot-owned by namespace before the claim, but
-  ownership alone does not authenticate: before a claim there is no credential,
-  identity registration is rejected and the tool call fails closed, matching the
-  existing "MCP catalog unreachable" rule. The Worker must not treat a
-  `gb-` prefix, a tool name, an argument digest or a caller-supplied
-  `sessionId` as a substitute for the credential.
+  fails closed. A foreground resume is a Worker restart for this rule: the host
+  boots a fresh Worker page/worker process, the Worker answers a new HELLO with
+  a new `boot_id`, and the App observes that boot-id change (the existing
+  `.workerHello` host event) and re-claims every session it still owns. The App
+  must not wait for a planned-restart/termination notification alone, and it
+  must not extend the TTL to mask a missed re-claim. `gb-` ids are Bot-owned by
+  namespace before the claim, but ownership alone does not authenticate: before
+  a claim there is no credential, identity registration is rejected and the
+  tool call fails closed, matching the existing "MCP catalog unreachable" rule.
+  The Worker must not treat a `gb-` prefix, a tool name, an argument digest or a
+  caller-supplied `sessionId` as a substitute for the credential.
+- **Identity reclaim after a rejected registration.** A registration whose
+  `sessionToken` is missing, stale or no longer the current incarnation answers
+  `unauthorized` and registers nothing. Before that answer, the App may re-claim
+  the session's current token into the Worker when, and only when, the App's
+  own session credential map still holds a current token for the same
+  `sessionId`. The Worker's one retry then reads the reclaimed token from its
+  in-memory map and repeats the same registration. The reclaim path has these
+  bounds:
+  - The request body `sessionId` is never identity evidence; the App chooses
+    the session from its own credential map, never from the caller.
+  - A supplied token that resolves to a different session is an impersonation
+    attempt, not a lost Worker map: it stays `unauthorized`, triggers no
+    reclaim, and the Worker stays closed.
+  - No token is returned in the HTTP response; the App re-claims through the
+    existing `phone/botClaimSession` RPC carrying the App's current token.
+  - The Worker retries at most once per registration. A second `unauthorized`
+    ends the call closed and the model receives one human-readable sentence
+    (the session/App identity is unavailable and the call did not execute),
+    never a bare `unauthorized` and never a retry storm.
+  - The same rule covers `unknownSession` from the host attribution registry;
+    it maps to the same one `unauthorized` answer.
+  - The App keeps the last failed registration (local time, error code and
+    session id; no token, arguments or body) in host memory for the read-only
+    Bot status line. A later successful registration clears it.
 - The registration binds the incarnation of the token-resolved principal. The
   App must not re-resolve the session by `sessionId` between the token check and
   `registerToolCall` in a way that could bind a newer incarnation to an older
@@ -240,8 +269,13 @@ the existing Bot JSON-RPC messages and the existing BotEvent log.
 - A Worker restart also loses every in-memory session credential. The App
   re-claims each active session with its current token before that session's
   next turn; a session that cannot be re-claimed fails identity registration
-  closed. The MCP egress token is not rotated by a Worker restart (§1.1); the
-  host re-delivers the same value through the rebuilt Worker environment.
+  closed. A background park followed by a foreground resume replaces the
+  Worker exactly like a restart: the new HELLO `boot_id` is the observable
+  trigger even though no planned-restart or termination event is sent. The App
+  also re-claims every session it owns after that bind, so the first tool call
+  after a lock screen does not race the claim. The MCP egress token is not
+  rotated by a Worker restart (§1.1); the host re-delivers the same value
+  through the rebuilt Worker environment.
 - Expired registrations and their argument copies are pruned on registration,
   claim, approval and by a periodic maintenance task.
 - Task records are durable SQLite events (`task.created`/`task.updated`, with
@@ -299,6 +333,14 @@ allowed only when the caller has no durable identity. `mode` remains
   `phone/botClaimSession` request and `/identity/register` body; the new Worker
   environment variable is P16's `PDSH_MCP_EGRESS_TOKEN`; the new hop header is
   `X-PDSH-MCP-Egress`; the new egress error code is `mcp_egress_forbidden`.
+- **Identity reclaim (PC-20261111-bot-identity-reclaim).** Reclaim adds no
+  field, route, method, header or error code: it reuses the existing
+  `phone/botClaimSession` RPC and the existing `unauthorized` answer, and the
+  Worker's retry sends the same `/identity/register` body. An old Worker that
+  does not retry still gets the re-claimed credential for its next registration;
+  an old App that does not re-claim leaves the new Worker's retry closed. The
+  new host boot-id observation is an in-process consumer of the existing
+  `.workerHello` event; no host-event shape changes.
 - **Long tool calls (§2).** The SSE answer to a long `tools/call` is the
   response form MCP Streamable HTTP already defines and the Worker's MCP client
   already reads (it sends `Accept: application/json, text/event-stream`); it adds

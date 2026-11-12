@@ -20,7 +20,25 @@ final class EvalSchedulerClock: @unchecked Sendable {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var pendingWake = false
 
-    init(now: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) {
+    /// A run must not change meaning with the wall-clock hour. Production's
+    /// default quiet window is 23:00–08:00, so starting every scenario at the
+    /// real time made a non-urgent routine defer to 08:00 and the following
+    /// `advance_clock` wait forever on a nightly run. Scenarios start at local
+    /// noon and move the clock explicitly with `advance_clock`; a scenario
+    /// that wants the quiet window can still advance into it deterministically.
+    static var deterministicStart: Int64 {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var components = calendar.dateComponents([.year, .month, .day], from: Date())
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+        components.nanosecond = 0
+        let date = calendar.date(from: components) ?? Date()
+        return Int64(date.timeIntervalSince1970 * 1000)
+    }
+
+    init(now: Int64 = EvalSchedulerClock.deterministicStart) {
         self.currentMs = now
     }
 

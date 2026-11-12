@@ -1930,7 +1930,7 @@
   {
    "id": "approval-always-session",
    "source": "BotChatModel.swift:525-528",
-   "note": "always + session scope reads 本次对话允许.",
+   "note": "always + session scope reads 本次对话都允许.",
    "input": {
     "context": {
      "botID": "main",
@@ -2023,7 +2023,7 @@
      {
       "rowID": "approval-1",
       "glyph": "checkmark.circle.fill",
-      "title": "本次对话允许",
+      "title": "本次对话都允许",
       "detail": "rm -f /tmp/phone-dsh-old-report.pdf",
       "tone": "success",
       "monospacedDetail": true

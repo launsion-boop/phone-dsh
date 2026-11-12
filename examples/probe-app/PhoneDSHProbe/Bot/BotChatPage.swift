@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 
+#if canImport(ProbeKit)
+import ProbeKit
+#endif
 import PhoneDSHBot
 import PhotosUI
 import SwiftUI
@@ -21,8 +24,18 @@ struct BotChatPage: View {
     let peerReaction: (String) -> BotFishReaction?
     let handleExternalDeepLink: (URL) -> Bool
     let openDrawer: (() -> Void)?
+    /// Capture/test entry: focus the composer once so the keyboard-open layout
+    /// can be reproduced without an XCUITest tap. Production pages leave this
+    /// false; the interaction test still taps the field like a user.
+    let initialComposerFocus: Bool
+    /// Capture fixture: start with a multi-line draft so the composer is
+    /// already at its grown height when the keyboard opens.
+    let initialComposerText: String
+    /// Fixture-only row-body counter; production pages pass nil.
+    let transcriptProbe: BotTranscriptRenderProbe?
+    private let initialAttachments: [BotDraftAttachment]
+    private let initialAttachmentNotice: String?
 
-    @State private var draft = ""
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
     @State private var preservingHistoryPosition = false
@@ -31,16 +44,28 @@ struct BotChatPage: View {
     @State private var composerDockHeight: CGFloat = 0
     /// Bumped by the send button so the transcript can scroll after layout.
     @State private var sendScrollTick = 0
-    /// Pending scroll after the settled-card set changes. A newer change
-    /// cancels the older work, so a burst of collapses scrolls only once.
-    @State private var settledScrollWork: DispatchWorkItem?
-    /// Files chosen but not sent yet. The optimistic user row is built from
-    /// the same `BotUIAttachment` shape the durable projection returns.
-    @State private var pendingAttachments: [BotDraftAttachment] = []
-    @State private var attachmentNotice: String?
-    @State private var photoItems: [PhotosPickerItem] = []
-    @State private var showPhotos = false
-    @State private var showFiles = false
+    /// One coalesced autoscroll at a time. A streamed answer changes its
+    /// height on every delta; calling `scrollTo` synchronously from every
+    /// `onChange` keeps the stack re-measuring while the keyboard is also
+    /// changing the viewport.
+    @State private var transcriptScrollTask: Task<Void, Never>?
+    /// Eager mode renders a bounded suffix of the loaded rows; this expands
+    /// when the reader asks for older loaded rows.
+    @State private var eagerRowLimit = 40
+    /// Scroll metrics live in a plain class: the tail probe runs during layout
+    /// and must not dirty the graph with `@State` writes on every scroll frame.
+    @State private var scrollMetrics = BotTranscriptScrollMetrics()
+    /// Only follow new content while the reader is at the tail. A drag away
+    /// stops the autoscroll; coming back re-enables it.
+    @State private var followsTail = true
+    @State private var userScrolling = false
+    /// In an eager stack the history loader is always mounted, so `onAppear`
+    /// no longer means "the reader reached the top". A one-shot visibility
+    /// check restores the old auto-page without paging off-screen history.
+    @State private var historyAutoLoadScheduled = false
+    /// The composer owns the draft, but the transcript's tap-to-dismiss needs
+    /// to clear the same focus flag; otherwise the field can believe it is
+    /// focused after the responder resigned and not reopen on the next tap.
     @FocusState private var composerFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -51,6 +76,9 @@ struct BotChatPage: View {
          onSelectBot: @escaping (String) -> Void = { _ in },
          peerAppearance: @escaping (String) -> BotFishAppearance? = { _ in nil },
          peerIsMainBot: @escaping (String) -> Bool = { _ in false },
+         initialComposerFocus: Bool = false,
+         initialComposerText: String = "",
+         transcriptProbe: BotTranscriptRenderProbe? = nil,
          peerReaction: @escaping (String) -> BotFishReaction? = { _ in nil },
          openDrawer: (() -> Void)? = nil,
          hasOnlineDevices: Bool = false,
@@ -58,8 +86,7 @@ struct BotChatPage: View {
          handleExternalDeepLink: @escaping (URL) -> Bool = { _ in false },
          openDocument: ((BotUIRow) -> Void)? = nil,
          initialAttachments: [BotDraftAttachment] = [],
-         initialAttachmentNotice: String? = nil,
-         initialDraft: String = "") {
+         initialAttachmentNotice: String? = nil) {
         self.model = model
         self.cardActions = cardActions
         self.onOpenInfo = onOpenInfo
@@ -69,14 +96,16 @@ struct BotChatPage: View {
         self.externalDocumentAction = openDocument
         self.isMainBot = isMainBot
         self.onSelectBot = onSelectBot
+        self.initialComposerFocus = initialComposerFocus
+        self.initialComposerText = initialComposerText
+        self.transcriptProbe = transcriptProbe
+        self.initialAttachments = initialAttachments
+        self.initialAttachmentNotice = initialAttachmentNotice
         self.peerAppearance = peerAppearance
         self.peerIsMainBot = peerIsMainBot
         self.peerReaction = peerReaction
         self.handleExternalDeepLink = handleExternalDeepLink
         self.openDrawer = openDrawer
-        _pendingAttachments = State(initialValue: initialAttachments)
-        _attachmentNotice = State(initialValue: initialAttachmentNotice)
-        _draft = State(initialValue: initialDraft)
     }
 
     var body: some View {
@@ -110,17 +139,6 @@ struct BotChatPage: View {
             }
         }
         .onAppear { model.noteInteraction() }
-        .onChange(of: draft) { _, _ in model.noteInteraction() }
-        .photosPicker(isPresented: $showPhotos, selection: $photoItems,
-                      maxSelectionCount: BotAttachmentPolicy.maxCount, matching: .images)
-        .onChange(of: photoItems) { _, items in
-            guard !items.isEmpty else { return }
-            Task { await loadPhotos(items) }
-        }
-        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data],
-                      allowsMultipleSelection: true) { result in
-            importPickedFiles(result)
-        }
     }
 
     /// Grok-style Bot header: one centered avatar+name capsule, and the DSH
@@ -265,81 +283,89 @@ struct BotChatPage: View {
     }
 
     private var transcript: some View {
-        GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        if model.hasMoreHistory {
-                            HStack {
-                                if model.loadingHistory { ProgressView() }
-                                Text(model.loadingHistory ? "正在加载历史" : "向上加载历史")
-                                    .botCaptionFont()
-                                    .foregroundStyle(HomeSpec.textTertiary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .onAppear { loadHistory(proxy: proxy) }
-                            .accessibilityIdentifier("bot.history.loader")
-                        }
-                        if isEmpty {
-                            emptyState
-                                .frame(minHeight: max(0, geometry.size.height - HomeSpec.blockGap - 14 - 16),
-                                       alignment: .center)
-                                .accessibilityIdentifier("bot.chat.empty")
-                        }
-                        ForEach(model.displayRows) { row in
-                            transcriptRow(row)
-                                .id(row.id)
-                        }
-                        if let live = model.live {
-                            BotLiveTurnView(live: live)
-                        }
-                        if let streaming = model.streamingText,
-                           BotAnswerBubbleContent.hasContent(streaming) {
-                            BotStreamingRow(text: streaming)
-                                .id("bot-live-stream")
-                        }
-                        // Scroll target shared by every "keep the newest row
-                        // above the composer" trigger below.
-                        Color.clear.frame(height: 1).id("bot-transcript-bottom")
-                    }
-                    // Room for the header status line, reserved at all
-                    // times so it never shifts the transcript when it shows.
+        ScrollViewReader { proxy in
+            ScrollView {
+                transcriptStack(proxy: proxy)
+                    // Room for the header status line, reserved at all times
+                    // so the floating line never shifts the transcript when
+                    // it shows or hides (#132).
                     .padding(.top, HomeSpec.blockGap + 14)
                     .padding(.bottom, 16)
+            }
+            .coordinateSpace(name: "bot-transcript")
+            .scrollDismissesKeyboard(.interactively)
+            .modifier(BotTranscriptViewportReader(metrics: scrollMetrics) { height in
+                // The keyboard is the dominant viewport change: it does not
+                // alter the composer dock's own height, so the dock trigger
+                // alone left the newest card under the keyboard. Follow the
+                // tail when the visible transcript grows or shrinks.
+                guard height > 0 else { return }
+                followNewestContent(proxy: proxy)
+            })
+            .modifier(BotTranscriptScrollPhaseObserver { phase in
+                switch phase {
+                case .userDriven:
+                    userScrolling = true
+                case .settled:
+                    // `onScrollPhaseChange` reports `.idle` for programmatic
+                    // `scrollTo` too. Treating that as a user scroll away from
+                    // the tail turned following off after the page's own
+                    // scroll (e.g. to a question card), so the *next* card —
+                    // the approval card — was never brought above the
+                    // keyboard. Only a real gesture may move the flag.
+                    let wasUserDriven = userScrolling
+                    userScrolling = false
+                    if wasUserDriven { updateFollowsTail(userDriven: true) }
+                case .other:
+                    break
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: model.visibleRows.map(\.id)) { _, _ in
-                    scrollToBottom(proxy)
-                }
-                .onChange(of: liveScrollKey) { _, key in
-                    if key != nil { scrollToBottom(proxy) }
-                }
-                .onChange(of: model.streamingText) { _, value in
-                    if value != nil { scrollToBottom(proxy) }
-                }
-                .onChange(of: composerDockHeight) { _, _ in
-                    scrollToBottom(proxy)
-                }
-                .onChange(of: geometry.size.height) { _, _ in
-                    // The keyboard moves the composer up and shortens the
-                    // transcript; keep the newest row above the input dock.
-                    scrollToBottom(proxy)
-                }
-                .onChange(of: sendScrollTick) { _, _ in
-                    // Let the local echo lay out first.
-                    DispatchQueue.main.async { scrollToBottom(proxy) }
-                }
-                .onChange(of: model.settledRowIDs) { _, _ in
-                    // Cards collapsing into one-line summaries shrink the
-                    // content; the send-scroll above ran against the old
-                    // height, so run once more after the 0.25s animation.
-                    scheduleSettledScroll(proxy)
-                }
-                .onChange(of: model.scrollRequestID) { _, rowID in
-                    guard let rowID else { return }
-                    withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(rowID, anchor: .center) }
-                    model.scrollRequestID = nil
-                }
+            })
+            .onPreferenceChange(BotTranscriptTailPreference.self) { tailY in
+                guard tailY.isFinite else { return }
+                scrollMetrics.tailY = tailY
+                if userScrolling { updateFollowsTail(userDriven: true) }
+            }
+            .onChange(of: model.visibleRows.last?.id) { _, last in
+                guard !preservingHistoryPosition, model.scrollRequestID == nil,
+                      last != nil else { return }
+                followNewestContent(proxy: proxy)
+            }
+            .onChange(of: liveScrollKey) { _, key in
+                guard key != nil else { return }
+                followNewestContent(proxy: proxy)
+            }
+            .onChange(of: model.streamingText) { _, value in
+                guard let value, !value.isEmpty else { return }
+                followNewestContent(proxy: proxy)
+            }
+            // #132's two extra keep-the-newest-row triggers run through the
+            // same tail guard and 120ms coalescing as the streaming path:
+            // the composer growing and the send echo both scroll once.
+            .onChange(of: composerDockHeight, initial: true) { _, _ in
+                followNewestContent(proxy: proxy)
+            }
+            .onChange(of: sendScrollTick) { _, _ in
+                followNewestContent(proxy: proxy)
+            }
+            // #132 settled cards: once a handled card collapses into its
+            // one-line summary (or an older card is skipped by the next user
+            // message) the content gets shorter. Wait for the 0.25s collapse
+            // animation, then give the shorter transcript one more scroll
+            // through the same coalesced tail path. The status line floats
+            // over the transcript and reserves its 14pt at all times, so its
+            // show/hide is deliberately not a scroll trigger.
+            .onChange(of: model.settledRowIDs) { _, _ in
+                followNewestContent(proxy: proxy,
+                                    delay: reduceMotion ? 0 : 300_000_000)
+            }
+            .onChange(of: model.scrollRequestID) { _, rowID in
+                guard let rowID else { return }
+                followsTail = true
+                withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(rowID, anchor: .center) }
+                model.scrollRequestID = nil
+            }
+            .onChange(of: model.hasMoreHistory) { _, hasMore in
+                if !hasMore { historyAutoLoadScheduled = false }
             }
         }
         // Same as DSH: a tap anywhere in the transcript, blank space
@@ -352,6 +378,161 @@ struct BotChatPage: View {
                                             to: nil, from: nil, for: nil)
         })
         .accessibilityIdentifier("bot.chat.transcript")
+        .onDisappear {
+            transcriptScrollTask?.cancel()
+            transcriptScrollTask = nil
+        }
+    }
+
+    /// The default is an eager stack: exact row heights, no lazy estimate /
+    /// placement feedback. `PDSH_BOT_TRANSCRIPT_STACK=lazy` keeps the old
+    /// container for a same-build A/B sample.
+    @ViewBuilder
+    private func transcriptStack(proxy: ScrollViewProxy) -> some View {
+        switch BotTranscriptStackMode.current {
+        case .eager:
+            VStack(spacing: 0) { transcriptContent(proxy: proxy) }
+        case .lazy:
+            LazyVStack(spacing: 0) { transcriptContent(proxy: proxy) }
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptContent(proxy: ScrollViewProxy) -> some View {
+        let window = transcriptWindow
+        if window.hidden > 0 {
+            earlierRowsButton
+        } else if model.hasMoreHistory {
+            // Explicit instead of `onAppear`: an eager `VStack` mounts every
+            // row, so the old top loader would fire immediately even though it
+            // is off screen, paging history into the transcript in a loop.
+            Button {
+                loadHistory(proxy: proxy)
+            } label: {
+                HStack {
+                    if model.loadingHistory { ProgressView() }
+                    Text(model.loadingHistory ? "正在加载历史" : "向上加载历史")
+                        .botCaptionFont()
+                        .foregroundStyle(HomeSpec.textTertiary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .disabled(model.loadingHistory)
+            .accessibilityIdentifier("bot.history.loader")
+            .onGeometryChange(for: CGFloat.self, of: { loader in
+                loader.frame(in: .named("bot-transcript")).maxY
+            }) { maxY in
+                historyLoaderFrameChanged(maxY, proxy: proxy)
+            }
+        }
+        if isEmpty {
+            // The old outer `GeometryReader` made the whole transcript subtree
+            // depend on the keyboard/safe-area height just for this empty
+            // state. `containerRelativeFrame` measures the container without
+            // wrapping the scroll view in a geometry-invalidating layer.
+            emptyState
+                .containerRelativeFrame(.vertical) { height, _ in
+                    max(0, height - HomeSpec.blockGap - 16)
+                }
+                .accessibilityIdentifier("bot.chat.empty")
+        }
+        // #126: the transcript only shows user messages, answers, cards and
+        // agent-comm rows. Finished process rows and live tool rows are gone;
+        // the activity line above the composer carries the running phase.
+        ForEach(window.rows) { row in
+            transcriptRow(row)
+                .id(row.id)
+        }
+        if let live = model.live {
+            BotLiveTurnView(live: live)
+            Color.clear.frame(height: 1).id("bot-live-tail")
+        }
+        if let streaming = model.streamingText {
+            BotStreamingRow(text: streaming)
+                .id("bot-live-stream")
+        }
+        // One-point tail probe: its minY in the scroll container's coordinate
+        // space tells the page whether the reader is still at the tail. It
+        // writes a plain value in the preference callback, never view state.
+        Color.clear
+            .frame(height: 1)
+            .id("bot-transcript-tail")
+            .background {
+                GeometryReader { tail in
+                    Color.clear.preference(
+                        key: BotTranscriptTailPreference.self,
+                        value: tail.frame(in: .named("bot-transcript")).minY)
+                }
+            }
+    }
+
+    /// Eager mode is bounded: render the most recent loaded rows. Older loaded
+    /// rows are still in the model, and the runtime paging (`hasMoreHistory`)
+    /// is untouched; both stay reachable through the top affordance.
+    private var transcriptWindow: (rows: [BotUIRow], hidden: Int) {
+        BotTranscriptLayoutSupport.window(model.displayRows, limit: eagerRowLimit,
+                                          eager: BotTranscriptStackMode.current == .eager)
+    }
+
+    private var earlierRowsButton: some View {
+        Button {
+            eagerRowLimit += 40
+        } label: {
+            Text("显示更早的消息")
+                .botCaptionFont()
+                .foregroundStyle(HomeSpec.textTertiary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("bot.history.local")
+    }
+
+    /// Bring the newest *actionable* row (a pending approval or a question
+    /// card) above the keyboard. The same turn's streamed text is mounted after
+    /// the durable rows, so a plain tail scroll would cover the card with text
+    /// that arrived before it. Only when there is no such card does the tail
+    /// win.
+    private func followNewestContent(proxy: ScrollViewProxy,
+                                     delay: UInt64 = 120_000_000) {
+        if let card = model.newestActionableCard {
+            scheduleTranscriptScroll(proxy: proxy, to: AnyHashable(card.id),
+                                     anchor: .bottom, delay: delay)
+        } else {
+            scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
+                                     anchor: .bottom, delay: delay)
+        }
+    }
+
+    /// Coalesce live-height changes into at most one scroll per UI turn, and
+    /// only while the reader is at the tail. The live key includes the buffer
+    /// length, so without this every streamed character would start another
+    /// placement pass; with the keyboard open that was enough to keep the
+    /// transcript busy indefinitely. `delay` lets the settled-card collapse
+    /// animation finish before the one post-collapse scroll.
+    private func scheduleTranscriptScroll(proxy: ScrollViewProxy, to id: AnyHashable,
+                                          anchor: UnitPoint,
+                                          delay: UInt64 = 120_000_000) {
+        guard followsTail, !preservingHistoryPosition, model.scrollRequestID == nil else { return }
+        transcriptScrollTask?.cancel()
+        transcriptScrollTask = Task { @MainActor in
+            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+            guard !Task.isCancelled else { return }
+            proxy.scrollTo(id, anchor: anchor)
+        }
+    }
+
+    /// Near means the tail probe sits at or just above the viewport bottom.
+    /// The value is only applied on user-driven scroll transitions, so a
+    /// keyboard/composer resize cannot turn following off.
+    private func updateFollowsTail(userDriven: Bool) {
+        guard let next = BotTranscriptLayoutSupport.updatedFollowsTail(
+            current: followsTail,
+            userDriven: userDriven,
+            tailY: scrollMetrics.tailY,
+            viewportHeight: scrollMetrics.viewportHeight
+        ) else { return }
+        if next != followsTail { followsTail = next }
     }
 
     private var isEmpty: Bool {
@@ -382,6 +563,94 @@ struct BotChatPage: View {
     }
 
     private var composerDock: some View {
+        BotComposerDock(model: model,
+                        focus: $composerFocused,
+                        initialComposerFocus: initialComposerFocus,
+                        initialComposerText: initialComposerText,
+                        initialAttachments: initialAttachments,
+                        initialAttachmentNotice: initialAttachmentNotice,
+                        onSend: { sendScrollTick &+= 1 })
+    }
+
+    private var liveScrollKey: String? {
+        model.live.map { live in
+            "\(live.segments.count):\(live.buffer.count):\(live.ended)"
+        }
+    }
+
+    private func transcriptRow(_ row: BotUIRow) -> some View {
+        BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
+                         sourceRow: $sourceRow, onSelectBot: onSelectBot,
+                         peerAppearance: peerAppearance,
+                         peerIsMainBot: peerIsMainBot,
+                         peerReaction: peerReaction,
+                         renderProbe: transcriptProbe)
+    }
+
+    private func loadHistory(proxy: ScrollViewProxy) {
+        guard !model.loadingHistory else { return }
+        let anchor = model.visibleRows.first?.id
+        preservingHistoryPosition = true
+        Task {
+            await model.loadHistory()
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            preservingHistoryPosition = false
+        }
+    }
+
+    /// Auto-page once when the top loader is actually in the viewport,
+    /// matching the old lazy-stack `onAppear` without making an off-screen
+    /// eager row page history on every launch. The small defer lets the
+    /// viewport reader report its first height; the load itself still runs
+    /// outside the layout callback.
+    private func historyLoaderFrameChanged(_ maxY: CGFloat, proxy: ScrollViewProxy) {
+        guard model.hasMoreHistory, !model.loadingHistory, !historyAutoLoadScheduled,
+              maxY.isFinite, maxY >= -1 else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            guard model.hasMoreHistory, !model.loadingHistory, !historyAutoLoadScheduled,
+                  scrollMetrics.viewportHeight > 0,
+                  maxY <= scrollMetrics.viewportHeight + 1 else { return }
+            historyAutoLoadScheduled = true
+            loadHistory(proxy: proxy)
+        }
+    }
+}
+
+/// The composer owns the draft, the focus and the attachment tray. Keeping
+/// those in their own view is what stops a keystroke (and the field growing
+/// from one to five lines) from re-evaluating the whole transcript subtree:
+/// the field changes at typing speed, and the dense card rows are exactly the
+/// work the page must not repeat per character.
+private struct BotComposerDock: View {
+    @ObservedObject var model: BotChatModel
+    var focus: FocusState<Bool>.Binding
+    let initialComposerFocus: Bool
+    /// Main's #126 scroll contract: after a send, let the local echo and the
+    /// activity line lay out, then scroll the transcript once.
+    var onSend: () -> Void = {}
+
+    @State private var draft: String
+    @State private var pendingAttachments: [BotDraftAttachment]
+    @State private var attachmentNotice: String?
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var showFiles = false
+
+    init(model: BotChatModel, focus: FocusState<Bool>.Binding,
+         initialComposerFocus: Bool, initialComposerText: String,
+         initialAttachments: [BotDraftAttachment], initialAttachmentNotice: String?,
+         onSend: @escaping () -> Void = {}) {
+        self.model = model
+        self.focus = focus
+        self.initialComposerFocus = initialComposerFocus
+        self.onSend = onSend
+        _draft = State(initialValue: initialComposerText)
+        _pendingAttachments = State(initialValue: initialAttachments)
+        _attachmentNotice = State(initialValue: initialAttachmentNotice)
+    }
+
+    var body: some View {
         VStack(spacing: 8) {
             // Failures are reported once, on the header status line; the
             // composer carries no notice of its own.
@@ -421,7 +690,7 @@ struct BotChatPage: View {
                     .font(.system(size: HomeSpec.bodySize))
                     .textFieldStyle(.plain)
                     .lineLimit(1...5)
-                    .focused($composerFocused)
+                    .focused(focus)
                     .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("bot.composer.input")
@@ -444,6 +713,25 @@ struct BotChatPage: View {
                                    value: proxy.size.height)
         })
         .accessibilityElement(children: .contain)
+        .onChange(of: draft) { _, _ in model.noteInteraction() }
+        .task {
+            // Fixture-only keyboard precondition. The capture interaction test
+            // taps the field itself; this hook exists so the keyboard-open
+            // layout can be sampled from a plain simctl launch as well.
+            guard initialComposerFocus else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            focus.wrappedValue = true
+        }
+        .photosPicker(isPresented: $showPhotos, selection: $photoItems,
+                      maxSelectionCount: BotAttachmentPolicy.maxCount, matching: .images)
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await loadPhotos(items) }
+        }
+        .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data],
+                      allowsMultipleSelection: true) { result in
+            importPickedFiles(result)
+        }
     }
 
     /// Chips for the files waiting to be sent, plus the one-line refusal for a
@@ -604,38 +892,6 @@ struct BotChatPage: View {
         return nil
     }
 
-    private var liveScrollKey: String? {
-        model.live.map { live in
-            "\(live.segments.count):\(live.buffer.count):\(live.ended)"
-        }
-    }
-
-    /// Keep the newest content (live text, local echo) above
-    /// the composer, except while the user is loading older history or a deep
-    /// link is centering a specific row.
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        guard !preservingHistoryPosition, model.scrollRequestID == nil else { return }
-        proxy.scrollTo("bot-transcript-bottom", anchor: .bottom)
-    }
-
-    /// A settled card collapses with a 0.25s animation; wait for it to finish
-    /// (no wait under reduce motion) before giving the shorter transcript one
-    /// more scroll. A newer change replaces the pending one.
-    private func scheduleSettledScroll(_ proxy: ScrollViewProxy) {
-        settledScrollWork?.cancel()
-        guard !preservingHistoryPosition, model.scrollRequestID == nil else {
-            settledScrollWork = nil
-            return
-        }
-        let work = DispatchWorkItem { scrollToBottom(proxy) }
-        settledScrollWork = work
-        if reduceMotion {
-            DispatchQueue.main.async(execute: work)
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
-        }
-    }
-
     /// Exactly one round button with three states: send (idle, disabled when
     /// empty), stop (running with an empty draft), send-and-steer (running
     /// with text). The send id is stable so the capture tests can drive it.
@@ -671,27 +927,8 @@ struct BotChatPage: View {
         pendingAttachments = []
         attachmentNotice = nil
         model.send(text: text, files: files)
-        sendScrollTick &+= 1
-        composerFocused = true
-    }
-
-    private func transcriptRow(_ row: BotUIRow) -> some View {
-        BotTranscriptRow(row: row, model: model, actions: resolvedCardActions,
-                         sourceRow: $sourceRow, onSelectBot: onSelectBot,
-                         peerAppearance: peerAppearance,
-                         peerIsMainBot: peerIsMainBot,
-                         peerReaction: peerReaction)
-    }
-
-    private func loadHistory(proxy: ScrollViewProxy) {
-        guard !model.loadingHistory else { return }
-        let anchor = model.visibleRows.first?.id
-        preservingHistoryPosition = true
-        Task {
-            await model.loadHistory()
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
-            preservingHistoryPosition = false
-        }
+        onSend()
+        focus.wrappedValue = true
     }
 }
 
@@ -780,8 +1017,10 @@ private struct BotTranscriptRow: View {
     let peerAppearance: (String) -> BotFishAppearance?
     let peerIsMainBot: (String) -> Bool
     let peerReaction: (String) -> BotFishReaction?
+    let renderProbe: BotTranscriptRenderProbe?
 
     var body: some View {
+        let _ = renderProbe?.note(row.id)
         Group {
             if let comm = BotAgentCommRendering.presentation(for: row) {
                 BotAgentCommRow(presentation: comm,
@@ -1091,6 +1330,70 @@ private struct BotDocumentPreview: View {
             .background(HomeSpec.page)
             .navigationTitle("文档")
             .toolbar { Button("完成") { dismiss() } }
+        }
+    }
+}
+
+/// Scroll metrics for the transcript tail. This is a plain reference box, not
+/// `@State`: the tail probe and viewport reader fire during layout, and writing
+/// observable state there would dirty the graph that is measuring the rows.
+private final class BotTranscriptScrollMetrics {
+    var tailY: CGFloat = .greatestFiniteMagnitude
+    var viewportHeight: CGFloat = 0
+}
+
+private struct BotTranscriptTailPreference: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Reads the scroll viewport height without wrapping the transcript in a
+/// `GeometryReader`. The action runs after a real size change (keyboard,
+/// composer growth, rotation), updates the plain metrics box and lets the page
+/// follow the newest content with the new viewport.
+private struct BotTranscriptViewportReader: ViewModifier {
+    let metrics: BotTranscriptScrollMetrics
+    var onChange: (CGFloat) -> Void = { _ in }
+
+    func body(content: Content) -> some View {
+        content.onGeometryChange(for: CGFloat.self, of: { proxy in
+            proxy.size.height
+        }) { height in
+            metrics.viewportHeight = height
+            onChange(height)
+        }
+    }
+}
+
+private enum BotTranscriptScrollPhase {
+    case userDriven
+    case settled
+    case other
+}
+
+/// iOS 18 scroll phases distinguish a person dragging the transcript from a
+/// keyboard/composer resize or a programmatic scroll. On iOS 17 this is a
+/// no-op and the transcript keeps the pre-existing follow behavior.
+private struct BotTranscriptScrollPhaseObserver: ViewModifier {
+    let onChange: (BotTranscriptScrollPhase) -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, phase in
+                switch phase {
+                case .interacting, .decelerating, .tracking:
+                    onChange(.userDriven)
+                case .idle:
+                    onChange(.settled)
+                default:
+                    onChange(.other)
+                }
+            }
+        } else {
+            content
         }
     }
 }

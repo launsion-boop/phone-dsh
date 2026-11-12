@@ -41,7 +41,7 @@ import ProbeKit
 
 @MainActor
 final class PhoneDSHWorkerCapabilitySSETests: XCTestCase {
-    private static let envName = "PDSH_TEST_MCP_SSE_TOKEN"
+    private static let envName = "PHONE_TEST_MCP_SSE_TOKEN"
 
     func testSimulatorPhoneMCPStreamableHTTPSSEResponseToolRegisterListInvokeRemove() async throws {
         let nonce = PhoneDSHWorkerCapabilityTests.makeNonce("sse")

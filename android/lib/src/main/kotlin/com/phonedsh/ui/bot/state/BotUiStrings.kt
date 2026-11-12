@@ -30,7 +30,7 @@ public object BotUiStrings {
     public const val SETTLEMENT_APPROVALAUTODECLINED: String = "已略过，视为拒绝"
     public const val SETTLEMENT_APPROVALALLOWEDONCE: String = "已允许一次"
     /** status always + scope session */
-    public const val SETTLEMENT_APPROVALSESSIONALLOWED: String = "本次对话允许"
+    public const val SETTLEMENT_APPROVALSESSIONALLOWED: String = "本次对话都允许"
     /** status always + any other scope */
     public const val SETTLEMENT_APPROVALALWAYS: String = "已总是允许"
     /** status denied/never */
