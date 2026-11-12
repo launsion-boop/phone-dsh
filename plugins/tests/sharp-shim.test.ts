@@ -33,6 +33,7 @@ import { build } from 'esbuild'
 
 import { createSharpModule } from '../worker-entry/src/sharp-shim.ts'
 import { parseImageMetadata, readTiffOrientation } from '../worker-entry/src/sharp-metadata.ts'
+import { encodeWebpLossless } from '../worker-entry/src/sharp-webp.ts'
 import { installFakeImagePlatform } from './fixtures/fake-image-platform.ts'
 import { GOLDEN_GIF_2FRAME, GOLDEN_JPEG_3X2, GOLDEN_PNG_1X1 } from './fixtures/golden-images.ts'
 
@@ -76,10 +77,11 @@ interface CapturedResult {
     }
     unsupported: Record<string, { name: string; code: string | undefined; message: string }>
     encodeJpeg: { info?: { width: number; height: number }; bytes?: number; error?: { name: string; message: string } }
+    encodeWebp: { info?: { width: number; height: number }; bytes?: number; format?: string; error?: { name: string; message: string } }
   }
   integration: {
     runtime: Record<'png' | 'gif' | 'jpeg' | 'corrupt', { ref?: unknown; error?: { name: string; code: string | undefined; message: string } }>
-    phone: Record<'png' | 'gif' | 'jpeg' | 'corrupt', { ref?: unknown; error?: { name: string; code: string | undefined; message: string } }>
+    phone: Record<'png' | 'gif' | 'jpeg' | 'corrupt' | 'requestPngWebp', { ref?: unknown; error?: { name: string; code: string | undefined; message: string } }>
   }
 }
 
@@ -191,6 +193,20 @@ test('the Node imaging stand-in enforces the WorkerGlobalScope receiver on every
       '89504e470d0a1a0a',
       'PNG encoder output keeps the PNG signature',
     )
+
+    const encodedWebp = await shim(vectors[0].bytes)
+      .webp({ quality: 85 })
+      .toBuffer({ resolveWithObject: true })
+    assert.equal(encodedWebp instanceof Uint8Array, false)
+    const encodedWebpOutput = encodedWebp as { data: Uint8Array; info: { width: number; height: number; channels: number; size: number } }
+    assert.deepEqual(
+      { width: encodedWebpOutput.info.width, height: encodedWebpOutput.info.height, channels: encodedWebpOutput.info.channels },
+      { width: 1, height: 1, channels: 4 },
+      'WebP fallback encodes the canvas RGBA raster when convertToBlob returns image/png',
+    )
+    const webpMeta = parseImageMetadata(encodedWebpOutput.data)
+    assert.equal(webpMeta.format, 'webp')
+    assert.deepEqual({ width: webpMeta.width, height: webpMeta.height }, { width: 1, height: 1 })
 
     const normalizedGif = await shim(vectors[1].bytes).jpeg({ quality: 80 }).toBuffer({ resolveWithObject: true })
     assert.equal(normalizedGif instanceof Uint8Array, false)
@@ -311,6 +327,38 @@ test('container inspection reports PNG/GIF/JPEG/WebP facts without a pixel decod
     const facts = error as { code?: string; message?: string }
     return facts.code === 'SHARP_UNSUPPORTED_OPERATION' && /sharp\.rotate\(angle\)/.test(facts.message ?? '')
   })
+
+  // VP8L lossless WebP encoder produces valid containers with and without alpha
+  // and steps down the quality ladder for semi-random rasters.
+  const opaqueRgba = new Uint8Array(4 * 3 * 4)
+  for (let i = 0; i < 12; i += 1) {
+    opaqueRgba[i * 4] = (i * 23) & 0xff
+    opaqueRgba[i * 4 + 1] = (i * 47) & 0xff
+    opaqueRgba[i * 4 + 2] = (i * 71) & 0xff
+    opaqueRgba[i * 4 + 3] = 255
+  }
+  const opaqueWebp = encodeWebpLossless(opaqueRgba, 4, 3, { lossless: true })
+  const opaqueWebpMeta = parseImageMetadata(opaqueWebp)
+  assert.equal(opaqueWebpMeta.format, 'webp')
+  assert.deepEqual({ width: opaqueWebpMeta.width, height: opaqueWebpMeta.height }, { width: 4, height: 3 })
+  assert.equal(opaqueWebpMeta.hasAlpha, false, 'all-opaque RGBA omits the VP8L alpha flag')
+
+  const alphaRgba = opaqueRgba.slice()
+  alphaRgba[3] = 128
+  const alphaWebp = encodeWebpLossless(alphaRgba, 4, 3, { quality: 85 })
+  const alphaWebpMeta = parseImageMetadata(alphaWebp)
+  assert.equal(alphaWebpMeta.format, 'webp')
+  assert.deepEqual({ width: alphaWebpMeta.width, height: alphaWebpMeta.height }, { width: 4, height: 3 })
+  assert.equal(alphaWebpMeta.hasAlpha, true, 'non-opaque RGBA sets the VP8L alpha flag')
+
+  assert.throws(
+    () => encodeWebpLossless(opaqueRgba, 0, 3),
+    (error: unknown) => (error as { code?: string }).code === 'SHARP_ENCODER_OUTPUT',
+  )
+  assert.throws(
+    () => encodeWebpLossless(opaqueRgba.subarray(0, 10), 4, 3),
+    (error: unknown) => (error as { code?: string }).code === 'SHARP_ENCODER_OUTPUT',
+  )
 })
 
 test('the Worker sharp shim makes read_image decode real rasters (G2-FIX-60)', { skip }, async () => {
@@ -408,6 +456,16 @@ test('the Worker sharp shim makes read_image decode real rasters (G2-FIX-60)', {
   assert.ok(normalizedGif.bytes > 0)
   assert.equal(result.integration.phone.corrupt.error?.code, 'INVALID_IMAGE')
   assert.equal(result.integration.phone.corrupt.error?.message, 'Unsupported or malformed image data.')
+  assert.equal(
+    result.integration.phone.requestPngWebp.error,
+    undefined,
+    `phone RGBA PNG request-image WebP ladder failed: ${JSON.stringify(result.integration.phone.requestPngWebp.error)}`,
+  )
+  const requestPngWebp = result.integration.phone.requestPngWebp.ref as { mediaType: string; width: number; height: number; bytes: number }
+  assert.equal(requestPngWebp.mediaType, 'image/webp')
+  assert.equal(requestPngWebp.width, 1)
+  assert.equal(requestPngWebp.height, 1)
+  assert.ok(requestPngWebp.bytes > 0)
 
   // ---- The runtime's own entry is still the refusing stub.
   assert.equal(result.runtime.proxy, './node/external_packages/sharp.ts')
@@ -471,6 +529,11 @@ test('the Worker sharp shim makes read_image decode real rasters (G2-FIX-60)', {
   assert.equal(result.contract.encodeJpeg.info?.width, 1)
   assert.equal(result.contract.encodeJpeg.info?.height, 1)
   assert.ok((result.contract.encodeJpeg.bytes ?? 0) > 0)
+  assert.equal(result.contract.encodeWebp.error, undefined)
+  assert.equal(result.contract.encodeWebp.info?.width, 1)
+  assert.equal(result.contract.encodeWebp.info?.height, 1)
+  assert.equal(result.contract.encodeWebp.format, 'webp')
+  assert.ok((result.contract.encodeWebp.bytes ?? 0) > 0)
 
   // ---- The runtime table reproduces the reported defect: every valid image
   //      is folded into INVALID_IMAGE by attachment-local's admission.

@@ -45,7 +45,7 @@ public actor ADBMCPServer: NativeMCPServing {
         _ = await task.value
     }
     public func checkConnection(_ configuration: ADBConfiguration) async throws -> String {
-        guard active == nil else { throw ADBFailure("An Android operation is already running") }
+        guard active == nil else { throw ADBFailure("An Android operation is already running", kind: .busy) }
         let endpoint = try configuration.endpoint()
         let task = Task<JSONValue, Never> { [executor] in
             do {
@@ -109,7 +109,12 @@ public actor ADBMCPServer: NativeMCPServing {
                 guard receipt.fingerprint == fingerprint else { return rpcError(id: id, code: -32602, message: "Idempotency key conflict") }
                 return response(id: id, result: receipt.result ?? ADBTools.textResult("This Android operation was already admitted; its result is pending or no longer retained. Inspect device state before issuing a new action.", error: true))
             }
-            guard active == nil else { return response(id: id, result: ADBTools.textResult("An Android operation is already running; wait for it before the next action.", error: true)) }
+            guard active == nil else {
+                // The MCP result is still plain text; the failure is typed so a
+                // retryable conflict is distinguishable from a device error.
+                let busy = ADBFailure("An Android operation is already running; wait for it before the next action.", kind: .busy)
+                return response(id: id, result: ADBTools.textResult(busy.localizedDescription, error: true))
+            }
             if let key {
                 guard key.count <= 256, !key.isEmpty, receipts.count < 4096 else {
                     return rpcError(id: id, code: -32602, message: "Invalid idempotency key or receipt capacity reached; restart the app")

@@ -103,6 +103,17 @@ public interface AdbCommandExecuting {
     ): AdbShellResult
 }
 
+/**
+ * Handshake progress shared between the blocking reader and the wall-clock
+ * guard: after adbd has been sent our key it may hold the socket open while the
+ * TV shows its authorization prompt, and that wait must be distinguishable
+ * from a plain network timeout.
+ */
+internal class AdbHandshakeState {
+    @Volatile var authStarted: Boolean = false
+    @Volatile var connected: Boolean = false
+}
+
 /** The production executor: a fresh TCP connection and the stored identity per command. */
 public class AdbClient(
     private val identity: suspend () -> AdbIdentity,
@@ -138,6 +149,7 @@ public class AdbClient(
                 throw AdbFailure("Invalid ADB command or execution limits")
             }
             val timedOut = AtomicBoolean(false)
+            val handshake = AdbHandshakeState()
             return coroutineScope {
                 val guard = launch(Dispatchers.IO) {
                     try {
@@ -148,17 +160,19 @@ public class AdbClient(
                     }
                 }
                 try {
-                    withContext(Dispatchers.IO) { blocking(transport, identity, command, stdin, outputLimit) }
+                    withContext(Dispatchers.IO) {
+                        blocking(transport, identity, command, stdin, outputLimit, handshake)
+                    }
                 } catch (failure: CancellationException) {
                     throw failure
                 } catch (failure: IOException) {
                     // A cancellation closed the socket: report the cancellation, not the IO error.
                     currentCoroutineContext().ensureActive()
-                    if (timedOut.get()) throw AdbFailure("Android command timed out; its outcome is unknown")
-                    throw AdbFailure(failure.message ?: "ADB connection failed")
+                    if (timedOut.get()) throw timeoutFailure(handshake)
+                    throw AdbFailure(failure.message ?: "ADB connection failed", AdbFailureKind.UNREACHABLE)
                 } catch (failure: AdbFailure) {
                     currentCoroutineContext().ensureActive()
-                    if (timedOut.get()) throw AdbFailure("Android command timed out; its outcome is unknown")
+                    if (timedOut.get()) throw timeoutFailure(handshake)
                     throw failure
                 } finally {
                     guard.cancel()
@@ -167,12 +181,33 @@ public class AdbClient(
             }
         }
 
+        /**
+         * A timeout after our key was sent but before CNXN is the TV prompt:
+         * report it as unauthorized so the caller can keep waiting. Anything
+         * else is a real timeout.
+         */
+        private fun timeoutFailure(handshake: AdbHandshakeState): AdbFailure =
+            if (handshake.authStarted && !handshake.connected) {
+                AdbFailure(ADB_AUTHORIZATION_PENDING_MESSAGE, AdbFailureKind.UNAUTHORIZED)
+            } else {
+                AdbFailure("Android command timed out; its outcome is unknown")
+            }
+
+        /** EOF before CNXN: unauthorized once the AUTH exchange started, else unreachable. */
+        private fun handshakeFailure(message: String?, authStep: Int): AdbFailure =
+            if (authStep > 0) {
+                AdbFailure(ADB_AUTHORIZATION_PENDING_MESSAGE, AdbFailureKind.UNAUTHORIZED)
+            } else {
+                AdbFailure(message ?: "ADB connection failed", AdbFailureKind.UNREACHABLE)
+            }
+
         internal fun blocking(
             transport: AdbTransport,
             identity: AdbIdentity,
             command: String,
             stdin: ByteArray,
             outputLimit: Int,
+            handshake: AdbHandshakeState = AdbHandshakeState(),
         ): AdbShellResult {
             transport.start()
             transport.write(
@@ -180,13 +215,25 @@ public class AdbClient(
             )
             var authStep = 0
             while (true) {
-                val packet = AdbPacket.read(transport)
+                val packet = try {
+                    AdbPacket.read(transport)
+                } catch (failure: AdbFailure) {
+                    throw handshakeFailure(failure.message, authStep)
+                } catch (failure: IOException) {
+                    throw handshakeFailure(failure.message, authStep)
+                }
                 if (packet.command == AdbPacket.CONNECT) {
                     val banner = String(packet.payload, Charsets.UTF_8)
                     val features = banner.split("features=").drop(1).firstOrNull()
                         ?.split(';', '\u0000')?.firstOrNull()?.split(',').orEmpty()
-                    if ("shell_v2" !in features) throw AdbFailure("Android does not advertise shell_v2 (Android 7+ required)")
-                    if (packet.arg1 < 4096) throw AdbFailure("Unsupported ADB packet limit")
+                    if ("shell_v2" !in features) {
+                        throw AdbFailure("Android does not advertise shell_v2 (Android 7+ required)",
+                            AdbFailureKind.PROTOCOL_VIOLATION)
+                    }
+                    if (packet.arg1 < 4096) {
+                        throw AdbFailure("Unsupported ADB packet limit", AdbFailureKind.PROTOCOL_VIOLATION)
+                    }
+                    handshake.connected = true
                     break
                 }
                 if (packet.command == AdbPacket.TLS) {
@@ -195,11 +242,12 @@ public class AdbClient(
                     )
                 }
                 if (packet.command != AdbPacket.AUTH || packet.arg0 != 1L || authStep >= 2) {
-                    throw AdbFailure("ADB authorization refused; unlock Android and accept this phone's debugging key")
+                    throw AdbFailure(ADB_AUTHORIZATION_PENDING_MESSAGE, AdbFailureKind.UNAUTHORIZED)
                 }
                 val data = if (authStep == 0) identity.sign(packet.payload) else identity.publicKey()
                 transport.write(AdbPacket(AdbPacket.AUTH, if (authStep == 0) 2L else 3L, 0L, data).encoded())
                 authStep += 1
+                handshake.authStarted = true
             }
             transport.write(
                 AdbPacket(AdbPacket.OPEN, 1, 0, ("shell,v2,raw:$command\u0000").toByteArray(Charsets.UTF_8)).encoded(),

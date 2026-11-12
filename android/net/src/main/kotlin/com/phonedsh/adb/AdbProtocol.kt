@@ -13,8 +13,30 @@ package com.phonedsh.adb
 
 import java.io.ByteArrayOutputStream
 
+/**
+ * Coarse category for an ADB failure so callers can branch without parsing the
+ * human-readable message. Mirrors `ADBFailureKind` in
+ * `Sources/PhoneDSHADB/ADBProtocol.swift`; both ends use the same names.
+ */
+public enum class AdbFailureKind {
+    UNREACHABLE,
+    UNAUTHORIZED,
+    BUSY,
+    PROTOCOL_VIOLATION,
+    UNSUPPORTED,
+    CANCELLED,
+    DEVICE,
+}
+
+/** The one message both ends use while adbd holds the socket for the TV prompt. */
+internal const val ADB_AUTHORIZATION_PENDING_MESSAGE: String =
+    "ADB authorization refused; unlock Android and accept this phone's debugging key"
+
 /** A user-presentable ADB failure; [message] never carries key material. */
-public class AdbFailure(message: String) : Exception(message)
+public class AdbFailure(
+    message: String,
+    public val kind: AdbFailureKind = AdbFailureKind.DEVICE,
+) : Exception(message)
 
 internal fun ByteArray.le32(offset: Int): Long =
     (0 until 4).fold(0L) { acc, i -> acc or ((this[offset + i].toLong() and 0xFF) shl (8 * i)) }

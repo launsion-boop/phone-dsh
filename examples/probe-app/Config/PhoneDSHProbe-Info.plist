@@ -105,6 +105,10 @@
 	<array>
 		<string>_pdsh._tcp.</string>
 		<string>_pdsh-mcp._tcp.</string>
+		<string>_androidtvremote2._tcp.</string>
+		<string>_googlecast._tcp.</string>
+		<string>_airplay._tcp.</string>
+		<string>_roku-rcp._tcp.</string>
 	</array>
 	<!-- Phone permissions: each description is requested only when the user
 	     taps that capability in Settings → Phone permissions. -->
@@ -139,10 +143,11 @@
 	<key>NSAppleMusicUsageDescription</key>
 	<string>通过 MusicKit 播放你明确选择的音乐目录项目。</string>
 	<!-- Connecting an MCP server on the household/corporate LAN triggers the
-	     iOS local-network prompt. NWBrowser is used only for the explicit
-	     local-network test and browses the declared _pdsh._tcp service. -->
+	     iOS local-network prompt. The Android ADB page starts a foreground TV
+	     scan when it opens (NWConnection plus the declared DNS-SD TV service
+	     types), so the prompt appears at that moment instead of behind a tap. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>用于连接你明确添加的局域网 MCP 服务器、Android ADB 手机和 SSH 主机，以及仅在你点击测试时发现 _pdsh._tcp 服务。</string>
+	<string>用于发现并连接你所在局域网的电视/Android ADB 设备、局域网 MCP 服务器和 SSH 主机；打开 Android ADB 页面时会自动扫描当前 Wi-Fi 的局域网。</string>
 	<!-- The probe origin is plain HTTP on 127.0.0.1; NSAllowsLocalNetworking
 	     also permits a user-added plain-HTTP MCP endpoint on the local network.
 	     No arbitrary-loads or remote-HTTP exception is declared. -->
