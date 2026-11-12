@@ -429,7 +429,10 @@ test('egress: script-file and concatenated curl POSTs reach the host exit', asyn
         env: { ...process.env, PDSH_CHANNEL_ORIGIN: exitOrigin, PDSH_CHANNEL_TOKEN: CHANNEL_TOKEN },
       })
       assert.equal(result.exitCode, 22, `${command}: ${result.stderr}`)
-      assert.match(result.stderr, /host allow-list rejected/u)
+      // The host exit answered with the structured egress envelope; the shim
+      // must surface the named cause instead of collapsing every 403 into the
+      // generic allow-list sentence.
+      assert.match(result.stderr, /egress_approval_denied: approval denied/u)
     }
     assert.equal(seen.length, 2, JSON.stringify(seen))
     for (const request of seen) {
@@ -576,6 +579,50 @@ test('web_fetch: the DeepSeek fetch provider sends the URL to its own API, not t
   } finally {
     globalThis.fetch = previousFetch
     await pair.close()
+  }
+})
+
+test('web_fetch: a host web-tool 404 is reported as page retrieval, not an MCP failure', async () => {
+  // The host replaces a non-2xx official Search/Fetch body with a controlled
+  // JSON-RPC diagnostic. This is the exact shape emitted by
+  // SensitiveResponseBody for the web-tool kind (HTTP status preserved).
+  const previousFetch = globalThis.fetch
+  try {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      jsonrpc: '2.0',
+      id: null,
+      error: {
+        code: -32000,
+        message:
+          'the web tool could not retrieve usable target content: the URL may be missing, '
+          + 'blocked by the site, an unsupported content type, or have no extractable Markdown '
+          + '(HTTP 404). The upstream response body was withheld by the host.',
+      },
+    }), {
+      status: 404,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })) as typeof fetch
+    const { DeepSeekFetchApiProvider } = await import('@deepseek-ai/dsh-web-deepseek-api')
+    const provider = new DeepSeekFetchApiProvider(() => ({
+      apiKey: 'wp3-fixture-search-key',
+      baseURL: 'https://api.deepseek.test/v1/tools',
+    }))
+    await assert.rejects(
+      provider.fetch(
+        { url: 'https://raw.githubusercontent.com/launsion-boop/phone-dsh/main/README.md' },
+        new AbortController().signal,
+      ),
+      (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.match(error.message, /DeepSeek API error \(HTTP 404\)/)
+        assert.match(error.message, /could not retrieve usable target content/)
+        assert.match(error.message, /withheld by the host/)
+        assert.doesNotMatch(error.message, /MCP upstream/)
+        return true
+      },
+    )
+  } finally {
+    globalThis.fetch = previousFetch
   }
 })
 

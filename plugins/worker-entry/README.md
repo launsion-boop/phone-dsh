@@ -34,6 +34,7 @@ or copies it.
 | `src/sharp-shim.ts` | Worker-side `sharp` subset: container metadata, raster decode, normalization pipeline |
 | `src/sharp-metadata.ts` | Pure-TS PNG/JPEG/GIF/WebP header inspection used by the shim |
 | `src/sharp-jpeg.ts` | Strips WebKit-added retained metadata from JPEG encoder output without touching scan data |
+| `src/sharp-webp.ts` | Pure-TS RFC 9649 WebP Lossless (`VP8L`) encoder used when `OffscreenCanvas.convertToBlob` falls back to `image/png` |
 | `src/sharp-errors.ts` | Distinct malformed-input, unsupported-operation and encoder-output errors |
 | `src/sharp-marker.ts` | Bundle/pack identity marker for the shim |
 | `src/runtime-modules.d.ts` | Structural declarations for the runtime sources the entry calls |
@@ -142,10 +143,12 @@ Anything else throws `SharpUnsupportedOperationError` with
 `code: 'SHARP_UNSUPPORTED_OPERATION'` and the operation name; malformed bytes
 throw `SharpInputError` (`SHARP_INVALID_IMAGE`), which admission maps to its own
 `INVALID_IMAGE`. EXIF orientations 2-8 are applied with a canvas transform when
-`.rotate()` runs. WebKit's `createImageBitmap` orientation-option behaviour and
-`OffscreenCanvas` WebP encoding are `NOT_VERIFIED` on device; a runtime that
-cannot encode WebP gets the loud unsupported-operation error instead of a
-silently mislabelled image.
+`.rotate()` runs. WebKit's `OffscreenCanvas.convertToBlob({ type: 'image/webp' })`
+falls back to `image/png` on iOS/macOS; when that fallback happens,
+`src/sharp-webp.ts` encodes the canvas RGBA pixels into a single-frame RFC 9649
+`VP8L` WebP container so `attachment-local`'s alpha quality ladder succeeds on
+WebKit, while any other `convertToBlob` type mismatch still raises the loud
+unsupported-operation error instead of a silently mislabelled image.
 
 WebKit's `OffscreenCanvas` JPEG encoder can append an APP1 `Exif\0\0` segment
 and an APP13 `Photoshop 3.0\0` segment to an otherwise metadata-free canvas.

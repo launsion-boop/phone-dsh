@@ -100,4 +100,28 @@ final class PhoneDSHWorkerEnvironmentTests: XCTestCase {
         XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.channelToken], "loopback-token")
         XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.launchToken], "loopback-token")
     }
+
+    /// Bot finding #1: the Worker shell's `date` reads `TZ` and defaults to
+    /// UTC. The runtime-context block states the same zone the App uses, so
+    /// the host must hand the Worker that zone instead of leaving the sandbox
+    /// eight hours behind.
+    func testWorkerEnvironmentCarriesTheHostTimeZone() {
+        let endpoint = LoopbackEndpoint(baseURL: URL(string: "http://127.0.0.1:41000")!,
+                                        token: "loopback-token")
+        let environment = PhoneDSHHost.workerEnvironment(
+            endpoint: endpoint, channelPath: "/channel",
+            mcpEgressToken: "0123456789abcdef0123456789abcdef", overrides: [:])
+        XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.timeZone],
+                       TimeZone.current.identifier)
+    }
+
+    func testExplicitTimeZoneOverrideWins() {
+        let endpoint = LoopbackEndpoint(baseURL: URL(string: "http://127.0.0.1:41000")!,
+                                        token: "loopback-token")
+        let environment = PhoneDSHHost.workerEnvironment(
+            endpoint: endpoint, channelPath: "/channel",
+            mcpEgressToken: "0123456789abcdef0123456789abcdef",
+            overrides: [PhoneDSHWorkerEnvironment.timeZone: "Asia/Tokyo"])
+        XCTAssertEqual(environment[PhoneDSHWorkerEnvironment.timeZone], "Asia/Tokyo")
+    }
 }

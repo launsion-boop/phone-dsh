@@ -36,6 +36,7 @@ import {
 } from './sharp-errors.ts'
 import { parseImageMetadata, type SharpMetadata, type SharpMetadataOptions } from './sharp-metadata.ts'
 import { stripJpegMetadataSegments } from './sharp-jpeg.ts'
+import { encodeWebpLossless } from './sharp-webp.ts'
 import { SHARP_SHIM_MARKER } from './sharp-marker.ts'
 
 /** Options DSH passes to the sharp constructor. */
@@ -402,6 +403,15 @@ async function encodeCanvas(
     ...quality === undefined ? {} : { quality },
   })
   if (blob.type !== type) {
+    if (format === 'webp' && blob.type === 'image/png') {
+      // WebKit's OffscreenCanvas has no native image/webp encoder and falls
+      // back to image/png per the HTML Canvas spec. Encode the canvas RGBA
+      // raster into a valid single-frame VP8L WebP container so DSH's alpha
+      // quality ladder succeeds on iOS/macOS WebKit.
+      const context = contextOf(canvas, 'sharp.webp')
+      const image = context.getImageData(0, 0, canvas.width, canvas.height)
+      return encodeWebpLossless(image.data, canvas.width, canvas.height, options)
+    }
     throw new SharpUnsupportedOperationError(
       `sharp.${format}`,
       `this Worker's OffscreenCanvas cannot encode ${type} (it produced ${blob.type === '' ? 'an untyped blob' : blob.type})`,

@@ -2,6 +2,7 @@
 
 import SwiftUI
 import UIKit
+import PhoneDSHBot
 
 struct BotWorkCardView: View {
     let row: BotUIRow
@@ -262,7 +263,9 @@ private struct BotApprovalCardView: View {
     private var scope: String { row.body["alwaysScope"]?.string ?? ask["alwaysScope"]?.string ?? "until" }
     private var key: String { "approval:\(row.id)" }
     private var busy: Bool { model.actionStates[key] == .pending }
-    private var allowed: Bool { status == "allowed" || status == "always" }
+    private var allowed: Bool {
+        status == "allowed" || status == "allowed-session" || status == "always"
+    }
     private var longCommand: Bool {
         command.count > 240 || command.split(separator: "\n", omittingEmptySubsequences: false).count > 5
     }
@@ -271,14 +274,7 @@ private struct BotApprovalCardView: View {
         return risk?["level"]?.string == "high" || risk?["tags"]?.array?.contains(.string("irreversible")) == true
     }
     private var statusLabel: String {
-        switch status {
-        case "allowed": return "已允许一次"
-        case "always": return scope == "session" ? "本次对话允许" : "已总是允许"
-        case "denied", "never": return "已拒绝"
-        case "timed-out": return "已超时，视为拒绝"
-        case "expired": return "已过期，视为拒绝"
-        default: return "已处理"
-        }
+        BotApprovalReceipt.label(for: status, scope: scope)
     }
 
     var body: some View {
@@ -498,18 +494,25 @@ private struct BotAutomationCardView: View {
 /// red for a failure, gray for a denial.
 private struct BotNoticeCardView: View {
     let row: BotUIRow
-    private var denial: Bool { ["denied", "denial"].contains(row.body["tone"]?.string ?? "") }
+
+    /// `tone` is a presentation hint, not a visibility gate: info notices (for
+    /// example the session-continuation line) stay neutral, while error and
+    /// denial notices use the danger/secondary treatments.
+    private var tone: String { row.body["tone"]?.string ?? "error" }
+    private var denial: Bool { ["denied", "denial"].contains(tone) }
+    private var info: Bool { ["info", "success", "warning", "neutral"].contains(tone) }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: denial ? "hand.raised" : "exclamationmark.circle")
+            Image(systemName: denial ? "hand.raised" : (info ? "info.circle" : "exclamationmark.circle"))
                 .font(.system(size: 14, weight: .medium))
             Text(row.body["text"]?.string ?? "")
                 .botCardRow()
-                .foregroundStyle(denial ? HomeSpec.textSecondary : NativeParityTokens.error)
+                .foregroundStyle(denial || info ? HomeSpec.textSecondary : NativeParityTokens.error)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .foregroundStyle(denial ? HomeSpec.textPlaceholder : NativeParityTokens.error)
+        .foregroundStyle(denial ? HomeSpec.textPlaceholder
+                         : (info ? HomeSpec.textSecondary : NativeParityTokens.error))
         .accessibilityIdentifier("bot.card.notice")
     }
 }

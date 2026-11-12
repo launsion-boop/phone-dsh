@@ -13,7 +13,7 @@
   "source": {
     "file": "NativeShell.swift",
     "path": "examples/probe-app/PhoneDSHProbe/NativeShell.swift",
-    "lines": 1220,
+    "lines": 1328,
     "structLine": 466,
     "renderedFrom": [
       "body"

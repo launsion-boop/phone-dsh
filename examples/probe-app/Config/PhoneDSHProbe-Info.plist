@@ -2,6 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>GIDClientID</key>
+	<string>$(PDSH_GMAIL_IOS_CLIENT_ID)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(PDSH_GMAIL_REDIRECT_SCHEME)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).github-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>phonedsh-github</string>
+			</array>
+		</dict>
+	</array>
     <key>UIFileSharingEnabled</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
@@ -17,7 +36,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Phone DSH</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -105,6 +124,10 @@
 	<array>
 		<string>_pdsh._tcp.</string>
 		<string>_pdsh-mcp._tcp.</string>
+		<string>_androidtvremote2._tcp.</string>
+		<string>_googlecast._tcp.</string>
+		<string>_airplay._tcp.</string>
+		<string>_roku-rcp._tcp.</string>
 	</array>
 	<!-- Phone permissions: each description is requested only when the user
 	     taps that capability in Settings → Phone permissions. -->
@@ -139,10 +162,11 @@
 	<key>NSAppleMusicUsageDescription</key>
 	<string>通过 MusicKit 播放你明确选择的音乐目录项目。</string>
 	<!-- Connecting an MCP server on the household/corporate LAN triggers the
-	     iOS local-network prompt. NWBrowser is used only for the explicit
-	     local-network test and browses the declared _pdsh._tcp service. -->
+	     iOS local-network prompt. The Android ADB page starts a foreground TV
+	     scan when it opens (NWConnection plus the declared DNS-SD TV service
+	     types), so the prompt appears at that moment instead of behind a tap. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>用于连接你明确添加的局域网 MCP 服务器、Android ADB 手机和 SSH 主机，以及仅在你点击测试时发现 _pdsh._tcp 服务。</string>
+	<string>用于发现并连接你所在局域网的电视/Android ADB 设备、局域网 MCP 服务器和 SSH 主机；打开 Android ADB 页面时会自动扫描当前 Wi-Fi 的局域网。</string>
 	<!-- The probe origin is plain HTTP on 127.0.0.1; NSAllowsLocalNetworking
 	     also permits a user-added plain-HTTP MCP endpoint on the local network.
 	     No arbitrary-loads or remote-HTTP exception is declared. -->
@@ -164,5 +188,20 @@
 			</dict>
 		</dict>
 	</dict>
+	<!-- GitHub OAuth (spec/v1/github-oauth.md). The committed app intentionally
+	     ships these blank: set the three build settings to enable connection.
+	     $(...) is substituted by Xcode from the build setting of the same name;
+	     an unset value stays empty and the page reports an unconfigured build
+	     instead of contacting any service. -->
+	<key>PDSH_GITHUB_OAUTH_ORIGIN</key>
+	<string>$(PDSH_GITHUB_OAUTH_ORIGIN)</string>
+	<key>PDSH_GITHUB_OAUTH_CLIENT_ID</key>
+	<string>$(PDSH_GITHUB_OAUTH_CLIENT_ID)</string>
+	<key>PDSH_GITHUB_APP_SLUG</key>
+	<string>$(PDSH_GITHUB_APP_SLUG)</string>
+	<!-- The broker redirects to this fixed custom scheme after GitHub
+	     authorization. ASWebAuthenticationSession intercepts it and the
+	     connector validates scheme, host, path and state before exchange. -->
+
 </dict>
 </plist>

@@ -97,6 +97,8 @@ class GatewaySession(
     private val requestHeaders: RequestHeaderSanitizer = DenylistRequestHeaderSanitizer(),
     private val redirects: RedirectAuthorizer = ScopePinningRedirectAuthorizer(),
     private val sensitiveCalls: SensitiveCallClassifier = McpCallClassifier(),
+    /** Diagnostic wording for this route; official/independent web routes pass WEB_TOOL. */
+    private val sensitiveKind: SensitiveResponseKind = SensitiveResponseKind.MCP,
     private val redactor: CanonicalSensitiveBodyRedactor = CanonicalSensitiveBodyRedactor(),
     private val responseHeaders: ResponseHeaderSanitizer = DenylistResponseHeaderSanitizer(),
     val responseLog: ResponseLog = ResponseLog(quotaBytes),
@@ -297,12 +299,12 @@ class GatewaySession(
                 }
                 response.status !in 200..299 -> {
                     // The status is the diagnostic; no upstream byte survives.
-                    body = redactor.controlledDiagnostic(response.status)
+                    body = redactor.controlledDiagnostic(response.status, sensitiveKind)
                     filtered["content-type"] = JSON_WITH_UTF8
                     withheld = true
                 }
                 body.size > redactor.maxBufferedBodyBytes -> {
-                    body = redactor.controlledOversizeDiagnostic()
+                    body = redactor.controlledOversizeDiagnostic(sensitiveKind)
                     filtered["content-type"] = JSON_WITH_UTF8
                     withheld = true
                 }

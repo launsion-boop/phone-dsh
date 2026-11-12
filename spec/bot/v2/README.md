@@ -40,6 +40,11 @@ Android 与 HarmonyOS 没有 Bot runtime，本目录对它们没有实现端。
   见 §1.8。
 - 回放按 `commitSeq` 顺序应用事件。每份文档的 `version` 从 1 单调递增，删除也占用一个版本；
   历史版本可从事件库回看，`UpdateMemory{"action":"restore"}` 把旧版本作为新版本写回。
+- 回放把**载荷已被抹除**的事件当作墓碑，而不是数据损坏。墓碑保留事件头/类型/摘要，但没有
+  `path`/`version`/`content`：某路径的下一个存活版本号相对已回放版本出现**前向跳号**时，缺失的
+  版本视为已被抹除——跳过、不合成历史版本、不复活、不进入注入/检索。已在事件库中看到同版本
+  且内容冲突，或版本号不前进（乱序/重复）仍是真正的损坏，继续报错；不能把墓碑当作“没有这条
+  事件”而重排序号。
 - `memory-document.schema.json` 冻结 live 文档/版本形状；`memory-write-request.schema.json`、
   `memory-write-result.schema.json`、`memory-read-result.schema.json`、`memory-recall.schema.json`
   冻结三个原语的输入/输出形状。`memory-legacy-fact.schema.json` 只描述迁移输入。
@@ -187,10 +192,13 @@ maintainer 回合都得不到保留值（`memory-evidence-invalid`）。
   `memory.document_deleted`，live 文档消失，历史版本和原始事件保留。
 - **抹除（erase）**：只由宿主的记忆页/服务路径发起，模型工具面没有这个 action。它物理清除：
   该文档（或 `agent/`、`user/` 整个根）的 live 文档、**全部历史版本**、对应
-  `memory.document_written`/`memory.document_deleted` 事件载荷、检索结果、UI 行，以及事件载荷里
-  与版本文本相同或由唯一标记匹配到的副本；`redaction.applied`/观察信封等指向被清除
+  `memory.document_written`/`memory.document_deleted` 事件载荷、检索结果、UI 行，以及非记忆事件
+  载荷里与版本文本相同或由唯一标记匹配到的副本；`redaction.applied`/观察信封等指向被清除
   `record://event/...` 的内容也一并清除。事件头、序号、id、类型和 SHA-256 摘要保留，并追加一条
   durable `erasure` 事件（v1 §4.6、[erasure-event.schema.json](../v1/erasure-event.schema.json)）。
+  **其他记忆文档不是副本**：`memory.document_written`/`memory.document_deleted`/`memory.written`/
+  `memory.forgotten` 事件只按目标路径/scope 选择；其他路径的文档即使正文包含相同文本或标记也必须
+  存活（否则会在幸存文档里留下版本空洞）。`erasure.memoryVersions` 列出所有被清除版本的目标路径。
 - **范围**：单份文档只作用于该路径的全部版本；`agent/` 只作用于该 Bot（`erasure` 事件按写入者
   principal 限定，其他 Bot 的 agent 文档必须存活）；`user/` 是所有 Bot 共享的根，抹除会跨 Bot
   清除共享文档和事件副本。`user/` 与 `agent/` 的入口必须分开确认，文案写明范围。

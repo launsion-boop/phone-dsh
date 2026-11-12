@@ -1,0 +1,459 @@
+{
+  "schema": "pdsh.ui.page-structure/1",
+  "page": "GmailConnectorPage",
+  "pageId": "gmail-connector",
+  "structure": "swiftui-view",
+  "sectionModel": "section",
+  "sectionNote": null,
+  "title": {
+    "text": "Gmail",
+    "provenance": "GmailConnectorPage.swift:223",
+    "anchor": ".navigationTitle(\"Gmail\")"
+  },
+  "source": {
+    "file": "GmailConnectorPage.swift",
+    "path": "examples/probe-app/PhoneDSHProbe/GmailConnectorPage.swift",
+    "lines": 383,
+    "structLine": 205,
+    "renderedFrom": [
+      "body",
+      "accountSection",
+      "mailSection"
+    ],
+    "sectionOrder": "declaration order inside the page struct"
+  },
+  "android": {
+    "screen": "GmailConnectorPage",
+    "file": null,
+    "match": "missing"
+  },
+  "sections": [
+    {
+      "id": "section-214",
+      "title": null,
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "absent",
+      "condition": "let notice = mailbox.notice",
+      "collection": null,
+      "rows": [
+        {
+          "id": "text-215",
+          "label": null,
+          "labelExpr": "verbatim: notice",
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": null,
+          "provenance": "GmailConnectorPage.swift:215",
+          "anchor": "Text(verbatim: notice).foregroundStyle(.secondary)",
+          "extraction": "manual"
+        }
+      ],
+      "provenance": "GmailConnectorPage.swift:214",
+      "anchor": "Section {",
+      "extraction": "syntax",
+      "criterion": {
+        "kind": "first-row-expression",
+        "labelExpr": "verbatim: notice",
+        "provenance": "GmailConnectorPage.swift:215"
+      }
+    },
+    {
+      "id": "google-账号",
+      "title": "Google 账号",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [],
+      "provenance": "GmailConnectorPage.swift:262",
+      "anchor": "Text(NativeText(\"Google 账号\", \"Google account\"))",
+      "extraction": "syntax",
+      "hasHeader": true,
+      "footer": {
+        "text": "此连接只用于在手机上搜索和阅读邮件。",
+        "labelExpr": null,
+        "provenance": "GmailConnectorPage.swift:264",
+        "anchor": "Text(NativeText(\"此连接只用于在手机上搜索和阅读邮件。\", \"This connection lets you search and read "
+      }
+    },
+    {
+      "id": "邮件",
+      "title": "邮件",
+      "titleTemplate": null,
+      "dynamicTitle": false,
+      "titleExpression": null,
+      "titleSource": "header",
+      "condition": null,
+      "collection": null,
+      "rows": [
+        {
+          "id": "发件人-主题或关键词",
+          "label": "发件人、主题或关键词",
+          "labelExpr": null,
+          "kind": "input",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GmailConnectorPage.swift:272",
+          "anchor": "TextField(NativeText(\"发件人、主题或关键词\", \"Sender, subject or keyword\"), text: $model.q",
+          "extraction": "syntax"
+        },
+        {
+          "id": "搜索",
+          "label": "搜索",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GmailConnectorPage.swift:277",
+          "anchor": "Button(NativeText(\"搜索\", \"Search\")) {",
+          "extraction": "syntax"
+        },
+        {
+          "id": "action-283",
+          "label": null,
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": null,
+          "provenance": "GmailConnectorPage.swift:283",
+          "anchor": "Button { selected = message } label: {",
+          "extraction": "manual",
+          "collection": "mailbox.messages"
+        },
+        {
+          "id": "loading-297",
+          "label": null,
+          "labelExpr": null,
+          "kind": "loading",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "mailbox.loading",
+          "provenance": "GmailConnectorPage.swift:297",
+          "anchor": "ProgressView()",
+          "extraction": "manual"
+        },
+        {
+          "id": "没有找到邮件",
+          "label": "没有找到邮件。",
+          "labelExpr": null,
+          "kind": "text",
+          "value": null,
+          "valueExpr": null,
+          "clickable": false,
+          "destination": null,
+          "writes": false,
+          "condition": "mailbox.messages.isEmpty, mailbox.notice == nil",
+          "provenance": "GmailConnectorPage.swift:300",
+          "anchor": "Text(NativeText(\"没有找到邮件。\", \"No messages found.\")).foregroundStyle(.secondary)",
+          "extraction": "syntax"
+        },
+        {
+          "id": "加载更多",
+          "label": "加载更多",
+          "labelExpr": null,
+          "kind": "action",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": null,
+          "writes": true,
+          "condition": "mailbox.nextPage != nil",
+          "provenance": "GmailConnectorPage.swift:303",
+          "anchor": "Button(NativeText(\"加载更多\", \"Load more\")) {",
+          "extraction": "syntax"
+        }
+      ],
+      "provenance": "GmailConnectorPage.swift:309",
+      "anchor": "Text(NativeText(\"邮件\", \"Mail\"))",
+      "extraction": "syntax",
+      "hasHeader": true
+    }
+  ],
+  "actions": [
+    {
+      "id": "搜索",
+      "label": "搜索",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mailbox.search() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:277",
+      "anchor": "Button(NativeText(\"搜索\", \"Search\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "button-283",
+      "label": null,
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ selected = message",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:283",
+      "anchor": "Button { selected = message } label: {",
+      "extraction": "manual",
+      "labelAlternatives": [],
+      "presents": "sheet-226"
+    },
+    {
+      "id": "加载更多",
+      "label": "加载更多",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mailbox.search(append: true) }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:303",
+      "anchor": "Button(NativeText(\"加载更多\", \"Load more\")) {",
+      "extraction": "syntax",
+      "labelAlternatives": []
+    },
+    {
+      "id": "断开连接",
+      "label": "断开连接",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{ Task { await mailbox.disconnect() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:232",
+      "anchor": "Button(NativeText(\"断开连接\", \"Disconnect\"), role: .destructive) {",
+      "extraction": "syntax"
+    },
+    {
+      "id": "取消",
+      "label": "取消",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "alert-button",
+      "semantic": "{",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:235",
+      "anchor": "Button(NativeText(\"取消\", \"Cancel\"), role: .cancel) {}",
+      "extraction": "syntax"
+    },
+    {
+      "id": "连接-google-账号",
+      "label": "连接 Google 账号",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ Task { await mailbox.connect() }",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:248",
+      "anchor": "Label(NativeText(\"连接 Google 账号\", \"Connect Google account\"), systemImage: \"person",
+      "extraction": "syntax"
+    },
+    {
+      "id": "断开连接",
+      "label": "断开连接",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ confirmDisconnect = true",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:257",
+      "anchor": "Button(NativeText(\"断开连接\", \"Disconnect\"), role: .destructive) {",
+      "extraction": "syntax",
+      "presents": "alert-231"
+    },
+    {
+      "id": "重试",
+      "label": "重试",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "tap",
+      "semantic": "{ attempt += 1",
+      "writes": true,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:355",
+      "anchor": "Button(NativeText(\"重试\", \"Retry\")) { attempt += 1 }",
+      "extraction": "syntax",
+      "presentedBy": "sheet-226"
+    },
+    {
+      "id": "完成",
+      "label": "完成",
+      "labelExpr": null,
+      "kind": "button",
+      "trigger": "toolbar",
+      "semantic": "{ dismiss()",
+      "writes": false,
+      "destination": null,
+      "condition": null,
+      "provenance": "GmailConnectorPage.swift:366",
+      "anchor": "Button(NativeText(\"完成\", \"Done\")) { dismiss() }",
+      "extraction": "syntax",
+      "presentedBy": "sheet-226"
+    }
+  ],
+  "presentations": [
+    {
+      "id": "sheet-226",
+      "kind": "sheet",
+      "title": null,
+      "destination": "GmailMessagePage",
+      "triggerBindings": [
+        "selected"
+      ],
+      "span": [
+        226,
+        230
+      ],
+      "provenance": "GmailConnectorPage.swift:226",
+      "anchor": ".sheet(item: $selected) { summary in",
+      "triggered": true
+    },
+    {
+      "id": "alert-231",
+      "kind": "alert",
+      "title": "断开 Gmail？",
+      "destination": null,
+      "triggerBindings": [
+        "confirmDisconnect"
+      ],
+      "span": [
+        231,
+        236
+      ],
+      "provenance": "GmailConnectorPage.swift:231",
+      "anchor": ".alert(NativeText(\"断开 Gmail？\", \"Disconnect Gmail?\"), isPresented: $confirmDiscon",
+      "triggered": true
+    }
+  ],
+  "states": {
+    "advisory": true,
+    "note": "advisory only: marker-based; row placeholders (未配置/未设置/—) are not page states, so the checker never compares this object",
+    "sites": {
+      "empty": [
+        {
+          "renders": "当前版本未配置 Gmail 登录",
+          "when": null,
+          "provenance": "GmailConnectorPage.swift:243",
+          "anchor": "Label(NativeText(\"当前版本未配置 Gmail 登录\", \"Gmail sign-in is not configured in this bu"
+        },
+        {
+          "renders": "没有找到邮件。",
+          "when": "mailbox.messages.isEmpty, mailbox.notice == nil",
+          "provenance": "GmailConnectorPage.swift:300",
+          "anchor": "Text(NativeText(\"没有找到邮件。\", \"No messages found.\")).foregroundStyle(.secondary)"
+        }
+      ],
+      "data": [
+        {
+          "renders": "untitled section at 214 | Google 账号 | 邮件",
+          "when": null,
+          "provenance": "GmailConnectorPage.swift:205",
+          "anchor": "struct GmailConnectorPage: View {",
+          "note": "structural default: the sections above, when no condition overrides them"
+        }
+      ],
+      "failure": [],
+      "unknown": [],
+      "loading": [
+        {
+          "renders": "正在连接 Gmail…",
+          "when": null,
+          "provenance": "GmailConnectorPage.swift:251",
+          "anchor": "ProgressView(NativeText(\"正在连接 Gmail…\", \"Connecting to Gmail…\"))"
+        },
+        {
+          "renders": "正在断开 Gmail…",
+          "when": null,
+          "provenance": "GmailConnectorPage.swift:253",
+          "anchor": "ProgressView(NativeText(\"正在断开 Gmail…\", \"Disconnecting Gmail…\"))"
+        },
+        {
+          "renders": "ProgressView",
+          "when": null,
+          "provenance": "GmailConnectorPage.swift:251",
+          "anchor": "ProgressView(NativeText(\"正在连接 Gmail…\", \"Connecting to Gmail…\"))"
+        },
+        {
+          "renders": "ProgressView",
+          "when": null,
+          "provenance": "GmailConnectorPage.swift:253",
+          "anchor": "ProgressView(NativeText(\"正在断开 Gmail…\", \"Disconnecting Gmail…\"))"
+        },
+        {
+          "renders": "ProgressView",
+          "when": "mailbox.loading",
+          "provenance": "GmailConnectorPage.swift:297",
+          "anchor": "ProgressView()"
+        }
+      ]
+    },
+    "absent": [
+      "failure",
+      "unknown"
+    ],
+    "coverage": {
+      "empty": 2,
+      "data": 1,
+      "failure": 0,
+      "unknown": 0,
+      "loading": 5
+    }
+  },
+  "subpages": [
+    {
+      "name": "GmailMessagePage",
+      "line": 314,
+      "private": true,
+      "embedded": false,
+      "sections": [],
+      "provenance": "GmailConnectorPage.swift:314"
+    }
+  ],
+  "unreachable": [],
+  "extraction": {
+    "tool": "extract_ios_pages.py",
+    "mode": "syntax",
+    "sectionKeywordsInPage": 3,
+    "regionsExtracted": 0,
+    "sectionsExtracted": 3,
+    "warnings": [
+      "unsupported control flow at GmailConnectorPage.swift:241: switch mailbox.account { case .unconfigured: Label(NativeTex"
+    ]
+  }
+}

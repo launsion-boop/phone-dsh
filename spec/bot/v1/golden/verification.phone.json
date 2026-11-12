@@ -50,6 +50,7 @@
         "cat notes.md",
         "ls -la",
         "grep -R RUN-MARKER .",
+        "od -c notes.md",
         "git diff --stat",
         "git status",
         "phone record search RUN-MARKER --session gb-task-abc",

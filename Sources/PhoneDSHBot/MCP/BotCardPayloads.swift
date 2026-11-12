@@ -145,11 +145,11 @@ public enum BotCardPayloads {
         }
         let title = try optionalString(args, "title")
             ?? path.map { ($0 as NSString).lastPathComponent }
-            ?? firstHeading(content ?? "") ?? "Document"
+            ?? firstHeading(content ?? "") ?? "文档"
         let kind = try optionalString(args, "kind") ?? (path?.lowercased().hasSuffix(".pdf") == true ? "pdf" : "markdown")
         let labels = [
-            "document": "Document", "markdown": "Markdown", "table": "Table",
-            "pdf": "PDF", "code": "Code", "library": "文件庫",
+            "document": "文档", "markdown": "Markdown", "table": "表格",
+            "pdf": "PDF", "code": "代码", "library": "文件库",
         ]
         var card: [String: BotJSONValue] = [
             "cardType": .string("document"),

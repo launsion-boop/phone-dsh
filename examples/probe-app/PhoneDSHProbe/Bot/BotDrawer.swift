@@ -180,6 +180,10 @@ struct BotDrawer: View {
     @State private var deleteEntry: BotRosterEntry?
     @State private var actionError: String?
     @State private var deleting = false
+    /// One shared clock for every row's `· N 分钟` suffix. It only ticks while
+    /// a Bot is running, at half-minute granularity so a boundary cannot lag
+    /// by more than half a minute.
+    @State private var statusNow = BotActivityLineState.now
 
     init(roster: BotRosterModel, topInset: CGFloat, bottomInset: CGFloat,
          error: String? = nil, actions: BotDrawerActions = BotDrawerActions(),
@@ -225,6 +229,14 @@ struct BotDrawer: View {
         }
         .background(HomeSpec.page)
         .task { await roster.refresh() }
+        .task(id: roster.anyBotRunning) {
+            guard roster.anyBotRunning else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                statusNow = BotActivityLineState.now
+            }
+        }
         .sheet(isPresented: $showingAdd) {
             BotAddDialog(actions: actions, initialName: addInitialName)
         }
@@ -320,6 +332,7 @@ struct BotDrawer: View {
             ForEach(visibleEntries) { entry in
                 BotDrawerRow(entry: entry,
                              selected: roster.selectedBotID == entry.id,
+                             now: statusNow,
                              onSelect: { select(entry) })
                     .contextMenu {
                         BotRowMenuContent(entry: entry, isLastBot: lastBot,
@@ -386,6 +399,8 @@ struct BotDrawer: View {
 private struct BotDrawerRow: View {
     let entry: BotRosterEntry
     let selected: Bool
+    /// The drawer's shared clock, used only for the `· N 分钟` suffix.
+    let now: Int64
     let onSelect: () -> Void
 
     private var statusText: String {
@@ -393,11 +408,10 @@ private struct BotDrawerRow: View {
             return "\(entry.pendingApprovalCount) 项待审批"
         }
         if entry.isRunning {
+            // Same detail, fallback phrase and minute suffix as the chat line;
+            // only the rotation is chat-only.
             if let activity = entry.activity {
-                if !activity.detail.isEmpty { return activity.detail }
-                // No model text/target: the same category as the chat line,
-                // not the generic fish-state fallback below.
-                return BotActivityPhrases.primaryPhrase(for: activity.category)
+                return BotActivityPhrases.drawerStatusText(for: activity, now: now)
             }
             switch entry.fishState {
             case .thinking: return "思考中"

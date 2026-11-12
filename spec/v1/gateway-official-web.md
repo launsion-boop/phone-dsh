@@ -26,6 +26,22 @@ mode's base URL, operations and cookie route. It replaces this grant when it is 
 The Worker receives the existing provider IDs, official base URL, and placeholder.
 The gateway resolves the grant before dispatch and refuses redirects for this grant.
 
+## Non-2xx diagnostics
+
+A non-2xx official Search/Fetch response is never forwarded to the Worker. The status is
+preserved and the body is replaced by one controlled JSON-RPC error (`code: -32000`) whose
+`message` names the web tool and gives a status-specific reason: 401 says the saved API key
+was rejected, 402 insufficient balance, 403 the upstream web service's security policy
+rejected the target, 404 the target content could not be retrieved (missing URL, site
+policy, unsupported content type, or no extractable Markdown), 429 the upstream rate limit,
+5xx an upstream service failure; every other status still carries the status and a reason.
+The message also says that the upstream body was withheld by the host.
+
+The message is display text: clients must not parse it. The HTTP status and `code` are the
+machine-readable contract. A request refused by the host's own egress allow-list or Bot
+approval never reaches this path; it keeps the existing `host_not_allowed` /
+`egress_approval_denied` failure envelope from [gateway-security.md](gateway-security.md) §7.
+
 The [shared route cases](golden/gateway/official-deepseek-web/cases.json) exercise
 the model base and request scope rules on the phone hosts. The existing gateway schema,
 `/v1/http` envelope, failure vocabulary and general redirect rules are unchanged.

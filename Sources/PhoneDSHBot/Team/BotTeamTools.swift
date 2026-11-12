@@ -52,7 +52,7 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
         case Self.createTeammateName:
             return await createTeammate(arguments, principal: principal, authority: nil)
         default:
-            return .failure("unknown_tool", "Unknown tool: \(name)")
+            return .failure("unknown_tool", "未知工具：\(name)")
         }
     }
 
@@ -77,7 +77,7 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                              principal: BotGatewayPrincipal,
                              context: BotMCPRequestContext) async -> BotMCPCallResult {
         guard case .object(let args) = arguments else {
-            return .failure("invalid_arguments", "SendToAgent arguments must be an object")
+            return .failure("invalid_arguments", "SendToAgent 的参数必须是一个对象")
         }
         let delivery: String
         switch resolveDelivery(args) {
@@ -86,10 +86,10 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
         }
         let targetReference = firstString(args, ["agent_id", "target_id", "bot_name", "agentId"])
         guard let targetReference, !targetReference.isEmpty else {
-            return .failure("invalid_arguments", "SendToAgent requires agent_id.")
+            return .failure("invalid_arguments", "SendToAgent 需要提供队友。")
         }
         guard let message = firstString(args, ["message", "text"]), !message.isEmpty else {
-            return .failure("invalid_arguments", "SendToAgent requires a non-empty message.")
+            return .failure("invalid_arguments", "SendToAgent 需要提供非空的消息。")
         }
 
         let roster: BotRoster
@@ -105,13 +105,13 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             let list = available.isEmpty ? "(none)" : available.joined(separator: ", ")
             return .failure(
                 "invalid_arguments",
-                "agent not found: \"\(targetReference)\". Available bots: \(list).")
+                "没有找到队友「\(targetReference)」。可选的 Bot：\(list)。")
         }
         let target = BotAgentRef(id: targetProfile.id, name: targetProfile.name, kind: "agent")
         if target.id == principal.botId {
             return .failure(
                 "invalid_arguments",
-                "SendToAgent cannot target the same bot that is running; answer the request yourself.")
+                "SendToAgent 不能发给自己；请直接回答当前请求。")
         }
 
         let commContext = await host.agentCommContext(for: principal.botId)
@@ -119,15 +119,21 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
         guard depth <= Self.maximumHops else {
             return .failure(
                 "invalid_arguments",
-                "delegation depth limit reached (max \(Self.maximumHops) hops). "
-                    + "Do not hand this off again; answer with what you have.")
+                "转交层数已经达到上限（最多 \(Self.maximumHops) 层）。"
+                    + "不要再转给别人了，请直接回答当前请求。")
         }
         if commContext.chain.contains(target.id) {
+            // The chain is a user-facing dead end: name the Bots, never the
+            // internal `agent-…` ids. The sender must answer the current
+            // request itself instead of bouncing it back.
+            let names = commContext.chain.map { id in
+                roster.bots.first { $0.id == id }?.name ?? "对方"
+            }
+            let path = (names + [target.name]).joined(separator: " → ")
             return .failure(
                 "invalid_arguments",
-                "delegation cycle detected: \(target.name) is already in this hand-off chain "
-                    + "(\(commContext.chain.joined(separator: " → "))). "
-                    + "Stop and answer the sender directly.")
+                "转交链已经走过 \(path)，\(target.name) 在这条链上，不能再转回去。"
+                    + "请直接回答当前请求。")
         }
 
         let callID = context.callId
@@ -177,7 +183,9 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             }
             do {
                 let enqueued = try await host.enqueueHeld(
-                    BotTeamHeldRequest(botID: target.id, item: item))
+                    BotTeamHeldRequest(
+                        botID: target.id, item: item,
+                        handOff: BotAgentCommContext(depth: depth, chain: nextChain)))
                 return sendToAgentSuccess(
                     target: target, threadID: threadID, requestID: requestID,
                     delivery: delivery, duplicated: enqueued.duplicate,
@@ -242,6 +250,9 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             return .failure("execution_failed", String(describing: error))
         }
         do {
+            // A reply is the end of this hand-off, not a new hop. It must not
+            // install a chain on the sender or the next send to this teammate
+            // would be rejected as a cycle.
             _ = try await host.enqueueHeld(
                 BotTeamHeldRequest(botID: sender.id, item: heldItem))
         } catch {
@@ -279,19 +290,19 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                                 principal: BotGatewayPrincipal,
                                 authority: BotTurnAuthority?) async -> BotMCPCallResult {
         guard case .object(let args) = arguments else {
-            return .failure("invalid_arguments", "CreateTeammate arguments must be an object")
+            return .failure("invalid_arguments", "CreateTeammate 的参数必须是一个对象")
         }
         guard let rawName = args["name"].flatMap({ $0.stringValue }) else {
-            return .failure("invalid_arguments", "CreateTeammate requires name.")
+            return .failure("invalid_arguments", "CreateTeammate 需要提供名字。")
         }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            return .failure("invalid_arguments", "CreateTeammate requires name.")
+            return .failure("invalid_arguments", "CreateTeammate 需要提供名字。")
         }
         guard name.utf16.count <= 60 else {
             return .failure(
                 "invalid_arguments",
-                "CreateTeammate name is too long (\(name.utf16.count) > 60).")
+                "CreateTeammate 的名字太长了（\(name.utf16.count) 个字符，最多 60 个）。")
         }
         let description = args["description"].flatMap { $0.stringValue }
             .map { truncated($0, toUTF16Units: 300) } ?? ""
@@ -324,7 +335,7 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
             guard let resolved = BotTeammateAuthor(authority: authority) else {
                 return .failure(
                     "permission_denied",
-                    "CreateTeammate requires user confirmation in this turn")
+                    "创建队友需要你在当前回合确认")
             }
             author = resolved
         }
@@ -430,7 +441,7 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
 
         guard hasPriority || hasDelivery else {
             return .failure(
-                "SendToAgent requires priority (true = wake now, false = hold for their next turn).")
+                "SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。")
         }
         if let priority {
             let implied = priority ? "now" : "queued"
@@ -490,12 +501,12 @@ public actor BotTeamTools: BotTeamToolHandling, BotTeamToolCatalogProviding,
                               label: String) -> EnumResolution {
         guard let value, !isEmpty(value) else { return .success(nil) }
         guard case .string(let raw) = value else {
-            return .failure("CreateTeammate \(label) must be one of \(all.joined(separator: ", "))")
+            return .failure("CreateTeammate 的 \(label) 只能是这些值之一：\(all.joined(separator: "、"))")
         }
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if normalized.isEmpty { return .success(nil) }
         guard all.contains(normalized) else {
-            return .failure("CreateTeammate \(label) must be one of \(all.joined(separator: ", "))")
+            return .failure("CreateTeammate 的 \(label) 只能是这些值之一：\(all.joined(separator: "、"))")
         }
         return .success(normalized)
     }

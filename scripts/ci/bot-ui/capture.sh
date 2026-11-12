@@ -255,9 +255,20 @@ for APPEARANCE in $APPEARANCE_LIST; do
         else
             sleep 2
         fi
-        if [ "$CHECKED" = 0 ]; then
+        if [ "$CHECKED" = 0 ] || [ "$CASE" = "chatLayoutTyping" ]; then
+            # A fixture-specific run reuses the same data container, so for
+            # chatLayoutTyping wait for *its* check token, not the previous
+            # launch's JSON. The simulator data container is outside the
+            # workspace sandbox, so the file is read, never deleted.
             for _ in $(seq 1 75); do
-                [ -s "$CONTAINER/Documents/bot-ui-checks.json" ] && break
+                if [ "$CASE" = "chatLayoutTyping" ]; then
+                    if [ -s "$CONTAINER/Documents/bot-ui-checks.json" ] \
+                        && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if "typing-fixture-settles-without-rebuilds" in d.get("checks", []) else 1)' "$CONTAINER/Documents/bot-ui-checks.json" 2>/dev/null; then
+                        break
+                    fi
+                elif [ -s "$CONTAINER/Documents/bot-ui-checks.json" ]; then
+                    break
+                fi
                 sleep 0.2
             done
             python3 - "$CONTAINER/Documents/bot-ui-checks.json" <<'PY'
@@ -269,6 +280,21 @@ if result.get("status") != "PASS":
     raise SystemExit(f"Bot UI conformance checks failed: {result}")
 print("Bot UI conformance checks: PASS (" + ", ".join(result.get("checks", [])) + ")")
 PY
+            if [ "$CASE" = "chatLayoutTyping" ]; then
+                # The transcript-stability check attaches to the real typing
+                # fixture, so it only exists in this launch. Fail the capture
+                # run if the fixture's own JSON omitted it.
+                python3 - "$CONTAINER/Documents/bot-ui-checks.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    result = json.load(handle)
+checks = result.get("checks", [])
+if "typing-fixture-settles-without-rebuilds" not in checks:
+    raise SystemExit(f"typing fixture did not run its stability check: {checks}")
+print("Bot UI conformance check: typing-fixture-settles-without-rebuilds PASS")
+PY
+            fi
             CHECKED=1
         fi
         if [ "$CASE" = "dynamic" ]; then

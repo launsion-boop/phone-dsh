@@ -7,14 +7,14 @@
   "sectionNote": null,
   "title": {
     "text": "发现",
-    "provenance": "ConnectorsPage.swift:92",
+    "provenance": "ConnectorsPage.swift:94",
     "anchor": ".navigationTitle(NativeText(\"发现\", \"Discover\"))"
   },
   "source": {
     "file": "ConnectorsPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/ConnectorsPage.swift",
-    "lines": 340,
-    "structLine": 66,
+    "lines": 356,
+    "structLine": 68,
     "renderedFrom": [
       "body",
       "row",
@@ -40,7 +40,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "action-77",
+          "id": "action-79",
           "label": null,
           "labelExpr": null,
           "kind": "action",
@@ -50,13 +50,13 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorsPage.swift:77",
+          "provenance": "ConnectorsPage.swift:79",
           "anchor": "row(connector)",
           "extraction": "manual",
           "collection": "DiscoverConnector.allCases"
         }
       ],
-      "provenance": "ConnectorsPage.swift:80",
+      "provenance": "ConnectorsPage.swift:82",
       "anchor": "sectionHeader(NativeText(\"连接器\", \"Connectors\"))",
       "extraction": "syntax",
       "hasHeader": true
@@ -82,12 +82,12 @@
           "destination": "NativeConfigurationPage",
           "writes": false,
           "condition": null,
-          "provenance": "ConnectorsPage.swift:85",
+          "provenance": "ConnectorsPage.swift:87",
           "anchor": "SettingsRowLabel(title: NativeText(\"插件与工具\", \"Plugins and tools\"), icon: \"puzzlep",
           "extraction": "syntax"
         }
       ],
-      "provenance": "ConnectorsPage.swift:88",
+      "provenance": "ConnectorsPage.swift:90",
       "anchor": "sectionHeader(NativeText(\"更多\", \"More\"))",
       "extraction": "syntax",
       "hasHeader": true
@@ -95,7 +95,7 @@
   ],
   "actions": [
     {
-      "id": "button-77",
+      "id": "button-79",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -104,7 +104,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectorsPage.swift:77",
+      "provenance": "ConnectorsPage.swift:79",
       "anchor": "row(connector)",
       "extraction": "manual"
     },
@@ -118,12 +118,12 @@
       "writes": false,
       "destination": "NativeConfigurationPage",
       "condition": null,
-      "provenance": "ConnectorsPage.swift:85",
+      "provenance": "ConnectorsPage.swift:87",
       "anchor": "SettingsRowLabel(title: NativeText(\"插件与工具\", \"Plugins and tools\"), icon: \"puzzlep",
       "extraction": "syntax"
     },
     {
-      "id": "button-132",
+      "id": "button-135",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -132,28 +132,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectorsPage.swift:132",
+      "provenance": "ConnectorsPage.swift:135",
       "anchor": "Button { selected = connector } label: {",
       "extraction": "manual",
-      "presents": "sheet-94"
+      "presents": "sheet-96"
     },
     {
-      "id": "即将支持",
-      "label": "即将支持",
-      "labelExpr": null,
-      "kind": "button",
-      "trigger": "tap",
-      "semantic": "{",
-      "writes": false,
-      "destination": null,
-      "condition": null,
-      "provenance": "ConnectorsPage.swift:232",
-      "anchor": "Button(NativeText(\"即将支持\", \"Coming soon\")) {}",
-      "extraction": "syntax",
-      "presentedBy": "sheet-94"
-    },
-    {
-      "id": "button-236",
+      "id": "button-241",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -162,15 +147,15 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ConnectorsPage.swift:236",
+      "provenance": "ConnectorsPage.swift:241",
       "anchor": "Button(actionTitle) { onOpen() }",
       "extraction": "manual",
-      "presentedBy": "sheet-94"
+      "presentedBy": "sheet-96"
     }
   ],
   "presentations": [
     {
-      "id": "sheet-94",
+      "id": "sheet-96",
       "kind": "sheet",
       "title": null,
       "destination": "ConnectorDetailSheet",
@@ -178,15 +163,15 @@
         "selected"
       ],
       "span": [
-        94,
-        108
+        96,
+        110
       ],
-      "provenance": "ConnectorsPage.swift:94",
+      "provenance": "ConnectorsPage.swift:96",
       "anchor": ".sheet(item: $selected, onDismiss: {",
       "triggered": true
     },
     {
-      "id": "navigationDestination-109",
+      "id": "navigationDestination-111",
       "kind": "navigationDestination",
       "title": null,
       "destination": "connector in destination(connector)",
@@ -194,10 +179,10 @@
         "pushed"
       ],
       "span": [
-        109,
-        111
+        111,
+        113
       ],
-      "provenance": "ConnectorsPage.swift:109",
+      "provenance": "ConnectorsPage.swift:111",
       "anchor": ".navigationDestination(item: $pushed) { connector in",
       "triggered": true
     }
@@ -211,7 +196,7 @@
         {
           "renders": "连接器 | 更多",
           "when": null,
-          "provenance": "ConnectorsPage.swift:66",
+          "provenance": "ConnectorsPage.swift:68",
           "anchor": "struct ConnectorsPage: View {",
           "note": "structural default: the sections above, when no condition overrides them"
         }

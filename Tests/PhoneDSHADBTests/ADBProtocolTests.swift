@@ -79,6 +79,20 @@ final class ADBProtocolTests: XCTestCase {
         XCTAssertEqual(transport.sent[3].dropFirst(24), Data("shell,v2,raw:echo hello\0".utf8))
         XCTAssertTrue(transport.closed)
     }
+    func testConnectionClosedDuringAuthHandshakeReportsUnauthorized() async throws {
+        let transport = ScriptedADB(packets: [
+            ADBPacket(command: ADBPacket.auth, arg0: 1, payload: Data(repeating: 1, count: 20)),
+            ADBPacket(command: ADBPacket.auth, arg0: 1, payload: Data(repeating: 2, count: 20)),
+        ])
+        do {
+            _ = try await ADBClient.shell(transport: transport, identity: identity(), command: "id", timeout: 1, outputLimit: 100)
+            XCTFail("expected unauthorized failure when adbd closes or times out waiting for user approval")
+        } catch let failure as ADBFailure {
+            XCTAssertEqual(failure.kind, .unauthorized)
+        }
+        XCTAssertEqual(transport.sent.map { $0.le32(0) }, [ADBPacket.connect, ADBPacket.auth, ADBPacket.auth])
+        XCTAssertTrue(transport.closed)
+    }
     func testTLSAndUnexpectedStreamAreRejectedWithoutRetry() async throws {
         for packets in [[ADBPacket(command: ADBPacket.tls)], [connected(), ADBPacket(command: ADBPacket.close, arg0: 0, arg1: 1)]] {
             let transport = ScriptedADB(packets: packets)
@@ -190,7 +204,7 @@ final class ScriptedADB: ADBTransport, @unchecked Sendable {
     func start() async throws {}
     func read(count: Int) async throws -> Data {
         try lock.withLock {
-            guard bytes.count >= count else { throw ADBFailure("fixture EOF") }
+            guard bytes.count >= count else { throw ADBFailure("fixture EOF", kind: .unreachable) }
             let value = Data(bytes.prefix(count)); bytes = Data(bytes.dropFirst(count)); return value
         }
     }

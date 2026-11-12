@@ -180,6 +180,65 @@ class AdbProtocolTest {
     }
 
     @Test
+    fun eofBeforeAnyAuthIsTypedUnreachable() {
+        val failure = assertThrows(AdbFailure::class.java) {
+            runBlocking {
+                AdbClient.run(ScriptedAdb(ByteArray(0)), newIdentity(), "id",
+                    timeoutMillis = 1_000, outputLimit = 100)
+            }
+        }
+        assertEquals(AdbFailureKind.UNREACHABLE, failure.kind)
+    }
+
+    @Test
+    fun eofDuringTheAuthHandshakeIsTypedUnauthorized() {
+        val transport = ScriptedAdb(listOf(AdbPacket(AdbPacket.AUTH, 1, 0, ByteArray(20) { 1 })))
+        val failure = assertThrows(AdbFailure::class.java) {
+            runBlocking {
+                AdbClient.run(transport, newIdentity(), "id", timeoutMillis = 1_000, outputLimit = 100)
+            }
+        }
+        assertEquals(AdbFailureKind.UNAUTHORIZED, failure.kind)
+        assertEquals(1, transport.sent.count { it.le32(0) == AdbPacket.AUTH })
+    }
+
+    @Test
+    fun holdOpenAfterAuthTimesOutAsUnauthorized() {
+        // adbd answers AUTH(1), then keeps the socket open while the TV shows
+        // UsbDebuggingActivity; the probe timeout must be typed unauthorized so
+        // the caller retries instead of reporting a plain failure.
+        ServerSocket(0).use { listener ->
+            val server = Thread {
+                runCatching {
+                    listener.accept().use { socket ->
+                        val input = socket.getInputStream()
+                        val header = ByteArray(24)
+                        var read = 0
+                        while (read < header.size) {
+                            val n = input.read(header, read, header.size - read)
+                            if (n < 0) return@use
+                            read += n
+                        }
+                        socket.getOutputStream().run {
+                            write(AdbPacket(AdbPacket.AUTH, 1, 0, ByteArray(20)).encoded())
+                            flush()
+                        }
+                        Thread.sleep(2_000)
+                    }
+                }
+            }.apply { isDaemon = true; start() }
+            val failure = assertThrows(AdbFailure::class.java) {
+                runBlocking {
+                    AdbClient.run(AdbSocketTransport("127.0.0.1", listener.localPort), newIdentity(), "id",
+                        timeoutMillis = 1_000, outputLimit = 100)
+                }
+            }
+            assertEquals(AdbFailureKind.UNAUTHORIZED, failure.kind)
+            server.interrupt()
+        }
+    }
+
+    @Test
     fun realTcpTimeoutAndCancellationSettle() = runBlocking<Unit> {
         ServerSocket(0).use { listener ->
             val accepted = Thread { runCatching { while (true) listener.accept() } }.apply { isDaemon = true; start() }

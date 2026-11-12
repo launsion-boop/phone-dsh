@@ -18,7 +18,15 @@ final class BotCompositionE2ETests: XCTestCase {
             .appendingPathComponent("bot-production-composition-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
-        let launch = try await BotRuntimeComposition.prepare(store: store)
+        // The routine scheduler defaults to the production quiet window
+        // 23:00–08:00. A test run at 04:42 would defer the due routine to
+        // 08:00 (the second-round rerun did exactly that: effects=[] runs=[]),
+        // so pin the production scheduler clock to local noon — the same
+        // deterministic start the eval runner uses — instead of changing any
+        // product default.
+        let schedulerNow = Self.deterministicNoon()
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, now: { schedulerNow })
         let environment = launch.environment
         let mock = MockModelUpstream()
         mock.script = .generic(command: "printf BOT_TOOL", toolText: "BOT_TOOL", finalText: "BOT_COMPOSITION_OK")
@@ -43,6 +51,13 @@ final class BotCompositionE2ETests: XCTestCase {
             bundle: bundle,
             allowedModelHosts: [mockURL.absoluteString],
             egressAllowHosts: [],
+            // The production App (ChatModel) marks its profile's standard
+            // model endpoints replay-safe, so the gateway treats those POSTs as
+            // model traffic instead of Bot egress writes. Without it the
+            // mock model's inference POST opens an approval.requested card
+            // that nobody can approve, and the Worker times out after 5 s.
+            replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
+                baseURL: mockURL),
             credentialProvider: PhoneMCPCredentialProvider(policy: mcpPolicy, base: baseCredentials),
             egressAuthorizer: mcpPolicy,
             workerEnvironment: launch.workerEnvironment.merging([
@@ -148,9 +163,17 @@ final class BotCompositionE2ETests: XCTestCase {
                   let prompt = messages.last(where: { message in
                       guard message["role"] as? String == "user",
                             let content = message["content"] as? [[String: Any]] else { return false }
-                      return content.first?["type"] as? String == "text"
+                      return content.contains { $0["type"] as? String == "text" }
                   }), let content = prompt["content"] as? [[String: Any]] else { return nil }
-            return content.first?["text"] as? String == "完成委派"
+            // The Task child receives the authorization + task-contract
+            // envelope followed by the delegated text, not the bare prompt.
+            // Match the real request shape (the parent turn and the direct
+            // Task carry no `<task_authorization>` block) instead of requiring
+            // the first text block to equal "完成委派" exactly; a mismatch
+            // made the child fall back to the parent's `.sequence` script and
+            // produce TASK_PARENT_DONE.
+            let text = content.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            return text.contains("<task_authorization>") && text.contains("完成委派")
                 ? .generic(command: "printf TASK_TOOL", toolText: "TASK_TOOL", finalText: "BOT_TASK_OK")
                 : nil
         }
@@ -178,24 +201,49 @@ final class BotCompositionE2ETests: XCTestCase {
         })
         XCTAssertEqual(settled.data["status"]?.stringValue, "completed")
         XCTAssertTrue(settled.data["result"]?.stringValue?.contains("BOT_TASK_OK") == true)
-        XCTAssertTrue(taskEvents.contains {
-            $0.type == "conversation.assistant_message" && $0.data["text"]?.stringValue?.contains("TASK_PARENT_DONE") == true
-        })
+        // `rows.perform` returns when the user action is accepted; the turn's
+        // post-tool-result model call (and the Task-settled parent wake) write
+        // their assistant message afterwards. Reading the event log once here
+        // raced that write in the second-round rerun, so poll the durable log
+        // instead of asserting on the first snapshot.
+        var parentEvents = taskEvents
+        let parentDeadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while !parentEvents.contains(where: {
+            $0.type == "conversation.assistant_message"
+                && $0.data["text"]?.stringValue?.contains("TASK_PARENT_DONE") == true
+        }), ContinuousClock.now < parentDeadline {
+            try await Task.sleep(for: .milliseconds(100))
+            parentEvents = try await BotProductionEventReader.all(domain: store)
+        }
+        XCTAssertTrue(parentEvents.contains {
+            $0.type == "conversation.assistant_message"
+                && $0.data["text"]?.stringValue?.contains("TASK_PARENT_DONE") == true
+        }, "the parent turn/wake must persist TASK_PARENT_DONE; messages="
+            + "\(parentEvents.filter { $0.type == "conversation.assistant_message" }.map(\.data))")
 
         mock.script = .generic(command: "printf BOT_TOOL", toolText: "BOT_TOOL", finalText: "BOT_ROUTINE_OK")
         let routine = try await launch.composition.runtime.routineMachine.create(
             botId: "main", title: "生产组合根 routine", prompt: "生成固定结果",
             schedule: .interval(everyMinutes: 1, timezone: "UTC"),
-            now: Int64(Date().timeIntervalSince1970 * 1_000) - 120_000, id: "composition-routine")
+            now: schedulerNow - 120_000, id: "composition-routine")
         XCTAssertTrue(routine.enabled)
-        try await launch.composition.scheduler.tick()
-        await launch.composition.scheduler.waitForIdle()
+        // The Task parent turn/wake must finish before a routine may run
+        // (`RoutineScheduler.busy` skips a busy main chat). The assistant
+        // message above is durable before the turn fully settles, so wait for
+        // the remote turn state instead of ticking into a busy session.
+        let turnIdleDeadline = ContinuousClock.now.advanced(by: .seconds(20))
+        while await launch.composition.remote.isMainTurnBusy(),
+              ContinuousClock.now < turnIdleDeadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
         let clock = ContinuousClock()
         let deliveryDeadline = clock.now.advanced(by: .seconds(5))
         var deliveries = try await store.effects(state: .acked)
         while !deliveries.contains(where: { $0.effect.kind == BotRoutineOutbox.kind }),
               clock.now < deliveryDeadline {
-            try await Task.sleep(for: .milliseconds(50))
+            try await launch.composition.scheduler.tick()
+            await launch.composition.scheduler.waitForIdle()
+            try await Task.sleep(for: .milliseconds(100))
             deliveries = try await store.effects(state: .acked)
         }
         let routineEvents = try await BotProductionEventReader.all(domain: store)
@@ -233,9 +281,57 @@ final class BotCompositionE2ETests: XCTestCase {
         XCTAssertEqual(afterRebuild.status, "completed", afterRebuild.error ?? "no error")
         XCTAssertTrue(afterRebuild.text.contains("BOT_ROUTINE_OK"))
 
+        // Foreground resume: the Host parks (the Worker page is destroyed) and
+        // resumes into a fresh Worker with an empty session-credential map.
+        // The new HELLO boot id must make the composition re-claim the session
+        // before the next turn; otherwise the Worker's bash registration is
+        // rejected as `unauthorized` and never self-heals.
+        mock.script = .generic(command: "printf AFTER_RESUME", toolText: "AFTER_RESUME",
+                               finalText: "AFTER_RESUME_OK")
+        var sawWorkerRecovery = false
+        launch.composition.onStateChange = { state in
+            if state == .recovering { sawWorkerRecovery = true }
+        }
+        try await activeHost.park()
+        try await activeHost.resume()
+        let recoveryDeadline = Date().addingTimeInterval(20)
+        while Date() < recoveryDeadline {
+            if sawWorkerRecovery && launch.composition.state == .ready { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(sawWorkerRecovery && launch.composition.state == .ready,
+                      "the Bot composition must rebind after the resumed Worker's new HELLO")
+        let afterResume = try await launch.composition.remote.sendUserMessage("锁屏后继续")
+        XCTAssertEqual(afterResume.status, "completed", afterResume.error ?? "no error")
+        XCTAssertTrue(afterResume.text.contains("AFTER_RESUME_OK"),
+                      "text=\(afterResume.text); requests=\(mock.requestCount)")
+        let resumeEvents = try await BotProductionEventReader.all(domain: store)
+        let resumeToolResults = resumeEvents.filter { $0.type == "conversation.tool_result" }
+        let resumeResultText = String(describing: resumeToolResults.map(\.data))
+        XCTAssertTrue(resumeResultText.contains("AFTER_RESUME"),
+                      "the resumed turn must execute bash: \(resumeResultText)")
+        XCTAssertFalse(resumeResultText.contains("identity-bridge"),
+                       "a resumed Worker must not fail identity registration: \(resumeResultText)")
+        XCTAssertFalse(resumeResultText.contains("unauthorized"),
+                       "a resumed Worker must not stay unauthorized: \(resumeResultText)")
+
         await launch.composition.stop()
         try await activeHost.stop()
         try await store.close()
+    }
+
+    /// A wall-clock-hour-independent scheduler start: local noon on the test
+    /// day. Mirrors `EvalSchedulerClock.deterministicStart`.
+    private static func deterministicNoon(now: Date = Date()) -> Int64 {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        var components = calendar.dateComponents([.year, .month, .day], from: now)
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+        components.nanosecond = 0
+        let date = calendar.date(from: components) ?? now
+        return Int64(date.timeIntervalSince1970 * 1_000)
     }
 
     /// The old DEBUG-only production checks now live here instead of the App
@@ -243,9 +339,199 @@ final class BotCompositionE2ETests: XCTestCase {
     func testProductionServicesChecks() async throws {
         let passed = try await BotProductionChecks.run()
         XCTAssertTrue(passed.contains("session-jsonl-row-rebuild"))
+        XCTAssertTrue(passed.contains("info-refresh-reads-new-routine"))
         XCTAssertTrue(passed.contains("plan-commit-accepted-duplicate-reopen"))
         XCTAssertTrue(passed.contains("fish-production-presentation-activity-ttl"))
     }
+
+    /// F3/F4 end to end: the real `BotSessionEpochEraser` parks the host,
+    /// rewrites the closed session, switches the main session and appends the
+    /// continuation notice. The row service must rebuild to the new epoch and
+    /// the notice must be visible; a cold start that rebuilds the composition
+    /// from the same durable store must land on the same projection. The old
+    /// session log and the projection cache must no longer carry the erased
+    /// text (including the `agent/inbox/spliced` copy).
+    func testSessionEpochErasureProjectsContinuationNoticeAndColdStart() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bot-erasure-ui-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspaceRoot = root.appendingPathComponent("workspace", isDirectory: true)
+        let store = try SQLiteDomainStore(fileURL: root.appendingPathComponent("domain.sqlite"))
+        let profileStore = BotProfileStore(directory: root.appendingPathComponent("profiles"))
+        let schedulerNow = Self.deterministicNoon()
+        let launch = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore,
+            workspaceRoot: workspaceRoot, now: { schedulerNow })
+        let composition = launch.composition
+        let mock = MockModelUpstream()
+        mock.script = .generic(command: "printf ERASE_TOOL", toolText: "ERASE_TOOL",
+                               finalText: "ERASE_DONE")
+        let mockURL = try mock.start()
+        defer { mock.stop() }
+        guard let worker = Bundle.main.url(forResource: "worker", withExtension: nil) else {
+            return XCTFail("the real packed Worker is absent")
+        }
+        let bundle = PhoneDSHBundleLocation(staticDirectory: worker)
+        let app = try XCTUnwrap(UIApplication.shared.delegate as? AppDelegate)
+        let engineHolder = BotCompositionEngineHolder()
+
+        func makeHost(_ composition: BotRuntimeComposition) throws -> PhoneDSHHost {
+            let mcpPolicy = MCPEgressPolicy()
+            try mcpPolicy.grantBotRuntimeEndpoint(
+                try XCTUnwrap(composition.server.url), token: composition.server.token)
+            let baseCredentials = StaticCredentialProvider([
+                CredentialScope(service: "127.0.0.1"): Credential(
+                    kind: .apiKey(header: "x-api-key"), value: "erasure-test-fixture"),
+            ])
+            let configuration = ChatHostConfiguration.makeProduction(
+                workspaceRoot: workspaceRoot,
+                bundle: bundle,
+                allowedModelHosts: [mockURL.absoluteString],
+                egressAllowHosts: [],
+                replaySafeModelEndpoints: PhoneDSHConfiguration.standardModelEndpoints(
+                    baseURL: mockURL),
+                credentialProvider: PhoneMCPCredentialProvider(
+                    policy: mcpPolicy, base: baseCredentials),
+                egressAuthorizer: mcpPolicy,
+                workerEnvironment: composition.workerEnvironment.merging([
+                    "DEEPSEEK_BASE_URL": mockURL.absoluteString,
+                    "DEEPSEEK_API_KEY": "erasure-test-placeholder",
+                    "DSH_TELEMETRY_DISABLED": "1",
+                    "PDSH_LLM_DELIVERY_IDLE_TIMEOUT_MS": "5000",
+                ]) { _, new in new },
+                nativeMCP: ADBMCPServer.shared,
+                drainDeadline: 2, helloTimeout: 60)
+            return PhoneDSHHost(configuration: configuration) { configuration in
+                await engineHolder.attach(configuration, to: app.anchor)
+            }
+        }
+
+        let host = try makeHost(composition)
+        try await composition.start(host: host)
+        let oldSessionValue = await composition.remote.mainSessionIdentifier()
+        let oldSession = try XCTUnwrap(oldSessionValue)
+        let kept = try await composition.remote.sendUserMessage("请保留 KEEP_ERASE_UI 这一句")
+        XCTAssertEqual(kept.status, "completed", kept.error ?? "no error")
+        let erasedTurn = try await composition.remote.sendUserMessage("请移除 ERASE_ME_UI 这一句")
+        XCTAssertEqual(erasedTurn.status, "completed", erasedTurn.error ?? "no error")
+
+        // Read the log through the production environment, not a fresh global
+        // locator: this composition writes into its own temporary workspace
+        // and the locator must scan that root (`BotProductionServices`).
+        let snapshot = await launch.environment.sessionSnapshot()
+        XCTAssertEqual(snapshot.sessionID, oldSession,
+                       "the environment must resolve the composition's main session")
+        let oldLog = try XCTUnwrap(snapshot.logURL,
+                                   "the locator did not find the session log in the composition workspace")
+        let lines = BotSessionLogReader.lines(from: try Data(contentsOf: oldLog))
+        let erasedLine = try XCTUnwrap(lines.last {
+            $0.type == "user/message" && $0.allText.contains("ERASE_ME_UI")
+        })
+        XCTAssertTrue(lines.contains {
+            $0.type == "agent/inbox/spliced" && $0.allText.contains("ERASE_ME_UI")
+        }, "fixture precondition: the turn must have an inbox splice copy")
+
+        // The projection cache is a derived copy; seed it with the erased text
+        // so the erasure proof has to remove it.
+        let projectionCache = workspaceRoot.appendingPathComponent(
+            "materialized/home/storages/session_projcache/sessions/\(oldSession).json")
+        try FileManager.default.createDirectory(
+            at: projectionCache.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("{\"marker\":\"ERASE_ME_UI\"}".utf8).write(to: projectionCache)
+
+        let memory = await composition.runtime.memory(for: "main")
+        let write = try await memory.write(
+            BotMemoryWriteRequest(
+                path: "user/preferences/erase-ui.md",
+                content: "ERASE_ME_UI preference",
+                expectedVersion: 0,
+                evidence: ["record://session/\(oldSession)#\(erasedLine.seq)"]),
+            context: BotMemoryWriteContext(
+                botID: "main", sessionID: oldSession, authorKind: .chat,
+                source: BotMemorySource(kind: .userTurn, sessionID: oldSession),
+                trust: .user))
+        XCTAssertTrue(write.ok, write.error ?? "memory write failed")
+
+        let unit = try await composition.ensureUnit(for: "main")
+        try await unit.info.eraseMemory(path: "user/preferences/erase-ui.md")
+
+        let newSessionValue = await composition.remote.mainSessionIdentifier()
+        let newSession = try XCTUnwrap(newSessionValue)
+        XCTAssertNotEqual(newSession, oldSession)
+        try await unit.rows.start()
+        let batch = try await unit.rows.watch(after: 0)
+        try assertErasureProjection(
+            rows: batch.rows,
+            oldSessionLog: oldLog, projectionCache: projectionCache)
+
+        // Cold start: a fresh composition reads the durable main-session
+        // pointer and the same row authority.
+        await composition.stop()
+        try await host.stop()
+        let cold = try await BotRuntimeComposition.prepare(
+            store: store, profileStore: profileStore,
+            workspaceRoot: workspaceRoot, now: { schedulerNow })
+        let coldHost = try makeHost(cold.composition)
+        try await cold.composition.start(host: coldHost)
+        let coldSessionValue = await cold.composition.remote.mainSessionIdentifier()
+        XCTAssertEqual(coldSessionValue, newSession)
+        let coldUnit = try await cold.composition.ensureUnit(for: "main")
+        try await coldUnit.rows.start()
+        let coldBatch = try await coldUnit.rows.watch(after: 0)
+        try assertErasureProjection(
+            rows: coldBatch.rows,
+            oldSessionLog: nil, projectionCache: nil)
+        // The cold projection still carries the unerased old-epoch line.
+        XCTAssertTrue(coldBatch.rows.contains {
+            $0.body["text"]?.stringValue?.contains("KEEP_ERASE_UI") == true
+        }, "the non-erased old epoch line disappeared after cold start")
+        await cold.composition.stop()
+        try await coldHost.stop()
+        try await store.close()
+    }
+
+    private func assertErasureProjection(
+        rows: [BotRow],
+        oldSessionLog: URL?, projectionCache: URL?
+    ) throws {
+        let texts = rows.compactMap { $0.body["text"]?.stringValue }
+        XCTAssertTrue(texts.contains {
+            $0.contains("对话已接续到新会话")
+        }, "the durable ui.notice was not projected into the new epoch rows")
+        XCTAssertFalse(texts.contains {
+            $0.contains("ERASE_ME_UI")
+        }, "erased text was projected back into the rows")
+        XCTAssertTrue(texts.contains {
+            $0.contains("KEEP_ERASE_UI")
+        }, "the non-erased old epoch row is missing")
+        // A `BotRow` has no session-ownership field: `ui.notice` projects as
+        // `e-ui-<eventID>` and carries no sessionId/epoch, so no row can name
+        // the new epoch. The epoch switch is covered by the old/new
+        // `mainSessionIdentifier()` assertion in the test body, and the
+        // session/log resolution by its `sessionSnapshot()` assertion
+        // (sessionID is the composition's main session and logURL lives in
+        // this workspace); the durable notice itself is asserted above.
+        if let oldSessionLog {
+            let data = try Data(contentsOf: oldSessionLog)
+            let text = String(decoding: data, as: UTF8.self)
+            XCTAssertFalse(text.contains("ERASE_ME_UI"),
+                           "the rewritten session log still contains the erased text")
+            XCTAssertTrue(text.contains("KEEP_ERASE_UI"),
+                          "the rewrite removed a non-erased line")
+            let rewritten = BotSessionLogReader.lines(from: data)
+            XCTAssertFalse(rewritten.contains {
+                $0.type == "agent/inbox/spliced" && $0.allText.contains("ERASE_ME_UI")
+            }, "the agent/inbox/spliced copy survived the rewrite")
+            XCTAssertGreaterThanOrEqual(
+                rewritten.filter { $0.type == BotSessionErasureTombstone.type }.count, 2,
+                "the canonical line and its splice copy must both be tombstones")
+        }
+        if let projectionCache {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: projectionCache.path),
+                           "the derived session projection cache survived the rewrite")
+        }
+    }
+
 
     private func post(url: URL, token: String, body: Data) async throws -> (status: Int, json: PhoneDSHBot.BotJSONValue) {
         var request = URLRequest(url: url)

@@ -1,0 +1,535 @@
+// SPDX-License-Identifier: MIT
+// Regression for the App-side Worker recovery scheduling (d-heal).
+//
+// The host emits `.webContentTerminated` before the replacement Worker boots.
+// Binding at that point opens a transport into a channel that does not exist
+// yet; the old composition could then drop the later HELLO of the new boot and
+// leave the Bot page at "正在重新同步…" forever. These tests drive the
+// scheduler's real state machine with a fake bind (the composition's bind is
+// the only production caller) and assert the final boot is claimed once.
+
+import XCTest
+@testable import PhoneDSHBot
+
+@MainActor
+final class BotWorkerRecoverySchedulerTests: XCTestCase {
+    func testNewBootDuringAnInFlightRecoveryIsRecoveredAfterTheFirstAttempt() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        // Production's recovery closure is `bind`, which calls
+        // `BotRuntimeUnit.start` -> `remote.reclaimOwnedSessions()`.
+        var reclaimCalls = 0
+        scheduler.install { bootID in
+            attempts.append(bootID)
+            if bootID == "boot-one" {
+                // Simulate the old composition's bind: it opened a transport
+                // before the replacement Worker answered HELLO and waited.
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+            reclaimCalls += 1
+        }
+
+        scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
+        let started = await waitUntil { attempts == ["boot-one"] }
+        XCTAssertTrue(started, "the first boot must start one bind; attempts=\(attempts)")
+        scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
+
+        let ready = await waitUntil(timeout: 2) {
+            scheduler.phase == .ready && scheduler.recoveredBootID == "boot-two"
+        }
+        XCTAssertTrue(ready,
+                      "a newer Worker boot must be rebound after the first attempt ends; "
+                          + "phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-one", "boot-two"])
+        XCTAssertEqual(reclaimCalls, 1, "the latest boot is claimed exactly once")
+    }
+
+    func testTerminationAloneDoesNotBindBeforeAReplacementBootIsKnown() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the old Worker is dead and no replacement has HELLOed yet; "
+                          + "opening a transport here is what stalled the d scenario: \(attempts)")
+
+        scheduler.noteWorkerBoot("boot-new")
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-new"])
+    }
+
+    /// The real termination path (`bootReplacementWorker` / the
+    /// `bootWorker` fallback for an engine without the restart lever) reuses
+    /// the host's engine configuration, so the replacement Worker can present
+    /// the *same* boot id as the one already bound. The ordered-channel HELLO
+    /// that follows a termination is nevertheless a new Worker connection and
+    /// must rebind; comparing only `bootID` would leave the page at
+    /// recovering forever, which is the d-heal regression.
+    func testSameBootIDReplacementHelloAfterTerminationRebinds() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        // The initial composition bind attached this Worker and seeded its id.
+        scheduler.seed(recoveredBootID: "boot-same")
+        scheduler.noteWorkerBoot("boot-same", helloCount: 1, fenceGeneration: 7)
+        scheduler.noteWorkerReady()
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the HELLO of the already-seeded Worker must not rebind: \(attempts)")
+
+        scheduler.noteTermination(count: 1)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        // Replacement Worker, same process id, next host-monotonic HELLO. The
+        // fence generation is unchanged because a WebContent kill does not
+        // advance the host's WAL authority.
+        scheduler.noteWorkerBoot("boot-same", helloCount: 2, fenceGeneration: 7)
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready,
+                      "a HELLO after a termination must rebind even when the boot id "
+                          + "is unchanged; phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-same"],
+                       "the replacement connection is claimed exactly once")
+        XCTAssertEqual(scheduler.recoveredBootID, "boot-same")
+    }
+
+    /// A channel reconnect of the already-bound Worker increments the host
+    /// HELLO count but is not a new Worker. It must not start a redundant
+    /// bind.
+    func testSameWorkerChannelReconnectAfterRecoveryDoesNotRebind() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteWorkerBoot("boot-one", helloCount: 1, fenceGeneration: 2)
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-one"])
+
+        scheduler.noteWorkerBoot("boot-one", helloCount: 2, fenceGeneration: 2)
+        scheduler.noteWorkerReady()
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(attempts, ["boot-one"],
+                       "a same-Worker channel reconnect must not trigger a second bind")
+        XCTAssertEqual(scheduler.phase, .ready)
+    }
+
+    /// `.restarted` is page boot-ready, not a bind point. It normally carries
+    /// the same boot id the following HELLO uses, but an engine (or a Worker
+    /// bundle that does not forward the page boot id) can report an id that is
+    /// not the Worker's. A late page report must not undo a completed bind and
+    /// leave the page at recovering with no further HELLO to consume.
+    func testALatePageReadyDoesNotUndoACompletedRecovery() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteWorkerBoot("boot-worker", helloCount: 1, fenceGeneration: 2)
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-worker"])
+
+        scheduler.noteBootCandidate("page-boot-id")
+        XCTAssertEqual(scheduler.phase, .ready,
+                       "a late page boot-ready must not move a bound page back to recovering")
+        XCTAssertEqual(scheduler.latestBootID, "boot-worker",
+                       "the page boot id is not a Worker bind target")
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(attempts, ["boot-worker"])
+    }
+
+    func testRestartCandidateShowsRecoveringButWaitsForHello() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteBootCandidate("boot-page")
+        XCTAssertEqual(scheduler.phase, .recovering)
+        XCTAssertTrue(attempts.isEmpty,
+                      "page boot-ready is not yet a channel; the HELLO owns the bind")
+        scheduler.noteWorkerBoot("boot-page")
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-page"])
+    }
+
+    func testAHungBindTimesOutIntoAFailedState() async throws {
+        // Retry budget 0: this test is about the per-attempt deadline alone;
+        // the bounded round is covered by the tests below.
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 40, maximumAutomaticRetries: 0)
+        defer { scheduler.stop() }
+        let attempts = AttemptCounter()
+        scheduler.install { _ in
+            attempts.record()
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+        }
+
+        scheduler.noteWorkerBoot("boot-hung")
+        scheduler.noteWorkerReady()
+        let failed = await waitUntil(timeout: 2) {
+            if case .failed = scheduler.phase { return true }
+            return false
+        }
+        XCTAssertTrue(failed,
+                      "a bind that never returns must not leave phase at recovering: \(scheduler.phase)")
+        XCTAssertTrue(scheduler.phase.isFailure)
+        XCTAssertEqual(attempts.value, 1, "an exhausted zero retry budget must not re-arm")
+    }
+
+    /// The bug this replaces: every `.failed` phase re-ran a 5-attempt loop, so
+    /// a permanently failing Worker was retried forever. One event-driven
+    /// attempt plus the configured retries is the whole budget; failures caused
+    /// by those retries must not reset it.
+    func testContinuousFailureIsBoundedToOneAutomaticRetryRound() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 200, maximumAutomaticRetries: 3,
+            retryDelayMilliseconds: 10)
+        defer { scheduler.stop() }
+        let attempts = AttemptCounter()
+        scheduler.install { _ in
+            attempts.record()
+            throw RecoveryFailure()
+        }
+
+        scheduler.noteWorkerBoot("boot-failing")
+        scheduler.noteWorkerReady()
+        let failed = await waitUntil(timeout: 2) {
+            if case .failed = scheduler.phase { return true }
+            return false
+        }
+        XCTAssertTrue(failed, "phase=\(scheduler.phase) attempts=\(attempts.value)")
+        XCTAssertEqual(attempts.value, 4, "one event-driven bind + three automatic retries")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(attempts.value, 4,
+                       "a failed automatic retry must not open a fresh round")
+    }
+
+    /// The page's 重试 button is an event: after the previous round is
+    /// exhausted it must be able to open another bounded round.
+    func testVisibleRetryStartsANewRoundAfterThePreviousOneWasExhausted() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 200, maximumAutomaticRetries: 2,
+            retryDelayMilliseconds: 10)
+        defer { scheduler.stop() }
+        let attempts = AttemptCounter()
+        scheduler.install { _ in
+            attempts.record()
+            throw RecoveryFailure()
+        }
+
+        scheduler.noteWorkerBoot("boot-failing")
+        scheduler.noteWorkerReady()
+        let firstRound = await waitUntil(timeout: 2) {
+            if case .failed = scheduler.phase { return true }
+            return false
+        }
+        XCTAssertTrue(firstRound, "phase=\(scheduler.phase) attempts=\(attempts.value)")
+        XCTAssertEqual(attempts.value, 3)
+
+        scheduler.forceRetry()
+        let secondRound = await waitUntil(timeout: 2) {
+            attempts.value == 6 && scheduler.phase.isFailure
+        }
+        XCTAssertTrue(secondRound,
+                      "the visible retry must open a new round; phase=\(scheduler.phase) "
+                          + "attempts=\(attempts.value)")
+        XCTAssertEqual(attempts.value, 6)
+    }
+
+    /// A replacement Worker boot is an event too: after an exhausted round the
+    /// next HELLO must be able to recover instead of inheriting the old budget.
+    func testANewWorkerBootStartsANewRoundAfterThePreviousOneWasExhausted() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 200, maximumAutomaticRetries: 1,
+            retryDelayMilliseconds: 10)
+        defer { scheduler.stop() }
+        let attempts = AttemptCounter()
+        scheduler.install { _ in
+            attempts.record()
+            throw RecoveryFailure()
+        }
+
+        scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
+        let firstRound = await waitUntil(timeout: 2) {
+            if case .failed = scheduler.phase { return true }
+            return false
+        }
+        XCTAssertTrue(firstRound, "phase=\(scheduler.phase) attempts=\(attempts.value)")
+        XCTAssertEqual(attempts.value, 2, "one bind + one automatic retry")
+
+        scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
+        let secondRound = await waitUntil(timeout: 2) {
+            attempts.value == 4 && scheduler.phase.isFailure
+        }
+        XCTAssertTrue(secondRound,
+                      "a new Worker boot must open a new round; phase=\(scheduler.phase) "
+                          + "attempts=\(attempts.value)")
+        XCTAssertEqual(attempts.value, 4, "the new event restarts the same bounded budget")
+    }
+
+    func testASuccessfulAutomaticRetryEndsTheRound() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 200, maximumAutomaticRetries: 3,
+            retryDelayMilliseconds: 10)
+        defer { scheduler.stop() }
+        let attempts = AttemptCounter()
+        scheduler.install { _ in
+            attempts.record()
+            if attempts.value == 1 { throw RecoveryFailure() }
+        }
+
+        scheduler.noteWorkerBoot("boot-retried")
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
+        XCTAssertTrue(ready, "phase=\(scheduler.phase) attempts=\(attempts.value)")
+        XCTAssertEqual(attempts.value, 2)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(attempts.value, 2, "a successful retry must cancel the rest of the round")
+        XCTAssertEqual(scheduler.recoveredBootID, "boot-retried")
+    }
+
+    /// The visible 重试 button must issue a real rebind even while the previous
+    /// attempt is still in flight; otherwise it looks enabled but does nothing.
+    func testForceRetryStartsANewBindWhileAnotherAttemptIsInFlight() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 5_000)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        var reclaimCalls = 0
+        scheduler.install { bootID in
+            attempts.append(bootID)
+            if attempts.count == 1 {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+            reclaimCalls += 1
+        }
+
+        scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
+        let started = await waitUntil { attempts == ["boot-one"] }
+        XCTAssertTrue(started)
+        scheduler.forceRetry()
+        let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
+        XCTAssertTrue(ready, "retry must rebind; phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-one", "boot-one"])
+        XCTAssertEqual(reclaimCalls, 1)
+    }
+
+    func testADuplicateTerminationEventDoesNotAddASecondRecovery() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteTermination(count: 1)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        XCTAssertTrue(attempts.isEmpty)
+        scheduler.noteWorkerBoot("boot-new")
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready)
+        XCTAssertEqual(attempts, ["boot-new"])
+    }
+
+    /// A parked host gets a new WebEngine, so its termination counter restarts
+    /// at 1. The next kill after a resume must still enter recovering.
+    func testASecondKillWithARestartedEngineCounterIsAccepted() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
+        let first = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(first)
+        scheduler.noteTermination(count: 1)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
+        let second = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(second)
+        XCTAssertEqual(attempts, ["boot-one", "boot-two"])
+    }
+
+    /// A deliberate manual park/start (the S6 memory eraser) suppresses the
+    /// automatic `.workerHello` rebind. The page still sees `.restarted` /
+    /// HELLO boot candidates during that window, so the scheduler enters
+    /// recovering. Once the manual path reattaches the replacement Worker, its
+    /// recorded boot must publish `.ready` — otherwise the banner stays until
+    /// the user taps 重试 even though the new session already started.
+    func testManualRebindAfterSuppressedParkStartReturnsToReady() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.seed(recoveredBootID: "boot-old")
+        // `.restarted` and the suppressed HELLO both arrive as page candidates.
+        scheduler.noteBootCandidate("boot-new")
+        XCTAssertEqual(scheduler.phase, .recovering)
+
+        scheduler.beginManualRebind()
+        scheduler.completeManualRebind(recoveredBootID: "boot-new")
+        XCTAssertEqual(scheduler.phase, .ready)
+        XCTAssertEqual(scheduler.recoveredBootID, "boot-new")
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the manual path owns the reattach; no automatic bind may run: \(attempts)")
+    }
+
+    /// The ready gate armed by a replacement HELLO must be released when the
+    /// caller takes over the park/start. Otherwise the fallback timer or a
+    /// later ready line starts a second, racing bind.
+    func testManualRebindReleasesAnArmedReadyGate() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.seed(recoveredBootID: "boot-old")
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-new", helloCount: 1)
+        XCTAssertTrue(scheduler.isAwaitingWorkerReady)
+
+        scheduler.beginManualRebind()
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+        scheduler.completeManualRebind(recoveredBootID: "boot-new")
+        XCTAssertEqual(scheduler.phase, .ready)
+        XCTAssertTrue(attempts.isEmpty,
+                      "the released gate must not bind after the manual path: \(attempts)")
+    }
+
+    func testFailedManualRebindPublishesARetryableFailure() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        scheduler.seed(recoveredBootID: "boot-old")
+        scheduler.beginManualRebind()
+        scheduler.failManualRebind("Bot 连接没有恢复，请重试。")
+        XCTAssertTrue(scheduler.phase.isFailure)
+        if case let .failed(message) = scheduler.phase {
+            XCTAssertEqual(message, "Bot 连接没有恢复，请重试。")
+        }
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+    }
+
+    func testANewTerminationAfterRecoveryShowsRecoveringAgain() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 80)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-one")
+        scheduler.noteWorkerReady()
+        let first = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(first)
+        scheduler.noteTermination(count: 2)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        XCTAssertEqual(attempts, ["boot-one"],
+                       "a termination reports recovering but must wait for the next HELLO")
+        scheduler.noteWorkerBoot("boot-two")
+        scheduler.noteWorkerReady()
+        let second = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(second)
+        XCTAssertEqual(attempts, ["boot-one", "boot-two"])
+    }
+
+    /// The replacement Worker sends HELLO when its socket opens, then spends
+    /// most of its boot before the ordered-channel API bridge exists. A bind
+    /// issued on the raw HELLO sends its first `session/page` into that
+    /// dropped-request window; the request never answers and the 20 s attempt
+    /// deadline expires. The bind must wait for the Worker `ready` phase.
+    func testAReplacementHelloWaitsForWorkerReadyBeforeBinding() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(timeoutMilliseconds: 500)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-replacement", helloCount: 1)
+        try await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(scheduler.phase, .recovering)
+        XCTAssertTrue(scheduler.isAwaitingWorkerReady)
+        XCTAssertTrue(attempts.isEmpty,
+                      "HELLO announces the Worker identity, not its API bridge: \(attempts)")
+
+        scheduler.noteWorkerReady()
+        let ready = await waitUntil { scheduler.phase == .ready }
+        XCTAssertTrue(ready,
+                      "the ready phase must release the armed bind; "
+                          + "phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-replacement"])
+        XCTAssertFalse(scheduler.isAwaitingWorkerReady)
+    }
+
+    /// A Worker bundle that does not forward the reserved boot phase still has
+    /// to recover; the ready gate is a head start, not a new permanent stall.
+    func testReadyFallbackBindsAWorkerThatNeverAnnouncesReady() async throws {
+        let scheduler = BotWorkerRecoveryScheduler(
+            timeoutMilliseconds: 500, readyFallbackMilliseconds: 120)
+        defer { scheduler.stop() }
+        var attempts: [String?] = []
+        scheduler.install { bootID in attempts.append(bootID) }
+
+        scheduler.noteTermination(count: 1)
+        scheduler.noteWorkerBoot("boot-silent", helloCount: 1)
+        try await Task.sleep(nanoseconds: 40_000_000)
+        XCTAssertTrue(attempts.isEmpty)
+        let ready = await waitUntil(timeout: 2) { scheduler.phase == .ready }
+        XCTAssertTrue(ready,
+                      "the bounded ready fallback must still bind; "
+                          + "phase=\(scheduler.phase) attempts=\(attempts)")
+        XCTAssertEqual(attempts, ["boot-silent"])
+    }
+
+    private func waitUntil(timeout: TimeInterval = 1,
+                           _ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return condition()
+    }
+}
+
+private extension BotWorkerRecoveryScheduler.Phase {
+    var isFailure: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+private struct RecoveryFailure: Error {}
+
+/// Mutable counters live on the main actor with the scheduler; a local `var`
+/// captured by two escaping `@MainActor` closures is rejected by Swift 6.
+@MainActor
+private final class AttemptCounter {
+    private(set) var value = 0
+
+    func record() { value += 1 }
+}

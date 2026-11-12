@@ -61,6 +61,43 @@ final class BotChatModelTests: XCTestCase {
 
     // MARK: - Activity line visibility across a turn
 
+    /// The page's scroll target: the newest pending approval / question card
+    /// wins over trailing live text. #126 mounts the turn's streamed text after
+    /// the durable rows, so a tail scroll covered the card that was waiting for
+    /// the person (final-2: DB had approval.requested, UI showed no card).
+    func testNewestActionableCardWinsOverTrailingLiveText() {
+        let questionBody = BotUIBody(type: "widget", values: [
+            "cardType": .string("question"),
+            "question": .string("要选 A 还是 B？"),
+            "options": .array([.object(["id": .string("o0"), "label": .string("A")])]),
+        ])
+        let question = BotUIRow.fixture(id: "q", seq: 2, body: questionBody)
+        let model = BotChatModel(
+            rows: [question],
+            context: BotRuntimeContext(botID: "main", botName: "大肥鱼"),
+            fixtureActions: true)
+        XCTAssertEqual(model.newestActionableCard?.id, "q")
+        model.receive(.textDelta("这段旁白在卡片下方，不能把卡片滚出键盘上沿。"))
+        XCTAssertEqual(model.newestActionableCard?.id, "q",
+                       "live text after the card must not steal the scroll target")
+
+        let approval = BotUIRow.fixture(id: "a", seq: 3, body: BotUIBody(type: "approval", values: [
+            "approvalID": .string("approval-1"),
+            "digest": .string("digest-1"),
+            "status": .string("pending"),
+            "action": .string("删除旧文件"),
+        ]))
+        model.apply(BotUIRowBatch(rows: [approval], deletes: [], cursor: 1, reset: false))
+        XCTAssertEqual(model.newestActionableCard?.id, "a")
+
+        var decided = approval
+        decided.body.values["status"] = .string("allowed")
+        decided.updatedSeq = 2
+        model.apply(BotUIRowBatch(rows: [decided], deletes: [], cursor: 2, reset: false))
+        XCTAssertNil(model.newestActionableCard,
+                     "a decided approval is no longer an actionable scroll target")
+    }
+
     /// The line starts on the local echo: after `send` the host has not opened
     /// the turn yet, so there is no factory activity and it shows thinking.
     func testSendShowsActivityLineBeforeTurnStarts() {

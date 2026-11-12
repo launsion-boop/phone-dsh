@@ -362,7 +362,9 @@ public struct BotSessionLogProjector: Sendable {
         var hiddenTurns: Set<Int> = []
         var hiddenFallback = false
         var awaitingCard = false
+        var suppressTrailingText = false
         var toolNames: [String: String] = [:]
+        var toolFinals: [String: Bool] = [:]
         var calls: [String: (name: String, rowID: String, body: BotRowBody)] = [:]
         var seenEventIDs: Set<String> = []
 
@@ -371,6 +373,8 @@ public struct BotSessionLogProjector: Sendable {
             let order = BotRowOrder(time: event.time, source: source, sourceSeq: event.seq, index: index)
             if event.type == "turn/start" {
                 turn = intValue(event.data["turn"]) ?? turn
+                suppressTrailingText = false
+                toolFinals = [:]
                 continue
             }
             if ignored.contains(event.type) { continue }
@@ -428,7 +432,8 @@ public struct BotSessionLogProjector: Sendable {
             case "assistant/message":
                 let message = objectValue(event.data["message"]) ?? [:]
                 let messageTurn = intValue(event.data["turn"]) ?? turn
-                if hiddenFallback || hiddenTurns.contains(messageTurn) || awaitingCard { continue }
+                if hiddenFallback || hiddenTurns.contains(messageTurn) || awaitingCard
+                    || suppressTrailingText { continue }
                 let blocks = arrayValue(message["content"]) ?? []
                 let text = contentText(.array(blocks.filter { stringValue(objectValue($0)?["type"]) == "text" }))
                 guard !text.isEmpty else { continue }
@@ -444,8 +449,12 @@ public struct BotSessionLogProjector: Sendable {
                 let name = stringValue(event.data["name"]) ?? ""
                 let callID = stringValue(event.data["callId"]) ?? rowID(sessionID, event.seq)
                 toolNames[callID] = name
+                let callArguments = parseArguments(stringValue(event.data["arguments"]))
+                if isFinalContentCard(name: name, arguments: callArguments) {
+                    toolFinals[callID] = true
+                }
                 guard isApprovalTool(name) else { continue }
-                let arguments = parseArguments(stringValue(event.data["arguments"]))
+                let arguments = callArguments
                 let action = nonEmpty(arguments, "action") ?? "未知操作"
                 let command = stringValue(arguments["command"]) ?? ""
                 let requestID = stringValue(arguments["requestId"])
@@ -477,9 +486,12 @@ public struct BotSessionLogProjector: Sendable {
                 let text = contentText(message["content"])
                 if var call = calls[callID] {
                     let status = approvalStatus(text)
+                    let resultFields = parseArguments(text)
+                    let scope = stringValue(resultFields["scope"])
                     call.body["status"] = .string(status)
+                    if let scope { call.body["scope"] = .string(scope) }
                     call.body["resultText"] = .string(text)
-                    call.body["text"] = .string("\(approvalLabel(status))：\(stringValue(call.body["action"]) ?? "未知操作")")
+                    call.body["text"] = .string("\(approvalLabel(status, scope: scope))：\(stringValue(call.body["action"]) ?? "未知操作")")
                     if var ask = objectValue(call.body["ask"]) {
                         ask["status"] = .string(approvalAskStatus(status))
                         call.body["ask"] = .object(ask)
@@ -489,6 +501,16 @@ public struct BotSessionLogProjector: Sendable {
                                       body: call.body, trust: BotRowProvenance.model)
                     result.append(.upsert(draft, order))
                 }
+                let failed = message["isError"]?.boolValue == true || event.data["error"] != nil
+                if !failed, toolFinals[callID] == true {
+                    // P26 §2.9: this raw session log is the App's durable
+                    // projection too. The host already drops the trailing
+                    // `conversation.assistant_message`; keeping the same rule
+                    // here prevents that sentence from reappearing after a
+                    // turn end or a cache rebuild.
+                    suppressTrailingText = true
+                }
+                toolFinals.removeValue(forKey: callID)
                 let displayed = text.hasPrefix("已顯示") || text.hasPrefix("已显示") || text.hasPrefix("Displayed")
                 let toolName = toolNames[callID] ?? stringValue(event.data["name"]) ?? ""
                 if displayed && (toolName.hasSuffix("ask_user") || toolName.hasSuffix("show_next_steps")) {
@@ -496,6 +518,8 @@ public struct BotSessionLogProjector: Sendable {
                 }
             case "turn/end":
                 awaitingCard = false
+                suppressTrailingText = false
+                toolFinals.removeAll()
                 hiddenTurns.remove(turn)
                 hiddenFallback = false
                 let reason = objectValue(event.data["reason"])
@@ -956,6 +980,13 @@ private func contentText(_ value: BotJSONValue?) -> String {
     }.joined()
 }
 
+private func isFinalContentCard(name: String, arguments: [String: BotJSONValue]) -> Bool {
+    guard let bare = BotToolCatalog.contentCardNames.first(where: { candidate in
+        name == candidate || name.hasSuffix("__\(candidate)")
+    }) else { return false }
+    return (try? BotCardPayloads.contentCardFinal(tool: bare, arguments: .object(arguments))) == true
+}
+
 private func parseArguments(_ text: String?) -> [String: BotJSONValue] {
     guard let text, let data = text.data(using: .utf8),
           let value = try? JSONDecoder().decode(BotJSONValue.self, from: data) else { return [:] }
@@ -973,10 +1004,28 @@ private func chatActionNonce(_ source: [String: BotJSONValue]?) -> String? {
 
 private func approvalStatus(_ text: String) -> String {
     let fields = parseArguments(text)
+    if fields["pending"]?.boolValue == true { return "pending" }
     if fields["allowed"]?.boolValue == false || stringValue(fields["decision"]) == "denied" {
         return "denied"
     }
-    if fields["allowed"]?.boolValue == true { return "allowed" }
+    if fields["allowed"]?.boolValue == true {
+        // The actual user decision and effective grant scope travel with the
+        // tool result. A session grant must not render as "allowed once".
+        switch stringValue(fields["approvalDecision"]) {
+        case "always":
+            return stringValue(fields["scope"]) == "session" ? "allowed-session" : "always"
+        case "allowOnce":
+            return "allowed"
+        case "deny":
+            return "denied"
+        default:
+            switch stringValue(fields["scope"]) {
+            case "session": return "allowed-session"
+            case "until": return "always"
+            default: return "allowed"
+            }
+        }
+    }
     let lower = text.lowercased()
     if text.contains("永不允许") || text.contains("永不允許") || lower.contains("never allow") { return "never" }
     if text.contains("总是允许") || text.contains("總是允許") || lower.contains("always allow") { return "always" }
@@ -987,20 +1036,13 @@ private func approvalStatus(_ text: String) -> String {
     return "unknown"
 }
 
-private func approvalLabel(_ status: String) -> String {
-    switch status {
-    case "allowed": return "已允许一次"
-    case "always": return "已总是允许"
-    case "denied": return "已拒绝"
-    case "never": return "已设为永不允许"
-    case "timed-out": return "超时未回应（视为拒绝）"
-    default: return "已处理"
-    }
+private func approvalLabel(_ status: String, scope: String? = nil) -> String {
+    BotApprovalReceipt.label(for: status, scope: scope)
 }
 
 private func approvalAskStatus(_ status: String) -> String {
     switch status {
-    case "allowed", "always": return "allowed"
+    case "allowed", "allowed-session", "always": return "allowed"
     case "timed-out": return "timed-out"
     case "unknown": return "pending"
     default: return status

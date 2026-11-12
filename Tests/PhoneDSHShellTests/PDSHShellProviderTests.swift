@@ -465,6 +465,18 @@ final class PDSHShellStubProviderTests: XCTestCase {
         XCTAssertEqual(configured.helloCapabilities.mounts.count, 2)
     }
 
+    func testRecordBridgeAdvertisesPhoneWithoutTheLinkedShell() {
+        XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
+            channel: [], hasRecordQuery: false), [])
+        XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
+            channel: ["rg"], hasRecordQuery: true), ["rg", "phone"])
+        XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
+            channel: ["rg", "phone"], hasRecordQuery: true), ["rg", "phone"])
+        // A linked host with a bridge already publishes phone; do not duplicate it.
+        XCTAssertEqual(PDSHShellProvider.advertisedAcceleratorNames(
+            channel: ["phone"], hasRecordQuery: false), ["phone"])
+    }
+
     func testStubFailsEveryExecWithNotLinked() async throws {
         let tree = try PDSHShellTestTree()
         let provider = tree.provider()
