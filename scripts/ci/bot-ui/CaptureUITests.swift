@@ -72,7 +72,14 @@ final class BotCaptureUITests: XCTestCase {
         app.buttons["bot.checklist.send"].tap()
         usleep(300_000)
         assertCount("chat", 1)
-        XCTAssertFalse(app.buttons["bot.checklist.send"].isEnabled)
+        // #132 collapses a handled interactive card into one settled line, so
+        // the whole checklist form (including its send button) is gone. Query
+        // the settled line and the absent button explicitly: reading
+        // `isEnabled` on a non-existent element raises a snapshot error.
+        let settled = app.descendants(matching: .any)["bot.card.settled"]
+        XCTAssertTrue(settled.waitForExistence(timeout: 2))
+        XCTAssertTrue(settled.label.hasPrefix("已发送勾选结果"), settled.label)
+        XCTAssertFalse(app.buttons["bot.checklist.send"].exists)
     }
 
     func testApprovalDecisionAndAlwaysScopeNone() throws {
