@@ -562,9 +562,9 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 
 - 每个模型 step 追加一条 LLM 账本，字段以 `llm-ledger.schema.json` 为准；四类 token 分开记录，快取命中率按上游公式计算，TTFT 不可得时省略。
 - 只有 `front-turn` 和 `worker-turn` 允许大模型；其他 purpose 必须走小模型策略。模型密钥仍由 phoneDSH 宿主持有。
-- Watchdog 只观察，不自动 nudge/stop。deadline、heartbeat、重复工具签名、重复工具错误、token/成本配额，以及手机新增的 WebContent 终止、温度、电量事件，每项每个工作单元只发一次 `watchdog.flagged`。
-- compaction、pruner、spill 的 default/conservative 参数逐值复用 `CONTEXT_PROFILES`。未知 profile 回退 default，不新增环境变量。
-- contextLint 对最近 session 做确定性检查；冻结重放和 rubric 不在第一版。
+- Watchdog 只观察，不自动 nudge/stop。deadline、heartbeat、重复工具签名、重复工具错误、token/成本配额，以及手机新增的 WebContent 终止、温度、电量事件，每项每个工作单元只发一次 `watchdog.flagged`。config 的 13 个具名成员、缺省/零值、unit 生命周期、flag payload 与 mobile host-signal 语义见 [watchdog.md](watchdog.md)；`watchdog.schema.json` 的 `config` 是关闭对象，缺成员取缺省，错误码为 `watchdog.config.type`/`watchdog.config.range`/`watchdog.config.unknown`，path 为 `/config/<field>`，负数/类型/未知成员明确拒绝。
+- compaction、pruner、spill 的 default/conservative 参数逐值复用 `CONTEXT_PROFILES`。未知 profile 回退 default，不新增环境变量。`context-profiles` 只是 DSH compaction 数据，Bot runtime 不重作 compaction，Android 不要求实现 DSH compaction。
+- contextLint 对最近 session 做确定性检查；冻结重放和 rubric 不在第一版。六条规则、warn/error thresholds、evidence/location keys 与 P0 无 production caller 的边界见 [observability.md](observability.md)。
 
 ## 7. 大肥鱼与表现状态
 
