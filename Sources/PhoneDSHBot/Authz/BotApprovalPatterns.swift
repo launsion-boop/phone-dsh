@@ -31,23 +31,23 @@ public enum BotApprovalPatternAnalyzer {
               case .string(let command)? = args["command"], !command.isEmpty else { return [] }
         if matches(#"(?:^|[;&|]\s*)rm\s+(?:[^\s;&|]+\s+)*-"#, command) || command.hasPrefix("rm ") {
             let resource = rmResource(command: command, workspace: workspace)
-            return [match(kind: "rm-destructive", zhLabel: "刪除檔案或目錄（rm）",
+            return [match(kind: "rm-destructive", zhLabel: "删除文件或目录（rm）",
                           enLabel: "Delete files or directories (rm)",
-                          zhDetail: "這個命令會刪除檔案或目錄：\(command)",
+                          zhDetail: "这个命令会删除文件或目录：\(command)",
                           enDetail: "This command deletes files or directories: \(command)",
                           command: command, resource: resource, language: language)]
         }
         if matches(#"(?:^|[;&|]\s*)git\s+reset\s+[^\n]*--hard"#, command) {
-            return [match(kind: "git-destructive", zhLabel: "捨棄 Git 工作區變更",
+            return [match(kind: "git-destructive", zhLabel: "丢弃 Git 工作区变更",
                           enLabel: "Discard Git working-tree changes",
-                          zhDetail: "這個命令會捨棄未提交的變更：\(command)",
+                          zhDetail: "这个命令会丢弃未提交的变更：\(command)",
                           enDetail: "This command discards uncommitted changes: \(command)",
                           command: command, resource: command, language: language)]
         }
         if matches(#"(?:^|[;&|]\s*)find\s+[^\n]*(?:\s|^)-delete(?:\s|$)"#, command) {
-            return [match(kind: "find-delete", zhLabel: "使用 find -delete 刪除檔案",
+            return [match(kind: "find-delete", zhLabel: "使用 find -delete 删除文件",
                           enLabel: "Delete files with find -delete",
-                          zhDetail: "find -delete 會移除符合條件的檔案：\(command)",
+                          zhDetail: "find -delete 会移除符合条件的文件：\(command)",
                           enDetail: "find -delete removes the matching files: \(command)",
                           command: command, resource: command, language: language)]
         }

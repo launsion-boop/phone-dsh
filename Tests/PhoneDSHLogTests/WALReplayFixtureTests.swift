@@ -142,16 +142,22 @@ final class WALReplayFixtureTests: XCTestCase {
     // MARK: - Runner
 
     func testEveryReplayVectorDrivesRealRecovery() async throws {
-        let directory = try LogTestSupport.repoRoot()
-            .appendingPathComponent("spec/v1/golden/wal/replay")
-        let files = try FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        // The frozen vector set is 14 files. A missing or duplicated vector
-        // must fail the runner instead of silently narrowing conformance.
-        XCTAssertEqual(files.count, 14,
-                       "expected the 14 frozen replay vectors, found \(files.count)")
+        let root = try LogTestSupport.repoRoot()
+        let directories = ["spec/v1/golden/wal/replay",
+                           "spec/v1/golden/wal/replay-phone"]
+            .map { root.appendingPathComponent($0) }
+        var files: [URL] = []
+        for directory in directories {
+            files.append(contentsOf: try FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "json" })
+        }
+        files.sort { $0.lastPathComponent < $1.lastPathComponent }
+        // The shared set is 14 files; the phone-only closed-session rewrite is
+        // the 15th (PC-20261112-bot-session-epoch). A missing or duplicated
+        // vector must fail the runner instead of silently narrowing conformance.
+        XCTAssertEqual(files.count, 15,
+                       "expected the 15 frozen replay vectors, found \(files.count)")
         var seenIDs = Set<String>()
         for file in files {
             let vector = try JSONDecoder().decode(

@@ -61,7 +61,8 @@ public struct BotLiveTurnFrame: Sendable {
     public let kind: Kind
 }
 
-public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAuthorizing {
+public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAuthorizing,
+    BotApprovalResuming, BotApprovalPendingObserving {
     /// Durable task projection. It is stored as `persistedTask` inside the
     /// existing `task.created`/`task.updated` events, so no new table, event
     /// type or wire field is introduced.
@@ -92,6 +93,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var constraints: [String]?
         var budget: BotTaskBudget?
         var verification: BotVerification?
+        /// The durable todo this task parked on. Optional for old rows.
+        var waitingApprovalID: String?
     }
 
     private struct TaskState {
@@ -114,6 +117,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var stopWork: Task<BotTaskRecord, Error>?
         var live: Bool
         var wakeDelivered: Bool
+        var waitingApprovalID: String?
     }
 
     private struct SessionCredential {
@@ -163,6 +167,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private var recentHeldChatActions: [(requestId: String, nonce: String)] = []
     private var taskStates: [String: TaskState] = [:]
     private var interruptedTaskWakes: [String] = []
+    /// A decision that arrived before the task finished persisting its
+    /// `waiting_approval` state. Keyed by session id.
+    private var earlyApprovalDecisions: [String: BotApprovalResolutionNotice] = [:]
+    private var routineApprovalHandler: (@Sendable (BotApprovalResolutionNotice) async -> Void)?
+    private var pendingRoutineNotices: [BotApprovalResolutionNotice] = []
     private var routineSessions: [String: String] = [:]
     private var maintainerSessionId: String?
     private var mainSessionTask: Task<String, Error>?
@@ -170,6 +179,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     /// The one compatibility observer installed by `setLiveObserver`.
     private var legacyLiveSubscription: BotLiveFrameSubscription?
     private var wakeInFlight = false
+    /// One-shot seam for the first user message of a new session epoch.
+    private var pendingContinuation: String?
 
     public private(set) var mainSessionId: String?
 
@@ -200,8 +211,25 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         await restorePersistedTasks()
     }
 
-    public func attachTransport(_ newTransport: any DSHRemoteTransport) async {
-        transport = newTransport
+    /// Installs the routine scheduler's approval-resume seam. A decision that
+    /// arrives before installation is queued and replayed.
+    public func installRoutineApprovalHandler(
+        _ handler: (@Sendable (BotApprovalResolutionNotice) async -> Void)?
+    ) async {
+        routineApprovalHandler = handler
+        guard handler != nil else { return }
+        let queued = pendingRoutineNotices
+        pendingRoutineNotices.removeAll()
+        for notice in queued { await handler?(notice) }
+    }
+
+    /// Startup reconciliation for a restored routine waiting state. The
+    /// coordinator owns the decision; the scheduler owns the run.
+    public func approvalStatus(approvalId: String) async -> BotDurableApprovalState.Status {
+        await runtime.approvals.durableStatus(approvalId: approvalId)
+    }
+
+    public func attachTransport(_ newTransport: any DSHRemoteTransport) async {        transport = newTransport
         // The previous Worker's in-memory session credentials are gone. Keep
         // the host-side tokens (the BotTokenRegistry incarnation is still the
         // current one) but require a fresh issue+claim before the next turn.
@@ -242,6 +270,10 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 : text + attachmentBlock
         }
         var prompt = body
+        if let seam = pendingContinuation, !seam.isEmpty {
+            pendingContinuation = nil
+            prompt = seam + "\n\n" + prompt
+        }
         var stagedKey: String?
         var promptRequestId = requestId ?? BotTurnOrigin.visibleRequestId()
         if !steer, let wakeInbox {
@@ -403,18 +435,53 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
 
     public func runRoutine(_ request: RoutineRunRequest) async -> RoutineExecutionResult {
         do {
-            let sessionId = try await ensureRoutineSession(request.routine.id)
+            let sessionId: String
+            if let resumeSessionID = request.resumeSessionID,
+               await validateRemoteSession(resumeSessionID) {
+                sessionId = resumeSessionID
+                routineSessions[request.routine.id] = resumeSessionID
+            } else {
+                sessionId = try await ensureRoutineSession(request.routine.id)
+            }
             let principal = try await ensureSession(sessionId: sessionId, kind: .routine)
-            _ = try await runtime.eventWriter.append(
-                type: "routine.run_started", principal: principal,
-                data: .object([
-                    "runId": .string(request.runId), "routineId": .string(request.routine.id),
-                    "title": .string(request.routine.title), "attempt": .number(Double(request.attempt)),
-                    "scheduledFor": .number(Double(request.startedAt)),
-                ]), eventId: "started:\(request.runId)")
-            let result = try await runTurn(
-                sessionId: sessionId, kind: .routine, prompt: request.wake.text,
-                requestId: BotTurnOrigin.routineRequestId(runId: request.runId))
+            if request.resumeApprovalID == nil {
+                _ = try await runtime.eventWriter.append(
+                    type: "routine.run_started", principal: principal,
+                    data: .object([
+                        "runId": .string(request.runId), "routineId": .string(request.routine.id),
+                        "title": .string(request.routine.title), "attempt": .number(Double(request.attempt)),
+                        "scheduledFor": .number(Double(request.startedAt)),
+                    ]), eventId: "started:\(request.runId)")
+            }
+            let requestID = request.resumeApprovalID.map {
+                "routine:\(request.runId):resume:\($0)"
+            } ?? BotTurnOrigin.routineRequestId(runId: request.runId)
+            let result: BotRemoteTurnResult
+            do {
+                result = try await runTurn(
+                    sessionId: sessionId, kind: .routine, prompt: request.wake.text,
+                    requestId: requestID)
+            } catch {
+                if let pending = await runtime.approvals.pendingApproval(sessionId: sessionId) {
+                    return .waiting(approvalID: pending.approvalID, sessionID: sessionId)
+                }
+                if let recent = await runtime.approvals.pendingOrRecentApproval(sessionId: sessionId),
+                   recent.status != .pending {
+                    return .waiting(approvalID: recent.approvalID, sessionID: sessionId)
+                }
+                throw error
+            }
+            if let pending = await runtime.approvals.pendingApproval(sessionId: sessionId) {
+                return .waiting(approvalID: pending.approvalID, sessionID: sessionId)
+            }
+            if result.status != "completed" {
+                if let recent = await runtime.approvals.pendingOrRecentApproval(sessionId: sessionId),
+                   recent.status != .pending {
+                    return RoutineExecutionResult(
+                        status: .waitingApproval,
+                        approvalID: recent.approvalID, sessionID: sessionId)
+                }
+            }
             let completion = request.routine.completionCriteria
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             var verification: BotVerification?
@@ -507,7 +574,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             constraints: request.constraints, budget: request.budget,
             authorization: authorization,
             record: record, generation: 1, work: nil, stopWork: nil,
-            live: true, wakeDelivered: false)
+            live: true, wakeDelivered: false, waitingApprovalID: nil)
         taskStates[taskId] = state
         // Durability precedes work: a crash after this event leaves an
         // interrupted task the next process can report, never an orphan.
@@ -618,8 +685,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             throw BotMCPError.invalidRequest("unknown task: \(taskId)")
         }
         if let stopWork = state.stopWork { return try await stopWork.value }
-        if ["stopped", "completed", "failed", "interrupted"].contains(state.record.status)
-            || !state.live { return state.record }
+        let waitingApproval = state.record.status == "waiting_approval"
+        if ["stopped", "completed", "failed", "interrupted", "denied"].contains(state.record.status)
+            || (!state.live && !waitingApproval) { return state.record }
         let generation = state.generation + 1
         taskStates[taskId]?.generation = generation
         taskStates[taskId]?.record = BotTaskRecord(
@@ -631,7 +699,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             verification: state.record.verification)
         let work = Task { try await self.performStop(taskId: taskId, generation: generation) }
         taskStates[taskId]?.stopWork = work
-        return try await work.value
+        let stopped = try await work.value
+        if let approvalID = state.waitingApprovalID {
+            _ = await runtime.approvals.cancelPersistent(
+                approvalId: approvalID, reason: "task_stopped")
+        }
+        return stopped
     }
 
     private func performStop(taskId: String, generation: Int) async throws -> BotTaskRecord {
@@ -663,25 +736,39 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         return stopped
     }
 
-    private func executeTask(taskId: String, generation: Int) async throws -> BotTaskRecord {
+    private func executeTask(taskId: String, generation: Int,
+                             resumeApprovalID: String? = nil) async throws -> BotTaskRecord {
         guard let state = taskStates[taskId], state.generation == generation,
               state.record.status == "running" else {
             return taskStates[taskId]?.record ?? BotTaskRecord(
                 taskId: taskId, sessionId: "", status: "stopped", title: "")
         }
         do {
+            var resume = ""
+            if let resumeApprovalID {
+                resume = "\n\n[approval_resume] The user approved the pending \(resumeApprovalID) approval. "
+                    + "Continue this task from where it stopped. Do not repeat side effects that already happened."
+            }
             let prompt = Self.authorizationPrompt(state.authorization)
                 + "\n\n" + Self.taskContractPrompt(
                     completion: state.completion, purpose: state.purpose,
                     constraints: state.constraints,
                     budgetMs: state.budget?.maxDurationMs ?? state.timeoutMs)
+                + resume
                 + "\n\n" + state.prompt
+            let requestID = resumeApprovalID.map {
+                "task-turn:\(taskId):approval:\($0)"
+            } ?? BotTurnOrigin.taskTurnRequestId(taskId: taskId)
             let turn = try await runTurn(
                 sessionId: state.record.sessionId, kind: .task,
-                prompt: prompt, requestId: BotTurnOrigin.taskTurnRequestId(taskId: taskId))
+                prompt: prompt, requestId: requestID)
             guard let current = taskStates[taskId], current.generation == generation,
                   current.record.status == "running" else {
                 return taskStates[taskId]?.record ?? state.record
+            }
+            if let parked = await parkForApprovalIfNeeded(
+                taskId: taskId, generation: generation, state: state, partial: turn.text) {
+                return parked
             }
             let completed = turn.status == "completed"
             var verification: BotVerification?
@@ -741,6 +828,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                   current.record.status == "running" else {
                 return taskStates[taskId]?.record ?? state.record
             }
+            if let parked = await parkForApprovalIfNeeded(
+                taskId: taskId, generation: generation, state: state,
+                partial: state.record.partial) {
+                return parked
+            }
             let record = BotTaskRecord(
                 taskId: taskId, sessionId: state.record.sessionId,
                 status: "failed", title: state.record.title,
@@ -754,6 +846,228 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             try? await persistTask(taskId: taskId, type: "task.updated",
                                    eventId: "persisted:failed:\(taskId)")
             return record
+        }
+    }
+
+    // MARK: - Durable approval parking / resume
+
+    /// A task turn that ended while a durable approval is pending stops in
+    /// place: its record becomes `waiting_approval` and no settlement/parent
+    /// wake is written. The approval decision later resumes the same session or
+    /// closes it as denied.
+    private func parkForApprovalIfNeeded(taskId: String, generation: Int,
+                                         state: TaskState,
+                                         partial: String?) async -> BotTaskRecord? {
+        guard taskStates[taskId]?.generation == generation,
+              taskStates[taskId]?.record.status == "running" else {
+            return taskStates[taskId]?.record
+        }
+        let pending = await runtime.approvals.pendingApproval(
+            sessionId: state.record.sessionId)
+        let sessionID = state.record.sessionId
+        let early = earlyApprovalDecisions.removeValue(forKey: sessionID)
+        guard pending != nil || early != nil else { return nil }
+        let approvalID = pending?.approvalID ?? early!.approvalID
+        let record = BotTaskRecord(
+            taskId: taskId, sessionId: sessionID,
+            status: "waiting_approval", title: state.record.title,
+            result: nil, partial: partial ?? state.record.partial,
+            error: "approval_pending",
+            completion: state.record.completion, purpose: state.record.purpose,
+            constraints: state.record.constraints, budget: state.record.budget,
+            verification: state.record.verification)
+        taskStates[taskId]?.record = record
+        taskStates[taskId]?.generation = generation + 1
+        taskStates[taskId]?.work = nil
+        taskStates[taskId]?.live = false
+        taskStates[taskId]?.waitingApprovalID = approvalID
+        try? await persistTask(taskId: taskId, type: "task.updated",
+                               eventId: "persisted:waiting-approval:\(taskId)")
+        if let early {
+            await applyApprovalToTask(taskId: taskId, notice: early)
+        }
+        return taskStates[taskId]?.record ?? record
+    }
+
+    private func taskPrincipal(_ state: TaskState) -> BotGatewayPrincipal {
+        sessions[state.record.sessionId]?.principal ?? BotGatewayPrincipal(
+            botId: state.ownerBotId, sessionId: state.record.sessionId,
+            kind: .task, expiresAt: Int64.max, incarnation: state.ownerIncarnation)
+    }
+
+    /// One terminal decision for the task that owns this session. A decision
+    /// that lands while the turn is still finishing is remembered and applied
+    /// by `parkForApprovalIfNeeded`.
+    public func approvalResolved(_ notice: BotApprovalResolutionNotice) async {
+        if let match = taskStates.first(where: {
+            $0.value.record.sessionId == notice.principal.sessionId
+        }) {
+            let taskId = match.key
+            if match.value.record.status == "waiting_approval" {
+                await applyApprovalToTask(taskId: taskId, notice: notice)
+            } else if match.value.record.status == "running" {
+                earlyApprovalDecisions[notice.principal.sessionId] = notice
+            }
+            return
+        }
+        if let routineApprovalHandler {
+            await routineApprovalHandler(notice)
+        } else {
+            pendingRoutineNotices.append(notice)
+        }
+    }
+
+    /// The `/v1/http` exit returned 403 because this write became a durable
+    /// todo. Stop the turn after the response has shipped so the task parks in
+    /// one deterministic place.
+    public func approvalBecamePending(_ state: BotDurableApprovalState) async {
+        let sessionID = state.principal.sessionId
+        let relevant = taskStates.values.contains {
+            $0.record.sessionId == sessionID
+                && ($0.record.status == "running" || $0.record.status == "stopping")
+        } || routineSessions.values.contains(sessionID)
+            || coordinators[sessionID] != nil
+            || queuedTurns[sessionID] != nil
+        guard relevant else { return }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            try? await self?.cancelTurn(sessionId: sessionID, includeQueued: true)
+        }
+    }
+
+    private func applyApprovalToTask(taskId: String,
+                                     notice: BotApprovalResolutionNotice) async {
+        guard let state = taskStates[taskId] else { return }
+        guard state.record.status == "waiting_approval" else {
+            if state.record.status == "running" {
+                earlyApprovalDecisions[state.record.sessionId] = notice
+            }
+            return
+        }
+        if notice.allowed {
+            await resumeTask(taskId: taskId, state: state, approvalID: notice.approvalID)
+        } else {
+            await finishDeniedTask(taskId: taskId, state: state, notice: notice)
+        }
+    }
+
+    private func resumeTask(taskId: String, state: TaskState, approvalID: String) async {
+        guard var current = taskStates[taskId],
+              current.record.status == "waiting_approval" else { return }
+        let record = BotTaskRecord(
+            taskId: taskId, sessionId: current.record.sessionId,
+            status: "running", title: current.record.title,
+            result: nil, partial: current.record.partial, error: nil,
+            completion: current.record.completion, purpose: current.record.purpose,
+            constraints: current.record.constraints, budget: current.record.budget,
+            verification: current.record.verification)
+        current.record = record
+        current.generation += 1
+        current.live = true
+        current.waitingApprovalID = nil
+        taskStates[taskId] = current
+        let generation = current.generation
+        try? await persistTask(taskId: taskId, type: "task.updated",
+                               eventId: "persisted:resumed:\(taskId)")
+        if let principal = try? await ensureSession(
+            sessionId: record.sessionId, kind: .task) {
+            _ = try? await runtime.eventWriter.append(
+                type: "task.resumed", principal: principal,
+                data: .object([
+                    "task_id": .string(taskId),
+                    "sessionId": .string(record.sessionId),
+                    "status": .string("running"),
+                    "approvalID": .string(approvalID),
+                    "resumedAt": .number(Double(now())),
+                ]),
+                eventId: "resumed:\(taskId)")
+        }
+        let work = Task {
+            try await self.executeTask(
+                taskId: taskId, generation: generation,
+                resumeApprovalID: approvalID)
+        }
+        taskStates[taskId]?.work = work
+    }
+
+    private func finishDeniedTask(taskId: String, state: TaskState,
+                                  notice: BotApprovalResolutionNotice) async {
+        guard var current = taskStates[taskId],
+              current.record.status == "waiting_approval" else { return }
+        let cancelled = notice.cancelled
+        let error = cancelled ? "approval_cancelled"
+            : notice.expired ? "approval_expired" : "approval_denied"
+        let record = BotTaskRecord(
+            taskId: taskId, sessionId: current.record.sessionId,
+            status: cancelled ? "stopped" : "denied", title: current.record.title,
+            result: nil, partial: current.record.partial, error: error,
+            completion: current.record.completion, purpose: current.record.purpose,
+            constraints: current.record.constraints, budget: current.record.budget,
+            verification: current.record.verification)
+        current.record = record
+        current.generation += 1
+        current.live = false
+        current.work = nil
+        current.waitingApprovalID = nil
+        taskStates[taskId] = current
+        try? await persistTask(taskId: taskId, type: "task.updated",
+                               eventId: "persisted:denied:\(taskId)")
+        if let principal = try? await ensureSession(
+            sessionId: record.sessionId, kind: .task) {
+            _ = try? await runtime.eventWriter.append(
+                type: "task.settled", principal: principal, data: record.jsonValue,
+                eventId: "settled:\(taskId)")
+        }
+        guard !cancelled, current.asynchronous,
+              current.parentKind == .chat, !current.wakeDelivered else { return }
+        let title = HeldMessages.escapedHeldField(current.title)
+        let taskID = HeldMessages.escapedHeldField(taskId)
+        let detail = HeldMessages.escapedHeldField(error)
+        let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n"
+            + "\(title) | denied | \(taskID)\n"
+            + "The user did not approve the pending action (\(detail)). The task ended without executing it. "
+            + "Tell the user honestly that the task was denied; do not present it as done."
+        do {
+            _ = try await runTurn(
+                sessionId: current.ownerSessionId, kind: .chat, prompt: prompt,
+                requestId: "task-settled:\(taskId):approval:\(notice.approvalID)")
+            taskStates[taskId]?.wakeDelivered = true
+            try? await persistTask(taskId: taskId, type: "task.updated",
+                                   eventId: "persisted:denied-wake:\(taskId)")
+        } catch {
+            // The durable task record already says denied; a failed parent wake
+            // must not turn it back into a successful or completed task.
+        }
+    }
+
+    /// Startup reconciliation: a restored `waiting_approval` task applies any
+    /// decision that was already durable when the process died.
+    public func reconcileWaitingApprovals() async {
+        for (taskId, state) in taskStates where state.record.status == "waiting_approval" {
+            var approvalID = state.waitingApprovalID
+            if approvalID == nil {
+                if let pending = await runtime.approvals.pendingApproval(
+                    sessionId: state.record.sessionId) {
+                    approvalID = pending.approvalID
+                    taskStates[taskId]?.waitingApprovalID = approvalID
+                }
+            }
+            guard let approvalID else { continue }
+            let status = await runtime.approvals.durableStatus(approvalId: approvalID)
+            let notice = BotApprovalResolutionNotice(
+                approvalID: approvalID, principal: taskPrincipal(state),
+                allowed: status == .allowed,
+                expired: status == .expired,
+                cancelled: status == .cancelled,
+                decision: status == .allowed ? .allowOnce
+                    : status == .unknown || status == .pending ? nil : .deny,
+                decidedAt: now())
+            switch status {
+            case .allowed, .denied, .expired, .cancelled:
+                await applyApprovalToTask(taskId: taskId, notice: notice)
+            case .pending, .unknown:
+                continue
+            }
         }
     }
 
@@ -806,6 +1120,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 interruptedTaskWakes.append(taskId)
             }
         }
+        // `waiting_approval` tasks are not live work and must survive the
+        // restart. Reconcile them against decisions that were already durable.
+        await reconcileWaitingApprovals()
     }
 
     /// Delivers the single hidden wake for each task interrupted by a Worker
@@ -1081,7 +1398,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             authorization: state.authorization,
             completion: state.completion.isEmpty ? nil : state.completion,
             purpose: state.purpose, constraints: state.constraints,
-            budget: state.budget, verification: state.record.verification)
+            budget: state.budget, verification: state.record.verification,
+            waitingApprovalID: state.waitingApprovalID)
         let principal = sessions[state.ownerSessionId]?.principal ?? BotGatewayPrincipal(
             botId: state.ownerBotId, sessionId: state.ownerSessionId,
             kind: state.parentKind, expiresAt: Int64.max,
@@ -1188,7 +1506,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                         canWriteOutsideWorkspace: false, canNetworkWrite: false,
                         canDelegateTasks: false),
                 record: record, generation: 1, work: nil, stopWork: nil,
-                live: false, wakeDelivered: snapshot.wakeDelivered)
+                live: false, wakeDelivered: snapshot.wakeDelivered,
+                waitingApprovalID: snapshot.waitingApprovalID)
             if interrupted {
                 try? await persistTask(taskId: taskId, type: "task.updated",
                                        eventId: "persisted:interrupted:\(taskId)")
@@ -1254,6 +1573,48 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     public func mainSessionIdentifier() -> String? { mainSessionId }
+
+    /// Stages the continuity seam the next user message of a freshly switched
+    /// epoch receives once. It is cleared even if that turn fails.
+    public func setPendingContinuation(_ seam: String?) {
+        pendingContinuation = seam
+    }
+
+    /// Switches the main chat to a fresh DSH session for erasure. The old
+    /// session is archived and closed; the new id is the durable commit point
+    /// (`runtime.exited` for the old id, then `runtime.started` for the new).
+    public func switchMainSessionForErasure(erasureID: String,
+                                            erasedRecords: [String]) async throws
+        -> (old: String, new: String) {
+        let old = try await ensureMainSession()
+        try? await cancelTurn(sessionId: old, includeQueued: true)
+        let newID = rebuiltMainSessionID()
+        let created = try await createSession(kind: .chat, sessionID: newID)
+        _ = await archiveRemoteSession(old)
+        do {
+            let principal = try await ensureSession(sessionId: created, kind: .chat)
+            let oldPrincipal = sessions[old]?.principal ?? BotGatewayPrincipal(
+                botId: botId, sessionId: old, kind: .chat, expiresAt: Int64.max)
+            _ = try await runtime.eventWriter.append(
+                type: "runtime.exited",
+                principal: oldPrincipal,
+                data: .object([
+                    "sessionId": .string(old),
+                    "reason": .string("session-erased"),
+                    "replacedBy": .string(created),
+                    "erasureId": .string(erasureID),
+                    "erasedRecords": .array(erasedRecords.map(BotJSONValue.string)),
+                ]))
+            try await recordRuntimeStarted(created, principal: principal, cwd: botRoot())
+            mainSessionId = created
+            sessions.removeValue(forKey: old)
+            return (old, created)
+        } catch {
+            _ = await archiveRemoteSession(created)
+            _ = await unarchiveRemoteSession(old)
+            throw error
+        }
+    }
 
     /// Installed by the maintenance controller. Called before a visible/user
     /// main-chat turn starts so a running maintenance batch yields immediately;
@@ -1888,6 +2249,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         var texts: [String] = []
         var resultTexts: [String] = []
         var toolNames: [String: String] = [:]
+        var toolFinals: [String: Bool] = [:]
         var recordRefs: [String] = []
         var suppressWrapUp = false
         let live = kind == .chat && !hidden
@@ -2000,6 +2362,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let callId = data["callId"]?.stringValue ?? ""
                 let name = data["name"]?.stringValue ?? ""
                 toolNames[callId] = name
+                if isContentCardTool(name), let final = contentCardFinal(in: data["arguments"]) {
+                    toolFinals[callId] = final
+                }
                 _ = await watchdog.observeToolCall(
                     kind: watchdogKind(kind), id: "\(sessionId):\(currentTurn ?? "unknown")",
                     name: name, callId: callId, at: eventTime)
@@ -2010,7 +2375,12 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 let callId = data["message"]?["toolCallId"]?.stringValue ?? ""
                 let name = toolNames[callId] ?? ""
                 let failed = data["message"]?["isError"]?.boolValue == true || data["error"] != nil
-                if isQuestionTool(name), !failed {
+                let finalCard = isContentCardTool(name) && toolFinals[callId] == true
+                toolFinals.removeValue(forKey: callId)
+                if (isQuestionTool(name) || finalCard), !failed {
+                    // `final:true` content cards reuse the ask_user seam. This
+                    // only drops the rest of the turn's visible text; it never
+                    // cancels the turn or rewrites the tool result.
                     suppressWrapUp = true
                     await runtime.suppressText(sessionId: sessionId)
                 }
@@ -2064,6 +2434,32 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         ["ask_user", "show_next_steps"].contains { bare in
             name == bare || name.hasSuffix("__\(bare)")
         }
+    }
+
+    private func isContentCardTool(_ name: String) -> Bool {
+        BotToolCatalog.contentCardNames.contains { bare in
+            name == bare || name.hasSuffix("__\(bare)")
+        }
+    }
+
+    /// Reads `final` from the recorded `tool/call` arguments. DSH records the
+    /// model's arguments as a JSON string; accepting an object as well keeps
+    /// the projection stable for tests and older recordings. A missing,
+    /// non-boolean or unparseable value means "not final" here; the host MCP
+    /// validation still rejects a non-boolean call before any card is sent.
+    private func contentCardFinal(in value: BotJSONValue?) -> Bool? {
+        let object: [String: BotJSONValue]?
+        if case .object(let fields)? = value {
+            object = fields
+        } else if let text = value?.stringValue,
+                  let parsed = try? BotJSONValue.parse(Data(text.utf8)),
+                  case .object(let fields) = parsed {
+            object = fields
+        } else {
+            object = nil
+        }
+        guard case .bool(let final)? = object?["final"] else { return nil }
+        return final
     }
 
     private func appendConversation(type: String, sessionId: String, seq: Int,

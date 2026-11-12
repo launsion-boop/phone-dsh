@@ -57,6 +57,38 @@ public struct BotErasureEventData: Codable, Sendable, Equatable {
         }
     }
 
+    public struct ErasedSessionRecord: Codable, Sendable, Equatable {
+        public let record: String
+        public let sessionId: String
+        public let seq: Int
+        public let epoch: Int?
+
+        public init(record: String, sessionId: String, seq: Int, epoch: Int? = nil) {
+            self.record = record
+            self.sessionId = sessionId
+            self.seq = seq
+            self.epoch = epoch
+        }
+    }
+
+    public struct SessionEpoch: Codable, Sendable, Equatable {
+        public let fromSessionId: String
+        public let toSessionId: String
+        public let atMS: Int64
+
+        public init(fromSessionId: String, toSessionId: String, atMS: Int64) {
+            self.fromSessionId = fromSessionId
+            self.toSessionId = toSessionId
+            self.atMS = atMS
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case fromSessionId
+            case toSessionId
+            case atMS = "at_ms"
+        }
+    }
+
     public let schemaVersion: Int
     public let erasureId: String
     public let reason: String
@@ -68,6 +100,8 @@ public struct BotErasureEventData: Codable, Sendable, Equatable {
     public let erasedBytes: Int
     public let uncoveredRecords: [UncoveredRecord]
     public let legacyFactIDs: [String]
+    public let erasedSessionRecords: [ErasedSessionRecord]
+    public let sessionEpochs: [SessionEpoch]
 
     public init(
         schemaVersion: Int = BotErasureEventData.currentSchemaVersion,
@@ -80,7 +114,9 @@ public struct BotErasureEventData: Codable, Sendable, Equatable {
         erasedEvents: [ErasedEvent] = [],
         erasedBytes: Int? = nil,
         uncoveredRecords: [UncoveredRecord] = [],
-        legacyFactIDs: [String] = []
+        legacyFactIDs: [String] = [],
+        erasedSessionRecords: [ErasedSessionRecord] = [],
+        sessionEpochs: [SessionEpoch] = []
     ) {
         self.schemaVersion = schemaVersion
         self.erasureId = erasureId
@@ -93,6 +129,8 @@ public struct BotErasureEventData: Codable, Sendable, Equatable {
         self.erasedBytes = erasedBytes ?? erasedEvents.reduce(0) { $0 + $1.payloadBytes }
         self.uncoveredRecords = uncoveredRecords
         self.legacyFactIDs = legacyFactIDs
+        self.erasedSessionRecords = erasedSessionRecords
+        self.sessionEpochs = sessionEpochs
     }
 
     enum CodingKeys: String, CodingKey {
@@ -107,6 +145,29 @@ public struct BotErasureEventData: Codable, Sendable, Equatable {
         case erasedBytes
         case uncoveredRecords
         case legacyFactIDs
+        case erasedSessionRecords
+        case sessionEpochs
+    }
+
+    /// Step-1 erasure payloads predate the two session fields, so decoding
+    /// them must not require the additive keys (P25 compatibility).
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        erasureId = try container.decode(String.self, forKey: .erasureId)
+        reason = try container.decode(String.self, forKey: .reason)
+        requestedBy = try container.decode(String.self, forKey: .requestedBy)
+        atMS = try container.decode(Int64.self, forKey: .atMS)
+        targets = try container.decode([Target].self, forKey: .targets)
+        memoryVersions = try container.decode([MemoryVersionRange].self, forKey: .memoryVersions)
+        erasedEvents = try container.decode([ErasedEvent].self, forKey: .erasedEvents)
+        erasedBytes = try container.decode(Int.self, forKey: .erasedBytes)
+        uncoveredRecords = try container.decode([UncoveredRecord].self, forKey: .uncoveredRecords)
+        legacyFactIDs = try container.decode([String].self, forKey: .legacyFactIDs)
+        erasedSessionRecords = try container.decodeIfPresent(
+            [ErasedSessionRecord].self, forKey: .erasedSessionRecords) ?? []
+        sessionEpochs = try container.decodeIfPresent(
+            [SessionEpoch].self, forKey: .sessionEpochs) ?? []
     }
 }
 

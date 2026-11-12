@@ -20,6 +20,12 @@ final class BotApprovalCancelTests: XCTestCase {
                                callID: String, fact: String) async throws
         -> (Task<BotApprovalOutcome, Never>, String) {
         let args = query(fact)
+        // These tests cover the interactive 300 s card (worker restart must
+        // cancel it). Durable approvals are covered by
+        // BotPersistentApprovalTests.
+        await runtime.beginTurn(
+            sessionId: "gb-\(botID)", hidden: false,
+            origin: BotTurnOrigin(rpcId: "bot-test"))
         _ = try await runtime.registerIdentity(
             runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-\(botID)",
             callId: callID, name: "UpdateMemory", arguments: args)

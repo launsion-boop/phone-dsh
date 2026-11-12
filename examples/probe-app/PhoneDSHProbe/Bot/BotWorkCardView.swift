@@ -111,7 +111,6 @@ private struct BotChecklistCardView: View {
     @ObservedObject var model: BotChatModel
     @State private var items: [BotUIChecklistItem]
     @State private var dirty = false
-    @State private var sent = false
 
     init(row: BotUIRow, model: BotChatModel) {
         self.row = row
@@ -122,6 +121,8 @@ private struct BotChecklistCardView: View {
     private var interactive: Bool { row.body["interactive"]?.bool != false }
     private var title: String { row.body["title"]?.string ?? "" }
     private var doneCount: Int { items.filter(\.done).count }
+    private var sending: Bool { model.checklistProgress[row.id]?.sending == true }
+    private var sent: Bool { model.checklistProgress[row.id]?.sent == true }
     private var message: String {
         let pending = items.filter { !$0.done && !$0.synthetic }.map(\.text)
         let head = "\(title)：已完成 \(doneCount)／\(items.count)。"
@@ -144,7 +145,7 @@ private struct BotChecklistCardView: View {
                         guard interactive, !item.synthetic else { return }
                         items[index].done.toggle()
                         dirty = true
-                        sent = false
+                        model.noteChecklistProgress(rowID: row.id, done: doneCount, total: items.count)
                     } label: {
                         BotCardRow(label: item.text,
                                    labelInk: item.done ? HomeSpec.textPlaceholder : HomeSpec.textPrimary,
@@ -158,19 +159,18 @@ private struct BotChecklistCardView: View {
                         }
                     }
                     .buttonStyle(BotCardRowButtonStyle())
-                    .disabled(!interactive || item.synthetic)
+                    .disabled(!interactive || item.synthetic || sending)
                     .accessibilityLabel(item.text)
                     .accessibilityValue(item.done ? "已完成" : "未完成")
                     .accessibilityIdentifier("bot.checklist.item.\(item.id)")
                 }
                 if interactive && dirty {
-                    Button(sent ? "已发送勾选结果" : "把勾选结果发给 Bot") {
-                        guard !sent else { return }
-                        sent = true
-                        model.send(text: message)
+                    Button(sent || sending ? "已发送勾选结果" : "把勾选结果发给 Bot") {
+                        guard !sent, !sending else { return }
+                        model.sendChecklist(row: row, done: doneCount, total: items.count, message: message)
                     }
                     .buttonStyle(BotCardButtonStyle(kind: .secondary))
-                    .disabled(sent)
+                    .disabled(sent || sending)
                     .padding(.top, BotCardMetrics.blockGap)
                     .accessibilityIdentifier("bot.checklist.send")
                 }
@@ -179,7 +179,6 @@ private struct BotChecklistCardView: View {
         .onChange(of: row.body) { _, _ in
             items = BotUIChecklistItem.parseList(row.body["items"])
             dirty = false
-            sent = false
         }
         .accessibilityElement(children: .contain)
     }
@@ -277,6 +276,7 @@ private struct BotApprovalCardView: View {
         case "always": return scope == "session" ? "本次对话允许" : "已总是允许"
         case "denied", "never": return "已拒绝"
         case "timed-out": return "已超时，视为拒绝"
+        case "expired": return "已过期，视为拒绝"
         default: return "已处理"
         }
     }
@@ -317,8 +317,10 @@ private struct BotApprovalCardView: View {
                     .botCardBody()
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if scope == "none" {
-                Text("这个操作只能允许一次，不能设为总是允许。").botCardMeta()
+            if row.body["persistent"]?.bool == true {
+                Text("用户不在场，已转为待办。")
+                    .botCardMeta()
+                    .accessibilityIdentifier("bot.approval.persistent")
             }
             if case .failed(let reason) = model.actionStates[key] {
                 Text("未能送出：\(reason)")
@@ -422,7 +424,28 @@ private struct BotAutomationCardView: View {
         row.body.string("title", "name", "automationId") ?? automation.string("name", "automationId") ?? ""
     }
     private var schedule: String? { row.body["schedule"]?.string ?? automation["schedule"]?.string }
+    private var timezone: String? { row.body["timezone"]?.string ?? automation["timezone"]?.string }
     private var context: String? { row.body["context"]?.string ?? automation["context"]?.string }
+    private var quiet: Bool {
+        row.body["quiet"]?.bool ?? automation["quiet"]?.bool ?? false
+    }
+    private var urgent: Bool {
+        row.body["urgent"]?.bool ?? automation["urgent"]?.bool ?? false
+    }
+    /// Schedule and the human time-zone label stay on one meta line. The raw
+    /// delivery mode never appears here.
+    private var meta: String? {
+        var parts: [String] = []
+        if let schedule, !schedule.isEmpty { parts.append(schedule) }
+        if let timezone, !timezone.isEmpty {
+            parts.append(BotUIFormat.routineTimeZone(timezone))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+    private var contextText: String? {
+        guard let context else { return nil }
+        return BotUIFormat.routineAutomationContext(context)
+    }
     private var result: String? { row.body.string("text", "result") ?? automation["message"]?.string }
     private var duration: String? {
         guard let milliseconds = row.body["durationMs"]?.number ?? automation["durationMs"]?.number,
@@ -434,8 +457,21 @@ private struct BotAutomationCardView: View {
         BotCardSurface {
             VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
                 BotCardHeading(icon: "repeat", eyebrow: "例行任务", title: name,
-                               detail: [schedule, context].compactMap { $0 }.joined(separator: " · ")) {
-                    BotCardTag(text: stateTag.text, tone: stateTag.tone)
+                               detail: meta) {
+                    HStack(spacing: 4) {
+                        if urgent {
+                            BotCardTag(text: "紧急", tone: .warning)
+                        }
+                        if quiet {
+                            BotCardTag(text: "安静时段")
+                        }
+                        BotCardTag(text: stateTag.text, tone: stateTag.tone)
+                    }
+                }
+                if let contextText {
+                    Text(contextText)
+                        .botCardMeta()
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if result != nil || duration != nil {
                     BotCardDivider()

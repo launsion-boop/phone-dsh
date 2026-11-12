@@ -66,6 +66,7 @@ final class BotEgressApprovalTests: XCTestCase {
                 botId: "main", sessionId: "gb-main", kind: .chat)
             try await registerBash(fixture.runtime, command: command,
                                    callId: "wp3-egress-\(index)", token: issued.token)
+            await beginUserTurn(fixture.runtime)
 
             let approval = Task { await fixture.runtime.approveEgress(
                 method: "POST", host: host, scheme: "http", port: 8787) }
@@ -176,17 +177,37 @@ final class BotEgressApprovalTests: XCTestCase {
             fixture.runtime, command: "curl -sS -X POST --data-raw '{}' http://127.0.0.1:8787/x",
             callId: "task-egress-ask", sessionId: "gb-task-network", token: issued.token)
 
-        let approval = Task { await fixture.runtime.approveEgress(
-            method: "POST", host: host, scheme: "http", port: 8787) }
+        // A Task session is background work: the write becomes a durable todo
+        // instead of waiting five minutes.
+        let outcome = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        guard case .denied(let code, let message) = outcome else {
+            XCTFail("expected a durable pending denial: \(outcome)")
+            return
+        }
+        XCTAssertEqual(code, "egress_approval_denied")
+        XCTAssertTrue(message.contains("resume"))
         let requested = try await waitForApproval(fixture.store)
         let event = try XCTUnwrap(requested)
         let effects = event.data["effects"]?.arrayValue ?? []
         XCTAssertEqual(effects.first?["tool"]?.stringValue, BotEgressEffects.toolName)
         XCTAssertEqual(effects.first?["operation"]?.stringValue, "egress.post")
-        try await resolve(fixture.runtime, event: event, decision: .deny)
-        let outcome = await approval.value
-        XCTAssertEqual(outcome, .denied(
-            code: "egress_approval_denied", message: "approval denied"))
+        XCTAssertEqual(event.data["persistent"], .bool(true))
+        XCTAssertEqual(event.data["origin"], .string("egress"))
+        try await resolve(fixture.runtime, event: event, decision: .allowOnce)
+
+        // The once Grant survives the failed first attempt; the resumed task's
+        // retry consumes it and is allowed.
+        let grants = await fixture.runtime.grants.list(botId: "main")
+        XCTAssertTrue(grants.contains {
+            $0.operation == "egress.post" && $0.scope == .once && $0.decision == .allow
+        })
+        let retry = await fixture.runtime.approveEgress(
+            method: "POST", host: host, scheme: "http", port: 8787)
+        XCTAssertEqual(retry, .allowed)
+        let events = try await botEvents(fixture.store)
+        XCTAssertTrue(events.contains { $0.type == "grant.consumed" },
+                      "the resumed retry must consume the once grant")
     }
 
     func testChatSessionWithoutTaskAuthorizationStillAsksForApproval() async throws {
@@ -197,6 +218,7 @@ final class BotEgressApprovalTests: XCTestCase {
         try await registerBash(
             fixture.runtime, command: "curl -sS -X POST --data-raw '{}' http://127.0.0.1:8787/x",
             callId: "chat-egress-ask", token: issued.token)
+        await beginUserTurn(fixture.runtime)
 
         let approval = Task { await fixture.runtime.approveEgress(
             method: "POST", host: host, scheme: "http", port: 8787) }
@@ -213,6 +235,7 @@ final class BotEgressApprovalTests: XCTestCase {
         defer { fixture.cleanup() }
         _ = try await fixture.runtime.issueSessionToken(
             botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
 
         let approval = Task { await fixture.runtime.approveEgress(
             method: "POST", host: host, scheme: "http", port: 8787) }
@@ -277,6 +300,7 @@ final class BotEgressApprovalTests: XCTestCase {
         let issued = try await runtime.issueSessionToken(
             botId: "main", sessionId: "gb-main", kind: .chat)
         let arguments = BotJSONValue.object(["command": .string("curl -X POST http://127.0.0.1/a")])
+        await beginUserTurn(runtime)
         let first = try await runtime.registerIdentity(
             runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-main",
             callId: "heartbeat-refresh", name: "bash", arguments: arguments,
@@ -462,6 +486,7 @@ final class BotEgressApprovalTests: XCTestCase {
             botId: "main", sessionId: "gb-main", kind: .chat)
         try await registerBash(fixture.runtime, command: "curl -X POST http://127.0.0.1:8787/a",
                                callId: "always-first", token: issued.token)
+        await beginUserTurn(fixture.runtime)
 
         let first = Task { await fixture.runtime.approveEgress(
             method: "POST", host: host, scheme: "http", port: 8787) }
@@ -498,6 +523,7 @@ final class BotEgressApprovalTests: XCTestCase {
                                callId: "same-bot-a", token: issued.token)
         try await registerBash(fixture.runtime, command: "curl -X POST http://127.0.0.1:8787/b",
                                callId: "same-bot-b", token: issued.token)
+        await beginUserTurn(fixture.runtime)
         let approval = Task { await fixture.runtime.approveEgress(
             method: "POST", host: host, scheme: "http", port: 8787) }
         let event = try await waitForApproval(fixture.store)
@@ -535,6 +561,7 @@ final class BotEgressApprovalTests: XCTestCase {
             botId: "main", sessionId: "gb-main", kind: .chat)
         try await registerBash(fixture.runtime, command: "curl -X POST http://127.0.0.1:8787/a",
                                callId: "cancel-me", token: issued.token)
+        await beginUserTurn(fixture.runtime)
         let approval = Task { await fixture.runtime.approveEgress(
             method: "POST", host: host, scheme: "http", port: 8787) }
         let pending = try await waitForApproval(fixture.store)

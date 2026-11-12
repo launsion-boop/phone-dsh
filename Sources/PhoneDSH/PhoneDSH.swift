@@ -103,6 +103,13 @@ public enum PhoneDSHWorkerEnvironment {
     public static let vfsWorkspaceBytes = "PDSH_VFS_WORKSPACE_BYTES"
     public static let vfsSessionsBytes = "PDSH_VFS_SESSIONS_BYTES"
     public static let vfsTmpBytes = "PDSH_VFS_TMP_BYTES"
+    /// `1` when the host holds a GitHub agent token. The Worker's `github`
+    /// command uses it for authenticated reads and code search; the token itself
+    /// never enters the Worker environment.
+    public static let githubAuth = "PDSH_GITHUB_AUTH"
+    /// `1` only when the host holds a GitHub agent token and the person enabled
+    /// writes. `PDSH_GITHUB_AUTH` can still be `1` for authenticated reads.
+    public static let githubWrite = "PDSH_GITHUB_WRITE"
     /// Comma-separated hosts the Worker may reach through `/v1/http` egress
     /// (``PhoneDSHConfiguration/egressAllowHosts``, wildcards included). The
     /// Worker entry only states it in the capability manifest so the agent
@@ -201,6 +208,10 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     /// Credential provider for the model gateway and the remote DSH handoff
     /// Bearer (never exposed to the Worker).
     public let credentialProvider: any CredentialProvider
+    /// Optional GitHub agent credential. When enabled, the gateway injects the
+    /// Keychain token for `api.github.com`; `PDSH_GITHUB_AUTH` reports that a
+    /// token exists and the separate write opt-in reports `PDSH_GITHUB_WRITE`.
+    public var githubAgent: GitHubAgentConfiguration
     /// Scoped host credential for the official DeepSeek web API in follow-model mode.
     public var officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil
     /// Additional exact-origin/path egress admission applied by the gateway
@@ -289,6 +300,9 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     ///     endpoint must use `https`.
     ///   - credentialProvider: Host-side model and remote-DSH credentials;
     ///     never sent to the Worker.
+    ///   - githubAgent: Optional device-Keychain GitHub token for the Worker's
+    ///     `github` command. Disabled by default; the App opts in when the
+    ///     person stores a token.
     ///   - execProvider: Native accelerator launcher; must not write local mounts. `nil` uses
     ///     the bundled ``PhoneDSHShell/PDSHShellProvider``.
     ///   - acceleratorNames: Commands advertised as `accelerator:<name>` in the
@@ -328,6 +342,7 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
                 replaySafeModelEndpoints: Set<String> = [],
                 handoff: HandoffClientConfiguration? = nil,
                 credentialProvider: any CredentialProvider = StaticCredentialProvider([:]),
+                githubAgent: GitHubAgentConfiguration = .disabled,
                 egressAuthorizer: (any EgressHostAuthorizing)? = nil,
                 execProvider: (any ExecProvider)? = nil,
                 acceleratorNames: [String] = [],
@@ -370,7 +385,14 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
         self.egressAllowHosts = egressAllowHosts
         self.replaySafeModelEndpoints = replaySafeModelEndpoints
         self.handoff = handoff
-        self.credentialProvider = credentialProvider
+        let resolvedProvider: any CredentialProvider = githubAgent.enabled
+            ? GitHubAgentCredentialProvider(
+                base: credentialProvider,
+                store: KeychainModelProviderSecretStore(service: githubAgent.service),
+                account: githubAgent.account)
+            : credentialProvider
+        self.githubAgent = githubAgent
+        self.credentialProvider = resolvedProvider
         self.egressAuthorizer = egressAuthorizer
         self.mcpLoopbackURL = mcpLoopbackURL
         self.plannedRestartInterval = plannedRestartInterval
@@ -383,7 +405,10 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
         // Left exactly as configured so ``validateForStart()`` can reject an
         // unusable value instead of silently clamping it.
         self.turnInactivityTimeout = turnInactivityTimeout
-        self.credentialProviderIdentity = Self.identity(of: credentialProvider)
+        let baseCredentialIdentity = Self.identity(of: credentialProvider)
+        self.credentialProviderIdentity = githubAgent.enabled
+            ? "github-agent(\(githubAgent.service)/\(githubAgent.account)):" + baseCredentialIdentity
+            : baseCredentialIdentity
         self.execProviderIdentity = execProvider.map(Self.identity(of:)) ?? "none"
         self.egressAuthorizerIdentity = egressAuthorizer.map(Self.identity(of:)) ?? "none"
     }
@@ -431,6 +456,7 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
             && lhs.resumeHelloTimeout == rhs.resumeHelloTimeout
             && lhs.resumeVisibilityTimeout == rhs.resumeVisibilityTimeout
             && lhs.turnInactivityTimeout == rhs.turnInactivityTimeout
+            && lhs.githubAgent == rhs.githubAgent
             && lhs.credentialProviderIdentity == rhs.credentialProviderIdentity
             && lhs.officialDeepSeekWebCredentialProvider.map(Self.identity(of:))
                 == rhs.officialDeepSeekWebCredentialProvider.map(Self.identity(of:))

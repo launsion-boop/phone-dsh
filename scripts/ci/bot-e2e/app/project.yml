@@ -54,6 +54,8 @@ targets:
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotAppWiringLogic.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimeEffects.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/BotSessionRegistry.swift
       # The App and this E2E build the same production host assembly.
       - path: ../../../../examples/probe-app/ProbeKit/ChatHostConfiguration.swift
@@ -87,20 +89,57 @@ targets:
     platform: iOS
     deploymentTarget: '17.0'
     sources:
-      - path: TestsChatModel
+      - path: TestsChatModel/BotChatModelTests.swift
+      - path: TestsChatModel/BotChatModelTestShims.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotChatModel.swift
       - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotUIModels.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotLiveTurn.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotProfileCenter.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotAppWiringLogic.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
     settings:
       base:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-e2e.chat-model-tests
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+  # The original BotChatModelTests target never compiled (BotChatModel pulls
+  # the page layer, which is not part of this bundle). The activity-line tests
+  # only need the presentation projection and the phrase/timing table, so they
+  # get their own target instead of widening that bundle.
+  BotActivityLineTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: '17.0'
+    sources:
+      - path: TestsChatModel/BotActivityLineTests.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotRuntimePresentation.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotActivityPhrases.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishMotionProfile.swift
+      - path: ../../../../examples/probe-app/PhoneDSHProbe/Bot/BotHeaderPresence.swift
+    dependencies:
+      - package: PhoneDSH
+        product: PhoneDSHBot
+      - package: PhoneDSH
+        product: PhoneDSHAgentCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: dev.phone-dsh.bot-e2e.activity-line-tests
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
 schemes:
-  - name: BotE2EApp
+  BotE2EApp:
     build:
       targets:
         BotE2EApp: all
         BotE2ETests: all
+        BotActivityLineTests: all
         BotChatModelTests: all
     run:
       config: Debug
@@ -108,4 +147,18 @@ schemes:
       config: Debug
       targets:
         - BotE2ETests
+        - BotActivityLineTests
+        - BotChatModelTests
+  # Logic-only scheme for the two BotChatModel/ActivityLine suites. The full
+  # BotE2EApp scheme also pulls the production host composition (BLE/ADB
+  # packages), which is not needed to run these model-visibility tests.
+  BotChatModelUnit:
+    build:
+      targets:
+        BotActivityLineTests: all
+        BotChatModelTests: all
+    test:
+      config: Debug
+      targets:
+        - BotActivityLineTests
         - BotChatModelTests

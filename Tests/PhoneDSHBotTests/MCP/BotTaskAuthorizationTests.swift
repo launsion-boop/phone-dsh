@@ -104,20 +104,25 @@ final class BotTaskAuthorizationTests: XCTestCase {
         _ = try await fixture.runtime.registerIdentity(
             runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-task-scope",
             callId: "write-inside", name: "write", arguments: inside)
-        let approval = Task {
-            await fixture.runtime.approve(
-                runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-task-scope",
-                callId: "write-inside", name: "write", action: "Write",
-                detail: "inside", command: "", argsDigest: insideDigest,
-                alwaysScope: "until", askAction: "tool-call")
-        }
+        // A Task session is non-interactive: the write approval is a durable
+        // todo and returns `pending` immediately rather than blocking the
+        // task's turn for 300 s.
+        let pendingOutcome = await fixture.runtime.approve(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-task-scope",
+            callId: "write-inside", name: "write", action: "Write",
+            detail: "inside", command: "", argsDigest: insideDigest,
+            alwaysScope: "until", askAction: "tool-call")
+        XCTAssertTrue(pendingOutcome.pending, String(describing: pendingOutcome))
         let approvalID = try await waitForApproval(fixture.runtime)
         let pendingDigest = await fixture.runtime.approvals.pendingDigest(approvalId: approvalID)
-        _ = await fixture.runtime.approvals.resolve(
+        let resolved = await fixture.runtime.approvals.resolve(
             approvalId: approvalID, decision: .allowOnce,
             digest: try XCTUnwrap(pendingDigest))
-        let allowed = await approval.value
-        XCTAssertTrue(allowed.allowed, String(describing: allowed))
+        XCTAssertEqual(resolved, .resolved)
+        let grants = await fixture.runtime.grants.list(botId: "main")
+        XCTAssertTrue(grants.contains {
+            $0.operation == "file.write" && $0.resource == "dir=/tmp/task-allowed"
+        })
     }
 
     func testBashRedirectOutsideSubsetIsDenied() async throws {

@@ -176,5 +176,306 @@
     ],
     "indexLimit": 1500,
     "injectionTotalLimit": 4000
+  },
+  "delta": [
+    "content-card final flag: show_attachment / show_document / show_progress / show_checklist / show_link accept an optional boolean final (default false). A successful final:true call suppresses later assistant text and SendToUser until turn/end, like ask_user/show_next_steps; a failed call and a missing/false final do not suppress. Mid-task updates under the same cardKey omit final.",
+    "The five p0 entries replace their upstream counterparts only to add that property and state the conditional turn-end; every other field and the upstream tool-catalog.json are unchanged."
+  ],
+  "valid": {
+    "p0": [
+      {
+        "name": "show_attachment",
+        "description": "Attach a file to the chat as an attachment card. Pass final:true on the wrap-up card: a successful final call suppresses later assistant text and SendToUser until the turn ends.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "caption": {
+              "type": "string"
+            },
+            "final": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = this is the wrap-up card; on success the host suppresses later assistant text and SendToUser until the turn ends. Omit or pass false for mid-task updates."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      },
+      {
+        "name": "show_document",
+        "description": "Show a document card (title, short summary, workspace path, on-page TOC, type label) for a document you created, edited or saved to the local library. Use it once per document, after the content exists — not for ordinary prose. Pass `toc` when you already know the headings; otherwise pass `parseHeadings:true` with `path` and the host reads the local file to build the TOC. `content` is for short inline documents without a file. The card is clickable and opens the full-screen preview. Pass final:true on the wrap-up card: a successful final call suppresses later assistant text and SendToUser until the turn ends.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Document title shown on the card."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One or two sentences describing the document."
+            },
+            "path": {
+              "type": "string",
+              "description": "Absolute or workspace-relative path of the document."
+            },
+            "content": {
+              "type": "string",
+              "description": "Short inline Markdown when the document has no file yet."
+            },
+            "toc": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "On-page headings (max 6). Omit to derive them from `path`/`content`."
+            },
+            "parseHeadings": {
+              "type": "boolean",
+              "description": "true = read `path` and derive the TOC headings from its Markdown."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "document",
+                "markdown",
+                "table",
+                "pdf",
+                "code",
+                "library"
+              ],
+              "description": "Document type; drives the footer label."
+            },
+            "kindLabel": {
+              "type": "string",
+              "description": "Custom footer type label (e.g. \"研究報告\") when `kind` is not specific enough."
+            },
+            "fileName": {
+              "type": "string",
+              "description": "File name shown in the footer (defaults to the path basename)."
+            },
+            "size": {
+              "type": "string",
+              "description": "Optional human-readable size shown next to the type label."
+            },
+            "final": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = this is the wrap-up card; on success the host suppresses later assistant text and SendToUser until the turn ends. Omit or pass false for mid-task updates."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_progress",
+        "description": "Show a progress card for work that takes longer than about 30 seconds or several tool calls: a title, optional summary, state/percent, up to 8 steps with per-step state, an ETA and a stable cardKey. Call it once when the work starts and once when it ends (the same cardKey updates the same card in place); do not use it for one-step work, for a plan that has not been agreed, or as a substitute for your answer. It does not end the turn unless final:true is passed; a successful final call suppresses later assistant text and SendToUser until the turn ends.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Name of the job, not a sentence (e.g. \"Summarise 12 interviews\"). Max 80 chars."
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "running",
+                "done",
+                "paused",
+                "failed",
+                "cancelled"
+              ],
+              "description": "Overall state. Defaults to running; done forces percent to 100."
+            },
+            "percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Completion percentage; inferred from steps when omitted."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One sentence describing what is happening now. Max 200 chars."
+            },
+            "steps": {
+              "type": "array",
+              "maxItems": 8,
+              "description": "Up to 8 steps. If there are more, the card keeps the first 7 and adds an \"… N more\" row.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "description": "Short imperative step name. Max 120 chars."
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "active",
+                      "done",
+                      "failed",
+                      "skipped"
+                    ],
+                    "description": "pending | active | done | failed | skipped. Defaults to pending; the first pending step becomes active when nothing is active."
+                  },
+                  "detail": {
+                    "type": "string",
+                    "description": "Optional right-aligned detail, e.g. \"6 of 12\". Max 60 chars."
+                  }
+                },
+                "required": [
+                  "label"
+                ]
+              }
+            },
+            "eta": {
+              "type": "string",
+              "description": "Human ETA (e.g. \"about 2 minutes\"). Do not compute timestamps. Max 40 chars."
+            },
+            "cardKey": {
+              "type": "string",
+              "description": "Stable key for this job; calling again with the same key updates the existing card. Max 64 chars."
+            },
+            "final": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = this is the wrap-up card; on success the host suppresses later assistant text and SendToUser until the turn ends. Omit or pass false for mid-task updates."
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_checklist",
+        "description": "Show a checklist card: a title plus 1-12 items, each with text and a done flag, plus an optional short note. Use it when the list itself is the deliverable or will be revisited: a release checklist, an agreed plan, acceptance criteria or errands. The user can tick items in the UI, and a footer button sends the ticking back to you as a message. Do not use it for your own internal todo list, for a set of choices (use ask_user), or for narrative steps inside an explanation. It does not end the turn unless final:true is passed; a successful final call suppresses later assistant text and SendToUser until the turn ends.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Checklist name. Max 80 chars."
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 12,
+              "description": "Checklist items. If there are more than 12, the card keeps the first 11 and adds an \"… N more\" row.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "description": "One imperative line. Max 120 chars."
+                  },
+                  "done": {
+                    "type": "boolean",
+                    "description": "Whether the item is already complete. Defaults to false."
+                  },
+                  "note": {
+                    "type": "string",
+                    "description": "Optional secondary note (owner, due date). Max 80 chars."
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              }
+            },
+            "summary": {
+              "type": "string",
+              "description": "Optional one-line context under the title. Max 120 chars."
+            },
+            "interactive": {
+              "type": "boolean",
+              "description": "false renders a read-only checklist (no local ticking or send-back button)."
+            },
+            "final": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = this is the wrap-up card; on success the host suppresses later assistant text and SendToUser until the turn ends. Omit or pass false for mid-task updates."
+            }
+          },
+          "required": [
+            "title",
+            "items"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "show_link",
+        "description": "Show 1-4 web links as a link-preview card (page title, site, one-line description, kind) instead of pasting raw URLs. Use it for sources you actually opened or were given: official docs, issues, pull requests or articles. Only http/https URLs. Never invent a title or description you did not see. Do not use it for local files (use show_attachment or show_document), for more than 4 links (summarise the rest in prose), or as the only content of a turn. It does not end the turn unless final:true is passed; a successful final call suppresses later assistant text and SendToUser until the turn ends.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Optional heading, e.g. \"Sources\". Max 60 chars."
+            },
+            "links": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "description": "Links to show. Invalid or non-http(s) entries are dropped; the card fails if none remain.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "Absolute http(s) URL. Max 2048 chars."
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "Page title; defaults to the site host. Max 120 chars."
+                  },
+                  "site": {
+                    "type": "string",
+                    "description": "Display domain (e.g. open.feishu.cn); defaults to the URL hostname. Max 40 chars."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "One line describing what the page contains. Max 160 chars."
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "doc",
+                      "repo",
+                      "article",
+                      "video",
+                      "tool",
+                      "other"
+                    ],
+                    "description": "doc | repo | article | video | tool | other; drives the tile glyph."
+                  }
+                },
+                "required": [
+                  "url"
+                ]
+              }
+            },
+            "final": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = this is the wrap-up card; on success the host suppresses later assistant text and SendToUser until the turn ends. Omit or pass false for mid-task updates."
+            }
+          },
+          "required": [
+            "links"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
   }
 }

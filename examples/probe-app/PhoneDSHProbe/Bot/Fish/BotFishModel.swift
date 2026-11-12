@@ -111,6 +111,21 @@ struct BotFishParams {
     /// Renderer-only amplification for the 32pt header avatar. The state
     /// machine and the upstream 64pt+ values stay untouched.
     var motionScale = 1.0
+
+    // App-only `.lively` renderer inputs. Every default reproduces the
+    // upstream/standard output, so `.standard` avatars never see them.
+    /// Extra eye/iris travel for the 28pt status line. 1 keeps upstream.
+    var gazeEmphasis = 1.0
+    /// Upward travel of each thinking dot in source units (0 = upstream).
+    var dotLift = 0.0
+    /// Thinking dot radius multiplier (1 = upstream 3.6-unit radius).
+    var dotScale = 1.0
+    /// Fraction of the dot cycle between adjacent dots (0 = no stagger).
+    var dotStagger = 0.0
+    /// True only when the params came from `BotFishLivelyMotion`. The engine
+    /// skips the legacy small-avatar 2.2x boost because lively clips are
+    /// already calibrated for 28pt.
+    var isLivelyMotion = false
 }
 
 struct BotFishClip {

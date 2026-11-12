@@ -122,6 +122,10 @@ final class BotRuntimeUnit {
                 return result
             },
             cancelRunner: { [remote] cancellation in await remote.cancelRoutine(cancellation) },
+            approvalCanceller: { [runtime] approvalID in
+                await runtime.approvals.cancelPersistent(
+                    approvalId: approvalID, reason: "routine_stopped")
+            },
             available: { [remote] _ in await remote.isAvailable() },
             busy: { [remote] _ in await remote.isMainTurnBusy() },
             settings: { settingsStore.settings() },
@@ -135,6 +139,12 @@ final class BotRuntimeUnit {
                 try? await Task.sleep(nanoseconds: UInt64(milliseconds) * 1_000_000)
             },
             leaseOwner: "bot-runtime-composition")
+        await remote.installRoutineApprovalHandler { [scheduler] notice in
+            await scheduler.approvalResolved(
+                approvalId: notice.approvalID, sessionId: notice.principal.sessionId,
+                allowed: notice.allowed, expired: notice.expired,
+                cancelled: notice.cancelled)
+        }
         let maintenance = BotMemoryMaintenanceController(
             store: store, botID: botID, memory: memory, runtime: runtime,
             remote: remote, recordReading: recordService,
@@ -202,6 +212,18 @@ final class BotRuntimeUnit {
             sessionID: sessionID, planner: planner,
             turnStopping: BotRuntimeTurnStopper(remote: remote)))
         _ = try await scheduler.recover()
+        for entry in await scheduler.waitingApprovalEntries() {
+            let status = await remote.approvalStatus(approvalId: entry.approvalID)
+            switch status {
+            case .allowed, .denied, .expired, .cancelled:
+                await scheduler.approvalResolved(
+                    approvalId: entry.approvalID, sessionId: entry.sessionID,
+                    allowed: status == .allowed, expired: status == .expired,
+                    cancelled: status == .cancelled)
+            case .pending, .unknown:
+                break
+            }
+        }
         _ = await remote.deliverInterruptedTaskWakes()
         _ = try? await deviceResults.redeliver(botID: botID, in: wakeInbox)
         await scheduler.start()

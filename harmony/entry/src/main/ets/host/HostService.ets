@@ -2466,7 +2466,9 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
   async deleteItem(id: string): Promise<void> {
     const meta = this.itemMeta.get(id);
     if (meta !== undefined && meta.kind === 'automation') {
-      const request: Record<string, Object> = { id: meta.field, action: 'delete' };
+      const request: Record<string, Object> = {};
+      request['id'] = meta.field;
+      request['action'] = 'delete';
       try {
         const result = this.remoteValue(asRecord(
           await this.pageBridge.call('schedule/edit', new RequestWrapper(request), 15000)));
@@ -5491,8 +5493,13 @@ export class HostService implements ShellActions, PageBridgeListener, ProxyRespo
       await this.failItemWrite(this.uiCopy('定时任务已不存在，请刷新后重试'));
       return;
     }
-    const patch: Record<string, Object> = { title: title, prompt: prompt };
-    const request: Record<string, Object> = { id: record.id, action: 'update', patch: patch };
+    const patch: Record<string, Object> = {};
+    patch['title'] = title;
+    patch['prompt'] = prompt;
+    const request: Record<string, Object> = {};
+    request['id'] = record.id;
+    request['action'] = 'update';
+    request['patch'] = patch;
     request['expectedUpdatedAt'] = record.updatedAt as Object;
     if (jsonBool(draft, 'changeTiming', false)) {
       const change = this.automationTiming(draft, true);

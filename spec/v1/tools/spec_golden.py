@@ -223,7 +223,12 @@ LINE_CAPS = {
     # §14 fixes the content-addressed blob store, the blob-write record, the
     # clone/copy materialization, the GC, the quota sum and the handoff rule.
     # The cap moves 510 -> 690.
-    "wal.md": 690,
+    # D16 amendment (2026-11-12, PC-20261112-bot-session-epoch):
+    # §5.3 freezes the host-only closed-session rewrite (quiesce, fresh segment,
+    # tombstone records, compaction proof, derived-copy removal) and §9 gains
+    # its compaction trigger. This is new normative text. The cap moves 416 -> 462.
+    # Merge note: both amendment sets apply, so the merged cap is 690 + 46 = 736.
+    "wal.md": 736,
     # D16 amendment: `unsupported` was defined as "only an unadvertised argv[0]", but the
     # host also refuses request shapes it cannot honour (no stdin channel, protocol-level
     # refusal). The implementation and the spec disagreed; the spec was the narrower one.

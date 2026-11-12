@@ -26,6 +26,14 @@ export interface ApprovalOutcome {
   readonly allowed?: boolean
   readonly message?: string
   readonly error?: string
+  /** The host parked a durable (non-interactive) approval as a todo. */
+  readonly pending?: boolean
+  readonly approvalId?: string
+  readonly expiresAt?: number
+}
+
+type CancelableAgent = Agent & {
+  cancel?: (cause: { kind: 'hook'; reason: string }, options?: { keepInbox?: boolean }) => void
 }
 
 export interface ApprovalGateConfig {
@@ -282,6 +290,50 @@ function sensitiveRead(exec: { name: string; arguments?: unknown }): boolean {
   return false
 }
 
+/**
+ * Parses the SSE answer form of `/approval` (spec/bot/v1/mcp-endpoint.md §2
+ * "Long approvals"). The stream must carry exactly one `message` event with
+ * exactly one `data:` line holding a JSON object. Every other shape is a
+ * transport failure (`undefined`), so `postApproval` fails closed.
+ */
+export function parseApprovalEventStream(text: string): ApprovalOutcome | undefined {
+  const events: { event: string; data: string[] }[] = []
+  let event = ''
+  let data: string[] = []
+  const dispatch = (): void => {
+    // An event without a `data:` field is not dispatched (SSE rules), and a
+    // comment-only block is skipped.
+    if (data.length > 0) events.push({ event: event === '' ? 'message' : event, data })
+    event = ''
+    data = []
+  }
+  // SSE lines end in CRLF, LF or CR. A line starting with `:` is a comment.
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (line === '') {
+      dispatch()
+      continue
+    }
+    if (line.startsWith(':')) continue
+    const colon = line.indexOf(':')
+    const field = colon < 0 ? line : line.slice(0, colon)
+    let value = colon < 0 ? '' : line.slice(colon + 1)
+    if (value.startsWith(' ')) value = value.slice(1)
+    if (field === 'event') event = value
+    else if (field === 'data') data.push(value)
+  }
+  if (events.length !== 1) return undefined
+  const message = events[0]!
+  if (message.event !== 'message' || message.data.length !== 1) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(message.data[0]!)
+  } catch {
+    return undefined
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  return parsed as ApprovalOutcome
+}
+
 export async function postApproval(url: string, token: string, payload: Record<string, unknown>, signal?: AbortSignal): Promise<ApprovalOutcome> {
   if (!url || !token) return { ok: false, message: 'approval gate is not configured' }
   // One host-issued egress credential per host run. Absent/empty omits the
@@ -289,20 +341,55 @@ export async function postApproval(url: string, token: string, payload: Record<s
   const egressToken = String(process.env.PDSH_MCP_EGRESS_TOKEN ?? '')
   const egress: Record<string, string> = egressToken === '' ? {} : { 'X-PDSH-MCP-Egress': egressToken }
   const controller = new AbortController()
+  // This deadline only covers the interactive card (the host answers it
+  // within 300 s). Durable approvals answer immediately with
+  // `{ok:true,allowed:false,pending:true}`; they never keep the tool call
+  // blocked across this timer (spec/bot/v1 §2.7).
   const timer = setTimeout(() => controller.abort(new Error('approval timed out')), 330_000)
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...egress },
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        // The listener answers a wait longer than 5 s in the SSE form; a fast
+        // outcome, or an older listener, is still JSON (mcp-endpoint.md §2).
+        accept: 'application/json, text/event-stream',
+        ...egress,
+      },
       body: JSON.stringify(payload),
       signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })
     if (!response.ok) return { ok: false, message: `approval transport failed (HTTP ${response.status})` }
+    const mediaType = (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
+    if (mediaType === 'text/event-stream') {
+      const outcome = parseApprovalEventStream(await response.text())
+      if (outcome === undefined) {
+        return { ok: false, message: 'approval transport failed (malformed event stream)' }
+      }
+      return outcome
+    }
     return await response.json() as ApprovalOutcome
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * A durable approval ends the turn instead of holding `tools/pre-execute`
+ * open. The host parks the task/routine and wakes it after the user decision;
+ * the Worker must not keep the tool call (or its identity registration)
+ * waiting for up to 24 hours. `hook` is the stable non-user cause.
+ */
+function stopTurnForDurableApproval(agent: Agent | undefined): void {
+  const cancelable = agent as CancelableAgent | undefined
+  try {
+    cancelable?.cancel?.({ kind: 'hook', reason: 'approval-pending' }, { keepInbox: true })
+  } catch {
+    // The host still parks on the turn result; a failed cancel is not a
+    // permission to execute the tool.
   }
 }
 
@@ -355,6 +442,13 @@ export default function dshbotApprovalGate(ctx: Context, config: ApprovalGateCon
     }
     const decision = await send(payload, exec.signal)
     if (decision.ok && decision.allowed) return next()
+    if (decision.pending === true) {
+      stopTurnForDurableApproval(exec.agent)
+      return {
+        kind: 'deny',
+        reason: `[approval pending] ${decision.message ?? 'The user is away; this approval is a durable todo.'} The tool call was NOT executed. The task is parked; the host will resume it after the user decides. Do not retry or work around it in this turn.`,
+      }
+    }
     const reason = decision.message ?? decision.error ?? 'approval was denied'
     return {
       kind: 'deny',

@@ -140,6 +140,8 @@ final class BotRuntimeComposition {
     private let schedulerSleep: RoutineScheduler.Sleeper?
     private var routineRouter: BotRoutineOutboxRouter?
     private var host: PhoneDSHHost?
+    private let hostReference = BotHostReference()
+    private let workspaceRoot: URL
     private var hostTask: Task<Void, Never>?
     private var observedHost: PhoneDSHHost?
     /// The live MCP egress policy this composition installed the Bot write
@@ -155,6 +157,7 @@ final class BotRuntimeComposition {
     private var agentCommThreads: [String: String] = [:]
     private var agentCommHops: [String: Int] = [:]
     private var pendingApprovalTicks = 0
+    private var approvalNotifications: BotApprovalNotificationReconciler?
 
     /// The Worker never carries the real Bot bearer. The host egress route
     /// (`MCPEgressPolicy.grantBotRuntimeEndpoint`) injects it after stripping
@@ -267,7 +270,9 @@ final class BotRuntimeComposition {
             domain: store, profileStore: profileStore, runtime: runtime,
             recordService: recordService,
             handler: handler, server: server, rosterModel: rosterModel,
-            selectionStore: selectionStore, schedulerNow: now, schedulerSleep: sleep)
+            selectionStore: selectionStore,
+            workspaceRoot: workspaceRoot ?? BotProductionPaths.workspaceRoot(),
+            schedulerNow: now, schedulerSleep: sleep)
         composition.workerEnvironment = [
             "PDSH_PHONE_MCP_URL": url.absoluteString,
             "PDSH_PHONE_MCP_TOKEN": workerTokenPlaceholder,
@@ -302,6 +307,7 @@ final class BotRuntimeComposition {
                  handler: BotMCPHandler,
                  server: BotMCPHTTPServer, rosterModel: BotRosterModel,
                  selectionStore: BotSelectionStore,
+                 workspaceRoot: URL,
                  schedulerNow: (@Sendable () -> Int64)?,
                  schedulerSleep: RoutineScheduler.Sleeper?) async throws {
         self.domain = domain
@@ -312,6 +318,7 @@ final class BotRuntimeComposition {
         self.server = server
         self.rosterModel = rosterModel
         self.selectionStore = selectionStore
+        self.workspaceRoot = workspaceRoot
         self.schedulerNow = schedulerNow
         self.schedulerSleep = schedulerSleep
         self.outbox = BotProductionEffectRunner(store: domain)
@@ -380,6 +387,15 @@ final class BotRuntimeComposition {
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
             now: schedulerNow, sleep: schedulerSleep)
         units[botID] = unit
+        let eraser = BotSessionEpochEraser(
+            remote: unit.remote,
+            environment: unit.environment,
+            recordService: recordService,
+            hostReference: hostReference,
+            workspaceRoot: workspaceRoot)
+        await unit.info.setSessionEraser { request in
+            try await eraser.erase(request)
+        }
         rosterModel.setRuntimeState(BotRosterRuntimeState(runtimeState: state), for: botID)
         if started, let host {
             do {
@@ -415,6 +431,7 @@ final class BotRuntimeComposition {
             await detachBinding()
         }
         host = newHost
+        await hostReference.set(newHost)
         try await bind(to: newHost, recovering: false)
     }
 
@@ -536,9 +553,12 @@ final class BotRuntimeComposition {
 
     func stop() async {
         await detachBinding()
-        await runtime.approvals.cancelAll(reason: "shutdown")
+        // Interactive cards cannot survive the process; durable todos are
+        // deliberate facts and remain for the next launch (spec/bot/v1 §2.7).
+        await runtime.approvals.cancelInteractive(reason: "shutdown")
         _ = await runtime.gateway.attribution.prune()
         host = nil
+        await hostReference.set(nil)
         started = false
         state = .stopped
     }
@@ -650,6 +670,7 @@ final class BotRuntimeComposition {
         let approvals: [String: Int]
         if pendingApprovalTicks % 3 == 0 || pendingApprovalTicks == 1 {
             approvals = await pendingApprovalCounts()
+            await syncApprovalNotifications()
         } else {
             approvals = rosterModel.entries.reduce(into: [:]) {
                 $0[$1.id] = $1.pendingApprovalCount
@@ -661,6 +682,32 @@ final class BotRuntimeComposition {
                 runtimeState: state)
             rosterModel.setRuntimeState(snapshot, for: botID)
         }
+    }
+
+    /// Keeps one pre-scheduled local reminder per durable approval. The
+    /// in-app card remains the only place to act (spec/ui/v1 bot-chat §17);
+    /// the notification just brings the user back to that card.
+    private func syncApprovalNotifications() async {
+        #if os(iOS) && canImport(UserNotifications)
+        // Local reminders belong to the launched iOS App. The macOS eval
+        // harness links the same composition but has no application bundle;
+        // `UNUserNotificationCenter.current()` throws there.
+        guard Bundle.main.bundleURL.pathExtension == "app" else { return }
+        let records = await runtime.approvals.pendingNotificationRecords()
+        let reconciler: BotApprovalNotificationReconciler
+        if let existing = approvalNotifications {
+            reconciler = existing
+        } else {
+            let now: @Sendable () -> Int64 = schedulerNow ?? {
+                Int64(Date().timeIntervalSince1970 * 1_000)
+            }
+            let created = BotApprovalNotificationReconciler(
+                scheduling: UNUserNotificationApprovalScheduling(), now: now)
+            approvalNotifications = created
+            reconciler = created
+        }
+        _ = await reconciler.sync(records)
+        #endif
     }
 
     private func pendingApprovalCounts() async -> [String: Int] {

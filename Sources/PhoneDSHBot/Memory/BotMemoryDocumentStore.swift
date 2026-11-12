@@ -69,6 +69,48 @@ public enum BotMemoryStoreWriteOutcome: Sendable, Equatable {
 /// Result of one host-side physical erasure. `removedDocuments` counts live
 /// documents and `removedVersions` counts every historical version, including
 /// the live one. `erasedEvents` counts payloads cleared in `bot_event_payloads`.
+/// What the memory layer hands the session-epoch coordinator before payloads
+/// are cleared. `records` are the canonical session refs evidence already
+/// points at; `needles` are the version text/unique markers that must not
+/// survive in any closed session log.
+public struct BotSessionErasureRequest: Sendable, Equatable {
+    public var botID: String
+    public var callerSessionID: String
+    public var needles: [String]
+    public var records: [String]
+    public var atMS: Int64
+    /// `user` means the erased memory is shared across Bots, so every Bot's
+    /// owned closed-session log is in scope. `agent` stays inside `botID`.
+    public var scope: String
+
+    public init(botID: String, callerSessionID: String, needles: [String],
+                records: [String], atMS: Int64, scope: String = "agent") {
+        self.botID = botID
+        self.callerSessionID = callerSessionID
+        self.needles = needles
+        self.records = records
+        self.atMS = atMS
+        self.scope = scope
+    }
+}
+
+public struct BotSessionErasureReport: Sendable, Equatable {
+    public var erasedSessionRecords: [BotErasureEventData.ErasedSessionRecord]
+    public var sessionEpochs: [BotErasureEventData.SessionEpoch]
+    public var uncoveredRecords: [BotErasureEventData.UncoveredRecord]
+
+    public init(erasedSessionRecords: [BotErasureEventData.ErasedSessionRecord] = [],
+                sessionEpochs: [BotErasureEventData.SessionEpoch] = [],
+                uncoveredRecords: [BotErasureEventData.UncoveredRecord] = []) {
+        self.erasedSessionRecords = erasedSessionRecords
+        self.sessionEpochs = sessionEpochs
+        self.uncoveredRecords = uncoveredRecords
+    }
+}
+
+public typealias BotSessionEraser = @Sendable (BotSessionErasureRequest) async throws
+    -> BotSessionErasureReport
+
 public struct BotMemoryPhysicalEraseOutcome: Sendable, Equatable {
     public let ok: Bool
     public let error: String?
@@ -80,6 +122,8 @@ public struct BotMemoryPhysicalEraseOutcome: Sendable, Equatable {
     public let erasedBytes: Int
     public let erasureRecord: String?
     public let uncoveredRecords: [String]
+    public let erasedSessionRecords: [BotErasureEventData.ErasedSessionRecord]
+    public let sessionEpochs: [BotErasureEventData.SessionEpoch]
 
     public init(
         ok: Bool,
@@ -91,7 +135,9 @@ public struct BotMemoryPhysicalEraseOutcome: Sendable, Equatable {
         erasedEvents: Int = 0,
         erasedBytes: Int = 0,
         erasureRecord: String? = nil,
-        uncoveredRecords: [String] = []
+        uncoveredRecords: [String] = [],
+        erasedSessionRecords: [BotErasureEventData.ErasedSessionRecord] = [],
+        sessionEpochs: [BotErasureEventData.SessionEpoch] = []
     ) {
         self.ok = ok
         self.error = error
@@ -103,6 +149,8 @@ public struct BotMemoryPhysicalEraseOutcome: Sendable, Equatable {
         self.erasedBytes = erasedBytes
         self.erasureRecord = erasureRecord
         self.uncoveredRecords = uncoveredRecords
+        self.erasedSessionRecords = erasedSessionRecords
+        self.sessionEpochs = sessionEpochs
     }
 }
 
@@ -112,10 +160,14 @@ public protocol BotMemoryDocumentStore: Actor {
     func versions(path: String) async throws -> [BotMemoryDocumentVersion]
     func write(_ request: BotMemoryStoreWriteRequest) async throws -> BotMemoryStoreWriteOutcome
     func eraseAll(scope: BotMemoryScope, author: BotMemoryAuthor, atMS: Int64) async throws -> Int
-    /// Physical erase of one document and every historical version.
-    func erase(path: String, author: BotMemoryAuthor, atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome
-    /// Physical erase of every document under one root.
-    func erase(scope: BotMemoryScope, author: BotMemoryAuthor, atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome
+    /// Physical erase of one document and every historical version. When
+    /// `sessionEraser` is supplied it runs before any payload is cleared; a
+    /// throw aborts the whole erase.
+    func erase(path: String, author: BotMemoryAuthor, atMS: Int64,
+               sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome
+    /// Physical erase of every document under one root. Same session contract.
+    func erase(scope: BotMemoryScope, author: BotMemoryAuthor, atMS: Int64,
+               sessionEraser: BotSessionEraser?) async throws -> BotMemoryPhysicalEraseOutcome
     /// Legacy facts visible to this store's Bot: its own agent facts plus the
     /// shared user facts. Used only by the one-time migration.
     func legacyFacts(scope: BotMemoryScope?) async throws -> [BotMemoryFact]
@@ -165,5 +217,17 @@ final class BotMemoryAsyncMutex: @unchecked Sendable {
         let next = waiters.removeFirst()
         lock.unlock()
         next.resume()
+    }
+}
+
+extension BotMemoryDocumentStore {
+    public func erase(path: String, author: BotMemoryAuthor,
+                      atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await erase(path: path, author: author, atMS: atMS, sessionEraser: nil)
+    }
+
+    public func erase(scope: BotMemoryScope, author: BotMemoryAuthor,
+                      atMS: Int64) async throws -> BotMemoryPhysicalEraseOutcome {
+        try await erase(scope: scope, author: author, atMS: atMS, sessionEraser: nil)
     }
 }

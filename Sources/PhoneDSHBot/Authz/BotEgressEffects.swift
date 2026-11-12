@@ -36,9 +36,9 @@ public enum BotEgressEffects {
                 tool: tool, operation: "tool.unclassified",
                 resource: "unclassified=\(tool)&args=invalid", target: tool,
                 mutability: .write, policy: .ask,
-                label: language == .zh ? "執行未分類檔案工具 \(tool)" : "Run unclassified file tool \(tool)",
+                label: language == .zh ? "执行未分类文件工具 \(tool)" : "Run unclassified file tool \(tool)",
                 detail: language == .zh
-                    ? "file_path 缺失或為空；依預設需要使用者審批。"
+                    ? "file_path 缺失或为空；默认需要用户审批。"
                     : "file_path is missing or empty; it needs approval by default.",
                 ui: false, execution: nil, known: false, isMcp: false)]
         }
@@ -49,8 +49,8 @@ public enum BotEgressEffects {
         let label: String
         let detail: String
         if language == .zh {
-            label = tool == "write" ? "寫入工作區外的檔案" : "編輯工作區外的檔案"
-            detail = "目標 \(target) 不在這個 Bot 的工作區 \(workspaceRoot) 內；授權按目錄 \(directory) 記住。"
+            label = tool == "write" ? "写入工作区外的文件" : "编辑工作区外的文件"
+            detail = "目标 \(target) 不在这个 Bot 的工作区 \(workspaceRoot) 内；授权按目录 \(directory) 记住。"
         } else {
             label = tool == "write" ? "Write a file outside the Bot workspace"
                                   : "Edit a file outside the Bot workspace"
@@ -110,10 +110,10 @@ public enum BotEgressEffects {
         let upper = method.uppercased()
         let resource = egressResource(host: host)
         let label = language == .zh
-            ? "向 \(host) 傳送網路 \(upper) 請求"
+            ? "向 \(host) 发送网络 \(upper) 请求"
             : "Send a network \(upper) request to \(host)"
         let detail = language == .zh
-            ? "這是 Bot 會話在宿主出口發出的網路寫入；授權按主機與方法記住。"
+            ? "这是 Bot 会话在宿主出口发出的网络写入；授权按主机与方法记住。"
             : "This is a Bot-session network write at the host exit; the approval is "
                 + "remembered per host and method."
         return BotToolEffect(

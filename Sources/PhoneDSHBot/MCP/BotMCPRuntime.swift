@@ -255,6 +255,7 @@ public actor BotMCPRuntime {
     private let dataRoot: String
     private let memorySource: @Sendable (BotResolvedToolCall) -> BotMemorySourceKind
     private var taskExecutors: [String: any BotTaskExecuting] = [:]
+    private var approvalResolutionHandlerInstalled = false
     private var memories: [String: BotMemory] = [:]
     private var teamToolHandlers: [any BotTeamToolHandling] = []
     private var toolCatalogProvider: (@Sendable (String?) async -> [BotMCPToolDefinition]?)?
@@ -292,6 +293,8 @@ public actor BotMCPRuntime {
         routineStore: (any RoutineStore)? = nil,
         recordEvidence: (any BotRecordEvidenceResolving)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
+        approvalTimeoutMs: Int64 = BotApprovalCoordinator.defaultTimeoutMilliseconds,
+        approvalExpiryMs: Int64 = BotApprovalCoordinator.defaultDurableExpiryMilliseconds,
         memorySource: (@Sendable (BotResolvedToolCall) -> BotMemorySourceKind)? = nil
     ) {
         self.store = store
@@ -304,7 +307,9 @@ public actor BotMCPRuntime {
         authorizer = BotExecutionAuthorizer(grants: grants)
         eventWriter = BotMCPEventWriter(eventLog: store, now: now)
         self.recordEvidence = recordEvidence
-        approvals = BotApprovalCoordinator(grants: grants, eventWriter: eventWriter, now: now)
+        approvals = BotApprovalCoordinator(
+            grants: grants, eventWriter: eventWriter, eventLog: store, now: now,
+            approvalTimeoutMs: approvalTimeoutMs, durableExpiryMs: approvalExpiryMs)
         volatileContext = BotVolatileContextProducer(provider: volatileProvider ?? EmptyBotVolatileContextProvider())
         let mainExecutor = taskExecutor ?? UnimplementedBotTaskExecutor()
         tasks = mainExecutor
@@ -380,6 +385,52 @@ public actor BotMCPRuntime {
     public func attachTaskExecutor(_ executor: any BotTaskExecuting, botID: String) {
         taskExecutors[botID] = executor
         if botID == "main" { tasks = executor }
+        installApprovalObserversIfNeeded()
+    }
+
+    private func installApprovalObserversIfNeeded() {
+        guard !approvalResolutionHandlerInstalled else { return }
+        approvalResolutionHandlerInstalled = true
+        let approvals = approvals
+        Task { [weak self] in
+            await approvals.setResolutionHandler { [weak self] notice in
+                guard let self else { return }
+                await self.dispatchApprovalResolution(notice)
+            }
+        }
+    }
+
+    /// Routes one terminal durable decision to the task/routine executor that
+    /// owns the session. A session id is unique per Bot, so the bot-keyed
+    /// executor is the natural target; every attached resumer is consulted as
+    /// a fallback for tests and legacy single-executor wiring.
+    private func dispatchApprovalResolution(_ notice: BotApprovalResolutionNotice) async {
+        if let executor = taskExecutors[notice.principal.botId],
+           let resumer = executor as? any BotApprovalResuming {
+            await resumer.approvalResolved(notice)
+            return
+        }
+        var seen: Set<ObjectIdentifier> = []
+        for executor in taskExecutors.values {
+            guard seen.insert(ObjectIdentifier(executor as AnyObject)).inserted else { continue }
+            if let resumer = executor as? any BotApprovalResuming {
+                await resumer.approvalResolved(notice)
+            }
+        }
+    }
+
+    /// Lets the `/v1/http` egress path stop the turn that triggered a durable
+    /// approval. The structural gate stops its own turn in the Worker; this
+    /// hook is for the host-side network write, whose HTTP request returns 403
+    /// before the Worker tool call can be cancelled by the gate.
+    private func dispatchApprovalPending(_ state: BotDurableApprovalState) async {
+        var seen: Set<ObjectIdentifier> = []
+        for executor in taskExecutors.values {
+            guard seen.insert(ObjectIdentifier(executor as AnyObject)).inserted else { continue }
+            if let observer = executor as? any BotApprovalPendingObserving {
+                await observer.approvalBecamePending(state)
+            }
+        }
     }
 
     /// Backward-compatible convenience: the Bot-less method always means the
@@ -655,8 +706,15 @@ public actor BotMCPRuntime {
     @discardableResult
     public func cancelIdentity(id: String) async -> Bool {
         guard let match = registrations.first(where: { $0.value.id == id }) else { return false }
+        let sessionId = match.value.sessionId
+        let callId = match.value.callId
         registrations.removeValue(forKey: match.key)
         registrationArguments.removeValue(forKey: match.key)
+        // A cancelled registration ends its call's interactive approvals
+        // (§3). Persist neither a connection state nor the host egress: the
+        // Worker's paired `/identity/cancel` is the cancellation signal, and a
+        // dropped `/approval` connection is not.
+        _ = await approvals.cancelInteractive(sessionId: sessionId, callId: callId)
         return await gateway.cancelToolCall(id: id)
     }
 
@@ -696,7 +754,11 @@ public actor BotMCPRuntime {
             _ = await gateway.cancelToolCall(id: attribution.id)
         }
         _ = await gateway.cancelToolCalls(runtimeId: previous)
-        let cancelled = await approvals.cancelAll(reason: "worker_restarted")
+        // Interactive cards cannot survive the replaced Worker because their
+        // continuation lived in it. Durable todos are durable facts: keep them
+        // and rebuild the pending set from the event log (spec/bot/v1 §2.7).
+        let cancelled = await approvals.cancelInteractive(reason: "worker_restarted")
+        await approvals.restoreDurable()
         var restarted: Set<ObjectIdentifier> = []
         for executor in taskExecutors.values {
             guard restarted.insert(ObjectIdentifier(executor as AnyObject)).inserted else { continue }
@@ -793,7 +855,20 @@ public actor BotMCPRuntime {
         if effects.isEmpty { return BotApprovalOutcome(ok: true, allowed: true, message: "auto-policy") }
         return await approvals.request(
             call: call, effects: effects, action: action, detail: detail,
-            command: command, alwaysScope: alwaysScope)
+            command: command, alwaysScope: alwaysScope,
+            persistence: approvalPersistence(for: call), origin: "structural")
+    }
+
+    /// Only the resumable background sessions get a durable todo. A `chat`
+    /// turn (including a hidden/agent/held wake) still completes inside its
+    /// own turn; it keeps the five-minute card so approval continues in place.
+    /// `verifier`/`maintainer` are restricted and never ask for a card.
+    private func approvalPersistence(for call: BotResolvedToolCall) -> BotApprovalPersistence {
+        switch call.principal.kind {
+        case .routine, .task: return .durable
+        case .chat, .team, .proactive, .watchdog, .verifier, .maintainer:
+            return .interactive
+        }
     }
 
     /// Host-side approval for one Bot network write at the `/v1/http` exit.
@@ -980,16 +1055,36 @@ public actor BotMCPRuntime {
         command: String
     ) async -> BotEgressApproval {
         let cancellation = BotEgressApprovalCancellation(approvals: approvals)
+        let persistence = approvalPersistence(for: call)
         let outcome = await withTaskCancellationHandler {
             let result = await approvals.request(
                 call: call, effects: [effect],
                 action: effect.label, detail: effect.detail,
                 command: command, alwaysScope: "until",
+                persistence: persistence, origin: "egress",
                 onPending: { id in cancellation.set(approvalID: id) })
             cancellation.clear()
             return result
         } onCancel: {
             cancellation.cancel()
+        }
+        if outcome.pending {
+            // The original HTTP write is not retried here: a durable allowOnce
+            // grant must survive for the resumed task's retry. Stop the turn
+            // now (the structural gate stops its own turn) and let the task
+            // park; the user decision wakes it.
+            let pendingState = await approvals.pendingApproval(sessionId: call.sessionId)
+            let recentState = pendingState == nil
+                ? await approvals.pendingOrRecentApproval(sessionId: call.sessionId) : nil
+            if let state = pendingState ?? recentState {
+                await dispatchApprovalPending(state)
+            }
+            // Keep the frozen egress taxonomy: the loopback layer maps
+            // `egress_approval_denied` to 403/`xl_error.code`. The message is
+            // what tells the model that a durable decision will resume it.
+            return .denied(
+                code: "egress_approval_denied",
+                message: "approval pending; the network write was not sent and the task resumes after the user decides")
         }
         guard outcome.allowed else {
             return .denied(
@@ -1053,11 +1148,14 @@ public actor BotMCPRuntime {
                             known: false, isMcp: true)
                         let outcome = await approvals.request(
                             call: call, effects: [effect], action: "CreateTeammate",
-                            detail: effect.detail, command: "", alwaysScope: "none")
+                            detail: effect.detail, command: "", alwaysScope: "none",
+                            persistence: approvalPersistence(for: call), origin: "structural")
                         guard outcome.allowed else {
                             return .failure(
                                 "permission_denied",
-                                outcome.message ?? "CreateTeammate requires user confirmation in this turn")
+                                outcome.pending
+                                    ? "approval pending; the task is parked and resumes after the user decides"
+                                    : outcome.message ?? "CreateTeammate requires user confirmation in this turn")
                         }
                         authority.approvalID = outcome.approvalId
                     }
@@ -1094,6 +1192,7 @@ public actor BotMCPRuntime {
                           call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         if BotToolCatalog.cardToolNames.contains(name) {
             let built = try BotCardPayloads.build(tool: name, arguments: arguments)
+            let final = try BotCardPayloads.contentCardFinal(tool: name, arguments: arguments)
             guard case .object(let result) = built, let card = result["card"] else {
                 throw BotMCPError.invalidRequest("card builder returned no card")
             }
@@ -1103,6 +1202,12 @@ public actor BotMCPRuntime {
             fields["tool"] = .string(name)
             fields["callId"] = .string(call.callId)
             _ = try await eventWriter.append(type: "card.presented", principal: call.principal, data: .object(fields))
+            if final {
+                // Same seam as ask_user/show_next_steps: a successful wrap-up
+                // card suppresses SendToUser for the rest of the turn. It does
+                // not cancel the turn and does not alter the card payload.
+                suppressingTextSessions.insert(call.sessionId)
+            }
             if name == "ask_user" || name == "show_next_steps" {
                 suppressingTextSessions.insert(call.sessionId)
                 let text = name == "ask_user"
@@ -1569,11 +1674,14 @@ public actor BotMCPRuntime {
                 known: false, isMcp: true)
             let outcome = await approvals.request(
                 call: call, effects: [effect], action: "UpdateRoutine",
-                detail: assessment.detail, command: "", alwaysScope: "none")
+                detail: assessment.detail, command: "", alwaysScope: "none",
+                persistence: approvalPersistence(for: call), origin: "structural")
             guard outcome.allowed else {
                 return .failure(
                     "permission_denied",
-                    outcome.message ?? "routine change requires user confirmation in this turn")
+                    outcome.pending
+                        ? "approval pending; the task is parked and resumes after the user decides"
+                        : outcome.message ?? "routine change requires user confirmation in this turn")
             }
             authority.approvalID = outcome.approvalId
         }
@@ -1607,12 +1715,18 @@ public actor BotMCPRuntime {
         let alwaysScope = effects.contains(where: \.known) ? "until" : "session"
         let outcome = await approvals.request(
             call: call, effects: effects, action: action, detail: detail,
-            command: command, alwaysScope: alwaysScope)
-        return .success(.object([
+            command: command, alwaysScope: alwaysScope,
+            persistence: approvalPersistence(for: call), origin: "structural")
+        var result: [String: BotJSONValue] = [
             "allowed": .bool(outcome.allowed), "decision": .string(outcome.allowed ? "allowed" : "denied"),
             "approvalId": outcome.approvalId.map(BotJSONValue.string) ?? .null,
             "message": outcome.message.map(BotJSONValue.string) ?? .null,
-        ]))
+            "pending": .bool(outcome.pending),
+        ]
+        if let expiresAt = outcome.expiresAt {
+            result["expiresAt"] = .number(Double(expiresAt))
+        }
+        return .success(.object(result))
     }
 
     private func sendToUser(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {

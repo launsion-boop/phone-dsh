@@ -109,15 +109,37 @@ enum BotProductionChecks {
         _ = try await environment.routineMachine.create(
             botId: "main", title: "真实 Routine", prompt: "生成报告",
             schedule: .interval(everyMinutes: 5, timezone: "UTC"), now: 5_000, id: "routine-check")
-        let audit = BotAuditRecord(
-            at: 6_000, event: "grant.added", source: "production-check", decision: .allow,
-            principal: BotAuditPrincipal(botId: "main", sessionId: "main", kind: "ipc", certain: true),
-            effects: [BotAuditEffect(tool: "phone.files", operation: "delete",
-                                     resourceDigest: "sha256:resource", argsDigest: "sha256:arguments",
-                                     mutability: .destructive, policy: .ask)],
-            grants: [BotAuditGrant(id: "grant-check", scope: .once, decision: .allow,
-                                   resourceDigest: "sha256:resource")], reason: "check")
-        try require(await BotAuditLog(eventLog: domain).append(audit), "grant audit append failed")
+        let approvalRequest = BotEvent(
+            type: "approval.requested", eventId: "approval-check", time: 6_000,
+            origin: .local(source: "card-bridge"), traceId: "approval-check",
+            principal: BotPrincipal(botId: "main", sessionId: "main", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object([
+                "approvalID": .string("approval-check"),
+                "status": .string("pending"),
+                "action": .string("删除文件"),
+                "effects": .array([.object([
+                    "tool": .string("phone.files"),
+                    "operation": .string("rm-destructive"),
+                    "resource": .string("dir=/tmp"),
+                    "label": .string("删除文件"),
+                ])]),
+                "alwaysScope": .string("until"),
+                "requestedAt": .number(6_000),
+            ]))
+        _ = try await domain.append(approvalRequest)
+        let approvalDecided = BotEvent(
+            type: "approval.decided", eventId: "decided:approval-check", time: 6_050,
+            origin: .local(source: "card-bridge"), traceId: "decided:approval-check",
+            principal: BotPrincipal(botId: "main", sessionId: "main", kind: "chat"),
+            causationId: nil, correlationId: nil,
+            data: .object([
+                "approvalID": .string("approval-check"),
+                "decision": .string("always"),
+                "status": .string("allowed"),
+                "alwaysScope": .string("until"),
+            ]))
+        _ = try await domain.append(approvalDecided)
         let rename = BotEvent(type: "ui.system_event", eventId: "runtime-rename", time: 6_100,
                               origin: .local(source: "user"), traceId: "runtime-rename",
                               principal: BotPrincipal(botId: "main", sessionId: nil, kind: "ipc"),
@@ -131,9 +153,10 @@ enum BotProductionChecks {
                     && snapshot.routines.map(\.id) == ["routine-check"] && snapshot.routines[0].enabled,
                     "production info read interface failed")
         try require(snapshot.approvals.count == 1 && snapshot.approvals[0].decision == .allow
-                    && snapshot.approvals[0].parameterSummary.contains("phone.files/delete")
-                    && !snapshot.approvals[0].parameterSummary.contains("production-check"),
-                    "grant audit projection/redaction failed")
+                    && snapshot.approvals[0].scope == "until"
+                    && snapshot.approvals[0].status == "allowed"
+                    && snapshot.approvals[0].parameterSummary == "删除文件",
+                    "approval request projection/redaction failed")
         try await domain.close()
 
         let reopened = try SQLiteDomainStore(fileURL: databaseURL, now: { 7_000 })
@@ -197,14 +220,39 @@ enum BotProductionChecks {
             botID: "main", sessionID: "main", sessionEvents: [turn, tool], uiEvents: [], now: 1_100)
         try require(working.fishState == .working && working.runningTurnID == "7"
                     && working.activity?.status == .toolRunning
-                    && working.activity?.detail.contains("report.md") == true,
+                    && working.activity?.category == .reading
+                    && working.activity?.detail.contains("report.md") == true
+                    && working.activity?.startedAt == 1_100,
                     "real turn/tool presentation failed")
-        let stream = BotDSHSessionEvent(type: "assistant/stream", seq: 12, time: 1_200,
+        let toolResult = BotDSHSessionEvent(type: "tool/result", seq: 12, time: 1_150, data: [
+            "message": .object(["toolCallId": .string("read-report")]),
+        ])
+        let reviewing = BotRuntimePresentationFactory.make(
+            botID: "main", sessionID: "main", sessionEvents: [turn, tool, toolResult],
+            uiEvents: [], now: 1_200)
+        try require(reviewing.activity?.status == .toolRunning
+                    && reviewing.activity?.category == .reviewing
+                    && reviewing.activity?.detail.contains("report.md") == true
+                    && reviewing.activity?.startedAt == 1_150,
+                    "finished tool call did not become the reviewing phase")
+        let step = BotDSHSessionEvent(type: "step/start", seq: 13, time: 1_250, data: [:])
+        let thinking = BotRuntimePresentationFactory.make(
+            botID: "main", sessionID: "main", sessionEvents: [turn, tool, toolResult, step],
+            uiEvents: [], now: 1_300)
+        try require(thinking.activity?.status == .thinking
+                    && thinking.activity?.category == .thinking
+                    && thinking.activity?.detail.isEmpty == true
+                    && thinking.activity?.startedAt == 1_250,
+                    "step/start did not return the activity line to thinking")
+        let stream = BotDSHSessionEvent(type: "assistant/stream", seq: 14, time: 1_400,
                                         data: ["channel": .string("text")])
         let speaking = BotRuntimePresentationFactory.make(
             botID: "main", sessionID: "main", sessionEvents: [turn, stream], uiEvents: [], now: 1_200)
+        // The factory deliberately keeps its activity nil while text streams;
+        // the Bot page overlays the replying status line from its own pending
+        // delta / live buffer state, so this is not the old visibility rule.
         try require(speaking.fishState == .speaking && speaking.activity == nil,
-                    "stream did not hide activity")
+                    "stream changed the factory activity; the page owns the replying line")
         let approval = BotEvent(type: "approval.requested", eventId: "fish-approval", time: 1_300,
                                 origin: .local(source: "card-bridge"), traceId: "fish-approval",
                                 principal: BotPrincipal(botId: "main", sessionId: "main", kind: "chat"),
@@ -250,6 +298,7 @@ enum BotProductionChecks {
             "memory-routine-grant-read-only-info",
             "runtime-context-read",
             "fish-production-presentation-activity-ttl",
+            "activity-tool-reviewing-thinking-phases",
         ]
     }
 

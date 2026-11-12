@@ -4,10 +4,13 @@ import PhoneDSHBot
 import SwiftUI
 
 /// The one appearance editor shared by the Bot info page and the add-Bot
-/// dialog: a live preview, the four hairstyle stills and the fifteen colour
-/// swatches. Selection is rendered immediately from the value the caller
+/// dialog: an optional live preview, the four hairstyle stills and the fifteen
+/// colour swatches. Selection is rendered immediately from the value the caller
 /// passes; writing it is the caller's decision (the info page saves per tap,
-/// the add dialog keeps a draft until 创建).
+/// the add dialog keeps a draft until 创建). The caller also decides whether
+/// the picker draws its own preview: the info page hides it because its header
+/// already shows the 80pt avatar, and the add dialog hides it because the
+/// dialog has its own 104pt preview above the form.
 struct BotAppearancePicker: View {
     var appearance: BotFishAppearance
     var isMainBot = false
@@ -16,8 +19,6 @@ struct BotAppearancePicker: View {
     var identifierPrefix = "bot.info.appearance"
     var onSelectColor: (BotFishColor) -> Void
     var onSelectHairstyle: (BotFishHairstyle) -> Void
-
-    private let columns = [GridItem(.adaptive(minimum: 44, maximum: 44), spacing: 2, alignment: .leading)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -44,9 +45,42 @@ struct BotAppearancePicker: View {
                 Text("颜色")
                     .font(.system(size: 13))
                     .foregroundStyle(HomeSpec.textSecondary)
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 2) {
-                    ForEach(BotFishColor.allCases, id: \.self) { color in
-                        colorButton(color)
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 2) {
+                            ForEach(BotFishColor.allCases, id: \.self) { color in
+                                colorButton(color)
+                                    .id(color)
+                            }
+                        }
+                        // Offset the parent row's 16pt inset so the first swatch
+                        // still starts on the same edge as 发型.
+                        .padding(.horizontal, 16)
+                        // The selected ring is drawn outside the 24pt swatch; keep
+                        // it out of the scroll view's clipped bounds vertically.
+                        .padding(.vertical, 2)
+                    }
+                    .mask {
+                        // Fade both horizontal edges: the trailing fade reveals
+                        // the clipped next swatch as the "scroll for more" hint.
+                        HStack(spacing: 0) {
+                            LinearGradient(colors: [.clear, .black],
+                                           startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 12)
+                            Color.black
+                            LinearGradient(colors: [.black, .clear],
+                                           startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 24)
+                        }
+                    }
+                    // Bleed into the row inset so the trailing fade and the
+                    // part-visible next swatch reach the card edge; the mask
+                    // above is applied first and therefore spans the bleed.
+                    .padding(.horizontal, -16)
+                    .onAppear {
+                        // No animation: the selected swatch is already in view
+                        // as soon as the page or dialog opens.
+                        proxy.scrollTo(appearance.color, anchor: .center)
                     }
                 }
             }

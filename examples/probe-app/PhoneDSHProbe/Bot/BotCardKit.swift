@@ -166,12 +166,16 @@ struct BotCardTag: View {
 }
 
 /// Eyebrow line (icon + kind, optional trailing tag or view), the title,
-/// then the body text: the top of every card.
+/// then the body text: the top of every card. Title and detail default to two
+/// lines; longer text gets an explicit 展开/收起 control instead of stretching
+/// the whole card.
 struct BotCardHeading<Trailing: View>: View {
     var icon: String
     var eyebrow: String
     var title: String?
     var detail: String?
+    var titleLineLimit: Int? = 2
+    var detailLineLimit: Int? = 2
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
@@ -187,23 +191,116 @@ struct BotCardHeading<Trailing: View>: View {
             .botCardEyebrow()
             .frame(minHeight: 20)
             if let title, !title.isEmpty {
-                Text(title)
-                    .botCardTitle()
-                    .fixedSize(horizontal: false, vertical: true)
+                overflowText(title, limit: titleLineLimit, style: .title)
             }
             if let detail, !detail.isEmpty {
-                Text(detail)
-                    .botCardBody()
-                    .fixedSize(horizontal: false, vertical: true)
+                overflowText(detail, limit: detailLineLimit, style: .body)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func overflowText(_ text: String, limit: Int?,
+                              style: BotCardHeadingTextStyle) -> some View {
+        if let limit, limit > 0 {
+            BotCardExpandableText(text: text, style: style, lineLimit: limit)
+        } else {
+            style.apply(to: Text(text))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
 extension BotCardHeading where Trailing == EmptyView {
     init(icon: String, eyebrow: String, title: String? = nil, detail: String? = nil) {
         self.init(icon: icon, eyebrow: eyebrow, title: title, detail: detail) { EmptyView() }
+    }
+}
+
+private enum BotCardHeadingTextStyle {
+    case title, body
+
+    @ViewBuilder
+    func apply<Content: View>(to content: Content) -> some View {
+        switch self {
+        case .title: content.botCardTitle()
+        case .body: content.botCardBody()
+        }
+    }
+}
+
+private struct BotCardFullTextHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct BotCardLimitedTextHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Clamped title/detail text with a real truncation check: the hidden
+/// full-height copy is measured against the clamped copy, so the control only
+/// appears when the text actually exceeds its line limit.
+private struct BotCardExpandableText: View {
+    let text: String
+    let style: BotCardHeadingTextStyle
+    let lineLimit: Int
+    @State private var expanded = false
+    @State private var fullHeight: CGFloat = 0
+    @State private var limitedHeight: CGFloat = 0
+
+    private var canExpand: Bool { fullHeight > limitedHeight + 0.5 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            style.apply(to: Text(text))
+                .lineLimit(expanded ? nil : lineLimit)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(alignment: .topLeading) { fullHeightProbe }
+                .background { limitedHeightProbe }
+                .onPreferenceChange(BotCardFullTextHeightKey.self) { fullHeight = $0 }
+                .onPreferenceChange(BotCardLimitedTextHeightKey.self) { limitedHeight = $0 }
+            if canExpand || expanded {
+                Button(expanded ? "收起" : "展开") {
+                    withAnimation(.easeOut(duration: 0.16)) { expanded.toggle() }
+                }
+                .font(.system(size: BotCardMetrics.metaSize, weight: .medium))
+                .foregroundStyle(HomeSpec.textSecondary)
+                .buttonStyle(.plain)
+                .frame(minHeight: 28)
+                .accessibilityValue(expanded ? "已展开" : "已折叠")
+                .accessibilityIdentifier("bot.card.heading.expand")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var fullHeightProbe: some View {
+        style.apply(to: Text(text))
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .hidden()
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: BotCardFullTextHeightKey.self,
+                                           value: proxy.size.height)
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var limitedHeightProbe: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: BotCardLimitedTextHeightKey.self,
+                                   value: proxy.size.height)
+        }
     }
 }
 
@@ -264,6 +361,54 @@ struct BotCardGlyph: View {
             .foregroundStyle(ink)
             .frame(width: BotCardMetrics.glyphColumn)
             .accessibilityHidden(true)
+    }
+}
+
+/// The one grey line an interactive card settles into: a small tinted glyph,
+/// the outcome, and its context after a dot, with no surface, border or
+/// button, so handled cards recede behind the conversation. The model owns
+/// all text and precedence; this view only draws it.
+struct BotCardSettledLine: View {
+    let settlement: BotCardSettlement
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: settlement.glyph)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(settlement.tone.ink.opacity(0.8))
+                .accessibilityHidden(true)
+            (Text(settlement.title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(HomeSpec.textSecondary)
+             + detailText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 4)
+        .frame(minHeight: 28)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("bot.card.settled")
+    }
+
+    private var detailText: Text {
+        guard let detail = settlement.detail, !detail.isEmpty else { return Text("") }
+        let body = Text(detail)
+        return Text(" · ")
+            .font(.system(size: 13))
+            .foregroundColor(HomeSpec.textTertiary)
+            + (settlement.monospacedDetail ? body.font(.system(size: 12, design: .monospaced))
+                                           : body.font(.system(size: 13)))
+            .foregroundColor(HomeSpec.textTertiary)
+    }
+}
+
+extension BotCardSettlementTone {
+    var ink: Color {
+        switch self {
+        case .neutral: HomeSpec.textSecondary
+        case .success: HomeSpec.success
+        }
     }
 }
 

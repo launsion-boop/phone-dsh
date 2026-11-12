@@ -301,7 +301,7 @@ public enum RoutineScheduleMath {
         switch schedule.kind {
         case .interval:
             let every = schedule.everyMinutes ?? 0
-            base = zh ? "每 \(every) 分鐘" : "every \(every) minutes"
+            base = zh ? "每 \(every) 分钟" : "every \(every) minutes"
             if let phase = schedule.phaseMinutes {
                 base += zh ? "（相位 :\(String(format: "%02d", phase))）" : " (phase :\(String(format: "%02d", phase)))"
             }

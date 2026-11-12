@@ -16,7 +16,12 @@ export const NATIVE_PHONE_TOOL_PREFIX = 'mcp__phone__android_'
 // forwarded by the Bot server; they are not Bot-owned phone tools.
 export const NATIVE_BLE_TOOL_PREFIX = 'mcp__phone__ble_'
 export const DEFAULT_IDENTITY_TIMEOUT_MS = 5_000
-/** One registration must outlive the 300 s approval wait plus transport slack. */
+/**
+ * One registration must outlive the interactive 300 s approval card plus
+ * transport slack. Durable approvals do not hold a tool call across the
+ * decision: the gate ends the turn, `tools/execute` never runs, and the
+ * registration is released. The resumed turn registers again.
+ */
 export const DEFAULT_IDENTITY_LIFETIME_MS = 330_000
 /**
  * A background job can outlive the tool call that started it. The Worker keeps

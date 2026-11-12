@@ -38,16 +38,12 @@ python3 -m unittest spec.ui.v1.tools.test_ui_check -v
 `extract_ios_pages.py --check` 的缺失或过期契约必须修复；不能仅因页面出现在下表就视为结构契约完整。
 源码提取不证明条件编译配置或页面行为，相关限制分别见 baseline GAP-19 和 GAP-21。
 
-checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line`
-来源，且该行必须仍存在并包含 token 名/值（页面层长度可用 `expect` 片段；来源过期即失败）；颜色、字号、间距必须
-来自 `HomeSpec.swift`；仍被 PR22 使用的组件 token（0.5 hairline、ShimmerText 动效、发送/复制动效）保留 owning
-page/component 出处；只有页面层几何/动效可标 `tier: page`；WCAG 对比度（正文 4.5 / 大字与非文本 3.0，已登记债
+checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line` 来源，且该行必须仍存在并包含 token 名/值（页面层长度可用 `expect` 片段；来源过期即失败）；颜色、字号、间距必须
+来自 `HomeSpec.swift`；仍被 PR22 使用的组件 token（0.5 hairline、ShimmerText 动效、发送/复制动效）保留 owning page/component 出处；只有页面层几何/动效可标 `tier: page`；WCAG 对比度（正文 4.5 / 大字与非文本 3.0，已登记债
 在 `--strict` 下失败）；8 条平台差异与 §5 逐条对齐并带 type-role 映射；页面清单覆盖基线里真实存在的每个 `*Page`；
-README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更记录在 `tools/ui_check.py`，不删页面）；数据文件里
-不出现外链、邮箱、绝对用户路径。
+README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更记录在 `tools/ui_check.py`，不删页面）；数据文件里不出现外链、邮箱、绝对用户路径。
 
-`tokens.json` 是生成 Kotlin 的唯一来源；`golden/tokens.golden.json` 只是 schema 示例。来源分级：
-**HomeSpec 主题色/字号/行高/间距来自 `HomeSpec.swift`；PR22 仍在用的组件色/字号/几何来自其当前
+`tokens.json` 是生成 Kotlin 的唯一来源；`golden/tokens.golden.json` 只是 schema 示例。来源分级：**HomeSpec 主题色/字号/行高/间距来自 `HomeSpec.swift`；PR22 仍在用的组件色/字号/几何来自其当前
 `NativeParityTokens.swift`、`Components.swift` 等 owning 文件；旧名只通过 `aliases` 指向规范 leaf**，不复制第二张表；取不到就记 `unmeasured`，不写假值。Swift 只进入已复核的 JSON provenance，生成器不再并行解析 Swift/HTML。
 
 ## 1. 页面清单
@@ -87,6 +83,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | MCPSettingsPage | MCP 服务器列表与编辑 | 设置 › 权限与隐私 › MCP 与局域网设备 | push；编辑子页 MCPEditorPage | must |
 | NativeAutomationPage | 定时任务、计划详情与历史 | 设置 › 定时任务；`-uiPreview sessions.schedules` | push；子页 ScheduleDetailPage、ScheduleHistoryPage、ScheduleEditorPage | must |
 | EgressAllowListPage | 出网白名单 | 设置 › 网络访问 | push | must |
+| GitHubAgentSettingsPage | Agent GitHub 写入凭据：fine-grained token（Contents/Pull requests write）存 Keychain，写入开关存 UserDefaults；`github` 的 commit/branch/pr 只有开启后才可用 | 设置 › 权限与隐私 › GitHub Agent | push；保存/删除 token 与写入开关后需重启引擎；Android 页面待补 | later |
 | RuntimeDetailsPage | 运行时状态、停止与重启 | 设置 › 引擎 › 运行状态；Chat 页头运行状态 | sheet | must |
 | SettingsAboutPage | 版本、许可、开发者入口 | 设置 › 关于 Phone DSH | push；子页 LicensesPage | must |
 | WebSurfacePage | 完整 DSH 页面（WebView 宿主） | **iOS 已删除（495da9b5）；Android 侧是独立全屏宿主，见 `pages/_android-only.json`** | 全屏容器，不做返回栈 | later |
@@ -188,6 +185,8 @@ Parity is asserted on **two different object graphs**，混用两者就是端口
 3. ScreenState 是 (UiState, 本地 UI 事件) 的纯函数；设置/文件等无事件锚点的页面，其 UiState 输入是宿主只读快照。
 4. 需要截图的 parity 断言是第三件事，只限 §4 的 6 个签名面，不能替代 1 或 3。
 
+### 3.2 交互契約
+抽屜等交互契約見 [`interaction.md`](interaction.md)。
 ## 4. 签名面
 
 只有这 6 个面做像素对表。页面层几何已吸收进 `tokens.json` 的 `geometry`（值 + 单位 + `scalesWith`），下表引用的
@@ -262,9 +261,11 @@ PR22 home 也没有 Tab 栏，按未测处理。
 | token | 值 | 出处 | 用途 |
 |---|---|---|---|
 | `stroke.hairline` | 0.5pt | `Components.swift:223` | 代码卡/工具卡 0.5pt 描边 |
-| `motion.disclosure` | 160ms easeOut once | `NativeMessageRows.swift:28` | 过程/思考行展开折叠 |
+| `motion.disclosure` | 160ms easeOut once | `NativeMessageRows.swift:31` | 过程/思考行展开折叠 |
+| `motion.drawerOpen` | 280ms easeInOut once | `NativeShell.swift:386` | 会话抽屉打开 |
+| `motion.drawerClose` | 220ms easeInOut once | `NativeShell.swift:392` | 会话抽屉收起/未过门槛弹回 |
 | `motion.shimmer` | 1500ms linear forever | `DSHComponents.swift:56` | thinking 行运行中摘要扫光 |
-| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2088` | 发送键可用态切换 |
+| `motion.composerSend` | 120ms easeOut once | `ChatPage.swift:2462` | 发送键可用态切换 |
 | `motion.copyConfirmHold` | 1000ms linear once | `Components.swift:181` | 「已复制」保持时长 |
 
 ### Baseline accessibility debt（已登记基线无障碍债）

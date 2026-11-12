@@ -242,7 +242,7 @@ struct BotDrawer: View {
             Button("取消", role: .cancel) { deleteEntry = nil }
             Button("删除", role: .destructive) { performDelete() }
         } message: {
-            Text("会中止运行中的回合、拒绝待审批、撤销授权、归档 DSH 会话，并删除这个 Bot 的记忆、例行任务和待处理消息。此操作不可撤销，至少保留一个 Bot。")
+            Text("删除会中止运行、拒绝待审批、撤销授权、归档会话，并清除这个 Bot 的记忆、例行任务和待处理消息，无法撤销。")
         }
     }
 
@@ -393,8 +393,11 @@ private struct BotDrawerRow: View {
             return "\(entry.pendingApprovalCount) 项待审批"
         }
         if entry.isRunning {
-            if let activity = entry.activity, !activity.detail.isEmpty {
-                return activity.detail
+            if let activity = entry.activity {
+                if !activity.detail.isEmpty { return activity.detail }
+                // No model text/target: the same category as the chat line,
+                // not the generic fish-state fallback below.
+                return BotActivityPhrases.primaryPhrase(for: activity.category)
             }
             switch entry.fishState {
             case .thinking: return "思考中"
@@ -406,7 +409,7 @@ private struct BotDrawerRow: View {
             }
         }
         if let last = entry.lastMessageAt {
-            return BotDrawerTime.relative(last)
+            return BotUIFormat.relativeTime(milliseconds: last)
         }
         return "还没有消息"
     }
@@ -523,8 +526,6 @@ struct BotManageList: View {
                     }
                 } header: {
                     Text("全部 Bot")
-                } footer: {
-                    Text("隐藏的 Bot 只在这里出现；取消隐藏后回到 Bot 列表。至少保留一个 Bot。")
                 }
 
                 if let message = roster.actionError ?? actionError {
@@ -559,7 +560,7 @@ struct BotManageList: View {
                 Button("取消", role: .cancel) { deleteEntry = nil }
                 Button("删除", role: .destructive) { performDelete() }
             } message: {
-                Text("会中止运行中的回合、拒绝待审批、撤销授权、归档 DSH 会话，并删除这个 Bot 的记忆、例行任务和待处理消息。此操作不可撤销，至少保留一个 Bot。")
+                Text("删除会中止运行、拒绝待审批、撤销授权、归档会话，并清除这个 Bot 的记忆、例行任务和待处理消息，无法撤销。")
             }
         }
     }
@@ -593,7 +594,8 @@ struct BotManageList: View {
                 Text(entry.description.isEmpty ? "还没有描述" : entry.description)
                     .font(.system(size: 12.5))
                     .foregroundStyle(HomeSpec.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
             Menu {
@@ -787,25 +789,6 @@ struct BotAddDialog: View {
                 saving = false
             }
         }
-    }
-}
-
-enum BotDrawerTime {
-    private static let date: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_Hans")
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
-
-    static func relative(_ milliseconds: Int64, now: Date = Date()) -> String {
-        guard milliseconds > 0 else { return "还没有消息" }
-        let dateValue = Date(timeIntervalSince1970: Double(milliseconds) / 1_000)
-        let seconds = now.timeIntervalSince(dateValue)
-        if seconds < 60 { return "刚刚" }
-        if seconds < 3_600 { return "\(Int(seconds / 60)) 分钟前" }
-        if seconds < 86_400 { return "\(Int(seconds / 3_600)) 小时前" }
-        return date.string(from: dateValue)
     }
 }
 

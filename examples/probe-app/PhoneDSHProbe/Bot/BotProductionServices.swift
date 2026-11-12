@@ -137,6 +137,13 @@ actor BotProductionEnvironment {
         try await runtimeContext.legacyName(domain: domain)
     }
 
+    /// Advances the durable main-session pointer after an epoch switch. The
+    /// planner and turn-stopping seams stay bound; only the session id the row
+    /// and record services read changes.
+    func updateSessionID(_ sessionID: String) {
+        self.sessionID = sessionID
+    }
+
     func currentPlanner() -> any BotUserActionPlanning { planner }
     func currentTurnStopping() -> (any BotProductionTurnStopping)? { turnStopping }
 
@@ -211,6 +218,46 @@ struct BotProductionHistoryPage: Sendable, Equatable {
     var hasMore: Bool
 }
 
+/// Loads the main-chat epoch chain from durable `runtime.started` events. Each
+/// entry keeps its physical session id; the row projector stitches them in
+/// first-start order so an epoch switch does not make the old conversation
+/// disappear. A repeated `runtime.started` for the same id is deduplicated.
+enum BotProductionSessionEpochs {
+    static func load(botID: String, currentSessionID: String,
+                     currentLogURL: URL?,
+                     domain: SQLiteDomainStore) async throws -> [BotSessionEpochProjection] {
+        var ordered: [String] = []
+        var seen = Set<String>()
+        for event in try await BotProductionEventReader.all(domain: domain)
+        where event.type == "runtime.started"
+            && event.principal.botId == botID
+            && event.principal.kind == BotSessionKind.chat.rawValue {
+            guard let sessionID = event.data["sessionId"]?.stringValue
+                ?? event.principal.sessionId, !sessionID.isEmpty else { continue }
+            if seen.insert(sessionID).inserted { ordered.append(sessionID) }
+        }
+        if seen.insert(currentSessionID).inserted { ordered.append(currentSessionID) }
+        var epochs: [BotSessionEpochProjection] = []
+        for sessionID in ordered {
+            let url = sessionID == currentSessionID
+                ? (currentLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID))
+                : BotSessionLogLocator.latestFile(sessionID: sessionID)
+            let events: [BotDSHSessionEvent]
+            if let url, let data = try? Data(contentsOf: url) {
+                events = BotDSHSessionEvent.parseJSONL(data).events
+            } else {
+                events = []
+            }
+            if sessionID != currentSessionID && events.isEmpty { continue }
+            epochs.append(BotSessionEpochProjection(sessionID: sessionID, events: events))
+        }
+        if epochs.isEmpty {
+            epochs.append(BotSessionEpochProjection(sessionID: currentSessionID, events: []))
+        }
+        return epochs
+    }
+}
+
 /// Reads the same durable rows the production Bot page renders. One instance
 /// belongs to the composition root; the UI passes its driver around instead of
 /// constructing another projection authority.
@@ -261,8 +308,11 @@ actor BotProductionRowService {
         updateProcesses(from: logData)
         let uiEvents = try await BotProductionEventReader.all(domain: environment.domain)
         let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
-        _ = try await history.rebuild(botID: environment.botID, sessionID: sessionID,
-                                      sessionEvents: sessionEvents, uiEvents: uiEvents,
+        let epochs = try await BotProductionSessionEpochs.load(
+            botID: environment.botID, currentSessionID: sessionID,
+            currentLogURL: logURL, domain: environment.domain)
+        _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
+                                      uiEvents: uiEvents,
                                       heldRequestNonces: heldRequestNonces)
         currentPresentation = BotRuntimePresentationFactory.make(
             botID: environment.botID, sessionID: sessionID,
@@ -349,8 +399,13 @@ actor BotProductionRowService {
 
 struct BotProductionApproval: Sendable, Equatable, Identifiable {
     var id: String
+    /// Human-readable action + operation labels; never an id or digest.
     var parameterSummary: String
     var decision: BotGrantDecision
+    /// `once` / `session` / `until` for an allow; nil for a deny.
+    var scope: String?
+    /// `allowed` / `denied` / `timed-out` / `expired` / `cancelled`.
+    var status: String?
     var decidedAtMS: Int64
 }
 
@@ -375,7 +430,11 @@ struct BotProductionReconciliation: Sendable, Equatable, Identifiable {
     var effectKey: String?
     var effectGeneration: Int?
     var effectAttempt: Int?
+    /// Human-readable effect summary for the single reconciliation block.
     var effectSummary: String?
+    /// Raw effect record (`operation · target · reason`) for the detail
+    /// disclosure; the main row never prints the effect key.
+    var effectDetail: String?
 }
 
 struct BotProductionMemoryDocument: Sendable {
@@ -405,6 +464,7 @@ actor BotProductionInfoService {
     private let scheduler: RoutineScheduler?
     private let settingsStore: ProactiveSettingsStore
     private let maintenance: BotMemoryMaintenanceController?
+    private var sessionEraser: BotSessionEraser?
 
     init(environment: BotProductionEnvironment,
          scheduler: RoutineScheduler? = nil,
@@ -414,6 +474,14 @@ actor BotProductionInfoService {
         self.scheduler = scheduler
         self.settingsStore = settingsStore
         self.maintenance = maintenance
+    }
+
+    /// Installs the session-epoch eraser for this Bot unit. The composition
+    /// sets it after the unit exists; memory erase stays unavailable until it
+    /// is installed, so production never clears payloads without covering the
+    /// closed session logs.
+    func setSessionEraser(_ eraser: BotSessionEraser?) {
+        sessionEraser = eraser
     }
 
     func load() async throws -> BotProductionInfoSnapshot {
@@ -534,8 +602,15 @@ actor BotProductionInfoService {
                 effectGeneration: matching?.generation,
                 effectAttempt: matching?.attempt,
                 effectSummary: matching.map {
-                    "\($0.effect.operation) · \($0.effect.target) · "
-                        + "\( $0.reconciliationReason ?? "unknown" )"
+                    BotUIFormat.routineEffectSummary(
+                        operation: $0.effect.operation,
+                        reason: $0.reconciliationReason)
+                },
+                effectDetail: matching.map {
+                    BotUIFormat.routineEffectReference(
+                        operation: $0.effect.operation,
+                        target: $0.effect.target,
+                        reason: $0.reconciliationReason)
                 }))
         }
         return records
@@ -601,7 +676,8 @@ actor BotProductionInfoService {
     /// Physical erase of one memory document and every historical version.
     /// The shared user root is not touched.
     func eraseMemory(path: String) async throws {
-        let outcome = try await environment.memory.erase(path: path)
+        let outcome = try await environment.memory.erase(
+            path: path, sessionEraser: sessionEraser)
         guard outcome.ok else {
             throw BotProductionError.invalidService(outcome.error ?? "抹除记忆失败")
         }
@@ -611,7 +687,8 @@ actor BotProductionInfoService {
     /// separate explicit action (`eraseSharedMemories`) so one Bot can never
     /// wipe the documents every Bot shares.
     func eraseMemories() async throws {
-        let outcome = try await environment.memory.erase(scope: .agent)
+        let outcome = try await environment.memory.erase(
+            scope: .agent, sessionEraser: sessionEraser)
         guard outcome.ok else {
             throw BotProductionError.invalidService(outcome.error ?? "抹除记忆失败")
         }
@@ -620,7 +697,8 @@ actor BotProductionInfoService {
     /// Physically erases the shared user root for every Bot. Only called from
     /// the information page's separate, doubly-confirmed shared-memory entry.
     func eraseSharedMemories() async throws {
-        let outcome = try await environment.memory.erase(scope: .user)
+        let outcome = try await environment.memory.erase(
+            scope: .user, sessionEraser: sessionEraser)
         guard outcome.ok else {
             throw BotProductionError.invalidService(outcome.error ?? "清除共享记忆失败")
         }
@@ -634,23 +712,71 @@ actor BotProductionInfoService {
     }
 
     private func approvalRecords() async throws -> [BotProductionApproval] {
+        var requested: [String: BotEvent] = [:]
         var records: [BotProductionApproval] = []
         for event in try await BotProductionEventReader.all(domain: environment.domain) {
-            guard ["grant.added", "grant.consumed", "grant.revoked"].contains(event.type),
-                  let record = try? JSONDecoder().decode(BotAuditRecord.self, from: event.data.encoded()),
-                  record.principal.botId == environment.botID else { continue }
-            let effects = record.effects.map {
-                "\($0.tool)/\($0.operation) · \($0.resourceDigest.prefix(16))"
-            }.joined(separator: "\n")
-            let grants = record.grants.map {
-                "Grant \($0.id) · \($0.scope.rawValue) · \($0.resourceDigest.prefix(16))"
-            }.joined(separator: "\n")
-            records.append(BotProductionApproval(
-                id: event.eventId,
-                parameterSummary: [effects, grants].filter { !$0.isEmpty }.joined(separator: "\n"),
-                decision: record.decision, decidedAtMS: record.at))
+            guard event.principal.botId == environment.botID else { continue }
+            switch event.type {
+            case "approval.requested":
+                guard let id = event.data["approvalID"]?.stringValue else { continue }
+                requested[id] = event
+            case "approval.decided":
+                guard let id = event.data["approvalID"]?.stringValue else { continue }
+                let data = event.data
+                let decisionRaw = data["decision"]?.stringValue ?? "deny"
+                let decision: BotGrantDecision = decisionRaw == "deny" ? .deny : .allow
+                let status: String
+                if data["timedOut"]?.boolValue == true {
+                    status = "timed-out"
+                } else {
+                    status = data["status"]?.stringValue
+                        ?? (decision == .allow ? "allowed" : "denied")
+                }
+                let scope: String?
+                if decision == .allow {
+                    if decisionRaw == "always" {
+                        scope = data["alwaysScope"]?.stringValue
+                            ?? requested[id]?.data["alwaysScope"]?.stringValue
+                            ?? "until"
+                    } else {
+                        scope = "once"
+                    }
+                } else {
+                    scope = nil
+                }
+                records.append(BotProductionApproval(
+                    id: id,
+                    parameterSummary: Self.approvalSummary(request: requested[id]),
+                    decision: decision,
+                    scope: scope,
+                    status: status,
+                    decidedAtMS: event.time))
+            default:
+                continue
+            }
         }
         return records.sorted { $0.decidedAtMS > $1.decidedAtMS }
+    }
+
+    /// A user-readable summary built from the approval request's action and
+    /// effect labels. Digests, grant ids and raw scopes never reach this string.
+    private static func approvalSummary(request: BotEvent?) -> String {
+        guard let data = request?.data else { return "一次操作" }
+        let action = (data["action"]?.stringValue ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var labels: [String] = []
+        for effect in data["effects"]?.arrayValue ?? [] {
+            let raw = (effect["label"]?.stringValue ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = raw.isEmpty ? "工具操作" : raw
+            guard !labels.contains(label) else { continue }
+            labels.append(label)
+        }
+        if action.isEmpty {
+            return labels.isEmpty ? "一次操作" : labels.joined(separator: "、")
+        }
+        if labels.isEmpty || labels.contains(action) { return action }
+        return "\(action) · \(labels.joined(separator: "、"))"
     }
 }
 
@@ -793,5 +919,154 @@ final class BotWorkspaceAttachmentImporter: BotAttachmentImporting, @unchecked S
         }
         used.insert(candidate)
         return candidate
+    }
+}
+
+// MARK: - Session epoch erasure (S6 step 2)
+
+/// Holds the composition's current host without making every child closure
+/// MainActor-bound. The host actor itself stays the authority; this only
+/// forwards the reference.
+actor BotHostReference {
+    private weak var host: PhoneDSHHost?
+
+    init(host: PhoneDSHHost? = nil) {
+        self.host = host
+    }
+
+    func set(_ host: PhoneDSHHost?) {
+        self.host = host
+    }
+
+    func current() -> PhoneDSHHost? { host }
+}
+
+/// Orchestrates one S6 step-2 erasure: plan the session lines, switch the main
+/// chat to a new epoch, park the Worker, rewrite the closed logs through the
+/// host, then resume and stage the continuity seam. The memory store calls
+/// this before it clears any event payload; a throw leaves memory intact.
+final class BotSessionEpochEraser: Sendable {
+    private let remote: BotDSHRemoteRuntime
+    private let environment: BotProductionEnvironment
+    private let recordService: BotRecordService
+    private let hostReference: BotHostReference
+    private let workspaceRoot: URL
+
+    init(remote: BotDSHRemoteRuntime,
+         environment: BotProductionEnvironment,
+         recordService: BotRecordService,
+         hostReference: BotHostReference,
+         workspaceRoot: URL) {
+        self.remote = remote
+        self.environment = environment
+        self.recordService = recordService
+        self.hostReference = hostReference
+        self.workspaceRoot = workspaceRoot
+    }
+
+    func erase(_ request: BotSessionErasureRequest) async throws -> BotSessionErasureReport {
+        let current = try await remote.ensureMainSessionID()
+        let botIDs: Set<String>
+        if request.scope == BotMemoryScope.user.rawValue {
+            var ids = Set([request.botID])
+            for event in (try? await BotProductionEventReader.all(domain: environment.domain)) ?? [] {
+                if let botID = event.principal.botId, !botID.isEmpty { ids.insert(botID) }
+            }
+            botIDs = ids
+        } else {
+            botIDs = [request.botID]
+        }
+        var owned = Set<String>()
+        for botID in botIDs {
+            owned.formUnion((try? await recordService.ownedSessionIDs(
+                botID: botID, callerSessionID: "")) ?? [])
+        }
+        owned.remove("")
+        let planner = BotSessionErasurePlanner(workspaceRoot: workspaceRoot)
+        let scan = planner.scan(
+            botID: request.botID, ownedSessionIDs: owned,
+            needles: request.needles, records: request.records)
+        guard !scan.targets.isEmpty else {
+            return BotSessionErasureReport(uncoveredRecords: scan.uncovered)
+        }
+        let erasureID = "session-erasure-\(UUID().uuidString.lowercased())"
+        let oldSeqs = Set(scan.targets.first { $0.sessionID == current }?.seqs ?? [])
+        let seam = planner.continuation(sessionID: current, erasedSeqs: oldSeqs)
+        let switched = try await remote.switchMainSessionForErasure(
+            erasureID: erasureID,
+            erasedRecords: scan.targets.flatMap(\.records))
+        await environment.updateSessionID(switched.new)
+        await remote.setPendingContinuation(seam)
+
+        guard let host = await hostReference.current() else {
+            throw BotProductionError.invalidService("会话宿主尚未连接，无法改写已关闭会话日志。")
+        }
+        var erased: [BotErasureEventData.ErasedSessionRecord] = []
+        do {
+            try await host.park()
+            for target in scan.targets {
+                let lines = planner.tombstoneLines(
+                    sessionID: target.sessionID,
+                    erasedSeqs: Set(target.seqs),
+                    erasureID: erasureID)
+                guard lines.count == target.seqs.count else {
+                    throw BotProductionError.invalidService(
+                        "会话 \(target.sessionID) 的待抹除行已变化，请重试。")
+                }
+                let request = PhoneDSHSessionErasureRequest(
+                    sessionID: target.sessionID,
+                    replacements: lines.map {
+                        PhoneDSHSessionLineReplacement(seq: $0.seq, line: $0.data)
+                    })
+                let result = try await host.eraseClosedSession(request)
+                let covered = Set(result.erasedSeqs)
+                erased.append(contentsOf: target.seqs.compactMap { seq in
+                    guard covered.contains(seq) else { return nil }
+                    return BotErasureEventData.ErasedSessionRecord(
+                        record: "record://session/\(target.sessionID)#\(seq)",
+                        sessionId: target.sessionID, seq: seq)
+                })
+            }
+            try await host.start()
+            let transport = try await host.makeTransport()
+            await remote.attachTransport(transport)
+            _ = try await remote.startMainSession()
+            await environment.updateSessionID(switched.new)
+        } catch {
+            // Never leave the App parked: the session switch is already
+            // durable, so a resume failure is reported separately from the
+            // rewrite failure.
+            if (try? await host.start()) != nil {
+                if let transport = try? await host.makeTransport() {
+                    await remote.attachTransport(transport)
+                    _ = try? await remote.startMainSession()
+                }
+            }
+            throw error
+        }
+
+        let notice = BotEvent(
+            type: "ui.notice",
+            eventId: "session-epoch-\(erasureID)",
+            time: request.atMS,
+            origin: .local(source: "user"),
+            traceId: "trace-\(erasureID)",
+            principal: BotPrincipal(
+                botId: request.botID, sessionId: switched.new, kind: "ipc"),
+            causationId: nil,
+            correlationId: erasureID,
+            data: .object([
+                "tone": .string("info"),
+                "text": .string(
+                    "已抹除的内容已从旧会话日志移除；对话已接续到新会话，未抹除的内容仍然可用。"),
+            ]))
+        _ = try? await environment.domain.append(notice)
+        return BotSessionErasureReport(
+            erasedSessionRecords: erased,
+            sessionEpochs: [BotErasureEventData.SessionEpoch(
+                fromSessionId: switched.old,
+                toSessionId: switched.new,
+                atMS: request.atMS)],
+            uncoveredRecords: scan.uncovered)
     }
 }

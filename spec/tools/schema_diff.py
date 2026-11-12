@@ -19,6 +19,10 @@ from protocol_impact import (SpecError, comparison_base, changed_paths, git, loa
 
 SCHEMA_PATH = re.compile(r'^spec/(?:.*/)?schema/[^/]+\.json$')
 ANNOTATIONS = {'title', 'description', 'examples', '$comment', 'deprecated'}
+# Combinators with the same variant count compare variant-by-variant, which
+# intentionally relaxes the old any-change-is-breaking rule. Known miss: oneOf
+# variants can become ambiguous; see test_oneof_variant_ambiguity_is_known_limitation.
+COMBINATORS = {'oneOf', 'anyOf', 'allOf'}
 
 
 def canonical(value):
@@ -58,6 +62,10 @@ def compare_schema(old, new, pointer='$'):
         if key not in old or key not in new or canonical(old[key]) != canonical(new[key]):
             if key == 'items' and isinstance(old.get(key), dict) and isinstance(new.get(key), dict):
                 issues += compare_schema(old[key], new[key], pointer + '.' + key)
+            elif (key in COMBINATORS and isinstance(old.get(key), list)
+                  and isinstance(new.get(key), list) and len(old[key]) == len(new[key])):
+                for index, (old_variant, new_variant) in enumerate(zip(old[key], new[key])):
+                    issues += compare_schema(old_variant, new_variant, f'{pointer}.{key}[{index}]')
             else:
                 issues.append((pointer + '.' + key, 'validation/default/reference keyword changed'))
     return issues

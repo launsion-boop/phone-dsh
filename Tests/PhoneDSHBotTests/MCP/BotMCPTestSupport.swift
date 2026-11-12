@@ -49,13 +49,16 @@ final class ErasedRecordEvidenceResolver: BotRecordEvidenceResolving, @unchecked
 func makeBotMCPFixture(
     volatileProvider: (any BotVolatileContextProviding)? = nil,
     taskExecutor: (any BotTaskExecuting)? = nil,
-    recordEvidence: (any BotRecordEvidenceResolving)? = FixedRecordEvidenceResolver()
+    recordEvidence: (any BotRecordEvidenceResolving)? = FixedRecordEvidenceResolver(),
+    approvalTimeoutMs: Int64 = BotApprovalCoordinator.defaultTimeoutMilliseconds,
+    approvalExpiryMs: Int64 = BotApprovalCoordinator.defaultDurableExpiryMilliseconds
 ) throws -> BotMCPTestFixture {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = try SQLiteDomainStore(fileURL: directory.appendingPathComponent("domain.sqlite"), now: { 1_000 })
     let runtime = BotMCPRuntime(
         store: store, volatileProvider: volatileProvider, taskExecutor: taskExecutor,
-        recordEvidence: recordEvidence, now: { 1_000 })
+        recordEvidence: recordEvidence, now: { 1_000 },
+        approvalTimeoutMs: approvalTimeoutMs, approvalExpiryMs: approvalExpiryMs)
     return BotMCPTestFixture(directory: directory, store: store, runtime: runtime)
 }
 

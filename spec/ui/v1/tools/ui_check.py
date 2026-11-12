@@ -35,7 +35,11 @@ Enforces these rules:
    token family the source uses, and every golden projection row may name only tokens that its
    surface declares (a row is a subset of the composition — partial projection is legal, a token
    outside the composition is not);
-11. no external URL host, e-mail address or absolute user path appears in the data files.
+11. no external URL host, e-mail address or absolute user path appears in the data files;
+12. `interaction.drawer` keeps the drawer contract executable: every token reference resolves,
+    every `source` line still contains its `expect` snippet (skipped with the probe app, like
+    rule 4b), every parameter's value/valueLiteral is anchored in its `expect`, and every
+    `golden/drawer-gesture.golden.json` case is recomputed from those values.
 
 Usage:
     python3 spec/ui/v1/tools/ui_check.py [--root DIR] [--strict]
@@ -61,6 +65,24 @@ PROBE_REL = Path("examples") / "probe-app" / "PhoneDSHProbe"
 # omit pages; the page cross-check below still fails if one is missing.
 README_MAX_LINES = 345
 MAX_DEFERRED_PAIRS = 7
+DRAWER_GOLDEN_REL = Path("golden") / "drawer-gesture.golden.json"
+DRAWER_DOC_SOURCE = "tokens.json#interaction.drawer"
+DRAWER_KEYS = (
+    "width",
+    "panelTrailingRadius",
+    "shadow",
+    "openMotion",
+    "closeMotion",
+    "settleMotion",
+    "closedOverhang",
+    "scrimMaxOpacity",
+    "dragMinimumDistance",
+    "closeThreshold",
+    "velocityProjection",
+)
+DRAWER_GROUPS = ("release", "follow", "minimumDistance", "scrim")
+DRAWER_TOKEN_RE = re.compile(r"^(geometry|radius|shadows|motion)\.[A-Za-z][A-Za-z0-9]*$")
+FLOAT_TOLERANCE = 1e-9
 REQUIRED_SURFACES = (
     "bubble",
     "toolRow",
@@ -567,13 +589,22 @@ def check_provenance_sources(root: Path, document) -> tuple:
             raise CheckError(f"shadows.{role}: stale source {source!r}")
         cited = lines[line_number - 1]
         match = re.search(
-            r"shadow\(color: \.black\.opacity\(([0-9.]+)\), radius: ([0-9.]+), y: ([0-9.]+)\)",
+            r"shadow\(color: \.black\.opacity\((?:[^()]*\?\s*)?([0-9.]+)(?:\s*:\s*[0-9.]+)?\), "
+            r"radius: ([0-9.]+)(?:, x: (-?[0-9.]+))?(?:, y: (-?[0-9.]+))?\)",
             cited,
         )
-        if match is None:
+        if match is None or (match.group(3) is None and match.group(4) is None):
             raise CheckError(f"shadows.{role}: source {source!r} no longer holds a shadow literal")
-        for index, part in enumerate(("opacity", "radius", "y")):
-            if abs(float(entry.get(part)) - float(match.group(index + 1))) > 1e-9:
+        source_x = float(match.group(3)) if match.group(3) is not None else 0.0
+        source_y = float(match.group(4)) if match.group(4) is not None else 0.0
+        source_values = {
+            "opacity": float(match.group(1)),
+            "radius": float(match.group(2)),
+            "x": source_x,
+            "y": source_y,
+        }
+        for part, source_value in source_values.items():
+            if abs(float(entry.get(part, 0)) - source_value) > FLOAT_TOLERANCE:
                 raise CheckError(f"shadows.{role}.{part} does not match source {source!r}")
         checked += 1
     return checked, True
@@ -1121,6 +1152,274 @@ def check_forbidden_content(files) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Rule 12: the drawer interaction contract stays executable.
+#
+# `interaction.drawer` is the one place the drawer width, motions, drag and
+# scrim values live.  A token reference that stops resolving, a source line that
+# moves, an expect anchor that no longer carries its value, or a golden case that
+# drifts from the token values would each let Android and iOS disagree while the
+# schema stayed valid.  The golden is recomputed here from the token values and
+# change record rules 2, 3, 5 and 6; the Swift-line half skips when the probe app
+# is absent, exactly like rule 4b.
+# ---------------------------------------------------------------------------
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _number_literal(value) -> str:
+    if not _is_number(value):
+        raise CheckError(f"drawer value {value!r} is not a number")
+    if float(value).is_integer():
+        return str(int(value))
+    return repr(value)
+
+
+def _close_enough(left, right) -> bool:
+    return abs(float(left) - float(right)) <= FLOAT_TOLERANCE
+
+
+def _drawer_value(document, key: str, entry: dict):
+    """Resolve one `interaction.drawer` member to its numeric value."""
+    if "token" in entry:
+        token = entry.get("token")
+        if not isinstance(token, str) or DRAWER_TOKEN_RE.match(token) is None:
+            raise CheckError(
+                f"interaction.drawer.{key}.token {token!r} is not a geometry/radius/shadows/motion reference"
+            )
+        resolved = resolve_token(document, token)
+        if resolved is None:
+            raise CheckError(f"interaction.drawer.{key} references unknown token {token!r}")
+        if isinstance(resolved, dict):
+            if "value" not in resolved:
+                raise CheckError(
+                    f"interaction.drawer.{key} token {token!r} has no numeric value"
+                )
+            resolved = resolved["value"]
+        value = resolved
+    elif "value" in entry:
+        value = entry.get("value")
+    else:
+        raise CheckError(f"interaction.drawer.{key} needs a token reference or a value")
+    if not _is_number(value):
+        raise CheckError(f"interaction.drawer.{key} value {value!r} is not a number")
+    return float(value)
+
+
+def _drawer_case_number(case: dict, member: str, group: str) -> float:
+    value = case.get(member)
+    if not _is_number(value):
+        raise CheckError(
+            f"drawer golden {group} case {case.get('id')!r}: {member} must be a number"
+        )
+    return float(value)
+
+
+def _drawer_source_line(root: Path, source: str, where: str) -> str:
+    """Resolve a Swift source the same way check_provenance_sources does."""
+    files = {}
+    for path in sorted((root / PROBE_REL).rglob("*.swift")):
+        files.setdefault(path.name, path)
+    filename, line_text = source.split(":")
+    line_number = int(line_text)
+    path = root / filename if SDK_TASK_SCREEN_SOURCE_RE.match(source) else files.get(filename)
+    if path is None:
+        raise CheckError(
+            f"{where}: stale source {source!r}; {filename} is not in the allowed iOS sources"
+        )
+    lines = read_text(path).splitlines()
+    if not 1 <= line_number <= len(lines):
+        raise CheckError(
+            f"{where}: stale source {source!r}; {filename} has {len(lines)} line(s)"
+        )
+    return lines[line_number - 1]
+
+
+def check_drawer_interaction(root: Path, document, golden) -> int:
+    interaction = document.get("interaction")
+    if not isinstance(interaction, dict):
+        raise CheckError("tokens.json has no interaction object (the drawer contract needs it)")
+    drawer = interaction.get("drawer")
+    if not isinstance(drawer, dict):
+        raise CheckError("tokens.json has no interaction.drawer object")
+    missing = sorted(set(DRAWER_KEYS) - set(drawer))
+    extra = sorted(set(drawer) - set(DRAWER_KEYS))
+    if missing or extra:
+        raise CheckError(
+            f"interaction.drawer keys must be exactly the drawer contract "
+            f"(missing {missing}, extra {extra})"
+        )
+
+    probe_present = (root / PROBE_REL).is_dir()
+    for key in DRAWER_KEYS:
+        entry = drawer[key]
+        if not isinstance(entry, dict):
+            raise CheckError(f"interaction.drawer.{key} is not an object")
+        if "token" in entry:
+            token = entry.get("token")
+            if not isinstance(token, str) or DRAWER_TOKEN_RE.match(token) is None:
+                raise CheckError(
+                    f"interaction.drawer.{key}.token {token!r} is not a "
+                    "geometry/radius/shadows/motion reference"
+                )
+            if resolve_token(document, token) is None:
+                raise CheckError(f"interaction.drawer.{key} references unknown token {token!r}")
+        source = entry.get("source")
+        expect = entry.get("expect")
+        if source is not None:
+            if not isinstance(source, str) or not is_swift_source(source):
+                raise CheckError(
+                    f"interaction.drawer.{key}.source {source!r} is not a Swift file:line anchor"
+                )
+            if probe_present:
+                cited = _drawer_source_line(root, source, f"interaction.drawer.{key}")
+                if isinstance(expect, str):
+                    if expect not in cited:
+                        raise CheckError(
+                            f"interaction.drawer.{key}: stale source {source!r}; "
+                            f"expected {expect!r} on that line"
+                        )
+                elif expect is not None:
+                    raise CheckError(f"interaction.drawer.{key}.expect must be a string")
+        if "value" in entry:
+            if not isinstance(expect, str):
+                raise CheckError(f"interaction.drawer.{key}: a parameter needs an expect string")
+            literal = entry.get("valueLiteral")
+            if literal is not None:
+                if not isinstance(literal, str) or not literal:
+                    raise CheckError(f"interaction.drawer.{key}.valueLiteral must be a non-empty string")
+                if literal not in expect:
+                    raise CheckError(
+                        f"interaction.drawer.{key}: valueLiteral {literal!r} does not occur "
+                        f"in expect {expect!r}"
+                    )
+            elif entry.get("needsDeviceMeasure") is not True:
+                canonical = _number_literal(entry["value"])
+                if canonical not in expect:
+                    raise CheckError(
+                        f"interaction.drawer.{key}: value {canonical} does not occur "
+                        f"in expect {expect!r}"
+                    )
+
+    width = _drawer_value(document, "width", drawer["width"])
+    _drawer_value(document, "panelTrailingRadius", drawer["panelTrailingRadius"])
+    close_threshold = _drawer_value(document, "closeThreshold", drawer["closeThreshold"])
+    projection = _drawer_value(document, "velocityProjection", drawer["velocityProjection"])
+    scrim_max = _drawer_value(document, "scrimMaxOpacity", drawer["scrimMaxOpacity"])
+    minimum_distance = _drawer_value(document, "dragMinimumDistance", drawer["dragMinimumDistance"])
+    if width <= 0:
+        raise CheckError("interaction.drawer.width must be positive")
+
+    if not isinstance(golden, dict):
+        raise CheckError("drawer-gesture.golden.json is not an object")
+    if golden.get("kind") != "drawer-gesture":
+        raise CheckError("drawer-gesture.golden.json kind must be 'drawer-gesture'")
+    if golden.get("version") != 1:
+        raise CheckError("drawer-gesture.golden.json version must be 1")
+    if golden.get("source") != DRAWER_DOC_SOURCE:
+        raise CheckError(
+            f"drawer-gesture.golden.json source must be {DRAWER_DOC_SOURCE!r}"
+        )
+    for member, expected in (
+        ("width", width),
+        ("closeThreshold", close_threshold),
+        ("velocityProjection", projection),
+        ("scrimMaxOpacity", scrim_max),
+        ("dragMinimumDistance", minimum_distance),
+    ):
+        stored = golden.get(member)
+        if not _is_number(stored):
+            raise CheckError(f"drawer-gesture.golden.json {member} must be a number")
+        if not _close_enough(stored, expected):
+            raise CheckError(
+                f"drawer-gesture.golden.json {member} {stored!r} does not match "
+                f"interaction.drawer ({expected!r})"
+            )
+
+    seen_ids = set()
+
+    def cases(group: str) -> list:
+        entries = golden.get(group)
+        if not isinstance(entries, list) or not entries:
+            raise CheckError(f"drawer-gesture.golden.json needs a non-empty {group} list")
+        for case in entries:
+            if not isinstance(case, dict):
+                raise CheckError(f"drawer golden {group} case is not an object")
+            ident = case.get("id")
+            if not isinstance(ident, str) or not ident:
+                raise CheckError(f"drawer golden {group} case needs a stable id")
+            if ident in seen_ids:
+                raise CheckError(f"drawer golden id {ident!r} is used twice")
+            seen_ids.add(ident)
+        return entries
+
+    gate = -close_threshold * width
+    for case in cases("release"):
+        dx = _drawer_case_number(case, "dx", "release")
+        velocity = _drawer_case_number(case, "velocity", "release")
+        stored = case.get("result")
+        if stored not in ("close", "settle"):
+            raise CheckError(
+                f"drawer golden release case {case['id']!r}: result must be close or settle"
+            )
+        actual = "close" if (dx < gate or dx + velocity * projection < gate) else "settle"
+        if actual != stored:
+            raise CheckError(
+                f"drawer golden release case {case['id']!r}: stored {stored!r}, "
+                f"recomputed {actual!r} (dx={dx:g}, velocity={velocity:g})"
+            )
+
+    for case in cases("follow"):
+        dx = _drawer_case_number(case, "dx", "follow")
+        dy = _drawer_case_number(case, "dy", "follow")
+        follows = abs(dx) > abs(dy)
+        offset = min(0.0, dx) if follows else 0.0
+        stored_follows = case.get("follows")
+        if not isinstance(stored_follows, bool):
+            raise CheckError(
+                f"drawer golden follow case {case['id']!r}: follows must be a boolean"
+            )
+        if stored_follows != follows:
+            raise CheckError(
+                f"drawer golden follow case {case['id']!r}: stored follows={stored_follows}, "
+                f"recomputed {follows} (dx={dx:g}, dy={dy:g})"
+            )
+        stored_offset = _drawer_case_number(case, "offset", "follow")
+        if not _close_enough(stored_offset, offset):
+            raise CheckError(
+                f"drawer golden follow case {case['id']!r}: stored offset={stored_offset:g}, "
+                f"recomputed {offset:g}"
+            )
+
+    for case in cases("minimumDistance"):
+        distance = _drawer_case_number(case, "distance", "minimumDistance")
+        drag = distance >= minimum_distance
+        stored = case.get("drag")
+        if not isinstance(stored, bool):
+            raise CheckError(
+                f"drawer golden minimumDistance case {case['id']!r}: drag must be a boolean"
+            )
+        if stored != drag:
+            raise CheckError(
+                f"drawer golden minimumDistance case {case['id']!r}: stored drag={stored}, "
+                f"recomputed {drag} (distance={distance:g}, minimum={minimum_distance:g})"
+            )
+
+    for case in cases("scrim"):
+        offset = _drawer_case_number(case, "offset", "scrim")
+        progress = max(0.0, 1.0 + offset / width)
+        opacity = scrim_max * progress
+        stored = _drawer_case_number(case, "opacity", "scrim")
+        if not _close_enough(stored, opacity):
+            raise CheckError(
+                f"drawer golden scrim case {case['id']!r}: stored opacity={stored!r}, "
+                f"recomputed {opacity!r} (offset={offset:g})"
+            )
+    return len(seen_ids)
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -1152,7 +1451,8 @@ def run(root: Path, strict: bool) -> int:
     readme_path = ui / "README.md"
     golden_tokens = ui / "golden" / "tokens.golden.json"
     golden_projection = ui / "golden" / "surface-projection.golden.json"
-    for path in (schema_path, tokens_path, readme_path, golden_tokens, golden_projection):
+    golden_drawer = ui / DRAWER_GOLDEN_REL
+    for path in (schema_path, tokens_path, readme_path, golden_tokens, golden_projection, golden_drawer):
         if not path.is_file():
             print(f"ui_check: missing {path.relative_to(root)}", file=sys.stderr)
             return 2
@@ -1165,6 +1465,7 @@ def run(root: Path, strict: bool) -> int:
         document = load_json(tokens_path)
         golden_doc = load_json(golden_tokens)
         projection = load_json(golden_projection)
+        drawer_golden = load_json(golden_drawer)
         readme = read_text(readme_path)
 
         variants = check_schema_is_self_contained(schema)
@@ -1184,6 +1485,7 @@ def run(root: Path, strict: bool) -> int:
         sourced, sourced_checked = check_provenance_sources(root, document)
         geometry_count = check_geometry(document)
         alias_count = check_aliases(document)
+        drawer_cases = check_drawer_interaction(root, document, drawer_golden)
         references = check_surfaces(document)
         contrast_lines, contrast_failures, deferred, pair_count = check_contrast(document, strict)
         for line in contrast_lines:
@@ -1246,6 +1548,7 @@ def run(root: Path, strict: bool) -> int:
                 (show(tokens_path), read_text(tokens_path)),
                 (show(golden_tokens), read_text(golden_tokens)),
                 (show(golden_projection), read_text(golden_projection)),
+                (show(golden_drawer), read_text(golden_drawer)),
                 (show(schema_path), read_text(schema_path)),
             ]
         )
@@ -1268,6 +1571,10 @@ def run(root: Path, strict: bool) -> int:
             show(golden_projection),
             f"schema ok, {len(projection['events'])} events -> {len(projection['rows'])} rows, "
             f"{len(seen_surfaces)}/6 surfaces",
+        )
+        report.file_ok(
+            show(golden_drawer),
+            f"{drawer_cases} cases recomputed from interaction.drawer",
         )
         page_note = f"{page_count} *Page structs documented" if page_checked else "probe app absent, cross-check skipped"
         report.file_ok(

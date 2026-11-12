@@ -274,6 +274,18 @@ public enum BotRowProjectionError: Error, Sendable, Equatable {
     case inconsistentRebuild
 }
 
+/// One main-chat session epoch, oldest first. The newest entry is the live
+/// session; older entries are archived and may carry tombstones.
+public struct BotSessionEpochProjection: Sendable, Equatable {
+    public var sessionID: String
+    public var events: [BotDSHSessionEvent]
+
+    public init(sessionID: String, events: [BotDSHSessionEvent]) {
+        self.sessionID = sessionID
+        self.events = events
+    }
+}
+
 public struct BotSessionLogProjector: Sendable {
     public init() {}
 
@@ -283,8 +295,32 @@ public struct BotSessionLogProjector: Sendable {
         let heldActionNonces = heldActionNonces(
             botID: botID, sessionID: sessionID, sessionEvents: sessionEvents, uiEvents: uiEvents)
         var mutations = projectDSH(botID: botID, sessionID: sessionID, events: sessionEvents,
-                                   heldActionNonces: heldActionNonces, heldRequestNonces: heldRequestNonces)
-        mutations.append(contentsOf: projectUI(botID: botID, events: uiEvents))
+                                   heldActionNonces: heldActionNonces,
+                                   heldRequestNonces: heldRequestNonces, source: 0)
+        mutations.append(contentsOf: projectUI(botID: botID, events: uiEvents, source: 1))
+        mutations.sort { $0.order < $1.order }
+        return apply(mutations, botID: botID)
+    }
+
+    /// Projects the whole main-chat epoch chain in time order. An older
+    /// epoch's rows keep their own session ids and sort before the next epoch;
+    /// UI events follow every session epoch exactly as the single-epoch form
+    /// does.
+    public func project(botID: String, epochs: [BotSessionEpochProjection],
+                        uiEvents: [BotEvent], heldRequestNonces: [String: String] = [:])
+        -> BotRowProjectionSnapshot {
+        var mutations: [BotRowMutation] = []
+        for (index, epoch) in epochs.enumerated() {
+            let heldActionNonces = heldActionNonces(
+                botID: botID, sessionID: epoch.sessionID,
+                sessionEvents: epoch.events, uiEvents: uiEvents)
+            mutations.append(contentsOf: projectDSH(
+                botID: botID, sessionID: epoch.sessionID, events: epoch.events,
+                heldActionNonces: heldActionNonces,
+                heldRequestNonces: heldRequestNonces, source: index))
+        }
+        mutations.append(contentsOf: projectUI(
+            botID: botID, events: uiEvents, source: max(1, epochs.count)))
         mutations.sort { $0.order < $1.order }
         return apply(mutations, botID: botID)
     }
@@ -311,11 +347,13 @@ public struct BotSessionLogProjector: Sendable {
     }
 
     private func projectDSH(botID: String, sessionID: String, events: [BotDSHSessionEvent],
-                            heldActionNonces: [Int: String], heldRequestNonces: [String: String]) -> [BotRowMutation] {
+                            heldActionNonces: [Int: String], heldRequestNonces: [String: String],
+                            source: Int) -> [BotRowMutation] {
         let ignored: Set<String> = [
             "session", "permission/preset", "sandbox/mode", "approval/policy",
             "system/message", "developer/message", "agent/inbox/spliced",
             "request/header", "request/context", "session/title", "session/end-seed",
+            BotSessionErasureTombstone.type,
             "session-log-deepseek/delivery-accepted", "job/registered", "job/settled",
             "step/start", "step/end", "turn/start", "assistant/stream"
         ]
@@ -330,7 +368,7 @@ public struct BotSessionLogProjector: Sendable {
 
         for (index, event) in events.enumerated() {
             if let eventID = event.eventID, !seenEventIDs.insert(eventID).inserted { continue }
-            let order = BotRowOrder(time: event.time, source: 0, sourceSeq: event.seq, index: index)
+            let order = BotRowOrder(time: event.time, source: source, sourceSeq: event.seq, index: index)
             if event.type == "turn/start" {
                 turn = intValue(event.data["turn"]) ?? turn
                 continue
@@ -344,6 +382,7 @@ public struct BotSessionLogProjector: Sendable {
                 let source = objectValue(event.data["source"]) ?? objectValue(message["source"])
                 let sourceKind = source.flatMap { stringValue($0["kind"]) }
                 let rawText = contentText(event.data["content"] ?? message["content"])
+                let visibleRawText = BotSessionContinuation.strip(rawText)
                 let origin = BotTurnOrigin.from(source: source)
                 if origin.hidden {
                     if turn > 0 { hiddenTurns.insert(turn) } else { hiddenFallback = true }
@@ -354,12 +393,12 @@ public struct BotSessionLogProjector: Sendable {
                 // The text prefix is only a fallback for pre-source records;
                 // a record that carries `source` is never classified by text.
                 let injected = source == nil && isInjected(rawText)
-                guard role == "user", surfaceOp == .append, !rawText.isEmpty,
+                guard role == "user", surfaceOp == .append, !visibleRawText.isEmpty,
                       !injected, sourceKind == nil || sourceKind == "user" else { continue }
                 // Another Bot's immediate message already has its agent-comm
                 // row; it is not a user bubble.
                 if origin.kind == .agent { continue }
-                let visibleText = origin.held ? stripHeldMessages(rawText) : rawText
+                let visibleText = origin.held ? stripHeldMessages(visibleRawText) : visibleRawText
                 let parsed = BotAttachmentPrompt.parse(visibleText)
                 var fields = fieldsFrom(message)
                 fields["text"] = .string(parsed.text)
@@ -419,8 +458,8 @@ public struct BotSessionLogProjector: Sendable {
                 fields["requestId"] = .string(requestID)
                 fields["approvalID"] = .string(requestID)
                 fields["callId"] = .string(callID)
-                fields["title"] = .string("允許執行「\(action)」嗎？")
-                fields["text"] = .string("待審批：\(action)")
+                fields["title"] = .string("允许执行「\(action)」吗？")
+                fields["text"] = .string("待审批：\(action)")
                 fields["ask"] = .object([
                     "requestId": .string(requestID),
                     "action": .string(classifyApproval(command: command)),
@@ -464,8 +503,8 @@ public struct BotSessionLogProjector: Sendable {
                 guard let reasonKind, reasonKind != "completed", reasonKind != "aborted" else { continue }
                 let error = reason.flatMap { objectValue($0["error"]) } ?? [:]
                 let detail = stringValue(error["message"]).map { "：\(String($0.prefix(200)))" } ?? ""
-                let hint = intValue(error["status"]) == 401 ? "（API Key 無效或已被覆蓋，請到設定重新貼上）" : ""
-                let text = String("回合失敗\(detail)\(hint)".prefix(400))
+                let hint = intValue(error["status"]) == 401 ? "（API Key 无效或已被覆盖，请到设置重新粘贴）" : ""
+                let text = String("回合失败\(detail)\(hint)".prefix(400))
                 let draft = draft(id: rowID(sessionID, event.seq), event: event, kind: .event, role: nil,
                                   body: BotRowBody(type: .notice, additionalProperties: [
                                     "tone": .string("error"), "text": .string(text)
@@ -480,11 +519,11 @@ public struct BotSessionLogProjector: Sendable {
                     guard automationID != nil || name != nil else { continue }
                     let status = automationStatus(run, event: event)
                     var fields = fieldsFrom(run)
-                    fields["title"] = .string(name ?? "例行工作")
+                    fields["title"] = .string(name ?? "例行任务")
                     fields["status"] = .string(status)
                     fields["automation"] = .object(run.merging([
                         "automationId": automationID.map(BotJSONValue.string) ?? .null,
-                        "name": .string(name ?? "例行工作"),
+                        "name": .string(name ?? "例行任务"),
                         "status": .string(status)
                     ]) { _, new in new })
                     let draft = draft(id: rowID(sessionID, event.seq), event: event, kind: .message, role: nil,
@@ -497,7 +536,7 @@ public struct BotSessionLogProjector: Sendable {
         return result
     }
 
-    private func projectUI(botID: String, events: [BotEvent]) -> [BotRowMutation] {
+    private func projectUI(botID: String, events: [BotEvent], source: Int) -> [BotRowMutation] {
         var result: [BotRowMutation] = []
         var seenEventIDs: Set<String> = []
         let (answeredCards, dismissedCards) = cardOutcomes(botID: botID, events: events)
@@ -507,7 +546,7 @@ public struct BotSessionLogProjector: Sendable {
             guard !event.isErasedPayload else { continue }
             guard event.principal.botId == nil || event.principal.botId == botID,
                   let data = objectValue(event.data), seenEventIDs.insert(event.eventId).inserted else { continue }
-            let order = BotRowOrder(time: event.time, source: 1, sourceSeq: event.commitSeq ?? 0, index: index)
+            let order = BotRowOrder(time: event.time, source: source, sourceSeq: event.commitSeq ?? 0, index: index)
             if event.type == "transcript.row_deleted" {
                 let nested = objectValue(data["row"]) ?? [:]
                 guard let id = nonEmpty(data, "rowID") ?? nonEmpty(data, "id") ?? nonEmpty(nested, "id") else { continue }
@@ -776,8 +815,16 @@ public actor BotRowHistory {
     @discardableResult
     public func rebuild(botID: String, sessionID: String, sessionEvents: [BotDSHSessionEvent],
                         uiEvents: [BotEvent], heldRequestNonces: [String: String] = [:]) throws -> BotRowBatch {
-        let projected = projector.project(botID: botID, sessionID: sessionID,
-                                          sessionEvents: sessionEvents, uiEvents: uiEvents,
+        try rebuild(botID: botID,
+                    epochs: [BotSessionEpochProjection(sessionID: sessionID, events: sessionEvents)],
+                    uiEvents: uiEvents, heldRequestNonces: heldRequestNonces)
+    }
+
+    @discardableResult
+    public func rebuild(botID: String, epochs: [BotSessionEpochProjection],
+                        uiEvents: [BotEvent], heldRequestNonces: [String: String] = [:]) throws -> BotRowBatch {
+        let projected = projector.project(botID: botID, epochs: epochs,
+                                          uiEvents: uiEvents,
                                           heldRequestNonces: heldRequestNonces)
         snapshot = reconciled(projected)
         return resetBatch()
@@ -931,23 +978,23 @@ private func approvalStatus(_ text: String) -> String {
     }
     if fields["allowed"]?.boolValue == true { return "allowed" }
     let lower = text.lowercased()
-    if text.contains("永不允許") || lower.contains("never allow") { return "never" }
-    if text.contains("總是允許") || lower.contains("always allow") { return "always" }
-    if text.contains("逾時") || lower.contains("timed out") || lower.contains("timeout") { return "timed-out" }
-    if text.contains("拒絕") || lower.contains("denied") || lower.contains("rejected")
+    if text.contains("永不允许") || text.contains("永不允許") || lower.contains("never allow") { return "never" }
+    if text.contains("总是允许") || text.contains("總是允許") || lower.contains("always allow") { return "always" }
+    if text.contains("超时") || text.contains("逾時") || lower.contains("timed out") || lower.contains("timeout") { return "timed-out" }
+    if text.contains("拒绝") || text.contains("拒絕") || lower.contains("denied") || lower.contains("rejected")
         || lower.contains("not allowed") { return "denied" }
-    if text.contains("允許") || lower.contains("allowed") { return "allowed" }
+    if text.contains("允许") || text.contains("允許") || lower.contains("allowed") { return "allowed" }
     return "unknown"
 }
 
 private func approvalLabel(_ status: String) -> String {
     switch status {
-    case "allowed": return "已允許一次"
-    case "always": return "已總是允許"
-    case "denied": return "已拒絕"
-    case "never": return "已設為永不允許"
-    case "timed-out": return "逾時未回應（視為拒絕）"
-    default: return "已處理"
+    case "allowed": return "已允许一次"
+    case "always": return "已总是允许"
+    case "denied": return "已拒绝"
+    case "never": return "已设为永不允许"
+    case "timed-out": return "超时未回应（视为拒绝）"
+    default: return "已处理"
     }
 }
 

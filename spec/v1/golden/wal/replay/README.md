@@ -9,6 +9,8 @@ Swift and Kotlin implementers must drive their real recovery code (`Materializer
 `RecoveryManager`) with these files, not with a hand-written copy of the rules.
 
 The file shape is fixed by [wal-replay.schema.json](../../../schema/wal-replay.schema.json).
+Phone-only shapes that no non-phone host produces (the S6 closed-session rewrite) live in
+[`replay-phone/`](../replay-phone/README.md) and use the same schema.
 
 ## 1. Input
 
