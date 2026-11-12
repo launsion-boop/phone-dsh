@@ -103,6 +103,27 @@ P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变。
   的事先许可、作为 bridge.md 统一信封下的方法定义（不新增一次性 handler，见 GAP-01、GAP-05）、WebView 外的审批，
   以及一份带两端 runtime 证据的新变更单。
 
+### 2.6 实施期协调者决定（2026-11-12）
+
+实现开始前由协调者定下，均不改变 owning spec 的条款；实现方按这些答复工作：
+
+1. **忙文本不新增第三条。** 准入在 `LinkToolCaller` 合成一个 `LinkBusy` 错误，在 journal 落盘之前抛出。
+   `DeviceMCPServer` 把它映射回各工具**现有的**文本：`ble_link_call` → "Another Link call is running"，
+   `ble_link_result` → "Invalid result query or Link busy"。MCP 的可观察文本因此逐字节不变；
+   面板自己把 `LinkBusy` 显示成本地化文案。§2.3 的行为变化只有「store 忙 → 忙且无记录」这一种。
+2. **采用入口与工作区约定。** 入口只在面板页（工具栏／空状态「采用描述…」），清单来自工作区
+   `device-panels/*.json`；模型把描述写到工作区路径 `device-panels/<Link device ID>.json`。
+   这是给模型的命名约定，不是协议面：内容仍由 §4.2 求值，文件名不参与判定。不改 `FilesPage`。
+3. **功能开关默认关闭且不持久化。** 用蓝牙设备页里的内存 `@State` 开关，默认 `false`；
+   不新增 UserDefaults key（那会是新的 P18 表面）。A0 的发布决定仍按 §3。
+4. **§2.2 的两处设计按冻结文本实施。** 截至实现开始未收到需求方推翻意见；若之后被推翻，
+   出新 revision，WP1 与 WP4 重跑。
+5. **内部接口冻结。** 协调者在 `6e626fb4` 提交了四个 Swift 内部接口骨架（`DevicePanelSchema.swift`、
+   `DevicePanelDescriptor.swift`、`LinkToolCaller.swift`、`DevicePanelStore.swift`）以及设备模型上的
+   `linkDeviceID` 原始值字段，只为四个工作包能并行编译；它们不是协议，实现方在各自工作包里替换。
+   同时把既有 `UniqueJSONKeys` 的 `struct`／`init`／`check` 放开为 `public`，避免复制重复键扫描器；
+   语义不变。
+
 ### 自检（spec/README.md §5.1）
 
 - 第二种表达：没有。面板调用复用 Link 调用路径；描述是新文件，不是现有格式的别名。
@@ -127,7 +148,8 @@ P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变。
 ## 4. 分工与证据
 
 - **独占路径。** contract owner：`spec/**`、`spec/tools/registry_build.py`、`spec/v1/tools/test_device_panel_golden.py`、本单。
-  Swift implementer（待指定）：`Sources/PhoneDSHBLE/**`、`Tests/PhoneDSHBLETests/**`、probe-app 面板页。
+  Swift implementer（2026-11-12 指定，按计划 §7 分成互不重叠的 WP1–WP4，各自 worktree／分支）：
+  `Sources/PhoneDSHBLE/**`、`Tests/PhoneDSHBLETests/**`、probe-app 面板页与 `project.yml`。
   Kotlin implementer：GAP-20 关闭后指定。
 - **共享 fixtures。** `spec/device/v1/golden/device-panel-mapping.jsonl`（36 行）、
   `spec/device/v1/golden/device-panel-descriptor-cases.jsonl`（59 行，十种结果各至少一例）。两份都含正例、反例、
