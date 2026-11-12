@@ -32,6 +32,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.page.InfoRow
 import com.phonedsh.ui.page.PageFrame
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -139,7 +140,7 @@ class SharedPageChromeTest {
     }
 
     @Test
-    fun `sheet frame shows native drag handle and labels close as cancel`() {
+    fun `sheet frame draws no page-content grabber and labels close as cancel`() {
         var cancels = 0
         compose.setContent {
             PdshTheme {
@@ -151,9 +152,34 @@ class SharedPageChromeTest {
                 )
             }
         }
-        compose.onNodeWithTag("settings-sheet-drag-handle").assertIsDisplayed()
+        // interaction.md §2 rule 4: only homeSheetChrome() and Connectors own a
+        // grabber; page content inside the sheet must not draw a second one.
+        compose.onNodeWithTag("settings-sheet-drag-handle").assertDoesNotExist()
         compose.onNodeWithContentDescription(UiStrings.CANCEL).performClick()
         assertEquals(1, cancels)
+    }
+
+    @Test
+    fun `section header chevron is the shared disclosure mark and toggles once`() {
+        var expanded by mutableStateOf(false)
+        var toggles = 0
+        compose.setContent {
+            PdshTheme {
+                SettingsSectionHeader(
+                    title = "规则",
+                    expanded = expanded,
+                    onToggle = { toggles += 1; expanded = !expanded },
+                    tag = "section-header",
+                )
+            }
+        }
+        compose.onNodeWithTag(PdshDisclosureTags.chevron("section-header"), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("section-header").performClick()
+        assertEquals(1, toggles)
+        compose.waitForIdle()
+        compose.onNodeWithTag("section-header").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, UiStrings.EXPANDED),
+        )
     }
 
     @Test

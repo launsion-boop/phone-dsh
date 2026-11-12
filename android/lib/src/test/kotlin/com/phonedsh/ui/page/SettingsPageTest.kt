@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.state.EngineLifecycleFacts
 import com.phonedsh.ui.state.EngineLifecycleStatus
 import com.phonedsh.ui.theme.PdshTheme
@@ -148,6 +149,35 @@ class SettingsPageTest {
         scrollToTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "language.option.system")
         compose.onNodeWithTag(com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "language.option.system").assertIsDisplayed()
         compose.onNodeWithContentDescription("已选择").assertDoesNotExist()
+    }
+
+    @Test
+    fun `menu body expands through the shared disclosure and closes before writing`() {
+        val writes = mutableListOf<SettingsPreferenceChoice>()
+        show(
+            facts = SettingsFacts(preferences = SettingsPreferences(
+                appearance = SettingsAppearance.SYSTEM,
+                language = SettingsLanguage.SYSTEM,
+            )),
+            onSelectPreference = { writes += it },
+        )
+        val rowTag = com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance"
+        val disclosureTag = rowTag + ".disclosure"
+        scrollTo("外观")
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosureTag)).assertDoesNotExist()
+        compose.onNodeWithTag(rowTag).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosureTag)).assertExists()
+        val optionTag = com.phonedsh.ui.page.UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "appearance.option.dark"
+        scrollToTag(optionTag)
+        compose.onNodeWithTag(optionTag).assertIsDisplayed()
+        compose.onNodeWithTag(optionTag).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosureTag)).assertDoesNotExist()
+        assertEquals(
+            listOf(SettingsPreferenceChoice(SettingsScreenState.APPEARANCE_ROW_ID, "dark")),
+            writes,
+        )
     }
 
     @Test
