@@ -23,7 +23,10 @@ public struct UniqueJSONKeys {
     /// Returns original bytes of selected top-level members and rejects
     /// duplicates of known names. Duplicate unknown names are preserved for
     /// journal compatibility; callers validate the selected values themselves.
-    mutating func rawRootMembers(capturing names: Set<String>, enforcingUnique unique: Set<String>) -> [String: Data]? {
+    /// Public because `PhoneDSHBLE`'s descriptor evaluator must read the raw
+    /// `v` value token, not Foundation's parsed number, and reuses this scanner
+    /// instead of copying it. Semantics are unchanged.
+    public mutating func rawRootMembers(capturing names: Set<String>, enforcingUnique unique: Set<String>) -> [String: Data]? {
         guard transcodeRootToUTF8() else { return nil }
         whitespace()
         guard index < bytes.count, bytes[index] == 123 else { return nil }
