@@ -39,7 +39,7 @@ Android: planned (wave 4 round 2)。
 
 ## 5. 状态与反应
 
-- 侧边栏行的 `fishState` / `activity` 来自 roster 的 `BotRosterRuntimeState`（`BotRuntimeUnit.statusSnapshot`），聊天页来自 `BotChatModel.fishState`。两者共享同一 `BotLiveFishProjection` 的 presentation，但优先级函数目前**不一致**（`idle → working` 强制、remoteBusy/routineRunning、durable/live 优先级、one-shot 回退、sleeping 门槛）；在 CCR-UI-1 裁决前，本页只冻结“两边都消费同一个 presentation 值”，不声明两个 fish state 相等。待审批 → alerting 是两边一致的子规则。
+- 侧边栏行的 `fishState` / `activity` 来自 roster 的 `BotRosterRuntimeState`（`BotRuntimeUnit.statusSnapshot`），聊天页来自 `BotChatModel.fishState`。CCR-UI-1 已裁决（`PC-20261112-android-bot-w4` §7）：两边消费同一个鱼生命周期投影（[ui-state.md](../bot/ui-state.md) §4.7），因此对同一 Bot 的同一时刻两者相等。优先级：待审批 → alerting；未过期的 one-shot；live 优先于 durable presentation；`running` 把 idle 强制为 working；`idleSleeping` → sleeping；否则 idle。
 - `FishAction` 的 `tool/call` 生成 `BotFishReaction`，同一 Bot 的头部、空状态、状态行和侧边栏行都传 `reaction:`；其他 Bot 不受影响。`FishAction` 不进入过程行或回合工具列表（`BotDisplayContract.hiddenToolNames`）。
 - agent-comm 行的小头像使用对方 Bot 的外观，对方是主 Bot 时带皇冠；主 Bot 自己的聊天页头部和空状态同时显示皇冠。
 

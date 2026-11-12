@@ -7,7 +7,7 @@
 ```yaml
 change: PC-20261112-android-bot-w4
 contracts: [P25, P26, P27, P09]
-status: round-1 frozen (CCRs open)
+status: round-2 frozen (CCRs decided)
 breaking: false
 version_decision: Additive. New normative docs and phone-owned golden vectors for behaviour that today exists only in Swift; the Swift end must pass the same vectors. No existing wire field, event type meaning, or stored byte changes in this round, except recording the two memory.document_* durable types that Swift already writes.
 base: 0a748a8f
@@ -69,9 +69,9 @@ bash android/tools/with-android-toolchain.sh ./gradlew :bot:test --no-daemon
 
 `spec/tools/cross_check.py` gained two `GOLDEN_READERS` rows (`spec/ui/v1/bot/golden`, `spec/ui/v1/bot/fish/golden`). They add readers and loosen nothing; the owner accepts them.
 
-### Open contract change requests
+### Round-1 contract change requests (decided in §7)
 
-Every one is a disagreement between two Swift code paths. The lane withheld the clause and did not pick a side. Each needs a decision and a Swift fix (a `Sources/**` or app change, outside round 1) before Android implements the clause.
+Every one was a disagreement between two Swift code paths. The lane withheld the clause and did not pick a side. Each needs a decision and a Swift fix (a `Sources/**` or app change, outside round 1) before Android implements the clause.
 
 | CCR | Clause | Problem | Proposed decision |
 | --- | --- | --- | --- |
@@ -115,3 +115,20 @@ Artwork: the BotFish grant now covers every phoneDSH platform (`examples/probe-a
 | K3 | `android/lib/.../ui/bot/state/**`: the UI-state seam values and derivations | P09 |
 | K4 | `android/lib/.../ui/bot/fish/**`, the BotFish asset copy task in `lib/build.gradle.kts` | P09 |
 | K5 (after K3) | Bot pages, drawer, info and the Bot tab in `android/lib/.../ui/bot/page/**` and `nav/**` | P09 |
+
+### §6.2 session/follow snapshot wait (owner decision)
+
+The round-1 text failed the turn on any non-snapshot first `follow` item; `waitForSnapshot` skips such items. The owner adopts the shipped behaviour: items that are neither `snapshot` nor `end` are skipped, and only `end`, an `error` frame or a closed socket fail the wait. `session-lifecycle.phone.json` gained a distinguishing valid case and an invalid case; Kotlin `BotSessionRuntime` was changed to match. No Swift `Sources/**` change.
+
+### Round-2 result
+
+| Lane | Result |
+| --- | --- |
+| S1 | `store.md` §7–§9 normative; `store.phone.json` 20 valid / 11 invalid; `BotRuntimeEffects.swift` uses the lease order; `migrateToV3` validates before COMMIT |
+| S2 | shared `BotFishLifecycleProjection`, retryable dismiss, `BotFishHeadSlice` in `Sources/PhoneDSHBot`; app consumes them; fish goldens regenerated (6 head-slice cases) |
+| K1 | Android store (`:bot` store + `:app` `AndroidBotSqlDriver`); JVM vectors PASS; instrumented `BotStoreAndroidVectorTest` NOT_RUN |
+| K2 / K2b | Android session runtime and projection against the P27 goldens; §6.2 aligned; shared grapheme truncation |
+| K3 | `com.phonedsh.ui.bot.state` seam values and derivations against the C4 goldens |
+| K4 | BotFish trajectory and renderer; 36 asset files packaged into the AAR at build time |
+
+Not verified: device runs, the Bot tab's `:app` runtime driver wiring, iOS XCTest conformance for app-target UI code.
