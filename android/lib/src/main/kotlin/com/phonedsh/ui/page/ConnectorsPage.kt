@@ -46,14 +46,11 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -62,13 +59,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
-import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.ConnectorsMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetBackHost
+import com.phonedsh.ui.sheet.SheetChrome
 import com.phonedsh.ui.surface.SettingsCardGap
 import com.phonedsh.ui.surface.SettingsGroupCard
 import com.phonedsh.ui.surface.SettingsHairline
@@ -78,7 +77,6 @@ import com.phonedsh.ui.surface.SettingsSubPageGroupedTopInset
 import com.phonedsh.ui.surface.settingsLabelStyle
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
-import com.phonedsh.ui.theme.materialSheetColors
 
 /** One entry of the 连接器 group (`DiscoverConnector`, `ConnectorsPage.swift:12`). */
 public enum class DiscoverConnector(
@@ -210,7 +208,6 @@ public object ConnectorsPageTags {
  * @param onOpenPluginsTools 更多 › 插件与工具 (`NativeConfigurationPage`).
  * @param languageId the stored language preference, for the bilingual copy.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun ConnectorsPage(
     onOpen: (DiscoverConnector) -> Unit,
@@ -220,7 +217,9 @@ public fun ConnectorsPage(
 ) {
     val tokens = LocalUiTokens.current
     var selected by rememberSaveable { mutableStateOf<DiscoverConnector?>(null) }
-    val scope = rememberCoroutineScope()
+    // The sheet's one action pushes only after the platform hide has finished
+    // (`pendingPush` + `onDismiss`, `ConnectorsPage.swift:94-100`).
+    var pendingPush by remember { mutableStateOf<DiscoverConnector?>(null) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -266,16 +265,22 @@ public fun ConnectorsPage(
     }
     val connector = selected
     if (connector != null) {
-        val palette = materialSheetColors(tokens)
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-        ModalBottomSheet(
+        // The shared sheet's own back host drives the action's dismissal through
+        // the same platform hide the scrim, drag and system back use.
+        val sheetBackHost = remember(connector) { SheetBackHost() }
+        PdshSheet(
+            pageId = "connectors",
+            chrome = SheetChrome.Connectors,
+            backHost = sheetBackHost,
             // Tapping outside or swiping it away closes it, so it has no close
             // button (`:192-194`).
-            onDismissRequest = { selected = null },
-            sheetState = sheetState,
+            onDismissRequest = {
+                selected = null
+                val next = pendingPush
+                pendingPush = null
+                if (next != null) onOpen(next)
+            },
             modifier = Modifier.testTag(ConnectorsPageTags.SHEET),
-            containerColor = palette.container,
-            contentColor = palette.content,
         ) {
             ConnectorDetailSheet(
                 connector = connector,
@@ -283,10 +288,8 @@ public fun ConnectorsPage(
                 // The push waits for the sheet to finish leaving (`pendingPush` +
                 // `onDismiss`, `:94-100`), so the two never animate over each other.
                 onOpen = {
-                    scope.launch { sheetState.hide() }.invokeOnCompletion {
-                        selected = null
-                        onOpen(connector)
-                    }
+                    pendingPush = connector
+                    sheetBackHost.dispatch()
                 },
             )
         }

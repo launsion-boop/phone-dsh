@@ -51,7 +51,6 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,7 +59,6 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -82,8 +80,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetBackHost
 import com.phonedsh.ui.theme.LocalUiTokens
-import com.phonedsh.ui.theme.materialSheetColors
 import com.phonedsh.ui.theme.LocalUiType
 
 // ---------------------------------------------------------------------------
@@ -902,21 +901,25 @@ private fun LazyListScope.issuesBlock(state: DailyBriefScreenState) {
  * dismissed by its own gesture. The bottom sheet's swipe, scrim tap and system
  * back are that gesture here ([onDismiss]).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddSourceDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
+    // 添加 closes through the same platform hide as the scrim and system back;
+    // the host receives the values only after the sheet has left the screen.
+    var submitted by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val sheetBackHost = remember { SheetBackHost() }
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    val palette = materialSheetColors(tokens)
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
+    PdshSheet(
+        pageId = "dailyBriefSource",
+        backHost = sheetBackHost,
+        onDismissRequest = {
+            val values = submitted
+            submitted = null
+            if (values != null) onAdd(values.first, values.second) else onDismiss()
+        },
         modifier = Modifier.testTag(UiPageTags.BRIEF_SOURCE_EDITOR),
-        containerColor = palette.container,
-        contentColor = palette.content,
     ) {
         Column(
             modifier = Modifier
@@ -958,7 +961,10 @@ private fun AddSourceDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Un
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(
-                    onClick = { onAdd(name, url) },
+                    onClick = {
+                        submitted = name to url
+                        sheetBackHost.dispatch()
+                    },
                     enabled = url.isNotBlank(),
                     modifier = Modifier.testTag(UiPageTags.BRIEF_SOURCE_ADD_CONFIRM),
                 ) {

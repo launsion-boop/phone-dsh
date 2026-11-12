@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.page
 
+import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -13,12 +14,17 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.phonedsh.ui.sheet.PdshSheetTags
+import com.phonedsh.ui.sheet.SheetDetents
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.generated.TokenDetent
+import com.phonedsh.ui.theme.generated.TokenDetentSetId
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp")
@@ -159,6 +165,33 @@ class SettingsModesAndConnectorsTest {
     }
 
     @Test
+    fun `connector sheet uses the frozen chrome and detents and closes on system back`() {
+        // The page id, not a local skipPartiallyExpanded choice: connectors is
+        // the frozen medium+large site with the connector chrome. Scrim tap and
+        // drag-down stay device-only (Robolectric does not route touches into the
+        // sheet's own window).
+        assertEquals(TokenDetentSetId.MEDIUM_LARGE, SheetDetents.forPage("connectors"))
+        assertEquals(
+            listOf(TokenDetent.MEDIUM, TokenDetent.LARGE),
+            SheetDetents.detents(SheetDetents.forPage("connectors")),
+        )
+
+        compose.setContent {
+            PdshTheme {
+                ConnectorsPage(onOpen = {}, onOpenPluginsTools = {}, languageId = "zh")
+            }
+        }
+        compose.onNodeWithTag(ConnectorsPageTags.ROW_PREFIX + "web_search").performClick()
+        compose.onNodeWithTag(ConnectorsPageTags.SHEET).assertIsDisplayed()
+        // SheetChrome.Connectors is the one preset with a visible grabber.
+        compose.onNodeWithTag(PdshSheetTags.DRAG_HANDLE, useUnmergedTree = true).assertExists()
+
+        pressBackAndSettle()
+
+        compose.onNodeWithTag(ConnectorsPageTags.SHEET).assertDoesNotExist()
+    }
+
+    @Test
     fun `the example connector cannot connect`() {
         val opened = mutableListOf<DiscoverConnector>()
         compose.setContent {
@@ -170,5 +203,17 @@ class SettingsModesAndConnectorsTest {
         compose.onNodeWithText("即将支持").assertIsDisplayed()
         compose.onNodeWithTag(ConnectorsPageTags.SHEET_ACTION).assertIsNotEnabled()
         assertEquals(emptyList<DiscoverConnector>(), opened)
+    }
+
+    /**
+     * Robolectric models the sheet as its own dialog; dispatch on that dialog's
+     * owner exactly as the platform window would, then let the hide animation
+     * finish on the test clock.
+     */
+    private fun pressBackAndSettle() {
+        val dialog = ShadowDialog.getLatestDialog()
+        (dialog as OnBackPressedDispatcherOwner).onBackPressedDispatcher.onBackPressed()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
     }
 }

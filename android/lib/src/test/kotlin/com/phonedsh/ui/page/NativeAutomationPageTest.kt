@@ -13,6 +13,7 @@
 // pass for the wrong reason.
 package com.phonedsh.ui.page
 
+import androidx.activity.OnBackPressedDispatcherOwner
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +34,10 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.sheet.SheetDetents
 import com.phonedsh.ui.theme.PdshTheme
+import com.phonedsh.ui.theme.generated.TokenDetent
+import com.phonedsh.ui.theme.generated.TokenDetentSetId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,6 +46,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowDialog
 
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [34], qualifiers = "w411dp-h640dp")
@@ -502,6 +507,57 @@ class NativeAutomationPageTest {
     }
 
     @Test
+    fun `editor sheet uses the contract default detents and system back cancels`() {
+        // The editor is not a pageDetents site: the contract's default id/set
+        // (system large) applies, not this page's deleted private fraction.
+        assertEquals(TokenDetentSetId.DEFAULT, SheetDetents.forPage("default"))
+        assertEquals(
+            listOf(TokenDetent.LARGE),
+            SheetDetents.detents(SheetDetents.forPage("default")),
+        )
+
+        var cancelled = 0
+        compose.setContent {
+            var local by remember { mutableStateOf(AutomationLocalState()) }
+            PdshTheme {
+                NativeAutomationPage(
+                    state = AutomationScreenState.from(
+                        AutomationFacts(
+                            snapshot = AutomationSnapshot(schedules = emptyList()),
+                            currentSessionID = "worker-session-1",
+                            writable = FactState.YES,
+                        ),
+                        local,
+                    ),
+                    onBack = {},
+                    onOpenDetail = {},
+                    onOpenHistory = {},
+                    onBackToCatalog = {},
+                    onNewSchedule = {
+                        local = local.apply(
+                            AutomationUiEvent.OpenEditor(
+                                AutomationScheduleDraft.from(null, "Asia/Taipei"),
+                            ),
+                        )
+                    },
+                    onCancelEditor = {
+                        cancelled += 1
+                        local = local.apply(AutomationUiEvent.CancelEditor)
+                    },
+                )
+            }
+        }
+        compose.onNodeWithTag(UiPageTags.AUTOMATION_NEW).performClick()
+        compose.onNodeWithTag(UiPageTags.AUTOMATION_EDITOR_ROOT).assertIsDisplayed()
+
+        // Scrim tap and drag-down stay device-only; system back is the JVM path.
+        pressBackAndSettle()
+
+        assertEquals("back is the editor's cancel, once", 1, cancelled)
+        compose.onNodeWithTag(UiPageTags.AUTOMATION_EDITOR_ROOT).assertDoesNotExist()
+    }
+
+    @Test
     fun `the route sequence is a pure function of the script`() {
         val facts = fullFacts()
         val script = listOf(
@@ -550,5 +606,17 @@ class NativeAutomationPageTest {
             states.map { it.signature() } !=
                 run().map { it.signature() }.map { it.replace(":clear:", ":failure:") },
         )
+    }
+
+    /**
+     * Robolectric models the sheet as its own dialog; dispatch on that dialog's
+     * owner exactly as the platform window would, then let the hide animation
+     * finish on the test clock.
+     */
+    private fun pressBackAndSettle() {
+        val dialog = ShadowDialog.getLatestDialog()
+        (dialog as OnBackPressedDispatcherOwner).onBackPressedDispatcher.onBackPressed()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
     }
 }
