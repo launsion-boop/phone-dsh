@@ -14,11 +14,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +46,7 @@ import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -111,17 +107,20 @@ public fun ThinkingPill(
     val canExpand = detail != null
     val showsSummary = summary.isNotEmpty() && !expanded
 
-    // The tag sits on the merged, clickable row (see ToolRow).
-    Column(modifier = modifier) {
+    // The tag sits on the merged header (see ToolRow). The disclosure owns the
+    // tap; a pill with no source keeps the local disabled row because
+    // `PdshDisclosure` cannot express `enabled = false` (component gap).
+    val header: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = HomeMetrics.processRowHeight)
-                .clickable(
-                    enabled = canExpand,
-                    role = Role.Button,
-                    onClickLabel = if (expanded) UiStrings.COLLAPSED else UiStrings.EXPANDED,
-                    onClick = onToggle,
+                .then(
+                    if (canExpand) {
+                        Modifier
+                    } else {
+                        Modifier.clickable(enabled = false, role = Role.Button, onClick = onToggle)
+                    },
                 )
                 .semantics(mergeDescendants = true) {
                     stateDescription = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED
@@ -185,43 +184,49 @@ public fun ThinkingPill(
                 }
             }
         }
-
-        AnimatedVisibility(
-            visible = expanded && canExpand,
-            enter = expandVertically(
-                animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
-            ) + fadeIn(tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing)),
-            exit = shrinkVertically(
-                animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
-            ) + fadeOut(tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing)),
+    }
+    val body: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = tokens.geometry.thinkingContentIndent,
+                    top = tokens.geometry.thinkingContentVertical,
+                    bottom = tokens.geometry.thinkingContentVertical,
+                ),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = tokens.geometry.thinkingContentIndent,
-                        top = tokens.geometry.thinkingContentVertical,
-                        bottom = tokens.geometry.thinkingContentVertical,
-                    ),
-            ) {
-                MarkdownBody(
-                    markdown = detail.orEmpty().ifEmpty { "…" },
-                    onOpenFile = onOpenFile,
-                    onOpenResource = onOpenResource,
-                    variant = MarkdownVariant.COMPACT,
-                    imageSource = imageSource,
+            MarkdownBody(
+                markdown = detail.orEmpty().ifEmpty { "…" },
+                onOpenFile = onOpenFile,
+                onOpenResource = onOpenResource,
+                variant = MarkdownVariant.COMPACT,
+                imageSource = imageSource,
+            )
+            if (detailTruncated == true) {
+                BasicText(
+                    text = "仅显示部分思考内容",
+                    style = type.caption.copy(color = tokens.colors.textSecondary),
                 )
-                if (detailTruncated == true) {
-                    BasicText(
-                        text = "仅显示部分思考内容",
-                        style = type.caption.copy(color = tokens.colors.textSecondary),
-                    )
-                }
             }
         }
     }
+
+    if (canExpand) {
+        PdshDisclosure(
+            expanded = expanded,
+            onToggle = { onToggle() },
+            modifier = modifier,
+            tag = THINKING_PILL_DISCLOSURE_TAG,
+            anchorKey = summary,
+            header = header,
+            body = body,
+        )
+    } else {
+        Column(modifier = modifier) { header() }
+    }
 }
 
+internal const val THINKING_PILL_DISCLOSURE_TAG: String = "pdsh.surface.thinking-pill.disclosure"
 internal const val THINKING_CATEGORY_ICON_TAG: String = "pdsh.surface.thinking.category-icon"
 internal const val THINKING_CHEVRON_TAG: String = "pdsh.surface.thinking.chevron"
 
