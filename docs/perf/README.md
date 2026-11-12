@@ -5,6 +5,7 @@
 
 - 夾具生成器：`scripts/perf/generate_container.py`
 - 容器統計：`scripts/perf/measure_container.py`
+- 每回合 fsync／寫入位元組（程式內計數器）：`scripts/perf/read_io_counters.py`
 - 單元測試：`scripts/perf/test_*.py`
 - 契約：`spec/v1/budgets.md` §7、`docs/protocol-changes/PC-20261112-w0-baseline-budgets.md`
 
@@ -152,6 +153,28 @@ python3 scripts/perf/measure_container.py /tmp/pdsh-perf-heavy --output /tmp/hea
 3. 若 Xcode 版本的 File Activity 不提供 syscall 明細，改用 System Trace；仍無法取得時記 `NOT_RUN`，不要用日誌行數推算。
 4. 同一回合重跑 3 次，報告 median。
 
+#### 5.4.1 程式內計數器（宿主建置）
+
+`Sources/PhoneDSHLog/LogIOCounters.swift` 在 `LogSupport.swift` 實際發出 `write()`、`fsync`、`F_FULLFSYNC` 的位置累加，涵蓋 `PhoneDSHLog` 擁有的 store：WAL 段、journal、materialized 副本、blob store、overlay、manifest。計數只是 `Int` 累加，不改變任何寫入順序、同步點、CRC 或檔案格式；它**永遠開啟**，沒有 Release 開關，也不需要先設定環境變數。以 `FileManager.copyItem` 複製既有檔案的路徑（overlay cache 升級、recovery staging）不經過 `write()`，不計入位元組。
+
+| 呼叫 | 意義 |
+|---|---|
+| `WorkspaceLogIOCounters.current()` | 目前窗口的 `fsyncCalls` 與 `bytesWritten` |
+| `WorkspaceLogIOCounters.settle()` | 回傳目前窗口並重置；回合結束或 epoch close 時呼叫 |
+| `WorkspaceLogIOCounters.reset()` | 丟棄目前窗口；回合開始時呼叫 |
+
+宿主端的 turn 邊界在 `Sources/PhoneDSH`，不在這個計數器模組內；接線時在 `turn/start` 呼叫 `reset()`、在 `turn/end` 呼叫 `settle()` 並把回傳的兩個數字寫進診斷／報告。若同一回合中途發生 epoch close，也可以在該邊界 `settle()` 後累加，語意都是「自上次結算以來的持久化工作」。
+
+宿主建置可用下列指令跑一次真實寫入路徑（`WorkspaceLog` 的 append＋journal＋epoch close），取得結算值：
+
+```bash
+python3 scripts/perf/read_io_counters.py --pretty
+# 解析已擷取的 swift test / console log，而不是重跑：
+python3 scripts/perf/read_io_counters.py --log /tmp/swift-test.log --pretty
+```
+
+輸出 JSON 的 `fsync_calls_per_turn`、`bytes_written_per_turn` 就是 §7 的兩列口徑。**這是宿主建置的數字，不是真機基線**；真機仍照 5.4 步驟 1–4 用 Instruments 量，兩者不可互相代替。它也只涵蓋 `PhoneDSHLog` 的 store：`steps`、exec ledger 與 response log 在 `PhoneDSHGateway`／`PhoneDSHController`，目前不計入；W0 報告必須註明這個口徑差異。
+
 ### 5.5 空閒 10 分鐘（`idle_10m_wakeups`、`idle_10m_bytes_written`）
 
 採集點：process 背景 10 分鐘、沒有回合；計入週期 epoch close。
@@ -219,5 +242,7 @@ Linux 上可跑：
 python3 -m unittest discover -s scripts/perf -p 'test_*.py' -v
 bash scripts/ci/check.sh --only phone-license,phone-hygiene
 ```
+
+`read_io_counters.py` 另外需要 Swift 工具鏈（它跑 `swift test --disable-sandbox`）；沒有工具鏈時記 `SKIP`／`NOT_RUN`，不要用手算或日誌行數代替。
 
 需要 Xcode／真機才能跑的項目（`xcodebuild`、Instruments、`devicectl`、真機測量）在本單元一律 `NOT_RUN`；不要把它們寫成 PASS。
