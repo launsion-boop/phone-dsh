@@ -510,6 +510,40 @@ public enum WorkspaceStorage {
             .appendingPathComponent("\(sessionID).json")
     }
 
+    /// The interrupted-stream draft lives beside the transcript snapshot and
+    /// shares its scope/backup rules. The distinct suffix keeps it out of the
+    /// snapshot eviction count and makes a stale draft easy to identify.
+    public static func streamDraftURL(for backend: BackendID,
+                                      sessionID: String,
+                                      documentsDirectory: URL? = nil,
+                                      fileManager: FileManager = .default) -> URL? {
+        guard isValidSessionID(sessionID) else { return nil }
+        let documents = documentsDirectory
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return transcriptsDirectory(for: backend,
+                                    documentsDirectory: documents,
+                                    fileManager: fileManager)
+            .appendingPathComponent("\(sessionID).draft.json")
+    }
+
+    /// Removes one session's local cache files: its snapshot and its
+    /// interrupted-stream draft. Used when the App removes a session (archive)
+    /// or a caller explicitly drops the local tail.
+    public static func removeTranscriptArtifacts(for backend: BackendID,
+                                                 sessionID: String,
+                                                 documentsDirectory: URL? = nil,
+                                                 fileManager: FileManager = .default) {
+        for url in [transcriptSnapshotURL(for: backend, sessionID: sessionID,
+                                          documentsDirectory: documentsDirectory,
+                                          fileManager: fileManager),
+                    streamDraftURL(for: backend, sessionID: sessionID,
+                                   documentsDirectory: documentsDirectory,
+                                   fileManager: fileManager)]
+        .compactMap({ $0 }) {
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
     /// Marks the snapshot tree as rebuildable local data so it is never part of
     /// an iCloud or Finder backup (P05/P17 backup attributes, P18 cache).
     public static func excludeFromBackup(_ url: URL) {
@@ -537,7 +571,12 @@ public enum WorkspaceStorage {
                                                                  includingPropertiesForKeys: keys,
                                                                  options: [.skipsHiddenFiles])
         else { return }
-        let json = entries.filter { $0.pathExtension == "json" }
+        // Draft files share the directory but are companions of a snapshot, not
+        // entries in the 200-file budget. Counting them would evict snapshots
+        // twice as fast and could leave orphaned drafts.
+        let json = entries.filter {
+            $0.pathExtension == "json" && !$0.lastPathComponent.hasSuffix(".draft.json")
+        }
         guard json.count > limit else { return }
         let ordered = json.sorted { lhs, rhs in
             let left = (try? lhs.resourceValues(forKeys: Set(keys)))?.contentModificationDate ?? .distantPast
@@ -548,7 +587,15 @@ public enum WorkspaceStorage {
         var excess = json.count - limit
         for url in ordered where excess > 0 {
             if url.lastPathComponent == protectedName { continue }
-            if (try? fileManager.removeItem(at: url)) != nil { excess -= 1 }
+            if (try? fileManager.removeItem(at: url)) != nil {
+                // The draft belongs to the snapshot being evicted. Removing it
+                // here is what keeps the cache from retaining interrupted text
+                // for a session whose settled tail is already gone.
+                let draft = directory.appendingPathComponent(
+                    url.deletingPathExtension().lastPathComponent + ".draft.json")
+                try? fileManager.removeItem(at: draft)
+                excess -= 1
+            }
         }
     }
 
