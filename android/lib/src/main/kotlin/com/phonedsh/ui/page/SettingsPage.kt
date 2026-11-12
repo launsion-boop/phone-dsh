@@ -14,6 +14,9 @@
 //
 // Index rows use the PR22 48pt minimum grouped-list pitch, registered
 // [com.phonedsh.ui.icon.PdshIcons], and the shared HomeSpec semantic palette.
+// The parity bench measures the iOS rows at 62pt: the extra 30pt is the system
+// List row padding, not a value the spec/tokens carry (see
+// [com.phonedsh.ui.SettingsMetrics.ROW_HEIGHT_PT] and the W3 contract gap).
 // The old pure `SettingsScreenState.sections` projection remains for the shared
 // settings preference IDs consumed by the existing PreferenceStore.
 package com.phonedsh.ui.page
@@ -61,6 +64,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.state.EngineLifecycleFacts
 import com.phonedsh.ui.state.EngineLifecycleStatus
 import com.phonedsh.ui.surface.SettingsCardGap
@@ -1604,7 +1608,7 @@ private fun SettingsIndexRow(entry: SettingsIndexEntry, dividerBelow: Boolean) {
         entry.options.isNotEmpty() -> ({ expanded = !expanded })
         else -> null
     }
-    androidx.compose.foundation.layout.Column {
+    val header: @Composable () -> Unit = {
         androidx.compose.foundation.layout.Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1676,26 +1680,40 @@ private fun SettingsIndexRow(entry: SettingsIndexEntry, dividerBelow: Boolean) {
                 Spacer(modifier = Modifier.width(tokens.spacing.cardInset))
             }
         }
-        if (entry.options.isNotEmpty() && expanded) {
-            entry.options.forEachIndexed { index, option ->
-                SettingsGroupedRow(
-                    title = option.title,
-                    modifier = Modifier.testTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "${entry.id}.option.${option.id}"),
-                    dividerBelow = index != entry.options.lastIndex,
-                    trailing = if (option.id == entry.selectedOptionId) ({
-                        com.phonedsh.ui.icon.PdshIconView(
-                            icon = com.phonedsh.ui.icon.PdshIcon.CHECK,
-                            size = com.phonedsh.ui.HomeMetrics.composerIcon,
-                            tint = tokens.colors.textPrimary,
-                            contentDescription = "已选择",
-                        )
-                    }) else null,
-                    onClick = {
-                        expanded = false
-                        entry.rowId?.let { rowId -> entry.onSelectPreference?.invoke(SettingsPreferenceChoice(rowId, option.id)) }
-                    },
-                )
+    }
+    androidx.compose.foundation.layout.Column {
+        if (entry.options.isNotEmpty()) {
+            // §7: the option body is one disclosure unit. The header stays a
+            // fixed row (the row the user tapped never moves); the body expands
+            // and collapses with `motion.disclosure` (160 ms), not a bare `if`.
+            PdshDisclosure(
+                expanded = expanded,
+                onToggle = { expanded = !expanded },
+                tag = UiPageTags.SETTINGS_INDEX_ROW_PREFIX + entry.id + ".disclosure",
+                header = header,
+            ) {
+                entry.options.forEachIndexed { index, option ->
+                    SettingsGroupedRow(
+                        title = option.title,
+                        modifier = Modifier.testTag(UiPageTags.SETTINGS_INDEX_ROW_PREFIX + "${entry.id}.option.${option.id}"),
+                        dividerBelow = index != entry.options.lastIndex,
+                        trailing = if (option.id == entry.selectedOptionId) ({
+                            com.phonedsh.ui.icon.PdshIconView(
+                                icon = com.phonedsh.ui.icon.PdshIcon.CHECK,
+                                size = com.phonedsh.ui.HomeMetrics.composerIcon,
+                                tint = tokens.colors.textPrimary,
+                                contentDescription = "已选择",
+                            )
+                        }) else null,
+                        onClick = {
+                            expanded = false
+                            entry.rowId?.let { rowId -> entry.onSelectPreference?.invoke(SettingsPreferenceChoice(rowId, option.id)) }
+                        },
+                    )
+                }
             }
+        } else {
+            header()
         }
         if (dividerBelow) SettingsHairline()
     }
@@ -1734,6 +1752,13 @@ internal const val SETTINGS_TAB_TAG_PREFIX: String = "pdsh.settings.tab."
  * parameter is `text`. Declaring the control here is what makes `完成` a declared
  * action of this page instead of the contract's one missing label; the word, the
  * ink, the tag and the gesture are unchanged.
+ *
+ * Parity note (W3 settings root): the iOS fixture measures this toolbar button at
+ * 58 x 36 pt. `SettingsPage.swift` only declares `Button(NativeText("完成", "Done"))`
+ * inside `.toolbar`, with `.fontWeight(.semibold)` and the identifier; the frame
+ * is iOS 26 toolbar chrome, and `tokens.json` has no toolbar-button size (only
+ * `geometry.navButton` = 44 for the bar/round button). The 58 x 36 frame is
+ * therefore a contract gap and is not hard-coded here.
  *
  * @param label the action's word; also its accessibility name.
  * @param onClick dismiss the sheet.
@@ -1935,7 +1960,7 @@ private fun SettingsMenuCardRow(
     val tokens = LocalUiTokens.current
     var expanded by remember { mutableStateOf(false) }
     val unknown = row.tone == PageTone.UNKNOWN
-    Column(modifier = modifier) {
+    val header: @Composable () -> Unit = {
         SettingsRowFrame(
             dividerBelow = row.dividerBelow && !expanded,
             // A menu row's value + up-down chevron sit 17.6 pt from the card edge,
@@ -1954,7 +1979,14 @@ private fun SettingsMenuCardRow(
                 )
             }
         }
-        if (expanded) {
+    }
+    Column(modifier = modifier) {
+        PdshDisclosure(
+            expanded = expanded,
+            onToggle = { expanded = !expanded },
+            tag = UiPageTags.SETTINGS_ROW_PREFIX + row.id + ".disclosure",
+            header = header,
+        ) {
             row.options.forEach { option ->
                 val selected = option.id == row.selectedOptionId
                 SettingsRowFrame(

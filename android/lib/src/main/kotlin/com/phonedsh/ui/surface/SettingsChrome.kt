@@ -65,17 +65,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -93,6 +90,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.SettingsMetrics
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.page.PageTone
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.LocalUiTokens
@@ -940,9 +939,13 @@ public fun SettingsSubPageFootnote(text: String, modifier: Modifier = Modifier) 
  * @param onBack the leading affordance (the baseline's ✕ on a sheet, ‹ on a
  *   pushed page).
  * @param rootTag an optional stable test tag for the page root.
+ * @param showSheetHandle retained compatibility flag: it only selects the ✕'s
+ *   spoken label (`取消` on a sheet, `返回` on a pushed page). Page content never
+ *   draws a grabber — `interaction.md` §2 rule 4 gives that to the sheet chrome
+ *   (`SheetChrome.HomeSheet` / `Connectors`); the settings sub-pages are content
+ *   inside that sheet and used to draw a second, non-contract handle here.
  */
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 public fun SettingsSubPageFrame(
     modifier: Modifier = Modifier,
     title: String? = null,
@@ -973,11 +976,6 @@ public fun SettingsSubPageFrame(
         // the 44 pt bar and the segmented picker, so drawing another bar here
         // would stack two. The large title stays — it belongs to the page.
         if (!embedded) {
-            if (showSheetHandle) {
-                androidx.compose.material3.BottomSheetDefaults.DragHandle(
-                    modifier = Modifier.testTag("settings-sheet-drag-handle"),
-                )
-            }
             SettingsNavBar(
                 title = title,
                 leading = if (onBack != null) {
@@ -1369,14 +1367,6 @@ public fun SettingsSectionHeader(
     tag: String? = null,
 ) {
     val tokens = LocalUiTokens.current
-    val rotation by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(
-            tokens.motion.disclosureMs,
-            easing = tokens.motion.disclosureEasing,
-        ),
-        label = "settings-section-chevron",
-    )
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1394,10 +1384,10 @@ public fun SettingsSectionHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
     ) {
-        BasicText(
-            text = CHEVRON_FORWARD,
-            style = settingsLabelStyle().copy(color = tokens.colors.textTertiary),
-            modifier = Modifier.rotate(rotation),
+        PdshChevron(
+            expanded = expanded,
+            tint = tokens.colors.textTertiary,
+            tag = tag?.let { PdshDisclosureTags.chevron(it) },
         )
         BasicText(
             text = title,
@@ -1415,8 +1405,6 @@ public fun SettingsSectionHeader(
     }
 }
 
-/** The disclosure glyph. */
-private const val CHEVRON_FORWARD: String = "›"
 
 /**
  * The ink for a row value: secondary for a plain value, a tone for a fact.

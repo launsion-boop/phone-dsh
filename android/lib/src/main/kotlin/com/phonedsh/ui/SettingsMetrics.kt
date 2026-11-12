@@ -117,6 +117,12 @@ public object SettingsMetrics {
      * (116 px). Those rows are not card edges in the cited file and 116 px is not
      * the gap that file draws; the Android render then carried the 3.67 pt error
      * into every successive card. Page-local, measured (four bands).
+     *
+     * Parity note (W3 settings root): the iOS fixture puts 57 pt between the last
+     * row of one group and the first row of the next. That band is the system
+     * section header plus the grouped list's section spacing; neither is declared
+     * in `SettingsPage.swift` or `tokens.json`, so the 57 pt is a contract gap.
+     * This 35 pt remains the measured card-to-card band used by the pixel suite.
      */
     public const val SECTION_GAP_PT: Float = 35f
 
@@ -181,6 +187,14 @@ public object SettingsMetrics {
      * `.environment(\.defaultMinListRowHeight, 48)` (`HomeSpec.swift:207`), so 48
      * is the source-owned minimum. The old 402 pt capture measured 52.33 pt for
      * the pre-PR22 17 pt list; that render is superseded.
+     *
+     * Parity note (W3 settings root): the iOS fixture measures these rows at
+     * 62 pt (`docs/parity/bench.md` § settings-root), not 48. `SettingsPage.swift:459`
+     * gives the row content a 32 pt minimum; the other 30 pt is the system
+     * `List` row's vertical padding, which no Swift literal or `tokens.json`
+     * entry declares. The 62 pt row and the 57 pt group gap (see
+     * [SECTION_GAP_PT]) are therefore a contract gap, not a value this page may
+     * hard-code; 48 stays the token-owned minimum until the contract carries them.
      */
     public val ROW_HEIGHT_PT: Float get() = UiTokenData.geometryDefaultMinListRowHeight.value
 
