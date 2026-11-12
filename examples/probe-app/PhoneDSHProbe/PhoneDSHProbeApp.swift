@@ -54,6 +54,7 @@ struct PhoneDSHProbeApp: App {
                 .preferredColorScheme(preferences.appearance.colorScheme)
                 .environment(model)
                 .environment(\.workspaceModels, workspaceModels)
+                .onOpenURL { GmailSignIn.handleCallback($0) }
                 // Single scene-phase observer. Chat keep-alive / park / resume
                 // and the background-matrix runner each receive the phase once.
                 // RootView and ChatPage do not observe scene phase.
