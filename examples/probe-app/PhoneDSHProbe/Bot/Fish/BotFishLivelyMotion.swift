@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-// App-only animation set for the `bot.activity.line` fish. Every period,
+// App-only animation set for the running Bot header fish. Every period,
 // keyframe and the easing are constants here so the motion can be reviewed
 // without reading the sampler code. `.standard` avatars never call this file.
 //
