@@ -3,11 +3,11 @@
 ```yaml
 change: PC-20261112-device-panel
 contracts: [P05, P07, P09, P18]
-status: draft
+status: frozen
 breaking: false
 version_decision: 不改任何现有版本。面板只消费现有 PDSH Link Tools v1；面板描述是新增的独立版本化文件（v 1）。
 base: 8f3de8b8375bc9c32add4517f6eaadc815b8d4b5
-contract_revision:
+contract_revision: spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec
 ```
 
 Protocol impact: P05; P07; P09; P18; P04: none — C 档只登记为保留项，不新增 handler、不改 bridge.md；
@@ -162,3 +162,4 @@ P21: none — B 档只是提案，`pdsh-page:` 的路由与 CSP 不变。
 | --- | --- | --- | --- |
 | draft–draft-4 | 协调者 | 初稿；定下描述的存放与采用、并发规则、不进 Session、Android 一并冻结 | 无（没有实现方） |
 | draft-5 | 协调者 | 写出 owning spec、schema 与向量；去掉 `tools_digest`；控件改为参数编辑器（§2.2） | 无（没有实现方） |
+| `spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec` | 协调者 | 冻结 A 档契约（用户指示执行冻结） | 无（没有实现方）；Swift implementer 待指定 |
