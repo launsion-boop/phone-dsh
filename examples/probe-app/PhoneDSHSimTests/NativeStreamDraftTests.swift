@@ -3,7 +3,8 @@
 //
 // DSH keeps unfinished assistant streams transient and repairs an abandoned
 // turn with `turn/end{kind:'interrupted'}`. The App's draft is display-only; it
-// must survive a kill, paint once after reload and never reach the model.
+// must survive repeated kills and reloads, stay visible until durable text
+// replaces it, and never reach the model.
 
 import Foundation
 import ProbeKit
@@ -183,10 +184,12 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
             engineReportsRunningTurn: false,
             sessionID: sessionID)
 
-        XCTAssertEqual(result.consumedItemIDs, ["session-draft-2:10:part-0"])
-        XCTAssertTrue(result.keptItemIDs.isEmpty)
+        XCTAssertTrue(result.consumedItemIDs.isEmpty)
+        XCTAssertEqual(result.keptItemIDs, ["session-draft-2:10:part-0"])
+        XCTAssertEqual(result.verdict, .kept)
         XCTAssertEqual(result.items.count, interruptedHistory.count + 1)
         let shown = result.items[3]
+        XCTAssertEqual(shown.id, "session-draft-2:draft-2-assistant")
         XCTAssertEqual(shown.kind, .assistant)
         XCTAssertEqual(shown.text, "partial answer")
         XCTAssertEqual(shown.turn, 2)
@@ -197,15 +200,15 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
                        "已中断：以下是中断前已收到的部分输出，未写入会话，模型看不到")
     }
 
-    func testShownDraftIsConsumedSoASecondReloadCannotDuplicateIt() throws {
+    func testReloadingTwiceKeepsOneStableRowWithoutDuplication() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pdsh-draft-once-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("pdsh-draft-twice-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = NativeStreamDraftStore(documentsDirectory: directory)
-        let id = "session-draft-once"
+        let id = "session-draft-twice"
         let item = NativeStreamDraftItem(itemID: "\(id):10:part-0", kind: .assistant,
-                                         turn: 2, step: nil, text: "once")
+                                         turn: 2, step: nil, text: "still here")
         store.submit(rows: [item], backend: .phone, sessionID: id)
         store.waitForIdle()
 
@@ -217,25 +220,60 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
         var secondQuestion = ChatItem(id: "\(id):11", kind: .user, title: "row",
                                       text: "second question")
         secondQuestion.turn = 2
+        let history = [question, settled, secondQuestion]
+
         let first = NativeStreamDraftPolicy.resolve(
             drafts: try XCTUnwrap(store.load(backend: .phone, sessionID: id)).items,
-            history: [question, settled, secondQuestion],
+            history: history,
             turnEndReasons: [2: "interrupted"],
             engineReportsRunningTurn: false,
             sessionID: id)
-        XCTAssertTrue(first.items.contains(where: { $0.isInterruptedDraft }))
-        store.consume(backend: .phone, sessionID: id, itemIDs: first.consumedItemIDs)
-        store.waitForIdle()
-        XCTAssertNil(store.load(backend: .phone, sessionID: id))
+        XCTAssertEqual(first.keptItemIDs, ["\(id):10:part-0"])
+        XCTAssertTrue(first.consumedItemIDs.isEmpty)
+        XCTAssertEqual(first.items.filter(\.isInterruptedDraft).map(\.id),
+                       ["\(id):draft-2-assistant"])
 
+        // A second load sees the same draft and a history that already carries
+        // the first load's painted row. It must update that row, not append.
         let second = NativeStreamDraftPolicy.resolve(
-            drafts: store.load(backend: .phone, sessionID: id)?.items ?? [],
-            history: first.items.filter { !$0.isInterruptedDraft },
+            drafts: try XCTUnwrap(store.load(backend: .phone, sessionID: id)).items,
+            history: first.items,
             turnEndReasons: [2: "interrupted"],
             engineReportsRunningTurn: false,
             sessionID: id)
-        XCTAssertFalse(second.items.contains(where: { $0.isInterruptedDraft }),
-                       "a shown draft is cleared and cannot paint twice")
+        XCTAssertEqual(second.keptItemIDs, ["\(id):10:part-0"])
+        XCTAssertTrue(second.consumedItemIDs.isEmpty)
+        XCTAssertEqual(second.items.count, first.items.count)
+        XCTAssertEqual(second.items.filter(\.isInterruptedDraft).count, 1)
+        XCTAssertEqual(second.items.filter(\.isInterruptedDraft).first?.id,
+                       "\(id):draft-2-assistant")
+        XCTAssertNotNil(store.load(backend: .phone, sessionID: id),
+                        "a shown draft stays on disk until a durable replacement")
+    }
+
+    func testShownDraftIsConsumedOnlyWhenDurableTextCoversIt() {
+        let first = NativeStreamDraftPolicy.resolve(
+            drafts: [draft()],
+            history: interruptedHistory,
+            turnEndReasons: [2: "interrupted"],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        XCTAssertTrue(first.consumedItemIDs.isEmpty)
+        XCTAssertTrue(first.items.contains(where: { $0.isInterruptedDraft }))
+
+        let settled = historyItem("session-draft-2:10:block-0", .assistant,
+                                  text: "full settled answer", turn: 2)
+        let second = NativeStreamDraftPolicy.resolve(
+            drafts: [draft()],
+            history: first.items + [settled],
+            turnEndReasons: [2: "interrupted"],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        XCTAssertFalse(second.items.contains(where: { $0.isInterruptedDraft }))
+        XCTAssertEqual(second.consumedItemIDs, ["session-draft-2:10:part-0"])
+        XCTAssertTrue(second.keptItemIDs.isEmpty)
+        XCTAssertEqual(second.verdict, .superseded)
+        XCTAssertEqual(second.items.last?.text, "full settled answer")
     }
 
     func testSettledHistoryAtTheSamePositionWinsAndDeletesTheDraftSilently() {
@@ -250,6 +288,8 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
 
         XCTAssertFalse(result.items.contains(where: { $0.isInterruptedDraft }))
         XCTAssertEqual(result.consumedItemIDs, ["session-draft-2:10:part-0"])
+        XCTAssertTrue(result.keptItemIDs.isEmpty)
+        XCTAssertEqual(result.verdict, .superseded)
         XCTAssertEqual(result.items.last?.text, "full settled answer")
     }
 
@@ -296,21 +336,24 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
             sessionID: sessionID)
         XCTAssertTrue(result.items.contains(where: { $0.isInterruptedDraft }),
                       "only text at/after the draft position supersedes it")
+        XCTAssertTrue(result.consumedItemIDs.isEmpty)
+        XCTAssertEqual(result.keptItemIDs, ["session-draft-2:10:part-0"])
     }
 
-    func testRunningTurnKeepsTheDraftForTheNextLaunch() {
+    func testRunningTurnStillShowsAndKeepsTheDraft() {
         let result = NativeStreamDraftPolicy.resolve(
             drafts: [draft()],
             history: interruptedHistory,
             turnEndReasons: [:],
             engineReportsRunningTurn: true,
             sessionID: sessionID)
-        XCTAssertFalse(result.items.contains(where: { $0.isInterruptedDraft }))
+        XCTAssertTrue(result.items.contains(where: { $0.isInterruptedDraft }))
         XCTAssertEqual(result.keptItemIDs, ["session-draft-2:10:part-0"])
         XCTAssertTrue(result.consumedItemIDs.isEmpty)
+        XCTAssertEqual(result.verdict, .kept)
     }
 
-    func testUnendedTurnOnAnIdleEngineShowsTheDraft() {
+    func testUnendedTurnOnAnIdleEngineShowsAndKeepsTheDraft() {
         let result = NativeStreamDraftPolicy.resolve(
             drafts: [draft()],
             history: interruptedHistory,
@@ -318,6 +361,8 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
             engineReportsRunningTurn: false,
             sessionID: sessionID)
         XCTAssertTrue(result.items.contains(where: { $0.isInterruptedDraft }))
+        XCTAssertEqual(result.keptItemIDs, ["session-draft-2:10:part-0"])
+        XCTAssertTrue(result.consumedItemIDs.isEmpty)
     }
 
     func testCancelledFailedAndAbortedTurnsAreKeptButCompletedIsNot() {
@@ -338,20 +383,115 @@ final class NativeStreamDraftPolicyTests: XCTestCase {
             sessionID: sessionID)
         XCTAssertFalse(result.items.contains(where: { $0.isInterruptedDraft }))
         XCTAssertEqual(result.consumedItemIDs, ["session-draft-2:10:part-0"])
+        XCTAssertTrue(result.keptItemIDs.isEmpty)
+        XCTAssertEqual(result.verdict, .settled)
     }
 
     func testDraftIsInsertedAtTheEndOfItsTurnNotTheSessionTail() {
+        let status = ChatItem(id: "session-draft-2:status", kind: .status,
+                              title: "Host", text: "ready")
+        let result = NativeStreamDraftPolicy.resolve(
+            drafts: [draft(turn: 1)],
+            history: Array(interruptedHistory.prefix(2)) + [status],
+            turnEndReasons: [1: "interrupted"],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        XCTAssertEqual(result.items.prefix(3).map(\.id), [
+            "session-draft-2:1", "session-draft-2:9",
+            "session-draft-2:draft-1-assistant",
+        ])
+        XCTAssertEqual(result.items.last?.id, "session-draft-2:status")
+    }
+
+    func testANewerDurableTurnSupersedesTheOlderDraft() {
         let result = NativeStreamDraftPolicy.resolve(
             drafts: [draft(turn: 1)],
             history: interruptedHistory,
             turnEndReasons: [1: "interrupted"],
             engineReportsRunningTurn: false,
             sessionID: sessionID)
-        XCTAssertEqual(result.items.prefix(3).map(\.id), [
-            "session-draft-2:1", "session-draft-2:9",
-            "session-draft-2:10:part-0:interrupted-draft-0",
-        ])
-        XCTAssertEqual(result.items.last?.id, "session-draft-2:11")
+        XCTAssertFalse(result.items.contains(where: { $0.isInterruptedDraft }))
+        XCTAssertEqual(result.consumedItemIDs, ["session-draft-2:10:part-0"])
+        XCTAssertTrue(result.keptItemIDs.isEmpty)
+        XCTAssertEqual(result.verdict, .superseded)
+    }
+
+    func testEvidenceLineFormatsKeptDraftAndVerdict() {
+        let item = draft()
+        let result = NativeStreamDraftPolicy.resolve(
+            drafts: [item],
+            history: interruptedHistory,
+            turnEndReasons: [2: "interrupted"],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        let line = NativeStreamDraftEvidence.evidenceLine(
+            sessionID: sessionID,
+            dshLastSeq: 42,
+            snapshotLastSeq: 99,
+            drafts: [item],
+            resolution: result,
+            activeTurn: 2)
+        XCTAssertEqual(line, "draft-evidence session=session-draft-2 "
+                       + "dsh_last_seq=42 snapshot_last_seq=99 drafts=1 "
+                       + "kept=session-draft-2:10:part-0 consumed=- "
+                       + "active_turn=2 draft_turn=2 draft_seq=10 verdict=kept")
+    }
+
+    func testEvidenceLineFormatsConsumedAndNoneVerdicts() {
+        let item = draft()
+        let settled = historyItem("session-draft-2:10:block-0", .assistant,
+                                  text: "full settled answer", turn: 2)
+        let superseded = NativeStreamDraftPolicy.resolve(
+            drafts: [item],
+            history: interruptedHistory + [settled],
+            turnEndReasons: [2: "interrupted"],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        let consumedLine = NativeStreamDraftEvidence.evidenceLine(
+            sessionID: sessionID,
+            dshLastSeq: nil,
+            snapshotLastSeq: nil,
+            drafts: [item],
+            resolution: superseded,
+            activeTurn: nil)
+        XCTAssertEqual(consumedLine, "draft-evidence session=session-draft-2 "
+                       + "dsh_last_seq=none snapshot_last_seq=none drafts=1 "
+                       + "kept=- consumed=session-draft-2:10:part-0 "
+                       + "active_turn=none draft_turn=2 draft_seq=10 "
+                       + "verdict=superseded")
+
+        let none = NativeStreamDraftPolicy.resolve(
+            drafts: [],
+            history: [],
+            turnEndReasons: [:],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        let noneLine = NativeStreamDraftEvidence.evidenceLine(
+            sessionID: sessionID,
+            dshLastSeq: 7,
+            snapshotLastSeq: 8,
+            drafts: [],
+            resolution: none,
+            activeTurn: nil)
+        XCTAssertEqual(noneLine, "draft-evidence session=session-draft-2 "
+                       + "dsh_last_seq=7 snapshot_last_seq=8 drafts=0 "
+                       + "kept=- consumed=- active_turn=none draft_turn=none "
+                       + "draft_seq=none verdict=none")
+
+        let settledResult = NativeStreamDraftPolicy.resolve(
+            drafts: [item],
+            history: interruptedHistory,
+            turnEndReasons: [2: "completed"],
+            engineReportsRunningTurn: false,
+            sessionID: sessionID)
+        let settledLine = NativeStreamDraftEvidence.evidenceLine(
+            sessionID: sessionID,
+            dshLastSeq: 42,
+            snapshotLastSeq: 41,
+            drafts: [item],
+            resolution: settledResult,
+            activeTurn: nil)
+        XCTAssertTrue(settledLine.hasSuffix(" verdict=settled"), settledLine)
     }
 
     func testTruncatedDraftKeepsTheTail() throws {
@@ -442,6 +582,38 @@ final class NativeStreamDraftCacheTests: XCTestCase {
         let decoded = try XCTUnwrap(CachedTranscriptCodec.decode(
             try Data(contentsOf: url), backend: .phone, sessionID: "session"))
         XCTAssertEqual(decoded.items.map(\.id), ["settled-row"])
+    }
+
+    func testPolicyPaintedDraftIsExcludedFromTranscriptSnapshot() throws {
+        let directory = try temporaryDocuments()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("session.json")
+        var question = ChatItem(id: "session:1", kind: .user, title: "You",
+                                text: "question")
+        question.turn = 1
+        var settled = ChatItem(id: "session:9", kind: .assistant, title: "Assistant",
+                               text: "durable answer")
+        settled.turn = 1
+        let draft = NativeStreamDraftItem(itemID: "session:10:part-0",
+                                          kind: .assistant, turn: 1, step: nil,
+                                          text: "display only")
+        let resolution = NativeStreamDraftPolicy.resolve(
+            drafts: [draft],
+            history: [question, settled],
+            turnEndReasons: [1: "interrupted"],
+            engineReportsRunningTurn: false,
+            sessionID: "session")
+        let painted = try XCTUnwrap(resolution.items.first(where: { $0.isInterruptedDraft }))
+        XCTAssertEqual(painted.id, "session:draft-1-assistant")
+
+        let writer = TranscriptSnapshotWriter(isCurrentSession: { _, _ in true })
+        writer.submit(items: resolution.items, backend: .phone, sessionID: "session",
+                      lastSeq: nil, url: url, capturedAt: Date())
+        writer.waitForIdle()
+        let decoded = try XCTUnwrap(CachedTranscriptCodec.decode(
+            try Data(contentsOf: url), backend: .phone, sessionID: "session"))
+        XCTAssertEqual(decoded.items.map(\.id), ["session:1", "session:9"])
+        XCTAssertFalse(decoded.items.contains(where: { $0.id == painted.id }))
     }
 
     func testRemoveLocalDataRemovesTheDraftFile() throws {
