@@ -22,11 +22,9 @@ Status: P0 · spec 版本 1 · MIT。适用端：iOS PR22 基线 `examples/probe
 | 未测项（unmeasured） | 值读不到；记 `null` + `provenance.tier = unmeasured`（来源可写定义处 `file:line`），**禁止编造**。 |
 | 语义等价 | 两端交互结果相同；呈现形式允许不同，差异必须落在 §5 白名单内。 |
 
-MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**；
-截图只作辅证，验收比对的是投影出的行序列。
+MUST / SHOULD / MAY 按 RFC 2119 读。权威顺序：**Harness 事件序列 > 交互状态机 > 语义一致 > 视觉一致**； 截图只作辅证，验收比对的是投影出的行序列。
 
-同一轮可有多个独立的过程组。Android 会话列表用每组首个可见事件的完整行 ID
-区分它们。事件类型后缀不能用作身份，后续工具结果不应改动组的身份。
+同一轮可有多个独立的过程组。Android 会话列表用每组首个可见事件的完整行 ID 区分它们。事件类型后缀不能用作身份，后续工具结果不应改动组的身份。
 本 lane 的自校验（失败退出 1；`--strict` 连 §4 的已登记无障碍债一起判失败）：
 
 ```
@@ -34,9 +32,7 @@ python3 spec/ui/v1/tools/ui_check.py --root .
 python3 -m unittest spec.ui.v1.tools.test_ui_check -v
 ```
 
-**验收顺序**：除 `ui_check.py --root .` 和 `test_ui_check` 外，P0 还运行页面结构及源码契约检查。
-`extract_ios_pages.py --check` 的缺失或过期契约必须修复；不能仅因页面出现在下表就视为结构契约完整。
-源码提取不证明条件编译配置或页面行为，相关限制分别见 baseline GAP-19 和 GAP-21。
+**验收顺序**：除 `ui_check.py --root .` 和 `test_ui_check` 外，P0 还运行页面结构及源码契约检查。 `extract_ios_pages.py --check` 的缺失或过期契约必须修复；不能仅因页面出现在下表就视为结构契约完整。 源码提取不证明条件编译配置或页面行为，相关限制分别见 baseline GAP-19 和 GAP-21。
 
 checker 强制：tokens 过 schema；6 个签名面的 token 引用全部存在且含页面层几何；每个叶子 token 都有 `file:line` 来源，且该行必须仍存在并包含 token 名/值（页面层长度可用 `expect` 片段；来源过期即失败）；颜色、字号、间距必须
 来自 `HomeSpec.swift`；仍被 PR22 使用的组件 token（0.5 hairline、ShimmerText 动效、发送/复制动效）保留 owning page/component 出处；只有页面层几何/动效可标 `tier: page`；WCAG 对比度（正文 4.5 / 大字与非文本 3.0，已登记债
@@ -57,6 +53,7 @@ README ≤ 345 行（PR22 新增类型/几何表，cap 319→345，规则变更�
 | ChatPage | PR22 首页：对话、输入坞、审批/问题卡、目标条；空对话也是首页 | RootView 的默认原生面（NativeShell） | 根页；自绘页头：抽屉 / 改名 / 设备+更多（含产物、工作区、运行状态、插件与工具、导出） | must |
 | ConnectorsPage | 发现页：设备 / 网页搜索 / 自定义 MCP 服务 / Gmail / GitHub | 底部标签栏「发现」 | 连接器行打开详情 sheet，主操作 push 对应设置页；设备 push BluetoothDevicesPage | must |
 | GmailConnectorPage | iPhone Gmail 只读授权、搜索、正文预览、断开 | 发现 › Gmail | push；授权由 Google 提供，其他平台单独接入 | later |
+| GmailMessagePage | iPhone Gmail 邮件正文预览 | 发现 › Gmail › 邮件行 | push；返回邮件列表 | later |
 | GitHubConnectorPage | iPhone GitHub 令牌连接、仓库列表和断开 | 发现 › GitHub（在 Gmail 下方） | push；仓库行打开 GitHub | later |
 | SessionsPage | 抽屉会话列表（PR22 已不是产品首页） | **预览专用（`-uiPreview sessions`、`DrawerPreview`）；产品抽屉换 HomeDrawer** | 预览壳；选中会话即关闭 | later |
 | SessionActivityPage | 单会话的步骤/用量/上下文 | **触发点缺失（sheet 已接线但无人置位，基线不可达）** | sheet | later |
