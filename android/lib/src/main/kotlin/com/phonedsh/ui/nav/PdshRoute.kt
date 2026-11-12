@@ -169,6 +169,16 @@ public sealed interface PdshRoute {
     }
 
     /**
+     * 设置行「GitHub Agent」; §1: push (`SettingsPage.swift:168`).
+     *
+     * The iOS row is a `NavigationLink`, so the token page keeps a back stack;
+     * its own sections are the contract's `git-hub-agent-settings`.
+     */
+    public data object GitHubAgent : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
+
+    /**
      * The SSH connection editor, opened from [Ssh]'s list.
      *
      * @param connectionId the saved connection to edit, or `null` when adding one.
@@ -667,6 +677,7 @@ public object PdshSettingsRows {
         SettingsDestination.WEB_SEARCH -> PdshRoute.WebSearch
         SettingsDestination.MCP -> PdshRoute.Mcp
         SettingsDestination.SSH -> PdshRoute.Ssh
+        SettingsDestination.GITHUB_AGENT -> PdshRoute.GitHubAgent
         SettingsDestination.BLUETOOTH -> PdshRoute.Bluetooth
         SettingsDestination.ANDROID_ADB -> PdshRoute.AndroidAdb
         SettingsDestination.TONO_ACCOUNT -> PdshRoute.TonoAccount
