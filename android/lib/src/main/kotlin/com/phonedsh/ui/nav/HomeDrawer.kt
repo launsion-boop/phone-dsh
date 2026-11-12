@@ -17,7 +17,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -897,35 +896,6 @@ private fun homeDrawerSessionMenuAction(item: ContextMenuItem): HomeDrawerSessio
     }
 }
 
-/**
- * `PdshFolderGroup` exposes an `interactionSource` seam, but the drawer folder
- * header's press is owned by the nested `PdshContextMenu`, which does not. The
- * drawer's §6 pressed fill still needs that press stream, so observe the same
- * pointer without consuming it; the component keeps the tap/long-press gesture.
- * Session rows use the same observer for their nested menu.
- */
-private fun Modifier.pressTracking(source: MutableInteractionSource): Modifier = pointerInput(source) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        val press = PressInteraction.Press(down.position)
-        source.tryEmit(press)
-        var released = false
-        try {
-            while (true) {
-                val event = awaitPointerEvent()
-                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                if (!change.pressed) {
-                    source.tryEmit(PressInteraction.Release(press))
-                    released = true
-                    break
-                }
-            }
-        } finally {
-            if (!released) source.tryEmit(PressInteraction.Cancel(press))
-        }
-    }
-}
-
 /** The shared folder body must not inherit the header's Material ripple (interaction.md §6 rule 5). */
 private object NoIndication : Indication
 
@@ -977,9 +947,9 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
                             null -> Unit
                         }
                     },
+                    interactionSource = folderInteraction,
                     modifier = Modifier.fillMaxWidth().height(SessionsMetrics.WORKSPACE_ROW_HEIGHT_PT.dp)
                         .rowPressed(folderInteraction, shape = rowShape)
-                        .pressTracking(folderInteraction)
                         .semantics {
                             contentDescription = "$title，${sessions.size} 个会话"
                             stateDescription = if (expanded) "已展开" else "已收起"
@@ -1037,13 +1007,13 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
                                     null -> Unit
                                 }
                             },
+                            interactionSource = sessionInteraction,
                             modifier = Modifier.fillMaxWidth().height(SessionsMetrics.SESSION_ROW_HEIGHT_PT.dp)
                                 .background(
                                     if (session.id == activeSessionId) tokens.colors.sessionSurface else Color.Transparent,
                                     sessionShape,
                                 )
                                 .rowPressed(sessionInteraction, enabled = onOpen != null, shape = sessionShape)
-                                .pressTracking(sessionInteraction)
                                 .semantics {
                                     contentDescription = session.title ?: "新会话"
                                     stateDescription = when {

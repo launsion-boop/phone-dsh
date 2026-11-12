@@ -61,15 +61,10 @@
 // re-typed here.
 package com.phonedsh.ui.page
 
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -107,18 +102,12 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -142,6 +131,7 @@ import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.menu.ContextMenuRowState
 import com.phonedsh.ui.menu.PdshContextMenu
+import com.phonedsh.ui.press.rowPressed
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.materialDialogColors
 import com.phonedsh.ui.theme.LocalUiType
@@ -1372,10 +1362,9 @@ private fun SessionsFailureLine(
  *
  * The long-press surface is [PdshContextMenu] with the frozen `sessionsRow`
  * table (`SessionsPage.swift:612-616`): 重命名会话 then 归档会话, both `always`.
- * The row's normal tap still selects it. The 0.15 s press fill is the page's own
- * source-owned feedback (`SessionsPage.swift:641-654`), not the shared §6
- * pressed-state recipe, so it stays page-local and is driven from a non-consuming
- * Initial-pass pointer observer while the shared wrapper owns the click gesture.
+ * The row's normal tap still selects it. The press fill is the shared §6
+ * [rowPressed] recipe, driven by the same caller-owned interaction source the
+ * long-press wrapper emits into; there is no separate pointer observer.
  */
 @Composable
 private fun SessionItem(
@@ -1386,13 +1375,7 @@ private fun SessionItem(
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    var pressed by remember { mutableStateOf(false) }
-    val onPressChange = rememberUpdatedState<(Boolean) -> Unit> { pressed = it }
-    val pressFill by animateFloatAsState(
-        targetValue = if (pressed) 1f else 0f,
-        animationSpec = tween(durationMillis = ROW_PRESS_MS, easing = ROW_PRESS_EASING),
-        label = "session-row-press",
-    )
+    val sessionInteraction = remember { MutableInteractionSource() }
     Box(modifier = Modifier.fillMaxWidth()) {
         val rowShape = RoundedCornerShape(SessionsMetrics.SESSION_ROW_PRESS_RADIUS_PT.dp)
         PdshContextMenu(
@@ -1406,32 +1389,13 @@ private fun SessionItem(
                 }
             },
             onClick = { onSelect(row) },
+            interactionSource = sessionInteraction,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = tokens.geometry.pageOuterMarginH)
                 .clip(rowShape)
                 .testTag(UiPageTags.SESSION_ROW)
-                .background(
-                    color = tokens.colors.selector.copy(alpha = pressFill),
-                    shape = rowShape,
-                )
-                // The shared wrapper owns click/long-press. Observe the down/up
-                // on the Initial pass without consuming so the 0.15 s fill still
-                // tracks the finger exactly as the baseline's ButtonStyle did.
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        awaitFirstDown(
-                            requireUnconsumed = false,
-                            pass = PointerEventPass.Initial,
-                        )
-                        onPressChange.value(true)
-                        try {
-                            waitForUpOrCancellation(pass = PointerEventPass.Initial)
-                        } finally {
-                            onPressChange.value(false)
-                        }
-                    }
-                },
+                .rowPressed(sessionInteraction, shape = rowShape),
         ) {
             Row(
                 modifier = Modifier
@@ -2207,7 +2171,6 @@ internal object SessionsPageTokens {
         UiTokenNames.COLORS_PAGE,
         UiTokenNames.COLORS_PRIMARY,
         UiTokenNames.COLORS_SECONDARY,
-        UiTokenNames.COLORS_SELECTOR,
         UiTokenNames.COLORS_TERTIARY,
         UiTokenNames.COLORS_TEXT_PRIMARY,
         UiTokenNames.COLORS_TEXT_SECONDARY,
@@ -2434,7 +2397,3 @@ private const val SESSIONS_SEARCH_GLYPH_GAP_PT: Float = 6.4f
 internal const val SESSION_SEARCH_NO_RESULTS_TAG: String = "pdsh.sessions.search.no-results"
 internal const val PAGE_MUTATION_RECEIPT_TAG: String = "pdsh.page.mutation-receipt"
 private const val DRAWER_GLYPH_WIDTH_PT: Int = 20
-
-/** The row's pressed fill: `.easeIn(duration: 0.15)` (`SessionsPage.swift:652`). */
-private const val ROW_PRESS_MS: Int = 150
-private val ROW_PRESS_EASING: CubicBezierEasing = CubicBezierEasing(0.42f, 0f, 1f, 1f)
