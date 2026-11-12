@@ -27,9 +27,9 @@
     },
     {
       "swift": "PhoneDSHBot",
-      "kotlin": null,
-      "gradle": null,
-      "status": "absent"
+      "kotlin": "com.phonedsh.bot",
+      "gradle": ":bot",
+      "status": "target"
     },
     {
       "swift": "PhoneDSHController",
