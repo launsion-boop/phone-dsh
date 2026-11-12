@@ -4391,16 +4391,22 @@ private struct ChatMessageRow: View {
                 if !item.attachments.isEmpty { NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile) }
             }
         case .assistant:
-            assistantBody
-                .contextMenu {
-                    if !item.text.isEmpty {
-                        Button("复制全文", systemImage: "doc.on.doc") {
-                            UIPasteboard.general.string = item.text
-                        }
+            VStack(alignment: .leading, spacing: 6) {
+                assistantBody
+                if item.isInterruptedDraft { interruptedDraftNote }
+            }
+            .contextMenu {
+                if !item.text.isEmpty {
+                    Button("复制全文", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = item.text
                     }
                 }
+            }
         case .reasoning:
-            NativeThinkingRow(item: item)
+            VStack(alignment: .leading, spacing: 6) {
+                NativeThinkingRow(item: item)
+                if item.isInterruptedDraft { interruptedDraftNote }
+            }
         case .image:
             NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile)
         case .systemEvent, .turnError, .maxTokens:
@@ -4410,6 +4416,28 @@ private struct ChatMessageRow: View {
         case .status:
             EmptyView()
         }
+    }
+
+    /// The visible mark on a row restored from the interrupted-stream draft.
+    /// The row is display-only: the text was never written into the DSH session
+    /// and the model cannot see it.
+    @ViewBuilder
+    private var interruptedDraftNote: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(NativeStreamDraftPolicy.interruptedNotice)
+                .font(.footnote)
+                .foregroundStyle(HomeSpec.textSecondary)
+            if item.isInterruptedDraftTruncated {
+                Text("内容过长，仅保留末尾。")
+                    .font(.caption2)
+                    .foregroundStyle(HomeSpec.textTertiary)
+            }
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        .background(HomeSpec.userBubble.opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityIdentifier("interrupted-draft-note")
     }
 
     private var assistantBody: some View {

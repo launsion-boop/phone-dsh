@@ -548,6 +548,10 @@ final class ChatModel {
     let resourceMeter = ResourceMeter()
     /// Pending streamed deltas, drained at `ResourceLevel`'s refresh cap.
     private var streamAccumulator = NativeStreamAccumulator()
+    /// Current streaming rows' text for the crash-recovery draft. It holds at
+    /// most one assistant and one reasoning row; captures copy this small value
+    /// instead of scanning `items`.
+    private var streamDraftTracker = NativeStreamDraftTracker()
     private var streamFlushTask: Task<Void, Never>?
     /// Serializes off-main workspace scans. `refreshFiles()` only requests a
     /// scan; the traversal never runs on the main actor.
@@ -1845,6 +1849,7 @@ final class ChatModel {
                 history = try await loadSessionHistory(sessionID: session.id,
                                                         transport: transport)
                 flushStreamingText()
+                streamDraftTracker.clearAll()
                 items = history.items
             turnStartTimes = history.turnFacts.starts
             turnEndReasons = history.turnFacts.endReasons
@@ -1871,6 +1876,12 @@ final class ChatModel {
             clearError()
             Task { await self.refreshGoal() }
             turnRunning = history.turnRunning
+            // A session adopted mid-turn has no live `turn/start` to set these;
+            // the durable facts do. Draft rows then carry the real turn and can
+            // be placed after an interrupted reload.
+            activeTurn = history.turnRunning ? history.turnFacts.starts.keys.max() : nil
+            activeStep = nil
+            activeTurnStartedAt = activeTurn.flatMap { history.turnFacts.starts[$0] }
             startPump(harness: harness, sessionID: session.id, after: history.after)
             Task { await self.refreshAccessModes() }
             Task { await self.refreshNativeMetrics() }
@@ -2090,6 +2101,7 @@ final class ChatModel {
         WorkspaceStorage.setCurrentSessionID(session.id, for: backendID)
         lastSeq = history.after
         flushStreamingText()
+        streamDraftTracker.clearAll()
         // One transaction: the new history, stats, todos, plan and goal all
         // replace the old session before SwiftUI renders the page.
         items = history.items
@@ -2109,6 +2121,9 @@ final class ChatModel {
         pendingPermission = nil
         pendingQuestion = nil
         turnRunning = history.turnRunning
+        activeTurn = history.turnRunning ? history.turnFacts.starts.keys.max() : nil
+        activeStep = nil
+        activeTurnStartedAt = activeTurn.flatMap { history.turnFacts.starts[$0] }
         startPump(harness: harness, sessionID: session.id, after: history.after)
         Task { await self.refreshAccessModes() }
         Task { await self.refreshNativeMetrics() }
@@ -2315,8 +2330,17 @@ final class ChatModel {
         isSessionSwitchWorkStarted = false
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
+        let archivedSessionID = sessionID
         if let harness, let sessionID { await harness.closeSession(sessionID) }
         TranscriptSnapshotWriter.shared.invalidate()
+        // The archived session is removed from the page. Its visual tail stays
+        // in the transcript cache, but an interrupted-stream draft belongs to
+        // the live turn that is no longer on screen.
+        streamDraftTracker.clearAll()
+        if let archivedSessionID {
+            NativeStreamDraftStore.shared.delete(backend: backendID,
+                                                 sessionID: archivedSessionID)
+        }
         harness = nil
         sessionID = nil
         transcriptReady = false
@@ -2334,6 +2358,10 @@ final class ChatModel {
         cancelSessionReload()
         pendingSessionSwitch = nil
         isSessionSwitchWorkStarted = false
+        // A stop closes the session; keep the already-visible partial text for
+        // the next launch instead of losing the last throttle window.
+        flushStreamingText()
+        flushStreamDraft(immediately: true)
         if pcRuntime != nil {
             guard !busy else { return }
             busy = true
@@ -2439,6 +2467,14 @@ final class ChatModel {
     /// A running turn with background keep-alive holds a silent playback
     /// session and leaves the host running. An idle host still parks.
     func scenePhaseChanged(_ phase: ScenePhase) async {
+        // Leaving the foreground is the last guaranteed main-actor window
+        // before iOS may suspend or kill a streaming WebContent. Apply the
+        // pending deltas and hand the current draft to the off-main writer now;
+        // the submit itself performs no filesystem work.
+        if NativeStreamDraftPolicy.shouldFlushOnScenePhase(active: phase == .active) {
+            flushStreamingText()
+            flushStreamDraft(immediately: true)
+        }
         appIsActive = phase == .active
         BotPresenceCenter.shared.update(appActive: appIsActive)
         // PC lifecycle is connection-only: nothing to park or keep alive. On
@@ -3074,6 +3110,10 @@ final class ChatModel {
 
     private func hostDidFail(_ failed: PhoneDSHHost) {
         guard host === failed else { return }
+        // The host is gone but the session id is still valid: persist the text
+        // that was on screen before the adoption failure clears local state.
+        flushStreamingText()
+        flushStreamDraft(immediately: true)
         anchor.shutdown()
         cancelBackoffRetry()
         cancelSessionReload()
@@ -3328,6 +3368,7 @@ final class ChatModel {
         }
         guard turnRunning else { return }
         finishStreamingAssistant()
+        flushStreamDraft(immediately: true)
         turnRunning = false
         resourceMeter.endTurn()
         syncIdleTimer()
@@ -3370,6 +3411,9 @@ final class ChatModel {
         var throughSeq: Int?
         var turnFacts: SessionTurnFacts
         var inputReceipts: [String: Int]
+        /// Draft rows this load either painted once or found settled; the
+        /// caller removes them from the per-session draft file.
+        var consumedDraftItemIDs: [String] = []
     }
 
     /// All layout-bearing composer values from one session projection snapshot.
@@ -3409,17 +3453,32 @@ final class ChatModel {
         let throughSeq = snapshot.throughSeq
         let turnFacts = snapshot.turnFacts
         let inputReceipts = snapshot.inputReceipts
-        return await Task.detached(priority: .userInitiated) {
-            Self.projectHistory(records: records,
-                                sessionID: sessionID,
-                                after: after,
-                                turnRunning: turnRunning,
-                                hasMore: hasMore,
-                                beforeSeq: beforeSeq,
-                                throughSeq: throughSeq,
-                                turnFacts: turnFacts,
-                                inputReceipts: inputReceipts)
+        let backend = backendID
+        let history = await Task.detached(priority: .userInitiated) {
+            // The draft is tiny and its decoder belongs with the projection: a
+            // corrupt or foreign file is ignored, never fatal.
+            let drafts = NativeStreamDraftStore.shared.load(backend: backend,
+                                                           sessionID: sessionID)?.items ?? []
+            return Self.projectHistory(records: records,
+                                       sessionID: sessionID,
+                                       after: after,
+                                       turnRunning: turnRunning,
+                                       hasMore: hasMore,
+                                       beforeSeq: beforeSeq,
+                                       throughSeq: throughSeq,
+                                       turnFacts: turnFacts,
+                                       inputReceipts: inputReceipts,
+                                       drafts: drafts)
         }.value
+        if !history.consumedDraftItemIDs.isEmpty {
+            // A draft that was painted once (or superseded by the settled
+            // message) must not survive to the next load.
+            streamDraftTracker.remove(itemIDs: history.consumedDraftItemIDs)
+            NativeStreamDraftStore.shared.consume(backend: backend,
+                                                  sessionID: sessionID,
+                                                  itemIDs: history.consumedDraftItemIDs)
+        }
+        return history
     }
 
     /// One detached projection of a loaded history page. It is `nonisolated`
@@ -3432,15 +3491,27 @@ final class ChatModel {
                                                     beforeSeq: Int?,
                                                     throughSeq: Int?,
                                                     turnFacts: SessionTurnFacts,
-                                                    inputReceipts: [String: Int]) -> SessionHistory {
-        SessionHistory(items: transcriptItems(from: records, sessionID: sessionID),
-                       after: after,
-                       turnRunning: turnRunning,
-                       hasMore: hasMore,
-                       beforeSeq: beforeSeq,
-                       throughSeq: throughSeq,
-                       turnFacts: turnFacts,
-                       inputReceipts: inputReceipts)
+                                                    inputReceipts: [String: Int],
+                                                    drafts: [NativeStreamDraftItem]) -> SessionHistory {
+        let projected = transcriptItems(from: records, sessionID: sessionID)
+        // Interrupted-stream drafts are inserted only after the durable
+        // projection, so the settled text is always the authority. The policy
+        // returns the rows to paint and the rows to delete from the file.
+        let draftResolution = NativeStreamDraftPolicy.resolve(
+            drafts: drafts,
+            history: projected,
+            turnEndReasons: turnFacts.endReasons,
+            engineReportsRunningTurn: turnRunning,
+            sessionID: sessionID)
+        return SessionHistory(items: draftResolution.items,
+                              after: after,
+                              turnRunning: turnRunning,
+                              hasMore: hasMore,
+                              beforeSeq: beforeSeq,
+                              throughSeq: throughSeq,
+                              turnFacts: turnFacts,
+                              inputReceipts: inputReceipts,
+                              consumedDraftItemIDs: draftResolution.consumedItemIDs)
     }
 
     /// Loads one older message-aligned page and prepends unseen durable events.
@@ -3732,6 +3803,7 @@ final class ChatModel {
         try Task.checkCancellation()
         guard self.sessionID == sessionID else { throw CancellationError() }
         flushStreamingText()
+        streamDraftTracker.clearAll()
         MainThreadHangMonitor.mark("historyRestore.start")
         items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
                                                     inputReceipts: history.inputReceipts)
@@ -3812,6 +3884,8 @@ final class ChatModel {
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamDraftTracker.begin(itemID: item.id, kind: .reasoning,
+                                         turn: item.turn, step: item.step)
                 streamAccumulator.append(text, to: item.id)
                 scheduleStreamingFlush()
             }
@@ -3829,6 +3903,8 @@ final class ChatModel {
                 item.turn = activeTurn
                 item.step = activeStep
                 items.append(item)
+                streamDraftTracker.begin(itemID: item.id, kind: .assistant,
+                                         turn: item.turn, step: item.step)
                 streamAccumulator.append(text, to: item.id)
                 scheduleStreamingFlush()
             }
@@ -3847,6 +3923,12 @@ final class ChatModel {
                 item.step = activeStep
                 items.append(item)
             }
+            // The durable message wins over every draft at this position, and
+            // it also settles the reasoning blocks that arrived in the same
+            // step. Only the settled text remains.
+            streamDraftTracker.clear(kind: .reasoning, turn: activeTurn)
+            streamDraftTracker.clear(kind: .assistant, turn: activeTurn)
+            clearStreamDraft()
             scheduleNativeMetricsRefresh()
         case .userMessage(let text, let source):
             if let sessionID {
@@ -3948,8 +4030,19 @@ final class ChatModel {
             turnBoundaryRevision += 1
             activeTurnStartedAt = nil
             let finishedTurn = Int(turnID) ?? activeTurn ?? 0
-            turnEndReasons[finishedTurn] = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
+            let rawEndKind = event.rawTurnEndKind ?? Self.rawTurnEndKind(reason)
+            turnEndReasons[finishedTurn] = rawEndKind
             turnEndTimes[finishedTurn] = event.time
+            // A normal ending means DSH settled the step (or the assistant
+            // message already did). An interrupted/failed/cancelled ending is
+            // exactly the case where the durable text is absent, so the draft
+            // is kept and flushed before the process can be killed.
+            if NativeStreamDraftPolicy.isNormalTurnEnd(rawEndKind) {
+                streamDraftTracker.clear(turn: finishedTurn)
+                clearStreamDraft()
+            } else {
+                flushStreamDraft(immediately: true)
+            }
             syncIdleTimer()
             statusLine = "Turn ended: \(Self.describe(reason))"
             if case .failed = reason {
@@ -4056,10 +4149,40 @@ final class ChatModel {
         let chunks = streamAccumulator.take()
         guard !chunks.isEmpty else { return }
         MainThreadHangMonitor.mark("flushStreamingText.start")
+        // Keep the draft's copy in step with the rows without scanning the
+        // transcript. `begin` registered these ids when the rows appeared.
+        for chunk in chunks {
+            streamDraftTracker.append(chunk.text, to: chunk.itemID)
+        }
         // Mutate the stored array in place: a `var next = items` copy makes the
         // buffer non-unique, so the first append copies the whole transcript.
         items.applyStreamChunks(chunks)
         MainThreadHangMonitor.mark("flushStreamingText.end")
+        flushStreamDraft(immediately: false)
+    }
+
+    /// Hands the current streaming-row text to the off-main draft writer.
+    /// `immediately` bypasses the 1 s throttle and is used when the App leaves
+    /// the foreground, a turn ends or a durable message settles the row.
+    private func flushStreamDraft(immediately: Bool) {
+        // Never submit an empty tracker here: it would delete a draft that a
+        // previous load deliberately kept for a still-running turn. Only
+        // `clearStreamDraft()` may remove the file.
+        guard !streamDraftTracker.items.isEmpty, let sessionID else { return }
+        NativeStreamDraftStore.shared.submit(rows: streamDraftTracker.items,
+                                             backend: backendID,
+                                             sessionID: sessionID,
+                                             flushNow: immediately)
+    }
+
+    /// Delete-or-rewrite after a durable settlement. Submitting the remaining
+    /// rows (usually none) is what removes the file.
+    private func clearStreamDraft() {
+        guard let sessionID else { return }
+        NativeStreamDraftStore.shared.submit(rows: streamDraftTracker.items,
+                                             backend: backendID,
+                                             sessionID: sessionID,
+                                             flushNow: true)
     }
 
     private func scheduleStreamingFlush() {
@@ -4754,6 +4877,10 @@ final class ChatModel {
 
     func clearTranscript() {
         flushStreamingText()
+        // The local tail is being erased; a draft that would paint part of it
+        // back on reload must go too.
+        streamDraftTracker.clearAll()
+        if let sessionID { NativeStreamDraftStore.shared.delete(backend: backendID, sessionID: sessionID) }
         items.removeAll()
         inputTokens = 0; outputTokens = 0; modelRequests = 0
     }
