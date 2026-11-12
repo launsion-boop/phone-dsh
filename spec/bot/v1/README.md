@@ -34,14 +34,6 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 - `p0`：第一版 App MCP 和 persona 可以暴露的全部工具。
 - `p1`：`show_table`、`show_callout`、`show_info`、`show_payload`、`show_library`。本修订只冻结 schema 和 payload，标为 `target`；第一版不得注册到 App MCP，也不得写进 persona。
 
-**运行期分层（W5，`tool-catalog.schema.json` 的 additive `tiers` 成员）。** `p0`/`p1` 仍是“全部工具”的静态清单，`tiers` 只是把同一批工具按运行期可见性分组；两者不是第二种目录，任何工具只属于一层，且必须仍出现在 `p0`/`p1` 之一。
-
-- **core 常驻**：persona 与既有工具面直接依赖的工具，始终出现在 `tools/list`，描述与 `inputSchema` 完整。
-- **device 按连接状态**：只在对应设备类已连接或已配置时列出。`class` 取 `adb`/`ble`/`venus`/`ssh`；某类不在连接/配置状态时，该类整组不出现。连接状态真正变化后，**下一次** `tools/list` 必须立即反映；不新增 `notifications/tools/list_changed`，不因单个请求抖动而反复变化。设备刚连上后的下一步就能调用该组工具，不能出现“模型找不到工具”。
-- **discoverable 常驻但精简**：始终出现在 `tools/list`，`inputSchema` 完整可调用，描述压成一行；`tiers.discoverable` 列出名字。模型仍能直接调用，不需要额外的发现工具。
-
-`golden/tool-catalog-tiers.phone.json` 冻结分层正反例：重复归层、未知 class、把设备工具放进 core、状态变化未反映、core 工具缺失都拒绝。
-
 `canvas`、`product`、`gift` 不在手机卡片词汇中。未知工具、未知 `cardType`、缺少渲染所需数据的卡片一律 fail-closed；工具返回失败，不生成半空卡片。
 
 `golden/tool-catalog.phone.json` 登记 phoneDSH 的团队工具、`FishAction` 与记忆三原语增量：这些名字不在上游 `tool-catalog.schema.json` 的 P0 enum 中，因此不改上游 `tool-catalog.json` 或其 schema。团队工具描述由可见名册减去调用者自己与隐藏 Bot 动态生成 `Available bots: <name> (id: <id>[, main Bot])`。`ReadMemory` 是 [v2 §1.2](../v2/README.md#12-三个原语) 的新增原语，`UpdateMemory`/`RecallMemory` 的 fact 参数由同一节替换。`golden/tool-effects.phone.json` 以同一 `tool-effects.schema.json` 冻结分类：`SendToAgent` 为 `external-send + auto`，`CreateTeammate` 为 `write + auto`，`FishAction` 为 `read + auto`（纯外观、由宿主审计），`ReadMemory` 为 `read + auto`；`RecallMemory` 沿用上游 `golden/tool-effects.json` 的 `read + auto`。`auto` 分类的工具不向用户出审批卡；结构审批门禁必须使用同一分类，不得把已冻结的 `read + auto` 工具当作 `tool.unclassified` 再请求审批（否则 `alwaysScope` 与宿主期望不一致，调用会以 `stale:always_scope` 失败）。
@@ -59,8 +51,6 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 - variant/persona 各最多 12,000 字符，memory/automation 各最多 4,000 字符；总文本最多 24,000 字符。不得包含模型密钥、Bearer token 或无关 session 的内容。
 - 传输失败、标准 MCP `isError`、超时、非法响应或 session 不符都不得携带部分快照。consumer 必须丢弃本次结果并使用空快照，不能沿用可能陈旧的记忆；`AbortSignal` 只用于本地忽略迟到结果，网络超时仍由既有 App MCP mount 管理。
 - consumer 的本地 revision 防止旧请求覆盖新请求；producer revision 用于诊断，不作为跨进程持久游标。不得将静态工具发现当成宿主数据已接通。
-- **时间块精度（W5）。** Worker 渲染的 `## Time` / `## 时间` 块只精确到**小时**：`Current local time` 的本地时间写成 `YYYY-MM-DD HH:00`（分与秒恒为 `00`），时区偏移仍保留。它因此在一个长任务里至多每小时变化一次，而不是每分钟追加一份完整块。`golden/volatile-context.phone.json` 冻结该格式及“分钟不得非零”的负例；模型不得据该小时桶声称精确到分钟。
-- **只注入一次（W5）。** Worker 配置（`plugins/profile/phone.worker.cordis.patch.yml`）对挂载 bot-runtime 的 profile 关闭上游 `@deepseek-ai/dsh-time-context` 行，时间只由本块注入；普通 DSH 工作台保留上游行。这是 profile 配置，不改 DSH 源码，也不新增环境变量或第二种传输。
 - 只有实际注册 `mcp__phone__BotVolatileContext` 的 Bot MCP 才启用 Bot 专用身份登记和 `/approval`。普通 DSH 工作台没有此能力时，`identity-bridge` 与 Bot 专用审批门禁直接继续原工具权限链，不要求 Bot identity 路由，也不得把 Bot 缺失当成允许 Bot 写入。
 
 ### 2.2 Bot MCP 端点、身份与审批
@@ -68,14 +58,6 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 App 运行 Bot runtime 时，`PDSH_PHONE_MCP_URL` 指向 Bot MCP listener，它是 Worker 唯一的 `phone` MCP 服务器；`PhoneDSHHost` 不得再用 `/mcp/native` 覆盖它。Bot server 在进程内把非 Bot 工具的 `tools/list`/`tools/call` 转发给原生 MCP 处理（ADB），因此两类工具共享一个 `mcp__phone__` 命名空间。`nativeMCP` 仍保留 `/mcp/native` 路由给其他调用方；只有未配置 Bot 端点时才沿用旧的原生 env。
 
 身份登记在 `tools/pre-execute` 先于结构审批完成；普通调用在 `tools/execute` 清理，被 DSH job registry 保留的命令把同一登记持有到 `job/settled`/`removed`（heartbeat 续期，24 小时上限）。登记有效期必须覆盖 300 秒审批等待。认领同时绑定代次、bare tool name、参数摘要和仍有效的 principal incarnation。Worker 重启时取消所有待审批（并写 `approval.decided`/`ui.notice`）、清空旧登记并推进代次；Task 记录持久化，未完成项以 `interrupted`/`worker_restarted` 返回并只唤醒父对话一次。HTTP 只监听 loopback、Origin 精确匹配、路径精确、Bearer 常量时间比较，且 Worker 只拿 token placeholder，由宿主在 `/v1/http` egress 注入真实 bearer。
-
-**身份、审批、取消的往返合并（W5，可观察语义）。** `identity-bridge` 与 `approval-gate` 可以把“注册身份 → 审批 → 执行 → 取消注册”从 3–4 次串行 loopback 请求合并为一个管线，但下列可观察事实保持不变：
-
-- 每次工具调用恰好一次身份登记、一次审批决定、一次执行；登记必须在审批前被宿主确认，审批必须在执行前完成；安全检查和审批批次一条都不减少，也不因合并而跳过。
-- `bash`/`write`/`edit` 与每个 Bot 手机工具仍走同一门禁；审批卡的数量、`resource`/`operation` 与 Grant 复用规则不变。
-- 取消是**不阻塞结果**的：结果先交回模型，取消作为同一管线的尾部请求发送；取消失败、超时或宿主不可达都不改变工具结果，也不重跑工具。取消仍只投递一次（或与下一次请求合并），不产生第二次副作用。
-- 后台 job 的登记续期（§2.4）不变；合并只减少往返，不缩短 TTL 或扩大授权。
-- 审计/事件（`approval.requested`/`approval.decided`、identity 记录）的条数与语义不变，不新增事件类型。
 
 P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-20261110-bot-mcp-egress-capability](../../../docs/protocol-changes/PC-20261110-bot-mcp-egress-capability.md)）：宿主每次启动生成 `PDSH_MCP_EGRESS_TOKEN`，受信 MCP 客户端在目标命中精确 MCP 路由时带 `X-PDSH-MCP-Egress`；宿主在解析/注入任何 MCP 凭据前常量时间校验，缺失或错误以 403 `mcp_egress_forbidden` 在出口拒绝（用户配置的精确 MCP 路由同样覆盖）。宿主把会话 principal 的随机 token 经 `phone/botClaimSession` 的 `sessionToken` 字段交给 Worker，`identity-bridge` 在 `/identity/register` 带上它；宿主按 token 解析 principal，`sessionId` 不自证，缺失/撤销/不匹配一律 `unauthorized` 并 fail-closed。`tools/call` 认领身份后还要在该 principal 的 per-caller 目录里查到工具，否则 `permission_denied`；`CreateTeammate` 的主 Bot 检查保留。Android/HarmonyOS 没有 Bot runtime，三项均 `not started`。
 
@@ -254,24 +236,6 @@ verifier 凭证，宿主不伪造事件，而是把 `uncertain`/`unavailable` �
 共享向量见 [golden/verification.phone.json](golden/verification.phone.json)，输出与事件形状由
 [verifier-output.schema.json](verifier-output.schema.json) 和
 [verification-report.schema.json](verification-report.schema.json) 冻结。
-
-### 2.9 模型用途策略的强制执行与验证器取证（W5）
-
-- **唯一执行点。** 每个发往模型 provider 的请求在构造请求、解析凭据、打开 socket **之前**，必须经过
-  `BotModelPurposePolicy.assertModelAllowed(purpose:model:)`。执行点是宿主唯一的模型请求入口
-  （`ModelGateway`/`ModelProvider` 的请求构造），不是各调用方的约定；没有 purpose 的请求 fail-closed，
-  不得以空 purpose 绕过。
-- **用途映射。** 前台回合 `front-turn`、工作回合 `worker-turn` 允许大模型；`triage`（含标题生成）、
-  `memory-extract`、`reflect`、`compact`、`watchdog`、`completion-check`（验证器）、`memory-maintenance`
-  只允许小模型。标题不新增 purpose，沿用 `triage`；验证器沿用 `completion-check`。策略由 profile
-  配置提供，缺省用 `BotModelPurposePolicy.frozen`；配置不能把 `largeModelPurposes` 扩到非前台/工作用途。
-- **账本。** `llm-ledger` 的 `purpose` 记录实际请求用途；验证器花費记 `completion-check`，不得记成
-  `worker-turn`。未知 purpose 的账本记录按该文件末尾的未知值规则处理（记录原值、不崩溃）。
-- **验证器取证。** 验证器读取 subject 会话的证据时，必须取该会话**最新**的事件窗口（按 cursor/尾部
-  分页），不得用 `events(after: 0, limit: 1000)` 之类的“最旧 1000 条”。新会话证据不足时结论只能是
-  `uncertain`，不得把旧事件当成本次任务的证据。回归用同一 subject 会话的“旧事件 + 新事件”向量。
-- `model-purpose-policy.phone.json` 冻结正反例：标题/压缩/验证器用大模型拒绝、worker-turn 允许、
-  缺省模型为空拒绝、未知 purpose 不得放大模型。
 
 ## 3. 记忆（已迁至 v2）
 
