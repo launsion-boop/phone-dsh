@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.nav
 
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
@@ -146,6 +148,13 @@ public fun HomeDrawer(
     onOpenSession: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
     state: HomeDrawerUiState = rememberHomeDrawerUiState(),
+    /**
+     * One system back while the drawer is open. The host routes it through its
+     * back coordinator so the drawer's `DRAWER` overlay is consumed exactly once
+     * and the close motion below still runs; `null` keeps the drawer's own
+     * [requestClose] path for a standalone mount.
+     */
+    onBackPressed: (() -> Unit)? = null,
 ) {
     // The drawer follows the app's theme. It used to resolve a light token
     // table for dark mode (the iOS shell's fixed light panel); that painted a
@@ -383,11 +392,31 @@ public fun HomeDrawer(
 
     if (dialogVisible) Dialog(onDismissRequest = ::dismissDrawer, properties = DialogProperties(
         usePlatformDefaultWidth = false,
-        dismissOnBackPress = true,
+        dismissOnBackPress = false,
         dismissOnClickOutside = true,
         decorFitsSystemWindows = false,
     )) {
       val dialogView = LocalView.current
+      // `Dialog` installs its own always-enabled callback, and with
+      // `dismissOnBackPress = false` that callback swallows the gesture. This
+      // callback registers after it, so it runs first and hands the one gesture
+      // to the host coordinator (one back = one layer); a standalone mount keeps
+      // the drawer's existing close path.
+      val latestHostBack by rememberUpdatedState(onBackPressed)
+      val latestBackClosable by rememberUpdatedState(!closing && !dismissedLocally)
+      DisposableEffect(dialogView) {
+          val owner = dialogView.findViewTreeOnBackPressedDispatcherOwner()
+              ?: return@DisposableEffect onDispose {}
+          val callback = object : OnBackPressedCallback(true) {
+              override fun handleOnBackPressed() {
+                  if (!latestBackClosable) return
+                  val hostBack = latestHostBack
+                  if (hostBack != null) hostBack() else dismissDrawer()
+              }
+          }
+          owner.onBackPressedDispatcher.addCallback(callback)
+          onDispose { callback.remove() }
+      }
       SideEffect {
           (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
               // Only the composable's own scrim may animate: the platform window
