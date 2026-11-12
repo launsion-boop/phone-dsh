@@ -105,7 +105,6 @@ import com.phonedsh.ui.nav.HomeTab
 import com.phonedsh.ui.nav.HomeTabBar
 import com.phonedsh.ui.nav.PushBackState
 import com.phonedsh.ui.nav.PushOverlay
-import com.phonedsh.ui.nav.selectHomeTab
 import com.phonedsh.ui.nav.selectedHomeTab
 import com.phonedsh.ui.nav.confirms
 import com.phonedsh.ui.sheet.SheetBackHost
@@ -2009,6 +2008,11 @@ private fun hostRouteNote(route: PdshRoute): String? = when (route) {
 
     PdshRoute.Configuration -> null
     PdshRoute.Automation -> null
+
+    // PCLink C5: the :lib pages exist, the :app workspace controller is not wired
+    // to them yet, so pairing and unpairing do nothing on this host.
+    PdshRoute.PcPairing, PdshRoute.ConnectedComputer ->
+        "本宿主尚未接入电脑连接（PCLink）；配对与解除配对暂不可用"
 
     // The rules are real: they are the App's own /v1/http policy. The note is
     // what keeps them from being mistaken for the DSH settings allow-list.

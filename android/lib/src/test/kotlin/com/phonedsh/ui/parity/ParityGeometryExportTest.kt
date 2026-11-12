@@ -155,7 +155,14 @@ class ParityGeometryExportTest {
         mountFixture("settings-root")
         val done = compose.onNodeWithTag(UiPageTags.SETTINGS_DONE, useUnmergedTree = true)
             .getBoundsInRoot()
-        assertEquals(SettingsMetrics.PARITY_SAFE_AREA_TOP_PT, done.top.value, 0.1f)
+        // The status band is kept: the 36 pt 完成 node is centred in the 44 pt bar
+        // under the 62 pt band, i.e. y = 66, the iOS export's absolute 155.33 - 89.33.
+        assertEquals(
+            SettingsMetrics.PARITY_SAFE_AREA_TOP_PT +
+                (SettingsMetrics.NAV_BAR_HEIGHT_PT - SettingsMetrics.DONE_BUTTON_HEIGHT_PT) / 2f,
+            done.top.value,
+            0.1f,
+        )
         assertTrue(
             "the settings fixture is iOS's full-screen -uiPreview cover, not a tab page",
             compose.onAllNodes(hasTestTag(HomeTabBarTags.BAR), useUnmergedTree = true)
