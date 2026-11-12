@@ -12,6 +12,7 @@ import { createWorkerCommands, WORKER_SHELL_PROGRAMS } from '../src/commands.ts'
 import {
   GITHUB_DESCRIPTION,
   GITHUB_MAX_FILE_BYTES,
+  GITHUB_MAX_OUTPUT_BYTES,
   createGithubCommand,
   redactGithubText,
   runGithub,
@@ -53,7 +54,7 @@ function mock(handler: (seen: Seen) => { status: number; body: string; headers?:
 }
 
 function command(fetchImpl: typeof fetch) {
-  return createGithubCommand({ fetch: fetchImpl, origin: ORIGIN, token: CHANNEL })
+  return createGithubCommand({ fetch: fetchImpl, origin: ORIGIN, token: CHANNEL, authenticated: true })
 }
 
 test('github is on the worker command table and describes the no-token rule', async () => {
@@ -61,9 +62,8 @@ test('github is on the worker command table and describes the no-token rule', as
   const table = createWorkerCommands({ git: false, curl: false, toolbox: false, ubuntu: false, gzip: false })
   const github = table.find(entry => entry.name === 'github')
   assert.ok(github !== undefined)
-  assert.equal(github.description, GITHUB_DESCRIPTION)
-  assert.match(github.description, /no local clone/)
-  assert.match(github.description, /Never pass a token/)
+  assert.match(GITHUB_DESCRIPTION, /no local clone/)
+  assert.match(GITHUB_DESCRIPTION, /Never pass a token/)
   const help = await runGithub(['--help'])
   assert.equal(help.exitCode, 0)
   assert.match(help.stdout, /api\.github\.com/)
@@ -94,6 +94,19 @@ test('github get decodes a contents blob and does not send a GitHub token', asyn
   assert.equal(calls[0]?.upstreamAuthorization, null)
   assert.equal(calls[0]?.userAgent, 'phone-dsh')
   assert.equal(result.stdout.includes(CHANNEL), false)
+})
+
+test('a successful response body is data, not redacted', async () => {
+  const { fetch } = mock(() => ({
+    status: 200,
+    body: JSON.stringify([{ path: 'Bearer token.txt', type: 'file', sha: 's' }]),
+  }))
+  const result = await command(fetch).execute(['get', 'octo/example', ''], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(result.exitCode, 2)
+  const dir = await command(fetch).execute(['get', 'octo/example', 'docs'], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(dir.exitCode, 0, dir.stderr)
+  const parsed = JSON.parse(dir.stdout) as { entries: { path: string }[] }
+  assert.equal(parsed.entries[0]?.path, 'Bearer token.txt')
 })
 
 test('github tree filters a prefix and search pins the repo qualifier', async () => {
@@ -171,6 +184,28 @@ test('github commit sends one createCommitOnBranch mutation and redacts echoed t
   assert.equal(redactGithubText(leaked, [CHANNEL]).includes(CHANNEL), false)
 })
 
+test('github commit accepts binary content through --base64 and stdin', async () => {
+  const { fetch, calls } = mock(seen => seen.method === 'GET'
+    ? { status: 200, body: JSON.stringify({ object: { sha: 'a'.repeat(40) } }) }
+    : { status: 200, body: JSON.stringify({ data: { createCommitOnBranch: { commit: { oid: 'b'.repeat(40) } } } }) })
+  const github = command(fetch)
+  const args = ['commit', 'octo/example', '--branch', 'main', '--message', 'binary', '--file', 'bin.dat', '--base64', 'AAEC']
+  const result = await github.execute(args, { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(result.exitCode, 0, result.stderr)
+  const body = JSON.parse(calls[1]?.body ?? '{}') as { variables: { input: { fileChanges: { additions: { path: string; contents: string }[] } } } }
+  assert.deepEqual(body.variables.input.fileChanges.additions, [{ path: 'bin.dat', contents: 'AAEC' }])
+  const stdin = await github.execute(
+    ['commit', 'octo/example', '--branch', 'main', '--message', 'binary stdin'],
+    { cwd: '/', stdin: JSON.stringify({ files: [{ path: 'bin.dat', base64: 'AAEC' }] }), env: {}, fs: undefined as never },
+  )
+  assert.equal(stdin.exitCode, 0, stdin.stderr)
+  const invalid = await github.execute(
+    ['commit', 'octo/example', '--branch', 'main', '--message', 'bad', '--file', 'bin.dat', '--base64', 'not base64'],
+    { cwd: '/', stdin: '', env: {}, fs: undefined as never },
+  )
+  assert.equal(invalid.exitCode, 2)
+})
+
 test('a gateway refusal is reported without echoing the channel token', async () => {
   const { fetch, calls } = mock(() => ({
     status: 403,
@@ -199,6 +234,41 @@ test('oversized commits and unsafe paths never reach the network', async () => {
   const url = await command(fetch).execute(['get', 'https://github.com/octo/example', 'README.md'], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
   assert.equal(url.exitCode, 2)
   assert.equal(calls.length, 0)
+})
+
+test('without a host credential only anonymous get/tree send a request', async () => {
+  const { fetch, calls } = mock(() => ({ status: 200, body: JSON.stringify({ type: 'file', path: 'x', sha: 's' }) }))
+  const readOnly = createGithubCommand({ fetch, origin: ORIGIN, token: CHANNEL, authenticated: false })
+  for (const args of [
+    ['search', 'octo/example', 'needle'],
+    ['branch', 'octo/example', 'feature', '--from', 'main'],
+    ['commit', 'octo/example', '--branch', 'main', '--message', 'm', '--file', 'a.txt', '--text', 'x'],
+    ['pr', 'octo/example', '--head', 'feature', '--base', 'main', '--title', 't'],
+  ]) {
+    const result = await readOnly.execute(args, { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+    assert.equal(result.exitCode, 1, args[0])
+    assert.match(result.stderr, /GitHub credential/)
+    assert.doesNotMatch(result.stderr, new RegExp(CHANNEL))
+  }
+  assert.equal(calls.length, 0)
+  const read = await readOnly.execute(['get', 'octo/example', 'x'], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(read.exitCode, 0, read.stderr)
+  assert.equal(calls.length, 1)
+})
+
+test('a file larger than the output budget is reported instead of truncated JSON', async () => {
+  const content = Buffer.alloc(GITHUB_MAX_OUTPUT_BYTES, 0x61).toString('base64')
+  const { fetch } = mock(() => ({
+    status: 200,
+    body: JSON.stringify({ type: 'file', path: 'big.txt', sha: 's', size: GITHUB_MAX_OUTPUT_BYTES, encoding: 'base64', content }),
+  }))
+  const result = await command(fetch).execute(['get', 'octo/example', 'big.txt'], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(result.exitCode, 0, result.stderr)
+  const parsed = JSON.parse(result.stdout) as { truncated?: boolean; content?: string; size?: number }
+  assert.equal(parsed.truncated, true)
+  assert.equal(parsed.content, undefined)
+  assert.equal(parsed.size, GITHUB_MAX_OUTPUT_BYTES)
+  assert.equal(Buffer.byteLength(result.stdout) <= GITHUB_MAX_OUTPUT_BYTES, true)
 })
 
 test('github branch and pr post the GitHub JSON and read stdin commits', async () => {

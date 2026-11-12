@@ -216,10 +216,14 @@ export {
 } from './curl.ts'
 export type { CurlOptions, HostProxy } from './curl.ts'
 export {
+  GITHUB_AUTH_ENV,
   GITHUB_DESCRIPTION,
   GITHUB_MAX_COMMIT_BYTES,
+  GITHUB_MAX_DIRECTORY_ENTRIES,
   GITHUB_MAX_FILE_BYTES,
   GITHUB_MAX_FILES,
+  GITHUB_MAX_OUTPUT_BYTES,
+  GITHUB_MAX_TREE_ENTRIES,
   GITHUB_USAGE,
   createGithubCommand,
   parseGithubArguments,

@@ -644,8 +644,8 @@ function githubSection(): string[] {
   return [
     '## GitHub',
     '- `github` reads and changes a GitHub repo with no local clone: `get`, `tree`, `search`, `branch`, `commit`, `pr`. `github --help` lists the flags.',
-    '- Do not pass a token and do not put one in a script. Requests use the host `/v1/http` allow-list; the host credential gateway injects the credential stored for `api.github.com`. An allow-listed host with no stored credential stays anonymous: public reads may work, writes and code search need that credential.',
-    '- Keep commits small (at most 20 files, 256 KiB each). Prefer this over cloning a large repository.',
+    '- Only `get` and `tree` work anonymously. `search`, `branch`, `commit` and `pr` need a host-stored `api.github.com` credential (`PDSH_GITHUB_AUTH=1`); without it the command fails before sending a request.',
+    '- Do not pass a token and do not put one in a script. Requests use the host `/v1/http` allow-list; the host credential gateway injects the stored credential. Keep commits small (at most 20 files, 256 KiB each); binary files go through `--base64`.',
   ]
 }
 

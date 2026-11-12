@@ -25,6 +25,12 @@ export const GITHUB_MAX_FILE_BYTES = 256 * 1024
 export const GITHUB_MAX_COMMIT_BYTES = 1024 * 1024
 /** Tree rows printed before the rest are omitted. */
 export const GITHUB_MAX_TREE_ENTRIES = 500
+/** Maximum stdout this command may produce; the Worker shell caps at 256 KiB. */
+export const GITHUB_MAX_OUTPUT_BYTES = 128 * 1024
+/** Directory rows printed before the rest are omitted. */
+export const GITHUB_MAX_DIRECTORY_ENTRIES = 500
+/** Environment the host sets only when it stores an api.github.com credential. */
+export const GITHUB_AUTH_ENV = 'PDSH_GITHUB_AUTH'
 
 const API = 'https://api.github.com'
 const USER_AGENT = 'phone-dsh'
@@ -35,7 +41,8 @@ const API_VERSION = '2022-11-28'
 export const GITHUB_DESCRIPTION =
   'Read or change a GitHub repo with no local clone (get, tree, search, branch, commit, pr) through the host /v1/http allow-list. '
   + 'Never pass a token: the host credential gateway injects the credential for api.github.com. '
-  + 'Public reads may work anonymously; writes and code search need that credential. Keep commits small.'
+  + 'Public get/tree reads work anonymously; search, branch, commit and pr need a host-stored credential ('
+  + GITHUB_AUTH_ENV + '=1) and otherwise fail without sending a request. Keep commits small.'
 
 /** Usage printed by `github` and `github --help`. */
 export const GITHUB_USAGE = `usage: github <get|tree|search|branch|commit|pr> <owner>/<repo> [options]
@@ -46,16 +53,19 @@ ${GITHUB_DESCRIPTION}
   github tree <owner>/<repo> [--ref <ref>] [--path <prefix>]
   github search <owner>/<repo> <query...>
   github branch <owner>/<repo> <name> --from <ref>
-  github commit <owner>/<repo> --branch <name> --message <text> (--file <path> --text <text> | --file <path> --delete)...
+  github commit <owner>/<repo> --branch <name> --message <text> (--file <path> --text <text> | --file <path> --base64 <base64> | --file <path> --delete)...
   github pr <owner>/<repo> --head <branch> --base <branch> --title <text> [--body <text>]
 
-commit may instead read a JSON object from stdin: {"files":[{"path":"a.txt","text":"hi"},{"path":"old.txt","delete":true}]}.
+commit may instead read a JSON object from stdin: {"files":[{"path":"a.txt","text":"hi"},{"path":"bin.dat","base64":"AAEC"},{"path":"old.txt","delete":true}]}.
 At most ${String(GITHUB_MAX_FILES)} files, ${String(GITHUB_MAX_FILE_BYTES)} bytes each, ${String(GITHUB_MAX_COMMIT_BYTES)} bytes together.
 Writes use one GraphQL createCommitOnBranch call. stdout is one JSON object.
 `
 
 /** Options shared with the curl shim: loopback route only, never a GitHub token. */
-export type GithubOptions = Pick<CurlOptions, 'fetch' | 'origin' | 'token'>
+export type GithubOptions = Pick<CurlOptions, 'fetch' | 'origin' | 'token'> & {
+  /** True when the host can inject the stored api.github.com credential. */
+  readonly authenticated?: boolean | undefined
+}
 
 interface Repo {
   readonly owner: string
@@ -65,6 +75,7 @@ interface Repo {
 interface FileChange {
   readonly path: string
   readonly text?: string
+  readonly base64?: string
   readonly delete?: boolean
 }
 
@@ -104,6 +115,15 @@ export function redactGithubText(text: string, secrets: readonly string[] = []):
     if (secret.length >= 8) out = out.split(secret).join('[redacted]')
   }
   return out
+}
+
+function authenticated(options: GithubOptions): boolean {
+  return options.authenticated ?? process.env[GITHUB_AUTH_ENV] === '1'
+}
+
+/** Verbs that need a stored credential; get/tree are anonymous public reads. */
+function needsCredential(request: Request): boolean {
+  return request.kind === 'search' || request.kind === 'branch' || request.kind === 'commit' || request.kind === 'pr'
 }
 
 function fail(message: string, exitCode = 1): ExecResult {
@@ -216,7 +236,12 @@ function parseCommit(repo: Repo, args: readonly string[], stdin: string): Reques
         index += 3
         continue
       }
-      throw new GithubUsage('--file needs --text <text> or --delete')
+      if (mode === '--base64') {
+        files.push({ path, base64: take(args, index + 3, '--base64') })
+        index += 3
+        continue
+      }
+      throw new GithubUsage('--file needs --text <text>, --base64 <base64> or --delete')
     }
     throw new GithubUsage(`unsupported commit option '${arg}'`)
   }
@@ -242,12 +267,27 @@ function parseStdinFiles(stdin: string): FileChange[] {
   }
   return (parsed as { files: unknown[] }).files.map(entry => {
     if (entry === null || typeof entry !== 'object') throw new GithubUsage('each file entry must be an object')
-    const row = entry as { path?: unknown; text?: unknown; delete?: unknown }
+    const row = entry as { path?: unknown; text?: unknown; base64?: unknown; delete?: unknown }
     const path = safePath(typeof row.path === 'string' ? row.path : undefined)
     if (row.delete === true) return { path, delete: true }
-    if (typeof row.text !== 'string') throw new GithubUsage(`file ${path} needs text or delete:true`)
-    return { path, text: row.text }
+    const hasText = typeof row.text === 'string'
+    const hasBase64 = typeof row.base64 === 'string'
+    if (hasText && hasBase64) throw new GithubUsage(`file ${path} needs text or base64, not both`)
+    if (hasBase64) return { path, base64: row.base64 as string }
+    if (!hasText) throw new GithubUsage(`file ${path} needs text, base64 or delete:true`)
+    return { path, text: row.text as string }
   })
+}
+
+/** Decode a commit file to bytes; base64 is validated here, never at send time. */
+function fileBytes(file: FileChange): Uint8Array {
+  if (file.base64 === undefined) {
+    return new Uint8Array(Buffer.from(file.text ?? '', 'utf8'))
+  }
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(file.base64) || file.base64.length % 4 !== 0) {
+    throw new GithubUsage(`${file.path} has invalid base64`)
+  }
+  return new Uint8Array(Buffer.from(file.base64, 'base64'))
 }
 
 function checkFiles(files: readonly FileChange[]): void {
@@ -259,7 +299,10 @@ function checkFiles(files: readonly FileChange[]): void {
     if (seen.has(file.path)) throw new GithubUsage(`duplicate path ${file.path}`)
     seen.add(file.path)
     if (file.delete === true) continue
-    const bytes = Buffer.byteLength(file.text ?? '', 'utf8')
+    if (file.text !== undefined && file.base64 !== undefined) {
+      throw new GithubUsage(`${file.path} needs text or base64, not both`)
+    }
+    const bytes = fileBytes(file).byteLength
     if (bytes > GITHUB_MAX_FILE_BYTES) throw new GithubUsage(`${file.path} is ${String(bytes)} bytes; the limit is ${String(GITHUB_MAX_FILE_BYTES)}`)
     total += bytes
   }
@@ -356,7 +399,7 @@ async function callUpstream(
     ...upstream.body === undefined ? {} : { body: upstream.body },
     signal: context.signal,
   })
-  const body = redactGithubText(await response.text(), [route.token, channelToken])
+  const body = await response.text()
   // A gateway refusal carries X-PDSH-Proxy-Error. An upstream 401/403 from
   // GitHub itself does not, and must stay GitHub's message.
   const proxyError = response.headers.get('x-pdsh-proxy-error')
@@ -364,7 +407,7 @@ async function callUpstream(
     throw new Error(
       `the host /v1/http route refused api.github.com (${redactGithubText(proxyError, [route.token, channelToken])}). `
       + 'The Worker sent no GitHub token; the host credential gateway injects one only when it is stored for that host. '
-      + body.slice(0, 300),
+      + redactGithubText(body.slice(0, 300), [route.token, channelToken]),
     )
   }
   return { status: response.status, body }
@@ -403,18 +446,40 @@ function shaOfRef(payload: Record<string, unknown>): string {
 }
 
 function jsonOut(value: unknown): ExecResult {
-  return { stdout: `${JSON.stringify(value, null, 2)}\n`, stderr: '', exitCode: 0 }
+  const stdout = `${JSON.stringify(value, null, 2)}\n`
+  if (Buffer.byteLength(stdout) > GITHUB_MAX_OUTPUT_BYTES) {
+    throw new Error(`github output would be larger than ${String(GITHUB_MAX_OUTPUT_BYTES)} bytes; narrow the request`)
+  }
+  return { stdout, stderr: '', exitCode: 0 }
+}
+
+/** Keep rows until either the row limit or the output budget is reached. */
+function limitRows<T>(rows: readonly T[], limit: number): { rows: T[]; truncated: boolean } {
+  const shown: T[] = []
+  let bytes = 2
+  for (const row of rows) {
+    if (shown.length >= limit) break
+    const size = Buffer.byteLength(JSON.stringify(row)) + 1
+    if (bytes + size > GITHUB_MAX_OUTPUT_BYTES - 512) break
+    shown.push(row)
+    bytes += size
+  }
+  return { rows: shown, truncated: shown.length < rows.length }
 }
 
 async function runGet(result: UpstreamResult): Promise<ExecResult> {
   const payload = requireOk(result)
   if (Array.isArray(payload)) {
+    const rows = payload.map(entry => {
+      const row = entry as { path?: unknown; type?: unknown; sha?: unknown }
+      return { path: row.path, type: row.type, sha: row.sha }
+    })
+    const limited = limitRows(rows, GITHUB_MAX_DIRECTORY_ENTRIES)
     return jsonOut({
       type: 'dir',
-      entries: payload.map(entry => {
-        const row = entry as { path?: unknown; type?: unknown; sha?: unknown }
-        return { path: row.path, type: row.type, sha: row.sha }
-      }),
+      count: rows.length,
+      ...limited.truncated ? { truncated: true } : {},
+      entries: limited.rows,
     })
   }
   if (payload.type !== 'file') return jsonOut({ type: payload.type, path: payload.path, sha: payload.sha })
@@ -428,10 +493,20 @@ async function runGet(result: UpstreamResult): Promise<ExecResult> {
     })
   }
   const decoded = Buffer.from(payload.content.replace(/\n/g, ''), 'base64')
-  if (decoded.includes(0)) {
-    return jsonOut({ type: 'file', path: payload.path, sha: payload.sha, encoding: 'base64', content: payload.content.replace(/\n/g, '') })
+  const value = decoded.includes(0)
+    ? { type: 'file', path: payload.path, sha: payload.sha, encoding: 'base64', content: payload.content.replace(/\n/g, '') }
+    : { type: 'file', path: payload.path, sha: payload.sha, encoding: 'utf-8', content: decoded.toString('utf8') }
+  if (Buffer.byteLength(JSON.stringify(value, null, 2)) + 1 > GITHUB_MAX_OUTPUT_BYTES) {
+    return jsonOut({
+      type: 'file',
+      path: payload.path,
+      sha: payload.sha,
+      size: payload.size ?? decoded.byteLength,
+      truncated: true,
+      note: `the file is ${String(payload.size ?? decoded.byteLength)} bytes; github get returns at most ${String(GITHUB_MAX_OUTPUT_BYTES)} bytes of JSON`,
+    })
   }
-  return jsonOut({ type: 'file', path: payload.path, sha: payload.sha, encoding: 'utf-8', content: decoded.toString('utf8') })
+  return jsonOut(value)
 }
 
 async function runTree(request: Extract<Request, { kind: 'tree' }>, result: UpstreamResult): Promise<ExecResult> {
@@ -444,28 +519,28 @@ async function runTree(request: Extract<Request, { kind: 'tree' }>, result: Upst
     if (prefix === undefined) return true
     return path === prefix || path.startsWith(`${prefix}/`)
   })
-  const shown = matched.slice(0, GITHUB_MAX_TREE_ENTRIES)
+  const rows = matched.map(entry => {
+    const row = entry as { path?: unknown; type?: unknown; sha?: unknown; size?: unknown }
+    return { path: row.path, type: row.type, sha: row.sha, ...typeof row.size === 'number' ? { size: row.size } : {} }
+  })
+  const limited = limitRows(rows, GITHUB_MAX_TREE_ENTRIES)
   return jsonOut({
     sha: payload.sha,
-    truncated: payload.truncated === true || matched.length > shown.length,
+    truncated: payload.truncated === true || limited.truncated,
     count: matched.length,
-    entries: shown.map(entry => {
-      const row = entry as { path?: unknown; type?: unknown; sha?: unknown; size?: unknown }
-      return { path: row.path, type: row.type, sha: row.sha, ...typeof row.size === 'number' ? { size: row.size } : {} }
-    }),
+    entries: limited.rows,
   })
 }
 
 async function runSearch(result: UpstreamResult): Promise<ExecResult> {
   const payload = requireOk(result)
   const items = Array.isArray(payload.items) ? payload.items : []
-  return jsonOut({
-    total: payload.total_count,
-    items: items.slice(0, 10).map(item => {
-      const row = item as { path?: unknown; html_url?: unknown; sha?: unknown }
-      return { path: row.path, url: row.html_url, sha: row.sha }
-    }),
+  const rows = items.map(item => {
+    const row = item as { path?: unknown; html_url?: unknown; sha?: unknown }
+    return { path: row.path, url: row.html_url, sha: row.sha }
   })
+  const limited = limitRows(rows, 10)
+  return jsonOut({ total: payload.total_count, ...limited.truncated ? { truncated: true } : {}, items: limited.rows })
 }
 
 function commitBody(request: Extract<Request, { kind: 'commit' }>, oid: string): string {
@@ -474,7 +549,7 @@ function commitBody(request: Extract<Request, { kind: 'commit' }>, oid: string):
   const body = newline < 0 ? undefined : request.message.slice(newline + 1).replace(/^\n/, '')
   const additions = request.files.filter(file => file.delete !== true).map(file => ({
     path: file.path,
-    contents: Buffer.from(file.text ?? '', 'utf8').toString('base64'),
+    contents: file.base64 ?? Buffer.from(file.text ?? '', 'utf8').toString('base64'),
   }))
   const deletions = request.files.filter(file => file.delete === true).map(file => ({ path: file.path }))
   return JSON.stringify({
@@ -511,6 +586,12 @@ export async function runGithub(
     return usageResult(error instanceof Error ? error.message : String(error))
   }
   if (request === 'help') return usageResult()
+  if (!authenticated(options) && needsCredential(request)) {
+    return fail(
+      'this build has no GitHub credential for api.github.com: only `get` and `tree` work anonymously. '
+      + `Writes and code search need the host to store a credential and set ${GITHUB_AUTH_ENV}=1. Nothing was sent.`,
+    )
+  }
   const route = resolveHostProxy(options)
   const channelToken = route?.token ?? ''
   try {
@@ -571,8 +652,10 @@ export async function runGithub(
 
 /** Build the just-bash `github` command. */
 export function createGithubCommand(options: GithubOptions = {}): Command {
-  const command = defineCommand('github', async (args, ctx) => {
-    return await runGithub(args, { stdin: ctx.stdin, signal: ctx.signal }, options)
+  return defineCommand('github', async (args, ctx) => {
+    return await runGithub(args, {
+      stdin: ctx.stdin as unknown as string,
+      signal: ctx.signal,
+    }, options)
   })
-  return { ...command, description: GITHUB_DESCRIPTION }
 }
