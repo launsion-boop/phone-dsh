@@ -112,6 +112,15 @@ public fun ConversationSettingsPage(
     }
 }
 
+/**
+ * One picker row plus its option list.
+ *
+ * The iOS source (`SettingsPage.swift:508`, `:515`, `:527`, `:532`) is a
+ * `Picker`, i.e. a system menu; it is not a `DisclosureGroup` and has no
+ * `withAnimation` / `motion.disclosure`. The inline rows below are Android's
+ * rendering of that menu, so they stay static: §7 motion is not added where the
+ * baseline does not animate the disclosure.
+ */
 @Composable
 private fun ChoiceRow(
     title: String,

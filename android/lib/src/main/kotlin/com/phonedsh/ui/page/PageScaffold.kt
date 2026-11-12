@@ -18,8 +18,6 @@
 // dp value.
 package com.phonedsh.ui.page
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,11 +39,9 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -54,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.disclosure.PdshChevron
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
@@ -220,6 +217,10 @@ internal fun PageFrame(
  * @param onToggle flip the fold.
  * @param trailing an optional count, read from the state (never invented).
  * @param tag an optional stable test tag.
+ * @param onChevronRotationChanged an optional observer of the chevron's animated
+ *   degrees; the header itself never depends on it. It is the same seam
+ *   [PdshChevron] offers and exists so a host (or a JVM test) can synchronize a
+ *   second mark without reading layout internals.
  */
 @Composable
 internal fun SectionHeader(
@@ -229,14 +230,10 @@ internal fun SectionHeader(
     modifier: Modifier = Modifier,
     trailing: String? = null,
     tag: String? = null,
+    onChevronRotationChanged: ((Float) -> Unit)? = null,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    val rotation by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
-        label = "section-chevron",
-    )
     val state = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED
     Row(
         modifier = modifier
@@ -262,10 +259,12 @@ internal fun SectionHeader(
         // unverified geometry: reuse of the disclosure icon gap as the chevron gap.
         horizontalArrangement = Arrangement.spacedBy(tokens.geometry.disclosureIconGap),
     ) {
-        BasicText(
-            text = CHEVRON,
-            style = type.codeLabel.copy(color = tokens.colors.textTertiary),
-            modifier = Modifier.rotate(rotation),
+        // interaction.md §7 rule 3: the disclosure chevron uses motion.chevron
+        // (120 ms easeInOut). It rotates in place, so the row keeps its height.
+        PdshChevron(
+            expanded = expanded,
+            tint = tokens.colors.textTertiary,
+            onRotationChanged = onChevronRotationChanged,
         )
         BasicText(
             text = title,
@@ -442,6 +441,5 @@ public fun formatByteSize(bytes: Long): String {
 /** The back affordance; the same glyph the chat page uses. */
 internal const val PAGE_BACK_GLYPH: String = "‹"
 
-private const val CHEVRON: String = "›"
 private const val KIB: Long = 1024
 private val SIZE_UNITS: List<String> = listOf("B", "KiB", "MiB", "GiB", "TiB")
