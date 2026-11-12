@@ -51,6 +51,27 @@ class FakePc(
     val receivedCloseCodes = CopyOnWriteArrayList<String>()
     val delivered = CopyOnWriteArrayList<PclinkJson>()
 
+    /** Every `rpc.call` the phone sent, in order (C4 tests). */
+    val rpcCalls = CopyOnWriteArrayList<PclinkJson>()
+
+    /** Every `rpc.stream.open` the phone sent, in order (C4 tests). */
+    val streamOpens = CopyOnWriteArrayList<PclinkJson>()
+
+    /** Every `rpc.stream.cancel` the phone sent, in order (C4 tests). */
+    val streamCancels = CopyOnWriteArrayList<PclinkJson>()
+
+    /**
+     * C4 seam: answers one `rpc.call`. Return `true` when the handler sent a
+     * response; the default `{items:[]}` result is used otherwise. The handler
+     * may suspend and call [sendInner] any number of times (chunks, delay).
+     */
+    @Volatile
+    var rpcCallHandler: (suspend (FakeRelayLink, PclinkJson) -> Boolean)? = null
+
+    /** C4 seam: observes one `rpc.stream.open`; return `true` when handled. */
+    @Volatile
+    var streamOpenHandler: (suspend (FakeRelayLink, PclinkJson) -> Boolean)? = null
+
     @Volatile
     var sawOutOfOrderSeq: Boolean = false
 
@@ -342,17 +363,28 @@ class FakePc(
             return
         }
         receivedInner.add(inner)
-        if (inner["type"]?.stringValue == "rpc.call") {
-            val id = inner["id"]?.stringValue ?: return
-            sendInner(
-                link,
-                pclinkObject(
-                    "type" to PclinkJson.Text("rpc.result"),
-                    "id" to PclinkJson.Text(id),
-                    "ok" to PclinkJson.Bool(true),
-                    "result" to pclinkObject("items" to PclinkJson.Array(emptyList())),
-                ),
-            )
+        when (inner["type"]?.stringValue) {
+            "rpc.call" -> {
+                rpcCalls.add(inner)
+                val handler = rpcCallHandler
+                if (handler == null || !handler.invoke(link, inner)) {
+                    val id = inner["id"]?.stringValue ?: return
+                    sendInner(
+                        link,
+                        pclinkObject(
+                            "type" to PclinkJson.Text("rpc.result"),
+                            "id" to PclinkJson.Text(id),
+                            "ok" to PclinkJson.Bool(true),
+                            "result" to pclinkObject("items" to PclinkJson.Array(emptyList())),
+                        ),
+                    )
+                }
+            }
+            "rpc.stream.open" -> {
+                streamOpens.add(inner)
+                streamOpenHandler?.invoke(link, inner)
+            }
+            "rpc.stream.cancel" -> streamCancels.add(inner)
         }
     }
 
