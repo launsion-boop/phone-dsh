@@ -1,5 +1,7 @@
 # iPhone GitHub connector
 
+The [GitHub OAuth revision](../../spec/v1/github-oauth.md) replaces manual token entry.
+
 ```yaml
 change: PC-20261111-ios-github
 contracts: [P09, P18]
