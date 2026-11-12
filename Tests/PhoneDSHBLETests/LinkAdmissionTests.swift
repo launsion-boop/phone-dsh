@@ -332,7 +332,9 @@ final class LinkAdmissionTests: XCTestCase {
             "arguments": .object(["device_id": .string(id.uuidString),
                                   "request_id": .string(requestID.uuidString)]),
         ])))
-        XCTAssertEqual(try responseText(response), "Invalid result query or Link busy")
+        // Base behaviour: the store-level busy text is returned verbatim for a
+        // result query whose record exists while another owner holds the Link.
+        XCTAssertEqual(try responseText(response), "Link is busy")
         XCTAssertEqual(journalFiles(journalDirectory(root)), journalWhileBusy,
                        "busy result queries must not change the journal")
         XCTAssertEqual(transport.queries, queries, "busy result queries must not reach the device")
