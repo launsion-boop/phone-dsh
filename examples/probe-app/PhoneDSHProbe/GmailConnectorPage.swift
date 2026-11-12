@@ -139,7 +139,10 @@ final class GmailMailbox {
         }
         switch error as? GmailError {
         case .forbidden:
-            return NativeText("Google 拒绝访问 Gmail。请检查账号权限和 Gmail API 配置。", "Google denied Gmail access. Check account permissions and Gmail API setup.")
+            return NativeText(
+                "Google 拒绝了这次 Gmail 请求。请检查账号权限、Gmail API 配额和配置。",
+                "Google denied this Gmail request. Check account permissions, Gmail API quota and setup."
+            )
         case .notFound:
             return NativeText("找不到这封邮件。", "This email is no longer available.")
         default:

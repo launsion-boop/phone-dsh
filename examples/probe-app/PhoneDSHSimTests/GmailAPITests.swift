@@ -33,6 +33,24 @@ final class GmailAPITests: XCTestCase {
         }
     }
 
+    func testForbiddenProfileIsDistinctFromAnExpiredToken() async throws {
+        do {
+            _ = try await makeAPI().accountEmail(token: "denied")
+            XCTFail("Expected Gmail to deny the request.")
+        } catch let error as GmailError {
+            XCTAssertEqual(error, .forbidden)
+        }
+    }
+
+    func testMessageIDCannotEscapeTheMessagesPath() async throws {
+        do {
+            _ = try await makeAPI().message(id: "../../profile", token: "fixture")
+            XCTFail("Expected a malformed message id to be rejected before any request.")
+        } catch let error as GmailError {
+            XCTAssertEqual(error, .invalidResponse)
+        }
+    }
+
     private func makeAPI() -> GmailAPI {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GmailFixtureProtocol.self]
@@ -54,6 +72,10 @@ private final class GmailFixtureProtocol: URLProtocol {
         if url.path == "/gmail/v1/users/me/profile",
            request.value(forHTTPHeaderField: "Authorization") == "Bearer expired" {
             status = 401
+            payload = "{}"
+        } else if url.path == "/gmail/v1/users/me/profile",
+                  request.value(forHTTPHeaderField: "Authorization") == "Bearer denied" {
+            status = 403
             payload = "{}"
         } else {
             guard request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture",

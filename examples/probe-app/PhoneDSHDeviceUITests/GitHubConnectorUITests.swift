@@ -26,8 +26,12 @@ final class GitHubConnectorUITests: XCTestCase {
         open.tap()
 
         XCTAssertTrue(app.navigationBars["GitHub"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["github.connect"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["github.unconfigured"].exists)
+        let connect = app.buttons["github.connect"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        // The committed project ships the three OAuth build settings empty, so
+        // this build shows the unconfigured note. A build that injects them
+        // shows an enabled connect button instead; both states are valid.
+        XCTAssertTrue(app.staticTexts["github.unconfigured"].exists || connect.isEnabled)
         XCTAssertFalse(app.secureTextFields["github.token"].exists)
     }
 }

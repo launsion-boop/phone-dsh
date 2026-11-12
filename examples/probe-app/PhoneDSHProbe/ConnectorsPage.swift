@@ -56,7 +56,8 @@ enum DiscoverConnector: String, CaseIterable, Identifiable, Hashable {
     /// The gray pill on the row, naming what the sheet's action does.
     var pillTitle: String {
         switch self {
-        case .devices, .gmail, .github: return NativeText("连接", "Connect")
+        case .devices: return NativeText("连接", "Connect")
+        case .gmail, .github: return NativeText("打开", "Open")
         case .webSearch: return NativeText("设置", "Set up")
         case .mcp: return NativeText("添加", "Add")
         }
