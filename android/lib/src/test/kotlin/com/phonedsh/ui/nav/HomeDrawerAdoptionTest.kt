@@ -174,6 +174,46 @@ class HomeDrawerAdoptionTest {
     }
 
     @Test
+    fun `session row clears the pressed fill when the long press opens the menu`() {
+        mount(
+            HomeDrawerFacts(
+                folders = listOf(
+                    HomeDrawerFolder("folder-1", "Research", listOf(HomeDrawerSession("session-1", "One"))),
+                ),
+                unassignedSessions = emptyList(),
+            ),
+            onOpenSession = {},
+            onArchiveSession = { request ->
+                HomeDrawerArchiveResult.Archived(request.requestId, request.sessionId)
+            },
+        )
+        val tag = HomeDrawerTags.SESSION_PREFIX + "session-1"
+        val center = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.center
+        val downTime = SystemClock.uptimeMillis()
+        dispatchTouch(downTime, MotionEvent.ACTION_DOWN, center)
+        compose.mainClock.advanceTimeBy(200)
+        assertEquals(
+            "the row must show the §6 pressed fill while the finger is down",
+            PressedStyle.valuesFor(PressedSurface.DrawerRow, PressedState.Pressed).pressed,
+            alpha(tag),
+            0.001f,
+        )
+
+        compose.mainClock.advanceTimeBy(700)
+        compose.waitForIdle()
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertIsDisplayed()
+        assertEquals(
+            "opening the menu cancels the row press instead of leaving the fill stuck",
+            0f,
+            alpha(tag),
+            0f,
+        )
+
+        dispatchTouch(downTime, MotionEvent.ACTION_UP, center)
+        compose.mainClock.advanceTimeByFrame()
+    }
+
+    @Test
     fun `folder collapse runs the 180 ms folder motion and keeps the header fixed`() {
         mount(
             HomeDrawerFacts(

@@ -9,6 +9,7 @@ package com.phonedsh.ui.menu
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -64,6 +65,11 @@ public object ContextMenuTags {
  * @param modifier applied to the row anchor, not to the popup.
  * @param onClick the row's normal tap action, if it has one.
  * @param onShare optional system-share-sheet callback for `share` rows.
+ * @param interactionSource optional caller-owned source for this row's press
+ *   and long-press interactions. When non-null it replaces the component's
+ *   private source, so a page can render the row's §6 pressed state from the
+ *   same stream instead of observing the pointer separately. `null` keeps the
+ *   internal source and the previous behaviour for every existing caller.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -74,15 +80,39 @@ public fun PdshContextMenu(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     onShare: ((ContextMenuItem) -> Unit)? = null,
+    interactionSource: MutableInteractionSource? = null,
     content: @Composable () -> Unit,
 ) {
     val items = ContextMenuModel.items(surfaceId, state)
     val session = remember(surfaceId) { ContextMenuSession() }
     var expanded by remember(surfaceId) { mutableStateOf(false) }
     var pending by remember(surfaceId) { mutableStateOf<ContextMenuItem?>(null) }
-    val interactionSource = remember { MutableInteractionSource() }
+    val fallbackInteractionSource = remember { MutableInteractionSource() }
+    val rowInteractionSource = interactionSource ?: fallbackInteractionSource
+    val activePress = remember(rowInteractionSource) { mutableStateOf<PressInteraction.Press?>(null) }
     val latestOnAction by rememberUpdatedState(onAction)
     val latestOnShare by rememberUpdatedState(onShare)
+
+    // The row owns the press stream, so the component itself clears the press
+    // when a long press turns into the menu. Compose's tap detector cancels its
+    // own internal gesture on a long press but does not cancel the public
+    // interaction source; without this the caller's pressed fill would stay lit
+    // until the finger lifts.
+    LaunchedEffect(rowInteractionSource) {
+        // No caller can observe the private fallback source, so it needs no
+        // cancellation bookkeeping and keeps the previous behaviour exactly.
+        if (interactionSource == null) return@LaunchedEffect
+        rowInteractionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> activePress.value = interaction
+                is PressInteraction.Release ->
+                    if (activePress.value == interaction.press) activePress.value = null
+                is PressInteraction.Cancel ->
+                    if (activePress.value == interaction.press) activePress.value = null
+                else -> Unit
+            }
+        }
+    }
 
     // Rule 7: the selection closes the popup first. This effect starts after the
     // recomposition that removed the menu, then invokes exactly one action.
@@ -98,7 +128,7 @@ public fun PdshContextMenu(
 
     Box(
         modifier = modifier.combinedClickable(
-            interactionSource = interactionSource,
+            interactionSource = rowInteractionSource,
             indication = null,
             role = if (onClick != null) Role.Button else null,
             onClick = { onClick?.invoke() },
@@ -108,6 +138,11 @@ public fun PdshContextMenu(
                 if (items.isNotEmpty() && session.open()) {
                     pending = null
                     expanded = true
+                    activePress.value?.let { press ->
+                        if (rowInteractionSource.tryEmit(PressInteraction.Cancel(press))) {
+                            activePress.value = null
+                        }
+                    }
                 }
             },
         ),
