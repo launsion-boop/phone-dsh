@@ -29,6 +29,9 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,7 +40,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.phonedsh.bot.profile.BotFishAppearance
+import com.phonedsh.bot.rows.BotRow
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.bot.driver.BotChatDriver
+import com.phonedsh.ui.bot.driver.BotChatModel
+import com.phonedsh.ui.bot.page.BotFishSlot
+import com.phonedsh.ui.bot.page.chat.BotChatPage
+import com.phonedsh.ui.bot.page.chat.LocalBotPageActive
+import com.phonedsh.ui.bot.state.BotFishReaction
+import com.phonedsh.ui.bot.state.BotUiContext
 import com.phonedsh.ui.page.AutomationLocalState
 import com.phonedsh.ui.page.AutomationScreenState
 import com.phonedsh.ui.page.AutomationUiEvent
@@ -498,8 +510,64 @@ public fun PdshNavHost(
     onGitHubAgentDeleteToken: () -> Boolean = { false },
     /** Persists the explicit write opt-in. */
     onGitHubAgentAllowWrites: (Boolean) -> Unit = {},
+    /**
+     * The host's Bot chat driver. The Bot tab and [PdshRoute.Bot] are shown only
+     * when this is non-null (`HomeTab.visibleTabs`); `:app` does not supply one
+     * yet, so its bar is unchanged.
+     */
+    botDriver: BotChatDriver? = null,
+    /** The selected Bot and the menu summary's injected follow count. */
+    botContext: BotUiContext = BotUiContext(botID = "main", botName = "Bot"),
+    botAppearance: BotFishAppearance = BotFishAppearance.CLASSIC,
+    botIsMainBot: Boolean = true,
+    /** `NativeShell.swift:379-382`: the Bot page polls only while its tab and scene are active. */
+    botSceneActive: Boolean = true,
+    botHasOnlineDevices: Boolean = false,
+    /** The BotFish renderer slot; `null` draws an empty box instead. */
+    botFish: BotFishSlot? = null,
+    /** Lane K5b's drawer/info surfaces; the integrator wires them. */
+    onOpenBotDrawer: (() -> Unit)? = null,
+    onOpenBotInfo: (() -> Unit)? = null,
+    onOpenBotDocument: ((BotRow) -> Unit)? = null,
+    onOpenBotPath: (String) -> Unit = {},
+    onOpenBotUrl: (String) -> Unit = {},
+    onSelectBot: (String) -> Unit = {},
+    botPeerAppearance: (String) -> BotFishAppearance? = { null },
+    botPeerIsMainBot: (String) -> Boolean = { false },
+    botPeerReaction: (String) -> BotFishReaction? = { null },
+    /** The host's attachment picker adds a chip through `BotChatModel`. */
+    onBotAttach: () -> Unit = {},
 ) {
     val route = nav.current
+    val botScope = rememberCoroutineScope()
+    val botModel = if (botDriver != null) {
+        remember(botDriver, botContext) {
+            BotChatModel(
+                context = botContext,
+                driver = botDriver,
+                scope = botScope,
+                appearance = botAppearance,
+                isMainBot = botIsMainBot,
+            )
+        }
+    } else {
+        null
+    }
+    val botPageActive = botDriver != null && nav.selectedTab == HomeTab.BOT && botSceneActive
+    LaunchedEffect(botPageActive) { botModel?.setPageActive(botPageActive) }
+    LaunchedEffect(botAppearance, botIsMainBot, botContext.botName) {
+        botModel?.updateProfile(botContext.botName, botAppearance)
+        botModel?.setMainBot(botIsMainBot)
+    }
+    LaunchedEffect(botModel) {
+        if (botModel != null) {
+            botModel.setPageActive(botPageActive)
+            if (botPageActive) botModel.start()
+        }
+    }
+    DisposableEffect(botModel) {
+        onDispose { botModel?.close() }
+    }
     if (route == PdshRoute.Home) {
         CompositionLocalProvider(LocalSheetBackHost provides sheetBackHost) {
             home()
@@ -516,7 +584,45 @@ public fun PdshNavHost(
             PdshRoute.Home -> Unit // rendered above; kept for the exhaustive when
             PdshRoute.Sessions ->
                 if (sessions != null) sessions() else SessionsRoute(facts, onBack)
-            PdshRoute.Chat -> ChatRoute(
+            PdshRoute.Chat ->
+                if (botModel != null && nav.selectedTab == HomeTab.BOT) {
+                    val snapshot by botModel.state.collectAsState()
+                    CompositionLocalProvider(LocalBotPageActive provides botPageActive) {
+                        val slot: BotFishSlot = botFish ?: { _, _, _, _, _, modifier ->
+                            Box(modifier)
+                        }
+                        BotChatPage(
+                            state = snapshot,
+                            fish = slot,
+                            onDraftChange = botModel::setDraft,
+                            onSend = botModel::send,
+                            onStop = botModel::stop,
+                            onAnswer = botModel::answer,
+                            onDismiss = botModel::dismiss,
+                            onApproval = botModel::decide,
+                            onChecklistProgress = botModel::noteChecklistProgress,
+                            onChecklistSend = botModel::sendChecklist,
+                            onLoadHistory = botModel::loadHistory,
+                            onTick = { botModel.tick() },
+                            onInteraction = botModel::noteInteraction,
+                            onOpenInfo = { onOpenBotInfo?.invoke() },
+                            onConnectDevice = { onNavigate(PdshRoute.DeviceConnection) },
+                            onAttach = onBotAttach,
+                            onRemoveAttachment = botModel::removeDraftAttachment,
+                            onDismissAttachmentNotice = botModel::dismissAttachmentNotice,
+                            onOpenDrawer = onOpenBotDrawer,
+                            onOpenDocument = onOpenBotDocument,
+                            onOpenPath = onOpenBotPath,
+                            onOpenUrl = onOpenBotUrl,
+                            onSelectBot = onSelectBot,
+                            peerAppearance = botPeerAppearance,
+                            peerIsMainBot = botPeerIsMainBot,
+                            peerReaction = botPeerReaction,
+                            hasOnlineDevices = botHasOnlineDevices,
+                        )
+                    }
+                } else {
+                    ChatRoute(
                 workspaceRoot = workspaceRoot,
                 actionAvailability = facts.actionAvailability,
                 subpages = chatSubpages,
@@ -541,9 +647,10 @@ public fun PdshNavHost(
                 onAddFiles = onChatAddFiles,
                 onAddImages = onChatAddImages,
                 onRemoveAttachment = onChatRemoveAttachment,
-                onDismissNotice = onChatDismissNotice,
-                actions = chatActions,
-            )
+                        onDismissNotice = onChatDismissNotice,
+                        actions = chatActions,
+                    )
+                }
             PdshRoute.WorkspaceFolders -> WorkspaceFoldersRoute(facts, onBack, onHostAction, onNavigate)
             is PdshRoute.Files -> FilesRoute(
                 onBack, onNavigate, workspaceRoot, backLevel, onFilesImportRequest, filesImportReceipt,
