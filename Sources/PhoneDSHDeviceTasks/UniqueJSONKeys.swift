@@ -2,12 +2,19 @@
 import Foundation
 
 /// Checks raw JSON before Foundation can discard duplicate object members.
-struct UniqueJSONKeys {
+///
+/// Public so a second boundary can reuse this scanner instead of copying it:
+/// `PhoneDSHBLE`'s device-panel evaluator must detect duplicate member names on
+/// the raw descriptor bytes before Foundation parses them (device-panel.md §4.2).
+/// Semantics are unchanged.
+public struct UniqueJSONKeys {
     private var bytes: [UInt8]
     private var index = 0
-    init(_ data: Data) { bytes = Array(data) }
+    public init(_ data: Data) { bytes = Array(data) }
 
-    mutating func check(rejectNUL: Bool = false) -> Bool {
+    /// A single valid JSON value with no duplicate object member names at any
+    /// depth, optionally rejecting U+0000 inside strings.
+    public mutating func check(rejectNUL: Bool = false) -> Bool {
         guard value(depth: 0, rejectNUL: rejectNUL) else { return false }
         whitespace()
         return index == bytes.count
