@@ -107,7 +107,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(outcome, .denied(
             code: "bot_egress_unattributed",
-            message: "no live Bot session can own the network write"))
+            message: "没有活动的 Bot 会话可以承接这次网络写入"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }
@@ -186,7 +186,7 @@ final class BotEgressApprovalTests: XCTestCase {
             return
         }
         XCTAssertEqual(code, "egress_approval_denied")
-        XCTAssertTrue(message.contains("resume"))
+        XCTAssertTrue(message.contains("用户决定后会继续"))
         let requested = try await waitForApproval(fixture.store)
         let event = try XCTUnwrap(requested)
         let effects = event.data["effects"]?.arrayValue ?? []
@@ -246,7 +246,7 @@ final class BotEgressApprovalTests: XCTestCase {
         XCTAssertEqual(effects.first?["operation"]?.stringValue, "egress.post")
         XCTAssertEqual(effects.first?["resource"]?.stringValue, "host=127.0.0.1")
         XCTAssertEqual(requested.data["command"]?.stringValue,
-                       "background network write with no live shell registration")
+                       "后台网络写入找不到仍然活动的命令登记")
         try await resolve(fixture.runtime, event: requested, decision: .deny)
         let outcome = await approval.value
         XCTAssertEqual(outcome, .denied(
@@ -264,7 +264,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(outcome, .denied(
             code: "bot_egress_ambiguous",
-            message: "more than one Bot session is active; the network write is not attributable"))
+            message: "同时有多个 Bot 会话在运行，无法判断这次网络写入属于谁"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }
@@ -549,7 +549,7 @@ final class BotEgressApprovalTests: XCTestCase {
             method: "POST", host: host, scheme: "http", port: 8787)
         XCTAssertEqual(ambiguous, .denied(
             code: "bot_egress_ambiguous",
-            message: "more than one Bot session is active; the network write is not attributable"))
+            message: "同时有多个 Bot 会话在运行，无法判断这次网络写入属于谁"))
         let events = try await botEvents(fixture.store)
         XCTAssertEqual(events.filter { $0.type == "approval.requested" }.count, 0)
     }

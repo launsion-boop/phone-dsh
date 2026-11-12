@@ -134,8 +134,8 @@ final class BotVerificationTests: XCTestCase {
         XCTAssertTrue(wake.contains("[verification] failed"))
         XCTAssertTrue(wake.contains("REPORT.md is missing."))
         XCTAssertTrue(wake.contains("record://session/gb-task#2"))
-        XCTAssertTrue(wake.contains("Tell the user honestly"))
-        XCTAssertTrue(wake.contains("Do not present it as done"))
+        XCTAssertTrue(wake.contains("如实告诉用户"))
+        XCTAssertTrue(wake.contains("不要把它说成已完成"))
 
         let passed = BotVerification(
             verdict: .passed, summary: "All checks passed.", refs: ["record://event/1"],
@@ -143,8 +143,8 @@ final class BotVerificationTests: XCTestCase {
         let passedWake = BotDSHRemoteRuntime.verificationWakeBody(
             passed, title: "Write REPORT.md", status: "completed", taskID: "task-1")
         XCTAssertTrue(passedWake.contains("[verification] passed"))
-        XCTAssertTrue(passedWake.contains("No message is required"))
-        XCTAssertFalse(passedWake.contains("Tell the user honestly"))
+        XCTAssertTrue(passedWake.contains("不需要再发消息"))
+        XCTAssertFalse(passedWake.contains("如实告诉用户"))
     }
 
     func testReportShapeMatchesTheDurableContract() throws {

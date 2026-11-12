@@ -93,6 +93,7 @@ final class BotApprovalCancelTests: XCTestCase {
         XCTAssertEqual(notices.first?.principal.botId, "bot-a")
         XCTAssertEqual(notices.first?.data["kind"], .string("approval_cancelled"))
         XCTAssertEqual(notices.first?.data["reason"], .string("bot_deleted"))
+        XCTAssertEqual(notices.first?.data["text"], .string("Bot 已删除时取消。"))
 
         let botADecisions = events.filter {
             $0.type == "approval.decided" && $0.principal.botId == "bot-a"
@@ -142,5 +143,8 @@ final class BotApprovalCancelTests: XCTestCase {
         XCTAssertTrue(notices.allSatisfy {
             $0.data["reason"] == .string("worker_restarted")
         })
+        XCTAssertTrue(notices.allSatisfy {
+            $0.data["text"] == .string("App 重启时取消。")
+        }, "\(notices.map(\.data))")
     }
 }

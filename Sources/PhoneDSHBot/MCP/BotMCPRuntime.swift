@@ -124,28 +124,28 @@ public struct BotTaskAuthorization: Codable, Sendable, Equatable {
         }
         let root = normalize(workspaceRoot, against: workspaceRoot)
         guard !root.isEmpty else {
-            throw BotTaskAuthorizationError.invalidDirectories("workspace root is empty")
+            throw BotTaskAuthorizationError.invalidDirectories("工作区根目录为空")
         }
         var directories: [String] = []
         for raw in requestedDirectories {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else {
-                throw BotTaskAuthorizationError.invalidDirectories("entry is empty")
+                throw BotTaskAuthorizationError.invalidDirectories("目录条目为空")
             }
             let normalized = normalize(value, against: root)
             guard !normalized.isEmpty else {
-                throw BotTaskAuthorizationError.invalidDirectories("entry is empty after normalization")
+                throw BotTaskAuthorizationError.invalidDirectories("目录条目规范化后为空")
             }
             guard normalized.count + writeDirectoryPrefix.count <= maximumCapabilityLength else {
                 throw BotTaskAuthorizationError.invalidDirectories(
-                    "entry is too long for a session capability (max \(maximumCapabilityLength) characters)")
+                    "目录条目超出会话权限的长度上限（最多 \(maximumCapabilityLength) 个字符）")
             }
             if !directories.contains(normalized) { directories.append(normalized) }
         }
         if directories.isEmpty { directories = [root] }
         guard root.count + workspaceCapabilityPrefix.count <= maximumCapabilityLength else {
             throw BotTaskAuthorizationError.invalidDirectories(
-                "workspace root is too long for a session capability")
+                "工作区根目录超出会话权限的长度上限")
         }
         let outside = directories.contains { directory in
             directory != root && !directory.hasPrefix(root + "/")
@@ -373,6 +373,21 @@ public actor BotMCPRuntime {
         }
     }
 
+    /// One bounded wait for the App composition to finish reattaching a
+    /// replacement Worker. `true` when no probe is installed (library/tests).
+    /// Public turn entry points use this to avoid opening a turn inside the
+    /// rebind window: the future `attachTransport` cancels in-flight turns of
+    /// the replaced Worker, so a turn started there would come back cancelled.
+    public func waitUntilRuntimeReady() async -> Bool {
+        guard let runtimeReadinessProbe else { return true }
+        return await runtimeReadinessProbe(0)
+    }
+
+    /// The one human sentence for a turn/tool requested while the App is still
+    /// reattaching the Worker. It is retryable and never names a transport,
+    /// session id or internal code.
+    public static let runtimeRecoveringMessage = "与 App 的连接正在恢复，请稍后重试。"
+
     /// Returns the cached memory authority for one Bot, creating it on first
     /// use. Agent-scope facts replay only events written by this Bot; user-scope
     /// facts are shared by every Bot. Historical events with no bot id belong
@@ -548,7 +563,7 @@ public actor BotMCPRuntime {
     private func taskExecutor(for botID: String) throws -> any BotTaskExecuting {
         guard let executor = taskExecutors[botID] else {
             throw BotMCPError.unavailable(
-                "No task executor is attached for bot \(botID); refusing to use another Bot's executor")
+                "这个 Bot（\(botID)）没有可用的任务执行器，不能借用其他 Bot 的执行器")
         }
         return executor
     }
@@ -997,7 +1012,7 @@ public actor BotMCPRuntime {
         guard !normalizedHost.isEmpty, !scheme.isEmpty else {
             return .denied(
                 code: "egress_approval_denied",
-                message: "the network write has no usable host")
+                message: "这次网络写入没有可用的目标地址")
         }
         let target = "\(scheme)://\(normalizedHost)\(port.map { ":\($0)" } ?? "")"
         let timestamp = now()
@@ -1014,7 +1029,7 @@ public actor BotMCPRuntime {
         if hadLiveRegistration && active.isEmpty {
             return .denied(
                 code: "bot_egress_unattributed",
-                message: "the active Bot session credential is no longer valid")
+                message: "当前 Bot 会话的凭据已经失效")
         }
         if !active.isEmpty {
             let chosen: (key: String, attribution: BotAttribution,
@@ -1034,7 +1049,7 @@ public actor BotMCPRuntime {
                       let match = matches.first(where: { $0.principal.botId == bot }) else {
                     return .denied(
                         code: "bot_egress_ambiguous",
-                        message: "more than one Bot session is active; the network write is not attributable")
+                        message: "同时有多个 Bot 会话在运行，无法判断这次网络写入属于谁")
                 }
                 chosen = match
             } else {
@@ -1053,7 +1068,7 @@ public actor BotMCPRuntime {
                 attribution: chosen.attribution) else {
                 return .denied(
                     code: "bot_egress_unattributed",
-                    message: "the active Bot registration does not resolve to one live principal")
+                    message: "当前 Bot 的登记无法对应到唯一的活动身份")
             }
             let effect = BotEgressEffects.egressEffect(
                 method: upper, host: normalizedHost, target: target)
@@ -1079,12 +1094,12 @@ public actor BotMCPRuntime {
         guard !bots.isEmpty else {
             return .denied(
                 code: "bot_egress_unattributed",
-                message: "no live Bot session can own the network write")
+                message: "没有活动的 Bot 会话可以承接这次网络写入")
         }
         guard bots.count == 1 else {
             return .denied(
                 code: "bot_egress_ambiguous",
-                message: "more than one Bot session is active; the network write is not attributable")
+                message: "同时有多个 Bot 会话在运行，无法判断这次网络写入属于谁")
         }
         // A chat principal is the visible owner of the Bot; without one a task
         // or routine session still receives the card.
@@ -1095,12 +1110,12 @@ public actor BotMCPRuntime {
         guard let call = syntheticEgressCall(principal: principal) else {
             return .denied(
                 code: "bot_egress_unattributed",
-                message: "the active Bot session has no valid principal")
+                message: "当前 Bot 会话没有有效的身份")
         }
         let effect = BotEgressEffects.egressEffect(method: method, host: host, target: target)
         return await requestEgressApproval(
             call: call, effect: effect,
-            command: "background network write with no live shell registration")
+            command: "后台网络写入找不到仍然活动的命令登记")
     }
 
     /// The Task subset check for one already-attributed egress write. A Task
@@ -1178,12 +1193,12 @@ public actor BotMCPRuntime {
             // what tells the model that a durable decision will resume it.
             return .denied(
                 code: "egress_approval_denied",
-                message: "approval pending; the network write was not sent and the task resumes after the user decides")
+                message: "审批还在等待用户确认；这次网络写入没有发出，用户决定后会继续")
         }
         guard outcome.allowed else {
             return .denied(
                 code: "egress_approval_denied",
-                message: outcome.message ?? "approval denied")
+                message: outcome.message ?? "用户没有批准这次网络写入")
         }
         return .allowed
     }
@@ -1194,12 +1209,12 @@ public actor BotMCPRuntime {
         let catalogTool = BotToolCatalog.isRegistered(bareName)
         let teamHandler = catalogTool ? nil : teamToolHandler(for: bareName)
         guard catalogTool || teamHandler != nil else {
-            return .failure("unknown_tool", "Unknown tool: \(name)")
+            return .failure("unknown_tool", "未知工具：\(name)")
         }
         let scope = scopedRuntimeID(context.runtimeId)
         guard let call = await gateway.resolveToolCall(
             runtimeId: scope, name: bareName, arguments: arguments) else {
-            return .failure("unattributed", "The tool call could not be attributed to an active session")
+            return .failure("unattributed", "这次工具调用无法归属到任何进行中的会话")
         }
         // The per-caller catalog is not a display filter: `tools/call` must use
         // the same catalog `tools/list` returns for this principal before any
@@ -1208,7 +1223,7 @@ public actor BotMCPRuntime {
         let callerCatalog = await toolDefinitions(callerBotID: call.principal.botId)
         guard callerCatalog.contains(where: { $0.name == bareName }) else {
             return .failure("permission_denied",
-                            "The tool is not available to the caller's catalog")
+                            "这个工具不在当前 Bot 的可用工具里")
         }
         let registrationKey = key(scope, call.sessionId, call.callId)
         registrations.removeValue(forKey: registrationKey)
@@ -1222,16 +1237,16 @@ public actor BotMCPRuntime {
         if let runtimeReadinessProbe {
             let ready = await runtimeReadinessProbe(0)
             guard ready else {
-                return .failure("unavailable", "与 App 的连接正在恢复，请稍后重试。")
+                return .failure("unavailable", Self.runtimeRecoveringMessage)
             }
         }
         do {
             if bareName == BotToolCatalog.volatileContextName {
                 let read = BotToolEffect(
                     tool: bareName, operation: "context.volatile", resource: "session=\(call.sessionId)",
-                    mutability: .read, policy: .auto, label: "Read current volatile context")
+                    mutability: .read, policy: .auto, label: "读取当前上下文")
                 guard await authorize(call: call, effect: read) == nil else {
-                    return .failure("permission_denied", "Volatile context authorization failed")
+                    return .failure("permission_denied", "读取当前上下文的授权失败")
                 }
                 let snapshot = try await volatileContext.snapshot(request: arguments, principal: call.principal)
                 return .success(snapshot.jsonValue)
@@ -1260,8 +1275,8 @@ public actor BotMCPRuntime {
                             return .failure(
                                 "permission_denied",
                                 outcome.pending
-                                    ? "approval pending; the task is parked and resumes after the user decides"
-                                    : outcome.message ?? "CreateTeammate requires user confirmation in this turn")
+                                    ? "审批还在等待用户确认；任务已经停下，用户决定后会继续"
+                                    : outcome.message ?? "创建队友需要你在当前回合确认")
                         }
                         authority.approvalID = outcome.approvalId
                     }
@@ -1356,17 +1371,17 @@ public actor BotMCPRuntime {
         // deny UpdateMemory, and this independent check keeps a direct MCP call
         // from writing memory if that surface is ever widened.
         guard call.principal.kind != .verifier else {
-            return .failure("permission_denied", "Verifier sessions cannot write memory")
+            return .failure("permission_denied", "验证会话不能写记忆")
         }
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         guard let actionName = string(args["action"]), let action = BotMemoryAction(rawValue: actionName) else {
-            throw BotMCPError.invalidRequest("UpdateMemory requires action write|append|replace|move|delete|restore")
+            throw BotMCPError.invalidRequest("更新记忆需要指定动作：write、append、replace、move、delete 或 restore")
         }
         guard let path = string(args["path"]), !path.isEmpty else {
-            throw BotMCPError.invalidRequest("UpdateMemory requires path")
+            throw BotMCPError.invalidRequest("更新记忆需要提供路径")
         }
         guard let expectedVersion = try optionalInt(args["expected_version"]), expectedVersion >= 0 else {
-            throw BotMCPError.invalidRequest("UpdateMemory requires a non-negative expected_version")
+            throw BotMCPError.invalidRequest("更新记忆需要提供不小于 0 的版本号")
         }
         let evidence: BotRecordEvidence
         do {
@@ -1380,25 +1395,25 @@ public actor BotMCPRuntime {
             return .failure("record_erased", "该记录已被抹除")
         } catch {
             return .failure("memory-evidence-invalid",
-                            "Every evidence entry must be an existing record:// reference owned by this Bot, or current-user-turn in a real user turn.")
+                            "每条依据都必须指向这个 Bot 已有的一条 record:// 记录，或者是真实用户回合里的 current-user-turn。")
         }
         let sourceKind = memorySourceKind(for: call)
         guard let authorKind = call.principal.kind.memoryAuthorKind else {
-            return .failure("permission_denied", "Verifier sessions cannot write memory")
+            return .failure("permission_denied", "验证会话不能写记忆")
         }
         let content: String?
         switch action {
         case .write, .append:
             guard args["content"] != nil else {
-                throw BotMCPError.invalidRequest("UpdateMemory \(action.rawValue) requires content")
+                throw BotMCPError.invalidRequest("更新记忆的 \(action.rawValue) 动作需要提供内容")
             }
             content = string(args["content"]) ?? ""
         case .replace:
             guard let find = string(args["find"]), !find.isEmpty else {
-                throw BotMCPError.invalidRequest("UpdateMemory replace requires non-empty find")
+                throw BotMCPError.invalidRequest("更新记忆的替换动作需要提供要查找的原文")
             }
             guard args["replace"] != nil else {
-                throw BotMCPError.invalidRequest("UpdateMemory replace requires replace")
+                throw BotMCPError.invalidRequest("更新记忆的替换动作需要提供替换后的内容")
             }
             content = nil
         default:
@@ -1406,13 +1421,13 @@ public actor BotMCPRuntime {
         }
         if action == .move {
             guard let to = string(args["to"]), !to.isEmpty else {
-                throw BotMCPError.invalidRequest("UpdateMemory move requires to")
+                throw BotMCPError.invalidRequest("更新记忆的移动动作需要提供目标路径")
             }
         }
         let restoreVersion: Int?
         if action == .restore {
             guard let restore = try optionalInt(args["restore_version"]), restore >= 1 else {
-                throw BotMCPError.invalidRequest("UpdateMemory restore requires restore_version >= 1")
+                throw BotMCPError.invalidRequest("恢复记忆需要提供不小于 1 的版本号")
             }
             restoreVersion = restore
         } else {
@@ -1541,7 +1556,7 @@ public actor BotMCPRuntime {
     private func readMemory(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         guard let path = string(args["path"]), !path.isEmpty else {
-            throw BotMCPError.invalidRequest("ReadMemory requires path")
+            throw BotMCPError.invalidRequest("读取记忆需要提供路径")
         }
         let version = try optionalInt(args["version"])
         let result = try await memory(for: call.principal.botId).read(path: path, version: version)
@@ -1596,7 +1611,7 @@ public actor BotMCPRuntime {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         let memory = memory(for: call.principal.botId)
         let limit = try optionalInt(args["limit"]) ?? 40
-        guard (1...50).contains(limit) else { throw BotMCPError.invalidRequest("RecallMemory limit must be 1…50") }
+        guard (1...50).contains(limit) else { throw BotMCPError.invalidRequest("回想记忆的条数必须在 1 到 50 之间") }
         let requestedScope = string(args["scope"]) ?? "all"
         guard ["agent", "user", "all"].contains(requestedScope) else {
             throw BotMCPError.invalidRequest("invalid memory scope")
@@ -1629,7 +1644,7 @@ public actor BotMCPRuntime {
 
     private func startTask(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard call.principal.kind == .chat || call.principal.kind == .task else {
-            throw BotMCPError.invalidRequest("Task can only start from a chat or task session")
+            throw BotMCPError.invalidRequest("只有聊天或任务会话可以派发任务")
         }
         // A child Task may only delegate when its own authorization subset says
         // so. This revision never grants that capability, so a subagent cannot
@@ -1638,26 +1653,26 @@ public actor BotMCPRuntime {
            !call.principal.capabilities.contains(BotTaskAuthorization.delegateCapability) {
             return .failure(
                 "permission_denied",
-                "Task delegation is not allowed in this task session")
+                "当前任务会话里不能再派发任务")
         }
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         guard args["task_id"] == nil, args["resume"] == nil else {
-            throw BotMCPError.invalidRequest("Task resume is not implemented")
+            throw BotMCPError.invalidRequest("暂不支持从历史任务继续")
         }
-        let title = firstNonEmpty(args["task_title"], args["description"]) ?? "Delegated task"
+        let title = firstNonEmpty(args["task_title"], args["description"]) ?? "委派的任务"
         guard let prompt = firstNonEmpty(args["prompt"], args["task_description"]), !prompt.isEmpty else {
-            throw BotMCPError.invalidRequest("Task requires prompt or task_description")
+            throw BotMCPError.invalidRequest("派发任务需要说明要做什么")
         }
         let timeout = try optionalInt(args["timeout_ms"]) ?? 180_000
-        guard (1_000...300_000).contains(timeout) else { throw BotMCPError.invalidRequest("Task timeout_ms must be 1000…300000") }
+        guard (1_000...300_000).contains(timeout) else { throw BotMCPError.invalidRequest("任务超时必须在 1000 到 300000 毫秒之间") }
         let completion = (string(args["completion"]) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard completion.count <= 4_000 else {
-            throw BotMCPError.invalidRequest("Task completion must be at most 4000 characters")
+            throw BotMCPError.invalidRequest("任务的完成条件最多 4000 个字符")
         }
         let purpose = string(args["purpose"])?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (purpose?.count ?? 0) <= 2_000 else {
-            throw BotMCPError.invalidRequest("Task purpose must be at most 2000 characters")
+            throw BotMCPError.invalidRequest("任务的用途说明最多 2000 个字符")
         }
         let constraints = (args["constraints"]?.arrayValue ?? []).compactMap { value -> String? in
             guard let text = value.stringValue else { return nil }
@@ -1665,18 +1680,18 @@ public actor BotMCPRuntime {
             return trimmed.isEmpty ? nil : trimmed
         }
         guard constraints.count <= 8, constraints.allSatisfy({ $0.count <= 500 }) else {
-            throw BotMCPError.invalidRequest("Task constraints accepts at most 8 entries of at most 500 characters")
+            throw BotMCPError.invalidRequest("任务约束最多 8 条，每条最多 500 个字符")
         }
         var budget: BotTaskBudget?
         if let rawBudget = args["budget"], rawBudget != .null {
             guard case .object(let fields) = rawBudget,
                   fields.keys.allSatisfy({ $0 == "max_duration_ms" }) else {
-                throw BotMCPError.invalidRequest("Task budget accepts only max_duration_ms")
+                throw BotMCPError.invalidRequest("任务预算只接受 max_duration_ms")
             }
             let duration = try optionalInt(fields["max_duration_ms"])
             if let duration {
                 guard (BotTaskBudget.minimumDurationMs...BotTaskBudget.maximumDurationMs).contains(duration) else {
-                    throw BotMCPError.invalidRequest("Task budget.max_duration_ms must be 1000…300000")
+                    throw BotMCPError.invalidRequest("任务预算的 max_duration_ms 必须在 1000 到 300000 毫秒之间")
                 }
             }
             budget = BotTaskBudget(maxDurationMs: duration)
@@ -1734,10 +1749,10 @@ public actor BotMCPRuntime {
 
     private func awaitTask(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments, let id = string(args["task_id"]), !id.isEmpty else {
-            throw BotMCPError.invalidRequest("AwaitTask requires task_id")
+            throw BotMCPError.invalidRequest("等待任务需要提供任务编号")
         }
         let timeout = try optionalInt(args["timeout_ms"]) ?? 180_000
-        guard (1_000...600_000).contains(timeout) else { throw BotMCPError.invalidRequest("AwaitTask timeout_ms must be 1000…600000") }
+        guard (1_000...600_000).contains(timeout) else { throw BotMCPError.invalidRequest("等待任务的超时必须在 1000 到 600000 毫秒之间") }
         let executor = try taskExecutor(for: call.principal.botId)
         let record = try await executor.await(taskId: id, timeoutMs: timeout, parent: call)
         if ["completed", "failed", "stopped"].contains(record.status) {
@@ -1758,7 +1773,7 @@ public actor BotMCPRuntime {
     private func stopTask(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments else { throw BotMCPError.invalidRequest("arguments must be an object") }
         guard let id = firstNonEmpty(args["task_id"], args["id"]), !id.isEmpty else {
-            throw BotMCPError.invalidRequest("StopSubagent requires task_id")
+            throw BotMCPError.invalidRequest("停止任务需要提供任务编号")
         }
         let record = try await taskExecutor(for: call.principal.botId)
             .stop(taskId: id, parent: call)
@@ -1795,7 +1810,7 @@ public actor BotMCPRuntime {
                 return .failure(
                     "permission_denied",
                     outcome.pending
-                        ? "approval pending; the task is parked and resumes after the user decides"
+                        ? "审批还在等待用户确认；任务已经停下，用户决定后会继续"
                         : outcome.message ?? "routine change requires user confirmation in this turn")
             }
             authority.approvalID = outcome.approvalId
@@ -1804,7 +1819,7 @@ public actor BotMCPRuntime {
             machine: routineMachine, principal: call.principal, arguments: arguments,
             now: now(), authority: authority)
         guard case .object(let args) = arguments, case .string(let action)? = args["action"] else {
-            throw BotMCPError.invalidRequest("UpdateRoutine requires action")
+            throw BotMCPError.invalidRequest("更新例行任务需要指定动作")
         }
         if !["get", "list"].contains(action) {
             let type = action == "create" ? "routine.defined" : action == "delete" ? "routine.deleted" : "routine.updated"
@@ -1815,7 +1830,7 @@ public actor BotMCPRuntime {
 
     private func requestApproval(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
         guard case .object(let args) = arguments, let action = string(args["action"]), !action.isEmpty else {
-            throw BotMCPError.invalidRequest("RequestApproval requires action")
+            throw BotMCPError.invalidRequest("请求审批需要说明要申请什么")
         }
         let detail = string(args["detail"]) ?? ""
         let command = string(args["command"]) ?? ""
@@ -1850,16 +1865,44 @@ public actor BotMCPRuntime {
         if let scope = outcome.scope {
             result["scope"] = .string(scope)
         }
-        return .success(.object(result))
+        // The model sees this text as the tool result and tends to repeat it
+        // verbatim. Lead with the human outcome and keep the structured fields
+        // after it, so a plain-language reply never has to quote `allowed`,
+        // `decision`, `scope`, an approval id or an English enum. The
+        // structured content is unchanged for the card/row projection.
+        let value = BotJSONValue.object(result)
+        let encoded = (try? value.encoded()).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        return .success(value, text: Self.approvalResultSummary(outcome) + "\n" + encoded)
+    }
+
+    /// One plain Chinese sentence for the model-facing approval result. It
+    /// mirrors the receipt wording the user saw, without ids or enum names.
+    private static func approvalResultSummary(_ outcome: BotApprovalOutcome) -> String {
+        if outcome.pending {
+            return "审批请求已经发出，正在等用户确认。"
+        }
+        guard outcome.allowed else {
+            return "这次请求没有获得允许，已经停止。"
+        }
+        switch (outcome.decision, outcome.scope) {
+        case (.some(.always), .some("session")):
+            return "用户已允许，本次对话内都有效。"
+        case (.some(.always), .some("until")):
+            return "用户已总是允许，之后同类操作不必再问。"
+        case (.some(.allowOnce), _):
+            return "用户已允许这一次，可以继续。"
+        default:
+            return "用户已允许，可以继续。"
+        }
     }
 
     private func sendToUser(_ arguments: BotJSONValue, call: BotResolvedToolCall) async throws -> BotMCPCallResult {
-        guard call.principal.kind == .chat else { throw BotMCPError.invalidRequest("SendToUser is only available in the main chat") }
+        guard call.principal.kind == .chat else { throw BotMCPError.invalidRequest("只有主聊天可以主动发消息") }
         guard !hiddenTextSessions.contains(call.sessionId), !suppressingTextSessions.contains(call.sessionId) else {
-            throw BotMCPError.invalidRequest("Text output is suppressed for this turn")
+            throw BotMCPError.invalidRequest("这一回合的正文输出已被卡片收尾")
         }
         guard case .object(let args) = arguments, let message = string(args["message"]), !message.isEmpty else {
-            throw BotMCPError.invalidRequest("SendToUser requires message")
+            throw BotMCPError.invalidRequest("主动发消息需要提供内容")
         }
         let rowId = "message-\(UUID().uuidString.lowercased())"
         _ = try await eventWriter.append(
@@ -1989,10 +2032,10 @@ public actor BotMCPRuntime {
         switch error {
         case .invalidRequest(let message), .unavailable(let message): return message
         case .unauthorized: return "Unauthorized"
-        case .unknownTool(let name): return "Unknown tool: \(name)"
-        case .unattributed: return "The call is not attributable"
-        case .crossSessionDenied: return "The requested session is outside the caller's principal"
-        case .timeout: return "The operation timed out"
+        case .unknownTool(let name): return "未知工具：\(name)"
+        case .unattributed: return "这次调用无法归属到会话"
+        case .crossSessionDenied: return "请求的会话不属于当前调用方"
+        case .timeout: return "操作超时了"
         }
     }
 }

@@ -282,6 +282,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         guard attachments.count <= BotAttachmentPolicy.maxCount else {
             throw BotMCPError.invalidRequest("too_many_attachments")
         }
+        // A user turn opened while the App is still reattaching the Worker
+        // would be cancelled when the rebind swaps the transport. Wait for the
+        // same bounded readiness seam the tool gate uses, then open the turn
+        // against the replacement Worker.
+        try await awaitRuntimeReadiness()
         await onUserTurnStarted?()
         let sessionId = try await ensureMainSession()
         let steer = canSteer(sessionId: sessionId)
@@ -336,6 +341,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         guard BotTurnOrigin(rpcId: requestId).kind == .agent else {
             throw BotMCPError.invalidRequest("agent delivery requires an agent: request id")
         }
+        try await awaitRuntimeReadiness()
         let sessionId = try await ensureMainSession()
         return try await runTurn(sessionId: sessionId, kind: .chat, prompt: text,
                                  requestId: requestId, allowSteer: false)
@@ -457,6 +463,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     public func runRoutine(_ request: RoutineRunRequest) async -> RoutineExecutionResult {
+        guard await runtime.waitUntilRuntimeReady() else {
+            return .failure(BotMCPRuntime.runtimeRecoveringMessage)
+        }
         do {
             let sessionId: String
             if let resumeSessionID = request.resumeSessionID,
@@ -1095,8 +1104,8 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let detail = HeldMessages.escapedHeldField(error)
         let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n"
             + "\(title) | denied | \(taskID)\n"
-            + "The user did not approve the pending action (\(detail)). The task ended without executing it. "
-            + "Tell the user honestly that the task was denied; do not present it as done."
+            + "用户没有批准待确认的操作（\(detail)）。任务已经结束，没有执行。"
+            + "请如实告诉用户这次任务被拒绝了，不要把它说成已完成。"
         do {
             let wakeSessionId = await parentWakeSessionId(for: current)
             _ = try await runTurn(
@@ -1266,7 +1275,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             let escapedTaskID = HeldMessages.escapedHeldField(taskId)
             let prompt = "[SAND_HIDDEN_PROMPT][subagent]\n"
                 + "\(title) | interrupted | \(escapedTaskID)\n"
-                + "The Worker restarted and interrupted this task; its result is incomplete."
+                + "App 重启时中断了这个任务，结果还不完整。"
             do {
                 let wakeSessionId = await parentWakeSessionId(for: state)
                 let result = try await runTurn(
@@ -1504,9 +1513,9 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             "budget: used=\(verification.budget.usedMs)ms limit=\(verification.budget.limitMs)ms exceeded=\(verification.budget.exceeded)",
         ]
         if verification.verdict != .passed {
-            lines.append("[verification_instruction] This is the independent verifier's conclusion; the doer's own final message is not evidence. Tell the user honestly that the task did not pass or could not be verified and why, with the record references. Do not present it as done. Use SendToUser if you need to deliver that message from this hidden wake.")
+            lines.append("[verification_instruction] 这是独立验证器给出的结论；执行者自己的最终说明不算证据。请如实告诉用户任务没有通过或无法验证，以及原因和对应的记录引用，不要把它说成已完成。如果需要从这次隐藏唤醒里把结论发给用户，请用 SendToUser。")
         } else {
-            lines.append("[verification_instruction] This is the independent verifier's conclusion; the doer's own final message is not evidence. The task passed. No message is required.")
+            lines.append("[verification_instruction] 这是独立验证器给出的结论；执行者自己的最终说明不算证据。任务已通过，不需要再发消息。")
         }
         return lines.joined(separator: "\n")
     }
@@ -2275,6 +2284,15 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             sessionId, kind: kind,
             capabilities: sessions[sessionId]?.principal.capabilities
                 ?? restoredTaskCapabilities ?? [])
+    }
+
+    /// Throws the retryable human error when the App's bounded rebind wait
+    /// expires. Outside the App composition there is no probe and this is a
+    /// no-op, which keeps the library/test behavior unchanged.
+    private func awaitRuntimeReadiness() async throws {
+        guard await runtime.waitUntilRuntimeReady() else {
+            throw BotMCPError.unavailable(BotMCPRuntime.runtimeRecoveringMessage)
+        }
     }
 
     private func canSteer(sessionId: String) -> Bool {

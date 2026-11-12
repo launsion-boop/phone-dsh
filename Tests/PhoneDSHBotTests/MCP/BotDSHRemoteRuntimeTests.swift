@@ -187,6 +187,92 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertEqual(result.text, "resumed")
     }
 
+    /// A user turn opened right after a planned restart used to begin on the
+    /// not-yet-rebound runtime. The App's recovery then attached the
+    /// replacement transport and cancelled that in-flight turn (`cancelled`,
+    /// BotCompositionE2ETests `:265`). A turn must instead wait for the same
+    /// bounded readiness seam the tool gate uses and then run on the new
+    /// transport.
+    func testUserTurnWaitsForRuntimeReadinessAcrossAReplacedTransport() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let old = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(), .assistant("first"), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: old, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("first")
+        XCTAssertEqual(old.prompts.count, 1)
+
+        let readiness = BotReadinessGate()
+        await fixture.runtime.setRuntimeReadinessProbe(timeoutMilliseconds: 2_000) { budget in
+            await BotRuntimeReadiness.wait(
+                timeoutMilliseconds: budget, pollMilliseconds: 20,
+                isReady: { await readiness.isOpen() })
+        }
+        // A turn on the replaced Worker would wait behind this gate until the
+        // App's rebind cancels it. With the fix the send never opens a mux on
+        // the old transport.
+        old.pause("gb-main")
+        old.queue(sessionId: "gb-main", events: [.turn(2), .assistant("stale"), .end(turn: 2)])
+        let muxCountBefore = old.openMuxCount
+        let pending = Task { try await remote.sendUserMessage("after restart") }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while await readiness.callCount() == 0, old.openMuxCount == 0,
+              ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let replacement = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(2), .assistant("after restart"), .end(turn: 2)]],
+        ])
+        await remote.attachTransport(replacement)
+        old.resume("gb-main")
+        await readiness.open()
+        let result = try await pending.value
+        XCTAssertEqual(result.status, "completed", result.error ?? "no error")
+        XCTAssertEqual(result.text, "after restart")
+        XCTAssertEqual(replacement.prompts["gb-main"]?.text, "after restart")
+        XCTAssertEqual(old.openMuxCount, muxCountBefore,
+                       "the turn must not open a follow stream on the replaced transport")
+    }
+
+    func testUserTurnFailsWithAHumanRetryWhenReadinessExpires() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(), .assistant("first"), .end()]],
+        ])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        _ = try await remote.sendUserMessage("first")
+        await fixture.runtime.setRuntimeReadinessProbe(timeoutMilliseconds: 50) { _ in false }
+        do {
+            _ = try await remote.sendUserMessage("while recovering")
+            XCTFail("a turn must not start while the App is still rebinding")
+        } catch {
+            XCTAssertTrue(String(describing: error).contains(BotMCPRuntime.runtimeRecoveringMessage),
+                          String(describing: error))
+        }
+        XCTAssertEqual(transport.promptHistory.count, 1,
+                       "the refused turn must not reach the Worker")
+    }
+
+    func testRoutineRunReportsTheHumanRecoveryErrorInsteadOfCancelling() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [:])
+        let remote = try await BotDSHRemoteRuntime(transport: transport, runtime: fixture.runtime)
+        await fixture.runtime.setRuntimeReadinessProbe(timeoutMilliseconds: 50) { _ in false }
+        let routine = Routine(
+            id: "routine-recovering", agentId: "main", title: "Recovering",
+            prompt: "run", schedule: .interval(everyMinutes: 60), createdAt: 1)
+        let result = await remote.runRoutine(RoutineRunRequest(
+            botId: "main", routine: routine, runId: "run-recovering", attempt: 1,
+            startedAt: 1, timeoutMs: 60_000,
+            wake: RoutineWake(text: "run the routine", mode: .due)))
+        XCTAssertEqual(result.status, .failed)
+        XCTAssertEqual(result.error, BotMCPRuntime.runtimeRecoveringMessage)
+        XCTAssertEqual(transport.openMuxCount, 0)
+    }
+
     func testMainRecoveryWaitsForTheColdSessionBeforeCreatingAnother() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }
@@ -453,7 +539,7 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
         XCTAssertTrue(wake.contains("REPORT.md is missing"))
         XCTAssertTrue(wake.contains("record://session/gb-created-1#2"))
         XCTAssertFalse(wake.contains("DONE: I wrote REPORT.md"))
-        XCTAssertTrue(wake.contains("Tell the user honestly"))
+        XCTAssertTrue(wake.contains("如实告诉用户"))
 
         XCTAssertTrue(transport.claimedSessions.contains("gb-created-2"),
                       "the verifier session gets and claims its own credential")
@@ -1395,4 +1481,21 @@ private func withRecoveryTimeout<T: Sendable>(
         guard let value = try await group.next() else { throw RecoveryTimeout() }
         return value
     }
+}
+
+/// Test seam for the App composition's bounded readiness probe. The turn's
+/// probe sees `false` until the test opens the gate, so the test controls
+/// exactly which side of a transport replacement the turn starts on.
+private actor BotReadinessGate {
+    private var opened = false
+    private var calls = 0
+
+    func isOpen() -> Bool {
+        calls += 1
+        return opened
+    }
+
+    func callCount() -> Int { calls }
+
+    func open() { opened = true }
 }
