@@ -2086,6 +2086,10 @@ final class ChatModel {
         try Task.checkCancellation()
         guard isStillWanted() else { return false }
         pumpTask?.cancel()
+        // A queued snapshot for the previous session must not land after this
+        // switch. The writer's sequence check drops it; in-flight work fails
+        // the epoch check before it touches the file.
+        TranscriptSnapshotWriter.shared.invalidate()
         resetSessionLedgers()
         self.sessionID = session.id
         WorkspaceStorage.setCurrentSessionID(session.id, for: backendID)
@@ -2317,6 +2321,7 @@ final class ChatModel {
         pumpTask?.cancel(); pumpTask = nil
         eventStreamRecovering = false
         if let harness, let sessionID { await harness.closeSession(sessionID) }
+        TranscriptSnapshotWriter.shared.invalidate()
         harness = nil
         sessionID = nil
         transcriptReady = false
@@ -3193,6 +3198,8 @@ final class ChatModel {
 
     /// 重发时把 `reusing` 传进来:仍用原来那条气泡,不再长出新的一行。
     func send(_ text: String, attachments: [HarnessAttachment], reusing itemID: String? = nil) async -> Bool {
+        MainThreadHangMonitor.mark("send.start")
+        defer { MainThreadHangMonitor.mark("send.end") }
         let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty || !attachments.isEmpty else { return false }
         // A send while the engine is recovering (or being rebuilt) is queued;
@@ -3730,8 +3737,10 @@ final class ChatModel {
         try Task.checkCancellation()
         guard self.sessionID == sessionID else { throw CancellationError() }
         flushStreamingText()
+        MainThreadHangMonitor.mark("historyRestore.start")
         items = NativeTranscriptProjector.restoring(history.items, preservingInputsFrom: items,
                                                     inputReceipts: history.inputReceipts)
+        MainThreadHangMonitor.mark("historyRestore.end")
         turnStartTimes = history.turnFacts.starts
         turnEndReasons = history.turnFacts.endReasons
         turnEndTimes = history.turnFacts.ends
@@ -3765,12 +3774,13 @@ final class ChatModel {
     }
 
     private var latencyFirstEvents = Set<String>()
+    private static let latencyFormatter = ISO8601DateFormatter()
 
     /// Receipt times at the native client, not upstream model timings. Source
     /// event time and sequence let a diagnostic distinguish replay from delay.
     private func recordLatency(_ phase: String, event: HarnessEvent, once: Bool = false) {
         if once && !latencyFirstEvents.insert(phase).inserted { return }
-        Self.persistStatus("latency client-observed phase=\(phase) turn=\(activeTurn.map(String.init) ?? "none") seq=\(event.seq.map(String.init) ?? "none") source_time=\(ISO8601DateFormatter().string(from: event.time)) uptime_ms=\(Int(ProcessInfo.processInfo.systemUptime * 1000))")
+        Self.persistStatus("latency client-observed phase=\(phase) turn=\(activeTurn.map(String.init) ?? "none") seq=\(event.seq.map(String.init) ?? "none") source_time=\(Self.latencyFormatter.string(from: event.time)) uptime_ms=\(Int(ProcessInfo.processInfo.systemUptime * 1000))")
     }
 
     private func handle(_ event: HarnessEvent) {
@@ -4050,9 +4060,11 @@ final class ChatModel {
         streamFlushTask = nil
         let chunks = streamAccumulator.take()
         guard !chunks.isEmpty else { return }
-        var next = items
-        next.applyStreamChunks(chunks)
-        items = next
+        MainThreadHangMonitor.mark("flushStreamingText.start")
+        // Mutate the stored array in place: a `var next = items` copy makes the
+        // buffer non-unique, so the first append copies the whole transcript.
+        items.applyStreamChunks(chunks)
+        MainThreadHangMonitor.mark("flushStreamingText.end")
     }
 
     private func scheduleStreamingFlush() {
@@ -4254,42 +4266,6 @@ final class ChatModel {
         WorkspaceStorage.transcriptSnapshotURL(for: backendID, sessionID: sessionID)
     }
 
-    private static func snapshotKindName(_ kind: ChatItem.Kind) -> String {
-        switch kind {
-        case .user: return "user"
-        case .context: return "context"
-        case .assistant: return "assistant"
-        case .reasoning: return "reasoning"
-        case .image: return "image"
-        case .toolCall: return "toolCall"
-        case .toolResult(let isError): return isError ? "toolError" : "toolResult"
-        case .systemEvent: return "systemEvent"
-        case .turnError: return "turnError"
-        case .maxTokens: return "maxTokens"
-        case .unknown: return "unknown"
-        case .status: return "status"
-        }
-    }
-
-    private static func chatKind(from name: String) -> ChatItem.Kind? {
-        switch name {
-        case "user": return .user
-        case "context": return .context
-        case "assistant": return .assistant
-        case "reasoning": return .reasoning
-        case "image": return .image
-        case "toolCall": return .toolCall
-        case "toolResult": return .toolResult(isError: false)
-        case "toolError": return .toolResult(isError: true)
-        case "systemEvent": return .systemEvent
-        case "turnError": return .turnError
-        case "maxTokens": return .maxTokens
-        case "unknown": return .unknown
-        case "status": return .status
-        default: return nil
-        }
-    }
-
     /// Renders the last session's settled items before the host is ready.
     private func restoreCachedTranscriptIfAvailable() {
         guard items.isEmpty,
@@ -4368,36 +4344,26 @@ final class ChatModel {
 
     private static func chatItems(from cached: [CachedTranscriptItem]) -> [ChatItem] {
         cached.compactMap { item in
-            guard let kind = chatKind(from: item.kind) else { return nil }
+            guard let kind = CachedTranscriptItemKind.chatKind(from: item.kind) else { return nil }
             return ChatItem(id: item.id, kind: kind, title: item.title, text: item.text)
         }
     }
 
     /// Saves the settled items so the next launch can paint immediately.
+    ///
+    /// Main-actor cost is a CoW array capture plus the URL check. Filtering,
+    /// mapping, JSON encoding and the atomic write happen on the snapshot
+    /// writer's serial queue; the writer coalesces to the latest submit.
     private func persistTranscriptSnapshot() {
         guard !isShowingCachedTranscript, let sessionID else { return }
-        let settled = items.filter { !$0.streaming }
-        guard !settled.isEmpty else { return }
-        let cached = settled.map { item in
-            CachedTranscriptItem(id: item.id,
-                                 kind: Self.snapshotKindName(item.kind),
-                                 title: item.title,
-                                 text: item.text)
-        }
-        guard let data = CachedTranscriptCodec.encode(items: cached, backend: backendID,
-                                                      sessionID: sessionID, lastSeq: lastSeq)
-        else { return }
-        guard let url = snapshotURL(for: sessionID) else { return }
-        let directory = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        WorkspaceStorage.excludeFromBackup(directory)
-        try? data.write(to: url, options: .atomic)
-        // The cache is rebuildable: bound it off the main thread so a long
-        // history of opened sessions cannot grow without limit (P18).
-        let backend = backendID
-        Task.detached(priority: .utility) {
-            WorkspaceStorage.evictTranscriptSnapshots(for: backend, keeping: sessionID)
-        }
+        MainThreadHangMonitor.mark("persistTranscriptSnapshot.start")
+        // The writer resolves the URL and its directory on its own queue, so
+        // the main actor only retains the CoW items buffer.
+        TranscriptSnapshotWriter.shared.submit(items: items,
+                                               backend: backendID,
+                                               sessionID: sessionID,
+                                               lastSeq: lastSeq)
+        MainThreadHangMonitor.mark("persistTranscriptSnapshot.end")
     }
 
     /// One short line of a raw host message (the full text stays in
@@ -4461,14 +4427,7 @@ final class ChatModel {
     }
 
     static func appendDiagnostic(_ line: String) {
-        guard let data = (line + "\n").data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: statusLogURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: statusLogURL)
-        }
+        StatusLogWriter.shared.appendRaw(line)
     }
 
     /// 上一轮失败后可以原样重发的那一条;清掉草稿就不还字(Ato 定的)。
@@ -4654,20 +4613,12 @@ final class ChatModel {
     /// Status rows also go to `Documents/chat-status.log` so a host error can
     /// be read back from the device container after the fact (the transcript
     /// itself lives only in memory).
-    static let statusLogURL: URL = FileManager.default
-        .urls(for: .documentDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("chat-status.log")
+    static let statusLogURL: URL = StatusLogWriter.defaultURL
 
     private static func persistStatus(_ text: String) {
-        let stamp = ISO8601DateFormatter().string(from: Date())
-        guard let data = "\(stamp) \(text)\n".data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: statusLogURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: statusLogURL)
-        }
+        // The writer owns the long-lived handle and the one cached formatter;
+        // the main actor only reads a Date and hands over the line.
+        StatusLogWriter.shared.append(text)
     }
 
     private static func render(_ arguments: JSONValue) -> String {
