@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT
 //
 // Two claims are tested against the real router:
-//   * every route iOS presents with `.sheet` and the contract gives a page id (or
-//     the default set) renders through `PdshSheet` with that page's detents and
-//     `homeSheetChrome()`;
+//   * every route iOS presents with `.sheet` maps to a page id declared by the
+//     generated `interaction.sheet.pageDetents` table; the seven R1 sites own
+//     their ids and resolve the default set, and no product route uses the
+//     debug-only `chatSessions` id (PC-20261112-ui-round3 R1/R2);
 //   * the sheet registers on the host's shared `SheetBackHost`, so one back closes
 //     the sheet and leaves the stack below it untouched. A page-owned sheet in a
 //     host slot proves the same seam without a route-level conversion.
@@ -36,6 +37,7 @@ import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.theme.generated.UiTokenData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -70,44 +72,146 @@ class PdshSheetRoutesTest {
         PdshRoute.SessionSchedules,
     )
 
+    /**
+     * The seven `homeSheetChrome()` sites R1 of `PC-20261112-ui-round3` enumerates:
+     * each owns a page id now instead of sharing the contract's default id. Every
+     * one of them writes no `.presentationDetents`, so its row is the default set.
+     */
+    private val r1DefaultSetRoutes: List<Pair<PdshRoute, String>> = listOf(
+        PdshRoute.Automation to "automation",
+        PdshRoute.Configuration to "configuration",
+        PdshRoute.Settings to "settings",
+        PdshRoute.ModelProvider to "modelProvider",
+        PdshRoute.Runtime to "runtime",
+        PdshRoute.DeviceConnection to "deviceConnection",
+        PdshRoute.CommandResult to "commandResult",
+    )
+
+    /**
+     * Every route the router can present, so the no-`chatSessions` assertion covers
+     * the product vocabulary rather than only the audited sheet list. Data-class
+     * routes carry a harmless sample payload; only their page id is read.
+     */
+    private val allRoutes: List<PdshRoute> = listOf(
+        PdshRoute.Home,
+        PdshRoute.Chat,
+        PdshRoute.WorkspaceFolders,
+        PdshRoute.Files(),
+        PdshRoute.Automation,
+        PdshRoute.Configuration,
+        PdshRoute.Settings,
+        PdshRoute.MeTab,
+        PdshRoute.SettingsMore,
+        PdshRoute.Discover,
+        PdshRoute.ModelProvider,
+        PdshRoute.WebSearch,
+        PdshRoute.Mcp,
+        PdshRoute.Ssh,
+        PdshRoute.SshEditor(),
+        PdshRoute.Bluetooth,
+        PdshRoute.AndroidAdb,
+        PdshRoute.TonoAccount,
+        PdshRoute.McpEditor(),
+        PdshRoute.Runtime,
+        PdshRoute.Egress,
+        PdshRoute.Workbench(),
+        PdshRoute.Tools,
+        PdshRoute.Export,
+        PdshRoute.WebSurface,
+        PdshRoute.Sessions,
+        PdshRoute.DeviceConnection,
+        PdshRoute.DeviceSession("device-1"),
+        PdshRoute.SessionArtifacts("session-1"),
+        PdshRoute.AgentPresets,
+        PdshRoute.PluginInventory,
+        PdshRoute.PhonePermissions,
+        PdshRoute.ChatPreferences,
+        PdshRoute.SettingsDocument,
+        PdshRoute.Shortcuts,
+        PdshRoute.CommandResult,
+        PdshRoute.SessionJobs,
+        PdshRoute.SessionSchedules,
+        PdshRoute.Preview("notes.md"),
+        PdshRoute.PcPairing,
+        PdshRoute.ConnectedComputer,
+    )
+
     @Test
-    fun `every sheet route resolves a frozen page id and its detent set`() {
-        val pages = golden.array("pages").values.associate { raw ->
-            val page = raw as JsonObject
-            page.text("id") to page.text("detents")
-        }
+    fun `every sheet route maps to a page id generated from tokens`() {
+        val generatedIds = UiTokenData.sheet.pageDetents.map { it.id }.toSet()
         sheetRoutes.forEach { route ->
             val pageId = sheetPageIdOf(route)
             assertNotNull("$route must render through PdshSheet", pageId)
-            val explicit = pages[pageId]
-            if (explicit == null) {
-                assertEquals(
-                    "$route has no .presentationDetents site, so the contract default names it",
-                    golden.text("defaultDetents"),
-                    pageId,
-                )
-                assertEquals(
-                    "$pageId: rule 2 maps an unlisted sheet to the default set",
-                    UiTokenData.sheet.defaultDetents.spec,
-                    SheetDetents.forPage(pageId).spec,
-                )
-            } else {
-                assertEquals("$route: golden detent row for $pageId", explicit, SheetDetents.forPage(pageId).spec)
-                assertEquals(
-                    "$pageId: the generated page table carries the same detent set",
-                    explicit,
-                    UiTokenData.sheet.pageDetents.single { it.id == pageId }.detents.spec,
-                )
-            }
+            val id = requireNotNull(pageId)
+            assertTrue(
+                "$route maps to '$id', which interaction.sheet.pageDetents does not declare",
+                id in generatedIds,
+            )
+            assertEquals(
+                "$route: SheetDetents resolves the generated row for '$id'",
+                UiTokenData.sheet.pageDetents.single { it.id == id }.detents,
+                SheetDetents.forPage(id),
+            )
         }
     }
 
     @Test
-    fun `the explicit page ids are the four the baseline pins`() {
-        assertEquals("chatJobs", sheetPageIdOf(PdshRoute.SessionJobs))
-        assertEquals("chatSchedules", sheetPageIdOf(PdshRoute.SessionSchedules))
-        assertEquals("chatArtifacts", sheetPageIdOf(PdshRoute.SessionArtifacts("session-1")))
-        assertEquals("workbench", sheetPageIdOf(PdshRoute.Workbench()))
+    fun `the seven R1 sites use their own ids and the default detent set`() {
+        val generatedIds = UiTokenData.sheet.pageDetents.map { it.id }.toSet()
+        r1DefaultSetRoutes.forEach { (route, expectedId) ->
+            assertEquals("R1: $route has its own frozen page id", expectedId, sheetPageIdOf(route))
+            assertTrue(
+                "R1: '$expectedId' must be declared by interaction.sheet.pageDetents",
+                expectedId in generatedIds,
+            )
+            assertEquals(
+                "R1: $expectedId writes no .presentationDetents, so it is the default set",
+                UiTokenData.sheet.defaultDetents,
+                UiTokenData.sheet.pageDetents.single { it.id == expectedId }.detents,
+            )
+            assertEquals(
+                "R1: SheetDetents.forPage('$expectedId') is the default set",
+                UiTokenData.sheet.defaultDetents,
+                SheetDetents.forPage(expectedId),
+            )
+        }
+    }
+
+    @Test
+    fun `no product route maps to the debug-only chatSessions id`() {
+        allRoutes.forEach { route ->
+            assertNotEquals(
+                "$route must not use iOS's debug-only `chatSessions` sheet (R2)",
+                "chatSessions",
+                sheetPageIdOf(route),
+            )
+        }
+        // The drawer-pushed sessions list is a push, not the preview-only sheet.
+        assertEquals(PdshPresentation.PUSH, PdshRoute.Sessions.presentation)
+        assertNull(sheetPageIdOf(PdshRoute.Sessions))
+    }
+
+    @Test
+    fun `the four explicit detent sites keep their frozen ids and sets`() {
+        val pages = golden.array("pages").values.associate { raw ->
+            val page = raw as JsonObject
+            page.text("id") to page.text("detents")
+        }
+        val explicit = mapOf(
+            PdshRoute.SessionJobs to "chatJobs",
+            PdshRoute.SessionSchedules to "chatSchedules",
+            PdshRoute.SessionArtifacts("session-1") to "chatArtifacts",
+            PdshRoute.Workbench() to "workbench",
+        )
+        explicit.forEach { (route, pageId) ->
+            assertEquals("$route: the baseline pins '$pageId'", pageId, sheetPageIdOf(route))
+            assertEquals("$route: golden detent row for '$pageId'", pages[pageId], SheetDetents.forPage(pageId).spec)
+            assertEquals(
+                "$pageId: the generated page table carries the golden detent set",
+                pages[pageId],
+                UiTokenData.sheet.pageDetents.single { it.id == pageId }.detents.spec,
+            )
+        }
     }
 
     @Test
