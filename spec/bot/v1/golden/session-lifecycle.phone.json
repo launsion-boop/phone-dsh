@@ -107,6 +107,13 @@
         "source": "Sources/PhoneDSHBot/Attachments/BotWorkspaceLayout.swift:35-49"
       },
       {
+        "name": "grapheme-truncation-zwj-and-flag",
+        "botId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\ud83c\uddfa\ud83c\uddf8",
+        "safe": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_",
+        "root": "/dsh/workspace/.dshbot/agents/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_",
+        "source": "Sources/PhoneDSHBot/Attachments/BotWorkspaceLayout.swift:35-49"
+      },
+      {
         "name": "datadir-trailing-slash",
         "botId": "main",
         "dataDirectory": "/dsh/workspace/.dshbot///",
@@ -1293,6 +1300,231 @@
             {
               "kind": "textDelta",
               "text": "llo"
+            },
+            {
+              "kind": "event",
+              "type": "assistant/message"
+            },
+            {
+              "kind": "event",
+              "type": "turn/end"
+            }
+          ]
+        }
+      },
+      {
+        "name": "follow-skips-item-before-snapshot",
+        "source": "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:2214-2230",
+        "action": "sendUserMessage",
+        "text": "hello",
+        "transport": {
+          "create": [
+            {
+              "sessionId": "gb-main",
+              "agentPreset": "$requestedPreset"
+            }
+          ],
+          "claim": [
+            {
+              "ok": true
+            }
+          ],
+          "turns": [
+            [
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "assistant-stream",
+                  "time": 900,
+                  "frame": {
+                    "type": "chunk",
+                    "chunk": {
+                      "type": "text-delta",
+                      "text": "skip"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "snapshot",
+                  "cursor": 0
+                }
+              },
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "event",
+                  "event": {
+                    "type": "turn/start",
+                    "seq": 1,
+                    "time": 1000,
+                    "data": {
+                      "turn": 1
+                    }
+                  }
+                }
+              },
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "assistant-stream",
+                  "time": 1100,
+                  "frame": {
+                    "type": "start"
+                  }
+                }
+              },
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "assistant-stream",
+                  "time": 1200,
+                  "frame": {
+                    "type": "chunk",
+                    "chunk": {
+                      "type": "text-delta",
+                      "text": "hi"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "event",
+                  "event": {
+                    "type": "assistant/message",
+                    "seq": 3,
+                    "time": 3000,
+                    "data": {
+                      "turn": 1,
+                      "message": {
+                        "role": "assistant",
+                        "content": [
+                          {
+                            "type": "text",
+                            "text": "hi"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "event",
+                  "event": {
+                    "type": "turn/end",
+                    "seq": 5,
+                    "time": 5000,
+                    "data": {
+                      "reason": {
+                        "kind": "completed"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          ]
+        },
+        "expect": {
+          "result": {
+            "status": "completed",
+            "text": "hi",
+            "turnId": "1"
+          },
+          "createRequests": [
+            {
+              "request": {
+                "sessionId": "gb-main",
+                "cwd": "/dsh/workspace/.dshbot/agents/main",
+                "agentPreset": "phone-bot"
+              }
+            }
+          ],
+          "claimRequests": [
+            {
+              "request": {
+                "sessionId": "gb-main",
+                "sessionToken": "re:^dshg_[A-Za-z0-9_-]{43}$"
+              }
+            }
+          ],
+          "pageRequests": [],
+          "archive": [],
+          "unarchive": [],
+          "events": [
+            {
+              "type": "runtime.started",
+              "principal": {
+                "botId": "main",
+                "sessionId": "gb-main",
+                "kind": "chat"
+              },
+              "data": {
+                "sessionId": "gb-main",
+                "botId": "main",
+                "cwd": "/dsh/workspace/.dshbot/agents/main"
+              }
+            }
+          ],
+          "promptRequests": [
+            {
+              "request": {
+                "sessionId": "gb-main",
+                "mode": "queue",
+                "requestId": "re:^bot-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hello"
+                  }
+                ]
+              }
+            }
+          ],
+          "followOpen": [
+            {
+              "type": "open",
+              "streamId": "follow",
+              "endpoint": "session/follow",
+              "payload": {
+                "args": {
+                  "request": {
+                    "address": {
+                      "kind": "session",
+                      "sessionId": "gb-main"
+                    },
+                    "maxMessages": 64,
+                    "assistantStream": true
+                  }
+                }
+              }
+            }
+          ],
+          "liveFrames": [
+            {
+              "kind": "event",
+              "type": "turn/start"
+            },
+            {
+              "kind": "streamStart"
+            },
+            {
+              "kind": "textDelta",
+              "text": "hi"
             },
             {
               "kind": "event",
@@ -2770,6 +3002,72 @@
           ],
           "turns": [
             [
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "end"
+                }
+              }
+            ]
+          ]
+        },
+        "expect": {
+          "errorContains": [
+            "ended before its snapshot"
+          ],
+          "promptRequests": [],
+          "events": [
+            {
+              "type": "runtime.started",
+              "principal": {
+                "botId": "main",
+                "sessionId": "gb-main",
+                "kind": "chat"
+              },
+              "data": {
+                "sessionId": "gb-main",
+                "botId": "main",
+                "cwd": "/dsh/workspace/.dshbot/agents/main"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "follow-skips-item-then-ends-before-snapshot",
+        "source": "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift:2214-2230",
+        "action": "sendUserMessage",
+        "text": "hello",
+        "transport": {
+          "create": [
+            {
+              "sessionId": "gb-main",
+              "agentPreset": "$requestedPreset"
+            }
+          ],
+          "claim": [
+            {
+              "ok": true
+            }
+          ],
+          "turns": [
+            [
+              {
+                "type": "item",
+                "streamId": "follow",
+                "value": {
+                  "type": "assistant-stream",
+                  "time": 900,
+                  "frame": {
+                    "type": "chunk",
+                    "chunk": {
+                      "type": "text-delta",
+                      "text": "skip"
+                    }
+                  }
+                }
+              },
               {
                 "type": "item",
                 "streamId": "follow",

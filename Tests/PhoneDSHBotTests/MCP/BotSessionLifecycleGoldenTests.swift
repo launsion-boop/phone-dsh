@@ -285,6 +285,9 @@ final class BotSessionLifecycleGoldenTests: XCTestCase {
 
     // MARK: - Session transcripts
 
+    /// `sendUserMessage` reaches the private `waitForSnapshot` through the real
+    /// `runCoordinatedTurn`, so the §6.2 skip/end vectors below exercise the
+    /// shipped wait loop rather than a test double.
     func testSessionLifecycleVectors() async throws {
         let fixture = try fixture()
         let valid = try XCTUnwrap((fixture["valid"] as? [String: Any])?["sessions"] as? [[String: Any]])
@@ -374,6 +377,10 @@ final class BotSessionLifecycleGoldenTests: XCTestCase {
             for fragment in expect["errorContains"] as? [String] ?? [] {
                 XCTAssertTrue(description.localizedCaseInsensitiveContains(fragment),
                               "\(label): \(description) must contain \(fragment)")
+            }
+            if let expectedPrompts = expect["promptRequests"] as? [Any], expectedPrompts.isEmpty {
+                XCTAssertTrue(transport.promptArguments.isEmpty,
+                              "\(label): the failure must happen before session/prompt")
             }
         } else {
             XCTAssertNil(thrown, "\(label): unexpected failure \(String(describing: thrown))")

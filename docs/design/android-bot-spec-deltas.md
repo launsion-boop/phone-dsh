@@ -1012,11 +1012,15 @@ exports):
   collapse, tombstones, `watch(after:)`, cursor/reset, reconciliation, epoch chains, the 10 updates/s
   limiter and its `nextFlushAt`, the display-contract bridge, and App history paging (P09 consumer,
   iOS conformance NOT_RUN because `examples/probe-app/**` is outside the SwiftPM targets).
-- [golden/session-lifecycle.phone.json](../../spec/bot/v1/golden/session-lifecycle.phone.json): 23
-  workspace (17 valid + 6 fallback), 20 token-registry (7 valid + 13 invalid) and 19 session
-  request/response (12 valid + 7 fail-closed) vectors. Each case carries a `source` (`file:line`);
+- [golden/session-lifecycle.phone.json](../../spec/bot/v1/golden/session-lifecycle.phone.json): 24
+  workspace (18 valid + 6 fallback), 20 token-registry (7 valid + 13 invalid) and 21 session
+  request/response (13 valid + 8 fail-closed) vectors. Each case carries a `source` (`file:line`);
   invalid cases freeze composed-preset mismatch, missing `sessionId`/`agentPreset`, non-conflict
-  create errors, unacknowledged legacy claims, claim errors and a follow stream without a snapshot.
+  create errors, unacknowledged legacy claims, claim errors and `session/follow` failing before its
+  snapshot. The `session/follow` wait follows `waitForSnapshot`
+  (`BotDSHRemoteRuntime.swift:2214-2230`): a `follow` item whose `value.type` is neither `snapshot`
+  nor `end` is skipped, so one valid case has a pre-snapshot item and the turn still proceeds; `end`,
+  an `error` frame or a closed socket fails with `unavailable` before `session/prompt`.
 - [golden/projection.phone.json](../../spec/bot/v1/golden/projection.phone.json): 15 DSH mapping, 8 UI
   mapping, 7 invalid-record, 3 history cases (8 rebuild/watch steps) and 2 streaming cases. `origins` lets the Python
   validator re-check `rowID`/`entrySeq`; `display` freezes the `BotDisplayContract` composition for

@@ -805,11 +805,10 @@ public class BotSessionRuntime(
                 "snapshot" -> return
                 "end" -> throw BotSessionException(
                     "unavailable", "session/follow ended before its snapshot")
-                // §6.2: the first follow item MUST be the snapshot. The
-                // reference implementation skips a non-snapshot item; the
-                // frozen text fails closed before session/prompt.
-                else -> throw BotSessionException(
-                    "unavailable", "session/follow did not start with its snapshot")
+                // §6.2 (`waitForSnapshot`, BotDSHRemoteRuntime.swift:2214-2230):
+                // a follow item that is neither the snapshot nor the end is
+                // skipped; only end/error/closed socket fail this wait.
+                else -> Unit
             }
         }
     }

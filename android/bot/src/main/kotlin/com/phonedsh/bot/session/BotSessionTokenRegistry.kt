@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.bot.session
 
+import com.phonedsh.bot.attachments.BotWorkspaceLayout
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.text.BreakIterator
 import java.util.Base64
 
 /**
@@ -249,13 +249,7 @@ public class BotSessionTokenRegistry(
     }
 
     /** Extended grapheme clusters, matching Swift's `String.count`. */
-    private fun characterCount(value: String): Int {
-        val iterator = BreakIterator.getCharacterInstance()
-        iterator.setText(value)
-        var count = 0
-        while (iterator.next() != BreakIterator.DONE) count++
-        return count
-    }
+    private fun characterCount(value: String): Int = BotWorkspaceLayout.graphemeClusterCount(value)
 
     private fun randomBytes(count: Int): ByteArray {
         val bytes = ByteArray(count)

@@ -2684,11 +2684,14 @@ def _expect_phone_vector(fixture, vector_name):
 
 
 def _graphemes(text):
-    """Approximate extended grapheme clusters for the frozen alphabet.
+    """Approximate extended grapheme clusters for the sanitized alphabet.
 
-    The contract keeps Unicode L*, M* and N* scalars. Only combining marks can
-    extend a cluster in this alphabet; the fixture's 65-cluster case is
-    e + combining acute, which this loop groups correctly.
+    §2.1 replaces every scalar outside L*/M*/N*/`._-` with `_` *before*
+    truncating, so emoji ZWJ sequences, flags and modifiers never reach this
+    loop; only a combining mark can extend a cluster here. The Kotlin runtime's
+    shared helper also implements GB11/GB12/GB13 for callers that truncate raw
+    text, and the `grapheme-truncation` / `grapheme-truncation-zwj-and-flag`
+    vectors pin the sanitize-then-truncate order.
     """
     clusters = []
     for character in text:
@@ -2712,6 +2715,162 @@ def _safe_path_component(raw):
     if value in ("", ".", ".."):
         value = "bot"
     return "".join(_graphemes(value)[:64])
+
+
+_SESSION_FOLLOW_SNAPSHOT_ERROR = "session/follow ended before its snapshot"
+
+
+def _follow_wait_outcome(frames):
+    """Model `waitForSnapshot` (`BotDSHRemoteRuntime.swift:2214-2230`).
+
+    Returns ``(True, None)`` once the `snapshot` arrives, otherwise
+    ``(False, message)`` for an `error` frame, an `end` value or a closed
+    socket. A `follow` item whose `value.type` is neither `snapshot` nor `end`
+    is skipped. Foreign stream ids and non-item frames are ignored.
+    """
+    for frame in frames or []:
+        if not isinstance(frame, dict):
+            continue
+        if frame.get("__awaitCancel") is True:
+            continue
+        if frame.get("type") == "error":
+            error = frame.get("error")
+            message = error.get("message") if isinstance(error, dict) else None
+            return False, message or "session/follow failed"
+        if frame.get("type") != "item" or frame.get("streamId") != "follow":
+            continue
+        value = frame.get("value")
+        value_type = value.get("type") if isinstance(value, dict) else None
+        if value_type == "snapshot":
+            return True, None
+        if value_type == "end":
+            return False, _SESSION_FOLLOW_SNAPSHOT_ERROR
+    return False, _SESSION_FOLLOW_SNAPSHOT_ERROR
+
+
+def _session_turns(case):
+    transport = case.get("transport")
+    if not isinstance(transport, dict):
+        return []
+    turns = transport.get("turns")
+    return turns if isinstance(turns, list) else []
+
+
+def _validate_session_workspace(fixture):
+    workspace = _family(fixture, "valid", "workspace", "session-lifecycle")
+    for case in workspace:
+        if not isinstance(case.get("source"), str):
+            raise AssertionError("session-lifecycle.workspace: source")
+        safe = _safe_path_component(case["botId"])
+        if safe != case["safe"]:
+            raise AssertionError(f"workspace {case['name']}: safe {safe!r} != {case['safe']!r}")
+        directory = case.get("dataDirectory", "/dsh/workspace/.dshbot")
+        while len(directory) > 1 and directory.endswith("/"):
+            directory = directory[:-1]
+        root = f"{directory}/agents/{safe}"
+        if root != case["root"]:
+            raise AssertionError(f"workspace {case['name']}: root {root!r} != {case['root']!r}")
+    invalid = _family(fixture, "invalid", "workspace", "session-lifecycle")
+    for case in invalid:
+        if not isinstance(case.get("why"), str) or not case["why"]:
+            raise AssertionError("session-lifecycle.workspace invalid: why")
+        if _safe_path_component(case["botId"]) != case["safe"]:
+            raise AssertionError(f"workspace {case['name']}: fallback")
+    return workspace, invalid
+
+
+def validate_session_snapshot_wait_vectors(fixture):
+    """Check the §6.2 snapshot-wait transcript model and its mutations.
+
+    The valid fixture must contain a `follow` item before the snapshot and the
+    turn must still proceed. The invalid fixture must contain a skipped item
+    followed by `end`, which fails with the frozen message before
+    `session/prompt`.
+    """
+    skipped_before_snapshot = 0
+    ended_after_skip = 0
+    for group, cases in (("valid", fixture["valid"]["sessions"]),
+                         ("invalid", fixture["invalid"]["sessions"])):
+        for case in cases:
+            label = f"session-lifecycle.{group}.{case.get('name')}"
+            expect = case.get("expect") or {}
+            expect_error = " ".join(expect.get("errorContains") or [])
+            turns = _session_turns(case)
+            if not turns:
+                continue
+            for index, frames in enumerate(turns):
+                where = f"{label}.transport.turns[{index}]"
+                ok, message = _follow_wait_outcome(frames)
+                if ok:
+                    if "ended before its snapshot" in expect_error:
+                        raise AssertionError(
+                            f"{where}: snapshot wait passed but the case expects an end failure")
+                    first_follow = next(
+                        (item for item in frames or []
+                         if isinstance(item, dict) and item.get("type") == "item"
+                         and item.get("streamId") == "follow"), None)
+                    if first_follow is not None and (
+                            first_follow.get("value") or {}).get("type") != "snapshot":
+                        skipped_before_snapshot += 1
+                        if not expect.get("promptRequests"):
+                            raise AssertionError(
+                                f"{where}: a skipped pre-snapshot item must still prompt")
+                elif "ended before its snapshot" in expect_error:
+                    saw_skip = any(
+                        isinstance(item, dict) and item.get("type") == "item"
+                        and item.get("streamId") == "follow"
+                        and isinstance(item.get("value"), dict)
+                        and item["value"].get("type") not in ("snapshot", "end")
+                        for item in frames or [])
+                    if saw_skip:
+                        ended_after_skip += 1
+            if "ended before its snapshot" in expect_error:
+                ok, message = _follow_wait_outcome(turns[0])
+                if ok or message != _SESSION_FOLLOW_SNAPSHOT_ERROR:
+                    raise AssertionError(
+                        f"{label}: end before snapshot must fail with "
+                        f"{_SESSION_FOLLOW_SNAPSHOT_ERROR!r}")
+                if expect.get("promptRequests") != []:
+                    raise AssertionError(f"{label}: an end before snapshot must not prompt")
+    if skipped_before_snapshot == 0:
+        raise AssertionError(
+            "session-lifecycle: no valid vector covers a skipped item before the snapshot")
+    if ended_after_skip == 0:
+        raise AssertionError(
+            "session-lifecycle: no invalid vector covers a skipped item followed by end")
+
+    def mutated_skip_to_end():
+        mutated = copy.deepcopy(fixture)
+        case = next(c for c in mutated["valid"]["sessions"]
+                    if c["name"] == "follow-skips-item-before-snapshot")
+        frames = case["transport"]["turns"][0]
+        for index, frame in enumerate(frames):
+            value = frame.get("value") if isinstance(frame, dict) else None
+            if (frame.get("type") == "item" and frame.get("streamId") == "follow"
+                    and isinstance(value, dict)
+                    and value.get("type") not in ("snapshot", "end")):
+                frames[index] = {"type": "item", "streamId": "follow",
+                                 "value": {"type": "end"}}
+                break
+        validate_session_snapshot_wait_vectors(mutated)
+
+    _expect_contract_failure("session follow snapshot skip", mutated_skip_to_end)
+
+    def mutated_end_to_snapshot():
+        mutated = copy.deepcopy(fixture)
+        case = next(c for c in mutated["invalid"]["sessions"]
+                    if c["name"] == "follow-skips-item-then-ends-before-snapshot")
+        frames = case["transport"]["turns"][0]
+        for index, frame in enumerate(frames):
+            value = frame.get("value") if isinstance(frame, dict) else None
+            if (frame.get("type") == "item" and frame.get("streamId") == "follow"
+                    and isinstance(value, dict) and value.get("type") == "end"):
+                frames[index] = {"type": "item", "streamId": "follow",
+                                 "value": {"type": "snapshot", "cursor": 0}}
+                break
+        validate_session_snapshot_wait_vectors(mutated)
+
+    _expect_contract_failure("session follow snapshot end", mutated_end_to_snapshot)
 
 
 def _entry_seq(time_value, source_seq):
@@ -3451,24 +3610,7 @@ def _run_token_case(model, vector):
 
 def validate_session_lifecycle_fixture(fixture):
     _expect_phone_vector(fixture, "session-lifecycle.phone")
-    workspace = _family(fixture, "valid", "workspace", "session-lifecycle")
-    for case in workspace:
-        if not isinstance(case.get("source"), str):
-            raise AssertionError("session-lifecycle.workspace: source")
-        safe = _safe_path_component(case["botId"])
-        if safe != case["safe"]:
-            raise AssertionError(f"workspace {case['name']}: safe {safe!r} != {case['safe']!r}")
-        directory = case.get("dataDirectory", "/dsh/workspace/.dshbot")
-        while len(directory) > 1 and directory.endswith("/"):
-            directory = directory[:-1]
-        root = f"{directory}/agents/{safe}"
-        if root != case["root"]:
-            raise AssertionError(f"workspace {case['name']}: root {root!r} != {case['root']!r}")
-    for case in _family(fixture, "invalid", "workspace", "session-lifecycle"):
-        if not isinstance(case.get("why"), str) or not case["why"]:
-            raise AssertionError("session-lifecycle.workspace invalid: why")
-        if _safe_path_component(case["botId"]) != case["safe"]:
-            raise AssertionError(f"workspace {case['name']}: fallback")
+    workspace, invalid_workspace = _validate_session_workspace(fixture)
     registry = (fixture["valid"].get("tokenRegistry") or {})
     defaults = registry.get("defaults") or {}
     if defaults.get("defaultTTLMilliseconds") != 43200000:
@@ -3655,7 +3797,18 @@ def validate_session_lifecycle_fixture(fixture):
         _run_token_case(model, mutated["valid"]["tokenRegistry"]["cases"][0])
 
     _expect_contract_failure("token lookup", mutated_token)
-    return (len(workspace) + len(_family(fixture, "invalid", "workspace", "session-lifecycle")),
+
+    def mutated_grapheme():
+        mutated = copy.deepcopy(fixture)
+        case = next(c for c in mutated["valid"]["workspace"]
+                    if c["name"] == "grapheme-truncation")
+        case["safe"] = case["safe"][:-1]
+        _validate_session_workspace(mutated)
+
+    _expect_contract_failure("grapheme truncation", mutated_grapheme)
+
+    validate_session_snapshot_wait_vectors(fixture)
+    return (len(workspace) + len(invalid_workspace),
             len(token_cases) + len(_family(fixture, "invalid", "tokenRegistry", "session-lifecycle")),
             len(sessions) + len(_family(fixture, "invalid", "sessions", "session-lifecycle")))
 

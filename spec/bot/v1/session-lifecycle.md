@@ -312,10 +312,11 @@ A coordinated turn opens one mux (`:2163-2173`) and sends exactly:
 }
 ```
 
-The first `item` frame on `streamId == "follow"` MUST be `value.type == "snapshot"`; otherwise the
-turn fails before `session/prompt` (`waitForSnapshot`, `:2214-2230`). An `error` frame fails with
-`unavailable(message)`; an `end`/closed socket before the snapshot fails with
-`unavailable("session/follow ended before its snapshot")`. Frames for other stream ids are ignored.
+While waiting for the snapshot, an `item` frame on `streamId == "follow"` whose `value.type` is
+neither `snapshot` nor `end` is **skipped**; it does not fail the turn (`waitForSnapshot`,
+`:2214-2230`). An `item` on that stream whose `value.type == "end"`, or a closed socket, fails
+before `session/prompt` with `unavailable("session/follow ended before its snapshot")`; an `error`
+frame fails with `unavailable(message)`. Frames for other stream ids are ignored.
 
 `collectTurn` (`:2232-2417`) consumes frames until `turn/end`. A non-item frame, a foreign
 `streamId`, or a record without numeric `seq` is ignored. A `type == "assistant-stream"` item with
