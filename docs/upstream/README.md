@@ -40,6 +40,13 @@ and apply one at a time with:
 git -C "$PDSH_DSH_CHECKOUT" apply "$PWD/docs/upstream/0001-worker-host-pass-sink.patch"
 ```
 
+## Pending proposal — persist a partial assistant stream on interrupt
+
+[`2026-11-12-persist-partial-assistant-on-interrupt.md`](2026-11-12-persist-partial-assistant-on-interrupt.md)
+proposes a durable `assistant/attempt{interrupted:true}` so an abandoned stream
+is not lost when the App or WebContent is killed. It is a proposal note, not a
+patch; phoneDSH keeps only a display-only local draft meanwhile.
+
 ## Pending proposal — Cordis `Fiber.dispose` return value
 
 This is a proposal note, not a generated patch yet. In DSH's

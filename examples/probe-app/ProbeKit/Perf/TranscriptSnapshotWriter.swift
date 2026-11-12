@@ -138,7 +138,10 @@ public final class TranscriptSnapshotWriter {
             lock.lock(); skipped += 1; lock.unlock()
             return
         }
-        let settled = job.items.filter { !$0.streaming }
+        // Display-only interrupted-stream rows are not part of the durable
+        // tail. Keeping them out of the snapshot is also what prevents a
+        // second launch from painting the draft twice.
+        let settled = job.items.filter { !$0.streaming && !$0.isInterruptedDraft }
         guard !settled.isEmpty else { return }
         let cached = settled.map { item in
             CachedTranscriptItem(id: item.id,
