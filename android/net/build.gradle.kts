@@ -28,12 +28,21 @@ dependencies {
     implementation("io.ktor:ktor-server-cio:3.2.3")
     implementation("io.ktor:ktor-server-websockets:3.2.3")
 
+    // Cloud voice consumer: the ASR session is one RFC 6455 WebSocket
+    // (pdsh-asr.v1) and TTS streams a PCM body. P05 dependency decision
+    // PC-20261112-android-voice-consumer; same 3.2.3 pins as the server above.
+    // The loopback channel conformance probes also use the client modules.
+    implementation("io.ktor:ktor-client-core:3.2.3")
+    implementation("io.ktor:ktor-client-cio:3.2.3")
+    implementation("io.ktor:ktor-client-websockets:3.2.3")
+
     testImplementation(libs.junit)
-    // Channel conformance probes (order, backpressure, half-close) and the
-    // HTTP-level gate checks.
-    testImplementation("io.ktor:ktor-client-core:3.2.3")
-    testImplementation("io.ktor:ktor-client-cio:3.2.3")
-    testImplementation("io.ktor:ktor-client-websockets:3.2.3")
+}
+
+// The voice tests read spec/v1/golden/cloud-voice/cases.json from disk, the
+// same `pdsh.repo.root` pattern as :core and :domain.
+tasks.test {
+    systemProperty("pdsh.repo.root", rootProject.projectDir.parentFile.absolutePath)
 }
 
 // ---- the published coordinate ------------------------------------------------

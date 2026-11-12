@@ -2,17 +2,21 @@
 // SPDX-License-Identifier: MIT
 package com.phonedsh.ui.nav
 
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.Indication
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
@@ -29,13 +33,12 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -45,6 +48,7 @@ import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerInputScope
@@ -74,15 +78,27 @@ import androidx.compose.ui.unit.sp
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.SessionsMetrics
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
+import com.phonedsh.ui.disclosure.PdshFolderGroup
+import com.phonedsh.ui.menu.ContextMenuItem
+import com.phonedsh.ui.menu.ContextMenuModel
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.PdshContextMenu
 import com.phonedsh.ui.page.workspaceTitle
+import com.phonedsh.ui.page.PcDrawerBackend
+import com.phonedsh.ui.page.PcDrawerUiState
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
+import com.phonedsh.ui.press.pillPressed
+import com.phonedsh.ui.press.rowPressed
 import com.phonedsh.ui.theme.LocalUiDarkTheme
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.theme.UiShadow
 import com.phonedsh.ui.theme.UiTokens
 import com.phonedsh.ui.theme.applySystemBarAppearance
+import com.phonedsh.ui.theme.generated.TokenContextMenuWhen
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -146,6 +162,23 @@ public fun HomeDrawer(
     onOpenSession: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
     state: HomeDrawerUiState = rememberHomeDrawerUiState(),
+    /**
+     * One system back while the drawer is open. The host routes it through its
+     * back coordinator so the drawer's `DRAWER` overlay is consumed exactly once
+     * and the close motion below still runs; `null` keeps the drawer's own
+     * [requestClose] path for a standalone mount.
+     */
+    onBackPressed: (() -> Unit)? = null,
+    /**
+     * The 手机 | PC selection and the PC list region. P18 owns the persisted
+     * value (`phone-dsh.drawer.backend`); this drawer only reports the tap.
+     */
+    pcDrawer: PcDrawerUiState = PcDrawerUiState(),
+    onSelectPcBackend: (PcDrawerBackend) -> Unit = {},
+    onOpenPcPairing: () -> Unit = {},
+    onRetryPc: () -> Unit = {},
+    onOpenPcSession: ((String) -> Unit)? = null,
+    onOpenConnectedComputer: (() -> Unit)? = null,
 ) {
     // The drawer follows the app's theme. It used to resolve a light token
     // table for dark mode (the iOS shell's fixed light panel); that painted a
@@ -383,11 +416,31 @@ public fun HomeDrawer(
 
     if (dialogVisible) Dialog(onDismissRequest = ::dismissDrawer, properties = DialogProperties(
         usePlatformDefaultWidth = false,
-        dismissOnBackPress = true,
+        dismissOnBackPress = false,
         dismissOnClickOutside = true,
         decorFitsSystemWindows = false,
     )) {
       val dialogView = LocalView.current
+      // `Dialog` installs its own always-enabled callback, and with
+      // `dismissOnBackPress = false` that callback swallows the gesture. This
+      // callback registers after it, so it runs first and hands the one gesture
+      // to the host coordinator (one back = one layer); a standalone mount keeps
+      // the drawer's existing close path.
+      val latestHostBack by rememberUpdatedState(onBackPressed)
+      val latestBackClosable by rememberUpdatedState(!closing && !dismissedLocally)
+      DisposableEffect(dialogView) {
+          val owner = dialogView.findViewTreeOnBackPressedDispatcherOwner()
+              ?: return@DisposableEffect onDispose {}
+          val callback = object : OnBackPressedCallback(true) {
+              override fun handleOnBackPressed() {
+                  if (!latestBackClosable) return
+                  val hostBack = latestHostBack
+                  if (hostBack != null) hostBack() else dismissDrawer()
+              }
+          }
+          owner.onBackPressedDispatcher.addCallback(callback)
+          onDispose { callback.remove() }
+      }
       SideEffect {
           (dialogView.parent as? DialogWindowProvider)?.window?.let { window ->
               // Only the composable's own scrim may animate: the platform window
@@ -446,7 +499,7 @@ public fun HomeDrawer(
             Modifier.width(panelWidth).fillMaxHeight()
                 .offset { IntOffset(panelOffset.dp.roundToPx(), 0) }
                 .drawerShadow(tokens.shadow, drawerShape)
-                .clip(drawerShape)
+                .clipToShape(drawerShape)
                 .background(tokens.colors.page)
                 .pointerInput(drawer) {
                     drawerDrag(
@@ -479,29 +532,38 @@ public fun HomeDrawer(
                     val blockedReason = drawerNewSessionBlockedReason(facts.languageId, facts.newSessionBlockedReason)
                     val enabled = onCreateSession != null && facts.newSessionBlockedReason == null
                     val newSessionLabel = drawerNativeText(facts.languageId, UiStrings.NEW_SESSION, UiStrings.DRAWER_NEW_SESSION_EN)
-                    Button(
-                        onClick = {
-                            val create = onCreateSession
-                            if (create != null) {
-                                coroutineScope.launch {
-                                    if (isOpen && !dismissedLocally && create()) dismissDrawer()
-                                }
-                            }
-                        },
-                        enabled = enabled,
-                        modifier = Modifier.fillMaxWidth().height(52.dp)
+                    val newSessionInteraction = remember { MutableInteractionSource() }
+                    val newSessionShape = RoundedCornerShape(26.dp)
+                    Box(
+                        Modifier.fillMaxWidth().height(52.dp)
                             .focusRequester(initialFocus)
                             .testTag(HomeDrawerTags.NEW_SESSION)
-                            .semantics { contentDescription = newSessionLabel },
-                        shape = RoundedCornerShape(26.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = tokens.colors.surface,
-                            contentColor = tokens.colors.textPrimary,
-                            disabledContainerColor = tokens.colors.surface.copy(alpha = 0.55f),
-                            disabledContentColor = tokens.colors.textPlaceholder,
-                        ),
-                        border = BorderStroke(0.5.dp, tokens.colors.borderList),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            .semantics { contentDescription = newSessionLabel }
+                            .clip(newSessionShape)
+                            .background(
+                                if (enabled) tokens.colors.surface
+                                else tokens.colors.surface.copy(alpha = 0.55f),
+                                newSessionShape,
+                            )
+                            .border(0.5.dp, tokens.colors.borderList, newSessionShape)
+                            // §6: the pill paints its own 0.06 overlay; Material
+                            // Button's ripple and elevation must not run here.
+                            .pillPressed(newSessionInteraction, enabled)
+                            .clickable(
+                                interactionSource = newSessionInteraction,
+                                indication = null,
+                                enabled = enabled,
+                                role = Role.Button,
+                                onClick = {
+                                    val create = onCreateSession
+                                    if (create != null) {
+                                        coroutineScope.launch {
+                                            if (isOpen && !dismissedLocally && create()) dismissDrawer()
+                                        }
+                                    }
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             PdshIconView(PdshIcon.NEW_CHAT_PLUS, 20.dp,
@@ -520,6 +582,32 @@ public fun HomeDrawer(
                         )
                     }
                 }
+                // pclink-pacing: 手机 | PC sits below the 新会话 pill
+                // (`HomeDrawer.swift:44-48`). The selection is persisted by the
+                // host (P18) and never changes back because the PC is down.
+                PcDrawer(
+                    state = pcDrawer,
+                    onSelectBackend = onSelectPcBackend,
+                    onPair = onOpenPcPairing,
+                    onRetry = onRetryPc,
+                    onOpenSession = onOpenPcSession,
+                    onOpenConnectedComputer = onOpenConnectedComputer,
+                    modifier = Modifier.padding(top = 10.dp, bottom = 10.dp),
+                    segment = {
+                        PcSegmentButton(
+                            label = UiStrings.PC_BACKEND_PHONE,
+                            selected = pcDrawer.selected == PcDrawerBackend.PHONE,
+                            onClick = { onSelectPcBackend(PcDrawerBackend.PHONE) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        PcSegmentButton(
+                            label = UiStrings.PC_BACKEND_PC,
+                            selected = pcDrawer.selected == PcDrawerBackend.PC,
+                            onClick = { onSelectPcBackend(PcDrawerBackend.PC) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    },
+                )
                 Spacer(Modifier.height(16.dp))
                 if (DRAWER_FOLDERS_ENABLED) Row(Modifier.fillMaxWidth().height(36.dp).padding(start = HomeMetrics.CONTENT_INSET_PT.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("文件夹", style = type.secondary.copy(color = tokens.colors.textSecondary))
@@ -680,6 +768,18 @@ private val DRAWER_NEW_SESSION_REASON_HEIGHT = 20.dp
 private const val DRAWER_NEW_SESSION_REASON_FADE_MS = 150
 
 /**
+ * Draw-time clipping for the panel: unlike `Modifier.clip`, it does not create
+ * a graphics layer around the children, so the scroll list and its rows keep
+ * their own pointer-input hit path while the panel still clips its background
+ * and scrolling content to the trailing-only rounded shape.
+ */
+private fun Modifier.clipToShape(shape: Shape): Modifier = drawWithContent {
+    val drawScope = this
+    val path = Path().apply { addOutline(shape.createOutline(size, layoutDirection, drawScope)) }
+    clipPath(path) { drawScope.drawContent() }
+}
+
+/**
  * The contract's drawer shadow: black at the token opacity, SwiftUI blur radius
  * and x/y offset. Compose's `shadow()` has no offset, so the drawing site maps
  * the token's four values directly instead of pretending they equal an elevation.
@@ -763,7 +863,42 @@ public object HomeDrawerTags {
     public const val SESSION_PREFIX = "home.drawer.session."
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private const val DRAWER_FOLDER_SURFACE = "drawerFolder"
+private const val DRAWER_SESSION_SURFACE = "drawerSession"
+
+/** `interaction.md` §3 rule 2: the closed folder table only has its unconditional row today. */
+private val DRAWER_FOLDER_MENU_STATE: ContextMenuRowState = ContextMenuRowState.of(
+    TokenContextMenuWhen.FOLDERS_ENABLED to DRAWER_FOLDERS_ENABLED,
+)
+
+/** The action a visible `drawerFolder` row maps to; order/role come from the token table. */
+private enum class HomeDrawerFolderMenuAction { NewSession, Rename, Delete }
+
+private fun homeDrawerFolderMenuAction(item: ContextMenuItem): HomeDrawerFolderMenuAction? {
+    val token = ContextMenuModel.surface(DRAWER_FOLDER_SURFACE).items.getOrNull(item.order) ?: return null
+    return when (token.whenCondition) {
+        TokenContextMenuWhen.ALWAYS -> HomeDrawerFolderMenuAction.NewSession
+        TokenContextMenuWhen.FOLDERS_ENABLED ->
+            if (item.isDestructive) HomeDrawerFolderMenuAction.Delete else HomeDrawerFolderMenuAction.Rename
+        else -> null
+    }
+}
+
+/** The two `drawerSession` rows are both `always`; their frozen contract position is the action key. */
+private enum class HomeDrawerSessionMenuAction { Rename, Archive }
+
+private fun homeDrawerSessionMenuAction(item: ContextMenuItem): HomeDrawerSessionMenuAction? {
+    val visible = ContextMenuModel.items(DRAWER_SESSION_SURFACE, ContextMenuRowState.unconditional)
+    return when (visible.indexOfFirst { it.order == item.order }) {
+        0 -> HomeDrawerSessionMenuAction.Rename
+        1 -> HomeDrawerSessionMenuAction.Archive
+        else -> null
+    }
+}
+
+/** The shared folder body must not inherit the header's Material ripple (interaction.md §6 rule 5). */
+private object NoIndication : Indication
+
 @Composable
 private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSession>, state: HomeDrawerUiState,
                        onOpen: ((String) -> Unit)?, canRenameSession: Boolean,
@@ -776,80 +911,144 @@ private fun FolderGroup(id: String, title: String, sessions: List<HomeDrawerSess
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     val expanded = id !in state.collapsedFolderIds
+    val rowTag = HomeDrawerTags.FOLDER_PREFIX + id
+    val rowShape = RoundedCornerShape(SessionsMetrics.DRAWER_CARD_RADIUS_PT.dp)
+    val folderInteraction = remember(id) { MutableInteractionSource() }
     val scope = rememberCoroutineScope()
     var changingFold by remember(id) { mutableStateOf(false) }
-    var folderMenu by remember(id) { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().height(SessionsMetrics.WORKSPACE_ROW_HEIGHT_PT.dp)
-        .combinedClickable(onClick = {
-            if (!changingFold) scope.launch {
-                changingFold = true
-                state.setCollapsedFolderIds(if (expanded) state.collapsedFolderIds + id else state.collapsedFolderIds - id)
-                changingFold = false
-            }
-        }, onLongClick = { folderMenu = true })
-        .semantics { contentDescription = "$title，${sessions.size} 个会话"; stateDescription = if (expanded) "已展开" else "已收起" }
-        .testTag(HomeDrawerTags.FOLDER_PREFIX + id).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        PdshIconView(if (expanded) PdshIcon.CHEVRON_DOWN else PdshIcon.CHEVRON_RIGHT, 12.dp, tokens.colors.textPlaceholder, null)
-        Spacer(Modifier.width(8.dp))
-        PdshIconView(PdshIcon.FOLDER, 20.dp, tokens.colors.textSecondary, null)
-        Spacer(Modifier.width(8.dp))
-        Text(title, style = type.body.copy(color = tokens.colors.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.width(8.dp))
-        if (sessions.isNotEmpty()) Text(sessions.size.toString(), style = type.caption.copy(color = tokens.colors.textPlaceholder))
-        DropdownMenu(folderMenu, { folderMenu = false }, modifier = Modifier.widthIn(max = 240.dp),
-            properties = PopupProperties(focusable = true, clippingEnabled = true)) {
-            DropdownMenuItem(text = { Text("在这里新建会话") }, enabled = onNewSessionInFolder != null,
-                onClick = { folderMenu = false; onNewSessionInFolder?.invoke(id) })
-            if (DRAWER_FOLDERS_ENABLED) {
-                DropdownMenuItem(text = { Text("重命名") }, enabled = canRenameFolder,
-                    onClick = { folderMenu = false; onRequestRename(id, title) })
-                DropdownMenuItem(text = { Text("删除文件夹") }, enabled = canDeleteFolder,
-                    onClick = { folderMenu = false; onRequestDelete(id) })
-            }
+    val toggle: () -> Unit = {
+        if (!changingFold) scope.launch {
+            changingFold = true
+            state.setCollapsedFolderIds(
+                if (expanded) state.collapsedFolderIds + id else state.collapsedFolderIds - id,
+            )
+            changingFold = false
         }
     }
-    if (expanded) {
-        if (sessions.isEmpty()) Text(emptyMessage, Modifier.padding(start = 50.dp).height(36.dp).wrapContentHeight(Alignment.CenterVertically), style = type.secondary.copy(color = tokens.colors.textSubtle))
-        sessions.forEach { session ->
-            var menu by remember(session.id) { mutableStateOf(false) }
-            val pendingArchive = session.id in pendingArchiveIds
-            Row(Modifier.fillMaxWidth().height(SessionsMetrics.SESSION_ROW_HEIGHT_PT.dp)
-                .combinedClickable(onClick = { onOpen?.invoke(session.id) }, onLongClick = { if (canRenameSession || onArchive != null) menu = true })
-                .background(if (session.id == activeSessionId) tokens.colors.sessionSurface else Color.Transparent, RoundedCornerShape(SessionsMetrics.DRAWER_CARD_RADIUS_PT.dp))
-                .semantics {
-                    contentDescription = session.title ?: "新会话"
-                    stateDescription = when {
-                        pendingArchive -> "正在归档"
-                        onOpen == null -> "不可用"
-                        else -> ""
+    CompositionLocalProvider(LocalIndication provides NoIndication) {
+        PdshFolderGroup(
+            expanded = expanded,
+            // The shared context menu owns the header's one tap/long-press
+            // target; the disclosure's own header gesture stays inert so a tap
+            // cannot toggle twice and a long press cannot open a second target.
+            onToggle = {},
+            modifier = Modifier.fillMaxWidth(),
+            tag = rowTag,
+            anchorKey = id,
+            header = {
+                PdshContextMenu(
+                    surfaceId = DRAWER_FOLDER_SURFACE,
+                    state = DRAWER_FOLDER_MENU_STATE,
+                    onAction = { item ->
+                        when (homeDrawerFolderMenuAction(item)) {
+                            HomeDrawerFolderMenuAction.NewSession -> onNewSessionInFolder?.invoke(id)
+                            HomeDrawerFolderMenuAction.Rename -> if (canRenameFolder) onRequestRename(id, title)
+                            HomeDrawerFolderMenuAction.Delete -> if (canDeleteFolder) onRequestDelete(id)
+                            null -> Unit
+                        }
+                    },
+                    interactionSource = folderInteraction,
+                    modifier = Modifier.fillMaxWidth().height(SessionsMetrics.WORKSPACE_ROW_HEIGHT_PT.dp)
+                        .rowPressed(folderInteraction, shape = rowShape)
+                        .semantics {
+                            contentDescription = "$title，${sessions.size} 个会话"
+                            stateDescription = if (expanded) "已展开" else "已收起"
+                        }
+                        .testTag(rowTag),
+                    onClick = toggle,
+                ) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PdshChevron(
+                            expanded = expanded,
+                            size = 12.dp,
+                            tint = tokens.colors.textPlaceholder,
+                            tag = PdshDisclosureTags.chevron(rowTag),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        PdshIconView(PdshIcon.FOLDER, 20.dp, tokens.colors.textSecondary, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(title, style = type.body.copy(color = tokens.colors.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(8.dp))
+                        if (sessions.isNotEmpty()) Text(sessions.size.toString(), style = type.caption.copy(color = tokens.colors.textPlaceholder))
                     }
                 }
-                .testTag(HomeDrawerTags.SESSION_PREFIX + session.id).padding(start = 42.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(session.title?.takeIf { it.isNotBlank() } ?: "新会话", Modifier.weight(1f), style = type.body.copy(color = tokens.colors.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // A running spinner and a relative time have different widths;
-                // reserving one trailing slot keeps the title from reflowing
-                // when a row starts or finishes a turn.
-                Box(Modifier.width(64.dp), contentAlignment = Alignment.CenterEnd) {
-                    if (pendingArchive) CircularProgressIndicator(Modifier.size(14.dp).testTag(HomeDrawerTags.ARCHIVE_PENDING_PREFIX + session.id), strokeWidth = 1.5.dp)
-                    else if (session.running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
-                    else session.relativeTime?.let { Text(it, style = type.caption.copy(color = tokens.colors.textPlaceholder), maxLines = 1) }
+            },
+            body = {
+                // The outer list spaces every row 4dp apart; the disclosure
+                // body is one unit, so that spacing lives here instead.
+                Column(
+                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (sessions.isEmpty()) {
+                        Text(
+                            emptyMessage,
+                            Modifier.padding(start = 50.dp).height(36.dp).wrapContentHeight(Alignment.CenterVertically),
+                            style = type.secondary.copy(color = tokens.colors.textSubtle),
+                        )
+                    }
+                    sessions.forEach { session ->
+                        val pendingArchive = session.id in pendingArchiveIds
+                        val sessionInteraction = remember(session.id) { MutableInteractionSource() }
+                        val sessionTag = HomeDrawerTags.SESSION_PREFIX + session.id
+                        val sessionShape = RoundedCornerShape(SessionsMetrics.DRAWER_CARD_RADIUS_PT.dp)
+                        PdshContextMenu(
+                            surfaceId = DRAWER_SESSION_SURFACE,
+                            state = ContextMenuRowState.unconditional,
+                            onAction = { item ->
+                                when (homeDrawerSessionMenuAction(item)) {
+                                    HomeDrawerSessionMenuAction.Rename ->
+                                        if (canRenameSession) onRequestRenameSession(session.id, session.title.orEmpty())
+                                    HomeDrawerSessionMenuAction.Archive ->
+                                        if (onArchive != null && !pendingArchive) onArchiveRequest(session.id)
+                                    null -> Unit
+                                }
+                            },
+                            interactionSource = sessionInteraction,
+                            modifier = Modifier.fillMaxWidth().height(SessionsMetrics.SESSION_ROW_HEIGHT_PT.dp)
+                                .background(
+                                    if (session.id == activeSessionId) tokens.colors.sessionSurface else Color.Transparent,
+                                    sessionShape,
+                                )
+                                .rowPressed(sessionInteraction, enabled = onOpen != null, shape = sessionShape)
+                                .semantics {
+                                    contentDescription = session.title ?: "新会话"
+                                    stateDescription = when {
+                                        pendingArchive -> "正在归档"
+                                        onOpen == null -> "不可用"
+                                        else -> ""
+                                    }
+                                }
+                                .testTag(sessionTag),
+                            onClick = onOpen?.let { open -> { open(session.id) } },
+                        ) {
+                            Row(
+                                Modifier.fillMaxSize().padding(start = 42.dp, end = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(session.title?.takeIf { it.isNotBlank() } ?: "新会话", Modifier.weight(1f), style = type.body.copy(color = tokens.colors.textPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                // A running spinner and a relative time have different widths;
+                                // reserving one trailing slot keeps the title from reflowing
+                                // when a row starts or finishes a turn.
+                                Box(Modifier.width(64.dp), contentAlignment = Alignment.CenterEnd) {
+                                    if (pendingArchive) CircularProgressIndicator(Modifier.size(14.dp).testTag(HomeDrawerTags.ARCHIVE_PENDING_PREFIX + session.id), strokeWidth = 1.5.dp)
+                                    else if (session.running) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 1.5.dp)
+                                    else session.relativeTime?.let { Text(it, style = type.caption.copy(color = tokens.colors.textPlaceholder), maxLines = 1) }
+                                }
+                            }
+                        }
+                        archiveFailureById[session.id]?.let { reason ->
+                            Text(reason, Modifier.padding(start = 42.dp, end = 12.dp, bottom = 4.dp)
+                                .testTag(HomeDrawerTags.ARCHIVE_FAILURE_PREFIX + session.id),
+                                style = type.caption.copy(color = tokens.colors.danger))
+                        }
+                    }
                 }
-        // The 240dp popup cap is an approximate viewport guard, not a HomeSpec
-        // token or pixel-parity claim; narrow split views and enlarged text may wrap.
-        DropdownMenu(menu, { menu = false }, modifier = Modifier.widthIn(max = 240.dp),
-                    properties = PopupProperties(focusable = true, clippingEnabled = true)) {
-                    DropdownMenuItem(text = { Text("编辑名称") }, enabled = canRenameSession,
-                        onClick = { menu = false; onRequestRenameSession(session.id, session.title.orEmpty()) })
-                    DropdownMenuItem(text = { Text(if (onArchive == null) "归档不可用" else "归档") }, enabled = onArchive != null && !pendingArchive,
-                        onClick = { menu = false; onArchiveRequest(session.id) })
-                }
-            }
-            archiveFailureById[session.id]?.let { reason ->
-                Text(reason, Modifier.padding(start = 42.dp, end = 12.dp, bottom = 4.dp)
-                    .testTag(HomeDrawerTags.ARCHIVE_FAILURE_PREFIX + session.id),
-                    style = type.caption.copy(color = tokens.colors.danger))
-            }
-        }
+            },
+        )
     }
 }
 

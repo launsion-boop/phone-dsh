@@ -1,0 +1,80 @@
+{
+  "schema": "pdsh.parity.fixture.v0",
+  "id": "chat-empty",
+  "page": "chat",
+  "description": "The real chat page with no transcript rows; the engine has not started.",
+  "unit": "pt",
+  "frame": {
+    "widthPt": 402,
+    "heightPt": 874
+  },
+  "origin": "chat.header.title",
+  "seed": {
+    "android": {
+      "screen": "chat"
+    },
+    "ios": {
+      "launchArguments": [],
+      "launchEnvironment": {}
+    }
+  },
+  "actions": [],
+  "elements": [
+    {
+      "id": "chat.header.drawer",
+      "android": {
+        "testTag": "pdsh.chat.header.drawer"
+      },
+      "ios": {
+        "identifier": "chat.header.drawer",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.header.title",
+      "android": {
+        "testTag": "pdsh.chat.header.title"
+      },
+      "ios": {
+        "identifier": "chat.session-title"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.empty.start",
+      "android": {
+        "testTag": "pdsh.chat.empty.start"
+      },
+      "ios": {
+        "identifier": "chat.empty.start",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.composer.field",
+      "android": {
+        "testTag": "pdsh.composer.field"
+      },
+      "ios": {
+        "identifier": "chat.composer.field",
+        "type": "textView"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "chat.composer.send",
+      "android": {
+        "testTag": "pdsh.composer.send"
+      },
+      "ios": {
+        "identifier": "chat.composer.send",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    }
+  ]
+}

@@ -1,7 +1,8 @@
 # PCLink v1 (P28)
 
 Status: `target` — frozen contract; the B relay is implemented in this branch,
-but P28 stays `target` until the C/D ends and the runtime evidence exist.
+but P28 stays `target` until the C/D ends, the Android client and the runtime
+evidence on every end exist.
 Revision label `pclink-v1.6` (automatic pairing approval after the verified
 `pair.auth`, `approvedVia:"qr"|"manual"`, the admin `plugin` build facts and
 the non-TTY/resilient `pclink pair`; see the change record's revision log).
@@ -10,16 +11,17 @@ The golden fixture revision moves to `pclink-v1.6` because the PC record's
 [PC-20261109-pclink-v1](../../../docs/protocol-changes/PC-20261109-pclink-v1.md);
 its `contract_revision` is `spec/pclink/v1/README.md@pclink-v1.6`.
 
-PCLink is the pair of a relay plane and an end-to-end plane between one iPhone
-and one PC running `dsh web` through a PC plugin. It is **not** the DSH Remote
+PCLink is the pair of a relay plane and an end-to-end plane between one iOS or
+Android phone and one PC running `dsh web` through a PC plugin. It is **not** the DSH Remote
 API: it carries DSH Remote `client-request` calls and streams unchanged. P14
 owns the DSH Remote mux/client-request semantics, P06 owns DSH events and
 approval/question semantics, and this contract owns only how those bytes travel
 between a paired phone and PC through an untrusted relay.
 
-Key words MUST, MUST NOT, SHOULD and MAY are normative. "Phone" is the iOS app;
-"PC" is the PC plugin inside the `dsh web` process; "relay" is the public or
-self-hosted relay. This contract is the only authority for PCLink; schemas under
+Key words MUST, MUST NOT, SHOULD and MAY are normative. "Phone" is the iOS or
+Android app (the two are independent implementations of this contract and never
+talk to each other); "PC" is the PC plugin inside the `dsh web` process; "relay"
+is the public or self-hosted relay. This contract is the only authority for PCLink; schemas under
 `schema/` decide shapes and `golden/` decides concrete bytes and boundary cases.
 A conflict among them is a defect that must be fixed in one change.
 
@@ -245,15 +247,30 @@ L5). The E2E handshake later proves possession of the corresponding private
 key.
 
 Private keys: the PC stores a raw 32-byte Ed25519 seed at
-`$DSH_HOME/pclink/identity.key` mode 0600. The phone stores the raw seed in the
-Keychain (service `dsh-pclink`, account `identity-v1`, accessibility
-`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synchronizable). The
-phone key is software Keychain key material (Ed25519 is not a Secure Enclave
-algorithm); a root/jailbreak compromise is outside the threat model. A missing
-phone key while a pairing record exists is not silently regenerated: the app
-shows re-pair. A missing PC key while pairing records exist regenerates the
-identity, making every old record stale; the plugin MUST NOT silently reuse or
-rewrite them.
+`$DSH_HOME/pclink/identity.key` mode 0600. The phone stores the raw 32-byte
+seed in the platform secure store:
+
+- **iOS:** Keychain (service `dsh-pclink`, account `identity-v1`,
+  accessibility `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not
+  synchronizable).
+- **Android:** the seed is generated in app code (CSPRNG) and stored as a
+  32-byte value through the `:platform` `SecureStore`. The Android
+  implementation of that SPI wraps the value with an AES-256-GCM key held in
+  AndroidKeyStore, writes the ciphertext under `noBackupFilesDir`, and reports
+  the measured `SecurityLevel` (`SOFTWARE`/`TEE`/`STRONGBOX`). AndroidKeyStore
+  at the contract's `minSdk 26` has no Ed25519 key type, so the identity key
+  itself is software key material and only the wrapping key can be
+  hardware-backed; the app MUST NOT claim a hardware-backed phone identity.
+  An unreadable value (`SecureLookup.Unreadable`, e.g. a key invalidated after a
+  credential/OS change) is fail-closed, never treated as `Absent`.
+
+The phone key is software key material (Ed25519 is not a Secure Enclave
+algorithm and is not an AndroidKeyStore key type at minSdk 26); a
+root/jailbreak compromise is outside the threat model. A missing phone key
+while a pairing record exists is not silently regenerated: the app shows
+re-pair. A missing PC key while pairing records exist regenerates the identity,
+making every old record stale; the plugin MUST NOT silently reuse or rewrite
+them.
 
 ### 2.3 JSON
 
@@ -1405,6 +1422,14 @@ metadata. `name` is 1–64 UTF-8 bytes, NFC, no C0/C1/`Cf` characters (review
 L4); both `app.name` and `name` are display-only and are normalized/checked
 before display, never used for routing or authorization.
 
+The phone MUST expose the verified `dsh.version`, and `app.name`/`app.version`
+when present, to its UI as the connected PC's build facts; an out-of-range
+`dsh.version` adds the "版本未验证" warning but MUST NOT hide the actual
+version. The PC's own version is never inferred from `install`, a pairing
+record or a relay claim. This is the D-stage `PCLinkClientStatus.peerDshVersion`
+obligation (PC-20261110-pclink-ios-app §4.7.1 CCR-2), promoted here so the
+Android "已连接的电脑" page has the same source of truth.
+
 The **tested DSH range** is `>=0.2.2-rc.1 <0.3.0` (SemVer, prereleases included).
 A `dsh.version` outside that range is **not** a connection failure: the phone
 shows a persistent "版本未验证" banner and the PC logs a warning. Individual
@@ -1874,7 +1899,7 @@ PCLink code allowed in those two error objects (there is no DSH
 | --- | --- | --- | --- |
 | `unavailable` | relay, PC, phone | method/feature/local dependency unavailable; no specific code fits | show feature unavailable; a read/idempotent call may retry after reconnect; an unsafe call is `unknown_outcome` |
 | `unknown_outcome` | phone transport (local outcome, not a wire code) | an unsafe call/stream may have executed but no definitive reply arrived | do not resend; re-read state/projections; show "may have happened" |
-| `peer_offline` | relay (`relay.offline` frame) / client | target not connected; the frame was not delivered | show PC offline; retry read/idempotent after reconnect; unsafe was not delivered |
+| `peer_offline` | relay (`relay.offline` frame) / client | target not connected; the frame was not delivered | show PC offline; retry read/idempotent after reconnect; unsafe was not delivered; see §10 for `relay.offline` `id`/`sid` correlation |
 | `unpaired` | PC, phone | no local pairing record, revoked, or stale identity | a **verified signed** reject/authenticated close shows "电脑已解除与此手机的配对" and waits for the user's explicit confirmation before deleting the phone record; an unauthenticated reject or `auth_failed` never deletes; never auto-pair |
 | `auth_failed` | relay, PC, phone | signature/MAC/QR key mismatch, all-zero DH, auth timeout | stop; show authentication failed; do **not** auto-delete the record or auto-re-pair; the user may retry |
 | `replaced` | relay | a newer connection for this machineId replaced this one | no immediate reconnect; wait ≥30 s with jitter; user may act |
@@ -1938,12 +1963,15 @@ does not prompt for a DSH cookie.
   resume arrives is cut short. The 60 s reset rule keeps applying to failures,
   and the cap never skips authentication or shortens the `replaced` minimum
   wait of 30 s (§9.1).
-- `connecting` and `offline` are distinct phone states (v1.6 clarification,
-  PC-20261110-pclink-foreground-resume-presence). `connecting` means the phone
-  is dialing or handshaking, including the bounded resume above; `offline`
-  means one dial already failed, or the connection dropped without a
-  phone-initiated resume. While `connecting`, the phone MUST NOT present
-  `电脑离线`; it presents its connecting copy instead.
+- The phone's reachability projection has exactly three values: `online`,
+  `reconnecting`, `offline`. `reconnecting` covers the dialing/handshaking
+  state above plus a bounded grace after a dropped socket while a reconnect is
+  still in flight; the reference value for that grace is **8 s**
+  (PC-20261110-pclink-workspace-cache §2, frozen for P09/P18). `offline`
+  requires either one dial to have failed or the grace to expire. While
+  `reconnecting`, the phone MUST NOT present `电脑离线`; it presents its
+  connecting/reconnecting copy instead. `connecting` remains the narrower
+  transport state used by the client; it is not a fourth UI value.
 - Every relay reconnect requires a new end-to-end handshake with a new `sid`,
   new ephemeral X25519 keys and a new `th2` salt; old keys are discarded. The
   relay restart loses allowlists/rendezvous/daily counters; the PC reconnects,
@@ -1960,6 +1988,15 @@ does not prompt for a DSH cookie.
 - In-flight unary calls follow §7. A definitive `rpc.result` received before the
   close wins; otherwise `read` retries, `idempotent` retries with identical DSH
   arguments, `unsafe` becomes `unknown_outcome`.
+- **`relay.offline` correlation.** A `relay.offline` that carries `id` (and
+  optionally `streamId`) identifies one frame that was not delivered: the
+  matching call/stream is `peer_offline` and, for `read`/`idempotent`, may be
+  retried per §7. A `relay.offline` with only `sid` says nothing about a
+  specific in-flight frame: an `unsafe` call/stream already sent becomes
+  `unknown_outcome` (never `peer_offline`) and is not resent; `read`/`idempotent`
+  calls still follow §7. This is the D-stage fix recorded in
+  PC-20261110-pclink-ios-app §4.9.1 item 4 and is promoted because a second
+  client must make the same distinction.
 - The phone never falls back from the PC backend to the phone backend because
   the PC is offline; it shows "电脑离线" and a retry. The user chooses the
   backend explicitly (P18 key ruling in the change record). The offline copy is
@@ -2004,7 +2041,7 @@ record's `approvedVia` vocabulary and the admin `plugin` facts:
 | Producer → consumer | Behaviour |
 | --- | --- |
 | old App (waits for `pair.confirm`) → new PC | **Interoperates.** After the phone's `pair.auth` verifies, the new PC sends `pair.confirm` immediately. The old App's "waiting for the PC operator" screen is satisfied as soon as the confirm arrives; the record is written normally. The old App may still display its own fingerprint while waiting — harmless, because the new PC never asks for it. |
-| new App → old PC (still compare-the-phone) | **Interoperates, with a PC-side wait.** The new App sends `pair.auth` and waits for the old PC's `pair.confirm`; the old PC CLI still shows its fingerprint prompt. The App's waiting copy must be mode-neutral: "请在电脑上完成确认" (or "如果这台电脑仍要求确认，请在电脑上完成确认"), never instructing the user to read a fingerprint into the PC. If the PC operator never confirms, the old 120 s approval timeout closes the slot and the App reports the failure. |
+| new client (v1.6) → pre-v1.6 PC | **Not supported for a new pairing.** The client reports the 120 s timeout with an upgrade hint, and the user upgrades the PC plugin. An already-paired v1.5 record still works (same E2E bytes). |
 | new PC → new App | this contract; `pair.confirm` is sent automatically and the App may auto-close on the authenticated confirm. |
 | persisted v1.5 records (`approvedVia:"cli"|"webui"`) → new PC | **Usable without rewriting.** The record schema keeps the legacy enum values; `status`/the App show them as a legacy fingerprint-approval origin. New pairings always write `qr`/`manual`. |
 | persisted v1.6 records (`approvedVia:"qr"|"manual"`) → rolled-back pre-v1.6 PC | **Fail-closed.** The old build's record validator accepts only `cli`/`webui`, so it treats the new record as unapproved/unusable and the phone must re-pair. Rolling back requires re-pairing; the plugin does not silently rewrite or adopt the new value. |
@@ -2127,11 +2164,34 @@ bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-sdk
 ```
 
 The D-stage App wiring additionally needs the P09 page/source changes and the
-P12 `Package.swift` declaration; those are separate changes. Android is out of
-scope for v1 and its missing drawer actions are tracked as GAP-35. The P09 page
+P12 `Package.swift` declaration; those are separate changes. The Android client
+is a second phone implementation of the same v1.6 bytes; its missing drawer
+actions, pairing page and "connected computer" page are GAP-35 and are
+implemented by the Android parity work, not by a wire change. The P09 page
 contract changes for the redesigned pairing page and the "connected computer"
 page are part of the same branch (`spec/ui/v1/pages/pc-pairing.json`,
 `connected-computer.json`); they do not change any wire byte.
+
+Android acceptance (run from the implementer's branch; a missing toolchain is
+SKIP/INCOMPLETE, never PASS):
+
+```sh
+# Android client (P28 Kotlin, JVM tests read the same golden files from disk)
+bash android/tools/with-android-toolchain.sh ./gradlew :pclink:test --no-daemon
+node spec/pclink/v1/tools/vectors.mjs --check
+python3 spec/pclink/v1/tools/check_samples.py --root .
+bash scripts/ci/check.sh --only phone-android-structure,phone-android-tests,phone-cross-tree
+
+# Pages + App wiring (after C5)
+bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni
+bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug --no-daemon
+python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json
+```
+
+A real Android device/emulator E2E with a real relay and `dsh web` is required
+before P28 moves to `implemented` for this end; JVM tests and a passing page
+checker are not device evidence. Android runtime evidence does not close the
+existing iOS/PC/relay evidence requirements.
 
 ## 13. Decisions frozen for review
 
@@ -2161,9 +2221,13 @@ follows AGENTS.md §3.3 and the change record's revision log.
    in the 300 s window; QR is recommended.
 6. The relay sees pairing public keys, names and MACs (not S/C), and it sees
    the machineId ↔ public-key mapping. There is no SAS and no identity hiding.
-7. The phone identity is a software Keychain Ed25519 key, not a Secure Enclave
-   key (Ed25519 is not supported there). A stolen unlocked phone is full owner
-   access; the handling is **revoke all pairings, then `rotate-identity`**.
+7. The phone identity is a software Ed25519 key, not a hardware identity: iOS
+   keeps the raw seed in the Keychain (Ed25519 is not a Secure Enclave
+   algorithm); Android keeps the raw seed encrypted by an AndroidKeyStore
+   AES-GCM key (AndroidKeyStore has no Ed25519 key type at minSdk 26, and the
+   measured security level is reported rather than assumed). A stolen unlocked
+   phone is full owner access; the handling is **revoke all pairings, then
+   `rotate-identity`**.
 8. DSH versions outside the tested range only warn; individual endpoint errors
    are shown. There is no endpoint allowlist and no silent endpoint filtering;
    `pclink.admin/` is a prohibited remote prefix, not an allowlist. The

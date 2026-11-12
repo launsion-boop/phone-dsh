@@ -32,7 +32,7 @@ import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.projection.UiStateKind
 import com.phonedsh.ui.projection.UiStateNode
 import com.phonedsh.ui.surface.ChatFileChange
-import com.phonedsh.ui.surface.ComposerMode
+import com.phonedsh.ui.composer.ComposerSendRule
 import com.phonedsh.ui.surface.ToolRowState
 import com.phonedsh.ui.surface.lineDelta
 import androidx.compose.runtime.Immutable
@@ -361,12 +361,53 @@ public sealed interface ChatRow {
 /** The outcomes the iOS turn-process control can display. */
 public enum class ChatTurnState { RUNNING, COMPLETED, STOPPED, FAILED }
 
-/** Only measured token counters are retained; missing counts are not zero-filled. */
+/**
+ * One turn's measured token counters, mirroring iOS `NativeTurnUsage`
+ * (`examples/probe-app/ProbeKit/Transcript/NativeConversationModels.swift:126-169`).
+ *
+ * Only measured counters are retained; missing counts are not zero-filled. A
+ * `null` cache/reasoning count means the producer did not report that bucket,
+ * and the sheet omits its row exactly like the iOS `if let` branches.
+ *
+ * @param inputTokens iOS's `uncachedInputTokens` (the provider's non-cache input).
+ * @param cacheReadTokens the cache-read bucket; `null` when unreported.
+ * @param cacheWriteTokens the cache-write bucket; `null` when unreported.
+ * @param reasoningTokens the reasoning subset of the output; `null` when unreported.
+ * @param reportedTotalTokens an explicitly reported total, preferred over the sum
+ *   just like iOS's `totalTokens` JSON field; `null` computes it from the buckets.
+ */
 public data class TurnUsage(
     public val inputTokens: Long? = null,
     public val outputTokens: Long? = null,
+    public val cacheReadTokens: Long? = null,
+    public val cacheWriteTokens: Long? = null,
+    public val reasoningTokens: Long? = null,
+    public val reportedTotalTokens: Long? = null,
 ) {
-    public val totalTokens: Long? get() = if (inputTokens != null && outputTokens != null) inputTokens + outputTokens else null
+    /**
+     * iOS totals the billed input (uncached + cache read + cache write) plus the
+     * output, unless the producer reported a total. A partially reported turn
+     * has no total rather than a zero-filled one.
+     */
+    public val totalTokens: Long?
+        get() = reportedTotalTokens ?: if (inputTokens != null && outputTokens != null) {
+            safeTokenSum(inputTokens, cacheReadTokens ?: 0L, cacheWriteTokens ?: 0L, outputTokens)
+        } else {
+            null
+        }
+
+    /**
+     * iOS `NativeTurnUsage.cacheHitPercent`: cache-read over all non-output input.
+     * `totalTokens > outputTokens` is the guard that makes a reported total usable.
+     */
+    public val cacheHitPercent: Double?
+        get() {
+            val read = cacheReadTokens ?: return null
+            val total = totalTokens ?: return null
+            val output = outputTokens ?: return null
+            if (total <= output) return null
+            return read * 100.0 / (total - output)
+        }
 }
 
 /** Activity categories and title rules mirrored from iOS `NativeProcessGroupModel`. */
@@ -812,8 +853,6 @@ public enum class EnterMode {
 /** The composer's view state. */
 public data class ComposerState(
     public val draft: String = "",
-    /** `STOP` when the main key is the stop key (a turn runs and cannot be submitted to). */
-    public val mode: ComposerMode = ComposerMode.SEND,
     public val enabled: Boolean = true,
     /** Queued messages behind the running turn (iOS `queuedMessages`). */
     public val queuedCount: Int = 0,
@@ -821,9 +860,12 @@ public data class ComposerState(
     public val queued: List<String> = emptyList(),
     /** The placeholder, already resolved from the three iOS cases. */
     public val placeholder: String = UiStrings.COMPOSER_PLACEHOLDER_IDLE,
-    /** The send key's accessibility label, already resolved. */
-    public val sendLabel: String = UiStrings.COMPOSER_SEND_LABEL,
-    /** iOS `canSubmit`: the send key is live. */
+    /**
+     * iOS `canSubmit`, resolved only through [ComposerSendRule.canSubmit].
+     *
+     * The send key's label and visibility are not stored: they are the same
+     * rule's output in the §5 component (`ComposerSendRule.sendLabel/layout`).
+     */
     public val canSubmit: Boolean = false,
     /** A turn is running (drives the running spinner and the stop key). */
     public val running: Boolean = false,
@@ -1492,21 +1534,19 @@ public data class ChatScreenState(
             val trimmed = uiLocal.draft.trim()
             val hasText = trimmed.isNotEmpty()
             val hasAttachments = uiLocal.attachments.isNotEmpty()
-            // iOS `canSubmit`: steering cannot carry attachments.
-            val canSubmit = enabled && when {
-                running && steering -> hasText && !hasAttachments
-                running -> hasText
-                else -> hasText || hasAttachments
-            }
+            // interaction.md §5 rule 2: one implementation, shared with the
+            // send-key component. Steering cannot carry attachments.
+            val canSubmit = ComposerSendRule.canSubmit(
+                composerEnabled = enabled,
+                steer = steering,
+                hasText = hasText,
+                hasAttachments = hasAttachments,
+                turnRunning = running,
+            )
             val placeholder = when {
                 !running -> UiStrings.COMPOSER_PLACEHOLDER_IDLE
                 steering -> UiStrings.COMPOSER_PLACEHOLDER_STEER
                 else -> UiStrings.COMPOSER_PLACEHOLDER_QUEUE
-            }
-            val sendLabel = when {
-                !running -> UiStrings.COMPOSER_SEND_LABEL
-                steering -> UiStrings.COMPOSER_SEND_LABEL_STEER
-                else -> UiStrings.COMPOSER_SEND_LABEL_QUEUE
             }
             val queued = closed.filterIsInstance<ChatRow.User>()
                 .filter { it.badge == UiStrings.QUEUED_TAG }
@@ -1530,15 +1570,11 @@ public data class ChatScreenState(
                 banners = banners,
                 composer = ComposerState(
                     draft = uiLocal.draft,
-                    // The main key is the stop key only while a turn runs and the
-                    // draft cannot be submitted to it (iOS `actionButton`).
-                    mode = if (running && !canSubmit) ComposerMode.STOP else ComposerMode.SEND,
                     // A pending ask keeps the dock visible but disabled (spec §2).
                     enabled = enabled,
                     queuedCount = queued.size,
                     queued = queued,
                     placeholder = placeholder,
-                    sendLabel = sendLabel,
                     canSubmit = canSubmit,
                     running = running,
                     steering = steering,
@@ -1888,10 +1924,30 @@ private fun JsonObject.long(key: String): Long? =
 
 private fun JsonObject.usage(): TurnUsage? {
     val usage = this["usage"] as? JsonObject ?: return null
-    val input = usage.long("inputTokens") ?: usage.long("input_tokens")
+    // iOS `NativeTurnUsage(value:)` calls the provider's non-cache bucket
+    // `inputTokens`; the snake_case spelling is the host event's wire form.
+    val input = usage.long("inputTokens")
+        ?: usage.long("input_tokens")
+        ?: usage.long("uncachedInputTokens")
+        ?: usage.long("uncached_input_tokens")
     val output = usage.long("outputTokens") ?: usage.long("output_tokens")
-    if (input == null && output == null) return null
-    return TurnUsage(inputTokens = input, outputTokens = output)
+    val cacheRead = usage.long("cacheReadTokens") ?: usage.long("cache_read_tokens")
+    val cacheWrite = usage.long("cacheWriteTokens") ?: usage.long("cache_write_tokens")
+    val reasoning = usage.long("reasoningTokens") ?: usage.long("reasoning_tokens")
+    val total = usage.long("totalTokens") ?: usage.long("total_tokens")
+    // The iOS initializer requires the two primary counters. Keep the old
+    // partial-row tolerance only when some bucket is actually measured.
+    if (input == null && output == null && cacheRead == null && cacheWrite == null && reasoning == null && total == null) {
+        return null
+    }
+    return TurnUsage(
+        inputTokens = input,
+        outputTokens = output,
+        cacheReadTokens = cacheRead,
+        cacheWriteTokens = cacheWrite,
+        reasoningTokens = reasoning,
+        reportedTotalTokens = total,
+    )
 }
 
 private val TURN_SUFFIX = Regex("-turn-[0-9]{4}$")

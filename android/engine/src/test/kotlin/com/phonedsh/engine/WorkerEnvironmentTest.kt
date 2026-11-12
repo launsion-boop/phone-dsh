@@ -26,7 +26,9 @@ class WorkerEnvironmentTest {
             "0123456789abcdef0123456789abcdef",
             parsed.getString(WorkerEnvironment.LAUNCH_TOKEN),
         )
-        assertEquals("only the engine-owned key is added", 1, parsed.length())
+        assertEquals("the launch token plus the two GitHub agent facts", 3, parsed.length())
+        assertEquals("0", parsed.getString(WorkerEnvironment.GITHUB_AUTH))
+        assertEquals("0", parsed.getString(WorkerEnvironment.GITHUB_WRITE))
         assertEquals(
             "the variable name the resident phone surface requires",
             "PDSH_DSH_LAUNCH_TOKEN",
@@ -63,7 +65,7 @@ class WorkerEnvironmentTest {
     fun aHostEnvWithoutTheKeyIsJustTheToken() {
         val parsed = JSONObject(WorkerEnvironment.pageParam("bb", null))
         assertEquals("bb", parsed.getString(WorkerEnvironment.LAUNCH_TOKEN))
-        assertEquals(1, parsed.length())
+        assertEquals(3, parsed.length())
     }
 
     @Test
@@ -166,12 +168,100 @@ class WorkerEnvironmentTest {
         )
         assertEquals("http://127.0.0.1:1", parsed.getString(WorkerEnvironment.MODEL_BASE_URL))
         assertEquals("gg", parsed.getString(WorkerEnvironment.LAUNCH_TOKEN))
-        assertEquals(2, parsed.length())
+        assertEquals(4, parsed.length())
     }
 
     /** The variable name is the provider's own, not a second spelling. */
     @Test
     fun theModelBaseUrlVariableIsTheProviderEnvironmentName() {
         assertEquals("DEEPSEEK_BASE_URL", WorkerEnvironment.MODEL_BASE_URL)
+    }
+
+    // ------------------------------------------------ GitHub agent credential (P16)
+
+    @Test
+    fun `the GitHub agent variable names are the Swift names`() {
+        assertEquals("PDSH_GITHUB_AUTH", WorkerEnvironment.GITHUB_AUTH)
+        assertEquals("PDSH_GITHUB_WRITE", WorkerEnvironment.GITHUB_WRITE)
+    }
+
+    @Test
+    fun `the host decision is one for a token and zero without one`() {
+        val token = GitHubAgentEnvironment(enabled = true, tokenAvailable = true)
+        assertEquals("1", WorkerEnvironment.githubAuthEnvironmentValue(token))
+        assertEquals("0", WorkerEnvironment.githubWriteEnvironmentValue(token))
+        assertEquals("0", WorkerEnvironment.githubAuthEnvironmentValue(GitHubAgentEnvironment.disabled))
+        assertEquals("0", WorkerEnvironment.githubWriteEnvironmentValue(GitHubAgentEnvironment.disabled))
+        assertEquals(
+            "a host without the feature cannot report a token",
+            "0",
+            WorkerEnvironment.githubAuthEnvironmentValue(
+                GitHubAgentEnvironment(enabled = false, tokenAvailable = true, allowWrites = true),
+            ),
+        )
+    }
+
+    @Test
+    fun `writes need both a token and the explicit opt in`() {
+        val writes = GitHubAgentEnvironment(enabled = true, tokenAvailable = true, allowWrites = true)
+        assertEquals("1", WorkerEnvironment.githubAuthEnvironmentValue(writes))
+        assertEquals("1", WorkerEnvironment.githubWriteEnvironmentValue(writes))
+        assertEquals(
+            "a read-only token still reports auth",
+            "0",
+            WorkerEnvironment.githubWriteEnvironmentValue(writes.copy(allowWrites = false)),
+        )
+        assertEquals(
+            "the opt-in without a token is not write access",
+            "0",
+            WorkerEnvironment.githubWriteEnvironmentValue(writes.copy(tokenAvailable = false)),
+        )
+    }
+
+    @Test
+    fun `the env writes both facts from the host decision`() {
+        val parsed = JSONObject(
+            WorkerEnvironment.pageParam(
+                launchToken = "aa".repeat(32),
+                githubAgent = GitHubAgentEnvironment(enabled = true, tokenAvailable = true, allowWrites = true),
+            ),
+        )
+        assertEquals("1", parsed.getString(WorkerEnvironment.GITHUB_AUTH))
+        assertEquals("1", parsed.getString(WorkerEnvironment.GITHUB_WRITE))
+    }
+
+    @Test
+    fun `a host supplied environment cannot forge a GitHub credential`() {
+        val parsed = JSONObject(
+            WorkerEnvironment.pageParam(
+                launchToken = "bb".repeat(32),
+                hostSupplied = """{"PDSH_GITHUB_AUTH":"1","PDSH_GITHUB_WRITE":"1"}""",
+                githubAgent = GitHubAgentEnvironment.disabled,
+            ),
+        )
+        assertEquals("the host owns the fact; an override cannot claim a token", "0",
+            parsed.getString(WorkerEnvironment.GITHUB_AUTH))
+        assertEquals("0", parsed.getString(WorkerEnvironment.GITHUB_WRITE))
+    }
+
+    @Test
+    fun `the installed source is read on every page load so a restart applies new facts`() {
+        try {
+            WorkerEnvironment.installGitHubAgent {
+                GitHubAgentEnvironment(enabled = true, tokenAvailable = true, allowWrites = false)
+            }
+            val before = JSONObject(WorkerEnvironment.pageParam("cc".repeat(32)))
+            assertEquals("1", before.getString(WorkerEnvironment.GITHUB_AUTH))
+            assertEquals("0", before.getString(WorkerEnvironment.GITHUB_WRITE))
+
+            WorkerEnvironment.installGitHubAgent {
+                GitHubAgentEnvironment(enabled = true, tokenAvailable = true, allowWrites = true)
+            }
+            val after = JSONObject(WorkerEnvironment.pageParam("dd".repeat(32)))
+            assertEquals("the next page load reads the new host decision", "1",
+                after.getString(WorkerEnvironment.GITHUB_WRITE))
+        } finally {
+            WorkerEnvironment.installGitHubAgent { GitHubAgentEnvironment.disabled }
+        }
     }
 }

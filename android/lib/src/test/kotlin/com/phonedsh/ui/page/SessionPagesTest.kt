@@ -32,6 +32,16 @@ import com.phonedsh.ui.SpecFixtures
 import com.phonedsh.ui.SessionsMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.disclosure.DisclosureKind
+import com.phonedsh.ui.disclosure.DisclosureMotion
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
+import com.phonedsh.ui.menu.ContextMenuModel
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.ContextMenuTags
+import com.phonedsh.ui.press.PressedAlphaSemantics
+import com.phonedsh.ui.press.PressedState
+import com.phonedsh.ui.press.PressedStyle
+import com.phonedsh.ui.press.PressedSurface
 import com.phonedsh.ui.state.GoalBarState
 import com.phonedsh.ui.theme.PdshTheme
 import com.phonedsh.ui.theme.PdshThemeValues
@@ -155,10 +165,7 @@ class SessionPagesTest {
 
     @Test
     fun `archive callback alone never displays a success receipt`() {
-        val base = drawer(
-            sessions = listOf(SessionListing("s1", "待归档会话")),
-            local = SessionsLocalState(sessionMenuID = "s1"),
-        )
+        val base = drawer(sessions = listOf(SessionListing("s1", "待归档会话")))
         val state = mutableStateOf(base)
         var dispatched = 0
         compose.setContent {
@@ -169,7 +176,10 @@ class SessionPagesTest {
                 )
             }
         }
-        compose.onNodeWithTag(UiPageTags.SESSIONS_SESSION_ARCHIVE).performClick()
+        val items = ContextMenuModel.items("sessionsRow", ContextMenuRowState.unconditional)
+        compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].performTouchInput { longClick() }
+        compose.onNodeWithText(items[1].label).performClick()
+        compose.waitForIdle()
         assertEquals(1, dispatched)
         compose.onNodeWithTag(PAGE_MUTATION_RECEIPT_TAG).assertDoesNotExist()
 
@@ -318,7 +328,7 @@ class SessionPagesTest {
                 Drawer(state = state, workspaceActionsAvailable = false)
             }
         }
-        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_MENU).assertDoesNotExist()
         compose.onNodeWithTag(UiPageTags.SESSIONS_ADD_WORKSPACE).assertDoesNotExist()
     }
@@ -390,12 +400,58 @@ class SessionPagesTest {
         compose.setContent {
             PdshTheme { Drawer(state = state, onToggleWorkspace = { toggled = it.id }) }
         }
-        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW).assertIsDisplayed()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("项目").assertIsDisplayed()
         compose.onNodeWithText(UiStrings.SESSIONS_WORKSPACE_COUNT.format(1)).assertIsDisplayed()
         compose.onNodeWithText("项目讨论").assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW).performClick()
+        compose.onNodeWithTag(UiPageTags.SESSIONS_WORKSPACE_ROW, useUnmergedTree = true).performClick()
         assertEquals("w1", toggled)
+    }
+
+    @Test
+    fun `the folder row is the shared folder disclosure and animates its body`() {
+        val local = mutableStateOf(SessionsLocalState(collapsedWorkspaceIDs = setOf("w1")))
+        compose.setContent {
+            PdshTheme {
+                Drawer(
+                    state = drawer(
+                        sessions = listOf(SessionListing("s1", "项目讨论")),
+                        workspaces = listOf(SessionWorkspace("w1", "项目", listOf("s1"))),
+                        local = local.value,
+                    ),
+                    onToggleWorkspace = { workspace ->
+                        val collapsed = local.value.collapsedWorkspaceIDs
+                        local.value = local.value.copy(
+                            collapsedWorkspaceIDs = if (workspace.id in collapsed) {
+                                collapsed - workspace.id
+                            } else {
+                                collapsed + workspace.id
+                            },
+                        )
+                    },
+                )
+            }
+        }
+        val disclosure = sessionsWorkspaceDisclosureTag("w1")
+        compose.onNodeWithTag(sessionsWorkspaceChevronTag("w1"), useUnmergedTree = true)
+            .assertIsDisplayed()
+        compose.onNodeWithTag(PdshDisclosureTags.body(disclosure)).assertDoesNotExist()
+
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag(PdshDisclosureTags.header(disclosure)).performClick()
+        compose.mainClock.advanceTimeByFrame()
+        val folderMs = DisclosureMotion.specFor(DisclosureKind.FOLDER, reducedMotion = false).durationMs
+        compose.mainClock.advanceTimeBy(folderMs / 2L)
+        val mid = compose.onNodeWithTag(PdshDisclosureTags.body(disclosure))
+            .fetchSemanticsNode().boundsInRoot.height
+        assertTrue("the folder body is mid-transition (height=$mid)", mid > 0f)
+
+        compose.mainClock.advanceTimeBy(folderMs + 40L)
+        compose.mainClock.advanceTimeByFrame()
+        val settled = compose.onNodeWithTag(PdshDisclosureTags.body(disclosure))
+            .fetchSemanticsNode().boundsInRoot.height
+        assertTrue("the folder body settles below the half sample ($mid -> $settled)", settled > mid)
+        compose.onNodeWithText("项目讨论").assertIsDisplayed()
     }
 
     @Test
@@ -596,23 +652,21 @@ class SessionPagesTest {
     }
 
     @Test
-    fun `long pressing a session opens its two baseline actions`() {
+    fun `long pressing a session opens exactly the sessionsRow surface`() {
         val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
-        var menu: String? = null
-        compose.setContent {
-            PdshTheme { Drawer(state = state, onSessionMenuToggle = { menu = it.id }) }
-        }
+        compose.setContent { PdshTheme { Drawer(state = state) } }
         compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].performTouchInput { longClick() }
-        assertEquals("s1", menu)
-        compose.onNodeWithTag(UiPageTags.SESSIONS_SESSION_MENU).assertDoesNotExist()
+        val expected = ContextMenuModel.items("sessionsRow", ContextMenuRowState.unconditional)
+        assertEquals(2, expected.size)
+        expected.forEach { item ->
+            compose.onNodeWithText(item.label).assertIsDisplayed()
+        }
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertIsDisplayed()
     }
 
     @Test
-    fun `the session menu renames and archives`() {
-        val state = drawer(
-            sessions = listOf(SessionListing("s1", "项目讨论")),
-            local = SessionsLocalState(sessionMenuID = "s1"),
-        )
+    fun `the session menu renames and archives and closes before each action`() {
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
         var renamed: String? = null
         var archived: String? = null
         compose.setContent {
@@ -624,11 +678,59 @@ class SessionPagesTest {
                 )
             }
         }
-        compose.onNodeWithTag(UiPageTags.SESSIONS_SESSION_MENU).assertIsDisplayed()
-        compose.onNodeWithTag(UiPageTags.SESSIONS_SESSION_RENAME).performClick()
-        compose.onNodeWithTag(UiPageTags.SESSIONS_SESSION_ARCHIVE).performClick()
+        val items = ContextMenuModel.items("sessionsRow", ContextMenuRowState.unconditional)
+        compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].performTouchInput { longClick() }
+        compose.onNodeWithText(items[0].label).performClick()
+        compose.waitForIdle()
         assertEquals("s1", renamed)
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertDoesNotExist()
+
+        compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].performTouchInput { longClick() }
+        compose.onNodeWithText(items[1].label).performClick()
+        compose.waitForIdle()
         assertEquals("s1", archived)
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertDoesNotExist()
+    }
+
+    @Test
+    fun `session row paints the shared pressed fill and clears it when the menu opens`() {
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
+        compose.setContent { PdshTheme { Drawer(state = state) } }
+        val tag = UiPageTags.SESSION_ROW
+        compose.onAllNodesWithTag(tag)[0].performTouchInput { down(center) }
+        compose.mainClock.advanceTimeBy(200)
+        assertEquals(
+            "the row must read the shared §6 pressed fill from the wrapper's interaction source",
+            PressedStyle.valuesFor(PressedSurface.DrawerRow, PressedState.Pressed).pressed,
+            alpha(tag),
+            0.001f,
+        )
+
+        compose.mainClock.advanceTimeBy(700)
+        compose.waitForIdle()
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertIsDisplayed()
+        assertEquals(
+            "opening the menu cancels the row press instead of leaving the fill stuck",
+            0f,
+            alpha(tag),
+            0f,
+        )
+
+        compose.onAllNodesWithTag(tag)[0].performTouchInput { up() }
+        compose.mainClock.advanceTimeByFrame()
+    }
+
+    @Test
+    fun `a tap on a session still selects it and never opens the menu`() {
+        val state = drawer(sessions = listOf(SessionListing("s1", "项目讨论")))
+        var selected: String? = null
+        compose.setContent {
+            PdshTheme { Drawer(state = state, onSelect = { selected = it.id }) }
+        }
+        compose.onAllNodesWithTag(UiPageTags.SESSION_ROW)[0].performClick()
+        compose.waitForIdle()
+        assertEquals("s1", selected)
+        compose.onNodeWithTag(ContextMenuTags.MENU).assertDoesNotExist()
     }
 
     @Test
@@ -724,7 +826,6 @@ class SessionPagesTest {
         onCancelCreateWorkspace: () -> Unit = {},
         onToggleArchived: () -> Unit = {},
         onRestoreArchived: (ArchivedRowView) -> Unit = {},
-        onSessionMenuToggle: (SessionRowView) -> Unit = {},
         onArchiveSession: (SessionRowView) -> Unit = {},
         onRefresh: (() -> Unit)? = null,
     ) {
@@ -754,11 +855,13 @@ class SessionPagesTest {
             onCancelCreateWorkspace = onCancelCreateWorkspace,
             onToggleArchived = onToggleArchived,
             onRestoreArchived = onRestoreArchived,
-            onSessionMenuToggle = onSessionMenuToggle,
             onArchiveSession = onArchiveSession,
             onRefresh = onRefresh,
         )
     }
+
+    private fun alpha(tag: String): Float =
+        compose.onNodeWithTag(tag).fetchSemanticsNode().config[PressedAlphaSemantics]
 
     /** The drawer's host facts; defaults are a host that reported every list as empty. */
     private fun drawer(

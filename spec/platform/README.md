@@ -18,7 +18,7 @@ Status: P0 骨架（方案 §5.2、§10），契约 `platform-whitelist 1`，MIT
 | 文件 | 内容 |
 |---|---|
 | [README.md](README.md) | 本文件：定位、字段、枚举、覆盖契约、checker 规则、维护流程。 |
-| [whitelist.json](whitelist.json) | 白名单本体：一个数组，每条是一项合法差异（20 条，见 §6）。 |
+| [whitelist.json](whitelist.json) | 白名单本体：一个数组，每条是一项合法差异（31 条，见 §6）。 |
 | [schema/whitelist.schema.json](schema/whitelist.schema.json) | 白名单的 JSON Schema；自足，不用 `$ref`/`$defs`/`anyOf`/`allOf`。 |
 | [schema/divergence-class.schema.json](schema/divergence-class.schema.json) | `divergence_class` 的取值域，枚举与三类定义同文件，防止枚举和定义漂移。 |
 | [golden/](golden/) | 5 条示例：3 条合法（含 1 条 `baseline: not-applicable`）、2 条被拒（各带 `reason` 说明为何被拒）。 |
@@ -76,7 +76,7 @@ schema 用 `minLength`/`maxLength` 把长句压住：`rationale` 超过 1000 字
 | `not-verified` | 方案未给出可引用来源，或机制尚未定稿；按未验证处理。 | 「只登记分歧，不作承诺」。 |
 
 `not-verified` 的条目**必须在 `rationale` 里写明「未验证」**以及升级路径（要测什么、由哪个
-工作项产出）。checker 会检查这个关键词；本期只有 2 条，见 §9。
+工作项产出）。checker 会检查这个关键词；本期 5 条，见 §9。
 
 等级不能「就地升级」：从 `emulator-probe` 升到 `device-gate` 要有对应的实测记录，
 从 `not-verified` 升级要先补来源或先把机制定稿。
@@ -188,10 +188,11 @@ python3 -m unittest discover -s spec/platform/tools -p 'test_*.py' -v
 最后一行是「N files checked, M whitelist entries, K failures」。失败退出码 1，全绿退出码 0。
 checker 只读仓库，不写文件，不需要网络，只用 Python 标准库。
 
-本期 `not-verified` 只有 2 条，理由写在各自 `rationale` 里：
+本期 `not-verified` 有 5 条，理由写在各自 `rationale` 里：
 
 - `platform.script-message-reply`：桥协议未定稿（方案 §4.4、§11-R2 要求写进 spec 并覆盖桥帧金标）；
-- `platform.lockdown-report`：Android 侧没有 Lockdown 等价物的可引用来源，等引擎 spike 给出实测口径。
+- `platform.lockdown-report`：Android 侧没有 Lockdown 等价物的可引用来源，等引擎 spike 给出实测口径；
+- `platform.pclink-identity-seed`、`platform.pclink-foreground-relay`、`platform.pclink-doze-network`：Android PCLink（`PC-20261112-pclink-android`）尚无真机证据，C2–C5 落地并真机实测后升级。
 
 ## 10. 维护流程
 
@@ -252,7 +253,7 @@ Adding a second group of SPI interfaces to "cover" the other 13 would be abstrac
 sake, and the plan's §5.1 already says this layer is the one deliberate departure from the 1:1
 mirror — a reason to keep it small, not a licence to grow it.
 
-Two entries stay `not-verified` and one stays `spec-only`; the audit above does not change that.
+Five entries stay `not-verified` (the three PCLink ones were added by `PC-20261112-pclink-android`) and one stays `spec-only`; the audit above does not change that.
 
 
 

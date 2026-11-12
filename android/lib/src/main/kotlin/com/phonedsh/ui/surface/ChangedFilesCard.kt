@@ -11,8 +11,10 @@
 //     (`:36-41`);
 //   * a hairline, then the first four files, one row each: path in the tertiary
 //     ink at 12 pt, `+n -m` in monospaced 11 pt (`:51-74`);
-//   * a "全部 N 个文件" toggle when the turn touched more than four (`:75-90`),
-//     which rotates to 收起 once open;
+//   * when the turn touched more than four, one animated body with rows 5..N
+//     *above* the toggle (`:12-14`, `:54-90`);
+//   * a "全部 N 个文件" toggle whose chevron.down rotates 0°→180° in the same
+//     motion.disclosure animation, and whose label becomes 收起 once open;
 //   * the card is `colors.input` with a 0.5 pt border and a 12 pt radius (`:93-97`).
 //
 // The counts are *not* invented here: they come from the same line diff the iOS
@@ -20,6 +22,16 @@
 // [lineDelta] and covered by a parity test.
 package com.phonedsh.ui.surface
 
+import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +47,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +55,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -51,13 +67,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.disclosure.DisclosureKind
+import com.phonedsh.ui.disclosure.DisclosureMotion
+import com.phonedsh.ui.disclosure.DisclosureSpec
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
+import com.phonedsh.ui.theme.UiMotion
 
 /** Test tag of the changed-files card. */
 internal const val CHANGED_FILES_TAG: String = "pdsh.surface.changedFiles"
@@ -65,8 +86,14 @@ internal const val CHANGED_FILES_TAG: String = "pdsh.surface.changedFiles"
 /** Test tag of one file row inside the card. */
 internal const val CHANGED_FILES_ROW_TAG: String = "pdsh.surface.changedFiles.row"
 
+/** Test tag of the animated body holding rows 5..N above the toggle. */
+internal const val CHANGED_FILES_BODY_TAG: String = "pdsh.surface.changedFiles.body"
+
 /** Test tag of the "全部 N 个文件" toggle. */
 internal const val CHANGED_FILES_TOGGLE_TAG: String = "pdsh.surface.changedFiles.toggle"
+
+/** Test tag of the toggle's rotating chevron. */
+internal const val CHANGED_FILES_CHEVRON_TAG: String = "pdsh.surface.changedFiles.toggle.chevron"
 
 /**
  * One file a closed turn changed (iOS `NativeChangedFile`).
@@ -99,6 +126,43 @@ public fun ChangedFilesCard(
     modifier: Modifier = Modifier,
     onOpenFile: (String) -> Unit = {},
 ) {
+    ChangedFilesCardContent(
+        changes = changes,
+        modifier = modifier,
+        onOpenFile = onOpenFile,
+        onChevronRotationChanged = null,
+    )
+}
+
+/**
+ * [ChangedFilesCard] with a JVM-observable chevron rotation.
+ *
+ * The rotation is only a draw transform, so Compose semantics cannot read it.
+ * The production overload passes `null`; this is the same observer seam
+ * `PdshChevron` offers to hosts.
+ */
+@Composable
+internal fun ChangedFilesCardWithChevronObserver(
+    changes: List<ChatFileChange>,
+    modifier: Modifier = Modifier,
+    onOpenFile: (String) -> Unit = {},
+    onChevronRotationChanged: (Float) -> Unit,
+) {
+    ChangedFilesCardContent(
+        changes = changes,
+        modifier = modifier,
+        onOpenFile = onOpenFile,
+        onChevronRotationChanged = onChevronRotationChanged,
+    )
+}
+
+@Composable
+private fun ChangedFilesCardContent(
+    changes: List<ChatFileChange>,
+    modifier: Modifier,
+    onOpenFile: (String) -> Unit,
+    onChevronRotationChanged: ((Float) -> Unit)?,
+) {
     val files = mergeChangedFiles(changes)
     if (files.isEmpty()) return
     val tokens = LocalUiTokens.current
@@ -108,7 +172,11 @@ public fun ChangedFilesCard(
     // screen state, not a projection: `remember` is the same lifetime.
     var expanded by remember { mutableStateOf(false) }
     val single = files.singleOrNull()
-    val visible = if (expanded) files else files.take(VISIBLE_FILES)
+    val reducedMotion = rememberPlatformReducedMotion(expanded)
+    // `interaction.md` §7 rule 1: the changed-file body folds with motion.disclosure.
+    val bodySpec = DisclosureMotion.specFor(DisclosureKind.BODY, reducedMotion)
+    val sizeSpec = disclosureAnimationSpec<IntSize>(bodySpec, tokens.motion)
+    val fadeSpec = disclosureAnimationSpec<Float>(bodySpec, tokens.motion)
 
     Column(
         modifier = modifier
@@ -189,44 +257,9 @@ public fun ChangedFilesCard(
                     .height(tokens.stroke.hairline)
                     .background(tokens.colors.border),
             )
-            visible.forEach { file ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(role = Role.Button) { onOpenFile(file.path) }
-                        .testTag(CHANGED_FILES_ROW_TAG)
-                        // iOS row: 14 h inset and a 44 pt floor *including* it
-                        // (`:68-70`), so the floor is outside the padding.
-                        .defaultMinSize(minHeight = ChatMetrics.CHANGED_FILES_ROW_MIN_HEIGHT_PT.dp)
-                        .padding(horizontal = ChatMetrics.CHANGED_FILES_ROW_INSET_H_PT.dp)
-                        .padding(vertical = ChatMetrics.CHANGED_FILES_ROW_INSET_V_PT.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_ROW_GAP_PT.dp),
-                ) {
-                    BasicText(
-                        text = file.display,
-                        style = type.caption.copy(color = tokens.colors.tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_DIFF_COUNT_GAP_PT.dp)) {
-                        BasicText(
-                            text = "+${file.added}",
-                            style = type.code.copy(
-                                color = tokens.colors.success,
-                                fontSize = type.codeAction.fontSize,
-                            ),
-                        )
-                        BasicText(
-                            text = "-${file.deleted}",
-                            style = type.code.copy(
-                                color = tokens.colors.danger,
-                                fontSize = type.codeAction.fontSize,
-                            ),
-                        )
-                    }
-                }
+            // The first four rows are always visible (`NativeChangedFilesCard.swift:14`).
+            files.take(VISIBLE_FILES).forEach { file ->
+                ChangedFileRow(file = file, onOpenFile = onOpenFile)
             }
             if (files.size > VISIBLE_FILES) {
                 val toggle = if (expanded) {
@@ -234,12 +267,46 @@ public fun ChangedFilesCard(
                 } else {
                     UiStrings.CHANGED_FILES_ALL.format(files.size)
                 }
+                // iOS renders rows 5..N *above* the toggle (`NativeChangedFilesCard.swift:54-90`):
+                // one animated body that grows between row 4 and the control, so
+                // expanding never moves anything above the toggle except by growing
+                // (§7 rule 6).
+                val body: @Composable () -> Unit = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(CHANGED_FILES_BODY_TAG),
+                    ) {
+                        files.drop(VISIBLE_FILES).forEach { file ->
+                            ChangedFileRow(file = file, onOpenFile = onOpenFile)
+                        }
+                    }
+                }
+                if (bodySpec.snap) {
+                    // Rule 5: the platform disabled animations; compose the end
+                    // state directly instead of running a zero-duration transition.
+                    if (expanded) body()
+                } else {
+                    AnimatedVisibility(
+                        visible = expanded,
+                        enter = expandVertically(
+                            animationSpec = sizeSpec,
+                            expandFrom = Alignment.Top,
+                        ) + fadeIn(animationSpec = fadeSpec),
+                        exit = shrinkVertically(
+                            animationSpec = sizeSpec,
+                            shrinkTowards = Alignment.Top,
+                        ) + fadeOut(animationSpec = fadeSpec),
+                    ) {
+                        body()
+                    }
+                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Button) { expanded = !expanded }
                         .testTag(CHANGED_FILES_TOGGLE_TAG)
-                        .semantics {
+                        .clickable(role = Role.Button) { expanded = !expanded }
+                        .semantics(mergeDescendants = true) {
                             contentDescription = toggle
                             stateDescription = if (expanded) {
                                 UiStrings.EXPANDED
@@ -258,14 +325,91 @@ public fun ChangedFilesCard(
                         text = toggle,
                         style = type.caption.copy(color = tokens.colors.tertiary),
                     )
-                    PdshIconView(
-                        icon = if (expanded) PdshIcon.CHEVRON_UP else PdshIcon.CHEVRON_DOWN,
-                        size = ChatMetrics.CHANGED_FILES_TOGGLE_CHEVRON_SIZE_PT.dp,
+                    ChangedFilesChevron(
+                        expanded = expanded,
+                        spec = bodySpec,
                         tint = tokens.colors.tertiary,
-                        contentDescription = null,
+                        onRotationChanged = onChevronRotationChanged,
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * iOS rotates `chevron.down` 0°→180° inside the same `withAnimation` as the
+ * body (`NativeChangedFilesCard.swift:77-81`), so it reads the BODY disclosure
+ * spec, not `motion.chevron` (that one is the subagent 0°→90° mark).
+ */
+@Composable
+private fun ChangedFilesChevron(
+    expanded: Boolean,
+    spec: DisclosureSpec,
+    tint: Color,
+    onRotationChanged: ((Float) -> Unit)?,
+) {
+    val target = if (expanded) 180f else 0f
+    val animated by animateFloatAsState(
+        targetValue = target,
+        animationSpec = disclosureAnimationSpec<Float>(spec, LocalUiTokens.current.motion),
+        label = "pdsh-changed-files-chevron",
+    )
+    val rotation = if (spec.snap) target else animated
+    if (onRotationChanged != null) {
+        SideEffect { onRotationChanged(rotation) }
+    }
+    PdshIconView(
+        icon = PdshIcon.CHEVRON_DOWN,
+        size = ChatMetrics.CHANGED_FILES_TOGGLE_CHEVRON_SIZE_PT.dp,
+        tint = tint,
+        contentDescription = null,
+        modifier = Modifier
+            .testTag(CHANGED_FILES_CHEVRON_TAG)
+            .rotate(rotation),
+    )
+}
+
+/** One file row (iOS `NativeChangedFilesCard` `:67`–`:78`). */
+@Composable
+private fun ChangedFileRow(file: ChatFileChange, onOpenFile: (String) -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button) { onOpenFile(file.path) }
+            .testTag(CHANGED_FILES_ROW_TAG)
+            // iOS row: 14 h inset and a 44 pt floor *including* it
+            // (`:68-70`), so the floor is outside the padding.
+            .defaultMinSize(minHeight = ChatMetrics.CHANGED_FILES_ROW_MIN_HEIGHT_PT.dp)
+            .padding(horizontal = ChatMetrics.CHANGED_FILES_ROW_INSET_H_PT.dp)
+            .padding(vertical = ChatMetrics.CHANGED_FILES_ROW_INSET_V_PT.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_ROW_GAP_PT.dp),
+    ) {
+        BasicText(
+            text = file.display,
+            style = type.caption.copy(color = tokens.colors.tertiary),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(ChatMetrics.CHANGED_FILES_DIFF_COUNT_GAP_PT.dp)) {
+            BasicText(
+                text = "+${file.added}",
+                style = type.code.copy(
+                    color = tokens.colors.success,
+                    fontSize = type.codeAction.fontSize,
+                ),
+            )
+            BasicText(
+                text = "-${file.deleted}",
+                style = type.code.copy(
+                    color = tokens.colors.danger,
+                    fontSize = type.codeAction.fontSize,
+                ),
+            )
         }
     }
 }
@@ -333,6 +477,27 @@ private fun newlineComponents(text: String): List<String> {
     out.add(current.toString())
     return out
 }
+
+/** Rule 5: the platform animator duration scale is the only reduced-motion input. */
+@Composable
+private fun rememberPlatformReducedMotion(key: Any?): Boolean {
+    val context = LocalContext.current
+    return remember(key, context) {
+        Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) == 0f
+    }
+}
+
+/** One contract motion for every property, or the contract's reduced-motion snap. */
+private fun <T> disclosureAnimationSpec(spec: DisclosureSpec, motion: UiMotion): FiniteAnimationSpec<T> =
+    if (spec.snap) {
+        snap()
+    } else {
+        tween(durationMillis = spec.durationMs, easing = motion.easing(spec.curve))
+    }
 
 /** The four rows the iOS card shows before its "全部" toggle (`:12`). */
 private const val VISIBLE_FILES: Int = 4

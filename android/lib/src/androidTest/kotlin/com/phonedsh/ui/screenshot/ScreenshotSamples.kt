@@ -32,7 +32,6 @@ import com.phonedsh.ui.state.ComposerState
 import com.phonedsh.ui.state.ToolEntry
 import com.phonedsh.ui.state.GoalBarState
 import com.phonedsh.ui.state.PendingSlot
-import com.phonedsh.ui.surface.ComposerMode
 import com.phonedsh.ui.surface.ToolRowState
 import java.time.ZoneId
 
@@ -96,7 +95,6 @@ object ScreenshotSamples {
         transcript = com.phonedsh.ui.state.TranscriptState(),
         composer = ComposerState(
             draft = COMPOSER_DRAFT,
-            mode = ComposerMode.SEND,
             enabled = true,
             canSubmit = true,
             placeholder = com.phonedsh.ui.UiStrings.COMPOSER_PLACEHOLDER_IDLE,

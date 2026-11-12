@@ -70,9 +70,11 @@ guards     `if (<param> != null) { … }`, `if (<param> == null) { … } else { 
            item) and the summary row separates unconditional from conditional
            occurrences.
 
-`<label>` resolves when it is a string literal or a `UiStrings.NAME` constant; any other
-expression is reported as `unresolved` rather than guessed. The idioms are documented in
-`spec/ui/v1/README.md` §1 so the Android lane knows what the gate reads.
+`<label>` resolves when it is a string literal, a `UiStrings.NAME` constant, a page
+`const val`/top-level `val`, or an `object`/companion constant the page references
+(`PcLinkText.PAIRING_INTERRUPTED`); any other expression is reported as `unresolved`
+rather than guessed. The idioms are documented in `spec/ui/v1/README.md` §1 so the
+Android lane knows what the gate reads.
 
 `states` is **advisory**: the contract's state sites are marker-based and cannot tell a
 row's placeholder (未配置/未设置/—) from a page state, so the checker never compares them.
@@ -251,7 +253,25 @@ DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 UISTRING_RE = re.compile(
     r"^[ \t]*public const val ([A-Z][A-Z0-9_]*): String = \"((?:[^\"\\]|\\.)*)\"[ \t]*$", re.M)
 LOCAL_CONST_RE = re.compile(
-    r"^[ \t]*(?:private |internal |public )?const val ([A-Z][A-Z0-9_]*)(?:: String)? = "
+    r"^[ \t]*(?:private |internal |public )?const val ([A-Z][A-Z0-9_]*)(?:: String)? ="
+    r"[ \t\r\n]*\"((?:[^\"\\]|\\.)*)\"[ \t]*$", re.M)
+#: A file-level (non-const) `val`; only depth 0 counts, so a local `val` never
+#: becomes a page-wide label. `const val` is handled by LOCAL_CONST_RE above.
+LOCAL_VAL_RE = re.compile(
+    r"^[ \t]*(?P<mods>(?:(?:public|private|internal|protected|const)[ \t]+)*)val[ \t]+"
+    r"([A-Z][A-Z0-9_]*)(?::[ \t]*String)?[ \t]*=[ \t\r\n]*"
+    r"\"((?:[^\"\\]|\\.)*)\"[ \t]*$", re.M)
+#: A named object that can own constants (`PcLinkText`, `UiStrings`-like tables).
+OBJECT_DECL_RE = re.compile(r"\bobject[ \t]+([A-Z][A-Za-z0-9_]*)\b[^{]*\{")
+#: A companion object; its constants are addressed as `Outer.NAME` in Kotlin.
+COMPANION_DECL_RE = re.compile(
+    r"\bcompanion[ \t]+object(?:[ \t]+([A-Z][A-Za-z0-9_]*))?\b[^{]*\{")
+#: The enclosing class/object of a companion object.
+TYPE_DECL_RE = re.compile(r"\b(?:class|object)[ \t]+([A-Z][A-Za-z0-9_]*)\b[^{]*\{")
+#: A string property in an object: `const val` or a top-level `val`.
+OBJECT_CONST_RE = re.compile(
+    r"^[ \t]*(?:(?:public|private|internal|protected|const)[ \t]+)*val[ \t]+"
+    r"([A-Z][A-Z0-9_]*)(?::[ \t]*String)?[ \t]*=[ \t\r\n]*"
     r"\"((?:[^\"\\]|\\.)*)\"[ \t]*$", re.M)
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 SECTION_CALL_RE = re.compile(r"\b([A-Z]\w*)[ \t]*\(")
@@ -261,6 +281,13 @@ ROW_CALLS = frozenset({
     "Text", "BasicText", "InfoRow", "SettingsFormRow", "SettingsGroupedRow",
     "SettingsBodyRow", "SettingsFootnoteRow",
 })
+#: Page-local composables verified to render their first `text: String` as one
+#: visible row. Kept explicit rather than inferred from the body: the generic
+#: shape would also surface `NativeConfigurationPage`'s `ConfigurationNoteRow`,
+#: silently satisfying a baselined missing-section — a ratchet move that is not
+#: this tooling fix. `PcPairingHint` is the PCLink hint/footnote line whose call
+#: site carries the contract wording (`PcLinkText.FULL_OWNER_WARNING`).
+TEXT_ROW_WRAPPER_CALLS = frozenset({"PcPairingHint"})
 DECLARATION_TAIL_RE = re.compile(r"(?:\b(?:data|enum|sealed|abstract|open|private|internal|public|inline|suspend)\s+)*"
                                  r"(?:class|fun|object|interface|typealias)\s+$")
 DYN_EXPR_MAX = 60
@@ -482,8 +509,10 @@ def load_uistrings(root: Path) -> dict:
 
 
 def load_page_consts(root: Path) -> dict:
-    """Unqualified `const val` in the page layer (glyphs, shared labels).
+    """Page-layer string constants (glyphs, shared labels, object copy tables).
 
+    Unqualified names come from `const val`/top-level `val`; object/companion
+    constants keep their qualifier (`PcLinkText.PAIRING_INTERRUPTED`).
     `UiPageTags.kt` is excluded on purpose: a test tag such as
     `pdsh.sessions.workspace.new` is an automation handle, never a user-visible
     label, and it may share a constant *name* with a `UiStrings` entry.
@@ -495,7 +524,12 @@ def load_page_consts(root: Path) -> dict:
     for kt in sorted(page_dir.glob("*.kt")):
         if kt.name == "UiPageTags.kt":
             continue
-        for name, value in local_constants(read_text(kt)).items():
+        text = read_text(kt)
+        for name, value in local_constants(text).items():
+            if value.startswith("pdsh."):
+                continue
+            out[name] = value
+        for name, value in qualified_constants(text).items():
             if value.startswith("pdsh."):
                 continue
             out[name] = value
@@ -512,6 +546,73 @@ def local_constants(text: str) -> dict:
     out = {}
     for name, value in LOCAL_CONST_RE.findall(text):
         out[name] = value.replace('\\"', '"').replace("\\n", "\n")
+    # A top-level `val` is as static as a `const val`; a local one is not. Depth 0
+    # is the only scope this index can honestly call page-wide.
+    masked = mask_kotlin(text)
+    for match in LOCAL_VAL_RE.finditer(text):
+        if "const" in match.group("mods").split():
+            continue
+        depth = (masked.count("{", 0, match.start())
+                 - masked.count("}", 0, match.start()))
+        if depth != 0:
+            continue
+        out[match.group(2)] = match.group(3).replace('\\"', '"').replace("\\n", "\n")
+    return out
+
+
+def _object_body_constants(text: str, masked: str, brace: int, body_end: int) -> dict:
+    """String properties directly inside one object body, keyed by their own name."""
+    out = {}
+    for match in OBJECT_CONST_RE.finditer(text, brace, body_end):
+        depth = (masked.count("{", brace, match.start())
+                 - masked.count("}", brace, match.start()))
+        if depth != 1:
+            continue
+        out[match.group(1)] = match.group(2).replace('\\"', '"').replace("\\n", "\n")
+    return out
+
+
+def qualified_constants(text: str) -> dict:
+    """`PcLinkText.FULL_OWNER_WARNING` -> its literal, from an object/companion body.
+
+    Kotlin constants in an `object` (or a class/object companion) are addressed by
+    the object name. Only direct string properties of that object resolve; a `val`
+    inside a function, or a property whose value is not one literal, is not a
+    static wording and stays unresolved.
+    """
+    masked = mask_kotlin(text)
+    out = {}
+    type_spans = []
+    for decl in TYPE_DECL_RE.finditer(masked):
+        brace = decl.end() - 1
+        body_end = match_delim(masked, brace, "{", "}")
+        if body_end > brace:
+            type_spans.append((decl.group(1), decl.start(), brace, body_end))
+    for decl in OBJECT_DECL_RE.finditer(masked):
+        # A named companion is handled below with its outer type's qualifier.
+        if re.search(r"\bcompanion[ \t]+$", masked[max(0, decl.start() - 20):decl.start()]):
+            continue
+        brace = decl.end() - 1
+        body_end = match_delim(masked, brace, "{", "}")
+        if body_end <= brace:
+            continue
+        for name, value in _object_body_constants(text, masked, brace, body_end).items():
+            out[f"{decl.group(1)}.{name}"] = value
+    for decl in COMPANION_DECL_RE.finditer(masked):
+        brace = decl.end() - 1
+        body_end = match_delim(masked, brace, "{", "}")
+        if body_end <= brace:
+            continue
+        enclosing = [span for span in type_spans if span[2] < decl.start() < span[3]]
+        outer = max(enclosing, key=lambda span: span[1]) if enclosing else None
+        for name, value in _object_body_constants(text, masked, brace, body_end).items():
+            if outer:
+                out[f"{outer[0]}.{name}"] = value
+                out[f"{outer[0]}.Companion.{name}"] = value
+                if decl.group(1):
+                    out[f"{outer[0]}.{decl.group(1)}.{name}"] = value
+            elif decl.group(1):
+                out[f"{decl.group(1)}.{name}"] = value
     return out
 
 
@@ -545,6 +646,12 @@ def resolve_kotlin_expr(expr: str, strings: dict, consts: dict | None = None) ->
     m = re.fullmatch(r"UiStrings\.([A-Z][A-Z0-9_]*)\.format\((.*)\)", text, re.S)
     if m and m.group(1) in strings:
         return strings[m.group(1)], False
+    # An object/companion constant the page references by name
+    # (`PcLinkText.PAIRING_INTERRUPTED`). Only a key the page-layer index actually
+    # found resolves; an unknown object or member stays dynamic.
+    m = re.fullmatch(r"([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9_]*)*)\.([A-Z][A-Z0-9_]*)", text)
+    if m and f"{m.group(1)}.{m.group(2)}" in consts:
+        return consts[f"{m.group(1)}.{m.group(2)}"], False
     m = re.fullmatch(r"([A-Z][A-Z0-9_]*)", text)
     if m and m.group(1) in consts:
         return consts[m.group(1)], False
@@ -1771,6 +1878,60 @@ def verified_developer_tools_action_positions(text: str, masked: str,
     return [(label, page["body_start"] + call.start())]
 
 
+_CONTEXT_MENU_SURFACES: dict = {}
+
+
+def load_context_menu_surfaces(root: Path) -> dict:
+    """`surfaceId` → item list from `tokens.json#interaction.contextMenu.surfaces`.
+
+    A tree without `tokens.json` (a test fixture root) has no surfaces; any
+    `PdshContextMenu` call there is then reported unresolved, never treated as present.
+    """
+    key = str(root)
+    if key not in _CONTEXT_MENU_SURFACES:
+        path = root / "spec/ui/v1/tokens.json"
+        tokens = load_json(path) if path.is_file() else {}
+        surfaces = tokens.get("interaction", {}).get("contextMenu", {}).get("surfaces", [])
+        _CONTEXT_MENU_SURFACES[key] = {s["id"]: s.get("items", []) for s in surfaces}
+    return _CONTEXT_MENU_SURFACES[key]
+
+
+def context_menu_actions(text: str, masked: str, strings: dict, consts: dict,
+                         surfaces: dict) -> tuple:
+    """Labels a `PdshContextMenu(surfaceId = …)` call renders, with the call position.
+
+    The shared menu draws its items from the frozen token surface (interaction.md §3
+    rule 2), so the labels never appear at a page `Text` call site. Each item's
+    `label` (and its `altLabel`) is an action of that page; `kind: info` rows are not
+    actions. An unknown or unresolvable surface id is returned as unresolved, never
+    skipped silently.
+    """
+    labels, unresolved = [], []
+    for m in re.finditer(r"\bPdshContextMenu[ \t]*\(", masked):
+        if is_declaration(masked, m.start()):
+            continue
+        open_paren = m.end() - 1
+        close = match_paren(masked, open_paren)
+        if close < 0:
+            continue
+        named, _ = named_args(masked, open_paren, close)
+        if "surfaceId" not in named:
+            unresolved.append("PdshContextMenu(<no surfaceId>)")
+            continue
+        expr = text[named["surfaceId"][0]:named["surfaceId"][1]].strip()
+        value, _ = resolve_kotlin_expr(expr, strings, consts)
+        if value not in surfaces:
+            unresolved.append(f"PdshContextMenu(surfaceId = {strip_kotlin_comments(expr)[:DYN_EXPR_MAX]})")
+            continue
+        for item in surfaces[value]:
+            if item.get("kind") == "info":
+                continue
+            for key in ("label", "altLabel"):
+                if item.get(key):
+                    labels.append((item[key], m.start()))
+    return labels, unresolved
+
+
 def android_actions(text: str, masked: str, strings: dict, consts: dict,
                     stats: dict | None = None, wrappers: frozenset | None = None,
                     positions: list | None = None,
@@ -2262,7 +2423,9 @@ def android_row_positions(text: str, masked: str, strings: dict, consts: dict) -
     out = []
     for m in SECTION_CALL_RE.finditer(masked):
         callee = m.group(1)
-        if callee not in ROW_CALLS:
+        if callee not in ROW_CALLS and callee not in TEXT_ROW_WRAPPER_CALLS:
+            continue
+        if callee in TEXT_ROW_WRAPPER_CALLS and is_declaration(masked, m.start()):
             continue
         open_paren = m.end() - 1
         close = match_paren(masked, open_paren)
@@ -2595,6 +2758,12 @@ def compare(root: Path, contract: dict, report: Report, strings: dict, shared_co
     android_labels, unresolved_labels, action_occurrences = android_actions(
         text, masked, strings, consts, wrappers=wrappers, positions=action_positions,
         fold_labels=fold_labels, wording_sets=wording_sets)
+    menu_labels, menu_unresolved = context_menu_actions(
+        text, masked, strings, consts, load_context_menu_surfaces(root))
+    android_labels.extend(label for label, _ in menu_labels)
+    action_occurrences.extend(menu_labels)
+    action_positions.extend(menu_labels)
+    unresolved_labels.extend(menu_unresolved)
     verified_model = verified_settings_index_model(text, masked, strings, consts)
     if verified_model is not None:
         model_titles, model_section_positions, model_labels, model_action_positions = verified_model

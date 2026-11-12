@@ -56,8 +56,12 @@ package com.phonedsh.probe
 
 import android.content.Context
 import com.phonedsh.account.TonoAccountKeySource
+import com.phonedsh.engine.GitHubAgentEnvironment
+import com.phonedsh.engine.WorkerEnvironment
 import com.phonedsh.gateway.CredentialUnavailableException
 import com.phonedsh.gateway.GatewayCredentialProvider
+import com.phonedsh.gateway.GitHubAgentCredentialProvider
+import com.phonedsh.gateway.GitHubTokenSource
 import com.phonedsh.gateway.ModelEndpoint
 import com.phonedsh.gateway.ModelGatewayCredentialProvider
 import com.phonedsh.gateway.ModelKeySource
@@ -214,7 +218,17 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
         val keys = TonoAccountHost.activeSession()
             ?.let { TonoAccountKeySource.overlay(endpoint.origin, it, stored) }
             ?: stored
-        return ModelGatewayCredentialProvider(endpoint, keys, anonymousHosts)
+        val base = ModelGatewayCredentialProvider(endpoint, keys, anonymousHosts)
+        // P16: api.github.com is answered from the GitHub agent record, and every
+        // other scope delegates to the model/egress provider unchanged. The
+        // wrapper is installed even when the record is absent/unreadable: that
+        // scope must answer anonymous, not fall through to the model provider's
+        // refusal for a host it does not know.
+        val github = GitHubAgentSettingsStore.active()
+        return GitHubAgentCredentialProvider(
+            base = base,
+            tokenSource = github?.tokenSource() ?: GitHubTokenSource { null },
+        )
     }
 
     /**
@@ -268,6 +282,14 @@ internal class ApiKeyStore(private val store: SecureStore) : ModelKeySource {
             installed.get()?.let { return it }
             val created = ApiKeyStore(AndroidSecureStore(context.applicationContext))
             installed.set(created)
+            // The GitHub agent record lives beside the model key and is read by
+            // the same credential edge. Installing its live source here (before
+            // the ViewModel builds the Worker env) is what makes a token saved
+            // in Settings apply on the next page load / engine restart.
+            GitHubAgentSettingsStore.install(context.applicationContext)
+            WorkerEnvironment.installGitHubAgent {
+                GitHubAgentSettingsStore.active()?.environment() ?: GitHubAgentEnvironment.disabled
+            }
             return created
         }
 

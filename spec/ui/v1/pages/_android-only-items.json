@@ -170,7 +170,7 @@
    "kind": "section",
    "title": "引擎",
    "reason": {
-    "baselineLacks": "the iOS page has no 引擎 group: it renders 状态 and 已运行 as one untitled row above 本次运行 (`runtimeRow(\"状态\", statusValue)`, ChatPage.swift:4171), and `statusValue` is assembled at runtime from `model.displayStatus` plus the elapsed time, so the extractor's section model has no group to compare",
+    "baselineLacks": "the iOS page has no 引擎 group: it renders 状态 and 已运行 as one untitled row above 本次运行 (`runtimeRow(\"状态\", statusValue)`, ChatPage.swift:4205), and `statusValue` is assembled at runtime from `model.displayStatus` plus the elapsed time, so the extractor's section model has no group to compare",
     "androidNeeds": "the Android page folds its diagnostics by group, and the engine rows are that group: `RuntimeSectionView(ENGINE_SECTION_ID, 引擎, …)` owns the fold and the `runtime.engine.status`/`runtime.engine.uptime` row ids, while the contract's untitled-group criterion only proves that the 停止本地引擎 row exists somewhere below",
     "withoutIt": "the status and uptime rows would sit above 本次运行 with no header and no fold id, so the user could not collapse them and the stop action would lose the group it belongs to"
    },

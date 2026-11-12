@@ -264,6 +264,26 @@ routine、cron、run-attempt、安静时段、silent/held/interrupt、held inbox
   `cancelOrigin:"user"`，不产生新的强制通知；`needs-reconciliation` 的人工处理见
   [v1 §5](../v1/README.md#5-行与交互) 的 Bot 信息页。
 
+### 2.3 Routine snapshot 的 presence 与 RoutineDocument
+
+`routine.defined`／`routine.updated`／`routine.deleted` 的 `data` 是
+`{"botId":<string>,"document":<RoutineDocument>}`（`Routines/DurableSnapshot.swift`、
+`RoutineStore.swift`）。`RoutineDocument` 固定为 `{"version":1,"routines":[…],"deliveries":{…}}`；
+持久化字节由 `BotEventEnvelopeCodec` 以排序 key 输出。
+
+`routine.schema.json` 的 `run_state`、`quiet_defer`、`next_run_at`、`last_result` 是 nullable，
+且**absent ≡ null**（CCR-7；与 [v1 §1.2](../v1/README.md#12-envelope-presence-与编码ccr-1ccr-7) 同一规则）：
+
+1. reader MUST 接受 absent 与显式 `null`，解码为同一个 nil。
+2. writer MUST omit nil，不写显式 `null`。Swift `Routine` 的 synthesized Codable 已经这样写；既有
+   iOS snapshot 的省略字节保持有效，不回写。
+3. Kotlin writer MUST 同样 omit nil，否则同一 routine 的 snapshot bytes 与 iOS 不同。
+4. `routine-document.schema.json` 冻结 `data` 的外层；`routines` 的每一项按
+   `routine.schema.json` 校验，`deliveries` 的每个值按 `routine-delivery.schema.json` 校验。
+   `version` 不是 1 时 fail-closed，不静默重置。
+5. 向量 `golden/routine-document.json` 覆盖 new／deferred／started／needs-reconciliation／deleted，
+   由 Swift encoder 产生；实现必须用真实 encoder 对拍，不得手写期望字节。
+
 ## 3. 主动提醒
 
 主动提醒只用于 interrupt。保留的规则链只由三道硬限制和通知投递接口组成：
@@ -523,6 +543,9 @@ cache read + cache write，以 LLM 账本为准）。维护回合的账本 `purp
 （`memory-legacy-fact`）。
 `routine-notification` 是本目录新增的 phoneDSH-owned 向量，覆盖正常、安静时段延后、紧急绕过和
 四类非法输入。
+`golden/routine-document.json` 是 phoneDSH 新增的 routine snapshot 向量（CCR-7），由 Swift
+encoder 产生，覆盖 new／deferred／started／needs-reconciliation／deleted；它没有上游对应文件，
+也不参与 v1 的导出器 manifest。
 `held-inbox.phone.json` 的 `upstream` 字段仍指向 `held-inbox.json`，合并语义与
 [v1 §8.1](../v1/README.md#81-上游导出与-phonejson-覆盖) 相同：对象按键合并，数组按
 `name`／`id`／`nonce`／`action.nonce` 追加或替换，覆盖文件不能删除上游用例。

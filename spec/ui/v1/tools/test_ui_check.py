@@ -544,6 +544,216 @@ class UiCheckTests(unittest.TestCase):
         self.assertIn("drawer-gesture.golden.json", result.stdout)
         self.assertIn("22 cases recomputed", result.stdout)
 
+    # -- 12. the P09 batch groups ----------------------------------------
+
+    def golden(self, name: str) -> tuple:
+        path = self.ui / "golden" / name
+        return path, json.loads(path.read_text(encoding="utf-8"))
+
+    def test_sheet_page_detent_unknown_set_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["sheet"]["pageDetents"][0]["detents"] = "huge"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "references unknown detent set 'huge'")
+
+    def test_sheet_stale_detent_source_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["sheet"]["pageDetents"][0]["expect"] = ".presentationDetents([.medium])"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.sheet.pageDetents[previewShare]")
+
+    def test_sheet_grabber_value_must_be_anchored(self) -> None:
+        document = self.tokens()
+        document["interaction"]["sheet"]["grabberVisible"]["value"] = "hidden"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.sheet.grabberVisible")
+
+    def test_sheet_detent_site_count_must_match_probe_app(self) -> None:
+        page = self.root / "examples" / "probe-app" / "PhoneDSHProbe" / "NativeWorkbenchPage.swift"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\nstruct ProbeSheet: View { var body: some View { Color.clear.presentationDetents([.medium]) } }\n",
+            encoding="utf-8",
+        )
+        self.assert_fails(run_checker(self.root), "14 .presentationDetents site(s)")
+
+    def test_sheet_interactive_dismiss_disabled_fails(self) -> None:
+        page = self.root / "examples" / "probe-app" / "PhoneDSHProbe" / "NativeWorkbenchPage.swift"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\nstruct ProbeSheetDismiss: View { var body: some View { Color.clear.interactiveDismissDisabled() } }\n",
+            encoding="utf-8",
+        )
+        self.assert_fails(run_checker(self.root), "interactive dismissal")
+
+    def test_sheet_golden_page_detent_drift_fails(self) -> None:
+        path, document = self.golden("sheet-detents.golden.json")
+        page = next(entry for entry in document["pages"] if entry["id"] == "previewShare")
+        page["detents"] = "medium"
+        self.write_drawer_golden(path, document)
+        self.assert_fails(run_checker(self.root), "sheet-detents.golden.json pages")
+
+    def _sheet_row(self, document: dict, ident: str) -> dict:
+        return next(entry for entry in document["interaction"]["sheet"]["pageDetents"]
+                    if entry["id"] == ident)
+
+    def test_sheet_default_page_detent_must_anchor_on_home_sheet_chrome(self) -> None:
+        document = self.tokens()
+        row = self._sheet_row(document, "settings")
+        row["source"] = "ChatPage.swift:501"
+        row["expect"] = ".presentationDetents([.large])"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "must anchor on a .homeSheetChrome() line")
+
+    def test_sheet_default_page_detent_rejects_detents_in_its_sheet_body(self) -> None:
+        document = self.tokens()
+        row = self._sheet_row(document, "settings")
+        row["source"] = "ChatPage.swift:502"
+        row["expect"] = ".homeSheetChrome()"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "default-set row anchors inside a .sheet body that writes")
+
+    def test_sheet_non_default_page_detent_must_anchor_on_presentation_detents(self) -> None:
+        document = self.tokens()
+        row = self._sheet_row(document, "previewShare")
+        row["source"] = "ChatPage.swift:496"
+        row["expect"] = ".homeSheetChrome()"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "must anchor on a .presentationDetents( line")
+
+    def test_sheet_page_detent_table_needs_20_rows(self) -> None:
+        document = self.tokens()
+        document["interaction"]["sheet"]["pageDetents"].pop()
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "pageDetents has fewer than 20 items")
+
+    def test_context_menu_item_label_drift_fails(self) -> None:
+        path, document = self.golden("context-menu-items.golden.json")
+        document["surfaces"][0]["items"][0]["label"] = "新建会话"
+        self.write_drawer_golden(path, document)
+        self.assert_fails(run_checker(self.root), "context-menu-items.golden.json surfaces")
+
+    def test_context_menu_surface_count_must_match_probe_app(self) -> None:
+        chat = self.root / "examples" / "probe-app" / "PhoneDSHProbe" / "ChatPage.swift"
+        chat.write_text(
+            chat.read_text(encoding="utf-8")
+            + '\nstruct ExtraMenu: View { var body: some View { EmptyView().contextMenu { Button("x") {} } } }\n',
+            encoding="utf-8",
+        )
+        self.assert_fails(run_checker(self.root), "12 .contextMenu site(s) in the probe app but 11")
+
+    def test_context_menu_custom_preview_fails(self) -> None:
+        chat = self.root / "examples" / "probe-app" / "PhoneDSHProbe" / "ChatPage.swift"
+        chat.write_text(
+            chat.read_text(encoding="utf-8")
+            + '\nstruct PreviewMenu: View { var body: some View { EmptyView().contextMenu(menuItems: { EmptyView() }) } }\n',
+            encoding="utf-8",
+        )
+        self.assert_fails(run_checker(self.root), "custom context-menu")
+
+    def test_push_back_order_drift_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["push"]["backOrder"]["value"] = "drawer,sheet,stack,root"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.push.backOrder")
+
+    def test_push_bar_visibility_value_drift_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["push"]["barHiddenWhenPushed"]["value"] = False
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "push-back golden case 'push-root'")
+
+    def test_push_golden_root_back_drift_fails(self) -> None:
+        path, document = self.golden("push-back.golden.json")
+        case = next(entry for entry in document["cases"] if entry["id"] == "back-root")
+        case["exited"] = False
+        self.write_drawer_golden(path, document)
+        self.assert_fails(run_checker(self.root), "push-back golden case 'back-root'")
+
+    def test_push_custom_navigation_transition_fails(self) -> None:
+        shell = self.root / "examples" / "probe-app" / "PhoneDSHProbe" / "NativeShell.swift"
+        shell.write_text(
+            shell.read_text(encoding="utf-8") + "\n// .navigationTransition(.zoom) probe\n",
+            encoding="utf-8",
+        )
+        self.assert_fails(run_checker(self.root), "custom navigation transition")
+
+    def test_composer_send_golden_can_submit_drift_fails(self) -> None:
+        path, document = self.golden("composer-send.golden.json")
+        case = next(entry for entry in document["cases"] if entry["id"] == "enabled-idle-empty")
+        case["canSubmit"] = True
+        self.write_drawer_golden(path, document)
+        self.assert_fails(run_checker(self.root), "composer-send golden case 'enabled-idle-empty'")
+
+    def test_composer_send_scale_value_must_be_anchored(self) -> None:
+        document = self.tokens()
+        document["interaction"]["composerSend"]["transitionScale"]["value"] = 0.9
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.composerSend.transitionScale")
+
+    def test_pressed_opacity_value_must_be_anchored(self) -> None:
+        document = self.tokens()
+        document["interaction"]["pressed"]["pillOverlay"]["value"] = 0.08
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.pressed.pillOverlay")
+
+    def test_pressed_scale_must_be_one(self) -> None:
+        document = self.tokens()
+        document["interaction"]["pressed"]["scale"]["value"] = 0.98
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "interaction.pressed.scale must be 1")
+
+    def test_pressed_golden_opacity_drift_fails(self) -> None:
+        path, document = self.golden("pressed-states.golden.json")
+        case = next(entry for entry in document["rows"] if entry["id"] == "drawerRow")
+        case["pressed"] = 0.5
+        self.write_drawer_golden(path, document)
+        self.assert_fails(run_checker(self.root), "pressed-states golden row 'drawerRow'")
+
+    def test_disclosure_motion_golden_drift_fails(self) -> None:
+        document = self.tokens()
+        document["motion"]["disclosure"]["durationMs"] = 180
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "disclosure-motion.golden.json rows")
+
+    def test_disclosure_chevron_token_must_resolve(self) -> None:
+        document = self.tokens()
+        document["interaction"]["disclosure"]["chevronMotion"]["token"] = "motion.chevrons"
+        self.write_tokens(document)
+        self.assert_fails(
+            run_checker(self.root),
+            "interaction.disclosure.chevronMotion references unknown token 'motion.chevrons'",
+        )
+
+    def test_interaction_unknown_group_fails(self) -> None:
+        document = self.tokens()
+        document["interaction"]["banner"] = {"motion": {"token": "motion.pressed"}}
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "unexpected member 'banner'")
+
+    def test_interaction_missing_group_fails(self) -> None:
+        document = self.tokens()
+        del document["interaction"]["pressed"]
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root), "tokens.json has no interaction.pressed object")
+
+    def test_real_files_with_interaction_batch_pass(self) -> None:
+        result = run_checker(ROOT)
+        self.assert_passes(result)
+        for name in (
+            "sheet-detents.golden.json",
+            "context-menu-items.golden.json",
+            "push-back.golden.json",
+            "composer-send.golden.json",
+            "pressed-states.golden.json",
+            "disclosure-motion.golden.json",
+        ):
+            self.assertIn(name, result.stdout)
+
     # -- 11. the WCAG maths itself (no subprocess) -------------------------
 
     def test_contrast_maths(self) -> None:

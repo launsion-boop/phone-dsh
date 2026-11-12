@@ -7,12 +7,6 @@
 // every UiState node stays event-anchored.
 package com.phonedsh.ui.surface
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,6 +47,7 @@ import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
 import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.HomeMetrics
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.icon.PdshIcon
 import com.phonedsh.ui.icon.PdshIconView
 import com.phonedsh.ui.state.ToolVariant
@@ -160,18 +155,23 @@ public fun ToolRow(
     // PR22's NativeDisclosureRow has two source variants: 15/24 with an 18pt
     // icon box outside a list card, 14/22 with a 16pt box inside one.
     //
-    // The tag sits on the merged, clickable row: a semantics assertion on
-    // `TOOL_ROW` must see the title, the summary, the state and the click action.
-    Column(modifier = modifier) {
+    // The tag sits on the merged header: a semantics assertion on `TOOL_ROW`
+    // must see the title, the summary and the state. The click/disabled
+    // semantics belong to the disclosure header (`PdshDisclosureTags.header`)
+    // or, when the row has no body, to the same row with `clickable(enabled =
+    // false)` — `PdshDisclosure` has no disabled parameter, so a body-less row
+    // keeps the local disabled row instead of inventing one (component gap).
+    val header: @Composable () -> Unit = {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(rowHeight)
-                .clickable(
-                    enabled = canExpand,
-                    role = Role.Button,
-                    onClickLabel = if (expanded) UiStrings.COLLAPSED else UiStrings.EXPANDED,
-                    onClick = onToggle,
+                .then(
+                    if (canExpand) {
+                        Modifier
+                    } else {
+                        Modifier.clickable(enabled = false, role = Role.Button, onClick = onToggle)
+                    },
                 )
                 .semantics(mergeDescendants = true) {
                     stateDescription = state.label
@@ -243,29 +243,34 @@ public fun ToolRow(
                 }
             }
         }
-
-        AnimatedVisibility(
-            visible = expanded && canExpand,
-            enter = expandVertically(
-                animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
-            ) + fadeIn(tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing)),
-            exit = shrinkVertically(
-                animationSpec = tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing),
-            ) + fadeOut(tween(tokens.motion.disclosureMs, easing = tokens.motion.disclosureEasing)),
+    }
+    val body: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    start = tokens.geometry.toolDetailIndent,
+                    top = tokens.geometry.toolDetailVertical,
+                    bottom = tokens.geometry.toolDetailVertical,
+                )
+                .testTag(UiTags.TOOL_ROW_DETAIL),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = tokens.geometry.toolDetailIndent,
-                        top = tokens.geometry.toolDetailVertical,
-                        bottom = tokens.geometry.toolDetailVertical,
-                    )
-                    .testTag(UiTags.TOOL_ROW_DETAIL),
-            ) {
-                detail?.invoke()
-            }
+            detail?.invoke()
         }
+    }
+
+    if (canExpand) {
+        PdshDisclosure(
+            expanded = expanded,
+            onToggle = { onToggle() },
+            modifier = modifier,
+            tag = TOOL_ROW_DISCLOSURE_TAG,
+            anchorKey = title,
+            header = header,
+            body = body,
+        )
+    } else {
+        Column(modifier = modifier) { header() }
     }
 }
 
@@ -467,6 +472,7 @@ private val TOOL_METADATA_FIELDS = setOf(
     "path", "url", "query", "exitCode", "exit_code", "durationMs", "duration_ms", "bytes", "resultCount",
 )
 
+internal const val TOOL_ROW_DISCLOSURE_TAG: String = "pdsh.surface.tool-row.disclosure"
 internal const val TOOL_ROW_CATEGORY_ICON_TAG: String = "pdsh.surface.tool-row.category-icon"
 internal const val TOOL_ROW_CHEVRON_TAG: String = "pdsh.surface.tool-row.chevron"
 internal const val TOOL_ROW_CHEVRON_ART_TAG: String = "pdsh.surface.tool-row.chevron-art"

@@ -46,10 +46,11 @@ public struct IPhoneAction: Equatable, Sendable {
             if let x = Double(match.1), let y = Double(match.2) { points.append(.init(x, y)) }
         }
         let direction = raw.firstMatch(of: #/(?i)direction\s*=\s*['"]?(up|down|left|right)/#).map { String($0.1).lowercased() }
-        let text = raw.firstMatch(of: #/(?s)(?:content|app|text)\s*=\s*(['"])(.*?)\1/#).map { String($0.2) }
-            // JSON fallback: {"action_type": "LaunchApp", "app_name": "小红书"} / "text" / "content"
-            ?? raw.firstMatch(of: #/(?s)"(?:app_name|app|text|content)"\s*:\s*"((?:[^"\\]|\\.)*)"/#).map { String($0.1) }
-            ?? raw.firstMatch(of: #/(?s)\(\s*(['"])(.*?)\1/#).map { String($0.2) } ?? ""
+        let assignmentText: String? = raw.firstMatch(of: #/(?s)(?:content|app|text)\s*=\s*(['"])(.*?)\1/#).map { String($0.2) }
+        // JSON fallback: {"action_type": "LaunchApp", "app_name": "小红书"} / "text" / "content"
+        let jsonText: String? = raw.firstMatch(of: #/(?s)"(?:app_name|app|text|content)"\s*:\s*"((?:[^"\\]|\\.)*)"/#).map { String($0.1) }
+        let quotedText: String? = raw.firstMatch(of: #/(?s)\(\s*(['"])(.*?)\1/#).map { String($0.2) }
+        let text: String = assignmentText ?? jsonText ?? quotedText ?? ""
         return IPhoneAction(name: name, points: points, text: text, direction: direction, raw: raw)
     }
 

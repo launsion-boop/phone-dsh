@@ -27,6 +27,23 @@ phoneDSH 从本期起支持多 Bot：名册沿用 dsh-bot 的 `agents-index.json
 - `agent.comm` 是 P27 的 additive UI event type，也是 P25 的 additive durable event；outbound/inbound 都写入 `origin = local/comm-service`。契约冻结见 [PC-20261111-bot-agent-comm-envelope](../../../docs/protocol-changes/PC-20261111-bot-agent-comm-envelope.md)。
 - 不在本期范围：Team 共享/发布/克隆、团队记忆/审核队列、Bot 模板导入导出、`CreateAgent` 云端工具、sidebar section 渲染，以及 macOS 本机工具。
 
+### 1.2 Envelope presence 与编码（CCR-1/CCR-7）
+
+本节冻结 P25 durable envelope 与 P26 routine snapshot 的成员出现规则。对以下成员，**absent ≡ null**：
+
+- `principal.botId`、`principal.sessionId`、`causationId`、`correlationId`；
+- routine snapshot 的 `run_state`、`quiet_defer`、`next_run_at`、`last_result`（见 [v2 §2.3](../v2/README.md#23-routine-snapshot-的-presence-与-routinedocument)）。
+
+规则：
+
+1. 语义上 absent 与显式 `null` 完全等价；reader MUST 接受两者，并解码为同一个 nil 值。
+2. writer MUST omit 值为 nil 的成员，不写显式 `null`。Swift 的 synthesized Codable 已经这样做；既有 iOS store 的省略字节和既有 golden 的 `null` 字节都保持有效，不回写旧数据。
+3. Kotlin writer MUST 同样 omit nil；否则同一逻辑事件的 stored bytes 与 iOS 不同，跨端 replay/hash 不成立。`authz.grant_snapshot` 的 entry 是唯一例外：Swift 的 custom encoder 对 `sessionId`、`expiresAt` 显式写 `null`，Kotlin 必须逐字一致（见 §2.3）。
+4. 其他 required 成员 MUST 始终 present；`turnId`、`runId`、`attempt`、`batch`、`ignorable` 仍为可选，nil 时 omit；`ignorable` 只能是 `true` 或省略。`authz.grant_snapshot` 的 entry 的 11 个字段全部 required。
+5. 规范编码为 UTF-8 JSON、对象 key 排序、`/` 不转义、无多余空白；持久化字节就是 codec 的规范输出。
+6. `event-envelope.schema.json` 是 **durable-only**：每个合法 durable event 带 `commitSeq >= 1`。ephemeral event 不落盘、不进入 durable batch、没有 `commitSeq`，使用 `event-envelope.ephemeral.schema.json`；该 schema 是封闭的（`additionalProperties: false`），出现 `commitSeq` 即拒绝。durable event 缺少 `commitSeq` 仍被拒绝。
+7. `principal.botId`、`principal.sessionId`、`causationId`、`correlationId` 已从 schema 的 `required` 移除，但类型仍允许 `null`；这不是新字段或新版本，不升 `schemaVersion`。
+
 ## 2. 工具面
 
 `tool-catalog.schema.json` 与 `golden/tool-catalog.json` 将工具分为两组：
@@ -66,6 +83,7 @@ P05/P16/P26 的出口与身份增量（`mcp-egress-capability-v1`，见 [PC-2026
 ### 2.3 Grant 恢复与调用代次
 
 - 生产 `BotGrantStore` 必须以同一个 `SQLiteDomainStore` 为权威，使用 `authz.grant_snapshot` durable 事件保存完整当前 Grant 集合及精确匹配字段；最后一次完整快照决定恢复状态。该投影不是审计：既有审计事件继续只存参数/resource 摘要，不能拿摘要反推 Grant。
+- `authz.grant_snapshot` 是 `event-envelope.schema.json` 的 durable `type` enum 成员（CCR-2）。`data` 形状由 `authz-grant-snapshot.schema.json` 冻结：只有一个 `grants` 数组，每个 entry 恰好 11 个字段（`grantId`、`botId`、`tool`、`operation`、`canonicalResource`、`scope`、`sessionId`、`expiresAt`、`createdAt`、`source`、`decision`），不允许未知成员；`sessionId`、`expiresAt` 为 nil 时 Swift 写显式 `null`。`scope` 为 `once|session|until`，`decision` 为 `allow|deny`。快照事件的 `ignorable` 仍为 `true`，未知 durable type 的规则不变。
 - add/extend/consume/revoke 先持久化新快照，再公开新内存状态；once 在持久化期间不得被第二个执行找到。持久化失败不得改变可见授权。所有执行入口必须先完成恢复，缺失、损坏或版本不支持均 fail-closed，不能临时退回空 store 后按 auto-policy 放行。
 - 每个 Gateway principal 都有宿主生成的随机 `incarnation`。工具归属在注册时绑定该代次，解析时必须仍与当前 session 代次一致；重签、rotate、revoke 或重启后的旧调用不得借用新 principal。token 仍只存摘要，不把 Bearer token 写入事件或审计。
 - `BotExecutionPrincipal` 的已验证构造只在 `PhoneDSHBot` 宿主模块内使用；MCP 不得从工具参数反序列化 `userUI`、`certain` 或 trust。UI 写操作仍只能经 `BotUserActionDispatcher` 盖 `owner_direct`，effects 在执行点由宿主重新推导。
@@ -526,6 +544,17 @@ Row、RowBatch、UserAction 和 ActionResult 以对应 schema 为准。`golden/r
 - Bot 信息页（`spec/ui/v1/pages/bot-info.md`）新增三个宿主服务型用户出口，不进入 durable `BotUserAction` nonce 事务：查看/撤销本 Bot 的常设 Grant（`scope != once`，`BotGrantStore.revoke(id:)`）、取消运行中的 routine（`RoutineScheduler` 取消链）、处理 `needs-reconciliation`（显示 routine 的已产生效果，选择“确认完成”走 `BotEffectOutbox.ackReconciled` + `RoutineMachine.resolveReconciliation(decision:"acknowledge")`，或“重试”走 `retryNeedsReconciliation` + `resolveReconciliation(decision:"retry")`）。读取失败显示失败，不显示为零；撤销/取消/对账后重读权威状态，不用本地删除伪装成功。
 - 第一版不提供新建对话、对话列表、回滚或删除单条。现有 DSH 多 session 工作台保留为独立高级入口。
 
+### 5.1 附件块、safeName 与导入路径（P27）
+
+- 上限：`maxAttachments = 10`，`maxBytes = 26,214,400`（25 MiB）；空列表合法，一条消息可以同时有文字和附件。
+- `BotAttachmentPrompt.block`：空列表返回 `""`；否则在正文后追加 `\n\n[dshbot-attachments]\n<sentence>\n`、每项一行 `- {json}`、最后 `\n[/dshbot-attachments]`。phoneDSH 的 sentence 逐字为 `The user attached these files. They are saved in your workspace; read them with your file tools when the task needs their contents.`。JSON 行 key 顺序固定为 `name,path,size,mimeType,kind`，只用 JSON 控制转义，`/` 不转义。上游 Mac 句子只保留在 `golden/bot-attachments.json`，不得手改。
+- 权威 phone 字节在 `golden/bot-attachments.phone.json#/promptBlockPhone`。实现与测试必须读取合并后的该字段，不得用字符串替换从 Mac 句子合成 phone prompt。`golden/bot-attachments.phone.json#/safeNameCases` 与 `#/importPathCases` 是同一份合并输入。
+- parse：取第一个 open marker 与其后第一个 close marker；可见文本是 open marker 前的 trim；close marker 之后的文本丢弃；缺 marker 原样返回；不是合法 `- {json}` 的行跳过。
+- kind：10 个值及大小写敏感的 MIME 前缀／扩展名回退顺序沿用上游；未知归 `file`；`.HEIC` 由扩展名回退为 `image`。
+- safeName：按 `/` 与 `\` 取 basename；对每个 UTF-16 unit，只保留 `[A-Za-z0-9._\- ()U+4E00–U+9FFF]`，其余替换 `_`；去掉开头 `.`；最多 120 个 UTF-16 unit；空结果 `file`；非 BMP scalar 变成两个 `_`（上游 JS 行为）。示例 `🐟.png → __.png`。
+- 导入布局：`<botDataDirectory>/agents/<safeBotID>/imports/attachments-<messageID>/<unique safeName>`；`<botDataDirectory>` 默认 `/dsh/workspace/.dshbot`。模型看到的 `path` 是 import commit 返回的 absolute VFS path，不是本地常量。
+- 失败逐项报告 `(name, reason)`，成功项仍发送；超过上限的文件在读取前拒绝；空或不可读文件是错误。
+
 ## 6. 观测与成本
 
 - 每个模型 step 追加一条 LLM 账本，字段以 `llm-ledger.schema.json` 为准；四类 token 分开记录，快取命中率按上游公式计算，TTFT 不可得时省略。
@@ -574,6 +603,8 @@ python3 spec/bot/v1/tools/validate_vectors.py
 `spec/bot/v1/golden/` 中不带 `.phone.json` 后缀的文件都是 `export-vectors.mjs` 的原样导出，不得手改；重跑导出器必须 byte-identical。手机端增量只写在同名 `.phone.json`：
 
 - `card-payload.phone.json`：宿主分配的 `optionID`、recommended 移到首位、内容卡 `final` 接受/剥离用例与负向 fixture。
+- `bot-attachments.phone.json`：phone prompt 字节、`safeNameCases` 与 `importPathCases`；上游 `bot-attachments.json` 保持 Mac 句子和原字节，读取方使用合并结果。
+- `event-envelope.phone.json`：P25 的 phone 增量用例（absent/null、ephemeral、`agent.comm`、`authz.grant_snapshot`）。上游 `event-envelope.json` 不变。
 - `row-protocol.phone.json`：`cardAnswer`、附件向量与 projection 向量。
 - `tool-catalog.phone.json`：团队工具、`FishAction` 与记忆三原语（`UpdateMemory`/`ReadMemory`/`RecallMemory`）的目录增量，以及五个内容卡的工具 schema `final` 增量（替换同名上游 p0 条目；上游文件不变）。
 - `tool-effects.phone.json`：团队工具、`FishAction`、`ReadMemory` 与原生 MCP BLE 工具的效果分类；另按 identity 替换上游 21 条 `valid` + 2 条 `invalid` 用例的 zh `label`/`detail` 为简体（`RecallMemory` 的 `read + auto` 语义仍沿用上游 `tool-effects.json`，`tool`、`operation`、`resource`、`policy`、`known`/`isMcp` 等字段不变）。上游 `tool-effects.json` 保持原样导出，简体文案不得回写到上游。

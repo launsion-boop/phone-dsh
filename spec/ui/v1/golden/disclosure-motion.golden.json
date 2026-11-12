@@ -1,0 +1,26 @@
+{
+  "kind": "disclosure-motion",
+  "version": 1,
+  "source": "tokens.json#interaction.disclosure",
+  "reducedMotion": "snap",
+  "rows": [
+    {
+      "id": "body",
+      "motion": "motion.disclosure",
+      "durationMs": 160,
+      "curve": "easeOut"
+    },
+    {
+      "id": "folder",
+      "motion": "motion.folderCollapse",
+      "durationMs": 180,
+      "curve": "easeOut"
+    },
+    {
+      "id": "chevron",
+      "motion": "motion.chevron",
+      "durationMs": 120,
+      "curve": "easeInOut"
+    }
+  ]
+}

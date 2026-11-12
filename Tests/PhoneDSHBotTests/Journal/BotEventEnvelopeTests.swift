@@ -39,10 +39,10 @@ final class BotEventEnvelopeTests: XCTestCase {
         }
     }
 
-    func testPhoneGoldenAgentCommUsesRealEncoderAndDecoder() throws {
+    func testPhoneGoldenDurableCasesUseRealEncoderAndDecoder() throws {
         let fixture = try loadPhoneFixture()
-        let valid = fixture["validCases"] as! [[String: Any]]
-        XCTAssertEqual(valid.count, 8)
+        let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
+        XCTAssertEqual(valid.count, 11)
         let codec = BotEventEnvelopeCodec()
         for vector in valid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
@@ -75,14 +75,30 @@ final class BotEventEnvelopeTests: XCTestCase {
                 XCTAssertEqual(decoded.type, "agent.comm")
                 XCTAssertEqual(decoded.origin, .local(source: "comm-service"))
                 XCTAssertEqual(decoded.principal.kind, "team")
+            case "durable-absent-nil-members", "durable-explicit-null-members":
+                XCTAssertEqual(decoded.type, "ui.notice")
+                XCTAssertNil(decoded.principal.botId)
+                XCTAssertNil(decoded.causationId)
+            case "authz-grant-snapshot":
+                XCTAssertEqual(decoded.type, "authz.grant_snapshot")
+                XCTAssertEqual(decoded.ignorable, true)
             default:
                 XCTFail("unhandled phone event case \(vector["name"] ?? "?")")
             }
-            XCTAssertEqual(try codec.decode(codec.encode(decoded)), decoded)
+            let encoded = try codec.encode(decoded)
+            XCTAssertEqual(try codec.decode(encoded), decoded)
+            // Explicit-null input is a reader vector: the Swift writer
+            // canonicalises it to the absent bytes. Every vector without an
+            // explicit envelope null must match the golden bytes exactly.
+            let eventObject = vector["event"] as! [String: Any]
+            if !hasExplicitEnvelopeNull(eventObject) {
+                XCTAssertEqual(encoded, try canonicalEventData(eventObject),
+                               "validCases[\(vector["name"] ?? "?")] bytes")
+            }
         }
 
-        let invalid = fixture["invalidCases"] as! [[String: Any]]
-        XCTAssertFalse(invalid.isEmpty)
+        let invalid = try XCTUnwrap(fixture["invalidCases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(invalid.count, 2)
         for vector in invalid {
             let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
             let validation = vector["validation"] as! [String: Any]
@@ -97,6 +113,132 @@ final class BotEventEnvelopeTests: XCTestCase {
                 XCTAssertEqual(validationError.field, expectedField)
             }
         }
+    }
+
+    func testPhoneGoldenAbsentAndExplicitNullAreTheSameEvent() throws {
+        let fixture = try loadPhoneFixture()
+        let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
+        let absent = try XCTUnwrap(valid.first { $0["name"] as? String == "durable-absent-nil-members" })
+        let explicitNull = try XCTUnwrap(valid.first { $0["name"] as? String == "durable-explicit-null-members" })
+        let codec = BotEventEnvelopeCodec()
+        let absentEvent = try codec.decode(
+            JSONSerialization.data(withJSONObject: absent["event"] as! [String: Any]))
+        let nullEvent = try codec.decode(
+            JSONSerialization.data(withJSONObject: explicitNull["event"] as! [String: Any]))
+        XCTAssertEqual(absentEvent, nullEvent)
+
+        // Swift's synthesized Codable omits a nil optional. The Kotlin writer
+        // must produce these same bytes; explicit null is reader-only input.
+        let encoded = try codec.encode(nullEvent)
+        XCTAssertEqual(try codec.encode(absentEvent), encoded)
+        let text = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        XCTAssertFalse(text.contains("\"causationId\""))
+        XCTAssertFalse(text.contains("\"correlationId\""))
+        XCTAssertFalse(text.contains("\"botId\""))
+        XCTAssertFalse(text.contains("\"sessionId\""))
+    }
+
+    func testPhoneGoldenGrantSnapshotUsesTheSwiftPayloadAndCodec() throws {
+        let fixture = try loadPhoneFixture()
+        let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
+        let vector = try XCTUnwrap(valid.first { $0["name"] as? String == "authz-grant-snapshot" })
+        let eventObject = vector["event"] as! [String: Any]
+        let codec = BotEventEnvelopeCodec()
+        let event = try codec.decode(JSONSerialization.data(withJSONObject: eventObject))
+        XCTAssertEqual(event.type, "authz.grant_snapshot")
+        XCTAssertEqual(event.ignorable, true)
+        XCTAssertNil(event.principal.botId)
+        XCTAssertNil(event.principal.sessionId)
+        XCTAssertEqual(try codec.encode(event), try canonicalEventData(eventObject))
+
+        let grants = try BotGrantSnapshot.decode(event, now: 0)
+        XCTAssertEqual(grants.map(\.id), ["grant-fixture-allow", "grant-fixture-deny"])
+        XCTAssertEqual(grants[0].scope, .session)
+        XCTAssertEqual(grants[0].sessionId, "session-fixture")
+        XCTAssertNil(grants[0].expiresAt)
+        XCTAssertEqual(grants[1].scope, .until)
+        XCTAssertNil(grants[1].sessionId)
+        XCTAssertEqual(grants[1].expiresAt, 1_760_003_600_000)
+    }
+
+    func testAuthzGrantSnapshotIsDurableAndTheWriterMatchesTheFrozenVector() throws {
+        XCTAssertTrue(BotEventEnvelopeCodec.isDurable("authz.grant_snapshot"))
+        XCTAssertTrue(BotEventEnvelopeCodec.isDurable(BotGrantSnapshot.eventType))
+
+        let fixture = try loadPhoneFixture()
+        let valid = try XCTUnwrap(fixture["validCases"] as? [[String: Any]])
+        let vector = try XCTUnwrap(valid.first { $0["name"] as? String == "authz-grant-snapshot" })
+        let eventObject = vector["event"] as! [String: Any]
+        let codec = BotEventEnvelopeCodec()
+        let goldenEvent = try codec.decode(JSONSerialization.data(withJSONObject: eventObject))
+        let grants = try BotGrantSnapshot.decode(goldenEvent, now: 0)
+
+        let written = try BotGrantSnapshot.event(grants: grants, at: goldenEvent.time)
+        XCTAssertEqual(written.type, "authz.grant_snapshot")
+        XCTAssertEqual(written.ignorable, true)
+        XCTAssertNil(written.commitSeq)
+        XCTAssertEqual(try written.data.encoded(), try goldenEvent.data.encoded())
+        try BotEventEnvelopeCodec.validate(written, mode: .append)
+
+        // The writer's snapshot data in the frozen event shape is byte-identical
+        // to the vector the bot record published.
+        let frozenShape = BotEvent(
+            type: written.type, eventId: goldenEvent.eventId, commitSeq: goldenEvent.commitSeq,
+            time: written.time, origin: written.origin, traceId: goldenEvent.traceId,
+            principal: written.principal, causationId: nil, correlationId: nil,
+            ignorable: true, data: written.data)
+        XCTAssertEqual(try codec.encode(frozenShape), try canonicalEventData(eventObject))
+
+        let stored = written.assigningCommitSeq(goldenEvent.commitSeq)
+        let roundTripped = try codec.decode(try codec.encode(stored))
+        XCTAssertEqual(roundTripped.data, goldenEvent.data)
+        XCTAssertEqual(try BotGrantSnapshot.decode(roundTripped, now: 0), grants)
+    }
+
+    func testPhoneGoldenEphemeralEnvelopeIsSeparateAndHasNoCommitSeq() throws {
+        let fixture = try loadPhoneFixture()
+        let codec = BotEventEnvelopeCodec()
+        let valid = try XCTUnwrap(fixture["ephemeralValidCases"] as? [[String: Any]])
+        XCTAssertFalse(valid.isEmpty)
+        for vector in valid {
+            let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
+            let decoded = try codec.decode(data)
+            XCTAssertNil(decoded.commitSeq)
+            XCTAssertTrue(BotEventEnvelopeCodec.isEphemeral(decoded.type))
+            let encoded = try codec.encode(decoded)
+            let text = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+            XCTAssertFalse(text.contains("commitSeq"))
+            XCTAssertEqual(try codec.decode(encoded), decoded)
+        }
+
+        let invalid = try XCTUnwrap(fixture["ephemeralInvalidCases"] as? [[String: Any]])
+        XCTAssertTrue(invalid.contains { ($0["event"] as? [String: Any])?["commitSeq"] != nil })
+        for vector in invalid {
+            let data = try JSONSerialization.data(withJSONObject: vector["event"] as! [String: Any])
+            let validation = vector["validation"] as! [String: Any]
+            let errors = validation["errors"] as! [[String: Any]]
+            let expectedCode = errors[0]["code"] as! String
+            let expectedField = errors[0]["field"] as! String
+            XCTAssertThrowsError(try codec.decode(data)) { error in
+                guard let validationError = error as? BotEventValidationError else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+                XCTAssertEqual(validationError.code, expectedCode)
+                XCTAssertEqual(validationError.field, expectedField)
+            }
+        }
+    }
+
+    private func canonicalEventData(_ object: [String: Any]) throws -> Data {
+        try BotJSONValue.parse(JSONSerialization.data(withJSONObject: object)).encoded()
+    }
+
+    private func hasExplicitEnvelopeNull(_ event: [String: Any]) -> Bool {
+        if event["causationId"] is NSNull || event["correlationId"] is NSNull {
+            return true
+        }
+        guard let principal = event["principal"] as? [String: Any] else { return false }
+        return principal["botId"] is NSNull || principal["sessionId"] is NSNull
     }
 
     func testAppendValidationRejectsCallerAssignedSequence() throws {

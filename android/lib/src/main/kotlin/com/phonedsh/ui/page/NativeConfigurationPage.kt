@@ -55,12 +55,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,8 +70,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.testTag
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.sheet.PdshSheet
+import com.phonedsh.ui.sheet.SheetBackHost
 import com.phonedsh.ui.theme.LocalUiTokens
-import com.phonedsh.ui.theme.materialSheetColors
 import com.phonedsh.ui.theme.LocalUiType
 import com.phonedsh.ui.surface.GlobeGlyph
 import com.phonedsh.ui.surface.InfoCircleGlyph
@@ -1174,32 +1171,29 @@ public fun NativeConfigurationPage(
 }
 
 /** The source's medium/large 插件说明 NavigationStack sheet, with its own Done bar. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ConfigurationPluginInformationSheet(
     managementMessage: String?,
     onDone: () -> Unit,
 ) {
-    val tokens = LocalUiTokens.current
-    val palette = materialSheetColors(tokens)
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
-    LaunchedEffect(sheetState) { sheetState.show() }
-    ModalBottomSheet(
+    // 完成, the scrim, drag-down and system back all leave through the shared
+    // sheet's platform hide; the host is told only when the sheet has gone.
+    val sheetBackHost = remember { SheetBackHost() }
+    PdshSheet(
+        pageId = "configurationInfo",
+        backHost = sheetBackHost,
         onDismissRequest = onDone,
-        sheetState = sheetState,
-        containerColor = palette.container,
-        contentColor = palette.content,
         modifier = Modifier.testTag(CONFIGURATION_PLUGIN_INFO_SHEET_TAG),
     ) {
         SettingsSubPageFrame(
             title = UiStrings.CONFIGURATION_PLUGIN_INFO,
-            // The sheet state exposes the source's medium and large detents; the
-            // content does not impose a page-specific height cap.
+            // The page id's frozen detents are [medium, large]; the content does
+            // not impose a page-specific height cap.
             modifier = Modifier.fillMaxWidth(),
             trailing = {
                 SessionTextAction(
                     label = UiStrings.CONFIGURATION_DONE,
-                    onClick = onDone,
+                    onClick = { sheetBackHost.dispatch() },
                     tone = SessionActionTone.ACCENT,
                     modifier = Modifier.testTag(CONFIGURATION_PLUGIN_INFO_DONE_TAG),
                 )

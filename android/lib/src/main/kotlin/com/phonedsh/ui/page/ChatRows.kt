@@ -15,11 +15,11 @@
 // Geometry comes from the shared source-derived HomeMetrics.
 package com.phonedsh.ui.page
 
+import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,9 +41,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,7 +53,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,12 +65,19 @@ import com.phonedsh.ui.ChatMetrics
 import com.phonedsh.ui.HomeMetrics
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.UiTags
+import com.phonedsh.ui.disclosure.PdshChevron
+import com.phonedsh.ui.disclosure.PdshDisclosure
 import com.phonedsh.ui.icon.PdshIcon
+import com.phonedsh.ui.icon.PdshIconView
+import com.phonedsh.ui.menu.ContextMenuItem
+import com.phonedsh.ui.menu.ContextMenuRowState
+import com.phonedsh.ui.menu.PdshContextMenu
 import com.phonedsh.ui.state.ChatRow
 import com.phonedsh.ui.state.ChatTurnState
 import com.phonedsh.ui.state.ChatProcessCategory
 import com.phonedsh.ui.state.ContextEntry
 import com.phonedsh.ui.state.ToolEntry
+import com.phonedsh.ui.state.TurnUsage
 import com.phonedsh.ui.state.contextSourceName
 import com.phonedsh.ui.surface.BubbleBadge
 import com.phonedsh.ui.surface.BubbleRole
@@ -84,8 +87,11 @@ import com.phonedsh.ui.surface.MarkdownBody
 import com.phonedsh.ui.surface.ThinkingPill
 import com.phonedsh.ui.surface.ToolDetailCard
 import com.phonedsh.ui.surface.ToolRow
+import com.phonedsh.ui.surface.TurnUsageSheet
+import com.phonedsh.ui.surface.formatTurnUsageCompactTokens
 import com.phonedsh.ui.theme.LocalUiTokens
 import com.phonedsh.ui.theme.LocalUiType
+import com.phonedsh.ui.theme.generated.TokenContextMenuWhen
 import com.phonedsh.ui.theme.generated.UiTokenNames
 
 /**
@@ -130,6 +136,8 @@ internal object ChatRowsTokens {
  *   pills; a tool run expands one call at a time, like the iOS per-row state).
  * @param onToggleRow expand/collapse one row.
  * @param tag the list's stable test tag.
+ * @param onShareText the host's system-share-sheet route for a bubble's share
+ *   item; `null` keeps the page's own chooser (see [ChatRowItem]).
  */
 @Composable
 internal fun ChatRowList(
@@ -141,6 +149,7 @@ internal fun ChatRowList(
     onOpenFile: ((String) -> Unit)? = null,
     onOpenResource: ((String) -> Unit)? = null,
     imageSource: com.phonedsh.ui.surface.MarkdownImageSource? = null,
+    onShareText: ((String) -> Unit)? = null,
 ) {
     LazyColumn(
         modifier = modifier
@@ -157,6 +166,7 @@ internal fun ChatRowList(
                     onOpenFile = onOpenFile,
                     onOpenResource = onOpenResource,
                     imageSource = imageSource,
+                    onShareText = onShareText,
                 )
             }
         }
@@ -182,6 +192,10 @@ internal fun rowGap(previous: ChatRow?, current: ChatRow): Dp? {
  * @param row the projected row.
  * @param expandedRowIds the open tool entries and thinking pills.
  * @param onToggleRow the fold action.
+ * @param onShareText the host's system-share-sheet route for a user bubble's
+ *   share item (`interaction.md` §3 rule 4). When `null`, the row starts the
+ *   platform chooser itself so the menu item is never dead; the host callback
+ *   lets the app own the sheet instead.
  */
 @Composable
 internal fun ChatRowItem(
@@ -193,6 +207,7 @@ internal fun ChatRowItem(
     onOpenResource: ((String) -> Unit)? = null,
     inListCard: Boolean = false,
     imageSource: com.phonedsh.ui.surface.MarkdownImageSource? = null,
+    onShareText: ((String) -> Unit)? = null,
 ) {
     val tokens = LocalUiTokens.current
     // PR22 reading content uses the source HomeSpec's 20pt inset.
@@ -215,7 +230,27 @@ internal fun ChatRowItem(
                 // leading VStack under a trailing `userBubble`). The bubble surface
                 // never learns that a label exists.
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    MessageContextMenu(text = row.text, includeShare = true, modifier = Modifier.align(Alignment.CenterEnd)) {
+                    // Rule 1: long press opens the frozen `userBubble` surface on
+                    // this bubble. A tap has no row action to preserve, so it stays
+                    // the bubble's own gesture (none). The bubble sees text only.
+                    val hasText = row.text.isNotEmpty()
+                    val clipboard = LocalClipboardManager.current
+                    val context = LocalContext.current
+                    val shareBubble: (ContextMenuItem) -> Unit = { _ ->
+                        val share = onShareText
+                        if (share != null) {
+                            share(row.text)
+                        } else {
+                            startTextShare(context = context, text = row.text)
+                        }
+                    }
+                    PdshContextMenu(
+                        surfaceId = USER_BUBBLE_SURFACE,
+                        state = ContextMenuRowState.of(TokenContextMenuWhen.HAS_TEXT to hasText),
+                        onAction = { clipboard.setText(AnnotatedString(row.text)) },
+                        onShare = shareBubble,
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                    ) {
                         ChatBubble(
                             role = BubbleRole.USER,
                             text = row.text,
@@ -241,8 +276,17 @@ internal fun ChatRowItem(
             // iOS renders an answer as markdown (`NativeMarkdownBody`): prose,
             // headings, lists, quotes, fenced code, GFM tables, typeset math, raw
             // HTML kept literal and footnote references. `MarkdownBody` owns that
-            // grammar; this row only places it.
-            MessageContextMenu(text = row.text, includeShare = false) {
+            // grammar; this row only places it. Rule 1: the long-press menu is
+            // `assistantBody`; nested markdown links keep their own taps because
+            // the menu wrapper only claims an unconsumed press.
+            val clipboard = LocalClipboardManager.current
+            PdshContextMenu(
+                surfaceId = ASSISTANT_BODY_SURFACE,
+                state = ContextMenuRowState.of(
+                    TokenContextMenuWhen.HAS_TEXT to row.text.isNotEmpty(),
+                ),
+                onAction = { clipboard.setText(AnnotatedString(row.text)) },
+            ) {
                 MarkdownBody(
                     markdown = if (row.text.isEmpty()) EMPTY_ANSWER else row.text,
                     modifier = Modifier.testTag(UiTags.BUBBLE),
@@ -316,6 +360,7 @@ internal fun ChatRowItem(
             onOpenResource = onOpenResource,
             modifier = modifier,
             imageSource = imageSource,
+            onShareText = onShareText,
         )
 
         is ChatRow.TurnProcess -> TurnProcessRow(
@@ -327,6 +372,7 @@ internal fun ChatRowItem(
             onOpenResource = onOpenResource,
             modifier = modifier,
             imageSource = imageSource,
+            onShareText = onShareText,
         )
 
         is ChatRow.TurnTail -> TurnTailRow(row = row, modifier = modifier)
@@ -370,6 +416,7 @@ private fun ProcessGroupRow(
     onOpenResource: ((String) -> Unit)?,
     modifier: Modifier = Modifier,
     imageSource: com.phonedsh.ui.surface.MarkdownImageSource? = null,
+    onShareText: ((String) -> Unit)? = null,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
@@ -422,7 +469,8 @@ private fun ProcessGroupRow(
                         onOpenFile = onOpenFile,
                         onOpenResource = onOpenResource,
                         imageSource = imageSource,
-                            inListCard = row.showsHeader,
+                        inListCard = row.showsHeader,
+                        onShareText = onShareText,
                     )
                 }
             }
@@ -442,6 +490,18 @@ private fun processCategoryGlyph(category: ChatProcessCategory?): String = when 
     ChatProcessCategory.TOOLS, null -> "◦"
 }
 
+/**
+ * One closed turn's control row (iOS `NativeTurnProcessRow` over the turn's
+ * process rows).
+ *
+ * Rule 1 of `interaction.md` §7: the process body is a disclosure driven by
+ * `motion.disclosure`; the header is outside the animated region so the row the
+ * person tapped never moves. The final answer is *not* part of the folded body
+ * (iOS keeps it on screen when the turn is folded), so it is rendered once,
+ * below the disclosure, and stays visible in both states.
+ *
+ * @param onShareText forwarded to a nested user bubble's share item.
+ */
 @Composable
 private fun TurnProcessRow(
     row: ChatRow.TurnProcess,
@@ -452,17 +512,85 @@ private fun TurnProcessRow(
     onOpenResource: ((String) -> Unit)?,
     modifier: Modifier = Modifier,
     imageSource: com.phonedsh.ui.surface.MarkdownImageSource? = null,
+    onShareText: ((String) -> Unit)? = null,
+) {
+    val expanded = row.expanded || !row.foldable
+    val closingId = row.closingAssistant?.id
+    val processEntries = row.entries.filter { entry -> entry.id != closingId }
+    val header: @Composable () -> Unit = {
+        TurnProcessHeader(row = row, expanded = expanded, foldable = row.foldable, onToggle = onToggle)
+    }
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (row.foldable) {
+            PdshDisclosure(
+                expanded = row.expanded,
+                onToggle = { onToggle() },
+                modifier = Modifier.fillMaxWidth(),
+                tag = TURN_PROCESS_DISCLOSURE_TAG,
+                anchorKey = row.id,
+                header = header,
+                body = {
+                    TurnProcessEntries(
+                        entries = processEntries,
+                        expandedRowIds = expandedRowIds,
+                        onToggleRow = onToggleRow,
+                        onOpenFile = onOpenFile,
+                        onOpenResource = onOpenResource,
+                        imageSource = imageSource,
+                        onShareText = onShareText,
+                    )
+                },
+            )
+            row.closingAssistant?.let { closing ->
+                ChatRowItem(
+                    row = closing,
+                    expandedRowIds = expandedRowIds,
+                    onToggleRow = onToggleRow,
+                    onOpenFile = onOpenFile,
+                    onOpenResource = onOpenResource,
+                    imageSource = imageSource,
+                    onShareText = onShareText,
+                    modifier = Modifier.padding(top = IOS_TURN_CONTROL_GAP),
+                )
+            }
+        } else {
+            header()
+            TurnProcessEntries(
+                entries = row.entries,
+                expandedRowIds = expandedRowIds,
+                onToggleRow = onToggleRow,
+                onOpenFile = onOpenFile,
+                onOpenResource = onOpenResource,
+                imageSource = imageSource,
+                onShareText = onShareText,
+            )
+        }
+    }
+}
+
+/** The fixed disclosure header; the divider belongs to it, not to the body. */
+@Composable
+private fun TurnProcessHeader(
+    row: ChatRow.TurnProcess,
+    expanded: Boolean,
+    foldable: Boolean,
+    onToggle: () -> Unit,
 ) {
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
-    val expanded = row.expanded || !row.foldable
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = HomeMetrics.contentInset)
                 .height(ChatMetrics.TURN_PROCESS_HEIGHT_PT.dp)
-                .clickable(enabled = row.foldable, role = Role.Button, onClick = onToggle)
+                .then(
+                    if (foldable) {
+                        Modifier
+                    } else {
+                        Modifier.clickable(enabled = false, role = Role.Button, onClick = onToggle)
+                    },
+                )
                 .semantics(mergeDescendants = true) {
                     contentDescription = turnProcessLabel(row.outcome, row.elapsedMillis)
                     stateDescription = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED
@@ -478,9 +606,11 @@ private fun TurnProcessRow(
                 overflow = TextOverflow.Ellipsis,
             )
             if (row.foldable) {
-                BasicText(
-                    text = if (expanded) "⌃" else "⌄",
-                    style = type.secondary.copy(color = tokens.colors.tertiary),
+                PdshChevron(
+                    expanded = expanded,
+                    size = ChatMetrics.DISCLOSURE_CHEVRON_ICON_PT.dp,
+                    tint = tokens.colors.tertiary,
+                    tag = TURN_PROCESS_CHEVRON_TAG,
                 )
             }
         }
@@ -488,22 +618,34 @@ private fun TurnProcessRow(
             Modifier.fillMaxWidth().padding(horizontal = HomeMetrics.contentInset)
                 .height(tokens.stroke.hairline).background(tokens.colors.border),
         )
-        val visibleEntries = if (expanded) row.entries else listOfNotNull(row.closingAssistant)
-        if (visibleEntries.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(HomeMetrics.blockGap)) {
-                visibleEntries.forEachIndexed { index, entry ->
-                    val top = if (index == 0) IOS_TURN_CONTROL_GAP else rowGap(visibleEntries[index - 1], entry) ?: HomeMetrics.blockGap
-                    ChatRowItem(
-                        row = entry,
-                        expandedRowIds = expandedRowIds,
-                        onToggleRow = onToggleRow,
-                        onOpenFile = onOpenFile,
-                        onOpenResource = onOpenResource,
-                        imageSource = imageSource,
-                            modifier = Modifier.padding(top = top),
-                    )
-                }
-            }
+    }
+}
+
+/** The disclosure body: one column, one motion, no per-row stagger. */
+@Composable
+private fun TurnProcessEntries(
+    entries: List<ChatRow>,
+    expandedRowIds: Set<String>,
+    onToggleRow: (String) -> Unit,
+    onOpenFile: ((String) -> Unit)?,
+    onOpenResource: ((String) -> Unit)?,
+    imageSource: com.phonedsh.ui.surface.MarkdownImageSource?,
+    onShareText: ((String) -> Unit)?,
+) {
+    if (entries.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(HomeMetrics.blockGap)) {
+        entries.forEachIndexed { index, entry ->
+            val top = if (index == 0) IOS_TURN_CONTROL_GAP else rowGap(entries[index - 1], entry) ?: HomeMetrics.blockGap
+            ChatRowItem(
+                row = entry,
+                expandedRowIds = expandedRowIds,
+                onToggleRow = onToggleRow,
+                onOpenFile = onOpenFile,
+                onOpenResource = onOpenResource,
+                imageSource = imageSource,
+                onShareText = onShareText,
+                modifier = Modifier.padding(top = top),
+            )
         }
     }
 }
@@ -534,6 +676,7 @@ private fun TurnTailRow(row: ChatRow.TurnTail, modifier: Modifier = Modifier) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var copied by remember(row.turnID) { mutableStateOf(false) }
+    var showUsage by remember(row.turnID) { mutableStateOf(false) }
     LaunchedEffect(copied) {
         if (copied) {
             kotlinx.coroutines.delay(1_000)
@@ -561,6 +704,9 @@ private fun TurnTailRow(row: ChatRow.TurnTail, modifier: Modifier = Modifier) {
             }
             context.startActivity(Intent.createChooser(intent, "分享回答"))
         }
+        row.usage?.let { usage ->
+            TurnTailUsageAction(usage = usage, onClick = { showUsage = true })
+        }
         Spacer(Modifier.weight(1f))
         row.timeMillis?.let { millis ->
             BasicText(
@@ -569,6 +715,44 @@ private fun TurnTailRow(row: ChatRow.TurnTail, modifier: Modifier = Modifier) {
                 maxLines = 1,
             )
         }
+    }
+    if (showUsage) {
+        row.usage?.let { usage ->
+            TurnUsageSheet(
+                usage = usage,
+                onDismissRequest = { showUsage = false },
+            )
+        }
+    }
+}
+
+/**
+ * The tail's usage control (iOS `NativeTurnTail.swift:117-119`): shown only when
+ * the turn has usage and opens the medium `turnUsage` sheet. The label carries
+ * the exact compact total from `NativeMessageActions.swift:48-52`.
+ */
+@Composable
+private fun TurnTailUsageAction(usage: TurnUsage, onClick: () -> Unit) {
+    val tokens = LocalUiTokens.current
+    val type = LocalUiType.current
+    val total = usage.totalTokens
+    val text = if (total != null) {
+        "${UiStrings.TURN_USAGE_PREFIX} ${formatTurnUsageCompactTokens(total)}${UiStrings.TURN_USAGE_TOKENS_SUFFIX}"
+    } else {
+        UiStrings.TURN_USAGE_PREFIX
+    }
+    Row(
+        modifier = Modifier
+            .height(tokens.geometry.composerControlSize)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = UiStrings.TURN_USAGE_ACTION }
+            .testTag(UiTags.CHAT_TURN_USAGE)
+            .padding(start = tokens.spacing.iconText),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(tokens.spacing.copyGap),
+    ) {
+        PdshIconView(PdshIcon.DATABASE, HomeMetrics.processIcon, tokens.colors.tertiary, null)
+        BasicText(text = text, style = type.caption.copy(color = tokens.colors.tertiary), maxLines = 1)
     }
 }
 
@@ -699,7 +883,12 @@ private fun ToolDetail(
 
 /**
  * A group of injected context blocks (iOS `NativeContextSourceGroup`): one
- * disclosure line, then each block with its translated source and a copy action.
+ * disclosure line with the iOS chevron, then each block with its translated
+ * source and a copy action.
+ *
+ * Rule 1/6 of `interaction.md` §7: the header is outside the animated body, so
+ * the tapped line stays put while the blocks expand or collapse with
+ * `motion.disclosure`.
  */
 @Composable
 private fun ContextGroupRow(
@@ -711,43 +900,58 @@ private fun ContextGroupRow(
     val tokens = LocalUiTokens.current
     val type = LocalUiType.current
     val clipboard = LocalClipboardManager.current
-    Column(modifier = modifier.padding(start = tokens.geometry.toolDetailIndent)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
-                .clickable(role = Role.Button, onClick = onToggle)
-                .semantics(mergeDescendants = true) {
-                    contentDescription = UiStrings.CONTEXT_GROUP
-                    stateDescription = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED
-                }
-                .testTag(UiPageTags.CHAT_ROW_CONTEXT),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
-        ) {
-            BasicText(
-                text = UiStrings.CONTEXT_GROUP,
-                style = type.secondary.copy(color = tokens.colors.secondary),
-                maxLines = 1,
-            )
-            BasicText(
-                text = UiStrings.CONTEXT_GROUP_COUNT.format(entries.size),
-                style = type.secondary.copy(color = tokens.colors.secondary),
-                maxLines = 1,
-            )
-            // iOS prints the source name only for a single block whose name it can
-            // translate; anything else stays hidden.
-            val single = contextSourceName(entries.singleOrNull()?.source)
-            if (single != null) {
+    PdshDisclosure(
+        expanded = expanded,
+        onToggle = { onToggle() },
+        modifier = modifier.padding(start = tokens.geometry.toolDetailIndent),
+        tag = CONTEXT_GROUP_DISCLOSURE_TAG,
+        anchorKey = entries.firstOrNull()?.text ?: entries.size,
+        header = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = tokens.geometry.pageRowMinHeight)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = UiStrings.CONTEXT_GROUP
+                        stateDescription = if (expanded) UiStrings.EXPANDED else UiStrings.COLLAPSED
+                    }
+                    .testTag(UiPageTags.CHAT_ROW_CONTEXT),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.iconText),
+            ) {
                 BasicText(
-                    text = single,
+                    text = UiStrings.CONTEXT_GROUP,
                     style = type.secondary.copy(color = tokens.colors.secondary),
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                )
+                BasicText(
+                    text = UiStrings.CONTEXT_GROUP_COUNT.format(entries.size),
+                    style = type.secondary.copy(color = tokens.colors.secondary),
+                    maxLines = 1,
+                )
+                // iOS prints the source name only for a single block whose name it can
+                // translate; anything else stays hidden.
+                val single = contextSourceName(entries.singleOrNull()?.source)
+                if (single != null) {
+                    BasicText(
+                        text = single,
+                        style = type.secondary.copy(color = tokens.colors.secondary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        // Keep the chevron on screen: the name is the only text
+                        // allowed to shrink (iOS puts the spacer after it).
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+                PdshChevron(
+                    expanded = expanded,
+                    size = ChatMetrics.CHAT_QUEUE_HEADER_CHEVRON_PT.dp,
+                    tint = tokens.colors.secondary,
+                    tag = CONTEXT_GROUP_CHEVRON_TAG,
                 )
             }
-        }
-        if (expanded) {
+        },
+        body = {
             Column(
                 modifier = Modifier.padding(start = tokens.geometry.thinkingContentIndent),
                 verticalArrangement = Arrangement.spacedBy(tokens.spacing.copyGap),
@@ -793,8 +997,8 @@ private fun ContextGroupRow(
                     )
                 }
             }
-        }
-    }
+        },
+    )
 }
 
 /**
@@ -892,47 +1096,38 @@ private fun AttachmentList(
     }
 }
 
-/** iOS bubble context menu: copy, and share for user supplied text. */
-@Composable
-@androidx.compose.foundation.ExperimentalFoundationApi
-private fun MessageContextMenu(
-    text: String,
-    includeShare: Boolean,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    var expanded by remember(text) { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
-    Box(modifier = modifier) {
-        Box(modifier = Modifier.pointerInput(text) {
-            if (text.isNotEmpty()) detectTapGestures(onLongPress = { expanded = true })
-        }) { content() }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text(if (includeShare) "复制" else "复制全文") },
-                onClick = { clipboard.setText(AnnotatedString(text)); expanded = false },
-            )
-            if (includeShare) DropdownMenuItem(
-                text = { Text("分享") },
-                onClick = {
-                    expanded = false
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "分享对话"))
-                },
-            )
-        }
+/**
+ * Rule 4 of `interaction.md` §3: the page's own chooser, used only while the
+ * host supplies no share route ([onShareText] on [ChatRowItem]). A host route
+ * must win, so the app owns the system share sheet when it has one.
+ */
+private fun startTextShare(context: Context, text: String) {
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
     }
+    context.startActivity(Intent.createChooser(intent, SHARE_CHOOSER_TITLE))
 }
 
 /** The answer placeholder iOS draws while an answer has no text yet. */
 private const val EMPTY_ANSWER: String = "\u2026"
 private const val PROCESS_GROUP_TAG: String = "pdsh.chat.process-group"
-private const val TURN_PROCESS_TAG: String = "pdsh.chat.turn-process"
+internal const val TURN_PROCESS_TAG: String = "pdsh.chat.turn-process"
+
+/** `PdshDisclosure`'s header/body tags for the turn-process disclosure. */
+internal const val TURN_PROCESS_DISCLOSURE_TAG: String = "pdsh.chat.turn-process.disclosure"
+internal const val TURN_PROCESS_CHEVRON_TAG: String = "pdsh.chat.turn-process.chevron"
+internal const val CONTEXT_GROUP_DISCLOSURE_TAG: String = "pdsh.chat.row.context.disclosure"
+internal const val CONTEXT_GROUP_CHEVRON_TAG: String = "pdsh.chat.row.context.chevron"
+
+/** `interaction.contextMenu.surfaces` ids this page owns (rule 2). */
+internal const val USER_BUBBLE_SURFACE: String = "userBubble"
+internal const val ASSISTANT_BODY_SURFACE: String = "assistantBody"
+
 private const val TURN_TAIL_TAG: String = "pdsh.chat.turn-tail"
+
+/** The platform chooser's title; only used when the host passes no share route. */
+private const val SHARE_CHOOSER_TITLE: String = "分享对话"
 
 private val IOS_PROCESS_GAP: Dp = HomeMetrics.blockGap
 private val IOS_RESPONSE_GAP: Dp = HomeMetrics.paragraphGap

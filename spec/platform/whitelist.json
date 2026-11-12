@@ -346,5 +346,53 @@
     "evidence_level": "device-gate",
     "baseline": "examples/probe-app/PhoneDSHProbe/TonoLinkVoiceHost.swift",
     "android_mechanism": "startForeground"
+  },
+  {
+    "id": "platform.pclink-identity-seed",
+    "capability": "security.secret-store",
+    "ios": "Keychain 保存 raw 32-byte Ed25519 seed（service dsh-pclink, account identity-v1, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, 不同步）",
+    "android": "app 產生 32-byte seed，經 :platform SecureStore 以 AndroidKeyStore AES-256-GCM 金鑰包裝，密文寫 noBackupFilesDir；SecurityLevel 實測回報；Unreadable 一律 fail-closed，有 pairing record 時不得自動重生",
+    "divergence_class": "os-forced",
+    "rationale": "SecItem 不存在；minSdk 26 的 AndroidKeyStore 也沒有 Ed25519 key type，所以身分金鑰只能是 software seed，只有包裝金鑰可能硬體背書。語義不變：32-byte RFC 8032 seed、每次安裝一個身分、不自動重生、不備份/不同步；不得宣稱硬體身分。未验证：尚無 Android 真機的 Keystore 失效/StrongBox 降級證據。",
+    "spec_ref": "spec/pclink/v1/README.md §2.2",
+    "android_mechanism": "AndroidKeyStore AES/GCM/NoPadding",
+    "evidence_level": "not-verified",
+    "baseline": "Sources/PhoneDSHPCLink/PCLinkIdentity.swift"
+  },
+  {
+    "id": "platform.pclink-foreground-relay",
+    "capability": "network.relay-socket",
+    "ios": "URLSessionWebSocketTask（PCLinkRelayClient）在前景持有 relay socket；App 進背景時 socket 被 suspend，回前景走 §10 bounded resume",
+    "android": "Ktor CIO WebSocket 只在 App 前景或回合的 foreground service 執行期間持有；ProcessLifecycleOwner ON_STOP 關閉 socket，ON_START 呼叫 foregroundResumed()，下一次重撥 ≤1 s ±20 %；不在背景承諾收訊",
+    "divergence_class": "os-forced",
+    "rationale": "Android 的背景執行限制/Doze 不允許無界背景 socket；PCLink 本來就是 demand-driven（relay 10 分鐘 idle、PC 15 分鐘 idle、無 queue、無 push），關閉後按 §10 重連不改變可觀測語義：重連必重新 handshake、不補送、durable event 由 stream recovery 補。未验证：尚無真機前景/背景切換與 relay drop 證據。",
+    "spec_ref": "spec/pclink/v1/README.md §10",
+    "android_mechanism": "ProcessLifecycleOwner + Ktor CIO WebSocket",
+    "evidence_level": "not-verified",
+    "baseline": "Sources/PhoneDSHPCLink/PCLinkRelayClient.swift"
+  },
+  {
+    "id": "platform.pclink-doze-network",
+    "capability": "network.relay-socket",
+    "ios": "沒有 Doze；OS 可 suspend App/socket，但沒有 Android 的 idle network/maintenance window",
+    "android": "Doze/App Standby 會延後網路與 maintenance；client 把任何 socket 遺失當一般斷線，按 §10 jitter 重連；不排 exact alarm、不請求 battery optimization exemption、不加背景 keepalive",
+    "divergence_class": "os-forced",
+    "rationale": "Doze 是 Android 獨有的 OS 政策。契約已明確沒有 server push/queue，只有 demand reconnect；Android 不得用 keepalive/alarm/whitelist 假造 liveness。liveness 下降如實呈現 offline，回前景或使用者重試時恢復。未验证：尚無真機 Doze 進入/退出與 heartbeat 逾時證據。",
+    "spec_ref": "spec/pclink/v1/README.md §10",
+    "android_mechanism": "PowerManager.isDeviceIdleMode + ConnectivityManager",
+    "evidence_level": "not-verified",
+    "baseline": "Sources/PhoneDSHPCLink/PCLinkRelayClient.swift"
+  },
+  {
+    "id": "platform.disclosure-state-announcement",
+    "capability": "ui.disclosure-state",
+    "ios": "SwiftUI `DisclosureGroup` and the system button traits announce the expanded/collapsed state without app-supplied labels; a custom baseline row adds `.accessibilityValue(\"已展开\"/\"已折叠\")` (NativeMessageRows.swift:72-73).",
+    "android": "A Compose row built from `clickable` + `Text`/`Icon` announces neither the toggle action nor the expanded state by default; `onClickLabel` supplies 展开/折叠 and `stateDescription` supplies 已展开/已折叠, with both strings coming from `UiStrings`.",
+    "divergence_class": "os-forced",
+    "rationale": "Same disclosure control and same state machine; only the announcement mechanism differs because Android has no built-in disclosure trait. The labels are the platform's spoken form of the existing visual state, not new behaviour: the toggle still flips once per tap, motion stays `motion.disclosure`, and no token value changes. Removing the labels would make the custom row silent for screen readers, which is not semantic equivalence.",
+    "spec_ref": "spec/ui/v1/interaction.md §7",
+    "android_mechanism": "Modifier.clickable(onClickLabel=) + semantics.stateDescription",
+    "evidence_level": "emulator-probe",
+    "baseline": "examples/probe-app/PhoneDSHProbe/NativeMessageRows.swift"
   }
 ]

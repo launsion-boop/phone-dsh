@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "vector": "routine-document",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "delta": [
+    "CCR-7: run_state, quiet_defer, next_run_at and last_result are nullable and absent when nil; Swift Routine omits them.",
+    "RoutineDocument is the routine.* event data {botId, document}; routines use routine.schema.json and deliveries use routine-delivery.schema.json.",
+    "The five positive documents (new, deferred, started, needs-reconciliation, deleted) are produced by the real Swift encoder."
+  ],
+  "valid": [
+    {
+      "name": "new",
+      "eventType": "routine.defined",
+      "data": {
+        "botId": "main",
+        "document": {
+          "deliveries": {},
+          "routines": [
+            {
+              "agentId": "main",
+              "attempt": 0,
+              "completion_criteria": "",
+              "constraints": "",
+              "crash_retry": false,
+              "created_at": 1760000000000,
+              "delivery": "held",
+              "enabled": true,
+              "id": "daily-digest",
+              "idempotent": false,
+              "interrupt_reason": "",
+              "next_run_at": 1760032800000,
+              "prompt": "Summarize the day.",
+              "schedule": {
+                "kind": "daily",
+                "time": "09:00",
+                "timezone": "Asia/Shanghai"
+              },
+              "skip_count": 0,
+              "title": "Daily digest",
+              "urgent": false,
+              "urgent_reason": ""
+            }
+          ],
+          "version": 1
+        }
+      },
+      "provenance": "Swift RoutineDocument + DurableEventSnapshots.data(for:botId:); canonical event bytes"
+    },
+    {
+      "name": "deferred",
+      "eventType": "routine.updated",
+      "data": {
+        "botId": "main",
+        "document": {
+          "deliveries": {},
+          "routines": [
+            {
+              "agentId": "main",
+              "attempt": 0,
+              "completion_criteria": "",
+              "constraints": "",
+              "crash_retry": false,
+              "created_at": 1760000000000,
+              "delivery": "held",
+              "enabled": true,
+              "id": "daily-digest",
+              "idempotent": false,
+              "interrupt_reason": "",
+              "next_run_at": 1760030000000,
+              "prompt": "Summarize the day.",
+              "quiet_defer": {
+                "at": 1760027000000,
+                "scheduledFor": 1760028000000,
+                "until": 1760030000000
+              },
+              "schedule": {
+                "kind": "daily",
+                "time": "09:00",
+                "timezone": "Asia/Shanghai"
+              },
+              "skip_count": 0,
+              "title": "Daily digest",
+              "urgent": false,
+              "urgent_reason": ""
+            }
+          ],
+          "version": 1
+        }
+      },
+      "provenance": "Swift RoutineDocument + DurableEventSnapshots.data(for:botId:); canonical event bytes"
+    },
+    {
+      "name": "started",
+      "eventType": "routine.updated",
+      "data": {
+        "botId": "main",
+        "document": {
+          "deliveries": {},
+          "routines": [
+            {
+              "agentId": "main",
+              "attempt": 1,
+              "completion_criteria": "",
+              "constraints": "",
+              "crash_retry": false,
+              "created_at": 1760000000000,
+              "delivery": "held",
+              "enabled": true,
+              "id": "daily-digest",
+              "idempotent": false,
+              "interrupt_reason": "",
+              "last_run_at": 1760028000000,
+              "next_run_at": 1760032800000,
+              "prompt": "Summarize the day.",
+              "run_state": {
+                "attempt": 1,
+                "leaseExpiresAt": 1760028660000,
+                "leaseOwner": "local",
+                "reconciliationRequired": false,
+                "recovered": false,
+                "runId": "run-daily-1",
+                "scheduledFor": 1760028000000,
+                "startedAt": 1760028000000,
+                "status": "started"
+              },
+              "schedule": {
+                "kind": "daily",
+                "time": "09:00",
+                "timezone": "Asia/Shanghai"
+              },
+              "skip_count": 0,
+              "title": "Daily digest",
+              "urgent": false,
+              "urgent_reason": ""
+            }
+          ],
+          "version": 1
+        }
+      },
+      "provenance": "Swift RoutineDocument + DurableEventSnapshots.data(for:botId:); canonical event bytes"
+    },
+    {
+      "name": "needs-reconciliation",
+      "eventType": "routine.updated",
+      "data": {
+        "botId": "main",
+        "document": {
+          "deliveries": {
+            "daily-digest:1": {
+              "agentId": "main",
+              "attempt": 1,
+              "attempts": 0,
+              "context": "routine",
+              "createdAt": 1760034000000,
+              "delivery": "held",
+              "deliveryKey": "daily-digest:1",
+              "durationMs": 6000000,
+              "error": "effect outcome unknown",
+              "finishedAt": 1760034000000,
+              "lateByMs": 0,
+              "proactiveHandled": false,
+              "quiet": false,
+              "resultStatus": "needs-reconciliation",
+              "routineId": "daily-digest",
+              "routineTitle": "Daily digest",
+              "runId": "run-daily-1",
+              "startedAt": 1760028000000,
+              "status": "pending",
+              "text": "",
+              "updatedAt": 1760034000000,
+              "urgent": false,
+              "urgentReason": ""
+            }
+          },
+          "routines": [
+            {
+              "agentId": "main",
+              "attempt": 1,
+              "completion_criteria": "",
+              "constraints": "",
+              "crash_retry": false,
+              "created_at": 1760000000000,
+              "delivery": "held",
+              "enabled": true,
+              "id": "daily-digest",
+              "idempotent": false,
+              "interrupt_reason": "",
+              "last_result": {
+                "attempt": 1,
+                "duration_ms": 6000000,
+                "error": "effect outcome unknown",
+                "finished_at": 1760034000000,
+                "late_by_ms": 0,
+                "quiet": false,
+                "run_id": "run-daily-1",
+                "scheduled_for": 1760028000000,
+                "started_at": 1760028000000,
+                "status": "needs-reconciliation",
+                "text": ""
+              },
+              "last_run_at": 1760028000000,
+              "prompt": "Summarize the day.",
+              "run_state": {
+                "attempt": 1,
+                "error": "effect outcome unknown",
+                "finishedAt": 1760034000000,
+                "reconciliationRequired": true,
+                "recovered": false,
+                "runId": "run-daily-1",
+                "scheduledFor": 1760028000000,
+                "startedAt": 1760028000000,
+                "status": "needs-reconciliation"
+              },
+              "schedule": {
+                "kind": "daily",
+                "time": "09:00",
+                "timezone": "Asia/Shanghai"
+              },
+              "skip_count": 0,
+              "title": "Daily digest",
+              "urgent": false,
+              "urgent_reason": ""
+            }
+          ],
+          "version": 1
+        }
+      },
+      "provenance": "Swift RoutineDocument + DurableEventSnapshots.data(for:botId:); canonical event bytes"
+    },
+    {
+      "name": "deleted",
+      "eventType": "routine.deleted",
+      "data": {
+        "botId": "main",
+        "document": {
+          "deliveries": {
+            "daily-digest:1": {
+              "agentId": "main",
+              "attempt": 1,
+              "attempts": 0,
+              "context": "routine",
+              "createdAt": 1760034000000,
+              "delivery": "held",
+              "deliveryKey": "daily-digest:1",
+              "durationMs": 6000000,
+              "error": "effect outcome unknown",
+              "finishedAt": 1760034000000,
+              "lateByMs": 0,
+              "proactiveHandled": false,
+              "quiet": false,
+              "resultStatus": "needs-reconciliation",
+              "routineId": "daily-digest",
+              "routineTitle": "Daily digest",
+              "runId": "run-daily-1",
+              "startedAt": 1760028000000,
+              "status": "pending",
+              "text": "",
+              "updatedAt": 1760034000000,
+              "urgent": false,
+              "urgentReason": ""
+            }
+          },
+          "routines": [],
+          "version": 1
+        }
+      },
+      "provenance": "Swift RoutineDocument + DurableEventSnapshots.data(for:botId:); canonical event bytes"
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unsupported-version",
+      "eventType": "routine.updated",
+      "data": {
+        "botId": "main",
+        "document": {
+          "deliveries": {},
+          "routines": [
+            {
+              "agentId": "main",
+              "attempt": 0,
+              "crash_retry": false,
+              "created_at": 1760000000000,
+              "delivery": "held",
+              "enabled": true,
+              "id": "daily-digest",
+              "idempotent": false,
+              "interrupt_reason": "",
+              "next_run_at": 1760032800000,
+              "prompt": "Summarize the day.",
+              "schedule": {
+                "kind": "daily",
+                "time": "09:00",
+                "timezone": "Asia/Shanghai"
+              },
+              "skip_count": 0,
+              "title": "Daily digest",
+              "urgent": false,
+              "urgent_reason": ""
+            }
+          ],
+          "version": 2
+        }
+      },
+      "validation": {
+        "valid": false,
+        "error": "routine document version must be 1; an unknown version fails closed"
+      }
+    }
+  ]
+}

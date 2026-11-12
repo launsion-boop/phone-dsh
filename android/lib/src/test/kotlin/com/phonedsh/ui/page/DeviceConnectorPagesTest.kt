@@ -55,6 +55,9 @@ import com.phonedsh.domain.connector.Endpoint
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonString
 import com.phonedsh.ui.SpecFixtures
+import com.phonedsh.ui.disclosure.DisclosureKind
+import com.phonedsh.ui.disclosure.DisclosureMotion
+import com.phonedsh.ui.disclosure.PdshDisclosureTags
 import com.phonedsh.ui.tokenNames
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.theme.PdshTheme
@@ -394,6 +397,56 @@ class DeviceConnectorPagesTest {
         local = DeviceSessionLocalState()
         compose.onAllNodesWithText(UiStrings.DEVICE_TOOL_OUTPUT).assertCountEquals(0)
         compose.onAllNodesWithText(UiStrings.DEVICE_TOOL_INPUT).assertCountEquals(0)
+    }
+
+    // A tall window keeps the fold's animated body inside the LazyColumn viewport;
+    // at the normal handset height the lower part is clipped and a height sample
+    // would measure the clip, not the animation.
+    @Test
+    @Config(qualifiers = "w411dp-h2000dp")
+    fun `a device tool fold body runs motion disclosure`() {
+        val snapshot = sessionSnapshot()
+        val toolRowId = snapshot.items.single { it.kind == DeviceItemKind.TOOL_CALL }.id
+        var local by mutableStateOf(DeviceSessionLocalState())
+        compose.setContent {
+            PdshTheme {
+                NativeDeviceSessionPage(
+                    state = DeviceSessionScreenState.from(snapshot, local),
+                    onLoadEarlier = {},
+                    onToggleRow = { local = local.toggle(it) },
+                    onBack = {},
+                )
+            }
+        }
+        val bodyTag = PdshDisclosureTags.body(
+            UiPageTags.DEVICE_SESSION_ROW + "." + toolRowId,
+        )
+        compose.onNodeWithText("sensor.read").assertIsDisplayed()
+        compose.onNodeWithTag(bodyTag).assertDoesNotExist()
+
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithText("sensor.read").performClick()
+        compose.mainClock.advanceTimeByFrame()
+
+        var elapsed = 0L
+        val samples = mutableListOf<Pair<Long, Float>>()
+        repeat(24) {
+            compose.mainClock.advanceTimeByFrame()
+            elapsed += 16
+            samples += elapsed to compose.onNodeWithTag(bodyTag).fetchSemanticsNode().boundsInRoot.height
+        }
+        val full = samples.last().second
+        assertTrue("the tool body reached its full height", full > 1f)
+        val mid = samples.first { it.first >= 64L }.second
+        assertTrue("the tool body is mid-animation at 64 ms (height=$mid, full=$full)", mid > 0f && mid < full - 1f)
+        val durationMs = DisclosureMotion
+            .specFor(DisclosureKind.BODY, reducedMotion = false)
+            .durationMs
+        val firstFull = samples.first { it.second >= full - 0.5f }.first
+        assertTrue(
+            "the fold body runs motion.disclosure (${durationMs}ms); it was first full at ${firstFull}ms",
+            firstFull in (durationMs - 10L)..(durationMs + 40L),
+        )
     }
 
     @Test

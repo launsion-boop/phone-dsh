@@ -1,0 +1,74 @@
+{
+  "schema": "pdsh.parity.fixture.v0",
+  "id": "session-drawer-open",
+  "page": "sessions-drawer",
+  "description": "Open the session drawer from the real chat header; export the drawer content.",
+  "unit": "pt",
+  "frame": {
+    "widthPt": 402,
+    "heightPt": 874
+  },
+  "origin": "drawer.new-session",
+  "seed": {
+    "android": {
+      "screen": "chat"
+    },
+    "ios": {
+      "launchArguments": [],
+      "launchEnvironment": {}
+    }
+  },
+  "actions": [
+    {
+      "action": "tap",
+      "element": "chat.header.drawer"
+    },
+    {
+      "action": "wait",
+      "element": "drawer.new-session",
+      "timeoutMillis": 10000
+    }
+  ],
+  "elements": [
+    {
+      "id": "chat.header.drawer",
+      "android": {
+        "testTag": "pdsh.chat.header.drawer"
+      },
+      "ios": {
+        "identifier": "chat.header.drawer",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "drawer.new-session",
+      "android": {
+        "testTag": "home.drawer.new-session"
+      },
+      "ios": {
+        "identifier": "drawer.new-session",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "drawer.scroll",
+      "android": {
+        "testTag": "home.drawer.scroll"
+      },
+      "ios": {
+        "identifier": "drawer.scroll",
+        "type": "scrollView"
+      },
+      "tolerance": 1.0,
+      "gatedAxes": [
+        "x",
+        "w",
+        "h"
+      ],
+      "exemption": "spec/ui/v1 README §5 insets: the iOS drawer applies its status-band inset inside the scroll content; Robolectric has no system bars."
+    }
+  ]
+}

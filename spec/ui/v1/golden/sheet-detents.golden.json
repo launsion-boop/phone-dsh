@@ -1,0 +1,94 @@
+{
+  "kind": "sheet-detents",
+  "version": 1,
+  "source": "tokens.json#interaction.sheet",
+  "defaultDetents": "default",
+  "detentSets": [
+    "default",
+    "large",
+    "medium",
+    "mediumLarge"
+  ],
+  "pages": [
+    {
+      "id": "previewShare",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "subagentCatalogCompact",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "chatSessions",
+      "detents": "large"
+    },
+    {
+      "id": "chatSubagentCatalog",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "chatJobs",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "chatSchedules",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "chatArtifacts",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "dailyBriefSource",
+      "detents": "medium"
+    },
+    {
+      "id": "configurationInfo",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "composerStats",
+      "detents": "medium"
+    },
+    {
+      "id": "connectors",
+      "detents": "mediumLarge"
+    },
+    {
+      "id": "workbench",
+      "detents": "large"
+    },
+    {
+      "id": "turnUsage",
+      "detents": "medium"
+    },
+    {
+      "id": "settings",
+      "detents": "default"
+    },
+    {
+      "id": "modelProvider",
+      "detents": "default"
+    },
+    {
+      "id": "configuration",
+      "detents": "default"
+    },
+    {
+      "id": "runtime",
+      "detents": "default"
+    },
+    {
+      "id": "commandResult",
+      "detents": "default"
+    },
+    {
+      "id": "deviceConnection",
+      "detents": "default"
+    },
+    {
+      "id": "automation",
+      "detents": "default"
+    }
+  ]
+}

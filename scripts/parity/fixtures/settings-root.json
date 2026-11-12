@@ -1,0 +1,98 @@
+{
+  "schema": "pdsh.parity.fixture.v0",
+  "id": "settings-root",
+  "page": "settings",
+  "description": "The real settings sheet at its root, showing the first two groups.",
+  "unit": "pt",
+  "frame": {
+    "widthPt": 402,
+    "heightPt": 874
+  },
+  "origin": "settings.row.modelProvider",
+  "seed": {
+    "android": {
+      "screen": "settings"
+    },
+    "ios": {
+      "launchArguments": [
+        "-uiPreview",
+        "settings"
+      ],
+      "launchEnvironment": {}
+    }
+  },
+  "actions": [],
+  "elements": [
+    {
+      "id": "settings.done",
+      "android": {
+        "testTag": "pdsh.settings.done"
+      },
+      "ios": {
+        "identifier": "settings.done",
+        "type": "button"
+      },
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.modelProvider",
+      "android": {
+        "testTag": "pdsh.settings.index.row.modelProvider"
+      },
+      "ios": {
+        "identifier": "settings.row.modelProvider",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.agentPresets",
+      "android": {
+        "testTag": "pdsh.settings.index.row.agentPresets"
+      },
+      "ios": {
+        "identifier": "settings.row.agentPresets",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.pluginsTools",
+      "android": {
+        "testTag": "pdsh.settings.index.row.pluginsTools"
+      },
+      "ios": {
+        "identifier": "settings.row.pluginsTools",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.permissionDefaults",
+      "android": {
+        "testTag": "pdsh.settings.index.row.permissionDefaults"
+      },
+      "ios": {
+        "identifier": "settings.row.permissionDefaults",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    },
+    {
+      "id": "settings.row.network",
+      "android": {
+        "testTag": "pdsh.settings.index.row.network"
+      },
+      "ios": {
+        "identifier": "settings.row.network",
+        "type": "button"
+      },
+      "text": true,
+      "tolerance": 1.0
+    }
+  ]
+}

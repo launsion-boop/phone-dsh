@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "BotEventEnvelope v1",
+  "title": "BotEventEnvelope v1 (durable)",
+  "description": "P25 durable stored-event envelope. This schema is durable-only: every valid event carries commitSeq >= 1. Ephemeral events are never stored and use event-envelope.ephemeral.schema.json instead. For principal.botId, principal.sessionId, causationId and correlationId, absent is equivalent to null (readers accept both); writers omit a nil member. See spec/bot/v1/README.md §1.2.",
   "type": "object",
   "required": [
     "schemaVersion",
@@ -11,8 +12,6 @@
     "origin",
     "traceId",
     "principal",
-    "causationId",
-    "correlationId",
     "data"
   ],
   "properties": {
@@ -30,6 +29,7 @@
         "conversation.automation_run",
         "approval.requested",
         "approval.decided",
+        "authz.grant_snapshot",
         "grant.created",
         "grant.added",
         "grant.consumed",
@@ -166,8 +166,6 @@
     "principal": {
       "type": "object",
       "required": [
-        "botId",
-        "sessionId",
         "kind",
         "capabilities"
       ],
@@ -257,7 +255,8 @@
       "const": true
     },
     "data": {
-      "type": "object"
+      "type": "object",
+      "description": "Type-specific payload. For type=authz.grant_snapshot, data is the BotGrantSnapshot object validated by authz-grant-snapshot.schema.json; other durable types keep their own owning shape."
     }
   },
   "additionalProperties": true
