@@ -43,6 +43,27 @@ interface Notifier {
         action: NotificationAction?,
     )
 
+    /**
+     * Shows or updates the notification [id] with the Bot deep link [deepLink].
+     *
+     * The link is carried, not parsed: P09 owns its grammar
+     * (`spec/ui/v1/bot/ui-state.md` §4.13, `schema/deep-link.schema.json`).
+     * The default implementation delegates to the five-argument [notify] and
+     * therefore drops the link; an adapter that can open a deep link (Android
+     * `PendingIntent`, including the cold-start path) overrides this method.
+     * Dropping the link is a presentation degradation, not a delivery result.
+     */
+    fun notify(
+        id: Int,
+        title: String,
+        body: String,
+        ongoing: Boolean,
+        action: NotificationAction?,
+        deepLink: NotificationDeepLink?,
+    ) {
+        notify(id, title, body, ongoing, action)
+    }
+
     /** Removes notification [id]; succeeds when it is already absent. */
     fun cancel(id: Int)
 }
@@ -66,3 +87,39 @@ class NotificationAction(
     val label: String,
     val onClick: () -> Unit,
 )
+
+/**
+ * A host deep link attached to one notification (P08 carriage, P09 grammar).
+ *
+ * The accepted form is the Bot form frozen by
+ * `spec/ui/v1/bot/schema/deep-link.schema.json`:
+ * `phonedsh://bot/<botID>/<row|routine>/<id>`. This class does not resolve the
+ * destination — P09's parser does that when the page handles the link — it only
+ * keeps a malformed or non-Bot URI from being placed in a notification.
+ */
+class NotificationDeepLink(
+    /** The complete `phonedsh://bot/...` URI. */
+    val uri: String,
+) {
+    init {
+        require(uri.startsWith(PREFIX)) {
+            "a Bot notification deep link must start with '$PREFIX'"
+        }
+        require(uri.length <= MAXIMUM_URI_LENGTH) {
+            "a Bot notification deep link must be at most $MAXIMUM_URI_LENGTH characters"
+        }
+        require(uri.none { it.isWhitespace() || it.isISOControl() }) {
+            "a Bot notification deep link must not contain whitespace or control characters"
+        }
+    }
+
+    override fun toString(): String = "NotificationDeepLink($uri)"
+
+    companion object {
+        /** The Bot URI prefix; P09 owns the remaining path grammar. */
+        const val PREFIX: String = "phonedsh://bot/"
+
+        /** A notification payload is not an unbounded transport. */
+        const val MAXIMUM_URI_LENGTH: Int = 2_048
+    }
+}
