@@ -28,7 +28,8 @@ import com.phonedsh.ui.projection.UiStateNode
 import com.phonedsh.ui.state.ChatPhase
 import com.phonedsh.ui.state.ChatRow
 import com.phonedsh.ui.state.ChatTurnState
-import com.phonedsh.ui.surface.ComposerMode
+import com.phonedsh.ui.composer.ComposerSendLayout
+import com.phonedsh.ui.composer.ComposerSendRule
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -78,7 +79,10 @@ class ChatTurnStopTest {
 
         val before = screen(ui)
         assertEquals("a started turn must make the dock RUNNING", ChatPhase.RUNNING, before.phase)
-        assertEquals(ComposerMode.STOP, before.composer.mode)
+        assertEquals(
+            ComposerSendLayout.STOP,
+            ComposerSendRule.layout(before.composer.running, before.composer.canSubmit),
+        )
 
         val store = store()
         store.save(
@@ -107,9 +111,11 @@ class ChatTurnStopTest {
 
         assertEquals("stop must leave the conversation idle", ChatPhase.IDLE, after.phase)
         assertFalse(after.composer.running)
-        assertEquals(ComposerMode.SEND, after.composer.mode)
         assertEquals(UiStrings.COMPOSER_PLACEHOLDER_IDLE, after.composer.placeholder)
-        assertEquals(UiStrings.COMPOSER_SEND_LABEL, after.composer.sendLabel)
+        assertEquals(
+            UiStrings.COMPOSER_SEND_LABEL,
+            ComposerSendRule.sendLabel(after.composer.running, after.composer.steering),
+        )
         assertTrue("the next message must be submittable at once", after.composer.canSubmit)
         assertTrue(
             "the stopped turn still reads as cancelled to the person",
