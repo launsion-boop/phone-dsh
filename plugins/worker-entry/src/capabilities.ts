@@ -644,7 +644,7 @@ function githubSection(): string[] {
   return [
     '## GitHub',
     '- `github` reads and changes a GitHub repo with no local clone: `get`, `tree`, `search`, `branch`, `commit`, `pr`. `github --help` lists the flags.',
-    '- Only `get` and `tree` work anonymously. `search`, `branch`, `commit` and `pr` need a host-stored `api.github.com` credential (`PDSH_GITHUB_AUTH=1`); without it the command fails before sending a request.',
+    '- Only `get` and `tree` work anonymously. `search` needs a host-stored `api.github.com` credential (`PDSH_GITHUB_AUTH=1`); `branch`, `commit` and `pr` also need the host write opt-in (`PDSH_GITHUB_WRITE=1`). Without them the command fails before sending a request.',
     '- Do not pass a token and do not put one in a script. Requests use the host `/v1/http` allow-list; the host credential gateway injects the stored credential. Keep commits small (at most 20 files, 256 KiB each); binary files go through `--base64`.',
   ]
 }

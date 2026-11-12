@@ -225,6 +225,7 @@ export {
   GITHUB_MAX_OUTPUT_BYTES,
   GITHUB_MAX_TREE_ENTRIES,
   GITHUB_USAGE,
+  GITHUB_WRITE_ENV,
   createGithubCommand,
   parseGithubArguments,
   redactGithubText,

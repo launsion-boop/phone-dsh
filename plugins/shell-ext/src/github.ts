@@ -31,6 +31,8 @@ export const GITHUB_MAX_OUTPUT_BYTES = 128 * 1024
 export const GITHUB_MAX_DIRECTORY_ENTRIES = 500
 /** Environment the host sets only when it stores an api.github.com credential. */
 export const GITHUB_AUTH_ENV = 'PDSH_GITHUB_AUTH'
+/** Environment the host sets only when the person enabled agent writes. */
+export const GITHUB_WRITE_ENV = 'PDSH_GITHUB_WRITE'
 
 const API = 'https://api.github.com'
 const USER_AGENT = 'phone-dsh'
@@ -41,8 +43,9 @@ const API_VERSION = '2022-11-28'
 export const GITHUB_DESCRIPTION =
   'Read or change a GitHub repo with no local clone (get, tree, search, branch, commit, pr) through the host /v1/http allow-list. '
   + 'Never pass a token: the host credential gateway injects the credential for api.github.com. '
-  + 'Public get/tree reads work anonymously; search, branch, commit and pr need a host-stored credential ('
-  + GITHUB_AUTH_ENV + '=1) and otherwise fail without sending a request. Keep commits small.'
+  + 'Public get/tree reads work anonymously; search needs a host-stored credential ('
+  + GITHUB_AUTH_ENV + '=1), and branch, commit and pr also need the write opt-in ('
+  + GITHUB_WRITE_ENV + '=1). Keep commits small.'
 
 /** Usage printed by `github` and `github --help`. */
 export const GITHUB_USAGE = `usage: github <get|tree|search|branch|commit|pr> <owner>/<repo> [options]
@@ -65,6 +68,8 @@ Writes use one GraphQL createCommitOnBranch call. stdout is one JSON object.
 export type GithubOptions = Pick<CurlOptions, 'fetch' | 'origin' | 'token'> & {
   /** True when the host can inject the stored api.github.com credential. */
   readonly authenticated?: boolean | undefined
+  /** True when the person enabled the write verbs, not just a read credential. */
+  readonly writeEnabled?: boolean | undefined
 }
 
 interface Repo {
@@ -121,9 +126,18 @@ function authenticated(options: GithubOptions): boolean {
   return options.authenticated ?? process.env[GITHUB_AUTH_ENV] === '1'
 }
 
+function writeEnabled(options: GithubOptions): boolean {
+  return options.writeEnabled ?? process.env[GITHUB_WRITE_ENV] === '1'
+}
+
 /** Verbs that need a stored credential; get/tree are anonymous public reads. */
 function needsCredential(request: Request): boolean {
-  return request.kind === 'search' || request.kind === 'branch' || request.kind === 'commit' || request.kind === 'pr'
+  return request.kind === 'search' || needsWrite(request)
+}
+
+/** Verbs that change the repository, on top of the read credential. */
+function needsWrite(request: Request): boolean {
+  return request.kind === 'branch' || request.kind === 'commit' || request.kind === 'pr'
 }
 
 function fail(message: string, exitCode = 1): ExecResult {
@@ -589,7 +603,13 @@ export async function runGithub(
   if (!authenticated(options) && needsCredential(request)) {
     return fail(
       'this build has no GitHub credential for api.github.com: only `get` and `tree` work anonymously. '
-      + `Writes and code search need the host to store a credential and set ${GITHUB_AUTH_ENV}=1. Nothing was sent.`,
+      + `Search needs the host to store a credential and set ${GITHUB_AUTH_ENV}=1. Nothing was sent.`,
+    )
+  }
+  if (needsWrite(request) && !writeEnabled(options)) {
+    return fail(
+      'GitHub writes are disabled: the host has no write opt-in. '
+      + `Set ${GITHUB_WRITE_ENV}=1 in the host (Settings → GitHub Agent) before commit, branch or pr. Nothing was sent.`,
     )
   }
   const route = resolveHostProxy(options)

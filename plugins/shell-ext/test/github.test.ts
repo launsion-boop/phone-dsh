@@ -54,7 +54,10 @@ function mock(handler: (seen: Seen) => { status: number; body: string; headers?:
 }
 
 function command(fetchImpl: typeof fetch) {
-  return createGithubCommand({ fetch: fetchImpl, origin: ORIGIN, token: CHANNEL, authenticated: true })
+  return createGithubCommand({
+    fetch: fetchImpl, origin: ORIGIN, token: CHANNEL,
+    authenticated: true, writeEnabled: true,
+  })
 }
 
 test('github is on the worker command table and describes the no-token rule', async () => {
@@ -238,7 +241,10 @@ test('oversized commits and unsafe paths never reach the network', async () => {
 
 test('without a host credential only anonymous get/tree send a request', async () => {
   const { fetch, calls } = mock(() => ({ status: 200, body: JSON.stringify({ type: 'file', path: 'x', sha: 's' }) }))
-  const readOnly = createGithubCommand({ fetch, origin: ORIGIN, token: CHANNEL, authenticated: false })
+  const readOnly = createGithubCommand({
+    fetch, origin: ORIGIN, token: CHANNEL,
+    authenticated: false, writeEnabled: true,
+  })
   for (const args of [
     ['search', 'octo/example', 'needle'],
     ['branch', 'octo/example', 'feature', '--from', 'main'],
@@ -253,6 +259,26 @@ test('without a host credential only anonymous get/tree send a request', async (
   assert.equal(calls.length, 0)
   const read = await readOnly.execute(['get', 'octo/example', 'x'], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
   assert.equal(read.exitCode, 0, read.stderr)
+  assert.equal(calls.length, 1)
+})
+
+test('a read credential enables search but not writes until the opt-in', async () => {
+  const { fetch, calls } = mock(() => ({
+    status: 200,
+    body: JSON.stringify({ total_count: 0, items: [] }),
+  }))
+  const readCredential = createGithubCommand({
+    fetch, origin: ORIGIN, token: CHANNEL,
+    authenticated: true, writeEnabled: false,
+  })
+  const search = await readCredential.execute(['search', 'octo/example', 'needle'], { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(search.exitCode, 0, search.stderr)
+  assert.equal(calls.length, 1)
+  const commit = await readCredential.execute(
+    ['commit', 'octo/example', '--branch', 'main', '--message', 'm', '--file', 'a.txt', '--text', 'x'],
+    { cwd: '/', stdin: '', env: {}, fs: undefined as never })
+  assert.equal(commit.exitCode, 1)
+  assert.match(commit.stderr, /writes are disabled/)
   assert.equal(calls.length, 1)
 })
 
