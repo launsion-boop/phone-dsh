@@ -46,12 +46,22 @@ struct OverlayFragment {
     var crc: UInt32
 }
 
-/// Test-visible count of fragments rebuilt versus reused. Production passes no
-/// diagnostics; the incremental-overlay tests use these counters.
+/// Counts fragments rebuilt versus reused and carries the one-line composition
+/// summary to the boot log. Production installs the boot-log sink; the
+/// incremental-overlay tests can inject their own sink and inspect
+/// ``lastComposition``.
 final class OverlayFragmentCacheDiagnostics: @unchecked Sendable {
+    typealias Sink = @Sendable (String) -> Void
+
     private let lock = NSLock()
+    private let sink: Sink?
     private var rebuilt = 0
     private var reused = 0
+    private var composition: OverlayComposition?
+
+    init(sink: Sink? = nil) {
+        self.sink = sink
+    }
 
     var recompressedFileCount: Int {
         lock.lock()
@@ -65,6 +75,13 @@ final class OverlayFragmentCacheDiagnostics: @unchecked Sendable {
         return reused
     }
 
+    /// The most recent pack's composition, or nil before the first pack.
+    var lastComposition: OverlayComposition? {
+        lock.lock()
+        defer { lock.unlock() }
+        return composition
+    }
+
     func recordRecompression() {
         lock.lock()
         rebuilt += 1
@@ -75,6 +92,17 @@ final class OverlayFragmentCacheDiagnostics: @unchecked Sendable {
         lock.lock()
         reused += 1
         lock.unlock()
+    }
+
+    /// Publishes the summary and emits exactly one line when a sink is
+    /// installed. The sink runs outside the lock so a slow log append cannot
+    /// serialize fragment-cache accounting.
+    func recordComposition(_ summary: OverlayComposition) {
+        lock.lock()
+        composition = summary
+        let sink = self.sink
+        lock.unlock()
+        sink?(summary.line)
     }
 }
 

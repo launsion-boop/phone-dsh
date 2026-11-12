@@ -255,6 +255,88 @@ final class OverlayPackerTests: XCTestCase {
         XCTAssertEqual(fragmentFiles(in: cache).count, richFileCount)
     }
 
+    func testCompositionSummaryRollsUpTopDirectoriesAndReportsColdAndWarmFields() throws {
+        let root = LogTestSupport.root(for: self)
+        let paths = WorkspacePaths(root: root)
+        try paths.createDirectories()
+        let workspace = paths.materializedWorkspaceDirectory
+        let home = paths.materializedHomeDirectory
+        let alpha = workspace.appendingPathComponent("alpha")
+        let alphaNested = alpha.appendingPathComponent("nested")
+        let beta = workspace.appendingPathComponent("beta")
+        let gamma = workspace.appendingPathComponent("gamma")
+        let delta = workspace.appendingPathComponent("delta")
+        let eta = home.appendingPathComponent("eta")
+        for directory in [alphaNested, beta, gamma, delta, eta] {
+            try FileManager.default.createDirectory(at: directory,
+                                                    withIntermediateDirectories: true)
+        }
+        try Data(repeating: 0x61, count: 700)
+            .write(to: alpha.appendingPathComponent("a.bin"))
+        try Data(repeating: 0x62, count: 300)
+            .write(to: alphaNested.appendingPathComponent("b.bin"))
+        try Data(repeating: 0x63, count: 600)
+            .write(to: beta.appendingPathComponent("c.bin"))
+        try Data(repeating: 0x64, count: 500)
+            .write(to: gamma.appendingPathComponent("d.bin"))
+        try Data(repeating: 0x65, count: 400)
+            .write(to: delta.appendingPathComponent("e.bin"))
+        try Data(repeating: 0x66, count: 100)
+            .write(to: eta.appendingPathComponent("f.bin"))
+        // A file directly under workspace/ belongs to no top-level directory.
+        try Data(repeating: 0x67, count: 50)
+            .write(to: workspace.appendingPathComponent("root.txt"))
+
+        let cache = cacheDirectory(root)
+        let coldLines = LineCollector()
+        let coldDiagnostics = OverlayFragmentCacheDiagnostics { coldLines.append($0) }
+        _ = try OverlayPacker(root: root,
+                              fragmentCacheDirectory: cache,
+                              diagnostics: coldDiagnostics).data()
+        let cold = try XCTUnwrap(coldDiagnostics.lastComposition)
+        XCTAssertEqual(cold.bytes, 2_650)
+        XCTAssertEqual(cold.entries, 15)
+        XCTAssertEqual(cold.files, 7)
+        XCTAssertEqual(cold.unchanged, 0, "a cold fragment cache reuses nothing")
+        XCTAssertEqual(cold.reusedBytes, 0)
+        XCTAssertEqual(cold.topDirectories, [
+            OverlayComposition.TopDirectory(directory: "workspace/alpha", bytes: 1_000),
+            OverlayComposition.TopDirectory(directory: "workspace/beta", bytes: 600),
+            OverlayComposition.TopDirectory(directory: "workspace/gamma", bytes: 500),
+        ], "top three only, descending; workspace/delta and home/eta are outside")
+        XCTAssertEqual(coldLines.snapshot, [cold.line])
+        XCTAssertEqual(cold.line,
+                       "overlay-compose bytes=2650 entries=15 "
+                           + "top=workspace/alpha:1000,workspace/beta:600,workspace/gamma:500 "
+                           + "files=7 unchanged=0 reused_bytes=0")
+
+        let changed = beta.appendingPathComponent("c.bin")
+        try Data(repeating: 0x68, count: 650).write(to: changed)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(60)],
+            ofItemAtPath: changed.path)
+
+        let warmLines = LineCollector()
+        let warmDiagnostics = OverlayFragmentCacheDiagnostics { warmLines.append($0) }
+        _ = try OverlayPacker(root: root,
+                              fragmentCacheDirectory: cache,
+                              diagnostics: warmDiagnostics).data()
+        let warm = try XCTUnwrap(warmDiagnostics.lastComposition)
+        XCTAssertEqual(warm.bytes, 2_700)
+        XCTAssertEqual(warm.entries, 15)
+        XCTAssertEqual(warm.files, 7)
+        XCTAssertEqual(warm.unchanged, 6, "only the rewritten file misses its fragment")
+        XCTAssertEqual(warm.reusedBytes, 2_050)
+        XCTAssertEqual(warm.topDirectories, [
+            OverlayComposition.TopDirectory(directory: "workspace/alpha", bytes: 1_000),
+            OverlayComposition.TopDirectory(directory: "workspace/beta", bytes: 650),
+            OverlayComposition.TopDirectory(directory: "workspace/gamma", bytes: 500),
+        ])
+        XCTAssertEqual(warmLines.snapshot, [warm.line])
+        XCTAssertEqual(warmDiagnostics.recompressedFileCount, 1)
+        XCTAssertEqual(warmDiagnostics.reusedFileCount, 6)
+    }
+
     func testChangingOneFileRecompressesOnlyThatFragment() throws {
         let root = LogTestSupport.root(for: self)
         let paths = WorkspacePaths(root: root)
@@ -396,6 +478,24 @@ final class OverlayPackerTests: XCTestCase {
         print("PDSH_PERF warm overlay after one 10 KB change: "
               + String(format: "%.3f s", elapsed)
               + ", \(result.byteCount) bytes")
+    }
+}
+
+/// Thread-safe line sink for the composition diagnostics.
+private final class LineCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+
+    func append(_ line: String) {
+        lock.lock()
+        lines.append(line)
+        lock.unlock()
+    }
+
+    var snapshot: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lines
     }
 }
 

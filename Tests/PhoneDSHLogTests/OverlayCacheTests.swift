@@ -14,8 +14,11 @@ final class OverlayCacheTests: XCTestCase {
     private let bootC = String(repeating: "c", count: 32)
 
     private func makeLog() throws -> (WorkspaceLog, URL) {
-        let root = FileManager.default.temporaryDirectory
+        // Keep boot-timings.log inside a per-test parent so the shared system
+        // temporary directory cannot mix lines from other tests or runs.
+        let parent = FileManager.default.temporaryDirectory
             .appendingPathComponent("pdsh-overlay-\(UUID().uuidString)", isDirectory: true)
+        let root = parent.appendingPathComponent("workspace", isDirectory: true)
         let configuration = WorkspaceLogConfiguration(root: root, groupCommitDelay: 0)
         let log = try WorkspaceLog(configuration: configuration,
                                    bootID: Data(repeating: 0x33, count: 16))
@@ -28,7 +31,7 @@ final class OverlayCacheTests: XCTestCase {
 
     func testOverlayTarsAreExcludedFromBackup() async throws {
         let (log, root) = try makeLog()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         _ = try await log.recover()
         _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
 
@@ -48,7 +51,7 @@ final class OverlayCacheTests: XCTestCase {
     /// file names survive into the new index.
     func testOverlayReusesUnchangedFileFragmentsAcrossAMutation() async throws {
         let (log, root) = try makeLog()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         _ = try await log.recover()
         _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
         _ = try await log.append(write("/dsh/workspace/b.txt", "second"))
@@ -65,6 +68,39 @@ final class OverlayCacheTests: XCTestCase {
                        "an unchanged file must keep its fragment file")
         XCTAssertNotNil(after["workspace/new.txt"])
         XCTAssertEqual(after.count, 3)
+    }
+
+    /// The packer's composition summary must reach the existing boot log, not
+    /// a new artifact: cold and fragment-warm boots both emit one line.
+    func testOverlayCompositionLineIsWrittenToBootTimingsLog() async throws {
+        let (log, root) = try makeLog()
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        _ = try await log.recover()
+        _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
+        _ = try await log.append(write("/dsh/workspace/b.txt", "second"))
+
+        _ = try await log.overlay(bootID: bootA)
+        let cold = try compositionLines(root)
+        XCTAssertEqual(cold.count, 1, "one line per pack")
+        XCTAssertTrue(cold[0].hasPrefix("overlay-compose bytes="), cold[0])
+        XCTAssertTrue(cold[0].contains(" top="), cold[0])
+        XCTAssertTrue(cold[0].contains(" files=2 unchanged=0 reused_bytes=0"), cold[0])
+
+        _ = try await log.append(write("/dsh/workspace/a.txt", "third"))
+        _ = try await log.overlay(bootID: bootB)
+        let warm = try compositionLines(root)
+        XCTAssertEqual(warm.count, 2, "the warm fragment path also emits one line")
+        XCTAssertTrue(warm[1].contains(" files=2 unchanged=1 "), warm[1])
+        XCTAssertFalse(warm[1].contains(" reused_bytes=0"), warm[1])
+    }
+
+    private func compositionLines(_ root: URL) throws -> [String] {
+        let url = root.deletingLastPathComponent()
+            .appendingPathComponent("boot-timings.log")
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n")
+            .map(String.init)
+            .filter { $0.hasPrefix("overlay-compose ") }
     }
 
     private func fragmentIndex(_ root: URL) throws -> [String: String] {
@@ -90,7 +126,7 @@ final class OverlayCacheTests: XCTestCase {
     /// bytes must match both a no-cache pack and `packOverlay()`.
     func testIncrementalOverlayAfterAMutationEqualsAColdBuild() async throws {
         let (log, root) = try makeLog()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         _ = try await log.recover()
         _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
         _ = try await log.append(write("/dsh/workspace/b.txt", "second"))
@@ -109,7 +145,7 @@ final class OverlayCacheTests: XCTestCase {
 
     func testOverlayIsReusedWhileTheMaterializedWatermarkIsUnchanged() async throws {
         let (log, root) = try makeLog()
-        defer { try? FileManager.default.removeItem(at: root) }
+        defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         _ = try await log.recover()
         _ = try await log.append(write("/dsh/workspace/a.txt", "first"))
 
