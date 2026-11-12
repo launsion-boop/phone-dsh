@@ -518,12 +518,31 @@ def check_single_copy(doc, errors) -> None:
         _, violations = single_copy_expectation(case["case"])
         if not violations:
             fail(errors, where, "negative case does not violate any single-copy law")
+
+
+MEMORY_PRODUCTION_INPUTS = ["host-phys-footprint", "system-memory-warning"]
+MEMORY_FOOTPRINT_SOURCE = "task_info/TASK_VM_INFO"
+MEMORY_FOOTPRINT_ROW = "app-process-row"
+
+
 def memory_input_problem(case) -> str:
-    """Return the first W2 rev 2 memory-input law the case violates, or ''."""
-    if case.get("productionInputs") != ["system-memory-warning"]:
-        if not case.get("productionInputs"):
-            return "no_production_input"
+    """Return the first frozen memory-input law the case violates, or ''.
+
+    R1 (2026-11-13) replaced the unimplementable sampled engine heap with two
+    production inputs: the platform memory pressure warning and the host process
+    ``phys_footprint`` (``task_info``/``TASK_VM_INFO``). The footprint is booked
+    once, against the App process row, and never added to the Engine heap row;
+    the sampled engine heap is ``target`` forever because WebContent memory has
+    no readout (WKWebView runs it out of process and WebKit has no
+    ``performance.memory``).
+    """
+    inputs = case.get("productionInputs") or []
+    if not inputs:
+        return "no_production_input"
+    if "sampled-engine-heap" in inputs:
         return "sampled_heap_not_available"
+    if inputs != MEMORY_PRODUCTION_INPUTS:
+        return "input_set_changed"
     sampled = case.get("sampledHeap", {})
     if sampled.get("status") != "target":
         return "sampled_heap_falsely_implemented"
@@ -531,6 +550,15 @@ def memory_input_problem(case) -> str:
         return "sampled_heap_not_available"
     if sampled.get("injectionPoint") != "reportEngineHeapBytes":
         return "wrong_injection_point"
+    footprint = case.get("hostFootprint")
+    if not isinstance(footprint, dict):
+        return "footprint_accounting_missing"
+    if footprint.get("source") != MEMORY_FOOTPRINT_SOURCE:
+        return "footprint_source_changed"
+    if footprint.get("bookedAgainst") != MEMORY_FOOTPRINT_ROW:
+        return "footprint_double_counted"
+    if footprint.get("additiveWithEngineHeap") is not False:
+        return "footprint_double_counted"
     if case.get("actionOrder") != ["clearTmp", "plannedRestart"]:
         return "action_order_changed"
     if case.get("userVisible") is not False:

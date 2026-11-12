@@ -431,10 +431,16 @@ read and caches nothing itself. Regardless of when this becomes callable, these 
 in-memory VFS is still the runtime authority and a mutation is an ordinary VFS_MUT once the bytes are
 present; `VFS_RESYNC` is unchanged because the host's materialized copy is still the replay source; the
 quota counts each blob once; a missing or digest-mismatched blob fails the boot loudly and is never a
-silently empty file. The one-time manifest build is background and re-entrant, and W1's read-only
-projection serves browsing while it runs. Open question Q1 (owner) and GAP-41 track the upstream
-reader; until it exists, recovery time stays O(materialized bytes) because every boot repacks the
-overlay once per changed watermark.
+silently empty file. The one-time manifest build is background and re-entrant, and W1's read-only projection serves browsing while it runs.
+
+**Recovery acceptance (W6, 2026-11-13).** "hot recovery ≤ 1 s, independent of workspace size" becomes two
+reachable clauses. (1) A boot with no mutation since the cached overlay (watermark unchanged) MUST recover
+in ≤ 1 s — `target`, not measured; O(1) today (cache hit, hard link). (2) A boot after any mutation is
+O(bytes): linear in the bytes the boot must repack or fetch, with no size-independent promise, so "≤ 1 s
+regardless of size" is withdrawn, not deferred. The only numeric recovery budget remains budgets.md §4
+(`a + k·MB`, `a ≤ 3 s`, `k ≤ 0.05 s/MB`), a target bound, not a measurement. Retiring the per-boot archive
+and reaching clause (1) after a mutation need the upstream manifest reader with tombstones, tracked by
+Q1/GAP-41: [requirement](../../docs/upstream/2026-11-13-overlay-manifest-reader.md).
 
 ## 9. Quotas and compaction
 

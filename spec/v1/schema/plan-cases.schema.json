@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Performance-plan contract cases v1",
-  "description": "Shared valid/invalid cases for the W0/W2/W3/W4/W6/W7 contract freezes, including the W2 rev 2 engine-memory input amendment. The envelope is schema-checked; the per-vector semantic law is judged by spec/v1/tools/plan_cases_check.py. Cases are fixture assets, not runtime messages.",
+  "description": "Shared valid/invalid cases for the W0/W2/W3/W4/W6/W7 contract freezes, including the W2 rev 2 engine-memory input amendment and its R1 (2026-11-13) replacement of the sampled heap with the host process footprint plus the memory pressure warning. The envelope is schema-checked; the per-vector semantic law is judged by spec/v1/tools/plan_cases_check.py. Cases are fixture assets, not runtime messages.",
   "type": "object",
   "required": ["schemaVersion", "vector", "valid", "invalid"],
   "properties": {

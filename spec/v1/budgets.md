@@ -70,17 +70,17 @@ without `Reclaiming`, and a drain deadline never reopens admission.
 | thermalState | ProcessInfo | `fair` → sub-agent cap 1; `serious`/`critical` → LIFECYCLE `pause` at the next boundary, no new sub-agents, no new parallel accelerators. |
 | battery / low power mode | ProcessInfo | Below 20 % and not charging, or Low Power Mode on → sub-agent cap 1, no optional accelerators; budgets are never raised. |
 | NWPathMonitor | Network framework | unsatisfied → `Running` → `Backoff`; satisfied → `Backoff` → `Running` after one successful probe. |
-| memory proxy | VFS bytes by prefix, session bytes, sampled engine heap, WebContent termination count | Budget actions in §4 order; VFS or heap pressure shares the same order; a hard cap after the actions → `Failed` (fail loud). |
+| memory proxy | VFS bytes by prefix, session bytes, host process `phys_footprint`, WebContent termination count | Budget actions in §4 order; VFS, footprint or heap pressure shares the same order; a hard cap after the actions → `Failed` (fail loud). |
 | lease verification | controller and remote authority record | Required for `Recovering` → `Running`; failure keeps admission closed. |
 
-**Engine-memory input sources (W2 rev 2, 2026-11-12).** In this revision the only **production**
-input to the engine-memory side of the memory proxy is the platform **system memory warning**
-(`DispatchSource`/`didReceiveMemoryWarning`). The sampled engine heap named above and in §4 is
-`target`: there is no production producer (`PhoneDSHEngine` exposes no public heap probe,
-`WebEngineScripts` carries only console/boot, every `reportEngineHeapBytes` caller is a test).
-`reportEngineHeapBytes` stays the test/future-P04 injection point; a missing sample MUST NOT be
-read as zero, headroom, or a reason to raise a budget. The warning path keeps
-`clearTmp → plannedRestart` and adds no UI prompt; the numeric §4 rows are unchanged.
+**Engine-memory input sources (R1, 2026-11-13; rev 2 was 2026-11-12).** The engine-memory side of the memory proxy has
+two production inputs: the platform **memory pressure warning** (`DispatchSource.makeMemoryPressureSource` or `didReceiveMemoryWarning`)
+and the **host process** `phys_footprint` (`task_info`/`TASK_VM_INFO`), booked **once** against the §4 `App process` row and never
+added to the Engine heap row. WebContent memory is **not observable** (WKWebView's WebContent is a separate process with no public
+API, and WebKit has no `performance.memory`), so the **sampled engine heap stays permanently `target`** and MUST NOT be reported as
+implemented or used as an input. `reportEngineHeapBytes` stays a test-only injection point; a missing sample MUST NOT be read as zero,
+headroom, or a reason to raise a budget, and the warning path keeps `clearTmp → plannedRestart`, adds no UI prompt, and the numeric §4
+rows are unchanged.
 
 **Boot mapping for the rows above.** §2 lists the four persisted states it decided; these four were
 left implicit and the port had to infer them, so they are written down here: persisted `Parked` →
@@ -140,9 +140,9 @@ the ceiling is at least 12 GiB. `MB`/`MiB` are 1 048 576 bytes.
   (channel.md §3.1, §6). An appended mutation carries only the suffix, never the complete post-write
   file: the host tracks the accepted logical size and refuses a chunk that would grow one file past
   the budget. The append path is O(chunk), not O(file), which is what the engine heap row assumes.
-- The memory proxy includes the sampled engine heap. Exceeding the engine heap row triggers the
-  action order below even while the VFS bytes are within budget; repeated WebContent terminations
-  are likewise pressure.
+- The memory proxy includes the host process `phys_footprint` (booked once against the App process row, never added to the
+  Engine heap row) and the memory pressure warning; exceeding the App process row triggers the action order below even while
+  the VFS bytes are within budget, and repeated WebContent terminations are likewise pressure. The Engine heap row is `target` (§3).
 - Budget actions under memory pressure run in this order and stop at the first one that restores the
   headroom: (1) clear the volatile tmp root (`/dsh/tmp/**` and `/tmp/**`); (2) planned WebContent
   restart at the next tool-call boundary; (3) handoff to the remote. A hard cap still exceeded after the actions is `Failed`.
