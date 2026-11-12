@@ -230,6 +230,7 @@ GAP-12／GAP-13 是同一批實作要修的 iOS 缺口，不是合約變更。
 | GAP-34／P05、P18、P09（tono-account 上游细节，owner tono-account，partial） | [tono-account.md](v1/tono-account.md) §2 的令牌响应成员、令牌端点 400／401／403 的划分、模型端点把 `credential_expired` 写在 `error.code` 还是 `error.type`、Android 是否另有 `client_id`，均依据云端对接说明（2026-11-04）推定；账号服务 `docs/MVP-API.md` §3、§4.1、§4.9、§5.1 未进入本仓库，未核对。两端只对本地 fake 与共享用例验证过，未对真实 `account.tonoai.cn`／`pdsh.tonoai.cn` 做过登录、轮换、重用吊销或 180 天流程 | 由 owner 取得 MVP-API.md 逐条核对 §2／§5，差异按 §3 改用例与两端；用测试账号在真机上完成一次登录→续期→登出并记录 request_id 后关闭。未关闭前不得放宽 §2 的校验或把未知成员当作已知 |
 
 只有修正來源、相關端測試及必要的 integration 證據齊備，才在此記錄關閉與修復 commit。
+| GAP-38／P09（Gmail 页面 parity，owner android-parity，open） | iPhone Gmail PR 新增原生页面。Android 仍显示示例卡片，因此页面结构检查多报两项：`connectors` 的「即将支持」和 `gmail-connector` 缺少 Android 页面。 | Android 独立 PR 接通 Gmail 后，在同一基线上验证从发现页进入、搜索、读正文和断开，并复跑页面结构检查。 |
 | GAP-39／P09（GitHub 页面 parity，owner android-parity，open） | GitHub 原生连接器先在 iPhone 接入，`git-hub-connector` 缺少 Android 页面。 | Android 跟进时从发现页验证连接、仓库列表和断开，再复跑页面结构检查。 |
 
 ## 8. 驗證矩陣：沿用現有工具

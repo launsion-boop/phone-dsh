@@ -2,6 +2,25 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>GIDClientID</key>
+	<string>$(PDSH_GMAIL_IOS_CLIENT_ID)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(PDSH_GMAIL_REDIRECT_SCHEME)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).github-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>phonedsh-github</string>
+			</array>
+		</dict>
+	</array>
     <key>UIFileSharingEnabled</key>
     <true/>
     <key>LSSupportsOpeningDocumentsInPlace</key>
@@ -17,7 +36,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Phone DSH</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -178,16 +197,6 @@
 	<!-- The broker redirects to this fixed custom scheme after GitHub
 	     authorization. ASWebAuthenticationSession intercepts it and the
 	     connector validates scheme, host, path and state before exchange. -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>$(PRODUCT_BUNDLE_IDENTIFIER).github-oauth</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>phonedsh-github</string>
-			</array>
-		</dict>
-	</array>
+
 </dict>
 </plist>
