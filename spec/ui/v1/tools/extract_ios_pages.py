@@ -31,7 +31,9 @@ text, not a Swift parser and not a guess. Three consequences, all deliberate:
 * a row whose visible label only exists as an expression
   (`displaySessionTitle(session)`) is emitted with `label: null`,
   `labelExpr: "..."` and `"extraction": "manual"` — the item is real, its wording
-  is not machine-derivable;
+  is not machine-derivable. The one exception is `Text(Type.member)` when the
+  repository has exactly one plain-literal `static let` for it: the literal is
+  recorded with its definition as `labelSource`;
 * `extraction.coverage` is `sectionsExtracted / Section keywords in the page
   struct`, and `extraction.warnings` records control flow the scanner will not
   flatten. A gap is visible instead of silent.
@@ -399,6 +401,164 @@ def first_label(source: Source, start: int, end: int) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# Static string constants used as row labels.
+# ---------------------------------------------------------------------------
+
+#: A type-like declaration that can own a `static let` (Swift extensions included).
+SWIFT_TYPE_DECL_RE = re.compile(r"\b(?:struct|enum|extension)[ \t]+([A-Za-z_]\w*)\b")
+SWIFT_STATIC_LET_RE = re.compile(r"\bstatic[ \t]+let[ \t]+([A-Za-z_]\w*)\b")
+#: A `Type.member` expression: a capitalised type name and a member identifier.
+SWIFT_STATIC_USE_RE = re.compile(r"([A-Z]\w*)\.([A-Za-z_]\w*)")
+
+#: One entry per `root`, plus the file fingerprint it was built from. The cache is
+#: refreshed when a source changes, so a test can mutate a literal and extract again.
+_SWIFT_STATIC_INDEX_CACHE: dict[str, tuple[tuple, dict]] = {}
+
+
+def _is_test_source(rel: Path) -> bool:
+    """Tests are not shipped strings: a definition there must never label a page."""
+    for part in rel.parts[:-1]:
+        lowered = part.lower()
+        if lowered in ("test", "tests") or lowered.endswith(("test", "tests")):
+            return True
+    name = rel.name.lower()
+    return name.endswith(("test.swift", "tests.swift"))
+
+
+def _swift_source_files(root: Path) -> list:
+    """`Sources/**` and `examples/probe-app/**` Swift files, tests excluded."""
+    files = []
+    for rel_base in (Path("Sources"), Path("examples") / "probe-app"):
+        base = root / rel_base
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*.swift")):
+            if _is_test_source(path.relative_to(root)):
+                continue
+            files.append(path)
+    return files
+
+
+def _swift_string_at(text: str, start: int):
+    """(raw_without_quotes, end) for the string literal at `start`, or None."""
+    triple = text.startswith('"""', start)
+    quote = '"""' if triple else '"'
+    j, n = start + len(quote), len(text)
+    while j < n:
+        if triple:
+            if text.startswith('"""', j):
+                return text[start + 3:j], j + 3
+            j += 1
+        elif text[j] == "\\":
+            j += 2
+        elif text[j] == '"':
+            return text[start + 1:j], j + 1
+        else:
+            j += 1
+    return None
+
+
+def _static_literal_value(source: Source, name_end: int, body_end: int):
+    """The literal assigned by `static let …`, or None when it is not one plain string.
+
+    A line break after `=` is allowed (`PCLinkClient.swift:127`). Everything the
+    label rule must not guess is rejected: interpolation, concatenation, a ternary,
+    `NSLocalizedString`/`NativeText`, a method call on the literal, and a type
+    annotation whose initializer spans more than the one literal.
+    """
+    masked, text = source.masked, source.text
+    line_end = masked.find("\n", name_end)
+    if line_end < 0:
+        line_end = len(text)
+    equals = masked.find("=", name_end, line_end)
+    if equals < 0:
+        return None
+    k = equals + 1
+    while k < body_end and text[k].isspace():
+        k += 1
+    if k >= body_end or text[k] != '"':
+        return None
+    parsed = _swift_string_at(text, k)
+    if parsed is None:
+        return None
+    raw, end = parsed
+    if "\\(" in raw:
+        return None
+    tail_end = masked.find("\n", end)
+    if tail_end < 0:
+        tail_end = len(masked)
+    tail = masked[end:tail_end].strip()
+    # A one-line declaration closes its type after the literal (`enum E { static
+    # let x = "…" }`); anything else on the line means the initializer continues.
+    if tail and any(char != "}" for char in tail):
+        return None
+    # A continuation on the next line (`+ "…"`, `.lowercased()`, `? …`) means the
+    # initializer is not the single literal the row label can be read from.
+    j = tail_end
+    while j < body_end and masked[j].isspace():
+        j += 1
+    if j < body_end and masked[j] in "+-*/?:.([,":
+        return None
+    return unescape(raw)
+
+
+def _swift_static_literal_index(root: Path) -> dict:
+    """`(Type, member) -> [definition]` over the repository's non-test Swift sources."""
+    files = _swift_source_files(root)
+    fingerprint = tuple((str(path), path.stat().st_mtime_ns, path.stat().st_size)
+                        for path in files)
+    cache_key = str(root)
+    cached = _SWIFT_STATIC_INDEX_CACHE.get(cache_key)
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
+    index: dict = {}
+    for path in files:
+        source = Source(path, root)
+        masked = source.masked
+        for decl in SWIFT_TYPE_DECL_RE.finditer(masked):
+            brace = masked.find("{", decl.end())
+            if brace < 0:
+                continue
+            body_end = match_delim(masked, brace)
+            if body_end < 0:
+                continue
+            for member in SWIFT_STATIC_LET_RE.finditer(masked, brace, body_end):
+                # Only the type's own members count: a static let inside a nested
+                # type or a getter belongs to that scope, not to `Type`.
+                depth = (masked.count("{", brace, member.start())
+                         - masked.count("}", brace, member.start()))
+                if depth != 1:
+                    continue
+                value = _static_literal_value(source, member.end(), body_end)
+                if value is None:
+                    continue
+                index.setdefault((decl.group(1), member.group(1)), []).append({
+                    "value": value,
+                    "provenance": f"{path.name}:{source.line_of(member.start())}",
+                })
+    _SWIFT_STATIC_INDEX_CACHE[cache_key] = (fingerprint, index)
+    return index
+
+
+def swift_static_literal(root: Path, expression: str):
+    """(label, definition provenance) for a `Text(Type.member)` static string.
+
+    Exactly one plain-literal definition may exist; an ambiguous type (the same
+    type/member declared twice), a non-literal initializer or a definition that
+    only exists in a test file stays unresolved. The caller keeps the use site as
+    the row's `provenance` and records this definition as `labelSource`.
+    """
+    match = SWIFT_STATIC_USE_RE.fullmatch(re.sub(r"\s+", " ", expression).strip())
+    if not match:
+        return None
+    definitions = _swift_static_literal_index(root).get((match.group(1), match.group(2)), [])
+    if len(definitions) != 1:
+        return None
+    definition = definitions[0]
+    return definition["value"], definition["provenance"]
+
+
+# ---------------------------------------------------------------------------
 # Page struct, members and what `body` actually renders.
 # ---------------------------------------------------------------------------
 
@@ -733,6 +893,7 @@ def slug(text: str) -> str:
 
 def row_of(source: Source, pos: int, label, label_pos, kind: str, **extra) -> dict:
     prov, anchor = source.provenance(label_pos if label_pos is not None else pos)
+    label_source = extra.pop("label_source", None)
     label, dynamic = normalise_label(label) if label else (label, False)
     if dynamic:
         extra.setdefault("dynamicLabel", True)
@@ -753,6 +914,8 @@ def row_of(source: Source, pos: int, label, label_pos, kind: str, **extra) -> di
         "extraction": extra.pop("extraction", "syntax" if label else "manual"),
     }
     row.update(extra)
+    if label_source:
+        row["labelSource"] = label_source
     return row
 
 
@@ -1570,11 +1733,16 @@ class PageExtractor:
                         break
         if callee in ("Text", "Label"):
             expr = None
+            label_source = None
             if label is None:
                 span = call["positional"][0] if call["positional"] else (call["args_start"], call["args_end"])
                 expr = source.statement_lines(*span)
+                resolved = swift_static_literal(source.root, expr)
+                if resolved:
+                    label, label_source = resolved
+                    expr = None
             return [row_of(source, label_pos if label_pos is not None else start, label, label_pos, "text",
-                           label_expr=expr)]
+                           label_expr=expr, label_source=label_source)]
         if callee == "LabeledContent":
             value_expr = source.statement_lines(*call["named"]["value"]) if "value" in call["named"] else None
             rows = [row_of(source, label_pos if label_pos is not None else start, label, label_pos, "info",

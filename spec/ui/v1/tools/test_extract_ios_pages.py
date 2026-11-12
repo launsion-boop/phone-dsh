@@ -632,6 +632,145 @@ class UntitledCriterionTest(unittest.TestCase):
         self.assertEqual("DemoPage.swift:11", criterion["provenance"])
 
 
+STATIC_COPY_PAGE = """\
+import SwiftUI
+
+struct DemoPage: View {
+    var body: some View {
+        List {
+            Section { Text(StructCopy.row) }
+            Section { Text(EnumCopy.row) }
+            Section { Text(ExtendedCopy.row) }
+        }
+    }
+}
+"""
+
+
+class StaticSwiftLiteralCriteriaTests(unittest.TestCase):
+    """`Text(Type.member)` becomes a row label only for one plain Swift literal.
+
+    The pages use shared copy (`PCLinkPairingPrompt.fullOwnerWarning`,
+    `PCLinkWorkspaceText.pairingInterrupted`). Reading the definition is safe only
+    when the repository has exactly one plain-literal `static let` for the member:
+    an interpolation, concatenation, ternary, localization call, duplicate type or
+    a definition in a test file must stay `first-row-expression`.
+    """
+
+    def _extract(self, swift: str, files: dict) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            page_path = root / "examples/probe-app/PhoneDSHProbe/DemoPage.swift"
+            page_path.parent.mkdir(parents=True)
+            page_path.write_text(swift, encoding="utf-8")
+            for rel, text in files.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            source = E.Source(page_path, root)
+            return E.PageExtractor(source, "DemoPage").run(E.page_structs(source))
+
+    def _unresolved(self, use: str, files: dict) -> None:
+        page = self._extract(
+            f"""import SwiftUI
+
+struct DemoPage: View {{
+    var body: some View {{
+        List {{
+            Section {{ Text({use}) }}
+        }}
+    }}
+}}
+""",
+            files,
+        )
+        criterion = page["sections"][0]["criterion"]
+        self.assertEqual("first-row-expression", criterion["kind"], criterion)
+        self.assertEqual(use, criterion["labelExpr"])
+        row = page["sections"][0]["rows"][0]
+        self.assertIsNone(row["label"])
+        self.assertEqual(use, row["labelExpr"])
+        self.assertNotIn("labelSource", row)
+
+    def test_struct_enum_and_extension_literals_resolve_with_both_provenances(self) -> None:
+        page = self._extract(STATIC_COPY_PAGE, {
+            "Sources/App/StructCopy.swift": """\
+struct StructCopy {
+    static let row =
+        "结构体行"
+}
+""",
+            "examples/probe-app/ProbeKit/EnumCopy.swift":
+                'enum EnumCopy { static let row = "枚举行" }\n',
+            "Sources/App/ExtendedCopy.swift": """\
+struct ExtendedCopy {}
+extension ExtendedCopy {
+    static let row =
+        "扩展行"
+}
+""",
+        })
+        sections = page["sections"]
+        self.assertEqual(["first-row"] * 3, [s["criterion"]["kind"] for s in sections])
+        self.assertEqual(["结构体行", "枚举行", "扩展行"],
+                         [s["criterion"]["label"] for s in sections])
+        rows = [s["rows"][0] for s in sections]
+        self.assertEqual(["StructCopy.swift:2", "EnumCopy.swift:1", "ExtendedCopy.swift:3"],
+                         [r["labelSource"] for r in rows])
+        # The row's own provenance stays the use site; the definition is extra.
+        self.assertEqual(["DemoPage.swift:6", "DemoPage.swift:7", "DemoPage.swift:8"],
+                         [r["provenance"] for r in rows])
+        self.assertTrue(all(r["labelExpr"] is None for r in rows))
+        self.assertTrue(all(r["extraction"] == "syntax" for r in rows))
+
+    def test_interpolated_initializer_stays_unresolved(self) -> None:
+        self._unresolved("InterpolatedCopy.row", {
+            "Sources/App/InterpolatedCopy.swift":
+                'struct InterpolatedCopy { static let row = "值\\(count)" }\n',
+        })
+
+    def test_concatenated_initializer_stays_unresolved(self) -> None:
+        self._unresolved("ConcatenatedCopy.row", {
+            "Sources/App/ConcatenatedCopy.swift":
+                'struct ConcatenatedCopy { static let row = "值" + "后缀" }\n',
+        })
+
+    def test_ternary_initializer_stays_unresolved(self) -> None:
+        self._unresolved("TernaryCopy.row", {
+            "Sources/App/TernaryCopy.swift":
+                'struct TernaryCopy { static let row = flag ? "甲" : "乙" }\n',
+        })
+
+    def test_localized_initializer_stays_unresolved(self) -> None:
+        self._unresolved("LocalizedCopy.row", {
+            "Sources/App/LocalizedCopy.swift":
+                'struct LocalizedCopy { static let row = NSLocalizedString("row", comment: "") }\n',
+        })
+
+    def test_definition_only_in_a_test_file_stays_unresolved(self) -> None:
+        self._unresolved("TestCopy.row", {
+            "examples/probe-app/PhoneDSHSimTests/TestCopy.swift":
+                'struct TestCopy { static let row = "只存在于测试" }\n',
+        })
+
+    def test_two_definitions_of_the_same_member_stay_unresolved(self) -> None:
+        self._unresolved("AmbiguousCopy.row", {
+            "Sources/App/AmbiguousA.swift":
+                'struct AmbiguousCopy { static let row = "甲" }\n',
+            "Sources/App/AmbiguousB.swift":
+                'enum AmbiguousCopy { static let row = "乙" }\n',
+        })
+
+    def test_two_definitions_of_one_member_in_extensions_stay_unresolved(self) -> None:
+        self._unresolved("DuplicateCopy.row", {
+            "Sources/App/DuplicateCopy.swift": """\
+struct DuplicateCopy {}
+extension DuplicateCopy { static let row = "甲" }
+extension DuplicateCopy { static let row = "乙" }
+""",
+        })
+
+
 DYNAMIC_SECTION_HEADER = """\
 import SwiftUI
 
