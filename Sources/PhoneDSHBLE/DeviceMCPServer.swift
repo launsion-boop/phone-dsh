@@ -153,7 +153,11 @@ public actor DeviceMCPServer: NativeMCPServing {
                     outcome = try await queryLinkTool(deviceID: deviceID, requestID: requestID, origin: .agent,
                                                       store: deviceStore, journal: linkJournal)
                 } catch is LinkBusy {
-                    throw BLEFailure("Invalid result query or Link busy")
+                    // Two pre-existing busy layers keep their own texts: the MCP-level
+                    // `activeLinkID` guard above is "Invalid result query or Link busy";
+                    // a store-held Link (panel / device task) has always surfaced
+                    // `BLEDeviceStore.queryLink`'s "Link is busy" verbatim. Do not unify them.
+                    throw BLEFailure("Link is busy")
                 }
                 switch outcome {
                 case .completed(_, let reply):
