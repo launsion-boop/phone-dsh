@@ -105,6 +105,11 @@ reports `serverInfo` `{"name":"phone-dsh-devices","version":"1.1.0"}` with the s
 capabilities; clients must not key behaviour on `serverInfo`. Device tasks and identity proof are not
 exposed here (see [task delegation](../device/v1/task-delegation.md), `target`).
 
+The [device panel](../device/v1/device-panel.md) (`target`) is a second caller of the same Link tools from native
+UI. It adds no tool, argument or result to this endpoint and does not change the catalog above. Panel calls and
+`ble_link_call` share one admission point per device ([BLE Link](../device/v1/ble-link.md) "Link 调用准入", `target`);
+panel calls are not reported to the agent.
+
 ## iPhone agent tool (implemented on iOS)
 
 The same endpoint may additionally list `iphone_agent_run`, after the BLE tools. It is

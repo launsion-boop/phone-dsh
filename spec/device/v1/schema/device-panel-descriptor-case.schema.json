@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Device panel descriptor evaluation case (device-panel.md §4.2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "device_id", "tools", "descriptor", "result"],
+  "properties": {
+    "name": {"type": "string", "pattern": "[a-z0-9_]+"},
+    "device_id": {"type": "string", "minLength": 1},
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "inputSchema"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "inputSchema": {}
+        }
+      }
+    },
+    "descriptor": {"type": "string"},
+    "result": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "too_large",
+        "invalid_json",
+        "duplicate_key",
+        "schema",
+        "unsupported_version",
+        "device_mismatch",
+        "tool_not_advertised",
+        "tool_not_supported",
+        "preset_invalid"
+      ]
+    }
+  }
+}
