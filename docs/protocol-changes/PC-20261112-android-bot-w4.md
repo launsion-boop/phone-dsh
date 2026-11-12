@@ -132,3 +132,29 @@ The round-1 text failed the turn on any non-snapshot first `follow` item; `waitF
 | K4 | BotFish trajectory and renderer; 36 asset files packaged into the AAR at build time |
 
 Not verified: device runs, the Bot tab's `:app` runtime driver wiring, iOS XCTest conformance for app-target UI code.
+
+### Round-2 implementation result (integration branch `feat/android-bot-w4`)
+
+| Lane | Result |
+| --- | --- |
+| K4b | `BotFishRenderer` is a line-for-line port of the iOS drawing routines: `BotFishFacePainter` (eyes/lids, the mouth Bézier, tears, fins, all 13 decorations, masked brows, blush), the iOS base/face/slice pipeline, the iOS layer and mouth-cel cache keys, the face-signature buckets and the FISH-1 quantum. The Swift brow mask/crop quirk is reproduced on purpose (`fish.md` §1: the Swift code wins over prose; §7.4 is renderer detail). `BotFishRasterFramesTest` renders 36 native-Robolectric frames for both profiles × crown states. |
+| K5a | Bot chat page (cards, work cards, activity line, tags, metrics), `BotChatDriver` + `BotChatModel`, and the Bot tab: `HomeTab.BOT` appears only when the host supplies a driver; the tab root keeps the shared chat-surface route value and the selected tab decides DSH chat vs Bot chat. |
+| K5b | Bot drawer (roster order, status/unread, rename/add validation, last-Bot guard, the shared botRow menu), the Bot info pages (root, approvals, memory, routines, grants and their formatters) and the appearance picker (4 hairstyles × 15 colours with the live fish preview). The drawer's rows are tappable (the rounded shadow clip is gone) and the two editable cards are in-page overlays instead of platform `Dialog`s, which Robolectric never idles with a focused `BasicTextField`. |
+| K5c | `BotPageLayer` connects the chat page's drawer/info gestures to the K5b surfaces, routes the drawer's Appearance action to the picker, forwards the drawer/info/appearance intents to the host and resets on tab/driver loss; a host-supplied `onOpenBot*` still wins. |
+
+Acceptance on the integration branch (2026-11-12):
+
+```
+bash android/tools/with-android-toolchain.sh ./gradlew :lib:testDebugUnitTest --no-daemon      # 1608 tests, 0 failures (36 in bot.page)
+bash android/tools/with-android-toolchain.sh ./gradlew test testDebugUnitTest --continue        # all modules
+bash android/tools/with-rust-toolchain.sh cargo build --locked --manifest-path shell/Cargo.toml -p pdsh-jni
+bash scripts/ci/check.sh --only phone-spec,phone-cross-tree,phone-p0-conformance,phone-android-structure,phone-license
+python3 spec/ui/v1/tools/page_structure_check.py --root . --baseline spec/ui/v1/pages/_baseline.json   # ok (5 known, 0 new)
+python3 spec/ui/v1/bot/tools/check_bot_ui.py        # ok (468 checks/records)
+python3 spec/ui/v1/bot/fish/tools/check_fish.py     # OK (97 cases, 954 frames)
+python3 spec/bot/v1/tools/validate_vectors.py       # PASS (and v2)
+python3 spec/tools/bot/check_golden.py              # PASS
+```
+
+Not green in this environment, and independent of this round's diff (which touches no Swift file): `swift test` fails in the BLE cross-runtime suites (the ESP-IDF `cjson` component and `PDSH_MBEDTLS_SRC` are not resolved in this checkout), `BigFileBudgetTests` exceeds its 6.2 s recovery budget on a loaded machine, `ProbeScenePhaseWiringTests` asserts that `onChange(of: scenePhase)` lives only in app entries while `PCPairingPage.swift` (the PCLink lane) adds one, and `RoutineSchedulerTests` aborts with the Xcode 26.2 async-teardown runtime error documented in `RoutineDurabilityTests.swift`. Also not verified: device/emulator rendering (Robolectric only), `:app:assembleDebug`, and the `:app` Bot runtime driver wiring — `:app` supplies no `BotChatDriver`, so its bottom bar keeps the three pre-Bot tabs.
+
