@@ -139,7 +139,7 @@ android/
 └── tools/                     # bootstrap + structure_check.py + test-count.sh + unittest
 ```
 
-## Swift 模块 → Kotlin 包 → Gradle 模块（17/17）
+## Swift 模块 → Kotlin 包 → Gradle 模块（18/18）
 
 | Swift 模块（`Sources/`） | Kotlin 包 | Gradle 模块 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -152,6 +152,7 @@ android/
 | PhoneDSHController | `com.phonedsh.controller` | `:controller` | mapped | 包与模块结构对应，不表示 API 或行为完全一致 |
 | PhoneDSHEngine | `com.phonedsh.engine` | `:engine` | mapped | 包与模块结构对应；包含 WebView / EngineHost |
 | PhoneDSHShell | `com.phonedsh.shell` | `:shell` | mapped | 包与模块结构对应；包含 JNI 绑定 |
+| PhoneDSHStandardError | — | — | absent | Swift-only 的 POSIX stderr 写入器（忽略 EPIPE、不触发 SIGABRT）；Android 端没有对应 Kotlin 模块，错診断输出走 logcat/系统 stderr |
 | PhoneDSHVenus | — | — | absent | Android 无 Kotlin 实现；路线图第 4 波计划移植 UI-Venus（TonoLink 语音在第 3 波） |
 | PhoneDSH | `com.phonedsh.dsh` | `:dsh` | mapped | DSH 实现在子包；根包仅为 marker，不能据此声称门面完成 |
 | PhoneDSHScenario | `com.phonedsh.testkit.scenario` | `:testkit` | mapped | 合并进 `:testkit` |

@@ -104,6 +104,12 @@
       "status": "mapped"
     },
     {
+      "swift": "PhoneDSHStandardError",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
+    },
+    {
       "swift": "PhoneDSHVenus",
       "kotlin": null,
       "gradle": null,
