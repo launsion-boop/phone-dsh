@@ -1841,7 +1841,7 @@ struct BotPresenceSection: View {
             LabeledContent("当前级别", value: model.presence.level.displayName)
                 .accessibilityIdentifier("bot.info.presence.level")
             if let bridgeStatus = model.bridgeStatus {
-                LabeledContent("桥状态", value: bridgeStatus)
+                LabeledContent("连接状态", value: bridgeStatus)
                     .accessibilityIdentifier("bot.info.presence.bridge")
             }
             // The count is host authority, not a level decoration: a foreground

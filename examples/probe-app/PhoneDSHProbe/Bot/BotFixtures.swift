@@ -114,7 +114,7 @@ enum BotUIFixtures {
                 "content": .array([
                     .object([
                         "type": .string("text"),
-                        "text": .string("probe-15 没有跑成，两次都卡在同一个 identity-bridge unauthorized 错误，没有输出可报。"),
+                        "text": .string("probe-15 没有跑成：两次都没有连上 App，没有输出可报。"),
                     ]),
                 ]),
             ]),
@@ -136,7 +136,7 @@ enum BotUIFixtures {
                                  text: "用 bash 执行 echo probe-15，只回结果")
         user.body.values["turn"] = .number(1)
         var answer = BotUIRow.text(id: "unauthorized-answer", seq: 7, role: "assistant",
-                                   text: "probe-15 没有跑成，两次都卡在同一个 identity-bridge unauthorized 错误，没有输出可报。")
+                                   text: "probe-15 没有跑成：两次都没有连上 App，没有输出可报。")
         answer.body.values["turn"] = .number(1)
         return [user, answer]
     }
@@ -540,9 +540,9 @@ enum BotUIFixtures {
                     "state": .string(index < 2 ? "done" : index == 2 ? "active" : "pending"),
                 ])
             }),
-        ]), seq: 5)
+        ]), seq: 3)
         let longAnswer = BotUIRow.text(
-            id: "interactive-long", seq: 6, role: "assistant",
+            id: "interactive-long", seq: 4, role: "assistant",
             text: """
             密集卡片已经就位。
 
@@ -551,16 +551,6 @@ enum BotUIFixtures {
             - 第三段：审批卡、检查清单和问题卡都必须保持可点击。
 
             """ + String(repeating: "补充说明：键盘打开时主线程不能反复测量同一批卡片。\n\n", count: 5))
-        let approval = cardRow("interactive-approval", body: BotUIBody(type: "approval", values: [
-            "title": .string("允许执行这个操作吗？"),
-            "action": .string("写入验收记录"),
-            "command": .string("printf 'layout-ok' > /tmp/phone-dsh-layout-ok.txt"),
-            "detail": .string("这次操作只写入模拟器的工作区。"),
-            "status": .string("pending"),
-            "approvalID": .string("approval-interactive-1"),
-            "digest": .string("digest-interactive-1"),
-            "alwaysScope": .string("session"),
-        ]), seq: 3)
         let checklist = cardRow("interactive-checklist", body: widget("checklist", [
             "title": .string("提交前检查"),
             "summary": .string("勾选后一起发回给 Bot。"),
@@ -572,7 +562,7 @@ enum BotUIFixtures {
                     "done": .bool(false),
                 ])
             }),
-        ]), seq: 4)
+        ]), seq: 2)
         let question = cardRow("interactive-question", body: widget("question", [
             "question": .string("要选 A 还是 B？"),
             "helpText": .string("选好后输入框仍然可用。"),
@@ -580,15 +570,31 @@ enum BotUIFixtures {
                 .object(["id": .string("o0"), "label": .string("A"), "recommended": .bool(true)]),
                 .object(["id": .string("o1"), "label": .string("B")]),
             ]),
-        ]), seq: 2)
+        ]), seq: 5)
         let user = BotUIRow.text(
             id: "interactive-user", seq: 1, role: "user",
             text: "键盘保持打开：先出问题卡和审批卡，下面再放检查清单、进度卡和长文本。")
-        // Question and approval come first so the interaction test can tap
-        // them while the keyboard is up without first scrolling; the dense
-        // progress/long-text/checklist history stays below, where it still
-        // exercises the lazy stack's measurement on every viewport change.
-        return [user, question, approval, checklist, progress, longAnswer]
+        // The dense history stays above the newest question card. That makes
+        // the launch scroll land on the card's action area (A/B options) while
+        // the keyboard is up. The approval card is emitted by the driver only
+        // after the answer, so the "a new card must become tappable above the
+        // keyboard" behavior is exercised instead of pre-seeding it.
+        return [user, checklist, progress, longAnswer, question]
+    }
+
+    /// The approval card the keyboard fixture's driver delivers after the
+    /// question is answered. Its seq is newer than every seeded row.
+    static func interactiveApprovalRow() -> BotUIRow {
+        cardRow("interactive-approval", body: BotUIBody(type: "approval", values: [
+            "title": .string("允许执行这个操作吗？"),
+            "action": .string("写入验收记录"),
+            "command": .string("printf 'layout-ok' > /tmp/phone-dsh-layout-ok.txt"),
+            "detail": .string("这次操作只写入模拟器的工作区。"),
+            "status": .string("pending"),
+            "approvalID": .string("approval-interactive-1"),
+            "digest": .string("digest-interactive-1"),
+            "alwaysScope": .string("session"),
+        ]), seq: 6)
     }
 
     /// The same-cardKey progress updates for ``interactiveCardsRows``. The ids
@@ -641,6 +647,54 @@ enum BotUIFixtures {
     /// durable presentation, exactly like `BotProductionPage`'s watch loop.
     /// This is what kept re-rendering the dense transcript while a turn waited
     /// for the user's choice.
+    /// Mirrors the production sequence for the keyboard interaction fixture:
+    /// answering the question starts the next step, and an approval card is
+    /// appended while the keyboard stays up. The watch loop must bring that
+    /// new card's buttons above the keyboard without a manual scroll.
+    static func keyboardInteractionDriver() -> BotChatDriver {
+        let state = KeyboardInteractionState()
+        return BotChatDriver(
+            history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
+            watch: { cursor in state.batch(cursor: cursor) },
+            perform: { action in
+                if case .cardAnswer = action { state.answer() }
+                return .accepted(eventID: "evt-fixture-action")
+            },
+            stopCurrentTurn: { _ in },
+            presentation: {
+                BotRuntimePresentation(
+                    fishState: .working,
+                    runningTurnID: "fixture-turn",
+                    activity: BotActivity(status: .toolRunning,
+                                          detail: "核对键盘打开时的卡片布局"))
+            })
+    }
+
+    /// Serial state shared by the fixture driver's `watch`/`perform` closures.
+    final class KeyboardInteractionState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var answered = false
+        private var delivered = false
+
+        func answer() {
+            lock.lock()
+            answered = true
+            lock.unlock()
+        }
+
+        func batch(cursor: Int) -> BotUIRowBatch {
+            lock.lock()
+            let deliver = answered && !delivered
+            if deliver { delivered = true }
+            lock.unlock()
+            guard deliver else {
+                return BotUIRowBatch(rows: [], deletes: [], cursor: cursor, reset: false)
+            }
+            return BotUIRowBatch(rows: [BotUIFixtures.interactiveApprovalRow()],
+                                 deletes: [], cursor: cursor + 1, reset: false)
+        }
+    }
+
     static func keyboardPollingDriver() -> BotChatDriver {
         BotChatDriver(
             history: { _, _ in BotUIHistoryPage(rows: [], nextCursor: nil, hasMore: false) },
@@ -702,7 +756,15 @@ enum BotUIFixtures {
             // the read-only bridge line after a rejected identity registration.
             // Use the same human shape the production adapter builds.
             var snapshot = infoSnapshot(for: .info)
-            snapshot.bridgeStatus = "最近一次身份登记失败：unauthorized · 11月11日 22:44"
+            var components = DateComponents()
+            components.year = 2026
+            components.month = 11
+            components.day = 11
+            components.hour = 22
+            components.minute = 44
+            let bridgeDate = Calendar.current.date(from: components) ?? Date()
+            snapshot.bridgeStatus = BotUIFormat.bridgeFailure(
+                atMilliseconds: Int64(bridgeDate.timeIntervalSince1970 * 1_000))
             return snapshot
         }
         if fixture == .infoLong {
@@ -955,7 +1017,7 @@ struct BotUIFixtureRootView: View {
             chat = BotChatModel(
                 rows: BotUIFixtures.interactiveCardsRows(),
                 context: .fixture,
-                driver: BotUIFixtures.keyboardPollingDriver(),
+                driver: BotUIFixtures.keyboardInteractionDriver(),
                 fixtureActions: true)
         } else if fixture == .chatLayoutTyping {
             self.playback = nil
@@ -1188,6 +1250,10 @@ struct BotUIFixtureRootView: View {
                 // Keep the production 800ms durable watch alive while the
                 // keyboard is up (pageActive defaults true for the fixture).
                 Task { await chatModel.watchLoop() }
+                // The field order: the turn's text arrives before its card and
+                // is mounted after the durable rows. Scrolling to the live tail
+                // would cover the question card; the page must target the card.
+                chatModel.receive(.textDelta(String(repeating: "这段是审批卡之前的回复，滚动到下面会挡住卡片的按钮。\n", count: 10)))
             }
             if fixture == .chatLayoutTyping {
                 // The production watch keeps running (equal presentations are
@@ -1598,7 +1664,11 @@ enum BotUIFixtureChecks {
         // The keyboard regression fixture must actually carry the four
         // interactive/dense card kinds; an unparseable card would silently
         // change what the XCUITest is exercising.
+        // The interaction fixture seeds the dense rows and the driver emits the
+        // approval card after the question is answered; both sides together
+        // must carry every card kind the XCUITest exercises.
         let keyboardRows = BotUIFixtures.rows(for: .chatLayoutKeyboard)
+            + [BotUIFixtures.interactiveApprovalRow()]
         let keyboardKinds = Set(keyboardRows.compactMap { BotUICardContent.parse(row: $0)?.kind })
         try require(keyboardKinds.isSuperset(of: [.progress, .approval, .checklist, .question]),
                     "keyboard fixture lost a card kind: \(keyboardKinds)")
@@ -1997,6 +2067,36 @@ enum BotUIFixtureChecks {
             try require(!BotUIRendering.isRenderable(row), "incomplete P0 \(name) rendered")
         }
         passed.append("fail-closed-every-P0")
+
+        // P09 bot-info §在场状态: the presence line is human copy with a time;
+        // the internal code (and the old "身份登记" wording) never reach it.
+        let bridgeCopy = BotUIFormat.bridgeFailure(atMilliseconds: 1_764_000_000_000)
+        try require(bridgeCopy.hasPrefix("最近一次与 App 的连接校验失败 · "),
+                    "presence bridge copy is not the contract shape: \(bridgeCopy)")
+        for internalWord in ["unauthorized", "identity-bridge", "身份登记", "unknown_session"] {
+            try require(!bridgeCopy.localizedCaseInsensitiveContains(internalWord),
+                        "presence bridge copy leaks \(internalWord): \(bridgeCopy)")
+        }
+        passed.append("presence-bridge-human-copy")
+
+        // A durable `approval.requested` row with its id/digest is a card that
+        // must be visible while it waits: the field failure showed the event in
+        // the DB with no card on screen. Lock the pending predicate; the scroll
+        // chain that brings it above the keyboard is covered by the capture
+        // interaction test.
+        let pendingApproval = BotUIRow.fixture(
+            id: "e-main-approval-check",
+            body: BotUIBody(type: "approval", values: [
+                "approvalID": .string("approval-check"),
+                "digest": .string("digest-check"),
+                "status": .string("pending"),
+                "action": .string("写入验收记录"),
+            ]))
+        try require(BotUIRendering.isRenderable(pendingApproval),
+                    "a pending approval with id/digest/action is not renderable")
+        try require(BotUIRendering.surface(pendingApproval) == "approval-card",
+                    "pending approval surface is not approval-card")
+        passed.append("pending-approval-visible")
         return passed
     }
 

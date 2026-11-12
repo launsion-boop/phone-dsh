@@ -272,14 +272,28 @@ struct BotChatPage: View {
             }
             .coordinateSpace(name: "bot-transcript")
             .scrollDismissesKeyboard(.interactively)
-            .modifier(BotTranscriptViewportReader(metrics: scrollMetrics))
+            .modifier(BotTranscriptViewportReader(metrics: scrollMetrics) { height in
+                // The keyboard is the dominant viewport change: it does not
+                // alter the composer dock's own height, so the dock trigger
+                // alone left the newest card under the keyboard. Follow the
+                // tail when the visible transcript grows or shrinks.
+                guard height > 0 else { return }
+                followNewestContent(proxy: proxy)
+            })
             .modifier(BotTranscriptScrollPhaseObserver { phase in
                 switch phase {
                 case .userDriven:
                     userScrolling = true
                 case .settled:
+                    // `onScrollPhaseChange` reports `.idle` for programmatic
+                    // `scrollTo` too. Treating that as a user scroll away from
+                    // the tail turned following off after the page's own
+                    // scroll (e.g. to a question card), so the *next* card —
+                    // the approval card — was never brought above the
+                    // keyboard. Only a real gesture may move the flag.
+                    let wasUserDriven = userScrolling
                     userScrolling = false
-                    updateFollowsTail(userDriven: true)
+                    if wasUserDriven { updateFollowsTail(userDriven: true) }
                 case .other:
                     break
                 }
@@ -291,34 +305,29 @@ struct BotChatPage: View {
             }
             .onChange(of: model.visibleRows.last?.id) { _, last in
                 guard !preservingHistoryPosition, model.scrollRequestID == nil,
-                      let last else { return }
-                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable(last), anchor: .bottom)
+                      last != nil else { return }
+                followNewestContent(proxy: proxy)
             }
             .onChange(of: liveScrollKey) { _, key in
                 guard key != nil else { return }
-                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-live-tail"),
-                                         anchor: .bottom)
+                followNewestContent(proxy: proxy)
             }
             .onChange(of: model.streamingText) { _, value in
                 guard let value, !value.isEmpty else { return }
-                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-live-stream"),
-                                         anchor: .bottom)
+                followNewestContent(proxy: proxy)
             }
             // #126's extra keep-the-newest-row triggers. They keep main's
             // product behavior (line appears, dock grows, send echoes) but use
             // the same tail guard and 120ms coalescing as the streaming path,
             // so a keyboard-only resize cannot restart the layout loop.
             .onChange(of: model.showsActivityLine) { _, _ in
-                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
-                                         anchor: .bottom)
+                followNewestContent(proxy: proxy)
             }
-            .onChange(of: composerDockHeight) { _, _ in
-                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
-                                         anchor: .bottom)
+            .onChange(of: composerDockHeight, initial: true) { _, _ in
+                followNewestContent(proxy: proxy)
             }
             .onChange(of: sendScrollTick) { _, _ in
-                scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
-                                         anchor: .bottom)
+                followNewestContent(proxy: proxy)
             }
             .onChange(of: model.scrollRequestID) { _, rowID in
                 guard let rowID else { return }
@@ -448,6 +457,20 @@ struct BotChatPage: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("bot.history.local")
+    }
+
+    /// Bring the newest *actionable* row (a pending approval or a question
+    /// card) above the keyboard. The same turn's streamed text is mounted after
+    /// the durable rows, so a plain tail scroll would cover the card with text
+    /// that arrived before it. Only when there is no such card does the tail
+    /// win.
+    private func followNewestContent(proxy: ScrollViewProxy) {
+        if let card = model.newestActionableCard {
+            scheduleTranscriptScroll(proxy: proxy, to: AnyHashable(card.id), anchor: .bottom)
+        } else {
+            scheduleTranscriptScroll(proxy: proxy, to: AnyHashable("bot-transcript-tail"),
+                                     anchor: .bottom)
+        }
     }
 
     /// Coalesce live-height changes into at most one scroll per UI turn, and
@@ -1311,15 +1334,18 @@ private struct BotTranscriptTailPreference: PreferenceKey {
 
 /// Reads the scroll viewport height without wrapping the transcript in a
 /// `GeometryReader`. The action runs after a real size change (keyboard,
-/// composer growth, rotation) and only updates the plain metrics box.
+/// composer growth, rotation), updates the plain metrics box and lets the page
+/// follow the newest content with the new viewport.
 private struct BotTranscriptViewportReader: ViewModifier {
     let metrics: BotTranscriptScrollMetrics
+    var onChange: (CGFloat) -> Void = { _ in }
 
     func body(content: Content) -> some View {
         content.onGeometryChange(for: CGFloat.self, of: { proxy in
             proxy.size.height
         }) { height in
             metrics.viewportHeight = height
+            onChange(height)
         }
     }
 }

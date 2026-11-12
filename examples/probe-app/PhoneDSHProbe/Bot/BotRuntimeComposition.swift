@@ -501,6 +501,7 @@ final class BotRuntimeComposition {
             botID: botID, displayName: profile.name,
             recordService: recordService,
             isMainBot: { [mainBotPointer] in mainBotPointer.isMain(botID) },
+            workspaceRoot: workspaceRoot,
             now: schedulerNow, sleep: schedulerSleep)
         units[botID] = unit
         let eraser = BotSessionEpochEraser(

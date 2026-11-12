@@ -79,6 +79,7 @@ final class BotRuntimeUnit {
                      displayName: String,
                      recordService: BotRecordService? = nil,
                      isMainBot: @escaping @Sendable () -> Bool = { true },
+                     workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
                      now: (@Sendable () -> Int64)? = nil,
                      sleep: RoutineScheduler.Sleeper? = nil) async throws -> BotRuntimeUnit {
         let memory = await runtime.memory(for: botID)
@@ -87,6 +88,7 @@ final class BotRuntimeUnit {
         let environment = BotProductionEnvironment(
             domain: store, botID: botID, sessionID: botID,
             routineMachine: machine, memory: memory, grants: grants,
+            workspaceRoot: workspaceRoot,
             fallbackName: displayName)
         let inbox = WakeInbox(store: SQLiteWakeInboxStore(domainStore: store, botId: botID))
         let remote = try await BotDSHRemoteRuntime(

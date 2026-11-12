@@ -100,6 +100,11 @@ actor BotProductionEnvironment {
     let routineMachine: RoutineMachine
     let memory: BotMemory
     let grants: BotGrantStore
+    /// The workspace root this runtime actually uses. The session-log locator
+    /// must scan this tree, never the process-global App Documents default:
+    /// the BotE2E composition injects a temporary root and a global scan would
+    /// silently miss every log written there.
+    let workspaceRoot: URL
     let runtimeContext: BotProductionRuntimeContext
     private var planner: any BotUserActionPlanning
     private var turnStopping: (any BotProductionTurnStopping)?
@@ -111,10 +116,12 @@ actor BotProductionEnvironment {
          planner: (any BotUserActionPlanning)? = nil,
          turnStopping: (any BotProductionTurnStopping)? = nil,
          sessionLogURL: URL? = nil,
+         workspaceRoot: URL = BotProductionPaths.workspaceRoot(),
          fallbackName: String = "大肥鱼") {
         self.botID = botID
         self.sessionID = sessionID
         self.sessionLogURL = sessionLogURL
+        self.workspaceRoot = workspaceRoot
         self.domain = domain
         self.routineMachine = routineMachine
         self.memory = memory
@@ -129,7 +136,8 @@ actor BotProductionEnvironment {
             throw BotProductionError.invalidService("Bot 主会话 ID 不能为空")
         }
         sessionID = composition.sessionID
-        sessionLogURL = BotSessionLogLocator.latestFile(sessionID: composition.sessionID)
+        sessionLogURL = BotSessionLogLocator.latestFile(
+            sessionID: composition.sessionID, workspaceRoot: workspaceRoot)
         planner = composition.planner
         turnStopping = composition.turnStopping
     }
@@ -148,7 +156,8 @@ actor BotProductionEnvironment {
     /// service still re-validates the cached URL on every rebuild.
     func updateSessionID(_ sessionID: String) {
         self.sessionID = sessionID
-        sessionLogURL = BotSessionLogLocator.latestFile(sessionID: sessionID)
+        sessionLogURL = BotSessionLogLocator.latestFile(
+            sessionID: sessionID, workspaceRoot: workspaceRoot)
     }
 
     /// One read of the current epoch and its log. A cached URL that belongs to
@@ -157,7 +166,7 @@ actor BotProductionEnvironment {
     func sessionSnapshot() -> (sessionID: String, logURL: URL?) {
         (sessionID, BotSessionLogSelection.logURL(
             sessionID: sessionID, explicit: sessionLogURL,
-            latest: BotSessionLogLocator.latestFile))
+            latest: { BotSessionLogLocator.latestFile(sessionID: $0, workspaceRoot: workspaceRoot) }))
     }
 
     func currentPlanner() -> any BotUserActionPlanning { planner }
@@ -203,8 +212,11 @@ enum BotProductionPaths {
 }
 
 enum BotSessionLogLocator {
-    static func latestFile(sessionID: String) -> URL? {
-        let root = BotProductionPaths.workspaceRoot()
+    /// Newest `session.v*.jsonl` for `sessionID` under the **owning**
+    /// workspace root. Callers pass the same root their composition was built
+    /// with; there is deliberately no process-global fallback.
+    static func latestFile(sessionID: String, workspaceRoot: URL) -> URL? {
+        let root = workspaceRoot
             .appendingPathComponent("materialized/home/sessions", isDirectory: true)
         let manager = FileManager.default
         guard let enumerator = manager.enumerator(
@@ -222,8 +234,8 @@ enum BotSessionLogLocator {
         return candidates.sorted { $0.modified > $1.modified }.first?.url
     }
 
-    static func events(sessionID: String) throws -> [BotDSHSessionEvent] {
-        guard let url = latestFile(sessionID: sessionID) else { return [] }
+    static func events(sessionID: String, workspaceRoot: URL) throws -> [BotDSHSessionEvent] {
+        guard let url = latestFile(sessionID: sessionID, workspaceRoot: workspaceRoot) else { return [] }
         return BotDSHSessionEvent.parseJSONL(try Data(contentsOf: url)).events
     }
 }
@@ -241,6 +253,7 @@ struct BotProductionHistoryPage: Sendable, Equatable {
 enum BotProductionSessionEpochs {
     static func load(botID: String, currentSessionID: String,
                      currentLogURL: URL?,
+                     workspaceRoot: URL,
                      domain: SQLiteDomainStore) async throws -> [BotSessionEpochProjection] {
         var ordered: [String] = []
         var seen = Set<String>()
@@ -256,8 +269,10 @@ enum BotProductionSessionEpochs {
         var epochs: [BotSessionEpochProjection] = []
         for sessionID in ordered {
             let url = sessionID == currentSessionID
-                ? (currentLogURL ?? BotSessionLogLocator.latestFile(sessionID: sessionID))
-                : BotSessionLogLocator.latestFile(sessionID: sessionID)
+                ? (currentLogURL ?? BotSessionLogLocator.latestFile(
+                    sessionID: sessionID, workspaceRoot: workspaceRoot))
+                : BotSessionLogLocator.latestFile(
+                    sessionID: sessionID, workspaceRoot: workspaceRoot)
             let events: [BotDSHSessionEvent]
             if let url, let data = try? Data(contentsOf: url) {
                 events = BotDSHSessionEvent.parseJSONL(data).events
@@ -327,7 +342,8 @@ actor BotProductionRowService {
         let heldRequestNonces = await remote?.heldChatActionNonces(sessionID: sessionID) ?? [:]
         let epochs = try await BotProductionSessionEpochs.load(
             botID: environment.botID, currentSessionID: sessionID,
-            currentLogURL: logURL, domain: environment.domain)
+            currentLogURL: logURL, workspaceRoot: environment.workspaceRoot,
+            domain: environment.domain)
         _ = try await history.rebuild(botID: environment.botID, epochs: epochs,
                                       uiEvents: uiEvents,
                                       heldRequestNonces: heldRequestNonces)
@@ -595,6 +611,14 @@ actor BotProductionInfoService {
             bridgeStatus = await bridgeDiagnostic()
         } else {
             bridgeStatus = nil
+        }
+        if let diagnostic = bridgeStatus {
+            // The raw failure code belongs to the diagnostic log; the presence
+            // line is built from the timestamp only (P09 bot-info §在场状态).
+            await MainActor.run {
+                BotRebindDiagnostics.emit(
+                    "bot-info bridge-failure code=\(diagnostic.code)")
+            }
         }
         return BotProductionInfoSnapshot(
             botName: botName, memories: memories, routines: routines, approvals: approvals,

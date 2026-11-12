@@ -415,7 +415,14 @@ final class BotCompositionE2ETests: XCTestCase {
         let erasedTurn = try await composition.remote.sendUserMessage("请移除 ERASE_ME_UI 这一句")
         XCTAssertEqual(erasedTurn.status, "completed", erasedTurn.error ?? "no error")
 
-        let oldLog = try XCTUnwrap(BotSessionLogLocator.latestFile(sessionID: oldSession))
+        // Read the log through the production environment, not a fresh global
+        // locator: this composition writes into its own temporary workspace
+        // and the locator must scan that root (`BotProductionServices`).
+        let snapshot = await launch.environment.sessionSnapshot()
+        XCTAssertEqual(snapshot.sessionID, oldSession,
+                       "the environment must resolve the composition's main session")
+        let oldLog = try XCTUnwrap(snapshot.logURL,
+                                   "the locator did not find the session log in the composition workspace")
         let lines = BotSessionLogReader.lines(from: try Data(contentsOf: oldLog))
         let erasedLine = try XCTUnwrap(lines.last {
             $0.type == "user/message" && $0.allText.contains("ERASE_ME_UI")

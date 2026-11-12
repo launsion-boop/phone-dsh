@@ -36,21 +36,24 @@ let modules: [Module] = [
     // Dependency boundary: the agent/provider abstractions the host modules use
     // (exec provider, credentials, harness session, DSH remote client).
     Module(name: "PhoneDSHAgentCore"),
+    // Crash-free standard-error writer shared by the loopback, gateway, WAL
+    // and controller diagnostic paths (a closed stderr must not abort).
+    Module(name: "PhoneDSHStandardError"),
     // Direct LAN ADB transport and native MCP Android tools (no adb executable).
     Module(name: "PhoneDSHADB", dependencies: ["PhoneDSHLoopback", "PhoneDSHAgentCore"]),
     // Ordered-channel codec and golden vectors.
     Module(name: "PhoneDSHWire"),
     // WAL, epochs, materialized copy, overlay, recovery.
-    Module(name: "PhoneDSHLog", dependencies: ["PhoneDSHWire"], testDependencies: ["PhoneDSHWire"]),
+    Module(name: "PhoneDSHLog", dependencies: ["PhoneDSHWire", "PhoneDSHStandardError"], testDependencies: ["PhoneDSHWire"]),
     // The single loopback origin: page, static, image/overlay, channel upgrade, /v1/http, MCP.
     Module(name: "PhoneDSHLoopback",
-           dependencies: ["PhoneDSHWire", "PhoneDSHAgentCore"],
-           testDependencies: ["PhoneDSHWire", "PhoneDSHAgentCore"]),
+           dependencies: ["PhoneDSHWire", "PhoneDSHAgentCore", "PhoneDSHStandardError"],
+           testDependencies: ["PhoneDSHWire", "PhoneDSHAgentCore", "PhoneDSHStandardError"]),
     // Model gateway: SSE pass-through, retry, response log, host credential injection.
-    Module(name: "PhoneDSHGateway", dependencies: ["PhoneDSHAgentCore"], testDependencies: ["PhoneDSHAgentCore"]),
+    Module(name: "PhoneDSHGateway", dependencies: ["PhoneDSHAgentCore", "PhoneDSHStandardError"], testDependencies: ["PhoneDSHAgentCore"]),
     // Host and step state machines, fence, side-effect ledger, budgets.
     Module(name: "PhoneDSHController",
-           dependencies: ["PhoneDSHWire", "PhoneDSHLog"],
+           dependencies: ["PhoneDSHWire", "PhoneDSHLog", "PhoneDSHStandardError"],
            testDependencies: ["PhoneDSHWire", "PhoneDSHLog"]),
     // WKWebView engine host.
     Module(name: "PhoneDSHEngine", dependencies: ["PhoneDSHLoopback"], testDependencies: ["PhoneDSHLoopback"]),

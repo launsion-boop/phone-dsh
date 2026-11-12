@@ -290,8 +290,9 @@ extension BotInfoSnapshot {
             maintenanceDailyTokens: snapshot.maintenanceDailyTokens,
             maintenanceDailyBudget: snapshot.maintenanceDailyBudget,
             bridgeStatus: snapshot.bridgeStatus.map { diagnostic in
-                let at = Date(timeIntervalSince1970: Double(diagnostic.atMilliseconds) / 1_000)
-                return "最近一次身份登记失败：\(diagnostic.code) · \(BotUIFormat.dateTime(at))"
+                // The raw code is logged by `BotProductionInfoService.load`;
+                // only the human copy reaches the presence line.
+                BotUIFormat.bridgeFailure(atMilliseconds: diagnostic.atMilliseconds)
             },
             memoryError: snapshot.memoryError,
             routinesError: snapshot.routinesError,

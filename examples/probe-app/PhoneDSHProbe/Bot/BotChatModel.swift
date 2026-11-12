@@ -300,6 +300,29 @@ final class BotChatModel: ObservableObject {
             ?? BotActivity(status: .thinking, detail: "", category: .thinking)
     }
 
+    /// The newest row that is waiting for a person: a pending approval or a
+    /// question/steps card. The transcript scrolls to this row's bottom when
+    /// it exists, because the live text of the same turn is rendered *after*
+    /// the durable rows and scrolling to the tail would push the card's
+    /// buttons above the keyboard (the field failure).
+    var newestActionableCard: BotUIRow? {
+        guard let row = visibleRows.last else { return nil }
+        switch row.body.type {
+        case "approval":
+            let status = row.body["status"]?.string
+                ?? row.body["ask"]?.object?["status"]?.string ?? "pending"
+            return status == "pending" && actionStates["approval:\(row.id)"] != .accepted
+                ? row : nil
+        case "widget":
+            guard ["question", "steps"].contains(row.body.cardType ?? ""),
+                  actionStates["card:\(row.id)"] != .accepted,
+                  !mutedCardIDs.contains(row.id) else { return nil }
+            return row
+        default:
+            return nil
+        }
+    }
+
     var mutedCardIDs: Set<String> {
         guard let lastUserIndex = visibleRows.lastIndex(where: { $0.role == "user" && $0.body.type == "text" }) else {
             return []

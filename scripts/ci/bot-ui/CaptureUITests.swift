@@ -205,6 +205,21 @@ final class BotCaptureUITests: XCTestCase {
     /// F5: a memory row is a `NavigationLink(value: BotMemoryDocumentInfo)`.
     /// The info page must use a type-erased path so the second value type is
     /// pushed; a typed `[BotInfoSection]` path only highlights the row.
+    /// P09 bot-info §在场状态: the read-only connection line is human copy with
+    /// a time; the host's internal failure code stays in the diagnostic log.
+    func testInfoPresenceBridgeStatusIsHuman() throws {
+        launch("infoPresence")
+        let bridge = app.descendants(matching: .any)["bot.info.presence.bridge"]
+        XCTAssertTrue(bridge.waitForExistence(timeout: 3))
+        let label = bridge.label
+        XCTAssertTrue(label.contains("最近一次与 App 的连接校验失败"), "bridge label: \(label)")
+        for internalWord in ["unauthorized", "identity-bridge", "身份登记", "unknown_session"] {
+            XCTAssertFalse(label.localizedCaseInsensitiveContains(internalWord),
+                           "bridge label leaks \(internalWord): \(label)")
+        }
+        XCTAssertTrue(label.contains("月") && label.contains(":"), "bridge label has no local time: \(label)")
+    }
+
     func testInfoMemoryDocumentRowPushesTheDetailPage() throws {
         launch("infoMemory")
         let row = app.descendants(matching: .any)["bot.memory.document.agent/profile.md"]
@@ -218,20 +233,27 @@ final class BotCaptureUITests: XCTestCase {
 
     // MARK: - Unauthorized tool turn
 
-    /// The incident's two rejected same-name calls. The collapsed rows must
-    /// carry the human failure + action, not the wire error, and both rows
-    /// must be unique (``ForEach`` ids).
+    /// The incident's two rejected same-name calls after #126: the transcript
+    /// has no process/tool rows at all, so the replayed call must not leak the
+    /// wire error through a resurrected tool row. The live answer is shown
+    /// once (the reattached observer replays the same seqs), in human words.
     func testUnauthorizedToolRowsAreHumanAndUnique() throws {
         launch("runningToolReplay")
-        let rows = app.descendants(matching: .any).matching(identifier: "bot.tool.row")
-        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertEqual(rows.count, 2, "the replayed call must not create a third row")
-        for index in 0..<rows.count {
-            let label = rows.element(boundBy: index).label
-            XCTAssertTrue(label.contains("处理失败"), "row label: \(label)")
-            XCTAssertTrue(label.contains("与 App 的连接已失效"), "row label: \(label)")
-            XCTAssertFalse(label.contains("unauthorized"), "wire error leaked: \(label)")
-            XCTAssertFalse(label.contains("identity-bridge"), "wire error leaked: \(label)")
+        let answer = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).firstMatch
+        XCTAssertTrue(answer.waitForExistence(timeout: 5), "human failure answer missing")
+        XCTAssertEqual(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).count, 1,
+            "the replayed call must not create a second answer")
+        // #126 removed transcript process rows; a replayed tool call must not
+        // bring one back, and no wire-visible error may appear anywhere.
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.tool.row").firstMatch.exists,
+            "a transcript tool row reappeared after #126")
+        for leaked in ["unauthorized", "identity-bridge"] {
+            XCTAssertFalse(app.staticTexts.matching(
+                NSPredicate(format: "label CONTAINS %@", leaked)).firstMatch.exists,
+                "wire error leaked into the transcript: \(leaked)")
         }
     }
 
@@ -325,26 +347,20 @@ final class BotCaptureUITests: XCTestCase {
             (app.descendants(matching: .any)["bot.fixture.actions"].label).contains("cardAnswer")
         }, "tapping the option did not send the answer")
 
-        // The approval card is next. Scrolling may interactively dismiss the
-        // keyboard, and focusing the composer after scrolling shortens the
-        // viewport, which can push the button under the keyboard again. Focus
-        // first, then scroll with the keyboard up; repeat because a swipe can
-        // dismiss the keyboard. The assertion only passes in the state the
-        // field failure was about: keyboard on screen and the button above it.
+        // The answer starts the next step: the fixture appends the approval
+        // card while the keyboard stays up. The page must follow that new row
+        // and keep its buttons above the keyboard without a manual transcript
+        // scroll. This is the P0 field failure.
+        XCTAssertTrue(input.exists, "composer is not resolvable after the question tap")
         let always = app.buttons["bot.approval.always"]
         XCTAssertTrue(always.waitForExistence(timeout: 5))
-        var approvalHittableWithKeyboard = false
-        for _ in 0..<10 {
+        if !app.keyboards.firstMatch.exists {
+            // Tapping a card may hand focus back; refocus is not a scroll.
             input.tap()
-            guard app.keyboards.firstMatch.waitForExistence(timeout: 2) else { continue }
-            if always.isHittable {
-                approvalHittableWithKeyboard = true
-                break
-            }
-            app.swipeUp()
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
         }
-        XCTAssertTrue(approvalHittableWithKeyboard && app.keyboards.firstMatch.exists,
-                      "approval always button never became hittable with the keyboard up: \(always.frame)")
+        XCTAssertTrue(waitUntil(timeout: 5) { always.isHittable },
+                      "approval always button was not brought above the keyboard: \(always.frame)")
         XCTAssertTrue(always.isHittable,
                       "approval always button is visible but not hittable: \(always.frame)")
         XCTAssertTrue(input.exists, "composer is not resolvable before the approval tap")
@@ -363,9 +379,10 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertTrue(input.exists)
     }
 
-    /// A lost live `turn/end` must not pin the live tool group forever. The
-    /// 800ms durable watch is authoritative; once it carries the answer the
-    /// stop control and tool-running activity go away.
+    /// A lost live `turn/end` must not pin the live turn forever. The 800ms
+    /// durable watch is authoritative; once it carries the answer the stop
+    /// control, the activity line and the live text all give way to the
+    /// durable answer. #126 keeps no process/tool row in between.
     func testLostTurnEndSettlesToDurableRows() throws {
         launch("runningToolUnauthorized")
         let runtime = app.descendants(matching: .any)["bot.fixture.runtime"]
@@ -373,13 +390,18 @@ final class BotCaptureUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 8) { runtime.label.contains("running=none") },
                       "live turn did not settle: \(runtime.label)")
         XCTAssertFalse(app.buttons["bot.composer.stop"].exists)
-        let process = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "已完成")).firstMatch
-        XCTAssertTrue(process.waitForExistence(timeout: 4))
-        process.tap()
-        let rows = app.descendants(matching: .any).matching(identifier: "bot.tool.row")
-        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 3))
-        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "两次都没有连上 App")).firstMatch
+            .waitForExistence(timeout: 4), "durable answer did not take over")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.activity.line").firstMatch.exists,
+            "the running activity line stayed after the durable turn settled")
+        XCTAssertFalse(app.descendants(matching: .any)
+            .matching(identifier: "bot.tool.row").firstMatch.exists,
+            "a process/tool row reappeared after #126")
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "已完成")).firstMatch.exists,
+            "the removed finished-process row is still rendered")
     }
 
     // MARK: - Bot drawer

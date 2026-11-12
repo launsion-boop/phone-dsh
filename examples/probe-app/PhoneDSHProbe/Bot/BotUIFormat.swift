@@ -58,6 +58,15 @@ enum BotUIFormat {
         timeFormatter.string(from: date)
     }
 
+    /// The one human shape of the read-only presence bridge line. The
+    /// internal failure code stays in the diagnostic log; the page only says
+    /// what happened and when. It deliberately does not claim the connection
+    /// recovered, because the host clears the record on success instead.
+    static func bridgeFailure(atMilliseconds: Int64, now: Date = Date()) -> String {
+        let date = Date(timeIntervalSince1970: Double(atMilliseconds) / 1_000)
+        return "最近一次与 App 的连接校验失败 · \(dateTime(date, now: now))"
+    }
+
     /// `M月d日` without a year, used by the drawer's compact relative time.
     static func monthDay(_ date: Date) -> String {
         monthDayFormatter.string(from: date)
