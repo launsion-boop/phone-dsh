@@ -134,7 +134,16 @@ final class BotChatModel: ObservableObject {
     /// The option picked on a choice card, kept locally so an accepted answer
     /// can still show its label before the durable row round-trips.
     private var answeredOptionIDs: [String: String] = [:]
-    @Published var runtimeNotice: String?
+    /// The latest failure (live update, history, an action, an attachment, or
+    /// a newly arrived host error notice). It is shown only on the header
+    /// status line, clears itself after `runtimeNoticeLifetime`, and is
+    /// cleared at once by the next send. A failure that keeps repeating (the
+    /// watch loop) keeps re-arming the timer, so it stays while it lasts.
+    @Published var runtimeNotice: String? {
+        didSet { armRuntimeNoticeExpiry() }
+    }
+    static let runtimeNoticeLifetime: UInt64 = 6_000_000_000
+    private var runtimeNoticeExpiry: Task<Void, Never>?
     @Published var deepLinkError: String?
     /// The current Bot's profile appearance, mirrored from `BotProfileCenter`.
     @Published private(set) var appearance: BotFishAppearance = .classic
@@ -230,7 +239,25 @@ final class BotChatModel: ObservableObject {
     var visibleRows: [BotUIRow] {
         // A dismissed question is not hidden: it settles into its one-line
         // 「已关闭」 summary like every other handled interactive card.
-        rows.filter { BotUIRendering.isRenderable($0) }
+        rows.filter { BotUIRendering.isRenderable($0) && !Self.isNotice($0) }
+    }
+
+    /// Error and denial notices never enter the Bot transcript: a failure is
+    /// reported on the header status line (`runtimeNotice`), and a denial is
+    /// already the approval card's settled 「已拒绝」 line.
+    static func isNotice(_ row: BotUIRow) -> Bool {
+        row.body.type == "notice"
+    }
+
+    private func armRuntimeNoticeExpiry() {
+        runtimeNoticeExpiry?.cancel()
+        runtimeNoticeExpiry = nil
+        guard runtimeNotice != nil else { return }
+        runtimeNoticeExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.runtimeNoticeLifetime)
+            guard !Task.isCancelled else { return }
+            self?.runtimeNotice = nil
+        }
     }
 
     /// The transcript: while a turn is live its answer text is drawn from the
@@ -531,6 +558,7 @@ final class BotChatModel: ObservableObject {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty || !files.isEmpty else { return }
         noteInteraction()
+        runtimeNotice = nil
         let nonce = UUID().uuidString
         let localID = "local-\(nonce)"
         let messageID = "att-\(Int(Date().timeIntervalSince1970 * 1_000))-\(nonce.prefix(8).lowercased())"
@@ -826,6 +854,18 @@ final class BotChatModel: ObservableObject {
         if !batch.deletes.isEmpty {
             let deleted = Set(batch.deletes)
             rows.removeAll { deleted.contains($0.id) }
+        }
+        // A host error notice that arrives while the page is open is reported
+        // once on the header line; history (a reset batch) never replays one.
+        if !batch.reset {
+            let known = Set(rows.map(\.id))
+            if let fresh = incoming.last(where: {
+                !known.contains($0.id) && Self.isNotice($0)
+                    && BotUIRendering.isRenderable($0)
+                    && ($0.body["tone"]?.string ?? "error") == "error"
+            }) {
+                runtimeNotice = fresh.body["text"]?.string
+            }
         }
         incoming.forEach(upsert)
         watchCursor = batch.cursor

@@ -398,6 +398,28 @@ final class BotActivityLineTests: XCTestCase {
         XCTAssertEqual(presence.fishState, .sleeping)
     }
 
+    func testHeaderProblemWinsAndJoinsLinesQuietly() {
+        let thinking = BotActivity(status: .thinking, category: .thinking)
+        let presence = BotHeaderPresence.resolve(turnActive: true, lineActivity: thinking,
+                                                 pendingApprovals: 1, fishState: .sad,
+                                                 problem: "附件「a」未附加：超限\n 附件「b」未附加：超限 \n")
+        XCTAssertEqual(presence.phase, .problem)
+        XCTAssertEqual(presence.line?.detail, "附件「a」未附加：超限；附件「b」未附加：超限")
+        XCTAssertTrue(presence.lineIsQuiet)
+        XCTAssertTrue(presence.lineIsProblem)
+        XCTAssertEqual(presence.motion, .standard)
+        XCTAssertEqual(presence.fishState, .sad)
+    }
+
+    func testHeaderBlankProblemIsIgnored() {
+        let presence = BotHeaderPresence.resolve(turnActive: false, lineActivity: nil,
+                                                 pendingApprovals: 0, fishState: .idle,
+                                                 problem: " \n ")
+        XCTAssertEqual(presence.phase, .idle)
+        XCTAssertNil(presence.line)
+        XCTAssertFalse(presence.lineIsProblem)
+    }
+
     private func activity(_ detail: String, category: BotActivityCategory,
                           startedAt: Int64) -> BotActivity {
         BotActivity(status: .toolRunning, detail: detail, category: category,

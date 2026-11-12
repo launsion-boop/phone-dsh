@@ -425,4 +425,44 @@ final class BotChatModelTests: XCTestCase {
             ],
         ]))
     }
+
+    func testNoticeRowsStayOutOfTranscriptAndFreshErrorGoesToHeader() {
+        let model = BotChatModel(context: BotRuntimeContext(botID: "main", botName: "大肥鱼"), fixtureActions: true)
+        let history = BotUIRow.fixture(id: "old-error", seq: 1,
+                                       body: BotUIBody(type: "notice", values: ["tone": "error", "text": "旧的失败"]))
+        model.apply(BotUIRowBatch(rows: [history], deletes: [], cursor: 1, reset: true))
+        XCTAssertNil(model.runtimeNotice, "history must not replay an error")
+        XCTAssertTrue(model.visibleRows.isEmpty)
+
+        let denied = BotUIRow.fixture(id: "denied", seq: 2,
+                                      body: BotUIBody(type: "notice", values: ["tone": "denied", "text": "已拒绝"]))
+        model.apply(BotUIRowBatch(rows: [denied], deletes: [], cursor: 2, reset: false))
+        XCTAssertNil(model.runtimeNotice, "a denial is the approval's settled line")
+
+        let fresh = BotUIRow.fixture(id: "fresh-error", seq: 3,
+                                     body: BotUIBody(type: "notice", values: ["tone": "error", "text": "生成报告失败"]))
+        model.apply(BotUIRowBatch(rows: [fresh], deletes: [], cursor: 3, reset: false))
+        XCTAssertEqual(model.runtimeNotice, "生成报告失败")
+        XCTAssertTrue(model.visibleRows.isEmpty)
+
+        model.apply(BotUIRowBatch(rows: [fresh], deletes: [], cursor: 4, reset: false))
+        model.runtimeNotice = nil
+        model.apply(BotUIRowBatch(rows: [fresh], deletes: [], cursor: 5, reset: false))
+        XCTAssertNil(model.runtimeNotice, "an already-known notice is not reported again")
+    }
+
+    func testSendClearsRuntimeNotice() {
+        let model = BotChatModel(context: BotRuntimeContext(botID: "main", botName: "大肥鱼"), fixtureActions: true)
+        model.runtimeNotice = "Bot 实时更新失败：offline"
+        model.send(text: "再试一次")
+        XCTAssertNil(model.runtimeNotice)
+    }
+
+    func testRuntimeNoticeExpiresByItself() async throws {
+        XCTAssertEqual(BotChatModel.runtimeNoticeLifetime, 6_000_000_000)
+        let model = BotChatModel(context: BotRuntimeContext(botID: "main", botName: "大肥鱼"), fixtureActions: true)
+        model.runtimeNotice = "历史加载失败：offline"
+        try await Task.sleep(nanoseconds: BotChatModel.runtimeNoticeLifetime + 400_000_000)
+        XCTAssertNil(model.runtimeNotice)
+    }
 }

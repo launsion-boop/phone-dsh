@@ -60,7 +60,9 @@ final class BotCaptureUITests: XCTestCase {
         option.tap()
         usleep(300_000)
         assertCount("cardAnswer", 1)
-        XCTAssertTrue(app.staticTexts["已送出"].waitForExistence(timeout: 2))
+        let settled = app.descendants(matching: .any)["bot.card.settled"]
+        XCTAssertTrue(settled.waitForExistence(timeout: 2))
+        XCTAssertTrue(settled.label.hasPrefix("已选择"), settled.label)
         XCTAssertFalse(app.textFields["bot.choice.custom"].exists)
         XCTAssertFalse(app.buttons["bot.choice.custom.send"].exists)
     }

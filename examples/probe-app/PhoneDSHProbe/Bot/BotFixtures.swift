@@ -631,6 +631,10 @@ struct BotUIFixtureRootView: View {
         case .approvalAutoDeclined:
             chat.send(text: "先继续，这个审批不用了。")
             chat.stop()
+        case .error:
+            // The error notice row stays out of the transcript; the failure
+            // shows as the header's transient danger line instead.
+            chat.runtimeNotice = "生成报告失败：模拟器暂时不可用。"
         case .runningThinking:
             chat.receive(.event(BotUIFixtures.liveEvent("turn/start", turn: 1, seq: 1)))
         case .runningTool:

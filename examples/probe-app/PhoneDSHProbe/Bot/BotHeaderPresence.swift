@@ -8,6 +8,10 @@ import PhoneDSHBot
 /// header has no second badge, dot or icon that could disagree with them.
 ///
 /// Phases, in priority order:
+/// - `problem`: something just failed (live update, history, an action, an
+///   attachment, or a host error notice). The line shows that one sentence in
+///   a calm danger tint for a few seconds; the transcript never carries error
+///   rows. The fish keeps its own lifecycle (the director already plays sad).
 /// - `working`: a turn is running (from the local send until stop/final/
 ///   turn end). The line shows the turn's activity, the fish plays the
 ///   `.lively` clip set with the category's work style. A pending approval
@@ -23,6 +27,7 @@ import PhoneDSHBot
 struct BotHeaderPresence: Equatable {
     enum Phase: Equatable {
         case idle
+        case problem
         case working
         case waitingForYou
     }
@@ -35,13 +40,24 @@ struct BotHeaderPresence: Equatable {
     var workStyle: BotFishWorkStyle
 
     /// The line is calm (no shimmer, no breathing) when the Bot is waiting
-    /// for the user rather than doing something.
-    var lineIsQuiet: Bool { line?.category == .waiting }
+    /// for the user or reporting a failure rather than doing something.
+    var lineIsQuiet: Bool { phase == .problem || line?.category == .waiting }
+    /// The line is drawn in the danger tint.
+    var lineIsProblem: Bool { phase == .problem }
 
     static func resolve(turnActive: Bool,
                         lineActivity: BotActivity?,
                         pendingApprovals: Int,
-                        fishState: BotFishLifecycle) -> BotHeaderPresence {
+                        fishState: BotFishLifecycle,
+                        problem: String? = nil) -> BotHeaderPresence {
+        if let text = problemText(problem) {
+            return BotHeaderPresence(
+                phase: .problem,
+                line: BotActivity(status: .thinking, detail: text, category: .generic),
+                fishState: fishState,
+                motion: .standard,
+                workStyle: .generic)
+        }
         if turnActive, let activity = lineActivity {
             return BotHeaderPresence(
                 phase: .working,
@@ -61,6 +77,16 @@ struct BotHeaderPresence: Equatable {
         }
         return BotHeaderPresence(phase: .idle, line: nil, fishState: fishState,
                                  motion: .standard, workStyle: .generic)
+    }
+
+    /// One line: multi-part notices (several attachments) are joined with
+    /// 「；」, blank input shows nothing.
+    static func problemText(_ raw: String?) -> String? {
+        let parts = (raw ?? "")
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: "；")
     }
 
     /// Between the send and the host's first event the projection may still

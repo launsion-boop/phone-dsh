@@ -202,7 +202,8 @@ struct BotChatPage: View {
         BotHeaderPresence.resolve(turnActive: model.showsActivityLine,
                                   lineActivity: model.lineActivity,
                                   pendingApprovals: model.pendingApprovalCount,
-                                  fishState: model.fishState)
+                                  fishState: model.fishState,
+                                  problem: model.runtimeNotice)
     }
 
     /// One centered status line right under the header capsule. It floats
@@ -211,7 +212,8 @@ struct BotChatPage: View {
     private var headerStatus: some View {
         ZStack(alignment: .top) {
             if let activity = presence.line {
-                BotActivityLine(activity: activity, quiet: presence.lineIsQuiet)
+                BotActivityLine(activity: activity, quiet: presence.lineIsQuiet,
+                                problem: presence.lineIsProblem)
                     .padding(.top, 4)
                     .padding(.bottom, 14)
                     .background(alignment: .top) {
@@ -371,27 +373,8 @@ struct BotChatPage: View {
 
     private var composerDock: some View {
         VStack(spacing: 8) {
-            if let notice = model.runtimeNotice {
-                // DSH composer notice: one 13pt line above the card, dismissible.
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "exclamationmark.circle")
-                        .font(.system(size: 13))
-                    Text(notice)
-                        .font(.system(size: 13))
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button { model.runtimeNotice = nil } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .semibold))
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭提示")
-                }
-                .foregroundStyle(BotUIPalette.danger)
-                .padding(.horizontal, 4)
-            }
+            // Failures are reported once, on the header status line; the
+            // composer carries no notice of its own.
             attachmentTray
             // Grok-style composer: one white r26 rounded card with the 36pt
             // attach button leading, the growing text field in the middle,

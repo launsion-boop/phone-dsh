@@ -12,6 +12,8 @@ struct BotActivityLine: View {
     let activity: BotActivity
     /// Waiting for the user: keep the words still (no shimmer, no breath).
     var quiet = false
+    /// A failure report: quiet, in the danger tint.
+    var problem = false
 
     @Environment(\.botPageActive) private var pageActive
     @State private var line = BotActivityLineState()
@@ -20,7 +22,8 @@ struct BotActivityLine: View {
     private var text: String { line.text }
 
     var body: some View {
-        BotActivityShimmerText(text: text, quiet: quiet)
+        BotActivityShimmerText(text: text, quiet: quiet || problem,
+                               ink: problem ? BotUIPalette.danger : HomeSpec.textSecondary)
             .padding(.horizontal, 24)
             .frame(maxWidth: .infinity)
             .allowsHitTesting(false)
@@ -72,6 +75,7 @@ struct BotActivityLine: View {
 private struct BotActivityShimmerText: View {
     let text: String
     let quiet: Bool
+    let ink: Color
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.botPageActive) private var pageActive
@@ -114,7 +118,7 @@ private struct BotActivityShimmerText: View {
             .font(.system(size: 13, weight: .medium))
             .lineLimit(1)
             .truncationMode(.tail)
-            .foregroundStyle(HomeSpec.textSecondary)
+            .foregroundStyle(ink)
             .overlay {
                 if ambient {
                     Text(value)

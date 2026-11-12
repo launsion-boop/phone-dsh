@@ -364,32 +364,42 @@ struct BotCardGlyph: View {
     }
 }
 
-/// The one-line summary an interactive card settles into: the approval's
-/// decided row shape, with no buttons. The model owns all text and precedence;
-/// this view only draws it.
+/// The one grey line an interactive card settles into: a small tinted glyph,
+/// the outcome, and its context after a dot, with no surface, border or
+/// button, so handled cards recede behind the conversation. The model owns
+/// all text and precedence; this view only draws it.
 struct BotCardSettledLine: View {
     let settlement: BotCardSettlement
 
     var body: some View {
-        HStack(spacing: 12) {
-            BotCardGlyph(systemImage: settlement.glyph, ink: settlement.tone.ink)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(settlement.title)
-                    .botCardRow(weight: .medium)
-                    .foregroundStyle(HomeSpec.textSecondary)
-                    .lineLimit(1)
-                if let detail = settlement.detail, !detail.isEmpty {
-                    Text(detail)
-                        .botCardMeta()
-                        .monospaced(settlement.monospacedDetail)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: settlement.glyph)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(settlement.tone.ink.opacity(0.8))
+                .accessibilityHidden(true)
+            (Text(settlement.title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(HomeSpec.textSecondary)
+             + detailText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minHeight: BotCardMetrics.rowMinHeight)
+        .padding(.horizontal, 4)
+        .frame(minHeight: 28)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("bot.card.settled")
+    }
+
+    private var detailText: Text {
+        guard let detail = settlement.detail, !detail.isEmpty else { return Text("") }
+        let body = Text(detail)
+        return Text(" · ")
+            .font(.system(size: 13))
+            .foregroundColor(HomeSpec.textTertiary)
+            + (settlement.monospacedDetail ? body.font(.system(size: 12, design: .monospaced))
+                                           : body.font(.system(size: 13)))
+            .foregroundColor(HomeSpec.textTertiary)
     }
 }
 

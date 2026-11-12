@@ -22,10 +22,9 @@ struct BotCardView: View {
         BotContentWidth {
             Group {
                 if let settlement {
-                    BotCardSurface {
-                        BotCardSettledLine(settlement: settlement)
-                    }
-                    .transition(.opacity)
+                    // No surface: a handled card is just one grey line.
+                    BotCardSettledLine(settlement: settlement)
+                        .transition(.opacity)
                 } else {
                     cardContent
                         .transition(.opacity)
