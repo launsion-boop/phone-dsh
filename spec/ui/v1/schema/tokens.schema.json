@@ -365,7 +365,7 @@
                                 }
                             }
                         },
-                        "pageDetents": {"type": "array", "minItems": 13, "maxItems": 13, "items": {
+                        "pageDetents": {"type": "array", "minItems": 20, "maxItems": 20, "items": {
                                 "type": "object",
                                 "required": ["id", "detents", "source", "expect"],
                                 "additionalProperties": false,
@@ -373,7 +373,8 @@
                                     "id": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
                                     "detents": {"type": "string", "pattern": "^[a-z][A-Za-z0-9]*$"},
                                     "source": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*\\.swift:[0-9]+$"},
-                                    "expect": {"type": "string", "minLength": 3, "maxLength": 200}
+                                    "expect": {"type": "string", "minLength": 3, "maxLength": 200},
+                                    "note": {"type": "string", "maxLength": 300}
                                 }
                             }
                         },

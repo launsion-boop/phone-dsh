@@ -593,6 +593,44 @@ class UiCheckTests(unittest.TestCase):
         self.write_drawer_golden(path, document)
         self.assert_fails(run_checker(self.root), "sheet-detents.golden.json pages")
 
+    def _sheet_row(self, document: dict, ident: str) -> dict:
+        return next(entry for entry in document["interaction"]["sheet"]["pageDetents"]
+                    if entry["id"] == ident)
+
+    def test_sheet_default_page_detent_must_anchor_on_home_sheet_chrome(self) -> None:
+        document = self.tokens()
+        row = self._sheet_row(document, "settings")
+        row["source"] = "ChatPage.swift:501"
+        row["expect"] = ".presentationDetents([.large])"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "must anchor on a .homeSheetChrome() line")
+
+    def test_sheet_default_page_detent_rejects_detents_in_its_sheet_body(self) -> None:
+        document = self.tokens()
+        row = self._sheet_row(document, "settings")
+        row["source"] = "ChatPage.swift:502"
+        row["expect"] = ".homeSheetChrome()"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "default-set row anchors inside a .sheet body that writes")
+
+    def test_sheet_non_default_page_detent_must_anchor_on_presentation_detents(self) -> None:
+        document = self.tokens()
+        row = self._sheet_row(document, "previewShare")
+        row["source"] = "ChatPage.swift:496"
+        row["expect"] = ".homeSheetChrome()"
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "must anchor on a .presentationDetents( line")
+
+    def test_sheet_page_detent_table_needs_20_rows(self) -> None:
+        document = self.tokens()
+        document["interaction"]["sheet"]["pageDetents"].pop()
+        self.write_tokens(document)
+        self.assert_fails(run_checker(self.root),
+                          "pageDetents has fewer than 20 items")
+
     def test_context_menu_item_label_drift_fails(self) -> None:
         path, document = self.golden("context-menu-items.golden.json")
         document["surfaces"][0]["items"][0]["label"] = "新建会话"

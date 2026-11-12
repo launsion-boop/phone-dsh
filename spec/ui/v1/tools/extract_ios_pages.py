@@ -79,9 +79,13 @@ TOOL = "extract_ios_pages.py"
 #: Home chrome that is not a `*Page` struct but is still a real surface. HomeDrawer
 #: is the PR22 drawer overlay (NativeShell renders it in SessionsDrawerPanel); its
 #: contract is hand-registered in `pages/home-drawer.json`, like `preview-surface`.
-#: `--check` verifies the contract exists so the screen cannot silently leave the gate.
+#: NativeTurnUsageDetails is the turn-tail 用量 sheet (a sheet, not a `*Page`); its
+#: hand-registered contract freezes the labels and value formats that
+#: `chat.json#sheet-913` only names as a destination.
+#: `--check` verifies each contract exists so the surface cannot silently leave the gate.
 CHROME_CONTRACTS = {
     "HomeDrawer": ("HomeDrawer.swift", "home-drawer.json"),
+    "NativeTurnUsageDetails": ("NativeMessageActions.swift", "turn-usage.json"),
 }
 
 #: HomeSpec.swift holds the 430x932 home design values (colors, type, spacing,
@@ -2827,10 +2831,11 @@ def discover_pages(root: Path) -> list:
     (MCPEditorPage does). `SessionHistoryPage`/`GoalDetailPage` exist only on Android
     and are listed in `_android-only.json`.
 
-    Non-`*Page` chrome (HomeDrawer) is not generated here: it has no `*Page` name to
-    key the contract on and its layout is a VStack drawer rather than a Section tree,
-    so it is hand-registered in `pages/home-drawer.json` (see CHROME_CONTRACTS). The
-    `check_chrome_contracts` gate keeps that file and HomeSpec.swift from vanishing.
+    Non-`*Page` chrome (HomeDrawer, NativeTurnUsageDetails) is not generated here: it
+    has no `*Page` name to key the contract on and its layout is a drawer or a sheet
+    rather than a Section tree, so it is hand-registered in `pages/home-drawer.json`
+    and `pages/turn-usage.json` (see CHROME_CONTRACTS). The
+    `check_chrome_contracts` gate keeps those files and HomeSpec.swift from vanishing.
     """
     probe = root / PROBE_REL
     pages = []

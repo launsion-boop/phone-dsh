@@ -61,6 +61,34 @@
     {
       "id": "turnUsage",
       "detents": "medium"
+    },
+    {
+      "id": "settings",
+      "detents": "default"
+    },
+    {
+      "id": "modelProvider",
+      "detents": "default"
+    },
+    {
+      "id": "configuration",
+      "detents": "default"
+    },
+    {
+      "id": "runtime",
+      "detents": "default"
+    },
+    {
+      "id": "commandResult",
+      "detents": "default"
+    },
+    {
+      "id": "deviceConnection",
+      "detents": "default"
+    },
+    {
+      "id": "automation",
+      "detents": "default"
     }
   ]
 }
