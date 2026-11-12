@@ -103,9 +103,9 @@ public enum PhoneDSHWorkerEnvironment {
     public static let vfsWorkspaceBytes = "PDSH_VFS_WORKSPACE_BYTES"
     public static let vfsSessionsBytes = "PDSH_VFS_SESSIONS_BYTES"
     public static let vfsTmpBytes = "PDSH_VFS_TMP_BYTES"
-    /// `1` only when the host holds a GitHub agent token and the person enabled
-    /// writes. The Worker's `github` command uses it as the read-only/write
-    /// gate; the token itself never enters the Worker environment.
+    /// `1` when the host holds a GitHub agent token. The Worker's `github`
+    /// command uses it for authenticated reads and code search; the token itself
+    /// never enters the Worker environment.
     public static let githubAuth = "PDSH_GITHUB_AUTH"
     /// `1` only when the host holds a GitHub agent token and the person enabled
     /// writes. `PDSH_GITHUB_AUTH` can still be `1` for authenticated reads.
@@ -209,8 +209,8 @@ public struct PhoneDSHConfiguration: Equatable, Sendable {
     /// Bearer (never exposed to the Worker).
     public let credentialProvider: any CredentialProvider
     /// Optional GitHub agent credential. When enabled, the gateway injects the
-    /// Keychain token for `api.github.com`, and a separate write opt-in sets
-    /// `PDSH_GITHUB_AUTH=1` for the Worker's `github` command.
+    /// Keychain token for `api.github.com`; `PDSH_GITHUB_AUTH` reports that a
+    /// token exists and the separate write opt-in reports `PDSH_GITHUB_WRITE`.
     public var githubAgent: GitHubAgentConfiguration
     /// Scoped host credential for the official DeepSeek web API in follow-model mode.
     public var officialDeepSeekWebCredentialProvider: (any CredentialProvider)? = nil
