@@ -52,6 +52,11 @@ struct BotChatPage: View {
     /// `onChange` keeps the stack re-measuring while the keyboard is also
     /// changing the viewport.
     @State private var transcriptScrollTask: Task<Void, Never>?
+    /// The newest requested scroll target. A running task reads this box
+    /// instead of cancelling and restarting for every delta; cancelling the
+    /// previous 120ms sleep on each token starved the scroll until the stream
+    /// paused, so a late Markdown/code/card height was never corrected.
+    @State private var transcriptScrollRequest = BotTranscriptScrollRequest()
     /// Eager mode renders a bounded suffix of the loaded rows; this expands
     /// when the reader asks for older loaded rows.
     @State private var eagerRowLimit = 40
@@ -329,7 +334,20 @@ struct BotChatPage: View {
             .onPreferenceChange(BotTranscriptTailPreference.self) { tailY in
                 guard tailY.isFinite else { return }
                 scrollMetrics.tailY = tailY
-                if userScrolling { updateFollowsTail(userDriven: true) }
+                if userScrolling {
+                    updateFollowsTail(userDriven: true)
+                } else if !followsTail,
+                          BotTranscriptLayoutSupport.isNearTail(
+                              tailY: tailY,
+                              viewportHeight: scrollMetrics.viewportHeight,
+                              tolerance: 24) {
+                    // A programmatic scroll can land on the tail without a
+                    // user-driven settle. Re-arm following when the transcript
+                    // is actually at the bottom again; otherwise a single
+                    // stale false would silently stop all future streaming
+                    // scrolls (the Bot page has no "back to latest" pill).
+                    followsTail = true
+                }
             }
             .onChange(of: model.visibleRows.last?.id) { _, last in
                 guard !preservingHistoryPosition, model.scrollRequestID == nil,
@@ -351,6 +369,9 @@ struct BotChatPage: View {
                 followNewestContent(proxy: proxy)
             }
             .onChange(of: sendScrollTick) { _, _ in
+                // A send is an explicit "show me the new turn": re-arm the
+                // tail even if a previous tap/drag had turned following off.
+                followsTail = true
                 followNewestContent(proxy: proxy)
             }
             // #132 settled cards: once a handled card collapses into its
@@ -520,11 +541,39 @@ struct BotChatPage: View {
                                           anchor: UnitPoint,
                                           delay: UInt64 = 120_000_000) {
         guard followsTail, !preservingHistoryPosition, model.scrollRequestID == nil else { return }
-        transcriptScrollTask?.cancel()
+        // The newest trigger replaces the target, but it must not restart the
+        // pending sleep. The run below reads this box on every pass, so a
+        // continuous stream gets one scroll per settle window instead of a
+        // sleep that is cancelled before it can fire.
+        transcriptScrollRequest.target = id
+        transcriptScrollRequest.anchor = anchor
+        transcriptScrollRequest.generation &+= 1
+        guard transcriptScrollTask == nil else { return }
         transcriptScrollTask = Task { @MainActor in
-            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
-            guard !Task.isCancelled else { return }
-            proxy.scrollTo(id, anchor: anchor)
+            defer { transcriptScrollTask = nil }
+            var arrivedGeneration: UInt64 = 0
+            var corrected = false
+            var first = true
+            while !Task.isCancelled {
+                let wait = first ? delay : 180_000_000
+                first = false
+                if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
+                guard !Task.isCancelled, followsTail, !preservingHistoryPosition,
+                      model.scrollRequestID == nil else { return }
+                let generation = transcriptScrollRequest.generation
+                if generation == arrivedGeneration {
+                    // The last pass already covered this content. One more
+                    // settle window catches a Markdown/code/card height that
+                    // lands after the scroll; then stop until new content.
+                    if corrected { return }
+                    corrected = true
+                } else {
+                    arrivedGeneration = generation
+                    corrected = false
+                }
+                proxy.scrollTo(transcriptScrollRequest.target,
+                               anchor: transcriptScrollRequest.anchor)
+            }
         }
     }
 
@@ -1377,4 +1426,15 @@ private struct BotTranscriptScrollPhaseObserver: ViewModifier {
             content
         }
     }
+}
+
+
+/// Latest requested transcript scroll. Mutated only on the main actor; a
+/// running coalescing task reads it each pass so a new row/card can replace
+/// the target without cancelling the sleep that is already in flight.
+@MainActor
+private final class BotTranscriptScrollRequest {
+    var target: AnyHashable = AnyHashable("bot-transcript-tail")
+    var anchor: UnitPoint = .bottom
+    var generation: UInt64 = 0
 }

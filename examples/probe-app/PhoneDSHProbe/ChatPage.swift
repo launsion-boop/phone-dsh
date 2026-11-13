@@ -158,6 +158,13 @@ struct ChatPage: View {
     /// Coalesces follow-the-tail scrolls so one lands after the lazy stack
     /// has laid the new rows out (see `scheduleTailScroll`).
     @State private var tailScrollTask: Task<Void, Never>?
+    /// Newest follow request. A running task reads this instead of being
+    /// cancelled on every streamed delta; the old cancel-and-restart loop
+    /// never fired while tokens arrived faster than its 50ms sleep.
+    @State private var tailScrollGeneration: UInt64 = 0
+    /// Latest viewport a follow request was made for; the task can wake after
+    /// a keyboard change and must scroll with the current height.
+    @State private var tailScrollViewportHeight: CGFloat = 0
     @State private var loadingEarlierTranscript = false
     /// The red banner's reason signature the person chose to continue past.
     /// A changed reason set shows the banner again (S1-D.1).
@@ -1402,8 +1409,23 @@ struct ChatPage: View {
                 }
                 .coordinateSpace(name: "chat-transcript")
                 .scrollDismissesKeyboard(.interactively)
-                .modifier(ScrollInteractionObserver(isInteracting: $userScrolling,
-                                                    isSupported: $tracksScrollPhase))
+                .modifier(ScrollInteractionObserver(
+                    isInteracting: $userScrolling,
+                    isSupported: $tracksScrollPhase,
+                    onSettled: { wasUserDriven in
+                        // The last geometry frame can arrive after the phase
+                        // settles. Resolve the away flag once more with the
+                        // final metrics; without this a drag that ended one
+                        // frame early left the pill up (and following off).
+                        guard wasUserDriven else { return }
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(80))
+                            guard !userScrolling else { return }
+                            applyTailMetrics(tailY: scrollTrace.tailOffsetY,
+                                             viewportHeight: scrollTrace.viewportHeight,
+                                             userDriven: true)
+                        }
+                    }))
                 .defaultScrollAnchor(.bottom)
                 .scrollBounceBehavior(.basedOnSize)
                 .modifier(TranscriptScrollGeometryObserver(
@@ -1477,10 +1499,23 @@ struct ChatPage: View {
                     scrollTrace.lastBlankCorrectionHeight = nil
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
+                    // A deliberate jump owns the next scroll; drop a pending
+                    // follow pass so it cannot fight the animation.
+                    tailScrollTask?.cancel()
+                    tailScrollTask = nil
+                    tailScrollGeneration &+= 1
                     nearBottom = true
                     userScrolledAway = false
                     withAnimation(.easeOut(duration: 0.2)) {
                         scrollToTail(proxy, viewportHeight: viewport.size.height)
+                    }
+                    // The animation and a late Markdown/card height can both
+                    // settle after the jump. Re-arm follow once they do;
+                    // subsequent streamed deltas keep the loop alive.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(260))
+                        guard followsTail else { return }
+                        scheduleTailScroll(proxy, viewportHeight: viewport.size.height)
                     }
                 }
                 .onChange(of: viewport.size.height) { old, new in
@@ -1489,6 +1524,10 @@ struct ChatPage: View {
                     // the tail, so no blank strip is left below the content.
                     guard followsTail else { return }
                     scheduleTailScroll(proxy, viewportHeight: new)
+                }
+                .onDisappear {
+                    tailScrollTask?.cancel()
+                    tailScrollTask = nil
                 }
             }
         }
@@ -1650,8 +1689,10 @@ struct ChatPage: View {
     /// Publishes only real near/follow transitions. The geometry callback runs
     /// on every scroll frame; `nearBottom` and `userScrolledAway` drive the
     /// "回到最新" pill, so sub-pixel changes must stay in the reference box.
-    private func applyTailMetrics(tailY: CGFloat, viewportHeight: CGFloat) {
+    private func applyTailMetrics(tailY: CGFloat, viewportHeight: CGFloat,
+                                  userDriven: Bool = false) {
         scrollTrace.tailOffsetY = tailY
+        scrollTrace.viewportHeight = viewportHeight
         let near = tailY >= -1 && tailY <= viewportHeight + 44
         if nearBottom != near {
             nearBottom = near
@@ -1660,17 +1701,26 @@ struct ChatPage: View {
             if near { model.flushStreamingText() }
         }
         if tracksScrollPhase {
-            // Follow mode belongs to the person: drag away to stop it, drag
-            // back to the tail to resume it.
-            if userScrolling {
-                let away = !near
+            // Follow mode belongs to the person. A geometry callback alone
+            // must not turn it off: content growth also moves the tail. The
+            // delayed settle path passes `userDriven: true` with the final
+            // metrics so a gesture that ends before the last geometry frame
+            // still resolves once.
+            if userDriven || userScrolling {
+                let away = ChatTranscriptTailPolicy.isAwayFromTail(
+                    tailY: tailY, viewportHeight: viewportHeight)
                 if userScrolledAway != away { userScrolledAway = away }
             }
         } else {
-            let away = tailY > viewportHeight + 44
+            // iOS 17 has no phases. Require the larger margin, and the near
+            // clear below, so streaming growth alone cannot show the pill.
+            let away = ChatTranscriptTailPolicy.isAwayFromTail(
+                tailY: tailY, viewportHeight: viewportHeight)
             if userScrolledAway != away { userScrolledAway = away }
         }
-        if near && scrollTrace.contentHeight <= viewportHeight + 1 {
+        // A viewport that is at the tail is following, regardless of what a
+        // programmatic jump or a late layout pass did to the flag earlier.
+        if near && !userScrolling {
             if userScrolledAway { userScrolledAway = false }
         }
     }
@@ -1691,27 +1741,42 @@ struct ChatPage: View {
     /// frames settle, and the coalesced follow still tracks streaming.
     private func scheduleTailScroll(_ proxy: ScrollViewProxy, viewportHeight: CGFloat) {
         guard followsTail else { return }
-        tailScrollTask?.cancel()
+        // Do not cancel the pending run: a streamed delta every <50ms used to
+        // reset the sleep forever, so the one scroll never fired. The generation
+        // tells the running loop that a newer target/height arrived.
+        tailScrollGeneration &+= 1
+        tailScrollViewportHeight = viewportHeight
+        guard tailScrollTask == nil else { return }
         tailScrollTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(50))
-            guard !Task.isCancelled, followsTail else { return }
-            if Date().timeIntervalSince(lastScrollTrace) > 1 {
-                lastScrollTrace = Date()
-                // Layout can briefly report a non-finite geometry during a
-                // rotation/keyboard transition; logging must not trap.
-                func integer(_ value: CGFloat) -> Int {
-                    // `.isFinite` alone is not enough: CGFloat can hold values
-                    // outside Int's range (e.g. a broken measurement sentinel).
-                    guard value.isFinite,
-                          value > CGFloat(Int.min), value < CGFloat(Int.max) else { return -1 }
-                    return Int(value.rounded())
+            defer { tailScrollTask = nil }
+            var arrivedGeneration: UInt64 = 0
+            var corrected = false
+            var first = true
+            while !Task.isCancelled {
+                let wait = first ? 50 : 180
+                first = false
+                try? await Task.sleep(for: .milliseconds(wait))
+                guard !Task.isCancelled, followsTail else { return }
+                let generation = tailScrollGeneration
+                if generation == arrivedGeneration {
+                    // The previous pass covered this content. One more settle
+                    // window catches a late Markdown/code/list height; after
+                    // that, wait for the next deltas instead of spinning.
+                    if corrected { return }
+                    corrected = true
+                } else {
+                    arrivedGeneration = generation
+                    corrected = false
                 }
-                ChatModel.appendDiagnostic(
-                    "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(viewportHeight)) "
-                    + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                if Date().timeIntervalSince(lastScrollTrace) > 1 {
+                    lastScrollTrace = Date()
+                    ChatModel.appendDiagnostic(
+                        "scroll tail content=\(Self.traceValue(scrollTrace.contentHeight)) viewport=\(Self.traceValue(tailScrollViewportHeight)) "
+                        + "tail=\(Self.traceValue(scrollTrace.tailOffsetY)) near=\(nearBottom) away=\(userScrolledAway)")
+                }
+                model.flushStreamingText()
+                scrollToTail(proxy, viewportHeight: tailScrollViewportHeight)
             }
-            model.flushStreamingText()
-            scrollToTail(proxy, viewportHeight: viewportHeight)
         }
     }
 
@@ -4046,12 +4111,16 @@ private final class ComposerUITextView: UITextView {
 private struct ScrollInteractionObserver: ViewModifier {
     @Binding var isInteracting: Bool
     @Binding var isSupported: Bool
+    /// Receives whether the phase that just settled began as a user gesture.
+    var onSettled: ((Bool) -> Void)?
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
             content
                 .onScrollPhaseChange { _, phase in
+                    let wasInteracting = isInteracting
                     isInteracting = phase == .interacting || phase == .decelerating
+                    if phase == .idle { onSettled?(wasInteracting) }
                 }
                 .onAppear { isSupported = true }
         } else {
@@ -4065,6 +4134,9 @@ private struct ScrollInteractionObserver: ViewModifier {
 final class ScrollTraceBox {
     var tailOffsetY: CGFloat = 0
     var contentHeight: CGFloat = 0
+    /// Latest viewport used by the follow policy. The delayed settle check
+    /// runs after the gesture and needs the same height the geometry pass saw.
+    var viewportHeight: CGFloat = 0
     /// Content height of the last blank correction. One correction per height
     /// prevents a scroll feedback loop when the stack cannot move further.
     var lastBlankCorrectionHeight: CGFloat?
