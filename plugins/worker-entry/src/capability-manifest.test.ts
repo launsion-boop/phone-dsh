@@ -421,7 +421,13 @@ test('the phone section publishes only the tool the host really implements', () 
   assert.equal(withPhone.json.phone?.tool_catalog, 'host-owned')
   assert.match(withPhone.jsonText, /"usage": "phone info"/u)
   assert.match(withPhone.markdown, /phone info/u)
-  assert.match(withPhone.markdown, /not available and executes nothing/u)
+  assert.match(withPhone.markdown, /executes nothing/u)
+  // R4: the shell's `$?` is 0 for a structured host-tool failure; only a
+  // missing program exits 127. The published sentences must say so.
+  assert.match(withPhone.markdown, /On iOS the `phone` command exits 0/u)
+  assert.match(withPhone.markdown, /read `ok`\/`error\.code`, not `\$\?`/u)
+  assert.match(withPhone.json.phone?.notes.join(' ') ?? '', /On iOS the `phone` command exits 0/u)
+  assert.doesNotMatch(withPhone.json.phone?.notes.join(' ') ?? '', /shell reports exit 127/u)
   // The hard-coded Apple Office surface must never come back. Every one of
   // those rows answered `unsupported` on the device while the manifest claimed
   // it — the capability lie this test pins shut.
