@@ -43,3 +43,35 @@ Protocol impact: **P09: none** — 只改原生聊天页的本地滚动状态机
 - **真机「回到最新」**：**NOT_VERIFIED**。阈值从 44pt 改为 96pt 后，小幅度上滑不会立刻出现胶囊；若产品希望更敏感，只需调 `ChatTranscriptTailPolicy.awayMargin`，不要把 near 带（44pt）直接当 away。
 - 180ms settle 校正只覆盖一次晚到的布局；如果某个卡片在 >180ms 后才改变高度且没有新的行/key 变化，仍可能需要第三次校正。现有 settledCards 触发（300ms）和内容高度触发会补上大多数情况。
 - `onScrollPhaseChange` 在程序化动画上是否报告 `.interacting` 因系统版本而异；本实现用“near 时清除 away”兜底，不依赖该假设。
+
+## 5. 「发消息/新消息后空白、消息被推上去」追加排查
+
+### 5.1 Bot 页：短 transcript 没有 bottom anchor
+
+`BotChatPage` 的 ScrollView 原来没有 `.defaultScrollAnchor(.bottom)`，而 `followNewestContent` 无条件把内容滚到 1pt 的 `bot-transcript-tail`（anchor `.bottom`）。当内容比视口短时（第一条消息、短回复），这会把内容滚到 tail 的底部，消息被推到上方，下面留出一大片空白；截图证据：`empty` fixture 发送「继续」后，气泡在屏幕上方约 1/4 处，composer 前有 239pt 空白。主聊天早有 `shouldScrollToTail` 守卫和 `.defaultScrollAnchor(.bottom)`，Bot 两者都缺。
+
+修法：
+
+- `BotTranscriptLayoutSupport.shouldScrollToTail(contentHeight:viewportHeight:hasRows:tolerance:)`：内容不超过视口时**不滚**。
+- `BotChatPage` 测量 transcript 内容高度（`BotTranscriptContentHeightPreference`），在 `scheduleTranscriptScroll` 里先过这个守卫；内容高度变化时重新评估。
+- ScrollView 加 `.defaultScrollAnchor(.bottom)`，短内容自然贴近 composer；长内容仍由自定义 follow/卡片逻辑接管。
+- 新增 `testShortTranscriptSendStaysVisible`：`empty` fixture 发一条消息，气泡必须在 composer 上方且间距 ≤160pt。**PASS**。
+
+### 5.2 主聊天：同高度只校正一次
+
+`correctBlankTailViewportIfNeeded` 原来是“每个 content height 只校正一次”。LazyVStack 的估算高度让第一次 `scrollTo(lastRow)` 可能仍落在空白处；第二次几何回调 content height 没变，就被 latch 挡住，页面停空到用户手动拖。现在：
+
+- 可见帧（`.none`）清除 latch / attempt，证明上次校正已落地；
+- 同一高度允许**两次**、间隔 200ms 的重试；用户拖动会清除 attempt；
+- 内容高度变化重置 attempt。
+
+主聊天的 `.defaultScrollAnchor(.bottom)` 保留，短内容仍贴底。
+
+### 5.3 验证补充
+
+| 命令 | 结果 |
+| --- | --- |
+| `swift test --filter BotCardLayoutSupportTests` | **PASS**（含 short transcript guard 5 个边界） |
+| `xcodebuild build -scheme PhoneDSH` | **PASS** |
+| Bot UI capture（23 个 XCUITest，含 `testShortTranscriptSendStaysVisible`） | **PASS** — `** TEST SUCCEEDED **`，短发送气泡距 composer ≤160pt |
+| 主聊天 `testHistoryRestoreThenSendKeepsLatestMessageVisible` | 仍 **BLOCKED** — 测试在 `createNewSession()` 找不到新会话入口（UI 已改为 `drawer.new-session`/「新会话」，测试 harness 未同步），未走到滚动断言；真机主聊天空白仍 **NOT_VERIFIED** |
