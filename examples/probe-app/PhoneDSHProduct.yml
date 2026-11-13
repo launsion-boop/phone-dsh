@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+include:
+  - project.yml
+
+name: PhoneDSHProduct
+
+targets:
+  PhoneDSHProbe:
+    settings:
+      base:
+        DEVELOPMENT_TEAM: Q322S2LD93
+        PRODUCT_BUNDLE_IDENTIFIER: greater.longshu.PhoneDSH
+        CODE_SIGN_ENTITLEMENTS: Config/PhoneDSHProduct.entitlements
+        CODE_SIGN_STYLE: $(PDSH_PRODUCT_SIGN_STYLE)
+        PROVISIONING_PROFILE_SPECIFIER: $(PDSH_PRODUCT_PROFILE)
+        PDSH_PRODUCT_SIGN_STYLE: Automatic
+        PDSH_PRODUCT_PROFILE: ""

@@ -289,6 +289,24 @@ All of this is simulator evidence. iOS/WebKit behaviour on an iPhone —
 background scheduling, memory ceilings/jetsam, real JIT speed, thermal
 behaviour — stays **NOT_VERIFIED** until a device run records its own report.
 
+## Build the iOS product
+
+Stage the Worker assets using the same checkout as the release. From
+`examples/probe-app`, generate the project for the App Store bundle identifier:
+
+```bash
+xcodegen generate --spec PhoneDSHProduct.yml
+```
+
+Use `PhoneDSHProduct.xcodeproj` and the `PhoneDSHProbe` scheme. Pass
+`DEVELOPMENT_TEAM=Q322S2LD93` to `xcodebuild` so Swift package resource bundles
+also have a signing team. For manual signing, set `PDSH_PRODUCT_SIGN_STYLE=Manual`
+and `PDSH_PRODUCT_PROFILE` to the matching provisioning profile.
+
+Set `PDSH_FEISHU_OAUTH_ORIGIN` and `PDSH_FEISHU_APP_ID` when building with
+the Feishu connector enabled. Both values are public. Keep the Feishu App
+Secret in the server environment.
+
 ## Run on a device
 
 1. `xcodegen generate`, then open `PhoneDSHProbe.xcodeproj` in Xcode.
