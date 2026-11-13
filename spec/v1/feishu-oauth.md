@@ -9,8 +9,13 @@ is the client-side contract the iOS app relies on.
 ## User flow
 
 Discover shows a 飞书 row with the 连接 pill. Its sheet opens the Feishu
-connection page. Connect opens Feishu's authorization page in the iOS system
-authentication session. Feishu asks the person to grant
+connection page. Connect opens Feishu's OAuth page in the Feishu app via
+[Feishu Applink](https://open.feishu.cn/document/uAjLw4CM/uYjL24iN/mobile-app/integrate-via-app-link).
+If iOS cannot open the Applink in an installed app, Connect opens the same
+OAuth URL in the iOS system authentication session. The user can cancel the
+pending request and switch accounts in Feishu before connecting again. Both
+paths require the same broker callback and validate it against the active
+attempt before exchanging the code. Feishu asks the person to grant
 `drive:drive:readonly` (read the root of their own cloud space) and
 `offline_access` (issue a refresh token). The app then reads the signed-in
 name and the root listing of that person's cloud space, and shows them on the
@@ -69,10 +74,11 @@ next-page control.
 
 ## Feishu permissions
 
-The Feishu app must be a self-built app with the `drive:drive:readonly` and
-`offline_access` user scopes enabled, and
-`<origin>/v1/feishu/oauth/callback` registered under 安全设置. A missing scope
-surfaces as Feishu error 20027 on the authorization page; the app shows its
+Phone DSH operates one Feishu Store app for use across enterprises. After
+their enterprise enables the app, each user authorizes their own Feishu
+account. The app needs the `drive:drive:readonly` and `offline_access` user
+scopes and `<origin>/v1/feishu/oauth/callback` registered under 安全设置.
+A missing scope surfaces as Feishu error 20027 on the authorization page; the app shows its
 fixed authorization-failure copy and never a raw Feishu string.
 
 ## Compatibility and acceptance
@@ -81,6 +87,7 @@ The connector adds one Discover row and one page; it changes no existing route
 and no other connector. Acceptance needs, in order: the two simulated test
 suites (`FeishuOAuthTests`, `FeishuConnectorAPITests`), a broker round trip
 against the Tono platform with a real App ID, and a device pass that connects,
-reads the root listing, refreshes after expiry, and disconnects. A build
-without both build settings must show the unconfigured state and make no
+reads the root listing, refreshes after expiry, and disconnects. Verify the
+return from the installed Feishu app and the web fallback on a device where
+the Applink cannot open Feishu. A build without both build settings must show the unconfigured state and make no
 request.

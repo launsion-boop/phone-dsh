@@ -82,8 +82,10 @@ final class FeishuConnectorModel {
         }
     }
 
-    /// Stop a session and exchange that have not completed. Called when the
-    /// page goes away; it never changes an established connection.
+    func handleAuthorizationCallback(_ url: URL) {
+        webAuthorization.handleCallback(url)
+    }
+
     func cancelAuthorization() {
         guard case .connecting = state else { return }
         epoch = UUID()
@@ -171,14 +173,13 @@ final class FeishuConnectorModel {
                 state: attempt.state, codeChallenge: attempt.challenge
             ) else { throw FeishuOAuthError.invalidConfiguration }
 
-            let callbackURL = try await webAuthorization.start(
-                url: url, callbackScheme: FeishuOAuthConfiguration.callbackScheme
+            let callback = try await webAuthorization.start(
+                url: url,
+                appLink: configuration.appLink(for: url),
+                expectedState: attempt.state
             )
             guard epoch == id else { return }
 
-            let callback = try FeishuOAuthCallbackValidator.validate(
-                callbackURL, expectedState: attempt.state
-            )
             switch callback {
             case .accessDenied:
                 state = .disconnected
@@ -494,8 +495,8 @@ struct FeishuConnectorPage: View {
         } footer: {
             if model.isConfigured {
                 Text(NativeText(
-                    "连接后在飞书完成授权，Phone DSH 只读取你的云文档清单。",
-                    "Authorize in Feishu; Phone DSH only reads your cloud space listing."
+                    "使用你的飞书账号授权。Phone DSH 只读取你的云文档清单。",
+                    "Authorize with your Feishu account. Phone DSH reads only your cloud space listing."
                 ))
             } else {
                 Text(NativeText(
@@ -512,11 +513,20 @@ struct FeishuConnectorPage: View {
                 ProgressView()
                 Text(NativeText("正在等待飞书授权…", "Waiting for Feishu authorization…"))
             }
+            Button {
+                model.cancelAuthorization()
+            } label: {
+                Label(NativeText("取消授权", "Cancel authorization"),
+                      systemImage: "xmark.circle")
+            }
+            .accessibilityIdentifier("feishu.cancel")
         } header: {
             Text(NativeText("飞书账号", "Feishu account"))
         } footer: {
-            Text(NativeText("授权完成后会读取账号和云文档清单。",
-                            "The account and the cloud space listing are read after authorization."))
+            Text(NativeText(
+                "完成授权后会自动返回。若显示的是其他飞书账号，请取消后在飞书中切换账号再重试。",
+                "You return automatically after authorizing. If a different Feishu account is shown, cancel, switch accounts in Feishu, then try again."
+            ))
         }
     }
 

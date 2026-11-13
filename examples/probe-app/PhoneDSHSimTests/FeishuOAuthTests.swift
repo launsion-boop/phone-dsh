@@ -58,6 +58,24 @@ final class FeishuOAuthTests: XCTestCase {
         XCTAssertNil(items["client_secret"])
     }
 
+    func testAppLinkCarriesTheCompleteAuthorizationURL() throws {
+        let configuration = try configuration
+        let authorizationURL = try XCTUnwrap(configuration.authorizationURL(
+            state: feishuState, codeChallenge: feishuChallenge
+        ))
+        let appLink = try XCTUnwrap(configuration.appLink(for: authorizationURL))
+        let components = try XCTUnwrap(URLComponents(url: appLink, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.scheme, "https")
+        XCTAssertEqual(components.host, "applink.feishu.cn")
+        XCTAssertEqual(components.path, "/client/web_url/open")
+        XCTAssertEqual(components.queryItems, [
+            URLQueryItem(name: "mode", value: "window"),
+            URLQueryItem(name: "url", value: authorizationURL.absoluteString),
+        ])
+        XCTAssertTrue(try XCTUnwrap(components.percentEncodedQuery).contains("url=https%3A%2F%2F"))
+    }
+
     func testCallbackChecksStateAndRejectsUnexpectedParameters() throws {
         let root = "phonedsh-feishu://oauth/callback?"
         let valid = try XCTUnwrap(URL(string: root + "state=\(feishuState)&code=\(feishuCode)"))

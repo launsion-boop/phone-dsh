@@ -108,6 +108,25 @@ public struct FeishuOAuthConfiguration: Equatable, Sendable {
         return components?.url
     }
 
+    public func appLink(for authorizationURL: URL) -> URL? {
+        let unreserved = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        )
+        guard let encodedURL = authorizationURL.absoluteString
+            .addingPercentEncoding(withAllowedCharacters: unreserved)
+        else { return nil }
+
+        var link = URLComponents()
+        link.scheme = "https"
+        link.host = "applink.feishu.cn"
+        link.path = "/client/web_url/open"
+        link.percentEncodedQueryItems = [
+            URLQueryItem(name: "mode", value: "window"),
+            URLQueryItem(name: "url", value: encodedURL),
+        ]
+        return link.url
+    }
+
     /// Feishu App IDs look like `cli_a5ca35a685b0x26e`: an `cli_` prefix and
     /// then letters and digits. The shape is checked before any request.
     public static func isValidAppID(_ value: String) -> Bool {
