@@ -17,10 +17,10 @@ Protocol impact: **P19**（`session/prompt.content` image part）、**P26**（ad
 
 ### R8 工具产物图片
 
-- `attach_to_model`（P26 additive；不在 P0 名单）：`path` 或 `fileId` 二选一 + `purpose`。
+- `attach_to_model`（P26 additive；不在 P0 名单）：`path`、`fileId` 或 `photoId` 三选一 + `purpose`。
 - 返回 MCP `image` content block；DSH MCP client 负责 canonical base64、模型 `inputModalities` 检查和 durable admission。
 - `BotToolEffects` / Worker `approval-gate`：`model.image.attach`、`external-send`、`ask`；Task 会话直接拒绝。
-- 每回合最多 2 张工具图片；`fileId` 走 `OfficeArtifactStore`（camera 产物），`path` 走 materialized workspace（用户附件/文档）。
+- 每回合最多 2 张工具图片；`fileId` 走 `OfficeArtifactStore`（camera 产物），`photoId` 走 Photos 本地 asset（`isNetworkAccessAllowed=false`，不拉 iCloud），`path` 走 materialized workspace（用户附件/文档）。
 
 ## 2. 验证
 
@@ -28,17 +28,17 @@ Protocol impact: **P19**（`session/prompt.content` image part）、**P26**（ad
 | --- | --- |
 | `swift test --filter BotModelImageTests` | **PASS** 4（3000×2000 → ≤1568、≤1 MiB、JPEG magic、非图片/空输入 fail-closed） |
 | `swift test --filter BotModelImageToolTests` | **PASS** 4（catalog/effect、无 reader fail-closed、image content block、path/fileId/purpose 校验） |
-| `swift test --filter PhoneDSHBotTests` | **PASS** 760（两次重跑后；先前一次 2 个 approval-expiry 计时用例偶发失败，与本 diff 无关） |
+| `swift test --filter PhoneDSHBotTests` | **758–760 / 760** — 多数运行全过；偶发 `approval-pending-expired`（50ms 合同夹具）计时失败，与本 diff 无关，单独重跑仍复现，属既有时间敏感用例 |
 | `xcodebuild build -scheme PhoneDSH`（iPhone 17 Pro 模拟器） | **PASS** |
 | `npm run typecheck`（plugins） | **PASS** |
 | `node --test tests/bot-model-image-approval.test.ts` | **PASS** 2（Worker 审批分类/资源） |
 | `BotGoldenVectorTests` / `BotCardPayloadTests` / `BotTeamToolsTests` / `BotMCPRPCCasesTests` | **PASS**（tool-effects 28、allDefinitions +1、RPC tools/list +1 已更新） |
-| Bot UI capture（含新 `testImageAttachmentSendAsksBeforeModelEgress`） | 见最新 UI capture 日志；旧一次因 capture target 不链接 ProbeKit 构建失败，已用 `canImport(ProbeKit)` 条件修复 |
+| Bot UI capture：24 个 XCUITest（含 `testImageAttachmentSendAsksBeforeModelEgress`） | **PASS** — `** TEST SUCCEEDED **`，0 failures；旧一次因 capture target 不链接 ProbeKit 构建失败，已用 `canImport(ProbeKit)` 条件修复 |
 
 ## 3. 未验证 / 风险
 
 - **真机端到端**：**NOT_VERIFIED**。本机模拟器没有可用的 vision 模型 route；MCP client 的 `inputModalities` 检查、真实模型看图、camera `fileId` 的 `OfficeArtifactStore` 读取均需真机。
 - **Prompt image part**：依赖 DSH `SessionPromptRequest` 的 image 分支；未在真机 Worker 上跑通一次真实请求。
 - **PDF OCR**：未实现；`attach_to_model` 对 PDF 返回 `image_unavailable`，不会假装 OCR。
-- **photos.recent/search**：若元数据没有 `fileId`，仍无法取像素；需要后续导出通路。
+- **photos.recent/search**：工具返回的是 PHAsset `id`；`attach_to_model(photoId:)` 现在按 localIdentifier 本地导出（不拉 iCloud），真机相册权限/资产可用性未验证。
 - 用户主动选图按“明确动作 + 二次确认对话框”处理；工具产出的图片走审批卡。若产品要求每次图片都单独审批（包括“本会话都允许”也不允许），只需删掉 composer 的 session 选项。
