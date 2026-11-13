@@ -564,6 +564,27 @@
         "known": true,
         "isMcp": false
       }
+    },
+    {
+      "name": "read_image",
+      "args": {
+        "path": "/dsh/workspace/photo.jpg"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "read_image",
+        "operation": "model.image.attach",
+        "resource": "attachment=/dsh/workspace/photo.jpg",
+        "target": "/dsh/workspace/photo.jpg",
+        "mutability": "external-send",
+        "policy": "ask",
+        "label": "把图片发送给模型",
+        "detail": "把工作区图片发送给模型服务，让模型看到像素。",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ],
   "invalid": [

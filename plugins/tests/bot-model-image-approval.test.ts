@@ -23,6 +23,16 @@ test('attach_to_model is a structural, approval-gated external send', () => {
   assert.match(effect.detail, /看看这张照片/u)
 })
 
+test('read_image is gated as the same external send', () => {
+  assert.equal(needsStructuralApproval('read_image'), true)
+  const effects = phoneEffectsForApproval('read_image', { path: '/dsh/workspace/camera.jpg' })
+  assert.equal(effects.length, 1)
+  assert.equal(effects[0]?.operation, 'model.image.attach')
+  assert.equal(effects[0]?.mutability, 'external-send')
+  assert.equal(effects[0]?.policy, 'ask')
+  assert.equal(effects[0]?.resource, 'attachment=/dsh/workspace/camera.jpg')
+})
+
 test('attach_to_model prefers fileId when a camera artifact has no path', () => {
   const effects = phoneEffectsForApproval('mcp__phone__attach_to_model', {
     fileId: 'art_camera',
@@ -38,6 +48,12 @@ test('the Worker effect matches the shared Swift golden for attach_to_model', ()
   }
   const entry = golden.valid.find(value => value.name === 'attach_to_model')
   assert.ok(entry, 'the shared tool-effects.phone.json must carry attach_to_model')
+  const readEntry = golden.valid.find(value => value.name === 'read_image')
+  assert.ok(readEntry, 'the shared tool-effects.phone.json must carry read_image')
+  const readEffects = phoneEffectsForApproval('read_image', readEntry.args)
+  assert.equal(readEffects[0]?.operation, readEntry.effect.operation)
+  assert.equal(readEffects[0]?.resource, readEntry.effect.resource)
+  assert.equal(readEffects[0]?.detail, readEntry.effect.detail)
   const effects = phoneEffectsForApproval('mcp__phone__attach_to_model', entry.args)
   assert.equal(effects.length, 1)
   const effect = effects[0]!

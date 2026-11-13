@@ -140,9 +140,13 @@ function bleEffect(bare: string, args: Record<string, unknown>): ApprovalEffect 
   }
 }
 
-function modelImageEffect(name: string, args: Record<string, unknown>): ApprovalEffect {
+function modelImageEffect(name: string, args: Record<string, unknown>,
+                          isMcp = true): ApprovalEffect {
   const target = clip(args.path ?? args.fileId ?? args.photoId, 200)
   const purpose = clip(args.purpose, 120)
+  const detail = isMcp
+    ? `把图片发送给模型服务，让模型看到像素。${purpose ? `用途：${purpose}` : ''}`
+    : '把工作区图片发送给模型服务，让模型看到像素。'
   return {
     tool: name,
     operation: 'model.image.attach',
@@ -151,11 +155,11 @@ function modelImageEffect(name: string, args: Record<string, unknown>): Approval
     mutability: 'external-send',
     policy: 'ask',
     label: '把图片发送给模型',
-    detail: `把图片发送给模型服务，让模型看到像素。${purpose ? `用途：${purpose}` : ''}`,
+    detail,
     ui: false,
     execution: null,
     known: true,
-    isMcp: true,
+    isMcp,
   }
 }
 
@@ -279,6 +283,10 @@ export function phoneEffectsForApproval(
   if (bare === 'BotVolatileContext' || UI_TOOLS.has(bare) || AUTO_TOOLS.has(bare)) return []
   if (BLE_TOOLS.has(bare)) return [bleEffect(bare, args)]
   if (bare === 'attach_to_model') return [modelImageEffect(name, args)]
+  // DSH's built-in read_image is a model-egress path too: without this gate
+  // the model could read any workspace image into the next request with no
+  // approval card. It stays a Worker tool; only the effect is added here.
+  if (bare === 'read_image') return [modelImageEffect(name, args, false)]
   if (bare === 'UpdateMemory') {
     const action = String(args.action ?? 'write')
     const scope = String(args.scope ?? 'agent')
@@ -297,6 +305,7 @@ export function phoneEffectsForApproval(
 export function needsStructuralApproval(name: string): boolean {
   if (name.startsWith(NATIVE_PHONE_TOOL_PREFIX)) return false
   if (name === 'bash' || name === 'write' || name === 'edit') return true
+  if (name === 'read_image') return true
   return name.startsWith(PHONE_TOOL_PREFIX)
 }
 
