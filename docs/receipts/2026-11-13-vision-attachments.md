@@ -33,7 +33,9 @@ Protocol impact: **P19**（`session/prompt.content` image part）、**P26**（ad
 | `npm run typecheck`（plugins） | **PASS** |
 | `node --test tests/bot-model-image-approval.test.ts` | **PASS** 2（Worker 审批分类/资源） |
 | `BotGoldenVectorTests` / `BotCardPayloadTests` / `BotTeamToolsTests` / `BotMCPRPCCasesTests` | **PASS**（tool-effects 28、allDefinitions +1、RPC tools/list +1 已更新） |
-| Bot UI capture：24 个 XCUITest（含 `testImageAttachmentSendAsksBeforeModelEgress`） | **PASS** — `** TEST SUCCEEDED **`，0 failures；旧一次因 capture target 不链接 ProbeKit 构建失败，已用 `canImport(ProbeKit)` 条件修复 |
+| Bot UI capture：24 个 XCUITest（含 `testImageAttachmentSendAsksBeforeModelEgress`） | **PASS** — `** TEST SUCCEEDED **`，0 failures；61 张 fixture 截图；旧一次因 capture target 不链接 ProbeKit 构建失败，已用 `canImport(ProbeKit)` 条件修复 |
+| `python3 spec/bot/v1/tools/validate_vectors.py` | **PASS** |
+| `phone-cross-tree` / `phone-bundle-fresh` | **PASS**（重建 worker bundle + image 后） |
 
 ## 3. 未验证 / 风险
 
