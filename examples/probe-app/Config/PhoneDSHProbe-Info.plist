@@ -20,6 +20,14 @@
 				<string>phonedsh-github</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER).feishu-oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>phonedsh-feishu</string>
+			</array>
+		</dict>
 	</array>
     <key>UIFileSharingEnabled</key>
     <true/>
@@ -199,6 +207,14 @@
 	<string>$(PDSH_GITHUB_OAUTH_CLIENT_ID)</string>
 	<key>PDSH_GITHUB_APP_SLUG</key>
 	<string>$(PDSH_GITHUB_APP_SLUG)</string>
+	<!-- Feishu connector (spec/v1/feishu-oauth.md). The App ID is public and the
+	     App Secret lives only on the platform broker, so a build needs just the
+	     broker origin (tono-api) and the Feishu App ID shown in the developer
+	     console. Blank values leave the page on its unconfigured state. -->
+	<key>PDSH_FEISHU_OAUTH_ORIGIN</key>
+	<string>$(PDSH_FEISHU_OAUTH_ORIGIN)</string>
+	<key>PDSH_FEISHU_APP_ID</key>
+	<string>$(PDSH_FEISHU_APP_ID)</string>
 	<!-- The broker redirects to this fixed custom scheme after GitHub
 	     authorization. ASWebAuthenticationSession intercepts it and the
 	     connector validates scheme, host, path and state before exchange. -->
