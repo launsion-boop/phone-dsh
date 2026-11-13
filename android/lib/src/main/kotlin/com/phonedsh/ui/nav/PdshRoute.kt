@@ -513,6 +513,22 @@ public sealed interface PdshRoute {
     public data object ConnectedComputer : PdshRoute {
         override val presentation: PdshPresentation = PdshPresentation.PUSH
     }
+
+    /**
+     * 电脑会话历史: one paired PC's durable session history, read-only.
+     *
+     * The host reads `session/page` through the PCLink transport; this route only
+     * carries the address, so the stack stays a plain value and the local phone
+     * engine is never involved. PUSH keeps the page header's back on the same
+     * stack the drawer row entered from.
+     */
+    public data class PcSessionHistory(
+        public val machineId: String,
+        public val sessionId: String,
+        public val title: String,
+    ) : PdshRoute {
+        override val presentation: PdshPresentation = PdshPresentation.PUSH
+    }
 }
 
 /**

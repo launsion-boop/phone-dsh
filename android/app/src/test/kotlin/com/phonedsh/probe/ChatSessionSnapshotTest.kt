@@ -608,6 +608,19 @@ class ChatSessionSnapshotTest {
         assertTrue(unsupported.nodes.isEmpty())
     }
 
+    @Test fun `PC history shows the user message without injected context`() {
+        val history = projectPcSessionHistory(
+            "pc-session",
+            listOf(
+                json("""{"type":"user/message","seq":1,"data":{"turn":1,"source":{"kind":"user"},"content":[{"type":"text","text":"Describe this"},{"type":"image","url":"opaque"}]}}""") as JsonObject,
+                json("""{"type":"user/message","seq":2,"data":{"turn":1,"source":{"kind":"runtime-context"},"content":[{"type":"text","text":"Internal context"}]}}""") as JsonObject,
+                json("""{"type":"assistant/message","seq":3,"data":{"turn":1,"message":{"content":[{"type":"text","text":"Done"}]}}}""") as JsonObject,
+            ),
+        )
+        assertNull(history.unsupportedReason)
+        assertEquals(listOf("Describe this\n电脑上的这段消息含有暂无法显示的内容。", "Done"), history.nodes.map { it.text })
+    }
+
     @Test fun `subagent catalog distinguishes unreported empty and session-list identity`() {
         val unreported = sessionSnapshotOf(
             json("""{"values":{"todos":[]}}"""), null, null,

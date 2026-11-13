@@ -37,6 +37,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import com.phonedsh.ui.UiStrings
 import com.phonedsh.ui.page.AutomationLocalState
 import com.phonedsh.ui.page.AutomationScreenState
@@ -86,6 +88,7 @@ import com.phonedsh.ui.page.NativeConfigurationPage
 import com.phonedsh.ui.page.NativePluginInventoryPage
 import com.phonedsh.ui.page.NativeWorkbenchPage
 import com.phonedsh.ui.page.PDSHShellPage
+import com.phonedsh.ui.page.PcSessionHistoryUiState
 import com.phonedsh.ui.page.PCPairingPage
 import com.phonedsh.ui.page.PCPairingUiState
 import com.phonedsh.ui.page.ConnectedComputerPage
@@ -467,8 +470,17 @@ public fun PdshNavHost(
      * without a PCLink seam still renders the contract's install/scan/other body.
      */
     pcPairingState: PCPairingUiState = PCPairingUiState(),
+    /**
+     * 连接电脑's reviewed install command (`PCLinkInstallGuide.installCommand`).
+     * The page prints it and its copy button writes it to the Android clipboard;
+     * `""` keeps the honest `—` body for a host with no PCLink seam.
+     */
+    pcInstallCommand: String = "",
     /** 已连接的电脑's host snapshot; the default is its 还没有连接电脑 empty state. */
     pcConnectedState: ConnectedComputerUiState = ConnectedComputerUiState(),
+    /** 电脑会话 history; `null` keeps the route's loading state until the host reads it. */
+    pcSessionHistory: PcSessionHistoryUiState? = null,
+    onPcSessionHistoryRetry: () -> Unit = {},
     /** 已连接的电脑's trailing value (`未配对` / `离线` / the verified name). */
     connectedComputerValue: String? = null,
     /** The host's camera preview for the pairing page's scanner sheet. */
@@ -506,6 +518,9 @@ public fun PdshNavHost(
         }
         return
     }
+    // The pairing page's copy action uses Compose's Android clipboard seam, the
+    // same one the chat/row copy controls use; no host callback or extra state.
+    val clipboard = LocalClipboardManager.current
     RouteSurface(
         presentation = route.presentation,
         sheetPageId = sheetPageIdOf(route),
@@ -679,6 +694,12 @@ public fun PdshNavHost(
                 onDone = onPcDone ?: onBack,
                 onClose = onPcClose ?: onBack,
                 onCancelScanner = onPcCancelScanner,
+                installCommand = pcInstallCommand,
+                onCopyInstallCommand = if (pcInstallCommand.isBlank()) {
+                    null
+                } else {
+                    { clipboard.setText(AnnotatedString(pcInstallCommand)) }
+                },
                 scannerContent = pcScannerContent,
             )
             PdshRoute.ConnectedComputer -> ConnectedComputerPage(
@@ -688,6 +709,15 @@ public fun PdshNavHost(
                 onUnpair = onPcUnpair,
                 onDismissUnpairFailure = onPcDismissUnpairFailure,
                 onConnectionScreenOpened = onPcConnectionScreenOpened,
+            )
+            is PdshRoute.PcSessionHistory -> ChatPage(
+                state = pcSessionHistory ?: PcSessionHistoryUiState(
+                    machineId = route.machineId,
+                    sessionId = route.sessionId,
+                    title = route.title,
+                ),
+                onBack = onBack,
+                onRetry = onPcSessionHistoryRetry,
             )
         }
     }
