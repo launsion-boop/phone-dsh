@@ -31,7 +31,9 @@ enum BotWorkspaceModelImage {
         if let fileID = request.fileID, !fileID.isEmpty {
             url = try await OfficeArtifactStore.shared.fileURL(for: fileID)
         } else if let path = request.path,
-                  let resolved = PreviewPathResolver.fileURL(for: path) {
+                  let resolved = await MainActor.run(body: {
+                      PreviewPathResolver.fileURL(for: path)
+                  }) {
             url = resolved
         } else {
             throw BotModelImageError.unsupported
