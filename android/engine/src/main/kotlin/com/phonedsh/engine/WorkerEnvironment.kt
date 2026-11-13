@@ -45,6 +45,18 @@ data class GitHubAgentEnvironment(
     }
 }
 
+/**
+ * The Bot MCP listener this host start publishes to the Worker.
+ *
+ * [url] is `http://127.0.0.1:<port>/mcp`; [egressToken] is the host-start
+ * credential the Worker sends as `X-PDSH-MCP-Egress` and the host strips before
+ * resolving the real Bot bearer. Neither value is persisted or logged.
+ */
+data class BotMcpEnvironment(
+    val url: String,
+    val egressToken: String? = null,
+)
+
 /** Builds the `env` page parameter the worker boot consumes. */
 object WorkerEnvironment {
     /**
@@ -127,6 +139,12 @@ object WorkerEnvironment {
      * [githubAgent] (or the installed live source), so a host-supplied "1"
      * cannot forge a credential the host does not have.
      *
+     * [botMcpUrl] is the Bot listener URL. It wins over a legacy [phoneMcpUrl]
+     * and writes [BOT_MCP_TOKEN_PLACEHOLDER] into [PHONE_MCP_TOKEN]; the real
+     * Bot bearer never enters this page parameter. [mcpEgressToken] is
+     * host-start state and is never taken from [hostSupplied]: a stale value in
+     * the map is removed, then the current value is written when supplied.
+     *
      * The value is never logged; callers only put it in the page URL, whose query
      * is stripped by [EngineLogText.baseUrl] on every log line.
      *
@@ -139,14 +157,27 @@ object WorkerEnvironment {
         modelBaseUrl: String? = null,
         phoneMcpUrl: String? = null,
         githubAgent: GitHubAgentEnvironment? = null,
+        botMcpUrl: String? = null,
+        mcpEgressToken: String? = null,
     ): String {
         val env = parseObject(hostSupplied)
         val resolvedGitHubAgent = githubAgent ?: githubAgentSource()
         if (modelBaseUrl != null) env.put(MODEL_BASE_URL, modelBaseUrl)
-        // native-mcp.md: with a mounted `/mcp/native` the host points the official
-        // `mcp-phone` plugin at it (iOS `PhoneDSHHost.swift`, same two keys). The
-        // token is this start's loopback token, i.e. the launch token.
-        if (phoneMcpUrl != null) {
+        // P16: the egress credential is host-start state, never a host-supplied
+        // environment value. Removing it first means a stale `?env=` object
+        // cannot keep an old token alive after the host rotated it.
+        env.remove(MCP_EGRESS_TOKEN)
+        if (mcpEgressToken != null) env.put(MCP_EGRESS_TOKEN, mcpEgressToken)
+        // mcp-endpoint.md §1: a Bot listener is the Worker's only `phone`
+        // server. The Worker sees the listener URL and a non-secret placeholder
+        // token; the real bearer is injected by the host at `/v1/http` egress.
+        if (botMcpUrl != null) {
+            env.put(PHONE_MCP_URL, botMcpUrl)
+            env.put(PHONE_MCP_TOKEN, BOT_MCP_TOKEN_PLACEHOLDER)
+        } else if (phoneMcpUrl != null) {
+            // native-mcp.md: with a mounted `/mcp/native` the host points the official
+            // `mcp-phone` plugin at it (iOS `PhoneDSHHost.swift`, same two keys). The
+            // token is this start's loopback token, i.e. the launch token.
             env.put(PHONE_MCP_URL, phoneMcpUrl)
             env.put(PHONE_MCP_TOKEN, launchToken)
         }
@@ -161,8 +192,27 @@ object WorkerEnvironment {
     /** `plugins/profile/phone.worker.cordis.patch.yml`: the app MCP endpoint (optional). */
     const val PHONE_MCP_URL: String = "PDSH_PHONE_MCP_URL"
 
-    /** Bearer token for [PHONE_MCP_URL]; the same per-start origin token. */
+    /**
+     * Bearer for [PHONE_MCP_URL]. A native-only start gets the per-start
+     * loopback token; a Bot-configured start gets the non-secret
+     * [BOT_MCP_TOKEN_PLACEHOLDER] and the host injects the real bearer at egress.
+     */
     const val PHONE_MCP_TOKEN: String = "PDSH_PHONE_MCP_TOKEN"
+
+    /**
+     * The non-secret placeholder a Bot-configured Worker sees in
+     * `PDSH_PHONE_MCP_TOKEN` (mcp-endpoint.md §1.1). It is never the Bot
+     * bearer; the host replaces it at `/v1/http` egress.
+     */
+    const val BOT_MCP_TOKEN_PLACEHOLDER: String = "phone-host-injects-bot-mcp-token"
+
+    /**
+     * The per-host-start trusted-MCP egress credential (P16 / mcp-endpoint.md
+     * §1.1). The Worker sends it as `X-PDSH-MCP-Egress`; the host validates and
+     * strips it before resolving the real Bot/connector credential. It never
+     * enters a persisted document or a log.
+     */
+    const val MCP_EGRESS_TOKEN: String = "PDSH_MCP_EGRESS_TOKEN"
 
     private fun parseObject(raw: String?): JSONObject {
         if (raw.isNullOrBlank()) return JSONObject()

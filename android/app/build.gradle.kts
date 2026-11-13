@@ -39,6 +39,22 @@ plugins {
 // which the screen would show as "libpdsh_jni not packaged"; the packaging task
 // below fails instead of shipping that APK.
 val repoRoot: File = rootProject.projectDir.parentFile
+// The Bot MCP catalog is the shared spec golden, never a copied Kotlin table.
+// Only the two JSON files the handler reads are packaged, under assets/bot/.
+val botCatalogAssetsDir: File =
+    layout.buildDirectory.dir("generated/bot-catalog-assets").get().asFile
+val copyBotCatalogAssets = tasks.register<Copy>("copyBotCatalogAssets") {
+    description = "Packages spec/bot/v1/golden tool catalogs for AppBotRuntime."
+    from(repoRoot.resolve("spec/bot/v1/golden")) {
+        include("tool-catalog.json", "tool-catalog.phone.json")
+    }
+    into(File(botCatalogAssetsDir, "bot"))
+}
+android.sourceSets.getByName("main").assets.srcDir(botCatalogAssetsDir)
+tasks.matching {
+    (it.name.startsWith("merge") || it.name.startsWith("package")) &&
+        it.name.endsWith("Assets")
+}.configureEach { dependsOn(copyBotCatalogAssets) }
 val pdshJniSo: File = repoRoot.resolve("shell/target/aarch64-linux-android/debug/libpdsh_jni.so")
 val hostPdshJni: File = repoRoot.resolve("shell/target/debug/${System.mapLibraryName("pdsh_jni")}")
 val hostJniTestDirectory: File = layout.buildDirectory.dir("generated/host-jni-test").get().asFile
@@ -645,6 +661,12 @@ dependencies {
     // UiTokenData over spec/ui/v1/tokens.json. The screen keeps no copy of a
     // token value, and the AAR was already on this module's classpath.
     implementation(project(":lib"))
+    // Bot runtime (P25/P26/P27) and its loopback MCP listener. `:lib` already
+    // exposes the Bot value types through `api`, but the App is the composition
+    // root that constructs the runtime and the listener, so both edges are
+    // declared here explicitly.
+    implementation(project(":bot"))
+    implementation(project(":net"))
     // PCLink (P28) is the phone end of the relay/E2E protocol. `:app` is the
     // composition root that constructs the real client/RPC/transport and the
     // Android Keystore identity adapter; the published `:lib` AAR does not
@@ -688,6 +710,9 @@ dependencies {
     // Host-side unit tests: the permission matrix's row-by-row mapping and what the
     // page prints for it. Pure JVM, no Robolectric and no device.
     testImplementation(libs.junit)
+    // The Bot driver test uses the real P25 store and projection over a JVM
+    // SQLite database; no fixture copies the store's DDL or row decoder.
+    testImplementation(libs.sqlite.jdbc)
     // Exercise the real AndroidX permission registry, including restored results.
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("androidx.test:core:1.6.1")

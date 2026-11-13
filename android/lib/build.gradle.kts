@@ -91,6 +91,20 @@ androidComponents {
     beforeVariants(selector().withBuildType("release")) { variant ->
         variant.enableUnitTest = false
     }
+    onVariants(selector().withBuildType("debug")) { variant ->
+        // The merged-asset directory is the same one the AAR packages and the
+        // renderer reads on device. Passing it to the unit test keeps the
+        // manifest check on the real merge output, not a private copy.
+        val mergedAssets = variant.artifacts.get(
+            com.android.build.api.artifact.SingleArtifact.ASSETS,
+        )
+        tasks.withType<Test>().configureEach {
+            dependsOn(mergedAssets)
+            doFirst {
+                systemProperty("pdsh.merged.assets", mergedAssets.get().asFile.absolutePath)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +120,34 @@ androidComponents {
 // ---------------------------------------------------------------------------
 val repoRoot: File = rootProject.projectDir.parentFile
 val tokensJson: File = repoRoot.resolve("spec/ui/v1/tokens.json")
+
+// ---------------------------------------------------------------------------
+// BotFish artwork: examples/probe-app/BotFish is the single source. The AAR
+// consumes a build-time copy under assets/BotFish/ (never a committed copy of
+// the PNGs). This is the same shape as generateUiTokens below: a declared task
+// writes a generated directory, and the source set reads it.
+//
+// The grant now covers every phoneDSH platform (examples/probe-app/BotFish/
+// SOURCES.md, NOTICE); the copy intentionally includes SOURCES.md so the
+// AAR carries the provenance.
+// ---------------------------------------------------------------------------
+val botFishSourceDir: File = repoRoot.resolve("examples/probe-app/BotFish")
+val generatedBotFishAssetsDir: File =
+    layout.buildDirectory.dir("generated/botfish-assets").get().asFile
+
+val copyBotFishAssets = tasks.register<org.gradle.api.tasks.Sync>("copyBotFishAssets") {
+    description = "Copies examples/probe-app/BotFish into the :lib AAR assets/BotFish/."
+    group = "build"
+    from(botFishSourceDir) { into("BotFish") }
+    into(generatedBotFishAssetsDir)
+}
+
+android.sourceSets.getByName("main").assets.srcDir(generatedBotFishAssetsDir)
+tasks.matching {
+    (it.name.startsWith("merge") || it.name.startsWith("package")) &&
+        it.name.endsWith("Assets")
+}.configureEach { dependsOn(copyBotFishAssets) }
+
 // PR22 values are reviewed from the iOS owners into `tokens.json` (HomeSpec for
 // the page table; the still-active component files for their own roles). The
 // generator reads only that reviewed JSON, so Swift/HTML never becomes a second
@@ -953,6 +995,10 @@ dependencies {
     // they do not, and a maintainer who believed it would go looking for a binding
     // that isn't there.
     api(project(":domain"))
+    // The Bot pages (P09 Bot UI-state seam) and the BotFish view take `:bot` value
+    // types (rows, fish lifecycle, appearance) as parameters, so the edge is `api`
+    // and `:bot` publishes with the rest of the closure.
+    api(project(":bot"))
     implementation(libs.androidx.core.ktx)
 
     // Compose: the AAR's public surface is composable, so the runtime and the
@@ -1012,7 +1058,7 @@ publishing {
 //
 // Publishing it would write a `com.phonedsh:lib:0.1.0` POM whose `compile` scope
 // is `:core` + `:platform` only — missing `dsh`, `controller`, `shell`, `net` and
-// through `dsh` no `domain` either: five of the eight artifacts — under the SAME
+// through `dsh` no `domain` either: five of the nine artifacts — under the SAME
 // version number as the complete publication. The consumer would then fail in R8
 // exactly the way L63 measured (44 missing classes), with nothing on disk saying
 // which of the two 0.1.0 POMs it resolved.
@@ -1027,7 +1073,7 @@ tasks.matching {
             throw org.gradle.api.GradleException(
                 "refusing to publish :lib with -Ppdsh.uiCoreOnly=true: that build's api edge is " +
                     ":core + :platform only, so the POM would be missing dsh, controller, shell, " +
-                    "net and the domain edge — five of the eight com.phonedsh artifacts — while " +
+                    "net and the domain edge — five of the nine com.phonedsh artifacts — while " +
                     "carrying the same 0.1.0 coordinate as the complete publication. Re-run " +
                     "without the flag to produce the real artifact.",
             )

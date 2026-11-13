@@ -158,6 +158,12 @@ class WebViewEngine(
      */
     private val bootOverlaySource: BootOverlaySource? = null,
     private val nativeMcp: NativeMcpServing? = null,
+    /**
+     * The Bot MCP endpoint for the page load about to happen, read at launch
+     * time. The listener may start after the engine is constructed, so this is
+     * a provider rather than a value; `null` keeps the native-only env.
+     */
+    private val botMcpEnvironment: (() -> BotMcpEnvironment?)? = null,
 ) : DemoEngine {
     private val appContext: Context = context.applicationContext ?: context
     private val lifecycle = EngineLifecycle(logger)
@@ -746,11 +752,14 @@ class WebViewEngine(
             }
             params[name] = value
         }
+        val botMcp = botMcpEnvironment?.invoke()
         params["env"] = WorkerEnvironment.pageParam(
             launchToken = launchTokenValue,
             hostSupplied = pageParams["env"],
             modelBaseUrl = modelProxy?.let { endpoint.origin },
             phoneMcpUrl = nativeMcp?.let { endpoint.urlFor("/mcp/native") },
+            botMcpUrl = botMcp?.url,
+            mcpEgressToken = botMcp?.egressToken,
         )
         return endpoint.launchUrl(params, includeToken = false)
     }

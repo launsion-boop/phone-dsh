@@ -1,0 +1,1303 @@
+{
+  "schemaVersion": 1,
+  "vector": "tool-call-cases.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-only P0 tool-call vector; no dsh-bot upstream file exists. The checkout records the pinned upstream batch this contract sits beside, not the origin of these cases."
+  },
+  "upstream": [],
+  "delta": [
+    "P26: every P0 tool has a valid call and an invalid-arguments call executed by the real Bot runtime; ListRoutines' invalid case is the JSON-RPC non-object arguments check because the executor intentionally ignores members.",
+    "P26: every P0 tool has a per-caller catalog denial (permission_denied) and unknown/P1 names stay unknown_tool; the shared card builder, memory, routine, task executor and approval coordinator are the real implementations, not a re-implementation.",
+    "P26: UpdateMemory business refusals stay successful tool results (isError absent, ok:false + code), while argument/ownership failures are isError:true; RequestApproval returns the real coordinator outcome and consumes a once grant; Task/AwaitTask/StopSubagent use the executor record shape."
+  ],
+  "tools": [
+    "ask_user",
+    "show_next_steps",
+    "show_attachment",
+    "show_document",
+    "show_progress",
+    "show_checklist",
+    "show_link",
+    "UpdateMemory",
+    "ReadMemory",
+    "RecallMemory",
+    "Task",
+    "AwaitTask",
+    "StopSubagent",
+    "UpdateRoutine",
+    "ListRoutines",
+    "RequestApproval",
+    "SendToUser"
+  ],
+  "valid": [
+    {
+      "tool": "UpdateMemory",
+      "name": "update-memory-write-agent",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "action": "write",
+        "path": "agent/notes/tone.md",
+        "content": "brief answers are preferred",
+        "expected_version": 0
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "action": "write",
+          "path": "agent/notes/tone.md",
+          "scope": "agent",
+          "version": 1,
+          "previous_version": 0
+        }
+      }
+    },
+    {
+      "tool": "UpdateMemory",
+      "name": "update-memory-version-conflict",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user",
+        "seedMemory": [
+          {
+            "path": "agent/notes/tone.md",
+            "content": "first version"
+          }
+        ]
+      },
+      "arguments": {
+        "action": "write",
+        "path": "agent/notes/tone.md",
+        "content": "second",
+        "expected_version": 0
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": false,
+          "code": "memory-version-conflict",
+          "path": "agent/notes/tone.md"
+        }
+      }
+    },
+    {
+      "tool": "ReadMemory",
+      "name": "read-memory-document",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user",
+        "seedMemory": [
+          {
+            "path": "agent/notes/tone.md",
+            "content": "brief answers are preferred"
+          }
+        ]
+      },
+      "arguments": {
+        "path": "agent/notes/tone.md"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "kind": "document",
+          "path": "agent/notes/tone.md",
+          "scope": "agent",
+          "version": 1,
+          "content": "brief answers are preferred"
+        }
+      }
+    },
+    {
+      "tool": "RecallMemory",
+      "name": "recall-memory-brief",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user",
+        "seedMemory": [
+          {
+            "path": "agent/notes/tone.md",
+            "content": "brief answers are preferred"
+          }
+        ]
+      },
+      "arguments": {
+        "query": "brief",
+        "limit": 10,
+        "scope": "all"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "count": 1,
+          "total": 1,
+          "truncated": false,
+          "hits": [
+            {
+              "path": "agent/notes/tone.md",
+              "scope": "agent"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "Task",
+      "name": "task-async",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "task_title": "Investigate",
+        "task_description": "inspect the workspace",
+        "async": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "status": "running",
+          "title": "Investigate"
+        }
+      }
+    },
+    {
+      "tool": "AwaitTask",
+      "name": "await-task",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "task_id": "$taskId",
+        "timeout_ms": 1000
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "status": "completed",
+          "result": "completed async",
+          "title": "Seed"
+        }
+      },
+      "createTask": true
+    },
+    {
+      "tool": "StopSubagent",
+      "name": "stop-subagent",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "task_id": "$taskId"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "status": "stopped",
+          "title": "Seed"
+        }
+      },
+      "createTask": true
+    },
+    {
+      "tool": "UpdateRoutine",
+      "name": "update-routine-create",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "action": "create",
+        "title": "Morning",
+        "prompt": "Report once",
+        "schedule": "@every 60m"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "title": "Morning",
+          "prompt": "Report once",
+          "enabled": true
+        }
+      }
+    },
+    {
+      "tool": "ListRoutines",
+      "name": "list-routines",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user",
+        "seedRoutines": [
+          {
+            "title": "Morning",
+            "prompt": "report once",
+            "schedule": "@every 60m"
+          }
+        ]
+      },
+      "arguments": {},
+      "expect": {
+        "isError": false,
+        "structured": {
+          "count": 1,
+          "routines": [
+            {
+              "title": "Morning",
+              "prompt": "report once"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "RequestApproval",
+      "name": "request-approval-allow-once",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "action": "删除缓存"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "allowed": true,
+          "decision": "allowed",
+          "pending": false,
+          "approvalDecision": "allowOnce",
+          "scope": "once"
+        }
+      },
+      "approvalDecision": "allowOnce"
+    },
+    {
+      "tool": "SendToUser",
+      "name": "send-to-user",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "message": "Done"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true
+        }
+      }
+    },
+    {
+      "tool": "ask_user",
+      "name": "ask-user",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "question": "继续吗？",
+        "options": [
+          {
+            "label": "继续",
+            "recommended": true
+          },
+          {
+            "label": "停止"
+          }
+        ]
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "question",
+            "question": "继续吗？",
+            "options": [
+              {
+                "id": "o0",
+                "label": "继续",
+                "recommended": true
+              },
+              {
+                "id": "o1",
+                "label": "停止"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "name": "show-next-steps",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "steps": [
+          {
+            "label": "查看结果",
+            "recommended": true
+          },
+          "稍后再试"
+        ]
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "steps",
+            "steps": [
+              {
+                "id": "o0",
+                "label": "查看结果",
+                "recommended": true
+              },
+              {
+                "id": "o1",
+                "label": "稍后再试"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "tool": "show_attachment",
+      "name": "show-attachment",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "path": "/tmp/report.txt",
+        "caption": "报告"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "attachment",
+            "path": "/tmp/report.txt",
+            "caption": "报告"
+          }
+        }
+      }
+    },
+    {
+      "tool": "show_document",
+      "name": "show-document",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "path": "/tmp/notes.md"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "document",
+            "title": "notes.md",
+            "docKind": "markdown",
+            "docTypeLabel": "Markdown",
+            "fileName": "notes.md"
+          }
+        }
+      }
+    },
+    {
+      "tool": "show_progress",
+      "name": "show-progress",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "title": "Build",
+        "state": "running",
+        "percent": 10
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "progress",
+            "title": "Build",
+            "state": "running",
+            "percent": 10
+          }
+        }
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "name": "show-checklist",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "title": "发布检查",
+        "items": [
+          {
+            "text": "运行测试",
+            "done": true
+          }
+        ]
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "checklist",
+            "title": "发布检查",
+            "items": [
+              {
+                "id": "item-0",
+                "text": "运行测试",
+                "done": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "tool": "show_link",
+      "name": "show-link",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "links": [
+          {
+            "url": "https://example.test/docs"
+          }
+        ]
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "card": {
+            "cardType": "link",
+            "links": [
+              {
+                "url": "https://example.test/docs",
+                "title": "example.test",
+                "site": "example.test",
+                "kind": "other"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "tool": "UpdateMemory",
+      "name": "update-memory-missing-action",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "path": "agent/x.md",
+        "expected_version": 0
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "更新记忆需要指定动作"
+      }
+    },
+    {
+      "tool": "UpdateMemory",
+      "name": "update-memory-bad-evidence",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "action": "write",
+        "path": "agent/x.md",
+        "content": "x",
+        "expected_version": 0,
+        "evidence": [
+          "not-a-record"
+        ]
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "memory-evidence-invalid",
+        "messageContains": "每条依据都必须指向"
+      }
+    },
+    {
+      "tool": "ReadMemory",
+      "name": "read-memory-missing-path",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "读取记忆需要提供路径"
+      }
+    },
+    {
+      "tool": "RecallMemory",
+      "name": "recall-memory-bad-limit",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "query": "x",
+        "limit": 0
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "回想记忆的条数必须在 1 到 50 之间"
+      }
+    },
+    {
+      "tool": "Task",
+      "name": "task-missing-prompt",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "task_title": "No prompt"
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "派发任务需要说明要做什么"
+      }
+    },
+    {
+      "tool": "Task",
+      "name": "task-child-without-delegate",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-task",
+        "kind": "task",
+        "turn": "user",
+        "capabilities": [
+          "task.workspace:/tmp/c6"
+        ]
+      },
+      "arguments": {
+        "task_title": "Child",
+        "task_description": "x"
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied",
+        "messageContains": "当前任务会话里不能再派发任务"
+      }
+    },
+    {
+      "tool": "AwaitTask",
+      "name": "await-task-missing-id",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "等待任务需要提供任务编号"
+      }
+    },
+    {
+      "tool": "StopSubagent",
+      "name": "stop-subagent-missing-id",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "停止任务需要提供任务编号"
+      }
+    },
+    {
+      "tool": "UpdateRoutine",
+      "name": "update-routine-missing-action",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "title": "x"
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "UpdateRoutine requires action"
+      }
+    },
+    {
+      "tool": "UpdateRoutine",
+      "name": "update-routine-create-missing-prompt",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "action": "create",
+        "title": "No prompt",
+        "schedule": "@every 60m"
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "prompt is required"
+      }
+    },
+    {
+      "tool": "ListRoutines",
+      "name": "list-routines-non-object-arguments",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": [],
+      "expect": {
+        "rpcError": -32602,
+        "message": "arguments must be an object"
+      },
+      "layer": "rpc"
+    },
+    {
+      "tool": "RequestApproval",
+      "name": "request-approval-missing-action",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "detail": "x"
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "请求审批需要说明要申请什么"
+      }
+    },
+    {
+      "tool": "SendToUser",
+      "name": "send-to-user-missing-message",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "主动发消息需要提供内容"
+      }
+    },
+    {
+      "tool": "SendToUser",
+      "name": "send-to-user-hidden-turn",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "hidden"
+      },
+      "arguments": {
+        "message": "x"
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "这一回合的正文输出已被卡片收尾"
+      }
+    },
+    {
+      "tool": "ask_user",
+      "name": "ask-user-one-option",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "question": "继续吗？",
+        "options": [
+          {
+            "label": "只有一个"
+          }
+        ]
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "ask_user 需要 2–4 个 options。"
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "name": "show-next-steps-empty",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "steps": []
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "show_next_steps 需要 2–4 个 steps。"
+      }
+    },
+    {
+      "tool": "show_attachment",
+      "name": "show-attachment-missing-path",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "path 不能为空。"
+      }
+    },
+    {
+      "tool": "show_document",
+      "name": "show-document-no-source",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "show_document 需要 path 或 content。"
+      }
+    },
+    {
+      "tool": "show_progress",
+      "name": "show-progress-missing-title",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "show_progress 需要 title。"
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "name": "show-checklist-too-many",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "title": "x",
+        "items": [
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          },
+          {
+            "text": "i"
+          }
+        ]
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "show_checklist 需要 1–12 个 items。"
+      }
+    },
+    {
+      "tool": "show_link",
+      "name": "show-link-invalid-url",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "arguments": {
+        "links": [
+          {
+            "url": "ftp://example.test/x"
+          }
+        ]
+      },
+      "expect": {
+        "isError": true,
+        "errorCode": "invalid_arguments",
+        "messageContains": "show_link 需要至少一個合法的 http(s) links[] {url}。"
+      }
+    }
+  ],
+  "denials": [
+    {
+      "tool": "ask_user",
+      "name": "denied-ask_user",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "name": "denied-show_next_steps",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "show_attachment",
+      "name": "denied-show_attachment",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "show_document",
+      "name": "denied-show_document",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "show_progress",
+      "name": "denied-show_progress",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "name": "denied-show_checklist",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "show_link",
+      "name": "denied-show_link",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "UpdateMemory",
+      "name": "denied-UpdateMemory",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "ReadMemory",
+      "name": "denied-ReadMemory",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "RecallMemory",
+      "name": "denied-RecallMemory",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "Task",
+      "name": "denied-Task",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "AwaitTask",
+      "name": "denied-AwaitTask",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "StopSubagent",
+      "name": "denied-StopSubagent",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "UpdateRoutine",
+      "name": "denied-UpdateRoutine",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "ListRoutines",
+      "name": "denied-ListRoutines",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "RequestApproval",
+      "name": "denied-RequestApproval",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    },
+    {
+      "tool": "SendToUser",
+      "name": "denied-SendToUser",
+      "setup": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "deny": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "permission_denied"
+      }
+    }
+  ],
+  "unknown": [
+    {
+      "tool": "show_table",
+      "name": "unknown-show_table",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "skipRegistration": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "unknown_tool"
+      }
+    },
+    {
+      "tool": "show_info",
+      "name": "unknown-show_info",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "skipRegistration": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "unknown_tool"
+      }
+    },
+    {
+      "tool": "no_such_tool",
+      "name": "unknown-no_such_tool",
+      "setup": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat",
+        "turn": "user"
+      },
+      "skipRegistration": true,
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "errorCode": "unknown_tool"
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/deep-link.schema.json",
+  "title": "BotDeepLink v1 (P09 parsed value)",
+  "description": "Parsed form of phonedsh://bot/<botID>/<row|routine>/<id>. The parser is normative in ui-state.md 4.13.",
+  "type": "object",
+  "required": [
+    "botID",
+    "destination"
+  ],
+  "properties": {
+    "botID": {
+      "type": "string",
+      "minLength": 1
+    },
+    "destination": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "row",
+            "routine"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

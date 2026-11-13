@@ -530,31 +530,55 @@ public actor RoutineScheduler {
                                       cancelledBy: "timeout")
     }
 
+    /// The losing side of the deadline race. The timeout is a GCD timer rather
+    /// than a `Task { await sleep(...) }`: Xcode 26.2's Swift runtime aborts
+    /// ("freed pointer was not the last allocation" in `swift_task_dealloc`)
+    /// when that short-lived task releases its async context, including inside
+    /// a task group and after a normal, uncancelled return.
     private final class DeadlineGate: @unchecked Sendable {
         private let lock = NSLock()
         private var continuation: CheckedContinuation<Bool, Never>?
+        private var timer: DispatchWorkItem?
 
         init(_ continuation: CheckedContinuation<Bool, Never>) {
             self.continuation = continuation
         }
 
-        func resume(_ value: Bool) {
-            let next = lock.withLock { () -> CheckedContinuation<Bool, Never>? in
-                let next = continuation
-                continuation = nil
-                return next
+        func install(_ item: DispatchWorkItem) {
+            lock.lock()
+            guard continuation != nil else {
+                lock.unlock()
+                item.cancel()
+                return
             }
+            timer = item
+            lock.unlock()
+        }
+
+        func resume(_ value: Bool) {
+            lock.lock()
+            let next = continuation
+            continuation = nil
+            let pendingTimer = timer
+            timer = nil
+            lock.unlock()
+            pendingTimer?.cancel()
             next?.resume(returning: value)
         }
     }
 
+    /// Races the run's completion against a wall-clock deadline. The completion
+    /// waiter stays unstructured so a timed-out (still running) runner does not
+    /// hold the deadline call open; the deadline itself is a GCD timer.
     private func settles(_ task: Task<RoutineExecutionResult, Never>, within milliseconds: Int64) async -> Bool {
         if milliseconds <= 0 { return false }
-        let sleeper = self.sleeper
         return await withCheckedContinuation { continuation in
             let gate = DeadlineGate(continuation)
             Task { _ = await task.value; gate.resume(true) }
-            Task { await sleeper(milliseconds); gate.resume(false) }
+            let timer = DispatchWorkItem { gate.resume(false) }
+            gate.install(timer)
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(
+                deadline: .now() + .milliseconds(Int(milliseconds)), execute: timer)
         }
     }
 

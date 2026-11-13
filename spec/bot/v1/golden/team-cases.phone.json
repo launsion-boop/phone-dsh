@@ -1,0 +1,2275 @@
+{
+  "schemaVersion": 1,
+  "vector": "team-cases.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "swift": [
+      "Sources/PhoneDSHBot/Team/BotTeamTools.swift",
+      "Sources/PhoneDSHBot/Team/BotTeamHost.swift",
+      "Sources/PhoneDSHBot/Rows/BotAgentComm.swift",
+      "Sources/PhoneDSHBot/MCP/BotToolCatalog.swift",
+      "Sources/PhoneDSHBot/MCP/BotMCPRuntime.swift"
+    ]
+  },
+  "upstream": [],
+  "delta": [
+    "P26: freeze SendToAgent/CreateTeammate arguments, exact errors, target resolution, hop/cycle, request-id and held-reply behaviour from Swift (D12).",
+    "P27: freeze the four agent-comm row directions and the agent.comm event data shape from BotAgentComm/BotTeamAgentCommRecord.",
+    "P25: agent.comm is the existing additive durable event; this vector adds no event type.",
+    "P05: none — SendToUser stays an existing chat tool and no gateway wire body changes."
+  ],
+  "contract": {
+    "sendToAgent": {
+      "maximumHops": 2,
+      "defaultTimeoutMilliseconds": 300000,
+      "heldTextLimit": 1200,
+      "requestIdTemplate": "agent:<callId>",
+      "legacyRequestIdTemplate": "<callId>",
+      "rowIdInput": "senderAgentID\u0000targetID\u0000requestId\u0000seq",
+      "rowIdPrefix": "agent-outbound-",
+      "threadIdTemplate": "<rowID>@<seq>:agent-comm",
+      "inboundRowTemplate": "t<turn>u[<n>]",
+      "promptTemplate": "[agent] <name> (id: <id>)[ — <title>]: <message>",
+      "queuedText": "已扣住给 <name>：消息会在对方下一个回合开头交付，不会唤醒对方。",
+      "nowText": "已发送给 <name>，回复稍后以 agent-comm 消息送达。",
+      "sentAtTemplate": "reply:<requestId>",
+      "heldReplyTitle": "回复：<title>",
+      "heldReplyTitleDefault": "回复",
+      "entryRole": "assistant"
+    },
+    "targetResolution": {
+      "order": [
+        "exact id",
+        "case-insensitive id",
+        "case-insensitive name"
+      ],
+      "hiddenTargets": "resolvable by exact id or name; never advertised",
+      "availableListExcludes": [
+        "caller",
+        "hidden"
+      ],
+      "availableListSeparator": ", ",
+      "mainBotSuffix": " (id: <id>, main Bot)",
+      "none": "(none)"
+    },
+    "errors": {
+      "argumentsNotObject": "SendToAgent 的参数必须是一个对象",
+      "missingAgent": "SendToAgent 需要提供队友。",
+      "missingMessage": "SendToAgent 需要提供非空的消息。",
+      "missingPriority": "SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。",
+      "priorityType": "priority must be a boolean (true = wake now, false = hold for their next turn)",
+      "deliveryValue": "delivery must be \"now\" or \"queued\"",
+      "priorityConflict": "priority <literal> implies delivery \"<implied>\" but delivery \"<given>\" was also given",
+      "targetNotFound": "没有找到队友「<target>」。可选的 Bot：<list>。",
+      "self": "SendToAgent 不能发给自己；请直接回答当前请求。",
+      "depth": "转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。",
+      "cycle": "转交链已经走过 <path>，<target> 在这条链上，不能再转回去。请直接回答当前请求。",
+      "timeout": "目标 Bot 未在时限内完成回合。",
+      "sendFailed": "发送失败：<failure>",
+      "queuedHeldFailed": "held inbox write failed: <failure>",
+      "replyHeldFailed": "reply was received but the held inbox write failed: <failure>",
+      "createArguments": "CreateTeammate 的参数必须是一个对象",
+      "createMissingName": "CreateTeammate 需要提供名字。",
+      "createNameTooLong": "CreateTeammate 的名字太长了（<count> 个字符，最多 60 个）。",
+      "createColor": "CreateTeammate 的 color 只能是这些值之一：white、brown、red、orange、amber、green、teal、blue、purple、magenta、gray、black、silver、peach、sky",
+      "createHairstyle": "CreateTeammate 的 hairstyle 只能是这些值之一：long、twin-tail、bob、side-braid",
+      "createNotMain": "CreateTeammate 只能由主 Bot 调用；当前 Bot <name>（id: <id>）不是主 Bot。",
+      "createNeedsConfirmation": "创建队友需要你在当前回合确认",
+      "createFailed": "创建队友失败：<failure>"
+    },
+    "createTeammate": {
+      "nameLengthRange": [
+        1,
+        60
+      ],
+      "descriptionLimit": 300,
+      "colors": [
+        "white",
+        "brown",
+        "red",
+        "orange",
+        "amber",
+        "green",
+        "teal",
+        "blue",
+        "purple",
+        "magenta",
+        "gray",
+        "black",
+        "silver",
+        "peach",
+        "sky"
+      ],
+      "hairstyles": [
+        "long",
+        "twin-tail",
+        "bob",
+        "side-braid"
+      ],
+      "ignoredArguments": [
+        "section_id"
+      ],
+      "resultKeys": [
+        "ok",
+        "agent_id",
+        "name"
+      ]
+    },
+    "sendToUser": {
+      "successStructuredKeys": [
+        "ok",
+        "rowId"
+      ],
+      "event": "ui.send_to_user",
+      "eventKeys": [
+        "id",
+        "type",
+        "role",
+        "text",
+        "content"
+      ],
+      "errors": {
+        "nonChat": "只有主聊天可以主动发消息",
+        "hidden": "这一回合的正文输出已被卡片收尾",
+        "empty": "主动发消息需要提供内容"
+      }
+    }
+  },
+  "nowMilliseconds": 1700000000000,
+  "roster": {
+    "mainBotId": "bot-a",
+    "bots": [
+      {
+        "id": "bot-a",
+        "name": "Alpha"
+      },
+      {
+        "id": "bot-b",
+        "name": "Bee"
+      },
+      {
+        "id": "bot-c",
+        "name": "Hidden",
+        "hiddenByUser": true
+      },
+      {
+        "id": "bot-x",
+        "name": "Xray"
+      }
+    ]
+  },
+  "valid": [
+    {
+      "name": "send-now-with-title",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "  hello team\n",
+        "priority": true,
+        "title": "Question"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0@1700000000000000:agent-comm",
+          "requestId": "agent:call-now",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now"
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-now",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0",
+          "threadId": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "hello team",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0@1700000000000000:agent-comm",
+            "requestID": "agent:call-now",
+            "delivery": "now",
+            "title": "Question",
+            "hop": 1,
+            "callID": "call-now"
+          },
+          {
+            "rowID": "t3u2",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "the answer",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0@1700000000000000:agent-comm",
+            "requestID": "agent:call-now",
+            "turn": 3,
+            "replyEntryID": "t3u2"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a) — Question: hello team",
+            "message": "hello team",
+            "title": "Question",
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-now",
+            "threadId": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "text": "the answer",
+              "requestId": "reply:agent:call-now",
+              "threadId": "agent-outbound-7904d2b6925182c17155f8c9b54377014ad110a0d8a04f5a8916d6d0311a02b0@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "回复：Question"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-now",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 3,
+        "existingRowIDs": [
+          "t3u"
+        ]
+      },
+      "host": {
+        "reply": {
+          "text": "the answer",
+          "replyEntryId": "t3u2"
+        }
+      }
+    },
+    {
+      "name": "send-queued-with-title",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hold this",
+        "delivery": "queued",
+        "title": "FYI"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-2f734f692f0c273afeec22c18ffb4632c1c7ed20566e1b7a65ee433da1640cb2@1700000000000000:agent-comm",
+          "requestId": "agent:call-queued",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "queued",
+          "heldId": "held-0-00000000",
+          "status": "held"
+        },
+        "structuredPatterns": {
+          "heldId": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+        },
+        "text": "已扣住给 Bee：消息会在对方下一个回合开头交付，不会唤醒对方。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-queued",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-2f734f692f0c273afeec22c18ffb4632c1c7ed20566e1b7a65ee433da1640cb2",
+          "threadId": "agent-outbound-2f734f692f0c273afeec22c18ffb4632c1c7ed20566e1b7a65ee433da1640cb2@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-2f734f692f0c273afeec22c18ffb4632c1c7ed20566e1b7a65ee433da1640cb2",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "hold this",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-2f734f692f0c273afeec22c18ffb4632c1c7ed20566e1b7a65ee433da1640cb2@1700000000000000:agent-comm",
+            "requestID": "agent:call-queued",
+            "delivery": "queued",
+            "status": "held",
+            "title": "FYI",
+            "hop": 1,
+            "callID": "call-queued"
+          }
+        ],
+        "deliveries": [],
+        "held": [
+          {
+            "botID": "bot-b",
+            "handOff": {
+              "depth": 1,
+              "chain": [
+                "bot-a",
+                "bot-b"
+              ]
+            },
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-a",
+              "fromAgentName": "Alpha",
+              "text": "hold this",
+              "requestId": "agent:call-queued",
+              "threadId": "agent-outbound-2f734f692f0c273afeec22c18ffb4632c1c7ed20566e1b7a65ee433da1640cb2@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "FYI"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-queued",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      }
+    },
+    {
+      "name": "send-priority-false-string",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bee",
+        "message": "string false",
+        "priority": "false"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-ce5f3382797506fd652ffe404121408d1bfa9b2ac7e21321c4ba792560852d43@1700000000000000:agent-comm",
+          "requestId": "agent:call-priority-false",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "queued",
+          "heldId": "held-0-00000000",
+          "status": "held"
+        },
+        "structuredPatterns": {
+          "heldId": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+        },
+        "text": "已扣住给 Bee：消息会在对方下一个回合开头交付，不会唤醒对方。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-priority-false",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-ce5f3382797506fd652ffe404121408d1bfa9b2ac7e21321c4ba792560852d43",
+          "threadId": "agent-outbound-ce5f3382797506fd652ffe404121408d1bfa9b2ac7e21321c4ba792560852d43@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-ce5f3382797506fd652ffe404121408d1bfa9b2ac7e21321c4ba792560852d43",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "string false",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-ce5f3382797506fd652ffe404121408d1bfa9b2ac7e21321c4ba792560852d43@1700000000000000:agent-comm",
+            "requestID": "agent:call-priority-false",
+            "delivery": "queued",
+            "status": "held",
+            "hop": 1,
+            "callID": "call-priority-false"
+          }
+        ],
+        "deliveries": [],
+        "held": [
+          {
+            "botID": "bot-b",
+            "handOff": {
+              "depth": 1,
+              "chain": [
+                "bot-a",
+                "bot-b"
+              ]
+            },
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-a",
+              "fromAgentName": "Alpha",
+              "text": "string false",
+              "requestId": "agent:call-priority-false",
+              "threadId": "agent-outbound-ce5f3382797506fd652ffe404121408d1bfa9b2ac7e21321c4ba792560852d43@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-priority-false"
+    },
+    {
+      "name": "send-priority-and-delivery-agree",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "both agree",
+        "priority": true,
+        "delivery": "now"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb@1700000000000000:agent-comm",
+          "requestId": "agent:call-both",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now"
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-both",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb",
+          "threadId": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "both agree",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb@1700000000000000:agent-comm",
+            "requestID": "agent:call-both",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-both"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "fine",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb@1700000000000000:agent-comm",
+            "requestID": "agent:call-both",
+            "turn": 0,
+            "replyEntryID": "t0u"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): both agree",
+            "message": "both agree",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-both",
+            "threadId": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "text": "fine",
+              "requestId": "reply:agent:call-both",
+              "threadId": "agent-outbound-93330ae5a966ef5f5aaf9e7cf0186991e3e9a6e99e24a0360f27fd1d901d1aeb@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "回复"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-both",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "fine",
+          "replyEntryId": "t0u"
+        }
+      }
+    },
+    {
+      "name": "send-target-and-text-aliases",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "target_id": " BEE ",
+        "text": "alias body",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2@1700000000000000:agent-comm",
+          "requestId": "agent:call-alias",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now"
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-alias",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2",
+          "threadId": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "alias body",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2@1700000000000000:agent-comm",
+            "requestID": "agent:call-alias",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-alias"
+          },
+          {
+            "rowID": "t5u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "alias reply",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2@1700000000000000:agent-comm",
+            "requestID": "agent:call-alias",
+            "turn": 5,
+            "replyEntryID": "t5u"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): alias body",
+            "message": "alias body",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-alias",
+            "threadId": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "text": "alias reply",
+              "requestId": "reply:agent:call-alias",
+              "threadId": "agent-outbound-09a452e49bb39994598faa944b91749d97eddec22bd3970980b8b597819d69e2@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "回复"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-alias",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 5,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "alias reply",
+          "replyEntryId": "t5u"
+        }
+      }
+    },
+    {
+      "name": "send-hidden-target-by-name",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "bot_name": "hidden",
+        "message": "peek",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b@1700000000000000:agent-comm",
+          "requestId": "agent:call-hidden",
+          "target": {
+            "id": "bot-c",
+            "name": "Hidden"
+          },
+          "delivery": "now"
+        },
+        "text": "已发送给 Hidden，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-c",
+          "requestId": "agent:call-hidden",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b",
+          "threadId": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "peek",
+            "toAgent": {
+              "id": "bot-c",
+              "name": "Hidden",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b@1700000000000000:agent-comm",
+            "requestID": "agent:call-hidden",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-hidden"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "hidden reply",
+            "fromAgent": {
+              "id": "bot-c",
+              "name": "Hidden"
+            },
+            "threadID": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b@1700000000000000:agent-comm",
+            "requestID": "agent:call-hidden",
+            "turn": 0,
+            "replyEntryID": "t0u"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-c",
+            "targetName": "Hidden",
+            "promptText": "[agent] Alpha (id: bot-a): peek",
+            "message": "peek",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-c"
+            ],
+            "requestId": "agent:call-hidden",
+            "threadId": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-c",
+              "fromAgentName": "Hidden",
+              "text": "hidden reply",
+              "requestId": "reply:agent:call-hidden",
+              "threadId": "agent-outbound-938b1ebe241b4447488edfeebab26a4ef06a943e43f28e1704e6281261388f0b@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "回复"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-hidden",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "hidden reply",
+          "replyEntryId": "t0u"
+        }
+      }
+    },
+    {
+      "name": "send-depth-two-allowed",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hop two",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa@1700000000000000:agent-comm",
+          "requestId": "agent:call-depth-two",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now"
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-depth-two",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa",
+          "threadId": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "hop two",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa@1700000000000000:agent-comm",
+            "requestID": "agent:call-depth-two",
+            "delivery": "now",
+            "hop": 2,
+            "callID": "call-depth-two"
+          },
+          {
+            "rowID": "t2u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "hop reply",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa@1700000000000000:agent-comm",
+            "requestID": "agent:call-depth-two",
+            "turn": 2,
+            "replyEntryID": "t2u"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): hop two",
+            "message": "hop two",
+            "title": null,
+            "delivery": "now",
+            "hop": 2,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-depth-two",
+            "threadId": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "text": "hop reply",
+              "requestId": "reply:agent:call-depth-two",
+              "threadId": "agent-outbound-80206ca4c981dd68989391127f700085af3780379b07492f27a5dfca2b7919fa@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "回复"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-depth-two",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a"
+        ],
+        "turn": 2,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "hop reply",
+          "replyEntryId": "t2u"
+        }
+      }
+    },
+    {
+      "name": "send-duplicate-call-id",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "once",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590@1700000000000000:agent-comm",
+          "requestId": "agent:call-dup",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now",
+          "duplicated": true
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-dup",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590",
+          "threadId": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "once",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590@1700000000000000:agent-comm",
+            "requestID": "agent:call-dup",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-dup"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "dup reply",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590@1700000000000000:agent-comm",
+            "requestID": "agent:call-dup",
+            "turn": 0,
+            "replyEntryID": "t0u"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): once",
+            "message": "once",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-dup",
+            "threadId": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "text": "dup reply",
+              "requestId": "reply:agent:call-dup",
+              "threadId": "agent-outbound-3e0f25d70adee07389e8544e103a5c3d599b5f5f3e064ce9e3a77b56cc5ce590@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending",
+              "title": "回复"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-dup",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "dup reply",
+          "replyEntryId": "t0u"
+        }
+      },
+      "replay": true
+    },
+    {
+      "name": "send-pre-wp4-bare-call-id",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "old message",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "legacy-thread",
+          "requestId": "agent:legacy-call",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now",
+          "duplicated": true
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "records": [],
+        "deliveries": [],
+        "held": []
+      },
+      "callId": "legacy-call",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "seedThreads": [
+        {
+          "botID": "bot-a",
+          "requestID": "legacy-call",
+          "threadID": "legacy-thread"
+        }
+      ]
+    },
+    {
+      "name": "send-held-reply-cap",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "cap request",
+        "priority": true
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "threadId": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d@1700000000000000:agent-comm",
+          "requestId": "agent:call-cap",
+          "target": {
+            "id": "bot-b",
+            "name": "Bee"
+          },
+          "delivery": "now"
+        },
+        "text": "已发送给 Bee，回复稍后以 agent-comm 消息送达。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-cap",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d",
+          "threadId": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "cap request",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d@1700000000000000:agent-comm",
+            "requestID": "agent:call-cap",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-cap"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d@1700000000000000:agent-comm",
+            "requestID": "agent:call-cap",
+            "turn": 0,
+            "replyEntryID": "t0u"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): cap request",
+            "message": "cap request",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-cap",
+            "threadId": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d@1700000000000000:agent-comm"
+          }
+        ],
+        "held": [
+          {
+            "botID": "bot-a",
+            "handOff": null,
+            "item": {
+              "id": "held-0-00000000",
+              "kind": "agent-held",
+              "fromAgentId": "bot-b",
+              "fromAgentName": "Bee",
+              "title": "回复",
+              "text": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长",
+              "requestId": "reply:agent:call-cap",
+              "threadId": "agent-outbound-2c2491f95e39c8bc920bbacffd7b92c1e3c12f6e5bcf7dd5846b89ee06847a4d@1700000000000000:agent-comm",
+              "createdAt": 1700000000000,
+              "state": "pending"
+            },
+            "idPattern": "^held-[0-9a-z]+-[0-9a-f]{8}$"
+          }
+        ]
+      },
+      "callId": "call-cap",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长",
+          "replyEntryId": "t0u"
+        }
+      }
+    },
+    {
+      "name": "create-teammate-success",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "  Nova  ",
+        "description": "描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描描",
+        "color": "blue",
+        "hairstyle": "long",
+        "section_id": "ignored"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "agent_id": "bot-new",
+          "name": "Nova"
+        },
+        "text": "已创建队友「Nova」（agent_id: bot-new） — <description>；外观：颜色=blue、发型=long。",
+        "created": {
+          "name": "Nova",
+          "descriptionLength": 300,
+          "descriptionPrefix": "描",
+          "color": "blue",
+          "hairstyle": "long"
+        }
+      },
+      "host": {
+        "createdProfile": {
+          "id": "bot-new"
+        }
+      }
+    },
+    {
+      "name": "create-teammate-minimal",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "Solo"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "agent_id": "bot-new",
+          "name": "Solo"
+        },
+        "text": "已创建队友「Solo」（agent_id: bot-new）；外观：按 Bot ID 自动组合。",
+        "created": {
+          "name": "Solo",
+          "descriptionLength": 0,
+          "descriptionPrefix": "",
+          "color": null,
+          "hairstyle": null
+        }
+      },
+      "host": {
+        "createdProfile": {
+          "id": "bot-new"
+        }
+      }
+    },
+    {
+      "name": "create-teammate-name-60",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"
+      },
+      "expect": {
+        "isError": false,
+        "structured": {
+          "ok": true,
+          "agent_id": "bot-new",
+          "name": "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"
+        },
+        "text": "已创建队友「NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN」（agent_id: bot-new）；外观：按 Bot ID 自动组合。",
+        "created": {
+          "name": "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN",
+          "descriptionLength": 0,
+          "descriptionPrefix": "",
+          "color": null,
+          "hairstyle": null
+        }
+      },
+      "host": {
+        "createdProfile": {
+          "id": "bot-new"
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "send-missing-agent",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "message": "hi",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "SendToAgent 需要提供队友。"
+          }
+        },
+        "text": "SendToAgent 需要提供队友。"
+      },
+      "callId": "call-missing-agent"
+    },
+    {
+      "name": "send-missing-message",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "SendToAgent 需要提供非空的消息。"
+          }
+        },
+        "text": "SendToAgent 需要提供非空的消息。"
+      },
+      "callId": "call-missing-message"
+    },
+    {
+      "name": "send-missing-priority",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hi"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。"
+          }
+        },
+        "text": "SendToAgent 需要 priority：true 表示立即唤醒，false 表示等对方下一个回合。"
+      },
+      "callId": "call-missing-priority"
+    },
+    {
+      "name": "send-priority-conflict",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hi",
+        "priority": true,
+        "delivery": "queued"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "priority true implies delivery \"now\" but delivery \"queued\" was also given"
+          }
+        },
+        "text": "priority true implies delivery \"now\" but delivery \"queued\" was also given"
+      },
+      "callId": "call-conflict"
+    },
+    {
+      "name": "send-priority-invalid",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hi",
+        "priority": "yes"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "priority must be a boolean (true = wake now, false = hold for their next turn)"
+          }
+        },
+        "text": "priority must be a boolean (true = wake now, false = hold for their next turn)"
+      },
+      "callId": "call-bad-priority"
+    },
+    {
+      "name": "send-delivery-invalid",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hi",
+        "delivery": "later"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "delivery must be \"now\" or \"queued\""
+          }
+        },
+        "text": "delivery must be \"now\" or \"queued\""
+      },
+      "callId": "call-bad-delivery"
+    },
+    {
+      "name": "send-target-not-found",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "Ghost",
+        "message": "hi",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "没有找到队友「Ghost」。可选的 Bot：Bee (id: bot-b), Xray (id: bot-x)。"
+          }
+        },
+        "text": "没有找到队友「Ghost」。可选的 Bot：Bee (id: bot-b), Xray (id: bot-x)。"
+      },
+      "callId": "call-not-found"
+    },
+    {
+      "name": "send-self",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "alpha",
+        "message": "hi",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "SendToAgent 不能发给自己；请直接回答当前请求。"
+          }
+        },
+        "text": "SendToAgent 不能发给自己；请直接回答当前请求。"
+      },
+      "callId": "call-self"
+    },
+    {
+      "name": "send-depth-three",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "too deep",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。"
+          }
+        },
+        "text": "转交层数已经达到上限（最多 2 层）。不要再转给别人了，请直接回答当前请求。"
+      },
+      "callId": "call-depth-three",
+      "context": {
+        "depth": 2,
+        "chain": [
+          "bot-x",
+          "bot-a"
+        ],
+        "turn": 4,
+        "existingRowIDs": []
+      }
+    },
+    {
+      "name": "send-cycle",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "loop",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "转交链已经走过 Alpha → Bee → Bee，Bee 在这条链上，不能再转回去。请直接回答当前请求。"
+          }
+        },
+        "text": "转交链已经走过 Alpha → Bee → Bee，Bee 在这条链上，不能再转回去。请直接回答当前请求。"
+      },
+      "callId": "call-cycle",
+      "context": {
+        "depth": 1,
+        "chain": [
+          "bot-a",
+          "bot-b"
+        ],
+        "turn": 4,
+        "existingRowIDs": []
+      }
+    },
+    {
+      "name": "send-timeout",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "timeout body",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "timeout",
+            "message": "目标 Bot 未在时限内完成回合。"
+          }
+        },
+        "text": "目标 Bot 未在时限内完成回合。",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-timeout",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-25ed1b42501a04d0ca05d75303b67437a25a9ad2a3b3954858e19ada2e0ea6bb",
+          "threadId": "agent-outbound-25ed1b42501a04d0ca05d75303b67437a25a9ad2a3b3954858e19ada2e0ea6bb@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-25ed1b42501a04d0ca05d75303b67437a25a9ad2a3b3954858e19ada2e0ea6bb",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "timeout body",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-25ed1b42501a04d0ca05d75303b67437a25a9ad2a3b3954858e19ada2e0ea6bb@1700000000000000:agent-comm",
+            "requestID": "agent:call-timeout",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-timeout"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-25ed1b42501a04d0ca05d75303b67437a25a9ad2a3b3954858e19ada2e0ea6bb@1700000000000000:agent-comm",
+            "requestID": "agent:call-timeout",
+            "turn": 0,
+            "error": "目标 Bot 未在时限内完成回合。"
+          }
+        ],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): timeout body",
+            "message": "timeout body",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-timeout",
+            "threadId": "agent-outbound-25ed1b42501a04d0ca05d75303b67437a25a9ad2a3b3954858e19ada2e0ea6bb@1700000000000000:agent-comm"
+          }
+        ],
+        "held": []
+      },
+      "callId": "call-timeout",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "too late"
+        },
+        "deliveryDelayMilliseconds": 100
+      },
+      "tools": {
+        "timeoutMilliseconds": 10
+      }
+    },
+    {
+      "name": "send-delivery-failure",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "fail body",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "execution_failed",
+            "message": "发送失败：Agent delivery failed: target crashed"
+          }
+        },
+        "text": "发送失败：Agent delivery failed: target crashed",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-fail",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-fbef769b4d8fb491a44bcbc57678c65151ad853258fb2647ca051a045aac3b1a",
+          "threadId": "agent-outbound-fbef769b4d8fb491a44bcbc57678c65151ad853258fb2647ca051a045aac3b1a@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-fbef769b4d8fb491a44bcbc57678c65151ad853258fb2647ca051a045aac3b1a",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "fail body",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-fbef769b4d8fb491a44bcbc57678c65151ad853258fb2647ca051a045aac3b1a@1700000000000000:agent-comm",
+            "requestID": "agent:call-fail",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-fail"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-fbef769b4d8fb491a44bcbc57678c65151ad853258fb2647ca051a045aac3b1a@1700000000000000:agent-comm",
+            "requestID": "agent:call-fail",
+            "turn": 0,
+            "error": "Agent delivery failed: target crashed"
+          }
+        ],
+        "held": [],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): fail body",
+            "message": "fail body",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-fail",
+            "threadId": "agent-outbound-fbef769b4d8fb491a44bcbc57678c65151ad853258fb2647ca051a045aac3b1a@1700000000000000:agent-comm"
+          }
+        ]
+      },
+      "callId": "call-fail",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "deliveryError": {
+          "case": "deliveryFailed",
+          "message": "target crashed"
+        }
+      }
+    },
+    {
+      "name": "send-queued-enqueue-failure",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "hold me",
+        "delivery": "queued"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "execution_failed",
+            "message": "held inbox write failed: Agent delivery failed: inbox full"
+          }
+        },
+        "text": "held inbox write failed: Agent delivery failed: inbox full",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-enqueue-fail",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-e528fe311e8dba4d29d1ba0b49fe173c4caa639e4d21637c77da7d1434a99a04",
+          "threadId": "agent-outbound-e528fe311e8dba4d29d1ba0b49fe173c4caa639e4d21637c77da7d1434a99a04@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-e528fe311e8dba4d29d1ba0b49fe173c4caa639e4d21637c77da7d1434a99a04",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "hold me",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-e528fe311e8dba4d29d1ba0b49fe173c4caa639e4d21637c77da7d1434a99a04@1700000000000000:agent-comm",
+            "requestID": "agent:call-enqueue-fail",
+            "delivery": "queued",
+            "status": "held",
+            "hop": 1,
+            "callID": "call-enqueue-fail"
+          }
+        ],
+        "deliveries": [],
+        "held": []
+      },
+      "callId": "call-enqueue-fail",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "enqueueError": {
+          "case": "deliveryFailed",
+          "message": "inbox full"
+        }
+      }
+    },
+    {
+      "name": "send-reply-held-enqueue-failure",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "agent_id": "bot-b",
+        "message": "reply fail body",
+        "priority": true
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "execution_failed",
+            "message": "reply was received but the held inbox write failed: Agent delivery failed: inbox full"
+          }
+        },
+        "text": "reply was received but the held inbox write failed: Agent delivery failed: inbox full",
+        "rowIdentity": {
+          "sender": "bot-a",
+          "target": "bot-b",
+          "requestId": "agent:call-reply-fail",
+          "seq": 1700000000000000,
+          "rowID": "agent-outbound-ede329ce84a19a42b278a606557a6e50c923e33ec0dbf0daa9795e4ee7b90d0f",
+          "threadId": "agent-outbound-ede329ce84a19a42b278a606557a6e50c923e33ec0dbf0daa9795e4ee7b90d0f@1700000000000000:agent-comm"
+        },
+        "records": [
+          {
+            "rowID": "agent-outbound-ede329ce84a19a42b278a606557a6e50c923e33ec0dbf0daa9795e4ee7b90d0f",
+            "botID": "bot-a",
+            "direction": "outbound",
+            "role": "assistant",
+            "text": "reply fail body",
+            "toAgent": {
+              "id": "bot-b",
+              "name": "Bee",
+              "kind": "agent"
+            },
+            "threadID": "agent-outbound-ede329ce84a19a42b278a606557a6e50c923e33ec0dbf0daa9795e4ee7b90d0f@1700000000000000:agent-comm",
+            "requestID": "agent:call-reply-fail",
+            "delivery": "now",
+            "hop": 1,
+            "callID": "call-reply-fail"
+          },
+          {
+            "rowID": "t0u",
+            "botID": "bot-a",
+            "direction": "inbound",
+            "role": "user",
+            "text": "ok reply",
+            "fromAgent": {
+              "id": "bot-b",
+              "name": "Bee"
+            },
+            "threadID": "agent-outbound-ede329ce84a19a42b278a606557a6e50c923e33ec0dbf0daa9795e4ee7b90d0f@1700000000000000:agent-comm",
+            "requestID": "agent:call-reply-fail",
+            "turn": 0,
+            "replyEntryID": "t0u"
+          }
+        ],
+        "held": [],
+        "deliveries": [
+          {
+            "targetId": "bot-b",
+            "targetName": "Bee",
+            "promptText": "[agent] Alpha (id: bot-a): reply fail body",
+            "message": "reply fail body",
+            "title": null,
+            "delivery": "now",
+            "hop": 1,
+            "chain": [
+              "bot-a",
+              "bot-b"
+            ],
+            "requestId": "agent:call-reply-fail",
+            "threadId": "agent-outbound-ede329ce84a19a42b278a606557a6e50c923e33ec0dbf0daa9795e4ee7b90d0f@1700000000000000:agent-comm"
+          }
+        ]
+      },
+      "callId": "call-reply-fail",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "host": {
+        "reply": {
+          "text": "ok reply",
+          "replyEntryId": "t0u"
+        },
+        "enqueueError": {
+          "case": "deliveryFailed",
+          "message": "inbox full"
+        }
+      }
+    },
+    {
+      "name": "send-arguments-not-object",
+      "callerBotId": "bot-a",
+      "arguments": "not-an-object",
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "SendToAgent 的参数必须是一个对象"
+          }
+        },
+        "text": "SendToAgent 的参数必须是一个对象"
+      },
+      "callId": "call-not-object",
+      "context": {
+        "depth": 0,
+        "chain": [],
+        "turn": 0,
+        "existingRowIDs": []
+      },
+      "argumentsNotObject": true
+    },
+    {
+      "name": "create-not-main",
+      "callerBotId": "bot-b",
+      "arguments": {
+        "name": "Nova"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "permission_denied",
+            "message": "CreateTeammate 只能由主 Bot 调用；当前 Bot Bee（id: bot-b）不是主 Bot。"
+          }
+        },
+        "text": "CreateTeammate 只能由主 Bot 调用；当前 Bot Bee（id: bot-b）不是主 Bot。"
+      }
+    },
+    {
+      "name": "create-missing-name",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "   "
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "CreateTeammate 需要提供名字。"
+          }
+        },
+        "text": "CreateTeammate 需要提供名字。"
+      }
+    },
+    {
+      "name": "create-name-too-long",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "CreateTeammate 的名字太长了（61 个字符，最多 60 个）。"
+          }
+        },
+        "text": "CreateTeammate 的名字太长了（61 个字符，最多 60 个）。"
+      }
+    },
+    {
+      "name": "create-color-invalid",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "Nova",
+        "color": "rainbow"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "CreateTeammate 的 color 只能是这些值之一：white、brown、red、orange、amber、green、teal、blue、purple、magenta、gray、black、silver、peach、sky"
+          }
+        },
+        "text": "CreateTeammate 的 color 只能是这些值之一：white、brown、red、orange、amber、green、teal、blue、purple、magenta、gray、black、silver、peach、sky"
+      }
+    },
+    {
+      "name": "create-hairstyle-invalid",
+      "callerBotId": "bot-a",
+      "arguments": {
+        "name": "Nova",
+        "hairstyle": "mohawk"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "CreateTeammate 的 hairstyle 只能是这些值之一：long、twin-tail、bob、side-braid"
+          }
+        },
+        "text": "CreateTeammate 的 hairstyle 只能是这些值之一：long、twin-tail、bob、side-braid"
+      }
+    }
+  ],
+  "rowCases": [
+    {
+      "name": "outbound-event",
+      "record": {
+        "rowID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690",
+        "botID": "bot-a",
+        "direction": "outbound",
+        "role": "assistant",
+        "text": "row body",
+        "toAgent": {
+          "id": "bot-b",
+          "name": "Bee",
+          "kind": "agent"
+        },
+        "threadID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestID": "agent:call-row",
+        "delivery": "now",
+        "title": "Row",
+        "hop": 1,
+        "callID": "call-row"
+      },
+      "eventData": {
+        "id": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690",
+        "rowID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690",
+        "role": "assistant",
+        "text": "row body",
+        "direction": "outbound",
+        "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestId": "agent:call-row",
+        "agentComm": {
+          "direction": "outbound",
+          "targetId": "bot-b",
+          "targetName": "Bee",
+          "message": "row body",
+          "requestId": "agent:call-row",
+          "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+          "delivery": "now",
+          "title": "Row",
+          "hop": 1,
+          "callId": "call-row"
+        },
+        "toAgent": {
+          "id": "bot-b",
+          "name": "Bee",
+          "kind": "agent"
+        },
+        "delivery": "now",
+        "title": "Row",
+        "hop": 1,
+        "callId": "call-row"
+      }
+    },
+    {
+      "name": "inbound-event",
+      "record": {
+        "rowID": "t2u",
+        "botID": "bot-a",
+        "direction": "inbound",
+        "role": "user",
+        "text": "row reply",
+        "fromAgent": {
+          "id": "bot-b",
+          "name": "Bee"
+        },
+        "threadID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestID": "agent:call-row",
+        "turn": 2,
+        "replyEntryID": "t2u"
+      },
+      "eventData": {
+        "id": "t2u",
+        "rowID": "t2u",
+        "role": "user",
+        "text": "row reply",
+        "direction": "inbound",
+        "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestId": "agent:call-row",
+        "agentComm": {
+          "direction": "inbound",
+          "fromAgentId": "bot-b",
+          "fromAgentName": "Bee",
+          "replyText": "row reply",
+          "requestId": "agent:call-row",
+          "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+          "replyEntryId": "t2u"
+        },
+        "fromAgent": {
+          "id": "bot-b",
+          "name": "Bee"
+        },
+        "turn": 2,
+        "replyEntryId": "t2u"
+      }
+    },
+    {
+      "name": "incoming-event",
+      "record": {
+        "rowID": "t1u",
+        "botID": "bot-b",
+        "direction": "incoming",
+        "role": "user",
+        "text": "[agent] Alpha (id: bot-a): row body",
+        "fromAgent": {
+          "id": "bot-a",
+          "name": "Alpha"
+        },
+        "threadID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestID": "agent:call-row",
+        "hop": 1
+      },
+      "eventData": {
+        "id": "t1u",
+        "rowID": "t1u",
+        "role": "user",
+        "text": "[agent] Alpha (id: bot-a): row body",
+        "direction": "incoming",
+        "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestId": "agent:call-row",
+        "agentComm": {
+          "direction": "incoming",
+          "fromAgentId": "bot-a",
+          "fromAgentName": "Alpha",
+          "message": "[agent] Alpha (id: bot-a): row body",
+          "requestId": "agent:call-row",
+          "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+          "hop": 1
+        },
+        "fromAgent": {
+          "id": "bot-a",
+          "name": "Alpha"
+        },
+        "hop": 1
+      }
+    },
+    {
+      "name": "reply-event",
+      "record": {
+        "rowID": "t1u",
+        "botID": "bot-b",
+        "direction": "reply",
+        "role": "assistant",
+        "text": "row answer",
+        "toAgent": {
+          "id": "bot-a",
+          "name": "Alpha"
+        },
+        "threadID": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestID": "agent:call-row"
+      },
+      "eventData": {
+        "id": "t1u",
+        "rowID": "t1u",
+        "role": "assistant",
+        "text": "row answer",
+        "direction": "reply",
+        "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm",
+        "requestId": "agent:call-row",
+        "agentComm": {
+          "direction": "reply",
+          "targetId": "bot-a",
+          "targetName": "Alpha",
+          "message": "row answer",
+          "requestId": "agent:call-row",
+          "threadId": "agent-outbound-e40915c40bb64fe6079e111f3a89cb4b3dca0caa351ec6c5f86956924ef5e690@1700000000000000:agent-comm"
+        },
+        "toAgent": {
+          "id": "bot-a",
+          "name": "Alpha"
+        }
+      }
+    }
+  ],
+  "sendToUserCases": {
+    "valid": [
+      {
+        "name": "visible-chat",
+        "session": {
+          "kind": "chat",
+          "hidden": false,
+          "suppressed": false,
+          "origin": null
+        },
+        "arguments": {
+          "message": "hello user"
+        },
+        "expect": {
+          "isError": false,
+          "structured": {
+            "ok": true
+          },
+          "event": "ui.send_to_user",
+          "eventText": "hello user"
+        }
+      },
+      {
+        "name": "agent-turn-still-targets-the-user",
+        "session": {
+          "kind": "chat",
+          "hidden": false,
+          "suppressed": false,
+          "origin": "agent:call-row"
+        },
+        "arguments": {
+          "message": "sent from an agent turn"
+        },
+        "expect": {
+          "isError": false,
+          "structured": {
+            "ok": true
+          },
+          "event": "ui.send_to_user",
+          "eventText": "sent from an agent turn"
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "task-principal",
+        "session": {
+          "kind": "task",
+          "hidden": false,
+          "suppressed": false,
+          "origin": null
+        },
+        "arguments": {
+          "message": "nope"
+        },
+        "expect": {
+          "isError": true,
+          "structured": {
+            "ok": false,
+            "error": {
+              "code": "invalid_arguments",
+              "message": "只有主聊天可以主动发消息"
+            }
+          },
+          "text": "只有主聊天可以主动发消息"
+        }
+      },
+      {
+        "name": "hidden-wake",
+        "session": {
+          "kind": "chat",
+          "hidden": true,
+          "suppressed": false,
+          "origin": "task-settled:task-1"
+        },
+        "arguments": {
+          "message": "nope"
+        },
+        "expect": {
+          "isError": true,
+          "structured": {
+            "ok": false,
+            "error": {
+              "code": "invalid_arguments",
+              "message": "这一回合的正文输出已被卡片收尾"
+            }
+          },
+          "text": "这一回合的正文输出已被卡片收尾"
+        }
+      },
+      {
+        "name": "card-final-suppression",
+        "session": {
+          "kind": "chat",
+          "hidden": false,
+          "suppressed": true,
+          "origin": null
+        },
+        "arguments": {
+          "message": "nope"
+        },
+        "expect": {
+          "isError": true,
+          "structured": {
+            "ok": false,
+            "error": {
+              "code": "invalid_arguments",
+              "message": "这一回合的正文输出已被卡片收尾"
+            }
+          },
+          "text": "这一回合的正文输出已被卡片收尾"
+        }
+      },
+      {
+        "name": "empty-message",
+        "session": {
+          "kind": "chat",
+          "hidden": false,
+          "suppressed": false,
+          "origin": null
+        },
+        "arguments": {
+          "message": ""
+        },
+        "expect": {
+          "isError": true,
+          "structured": {
+            "ok": false,
+            "error": {
+              "code": "invalid_arguments",
+              "message": "主动发消息需要提供内容"
+            }
+          },
+          "text": "主动发消息需要提供内容"
+        }
+      }
+    ]
+  }
+}

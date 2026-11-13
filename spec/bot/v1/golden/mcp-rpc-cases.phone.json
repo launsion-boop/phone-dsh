@@ -1,0 +1,654 @@
+{
+  "schemaVersion": 1,
+  "vector": "mcp-rpc-cases.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "note": "phoneDSH-only JSON-RPC conformance vector; no dsh-bot upstream file exists. The checkout records the pinned upstream batch this contract sits beside, not the origin of these cases."
+  },
+  "upstream": [],
+  "delta": [
+    "P05/P26: /mcp JSON-RPC bodies are frozen from the Swift handler: initialize version echo and capabilities, ping {}, tools/list native append with Bot-name collision wins, tools/call BotMCPCallResult and unknown_tool failure, -32601/-32602/-32603, batch reply order and 202 notification handling (PC-20261113-bot-mcp-d13).",
+    "P05: native forwarding is part of the same endpoint: initialize merges non-empty native instructions, tools/list appends undeclared native names, tools/call forwards non-Bot names unchanged with the original headers, other methods are forwarded before -32601, and notifications are never forwarded.",
+    "P05: the HTTP envelope is frozen with exact status/body pairs for origin, bearer, method, target, size, JSON and batch-frame failures; /mcp/native still buffers and is not a streaming route (GAP-36)."
+  ],
+  "protocolVersions": [
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26"
+  ],
+  "maximumBodyBytes": 1048576,
+  "native": {
+    "instructions": "Native phone tools. Use iphone_agent_run for device tasks.",
+    "tools": [
+      {
+        "name": "native_echo",
+        "description": "Echo one argument.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      {
+        "name": "ask_user",
+        "description": "COLLIDING NATIVE DESCRIPTION MUST LOSE",
+        "inputSchema": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "valid": [
+    {
+      "name": "initialize-echo-2025-06-18",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-06-18"
+        }
+      },
+      "expect": {
+        "result": {
+          "protocolVersion": "2025-06-18",
+          "capabilities": {
+            "tools": {}
+          },
+          "serverInfo": {
+            "name": "phone",
+            "version": "1.0.0"
+          },
+          "instructions": "Native phone tools. Use iphone_agent_run for device tasks."
+        }
+      }
+    },
+    {
+      "name": "initialize-echo-2025-11-25",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "init-new",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-11-25"
+        }
+      },
+      "expect": {
+        "result": {
+          "protocolVersion": "2025-11-25"
+        }
+      }
+    },
+    {
+      "name": "initialize-echo-2025-03-26",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "init-old",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "2025-03-26"
+        }
+      },
+      "expect": {
+        "result": {
+          "protocolVersion": "2025-03-26"
+        }
+      }
+    },
+    {
+      "name": "initialize-fallback-unknown-version",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": "1999-01-01"
+        }
+      },
+      "expect": {
+        "result": {
+          "protocolVersion": "2025-11-25"
+        }
+      }
+    },
+    {
+      "name": "initialize-missing-version",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "initialize",
+        "params": {}
+      },
+      "expect": {
+        "result": {
+          "protocolVersion": "2025-11-25"
+        }
+      }
+    },
+    {
+      "name": "ping",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "ping-1",
+        "method": "ping"
+      },
+      "expect": {
+        "result": {}
+      }
+    },
+    {
+      "name": "tools-list-static-with-native-merge",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/list"
+      },
+      "expect": {
+        "toolList": {
+          "names": [
+            "ask_user",
+            "show_next_steps",
+            "show_attachment",
+            "show_document",
+            "show_progress",
+            "show_checklist",
+            "show_link",
+            "UpdateMemory",
+            "ReadMemory",
+            "RecallMemory",
+            "Task",
+            "AwaitTask",
+            "StopSubagent",
+            "UpdateRoutine",
+            "ListRoutines",
+            "RequestApproval",
+            "SendToUser",
+            "FishAction",
+            "BotVolatileContext",
+            "SendToAgent",
+            "CreateTeammate",
+            "native_echo"
+          ],
+          "count": 22,
+          "last": "native_echo",
+          "notContains": [
+            "show_table",
+            "show_callout",
+            "show_info",
+            "show_payload",
+            "show_library"
+          ]
+        }
+      }
+    },
+    {
+      "name": "tools-list-per-caller-hides-create-teammate",
+      "transport": "single",
+      "caller": {
+        "botId": "restricted",
+        "sessionId": "gb-restricted",
+        "kind": "chat"
+      },
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "tools/list"
+      },
+      "expect": {
+        "toolList": {
+          "count": 21,
+          "contains": [
+            "SendToAgent",
+            "FishAction"
+          ],
+          "notContains": [
+            "CreateTeammate",
+            "show_table"
+          ]
+        }
+      }
+    },
+    {
+      "name": "tools-call-success",
+      "transport": "single",
+      "caller": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "rpc-list",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "rpc-list",
+        "method": "tools/call",
+        "params": {
+          "name": "ListRoutines",
+          "arguments": {}
+        }
+      },
+      "expect": {
+        "result": {
+          "structuredContent": {
+            "routines": [],
+            "count": 0
+          },
+          "content": [
+            {
+              "type": "text"
+            }
+          ]
+        },
+        "flags": {
+          "isErrorAbsent": true,
+          "contentTextJSON": true
+        }
+      }
+    },
+    {
+      "name": "tools-call-server-prefix",
+      "transport": "single",
+      "caller": {
+        "botId": "main",
+        "sessionId": "gb-main",
+        "kind": "chat"
+      },
+      "registration": {
+        "callId": "rpc-prefix",
+        "tool": "ListRoutines",
+        "arguments": {}
+      },
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "rpc-prefix",
+        "method": "tools/call",
+        "params": {
+          "name": "mcp__phone__ListRoutines",
+          "arguments": {}
+        }
+      },
+      "expect": {
+        "result": {
+          "structuredContent": {
+            "count": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "tools-call-native-forward",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "nat-1",
+        "method": "tools/call",
+        "params": {
+          "name": "native_echo",
+          "arguments": {
+            "text": "hi"
+          }
+        }
+      },
+      "headers": {
+        "x-pdsh-idempotency-key": "idem-1"
+      },
+      "expect": {
+        "result": {
+          "nativeEcho": {
+            "text": "hi"
+          },
+          "nativeSawIdempotencyKey": "idem-1"
+        }
+      }
+    },
+    {
+      "name": "tools-call-unknown-tool-result",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "unknown-1",
+        "method": "tools/call",
+        "params": {
+          "name": "nope",
+          "arguments": {}
+        }
+      },
+      "expect": {
+        "result": {
+          "isError": true,
+          "structuredContent": {
+            "ok": false,
+            "error": {
+              "code": "unknown_tool"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown-method",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "m-1",
+        "method": "resources/list"
+      },
+      "expect": {
+        "error": {
+          "code": -32601
+        }
+      }
+    },
+    {
+      "name": "unknown-method-forwarded-native",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": "m-2",
+        "method": "native/ping",
+        "params": {
+          "x": 1
+        }
+      },
+      "expect": {
+        "result": {
+          "native": true
+        }
+      }
+    },
+    {
+      "name": "batch-single-request",
+      "transport": "batch",
+      "messages": [
+        {
+          "jsonrpc": "2.0",
+          "id": 12,
+          "method": "ping"
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "ids": [
+          12
+        ],
+        "replyCount": 1,
+        "firstResult": {}
+      }
+    },
+    {
+      "name": "batch-mixed",
+      "transport": "batch",
+      "messages": [
+        {
+          "jsonrpc": "2.0",
+          "id": 10,
+          "method": "ping"
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/initialized"
+        },
+        {
+          "jsonrpc": "2.0",
+          "id": 11,
+          "method": "tools/list"
+        }
+      ],
+      "expect": {
+        "status": 200,
+        "ids": [
+          10,
+          11
+        ],
+        "replyCount": 2,
+        "firstResult": {}
+      }
+    },
+    {
+      "name": "notification-only",
+      "transport": "notification",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "notifications/initialized"
+      },
+      "expect": {
+        "status": 202,
+        "empty": true
+      }
+    },
+    {
+      "name": "batch-notifications-only",
+      "transport": "batch",
+      "messages": [
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/initialized"
+        },
+        {
+          "jsonrpc": "2.0",
+          "method": "notifications/cancelled",
+          "params": {
+            "requestId": 1
+          }
+        }
+      ],
+      "expect": {
+        "status": 202,
+        "empty": true
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "tools-call-missing-name",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 20,
+        "method": "tools/call",
+        "params": {
+          "arguments": {}
+        }
+      },
+      "expect": {
+        "error": {
+          "code": -32602,
+          "message": "tools/call requires name"
+        }
+      }
+    },
+    {
+      "name": "tools-call-arguments-not-object",
+      "transport": "single",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 21,
+        "method": "tools/call",
+        "params": {
+          "name": "ListRoutines",
+          "arguments": []
+        }
+      },
+      "expect": {
+        "error": {
+          "code": -32602,
+          "message": "arguments must be an object"
+        }
+      }
+    },
+    {
+      "name": "batch-element-not-object",
+      "transport": "batch",
+      "messages": [
+        1
+      ],
+      "expect": {
+        "status": 400,
+        "error": "invalid JSON-RPC message"
+      }
+    },
+    {
+      "name": "batch-element-missing-method",
+      "transport": "batch",
+      "messages": [
+        {
+          "jsonrpc": "2.0",
+          "id": 30
+        }
+      ],
+      "expect": {
+        "status": 400,
+        "error": "invalid JSON-RPC message"
+      }
+    },
+    {
+      "name": "http-get",
+      "transport": "http",
+      "http": {
+        "method": "GET"
+      },
+      "expect": {
+        "status": 405,
+        "error": "method not allowed"
+      }
+    },
+    {
+      "name": "http-delete",
+      "transport": "http",
+      "http": {
+        "method": "DELETE"
+      },
+      "expect": {
+        "status": 405,
+        "error": "method not allowed"
+      }
+    },
+    {
+      "name": "http-query-string",
+      "transport": "http",
+      "http": {
+        "path": "/mcp?x=1"
+      },
+      "expect": {
+        "status": 400,
+        "error": "invalid request target"
+      }
+    },
+    {
+      "name": "http-dotdot-segment",
+      "transport": "http",
+      "http": {
+        "path": "/identity/../mcp"
+      },
+      "expect": {
+        "status": 400,
+        "error": "invalid request target"
+      }
+    },
+    {
+      "name": "http-trailing-slash",
+      "transport": "http",
+      "http": {
+        "path": "/mcp/"
+      },
+      "expect": {
+        "status": 404,
+        "error": "not found"
+      }
+    },
+    {
+      "name": "http-different-case",
+      "transport": "http",
+      "http": {
+        "path": "/MCP"
+      },
+      "expect": {
+        "status": 404,
+        "error": "not found"
+      }
+    },
+    {
+      "name": "http-unknown-path",
+      "transport": "http",
+      "http": {
+        "path": "/mcp/native"
+      },
+      "expect": {
+        "status": 404,
+        "error": "not found"
+      }
+    },
+    {
+      "name": "http-origin-mismatch",
+      "transport": "http",
+      "http": {
+        "origin": "http://127.0.0.1:1"
+      },
+      "expect": {
+        "status": 403,
+        "error": "origin mismatch"
+      }
+    },
+    {
+      "name": "http-missing-bearer",
+      "transport": "http",
+      "http": {
+        "bearer": null
+      },
+      "expect": {
+        "status": 401,
+        "error": "unauthorized"
+      }
+    },
+    {
+      "name": "http-wrong-bearer",
+      "transport": "http",
+      "http": {
+        "bearer": "wrong"
+      },
+      "expect": {
+        "status": 401,
+        "error": "unauthorized"
+      }
+    },
+    {
+      "name": "http-invalid-json",
+      "transport": "http",
+      "http": {
+        "rawBody": "{"
+      },
+      "expect": {
+        "status": 400,
+        "error": "invalid JSON"
+      }
+    },
+    {
+      "name": "http-body-too-large",
+      "transport": "http",
+      "http": {
+        "contentLength": 1048577
+      },
+      "expect": {
+        "status": 413,
+        "error": "request too large"
+      },
+      "reason": "declared Content-Length is one byte over 1 MiB; the server answers 413 from the header without reading a body"
+    }
+  ]
+}

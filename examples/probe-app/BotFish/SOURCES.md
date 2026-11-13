@@ -6,7 +6,7 @@
 固定提交：`bf4075b0a2e8092b04b726c59a7b085d5a37e6f6`
 源目录：`src/renderer/public/assets/fish/`
 
-用户已明确授权在 phoneDSH iOS 中使用大肥鱼形象素材。本目录供原生分层渲染器
+用户已明确授权在 phoneDSH iOS 中使用大肥鱼形象素材。2026-11-12 起，权利人（素材作者，即上游 `launsion-boop/dsh-bot` 的所有者）将授权扩展到 phoneDSH 全部平台：iOS App、Android（`:lib` AAR 与 App APK）、HarmonyOS，以及截图/测试工程；随 phoneDSH 以 MIT 许可再分发，见仓库根 `NOTICE`。各平台只读取本目录（构建期复制或打包），不得另存手改副本。本目录供原生分层渲染器
 （移植自上游 `src/renderer/lib/fish/` 的 Canvas2D 绘制逻辑）使用，文件均未修改：
 
 - `base/{body,fixed,face-mask,eyes-open,eyes-white,iris-left,iris-right,blush}.png`：

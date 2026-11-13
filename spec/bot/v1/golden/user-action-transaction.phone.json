@@ -1,0 +1,1590 @@
+{
+  "schemaVersion": 1,
+  "vector": "user-action-transaction.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6"
+  },
+  "upstream": [],
+  "delta": [
+    "P25 user-action transaction: (bot_id, nonce) is the idempotency key; a replay returns duplicate with the original eventID and never re-runs effects.",
+    "One BEGIN IMMEDIATE transaction appends the action event, every effect.enqueued event and the nonce row; a crash before COMMIT leaves none, a crash after COMMIT leaves all and a retry is duplicate.",
+    "Action validation returns rejected/stale without writing or consuming the nonce; the frozen reasons are invalid_action, unexpected_attachments, too_many_attachments, invalid_attachment, missing_text, missing_card_id, unexpected_card_answer_field, missing_card_answer, invalid_approval, missing_thread_id and stale digest_mismatch.",
+    "A plan event that is ephemeral, belongs to another bot, reuses an existing eventId, or contains a duplicate/already-enqueued effectKey fails with invalidTransition and consumes no nonce.",
+    "These are phone-only vectors; upstream [] because dsh-bot does not export the SQLite transaction."
+  ],
+  "valid": [
+    {
+      "name": "action-event-effects-and-nonce-commit-atomically",
+      "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:91-128",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-action-1",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              },
+              {
+                "effectKey": "fx-action-2",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "accepted",
+            "eventID": "evt-action",
+            "head": 3,
+            "eventTypes": [
+              "conversation.user_message",
+              "effect.enqueued",
+              "effect.enqueued"
+            ],
+            "sequences": [
+              1,
+              2,
+              3
+            ]
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "eventID": "evt-action"
+          }
+        },
+        {
+          "op": "effects",
+          "expect": {
+            "keys": [
+              "fx-action-1",
+              "fx-action-2"
+            ],
+            "states": [
+              "pending",
+              "pending"
+            ],
+            "enqueuedCommitSeq": [
+              2,
+              3
+            ]
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-must-not-win",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-must-not-win",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "different"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-must-not-run",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-action",
+            "head": 3
+          }
+        },
+        {
+          "op": "event",
+          "eventId": "evt-must-not-win",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "effect",
+          "effectKey": "fx-must-not-run",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-duplicate-survives-reopen",
+      "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:118-124",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-action-1",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              },
+              {
+                "effectKey": "fx-action-2",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "accepted",
+            "eventID": "evt-action",
+            "head": 3
+          }
+        },
+        {
+          "op": "reopen",
+          "expect": {
+            "head": 3
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-must-not-win",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-must-not-win",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "different"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-must-not-run",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-action",
+            "head": 3
+          }
+        },
+        {
+          "op": "effects",
+          "expect": {
+            "keys": [
+              "fx-action-1",
+              "fx-action-2"
+            ],
+            "states": [
+              "pending",
+              "pending"
+            ],
+            "enqueuedCommitSeq": [
+              2,
+              3
+            ]
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "eventID": "evt-action"
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-before-commit-crash-rolls-back-then-retries",
+      "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:130-159",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "append",
+          "event": {
+            "schemaVersion": 1,
+            "type": "ui.notice",
+            "eventId": "evt-seed",
+            "time": 1000,
+            "origin": {
+              "kind": "local",
+              "source": "user"
+            },
+            "traceId": "trace-evt-seed",
+            "principal": {
+              "botId": "main",
+              "sessionId": null,
+              "kind": "ipc",
+              "capabilities": []
+            },
+            "data": {
+              "text": "seed"
+            }
+          },
+          "expect": {
+            "sequence": 1
+          }
+        },
+        {
+          "op": "armCrash",
+          "point": "abort-before-commit",
+          "expect": {}
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-interrupted",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-interrupted",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "continue"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-interrupted",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "error": "simulatedCrash:abort-before-commit"
+          }
+        },
+        {
+          "op": "reopen",
+          "expect": {
+            "head": 1
+          }
+        },
+        {
+          "op": "event",
+          "eventId": "evt-interrupted",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "effect",
+          "effectKey": "fx-interrupted",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-interrupted",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-interrupted",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "continue"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-interrupted",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "accepted",
+            "eventID": "evt-interrupted",
+            "head": 3
+          }
+        },
+        {
+          "op": "event",
+          "eventId": "evt-interrupted",
+          "expect": {
+            "exists": true,
+            "commitSeq": 2,
+            "type": "conversation.user_message"
+          }
+        },
+        {
+          "op": "effect",
+          "effectKey": "fx-interrupted",
+          "expect": {
+            "exists": true,
+            "enqueuedCommitSeq": 3
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-interrupted",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-interrupted",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "continue"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-interrupted",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-interrupted",
+            "head": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-after-commit-crash-replays-duplicate",
+      "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:161-187",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "armCrash",
+          "point": "abort-after-commit",
+          "expect": {}
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-after-commit",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-after-commit",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "after"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-after-commit",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "error": "simulatedCrash:abort-after-commit"
+          }
+        },
+        {
+          "op": "reopen",
+          "expect": {
+            "head": 2
+          }
+        },
+        {
+          "op": "event",
+          "eventId": "evt-after-commit",
+          "expect": {
+            "exists": true,
+            "commitSeq": 1,
+            "type": "conversation.user_message"
+          }
+        },
+        {
+          "op": "effect",
+          "effectKey": "fx-after-commit",
+          "expect": {
+            "exists": true,
+            "enqueuedCommitSeq": 2
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "eventID": "evt-after-commit"
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-after-commit",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-after-commit",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "after"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-after-commit",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-after-commit",
+            "head": 2
+          }
+        },
+        {
+          "op": "effects",
+          "expect": {
+            "keys": [
+              "fx-after-commit"
+            ],
+            "states": [
+              "pending"
+            ],
+            "enqueuedCommitSeq": [
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-same-nonce-is-isolated-by-bot",
+      "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:279-304",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "bot-a",
+            "kind": "chat",
+            "text": "a"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-bot-a",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-bot-a",
+              "principal": {
+                "botId": "bot-a",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "a"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "accepted",
+            "eventID": "evt-bot-a",
+            "head": 1
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "bot-b",
+            "kind": "chat",
+            "text": "b"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-bot-b",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-bot-b",
+              "principal": {
+                "botId": "bot-b",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "b"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "accepted",
+            "eventID": "evt-bot-b",
+            "head": 2
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "bot-a",
+          "nonce": "nonce-1",
+          "expect": {
+            "eventID": "evt-bot-a"
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "bot-b",
+          "nonce": "nonce-1",
+          "expect": {
+            "eventID": "evt-bot-b"
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "bot-c",
+          "nonce": "nonce-1",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "reopen",
+          "expect": {
+            "head": 2
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "bot-a",
+            "kind": "chat",
+            "text": "a"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-replacement-a",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-replacement-a",
+              "principal": {
+                "botId": "bot-a",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "a"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-bot-a",
+            "head": 2
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "bot-b",
+            "kind": "chat",
+            "text": "b"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-replacement-b",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-replacement-b",
+              "principal": {
+                "botId": "bot-b",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "b"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-bot-b",
+            "head": 2
+          }
+        }
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "name": "action-event-id-conflict-fails-closed-without-consuming-nonce",
+      "source": "Tests/PhoneDSHBotTests/Store/UserActionTransactionTests.swift:251-277",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "first",
+            "botID": "main",
+            "kind": "chat",
+            "text": "first"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-shared",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-shared",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "shared"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-first",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "status": "accepted",
+            "eventID": "evt-shared",
+            "head": 2
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "second",
+            "botID": "main",
+            "kind": "chat",
+            "text": "second"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-shared",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-shared",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "shared"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-second",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "error": "invalidTransition"
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 2
+          }
+        },
+        {
+          "op": "effect",
+          "effectKey": "fx-second",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "second",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "first",
+          "expect": {
+            "eventID": "evt-shared"
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "first",
+            "botID": "main",
+            "kind": "chat",
+            "text": "first"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-different",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-different",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "different"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "duplicate",
+            "eventID": "evt-shared",
+            "head": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-chat-without-text-or-attachments-is-rejected",
+      "source": "Sources/PhoneDSHBot/Rows/BotUserAction.swift:231-248",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-empty",
+            "botID": "main",
+            "kind": "chat",
+            "text": "   "
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "rejected",
+            "reason": "missing_text",
+            "head": 0
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-empty",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-card-answer-without-option-is-rejected",
+      "source": "Sources/PhoneDSHBot/Rows/BotUserAction.swift:249-256",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-card",
+            "botID": "main",
+            "kind": "cardAnswer",
+            "cardID": "card-1"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "rejected",
+            "reason": "missing_card_answer",
+            "head": 0
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-card",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-approval-without-digest-is-stale",
+      "source": "Sources/PhoneDSHBot/Rows/BotUserAction.swift:259-263",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-approval",
+            "botID": "main",
+            "kind": "approval",
+            "approvalID": "approval-1",
+            "decision": "allowOnce"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "stale",
+            "reason": "digest_mismatch",
+            "head": 0
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-approval",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-stop-task-without-thread-is-rejected",
+      "source": "Sources/PhoneDSHBot/Rows/BotUserAction.swift:264-265",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-stop",
+            "botID": "main",
+            "kind": "stopTask"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "status": "rejected",
+            "reason": "missing_thread_id",
+            "head": 0
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-stop",
+          "expect": {
+            "exists": false
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-plan-must-be-durable",
+      "source": "Sources/PhoneDSHBot/Store/SQLiteDomainStore+UserAction.swift:22-32",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "model.delta",
+              "eventId": "evt-ephemeral",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-ephemeral",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "x"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "error": "invalidTransition"
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "exists": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-plan-event-must-belong-to-action-bot",
+      "source": "Sources/PhoneDSHBot/Store/SQLiteDomainStore+UserAction.swift:22-32",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-foreign",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-foreign",
+              "principal": {
+                "botId": "bot-b",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "x"
+              }
+            },
+            "effects": []
+          },
+          "expect": {
+            "error": "invalidTransition"
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-plan-duplicate-effect-key-is-rejected",
+      "source": "Sources/PhoneDSHBot/Store/SQLiteDomainStore+UserAction.swift:34-42",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-dup",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              },
+              {
+                "effectKey": "fx-dup",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "error": "invalidTransition"
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 0
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "exists": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "action-plan-existing-effect-key-is-rejected",
+      "source": "Sources/PhoneDSHBot/Store/SQLiteDomainStore+UserAction.swift:39-41",
+      "kind": "action",
+      "steps": [
+        {
+          "op": "effectEnqueue",
+          "effect": {
+            "effectKey": "fx-existing",
+            "kind": "test",
+            "operation": "notify",
+            "target": "row-1",
+            "canonicalResource": "row-1",
+            "argsDigest": "args-digest",
+            "payloadDigest": "payload-digest",
+            "logicalKey": "request-1",
+            "idempotent": true,
+            "generation": 1
+          },
+          "expect": {
+            "effectKey": "fx-existing",
+            "head": 1
+          }
+        },
+        {
+          "op": "action",
+          "action": {
+            "nonce": "nonce-1",
+            "botID": "main",
+            "kind": "chat",
+            "text": "继续"
+          },
+          "plan": {
+            "event": {
+              "schemaVersion": 1,
+              "type": "conversation.user_message",
+              "eventId": "evt-action",
+              "time": 1000,
+              "origin": {
+                "kind": "local",
+                "source": "user"
+              },
+              "traceId": "trace-evt-action",
+              "principal": {
+                "botId": "main",
+                "sessionId": "main",
+                "kind": "chat",
+                "capabilities": []
+              },
+              "data": {
+                "text": "继续"
+              }
+            },
+            "effects": [
+              {
+                "effectKey": "fx-existing",
+                "kind": "test",
+                "operation": "notify",
+                "target": "row-1",
+                "canonicalResource": "row-1",
+                "argsDigest": "args-digest",
+                "payloadDigest": "payload-digest",
+                "logicalKey": "request-1",
+                "idempotent": true,
+                "generation": 1
+              }
+            ]
+          },
+          "expect": {
+            "error": "invalidTransition"
+          }
+        },
+        {
+          "op": "head",
+          "expect": {
+            "head": 1
+          }
+        },
+        {
+          "op": "nonce",
+          "botID": "main",
+          "nonce": "nonce-1",
+          "expect": {
+            "exists": false
+          }
+        }
+      ]
+    }
+  ]
+}

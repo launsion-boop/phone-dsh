@@ -2,36 +2,81 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BotVolatileContext v1",
   "type": "object",
-  "required": ["request", "response"],
+  "required": [
+    "request",
+    "response"
+  ],
   "properties": {
     "request": {
       "type": "object",
-      "required": ["sessionId"],
+      "required": [
+        "sessionId"
+      ],
       "properties": {
-        "sessionId": {"type": "string", "minLength": 1, "maxLength": 200}
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Must equal the attributed principal's sessionId; 1-200 Unicode scalars."
+        }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "Exactly {sessionId}; no other member is accepted."
     },
     "response": {
       "type": "object",
-      "required": ["schemaVersion", "sessionId", "revision", "blocks"],
+      "required": [
+        "schemaVersion",
+        "sessionId",
+        "revision",
+        "blocks"
+      ],
       "properties": {
-        "schemaVersion": {"const": 1},
-        "sessionId": {"type": "string", "minLength": 1, "maxLength": 200},
-        "revision": {"type": "integer", "minimum": 1},
+        "schemaVersion": {
+          "const": 1
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic per producer instance; an attempted (even failed) snapshot still consumes a revision."
+        },
         "blocks": {
           "type": "object",
           "properties": {
-            "variant": {"type": "string", "maxLength": 12000},
-            "persona": {"type": "string", "maxLength": 12000},
-            "memory": {"type": "string", "maxLength": 4000},
-            "automation": {"type": "string", "maxLength": 4000}
+            "variant": {
+              "type": "string",
+              "maxLength": 12000,
+              "description": "At most 12000 Unicode scalars; empty is omitted. See tool-contracts.md §8."
+            },
+            "persona": {
+              "type": "string",
+              "maxLength": 12000,
+              "description": "At most 12000 Unicode scalars; empty is omitted. See tool-contracts.md §8."
+            },
+            "memory": {
+              "type": "string",
+              "maxLength": 4000,
+              "description": "At most 4000 Unicode scalars; empty is omitted. See tool-contracts.md §8."
+            },
+            "automation": {
+              "type": "string",
+              "maxLength": 4000,
+              "description": "At most 4000 Unicode scalars; empty is omitted. See tool-contracts.md §8."
+            }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "description": "Block text is assembled from variant, persona, memory and automation. The teammates sub-block is appended to automation, not a fifth block. Caps are Unicode scalars: variant/persona 12000, memory/automation 4000, total 24000."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "schemaVersion is always 1. revision starts at 1 per producer instance and increases per attempt. blocks omits empty blocks; an empty provider returns {}."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "description": "BotVolatileContext tool request/response as frozen by tool-contracts.md §8. Request carries exactly sessionId (1-200 Unicode scalars) and it must equal the attributed principal session. Blocks are Unicode-scalar capped: variant/persona 12000, memory/automation 4000, total 24000; failures return a tool error, never a stale snapshot."
 }

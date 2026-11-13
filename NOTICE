@@ -31,6 +31,12 @@ Each component carries its own licence text inside the package that ships it (th
 Every redistributed component keeps its own licence; nothing in the MIT
 licence of Phone DSH re-licenses them.
 
+The 大肥鱼 (BotFish) layered artwork under examples/probe-app/BotFish/ is
+copied unmodified from launsion-boop/dsh-bot (pinned commit bf4075b). Its
+author, who owns that repository, grants its use in Phone DSH on every
+platform (iOS, Android AAR/APK, HarmonyOS) and its redistribution with
+Phone DSH under the MIT License; see examples/probe-app/BotFish/SOURCES.md.
+
 The Android local Ubuntu slice additionally fetches third-party pieces that are
 never committed to this repository and never shipped in this repository's
 source tree. The build-time proot stack is downloaded by

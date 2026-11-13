@@ -4,14 +4,33 @@
   "type": "object",
   "required": ["config", "flagged", "mobile"],
   "properties": {
-    "config": {"type": "object"},
+    "config": {
+      "type": "object",
+      "description": "Bot watchdog configuration. Every member is optional; an absent member takes its default. Negative values, non-integer values and unknown members are rejected by the contract reader (see watchdog.md §2). Zero is valid and disables the corresponding active threshold/limit, except the two goal totals where zero means no goal-wide budget is configured.",
+      "properties": {
+        "heartbeatTimeoutMs": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 120000, "description": "Heartbeat silence threshold in milliseconds. 0 disables heartbeat flags."},
+        "turnDeadlineMs": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 900000, "description": "Default turn deadline in milliseconds. 0 gives a turn no deadline."},
+        "taskDeadlineMs": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 600000, "description": "Default task deadline in milliseconds. 0 gives a task no deadline."},
+        "routineDeadlineMs": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 660000, "description": "Default routine deadline in milliseconds. 0 gives a routine no deadline."},
+        "repeatedToolCalls": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 5, "description": "Same tool name+argumentsDigest count that raises repeated_tool_signature. The comparison is >=; 0 disables the check."},
+        "repeatedToolErrors": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 3, "description": "Same tool+error count that raises repeated_tool_error. The comparison is >=; 0 disables the check."},
+        "maxUnitTokens": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 200000, "description": "Per-unit token quota. The comparison is strict >; 0 disables the token quota."},
+        "maxUnitCostUsd": {"type": "number", "minimum": 0, "default": 2, "description": "Per-unit cost quota in USD. The comparison is strict >; 0 disables the cost quota."},
+        "goalMaxTotalTokens": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 0, "description": "Goal-wide aggregate token budget. 0 means not configured; per-unit quota remains the enforced P0 check."},
+        "goalMaxTotalCostUsd": {"type": "number", "minimum": 0, "default": 0, "description": "Goal-wide aggregate cost budget. 0 means not configured; per-unit quota remains the enforced P0 check."},
+        "tickMs": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 5000, "description": "Caller evaluation cadence in milliseconds. The monitor itself does not sleep; the host calls tick() on this cadence and after observed events."},
+        "historyLimit": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 200, "description": "Maximum recent in-memory flags retained. Runtime stores at most max(1, value); flags(limit:) clamps to the configured value (so 0 returns no history)."},
+        "maxUnits": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807, "default": 1000, "description": "Maximum tracked units before the oldest unit is evicted. Runtime uses max(1, value)."}
+      },
+      "additionalProperties": false
+    },
     "flagged": {
       "type": "array",
       "items": {
         "type": "object",
         "required": ["check", "evidence"],
         "properties": {
-          "check": {"enum": ["deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error", "quota"]},
+          "check": {"enum": ["deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error", "quota", "webcontent_terminated", "thermal_pressure", "battery_pressure"]},
           "evidence": {"type": "object"}
         },
         "additionalProperties": false
@@ -34,5 +53,24 @@
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "unitKind": {"type": "string", "enum": ["turn", "task", "routine", "goal"]},
+    "check": {"type": "string", "enum": ["deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error", "quota", "webcontent_terminated", "thermal_pressure", "battery_pressure"]},
+    "flagData": {
+      "type": "object",
+      "description": "data of one durable watchdog.flagged event (see watchdog.md §5).",
+      "required": ["check", "unitKind", "unitId", "at", "evidence"],
+      "properties": {
+        "check": {"enum": ["deadline", "heartbeat", "repeated_tool_signature", "repeated_tool_error", "quota", "webcontent_terminated", "thermal_pressure", "battery_pressure"]},
+        "unitKind": {"enum": ["turn", "task", "routine", "goal"]},
+        "unitId": {"type": "string", "minLength": 1},
+        "botId": {"type": ["string", "null"]},
+        "sessionId": {"type": ["string", "null"]},
+        "at": {"type": "integer", "minimum": 0},
+        "evidence": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  }
 }

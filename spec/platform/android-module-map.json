@@ -27,9 +27,9 @@
     },
     {
       "swift": "PhoneDSHBot",
-      "kotlin": null,
-      "gradle": null,
-      "status": "absent"
+      "kotlin": "com.phonedsh.bot",
+      "gradle": ":bot",
+      "status": "target"
     },
     {
       "swift": "PhoneDSHController",
@@ -102,6 +102,12 @@
       "kotlin": "com.phonedsh.shell",
       "gradle": ":shell",
       "status": "mapped"
+    },
+    {
+      "swift": "PhoneDSHStandardError",
+      "kotlin": null,
+      "gradle": null,
+      "status": "absent"
     },
     {
       "swift": "PhoneDSHVenus",

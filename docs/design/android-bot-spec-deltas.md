@@ -253,154 +253,166 @@ A real 403/SSE test is device/desktop-host evidence, not a JVM mock.
 
 ---
 
-### D1 — P25 envelope presence, ephemeral envelope, grant-snapshot type (S)
+### D1 — P25 envelope presence, ephemeral envelope, grant-snapshot and memory-document types (S) — FROZEN
 
-**Target.** `spec/bot/v1/event-envelope.schema.json` + a new normative section
-`spec/bot/v1/README.md` §1.2 “Envelope presence and encoding”; a new
-`spec/bot/v1/event-envelope.ephemeral.schema.json` if the owner prefers a separate file.
+**Status.** Frozen. The presence rule, ephemeral envelope and `authz.grant_snapshot` type were frozen by
+[PC-20261112-bot-contract-repairs](../../docs/protocol-changes/PC-20261112-bot-contract-repairs.md)
+(`contract_revision c48f5f13831bc17d53afc5a6552ae813520394bb`). The two `memory.document_*` durable types were
+added by PC-20261112-android-bot-w4 lane C2 under `P25-store-v3`. This section is now a record of what is
+frozen and where; it is not a proposal, and the original “explicit null writer” outline is superseded.
 
-**Why.** CCR-1: required nullable members are omitted by Swift; ephemeral events have no schema;
-CCR-2: `authz.grant_snapshot` is not in the enum. The stored-bytes mismatch is not cosmetic: the event
-payload is the authoritative record, and Kotlin replay must decode iOS rows and vice versa.
+**Frozen decisions (normative).**
 
-**Section outline.**
+1. **Presence.** For `principal.botId`, `principal.sessionId`, `causationId`, `correlationId` and the routine
+   snapshot members, **absent ≡ null**. A reader MUST accept absent and explicit `null` as the same nil value.
+   A writer MUST omit a nil member; it MUST NOT write explicit `null` for them. The one exception is each
+   `authz.grant_snapshot` grant entry, whose 11 fields are all required and whose `sessionId`/`expiresAt` are
+   written as explicit `null` when nil. See `spec/bot/v1/README.md` §1.2.
+2. **Optional members.** `turnId`, `runId`, `attempt`, `batch`, `ignorable` stay optional and omitted when
+   absent; `ignorable` may only be `true` or omitted. Other required members are always present.
+3. **Canonical encoding.** UTF-8 JSON, sorted object keys, `/` not escaped, no insignificant whitespace.
+   The stored payload bytes and the digest over them are the canonical bytes (the store profile is
+   `spec/bot/v1/store.md` §5).
+4. **Durable vs ephemeral.** `event-envelope.schema.json` is durable-only (`commitSeq >= 1`). Ephemeral
+   events never carry `commitSeq`, are never stored, and use the closed
+   `event-envelope.ephemeral.schema.json`. The closed type lists are
+   `BotEventEnvelopeCodec.durableEventTypes` / `ephemeralEventTypes`.
+5. **Type registration.** `authz.grant_snapshot` is a durable type; its data is frozen by
+   `authz-grant-snapshot.schema.json` (11 fields per entry, no unknown members). `memory.document_written`
+   and `memory.document_deleted` are durable types (already present in
+   `Sources/PhoneDSHBot/Journal/BotEventEnvelopeCodec.swift:27-48`) and are now also in
+   `event-envelope.schema.json`'s `type` enum. Their `data` is the memory write/delete object owned by the
+   bot/v2 memory contract; the envelope does not open it.
+6. **Unchanged.** The origin and principal closed sets, non-empty `eventId`/`traceId`, the batch rules and the
+   frozen validation error codes (`INVALID_EVENT`, `SCHEMA_TOO_NEW`, `EPHEMERAL_HAS_COMMIT_SEQ`,
+   `UNKNOWN_REQUIRED_EVENT`, `COMMIT_SEQ_ASSIGNED_BY_STORE`, `MISSING_COMMIT_SEQ`) stay as they are.
 
-1. **Presence.** Every `required` member is present in the encoded object. A member whose type includes
-   `null` is encoded as explicit `null` when absent, not omitted. This applies to
-   `principal.botId`, `principal.sessionId`, `causationId`, `correlationId` (and to the routine
-   snapshot’s `run_state`, `quiet_defer`, `next_run_at`, `last_result`, see CCR-7).
-2. **Optional members.** `turnId`, `runId`, `attempt`, `batch`, `ignorable` are omitted when absent;
-   `ignorable` may only be `true` or omitted.
-3. **Canonical encoding.** UTF-8 JSON, object keys sorted, `/` not escaped, no insignificant
-   whitespace, exactly the fields of the schema. The canonical bytes are what the store persists and
-   what digests cover.
-4. **Durable vs ephemeral.** A durable event has `commitSeq ≥ 1`; an ephemeral event has no
-   `commitSeq`, is never stored, and its types are the closed set
-   `model.delta|model.started|model.settled|tool.progress|agent.status|fish.action|runtime.stderr|
-   runtime.notification|projection.invalidated|journal.backpressure|approval.card_available`
-   (`BotEventEnvelopeCodec.swift:47-51`). An unknown durable type is accepted only when
-   `ignorable:true`; an unknown non-ignorable type is rejected with `UNKNOWN_REQUIRED_EVENT`.
-5. **Numeric domain.** `time` is an integer count of milliseconds since Unix epoch, `0…2^63-1`; it is
-   not a JSON float. `commitSeq` is a positive JSON integer. Kotlin uses `Long`; JavaScript readers
-   must not treat it as a double.
-6. **Type registration.** Add `authz.grant_snapshot` to the enum and durable set, with `ignorable:true`
-   and the snapshot data shape owned by D8. If the owner rejects a durable BotEvent, replace §2.3 with
-   a dedicated record and remove the code path.
-7. **Unchanged.** The origin closed sets, principal kinds, eventId/traceId non-empty, batch rules and
-   the validation error codes stay as they are (`BotEventEnvelopeCodec.swift:72-157`).
+**Where frozen.**
 
-**Fixtures.**
+- **Location decision.** The `type` enum lives in `spec/bot/v1/event-envelope.schema.json`. That file is
+  phone-owned, not an upstream export: `export-manifest.json` lists only `golden/*.json`, and earlier
+  contract repairs already edited the schema. The phone addition therefore goes in the schema's enum and in
+  the `event-envelope.phone.json` overlay; no upstream-pinned file is touched and no contract change request
+  is needed for the location.
+- `spec/bot/v1/README.md` §1.2; `spec/bot/v1/event-envelope.schema.json`;
+  `spec/bot/v1/event-envelope.ephemeral.schema.json`; `spec/bot/v1/authz-grant-snapshot.schema.json`.
+- Shared vectors: `spec/bot/v1/golden/event-envelope.phone.json` (13 valid / 4 invalid, plus one valid and
+  one invalid ephemeral case). The two memory-document cases are `memory-document-written` and
+  `memory-document-deleted`; the invalid pair removes `commitSeq` from the written event
+  (`MISSING_COMMIT_SEQ`) and replaces the deleted event's `data` with an array (`INVALID_EVENT`, field
+  `data`).
+- Swift conformance: `Tests/PhoneDSHBotTests/Journal/BotEventEnvelopeTests.swift` reads the merged golden
+  through the real `BotEventEnvelopeCodec`; it asserts the two types are durable and that the canonical
+  writer bytes equal the golden bytes.
 
-- `event-envelope.json` (upstream): unchanged, byte-identical.
-- New `event-envelope.phone.json` cases appended (not replacing): a valid event with
-  `principal.botId:null`, `principal.sessionId:null`, `causationId:null`, `correlationId:null`; an
-  invalid event omitting one of them (reuse `INVALID_EVENT` with `field` naming the missing member, or
-  let the schema rejection be the vector’s expected result; do not add a second code for the same
-  meaning); an ephemeral valid/invalid pair; an `authz.grant_snapshot` valid pair.
-- `validate_vectors.py` already schema-validates events (`check`/`rejects`,
-  `spec/bot/v1/tools/validate_vectors.py:613-660`); the omission case is missing from the vectors, not
-  from the validator. Add it so the Swift/Kotlin encoder change has a failing gate first.
+**Compatibility.** Old iOS rows omit the nullable members and the new reader decodes them as nil; explicit
+`null` in the upstream golden also decodes. A new writer still omits nil, so old readers (`decodeIfPresent`)
+accept new rows. The enum repair only accepts events Swift already wrote; an old schema-only validator that
+rejects unknown enum values would reject those rows, and the repair makes the schema match the writer. No
+`schemaVersion` bump and no data rewrite. Rollback to an old writer is allowed; it omits again.
 
-**Compatibility.** Old Swift rows omit the keys and must remain decodable; `decodeIfPresent` already
-accepts both. New rows with explicit null are decodable by old Swift. The byte change affects only new
-writes; old rows are not rewritten. Rollback to an old writer is allowed (it will omit again) but a
-new reader must accept both. The schema change is a presence rule, not a new field/version; no
-`BotEvent.schemaVersion` bump is needed if the owner chooses “explicit null” over “optional”.
+**Remaining.** Kotlin has no Bot runtime yet, so the Kotlin encoder/decoder has not run these vectors
+(Android B1/A1). The memory document `data` shape has its own v2 owner and validators; this delta does not
+freeze its field semantics. If a future upstream export starts writing a different enum, the upstream golden
+must be re-exported, not hand-edited.
 
 **Acceptance.**
 ```bash
-python3 spec/bot/v1/tools/validate_vectors.py                 # schema-validates every vector
-swift test --filter PhoneDSHBotTests.BotEventEnvelopeTests   # reference; not the Kotlin gate
+python3 spec/bot/v1/tools/validate_vectors.py     # schema-validates every envelope case
+swift test --filter PhoneDSHBotTests.BotEventEnvelopeTests
 ```
-Kotlin: `:bot:testDebugUnitTest --tests '*BotEventEnvelope*'` must decode the explicit-null and
-omitted-null pairs to the same `BotEvent` and re-encode to the canonical bytes.
 
 ---
 
-### D2 — P25 store/outbox persistence profile (L)
+### D2 — P25 store/outbox persistence profile (L) — FROZEN
 
-**Target.** New `spec/bot/v1/store.md` (normative); optionally a `store` section in
-`spec/bot/v1/README.md` that links to it. No new wire format.
+**Status.** Frozen by `spec/bot/v1/store.md` at contract revision `P25-store-v3`
+(PC-20261112-android-bot-w4 lane C2). This supersedes the original outline’s `user_version=2` and
+single `bot_events` table: the implemented and frozen profile is **`user_version=3`** with
+`bot_event_headers` + `bot_event_payloads` + the read-only `bot_events` view. The file is the owning
+description of what runs in `Sources/PhoneDSHBot/{Store,Journal}` today.
 
-**Why.** A port that follows only the current prose will invent table names, lease timing and retry
-semantics. The Swift store is the only place those exist
-(`Store/SQLiteDomainStore.swift:73-90`, `:222-285`; `Journal/BotEffectOutbox.swift:5-13`, `:117-193`,
-`:284-353`, `:480-540`; `Journal/SQLiteDomainStore+BotEventLog.swift:101-165`). The eventId namespaces
-are the idempotency keys for user actions, routines, wake and grants; without them two implementations
-cannot dedupe the same replay.
+**Frozen decisions.** The short form; `store.md` is authoritative:
 
-**Section outline.**
+1. **File and open.** `<app-private support root>/PhoneDSHBot/domain.sqlite` plus `-wal`/`-shm`; one
+   database per App. `journal_mode=WAL` (confirmed `wal`), `synchronous=FULL`, `foreign_keys=ON`,
+   `secure_delete=ON`, 5,000 ms busy timeout, `quick_check=ok`; `user_version` 1/2 migrates, 3 opens,
+   `>3` is `schemaTooNew` without touching the file.
+2. **Schema.** Exact DDL in `store.md` §3: `bot_event_headers` (append-only triggers), `bot_event_payloads`
+   (erasure-only UPDATE, no DELETE), the four-column `bot_events` view (JSON1), `bot_effects` (26 columns,
+   lease candidate index), `bot_effect_inbox` (`receiver, effect_key, generation` PK) and
+   `bot_user_action_nonces` (`bot_id, nonce` PK; unique `event_id` FK to `bot_event_headers(event_id)`).
+3. **commitSeq.** Assigned only inside the store’s `BEGIN IMMEDIATE`, starting at 1, `+1` per durable
+   event, contiguous per batch. Caller supply is `COMMIT_SEQ_ASSIGNED_BY_STORE`. A single duplicate
+   `eventId` returns the committed sequence and appends nothing; a batch with a committed or repeated
+   `eventId` is `invalidTransition`. A gap is `commitGap(expected:actual:)`/`corrupted`.
+4. **Payload bytes.** `bot_event_payloads.payload` is canonical JSON of `data` only; `payload_digest` is
+   SHA-256 over those exact bytes; `payload_size` is their byte length; `header_meta` is the canonical full
+   envelope with `data:{}`. Erasure replaces bytes with `NULL`, keeps digest/size and writes an `erasure`
+   event; the view returns the `$erased` sentinel.
+5. **Migration.** v1/v2 → v3 decodes each old full-envelope payload, checks `commit_seq`/`event_id`/`type`,
+   splits, copies nonces, sets `user_version=3` in one transaction; idempotent on reopen. The reference
+   migrates before its contiguous scan; a v2 gap therefore becomes a v3 file that is refused at open (the
+   vector asserts the refusal, not the post-failure version).
+6. **Effects outbox.** States, enqueue generation idempotence, lease candidate order
+   `(not_before, enqueued_commit_seq, effect_key)`, lease TTL (default 30,000 ms), attempt/attempts
+   semantics, expiry takeover (`generation+1`), terminal states, permanent/exhausted dead-letter, unknown
+   outcome `needs_reconciliation` with reason `unknown-outcome`, retry delay only for
+   `network-idempotent` = `min(1000*2^(attempt-1), 300000)` ms, reconciliation/cancel rules, and inbox
+   dedupe by `(receiver, effect_key, generation)` returning the stored result without re-executing.
+7. **User action.** One transaction appends the action event, every `effect.enqueued` event and the
+   `(bot_id, nonce)` row. Result codes are exactly `accepted`/`duplicate`/`stale`/`rejected`; a replay
+   returns `duplicate` with the original `eventID`; validation rejects/stales without consuming the nonce;
+   an event-id conflict or duplicate/used effect key is `invalidTransition` and consumes no nonce.
+8. **Integrity.** Open and `verifyIntegrity()` check `quick_check`, `foreign_key_check`, contiguous
+   `commit_seq`, header/metadata agreement, payload size/digest, erasure references and nonce references;
+   any failure is `corrupted`/`commitGap` and the store does not open.
 
-1. **Database and files.** Logical path `PhoneDSHBot/domain.sqlite` under the app’s private support
-   root; sidecars `-wal`/`-shm`; directory 0700 and files 0600 on iOS; Android uses the app-private
-   files dir with the same logical subtree. One database per app, not per Bot.
-2. **Open.** WAL mode must be confirmed, `synchronous=FULL`, `foreign_keys=ON`, busy timeout 5,000 ms,
-   `user_version` 2, `quick_check` must return exactly `ok`, `schemaTooNew` above 2. On Android, state
-   the exact `SQLiteDatabase` configuration and whether `PRAGMA synchronous=FULL` is honoured; if it
-   cannot be, say so and do not claim Level 2.
-3. **Schema.** The exact `CREATE TABLE`/`CREATE INDEX`/`CREATE TRIGGER` statements:
-   `bot_events` (append-only triggers), `bot_effects` (all columns and checks), `bot_effect_inbox`,
-   `bot_user_action_nonces` (FK to `bot_events`). Name every column, type, constraint and index in
-   `SQLiteDomainStore.swift:222-285`. A reader may add indexes, not rename/drop columns.
-4. **commitSeq.** Assigned by the store inside the writing transaction, starting at 1, strictly +1, no
-   gaps. A batch is atomic and contiguous. A duplicate `eventId` returns the already-committed
-   sequence and does not append; a duplicate inside one batch is an error. The caller may not supply a
-   `commitSeq` on append (`BotEventEnvelopeCodec.swift:140-156`).
-5. **Ephemeral buffer.** 256 entries, drop-oldest, a dropped counter, never persisted, appended only
-   in memory (`SQLiteDomainStore+BotEventLog.swift:9-16`).
-6. **Outbox state machine.** States `pending|leased|failed|acked|dead_letter|
-   needs_reconciliation|cancel_requested|canceled`; transitions and guards exactly as
-   `BotEffectOutbox.swift:5-13`, `:117-193`, `:284-353`. Lease owner/TTL; `attempts` counts all
-   attempts; `attempt` is the current lease attempt; a lease may be renewed; an expired lease can be
-   re-leased; terminal states are `acked`, `dead_letter`, `canceled`; `needs_reconciliation` blocks
-   cancellation until resolved.
-7. **Retry.** `maxAttempts`: `network-idempotent=5`, `local-idempotent=2`,
-   `local-nonidempotent|network-nonidempotent=1` (`BotEventLog.swift:49-56`). Backoff:
-   `network-idempotent` only, `min(1000*2^(attempt-1), 300000)` ms; others 0
-   (`BotEffectOutbox.swift:534-540`). `errorClass` `permanent` dead-letters regardless of attempts.
-   `unknown` on the executor throw marks `needs_reconciliation` with reason `unknown-outcome`.
-8. **Reconciliation.** Reasons are exactly `unknown-outcome|generation-conflict|receiver-mismatch`;
-   `retryNeedsReconciliation` increments generation and resets the record; `ackReconciled` requires the
-   matching generation/attempt.
-9. **Inbox dedupe.** `(receiver, effect_key, generation)` unique; an apply with an existing entry at
-   the same or newer generation returns `deduped:true` with the stored result
-   (`BotEffectOutbox.swift:419-445`).
-10. **Snapshots.** `routine.*`, `comm.inbound|outbound|reply`, `task.*` use
-    `{"botId":<string>,"document":<object>}` (`Routines/DurableSnapshot.swift:5-19`); the document has
-    its own `version`; the latest event by `commit_seq` wins; an unknown version fails closed (do not
-    silently reset).
-11. **Event IDs.** Register the namespaces that are idempotency keys: `evt:<uuid>`,
-    `routine-snapshot:<runId>:<attempt>:started`, `wake-inbox:<enqueue|stage|commit|revert|recover>:…`,
-    `agent.comm:…`, `authz-snapshot-<uuid>`, `automation:<deliveryKey>`, `created:<taskId>`,
-    `ledger.usage_recorded:<uuid>`, `watchdog.flagged:<unitKind>:<unitId>:<check>` (the unit id is
-    SHA-256-truncated when the raw id exceeds 400 chars). A replay of the same logical operation
-    must reuse the id; a new operation must not.
-12. **Integrity/recovery.** On open, verify `quick_check`, `foreign_key_check`, contiguous
-    `commit_seq`, payload/row eventId and principal/nonce references; a mismatch is `corrupted` and the
-    store refuses writes (`Store/SQLiteDomainStore.swift:338-381`). A crash before/after commit leaves
-    either the old or the new state, never a partial batch.
-13. **Executor contract.** Effects are executed at least once, in `(not_before, enqueued_commit_seq,
-    effect_key)` order, by a lease owner; a handler must be idempotent for `idempotent:true` and must
-    not claim exactly-once. The 250 ms poll in the iOS app is an implementation detail, not a contract
-    value.
+**Fixtures and shared evidence.**
 
-**Fixtures.** New `spec/bot/v1/golden/store-cases.jsonl` (phone-only, registered in the manifest) with
-operations and expected rows: append/duplicate/batch/gap/ephemeral/lease-expiry/renew/ack/fail/
-dead-letter/reconcile/retry/cancel/inbox-dedupe/nonce-duplicate. These are not upstream exports; the
-file must say `"upstream": []` and be loaded by `golden_overlay.py`/the Kotlin loader.
+- `spec/bot/v1/golden/store.phone.json`: 17 valid / 11 invalid cases (140 executable steps), covering
+  sequence assignment/dedupe/batch/ephemeral, canonical payload bytes + digests (27-byte v2 example), the
+  v1/v2→v3 split rows and nonce copy, gap/future-version refusal, and outbox enqueue/lease/expiry/renew/
+  retry/dead-letter/reconciliation/cancel/inbox/crash-rollback.
+- `spec/bot/v1/golden/user-action-transaction.phone.json`: 5 valid / 9 invalid cases (70 steps), covering
+  accepted event+effects+nonce atomicity, duplicate after reopen, before/after-commit crash behavior,
+  per-Bot nonce isolation, event-id conflict, and the rejected/stale reasons.
+- `python3 spec/bot/v1/tools/validate_vectors.py` recomputes the canonical payloads/digests and runs a
+  reference state model with mutation self-checks for the sequence, digest, effect state, backoff,
+  duplicate and nonce values.
+- Swift `Tests/PhoneDSHBotTests/Store/BotStoreVectorTests.swift` and
+  `BotUserActionTransactionVectorTests.swift` run the same JSON through the real `SQLiteDomainStore`,
+  `BotEffectOutbox` and `performAndRecord`.
 
-**Compatibility.** Existing v1 databases open in place and get `user_version=2`; old events are
-unchanged. A rollback to a v1-only app must refuse the v2 DB rather than silently downgrade
-(`spec/bot/v1/README.md:15`). The table/column names are not a new wire version; they are the on-disk
-contract. If the owner adds a column later, it must be optional/backfilled.
+**Compatibility.** v1/v2 files migrate in place; no event bytes of existing rows are rewritten except the
+v3 split (same event identity, same `data`). A v1/v2-only App opening a v3 file refuses it with
+`schemaTooNew`; no downgrade. The table/column names are the on-disk contract: a reader may add indexes,
+not rename/drop columns; a new column needs a backfill or an optional default. Old rows without the
+`erasure` markers keep their payloads. The store vectors are phone-only (`"upstream": []`); the upstream
+`event-envelope.json` remains byte-identical.
+
+**Remaining / not frozen.**
+
+- Android implementation (`:bot` B1) and its real SQLite build: `Context.filesDir`, WAL,
+  `synchronous=FULL`, `foreign_keys`, `secure_delete`, JSON1 availability and the 5 s timeout are not yet
+  verified on a device. If a pragma cannot be honoured, report it; do not claim Level 2 durability.
+- Power-loss/kill/reopen (`SqliteRecovery`) is not in this repository; no repository test cuts power.
+- Erasure has DDL/triggers and reference tests but no dedicated shared vector yet.
+- W4-C2-2 and W4-C2-1 are decided and normative in `store.md` §7/§9: the v1/v2 migration checks
+  `commit_seq` contiguity inside its transaction and rolls back to the old `user_version` on a gap (open fails
+  with `corrupted` naming the first gap), and the store lease is the only selection order. The earlier frozen
+  summary above (migration before scan) is superseded by `store.md` §7 item 9; do not implement the old order.
+  The App runner releases a known kind with no executor to `pending` with the retry delay and dead-letters only
+  a kind outside its catalogue with `unknown_effect_kind`.
+- `store.md` is not yet linked from `spec/README.md` §3.1/§4 (P25 row) or `spec/bot/v1/README.md` §1; those
+  registry edits belong to the contract owner.
 
 **Acceptance.**
 ```bash
-python3 spec/tools/bot/check_golden.py --root .     # manifest + overlay append-only
-python3 spec/bot/v1/tools/validate_vectors.py       # store-cases schema
+python3 spec/bot/v1/tools/validate_vectors.py
+swift test --filter 'BotStoreVectorTests|BotUserActionTransactionVectorTests'
+python3 spec/tools/bot/check_golden.py --root .
 ```
-Kotlin: `:bot:testDebugUnitTest --tests '*Store*' --tests '*EffectOutbox*'`; device:
-`:bot:connectedDebugAndroidTest --tests '*SqliteRecovery*'` (kill process, reopen, `quick_check`).
 
 ---
 
@@ -977,86 +989,92 @@ the recall test asserts the score within `1e-6`.
 
 ### D11 — Rows, projection, display contract, user actions (XL)
 
-**Target.** New `spec/bot/v1/projection.md` and `spec/bot/v1/display-contract.md`; tighten
-`row.schema.json`/`row-batch.schema.json` descriptions; add `golden/row-display-cases.json`.
+**Status after B7a (PC-20261112-android-bot-w4).** The session-lifecycle and log→row halves are
+**frozen** as phone-owned P27 contracts with shared vectors. The row JSON shapes remain the upstream
+exports; `row-projection.json`, `row-protocol.json` and `row-protocol.phone.json` are byte-identical.
+The display table, card expiry/answer, user-action validation and the user-action transaction are
+**not yet frozen** and stay in this delta for a later checkpoint.
 
-**Why.** The JSON shapes are frozen, but the DSH→row mapping, ids, entrySeq, surfaceOp, tombstones,
-cursor, progress collapse and streaming limiter are code-only
-(`Rows/BotSessionLogProjection.swift:280-530`, `:664-830`, `:847-865`;
-`Rows/BotStreamingRowLimiter.swift:6-90`). The display table is code-only
-(`Rows/BotDisplayContract.swift:78-230`). Card expiry/answer/close and action validation are partly
-prose but not vectorized (`Rows/BotRemoteActionPlanner.swift:73-200`;
-`Rows/BotUserAction.swift:231-268`).
+**Frozen in B7a** (worktree base `e477497b`; contract files are normative and are not dsh-bot
+exports):
 
-**Section outline.**
+- [session-lifecycle.md](../../spec/bot/v1/session-lifecycle.md): `gb-<safeBotID>` minting and the exact
+  `safePathComponent` alphabet (Unicode `L*`, `M*`, `N*` plus `._-`, fallback `bot`, 64 grapheme
+  clusters), the Bot root, `session/create` (`agentPreset`, cwd, response checks), `runtime.started` /
+  `runtime.exited`, the recovery decision table (reuse vs archive+rebuild vs create-conflict legacy
+  path), erasure epoch switch ordering, `session/prompt` (`requestId` `bot-<uuid>`, queue/steer),
+  `session/follow` snapshot/live-frame semantics, cancel, `phone/botClaimSession` and the
+  `BotTokenRegistry` issue/rotate/revoke/expiry rules. The session-log file path is recorded as a
+  host detail; the normative input is the ordered DSH record list, and §7 states the
+  `session/follow` + `session/page` fallback for a host without the materialized file.
+- [projection.md](../../spec/bot/v1/projection.md): JSONL decoding and skipped diagnostics, the DSH and
+  durable-event→row tables, `rowID` / `entrySeq`, `surfaceOp` append/replace handling, progress
+  collapse, tombstones, `watch(after:)`, cursor/reset, reconciliation, epoch chains, the 10 updates/s
+  limiter and its `nextFlushAt`, the display-contract bridge, and App history paging (P09 consumer,
+  iOS conformance NOT_RUN because `examples/probe-app/**` is outside the SwiftPM targets).
+- [golden/session-lifecycle.phone.json](../../spec/bot/v1/golden/session-lifecycle.phone.json): 24
+  workspace (18 valid + 6 fallback), 20 token-registry (7 valid + 13 invalid) and 21 session
+  request/response (13 valid + 8 fail-closed) vectors. Each case carries a `source` (`file:line`);
+  invalid cases freeze composed-preset mismatch, missing `sessionId`/`agentPreset`, non-conflict
+  create errors, unacknowledged legacy claims, claim errors and `session/follow` failing before its
+  snapshot. The `session/follow` wait follows `waitForSnapshot`
+  (`BotDSHRemoteRuntime.swift:2214-2230`): a `follow` item whose `value.type` is neither `snapshot`
+  nor `end` is skipped, so one valid case has a pre-snapshot item and the turn still proceeds; `end`,
+  an `error` frame or a closed socket fails with `unavailable` before `session/prompt`.
+- [golden/projection.phone.json](../../spec/bot/v1/golden/projection.phone.json): 15 DSH mapping, 8 UI
+  mapping, 7 invalid-record, 3 history cases (8 rebuild/watch steps) and 2 streaming cases. `origins` lets the Python
+  validator re-check `rowID`/`entrySeq`; `display` freezes the `BotDisplayContract` composition for
+  the projected rows; `chatActionNonces` freezes the in-memory-only nonce.
+- Swift conformance: `Tests/PhoneDSHBotTests/MCP/BotSessionLifecycleGoldenTests.swift` and
+  `Tests/PhoneDSHBotTests/Rows/BotProjectionGoldenTests.swift` read the JSON from disk and drive the
+  real `BotWorkspaceLayout`, `BotDSHRemoteRuntime`, `BotTokenRegistry`, `BotDSHSessionEvent.parseJSONL`,
+  `BotSessionLogProjector`, `BotRowHistory` and `BotStreamingRowLimiter`.
+- `validate_vectors.py` / `check_golden.py` / `export-manifest.json`: both files are registered as
+  explicit phone-only vectors (`upstream: []`) and validated by the same `phone-spec` stage. The
+  Python side is an oracle for the arithmetic and invariants, not runtime conformance.
 
-1. **Sources.** Rows project (a) the Bot’s DSH session JSONL and live frames and (b) durable Bot events
-   of types `ui.*`, `card.*`, `approval.*`, `agent.comm`, `task.*`, `conversation.automation_run`.
-   The projection is pure and order-stable; no row is durable (`BotSessionLogProjection.swift:280-330`,
-   `:500-530`).
-2. **IDs and order.** `rowID = "e-<sessionID>-<seq>"` and `"-approval"` for the approval row;
-   `entrySeq = time*1000 + (seq % 1000)` with overflow clamps; order by `(seq,id)`; a progress row keeps
-   the first id for its `cardKey`. State the exact formula (`:676-690`, `:847-865`).
-3. **DSH mapping table.** `user/message` → message/user text; `assistant/message` → send-message/assistant;
-   `tool/call` → approval row or process row; `tool/result` → update the call row; `turn/end` → event
-   row/terminal; `assistant/stream` → in-memory streaming overlay (not durable); unknown record →
-   skipped with diagnostics (`:313-500`). Include the role/body/trust mapping and the `isInjected`
-   fallback (`Current runtime context.`, `<system-reminder>`, `Check the [exit code: N]`).
-4. **surfaceOp.** `"append"` keeps the position; `{"op":"replace","startSeq","endSeq"}` replaces the
-   inclusive range and must be canonical v3/v4 (no `start`/`end`) (`:18-85`, `:313-330`).
-5. **Tombstones/cursor.** A delete removes the live row and keeps a tombstone with `deletedKind`;
-   `history()` returns live rows; `watch(after:)` uses `updatedSeq`; cursor ≤0 or >head returns a reset
-   batch; a tombstone is not resurrected (`:664-830`).
-6. **Progress.** A `progress` widget with `cardKey` updates the same row in place; the latest payload
-   wins; a delete removes the progress mapping (`:676-720`).
-7. **Streaming.** Only text deltas use the overlay; max 10 updates/s, coalesce pending by row id, flush
-   oldest first, `nextFlushAt` = oldest emission + 1 s; never durable (`BotStreamingRowLimiter.swift:6-90`;
-   `spec/bot/v1/README.md:117`).
-8. **Durable UI mapping.** `card.presented` → widget/attachment; `card.answered|dismissed` → update the
-   row; `ui.notice` → notice; `ui.send_to_user` → text row; `ui.system_event` → system event;
-   `approval.*` → approval row; `agent.comm` → agent-comm projection (`:500-660`).
-9. **Display contract.** A table of `input kind → surface`, `renderable`, `wire{kind,type,role}` and
-   hidden rules: message bubble, agent-comm, card kinds, approval, routine/automation, system event,
-   notice (only error/denied/denial, not context-only), tool-call hidden, deleted hidden, separator
-   upstream-only; P1 cards protocol-visible but not phone-renderable; unknown kind hidden
-   (`BotDisplayContract.swift:78-230`). Add the “hidden tool names” rule (`FishAction`).
-10. **Card expiry/answer.** A `question`/`steps` card has stable `optionID o0…o3`; a newer open card
-    expires older ones; an answered/closed/expired card returns `stale` with reason
-    `already_answered|unknown_card|expired|answer_in_flight`; `cardAnswer` only `cardID+optionID`; a
-    dismissed question does not create a model turn; steps has no dismiss (`BotRemoteActionPlanner.swift:73-200`;
-    `spec/bot/v1/README.md:120`).
-11. **Action validation.** The 11 reason codes and the nonce/botID/kind rules; `chat` needs text or
-    attachments; `cardAnswer` rejects `text`/`customText`; `approval` needs id/decision/digest;
-    `stopTask` needs threadID (`BotUserAction.swift:231-268`; `user-action.schema.json`).
-12. **Transaction.** `performAndRecord` in one `BEGIN IMMEDIATE`: duplicate nonce → duplicate event id;
-    stale/rejected do not consume the nonce; event must be durable and belong to the action Bot;
-    effects are unique by key; a crash before commit leaves nothing, after commit replays as duplicate
-    (`SQLiteDomainStore+UserAction.swift:11-60`).
-13. **Agent-comm.** `toAgent`/`fromAgent`/`agentComm{direction,…}`; sender outbound/inbound collapse to
-    one row, target incoming/reply stay normal bubbles; `threadId = <rowID>@<seq>:agent-comm`;
-    `summarizeCommRows` → `single|fanout|thread` (`BotAgentComm.swift:1-260`;
-    `BotDisplayContract.swift:82-120`).
-14. **Attachments.** A user message with attachments projects as a text bubble plus attachment cards;
-    attachment-only text is empty but the row is renderable (`BotDisplayContract.swift:120-140`;
-    D3).
+**Remaining in D11 (not frozen; do not implement from Swift alone):**
 
-**Fixtures.** `row-display-cases.json` with one case per surface/hidden rule; projection cases for each
-DSH event type; surfaceOp replace; tombstone/resurrect; cursor reset; progress same-key; streaming
-10/s; card stale/expired/answered/closed; action reason codes; agent-comm direction/summary;
-attachment-only row. Keep `row-protocol.phone.json` and `row-projection.json` byte-identical upstream
-(phone additions go in overlays).
+1. `spec/bot/v1/display-contract.md` (or an equivalent normative table). `row-projection.json` still
+   freezes input kind → surface; the phone-P0 hidden rules, `hiddenToolNames`, agent-comm
+   summarisation and the card-data requirements are only code. `projection.phone.json` freezes the
+   display composition for the rows it produces, not the whole table.
+2. Card expiry/answer/close semantics: stable `o0…o3` option ids, newer-card expiry, the `stale`
+   reasons, "a dismissed question creates no model turn" and "steps has no dismiss"
+   (`BotRemoteActionPlanner.swift`, `card-payload.phone.json` only covers ids).
+3. User-action validation (the 11 reason codes, nonce/botID/kind rules, `chat` text-or-attachments,
+   `cardAnswer` field restrictions, approval id/digest, `stopTask` threadID) and the
+   `BEGIN IMMEDIATE` nonce/event transaction (`BotUserAction.swift`,
+   `SQLiteDomainStore+UserAction.swift`). These remain code-only; no new vectors in B7a.
+4. Agent-comm rows and `summarizeCommRows` (`BotAgentComm.swift`) beyond the generic `agent.comm`
+   mapping frozen in projection.md §6.
+5. A `row-display-cases.json` golden with one case per surface/hidden rule. `projection.phone.json`
+   covers the rows produced by the log and durable-event tables; it is not a replacement for the
+   full display table.
+6. History paging conformance. The rule is frozen in projection.md §12, but it lives in
+   `examples/probe-app/**`; no SwiftPM test target can reach it, so its iOS conformance is NOT_RUN.
 
-**Compatibility.** Old DSH session logs replay through the same table; an unknown event type/record is
-skipped, not fatal. The projection cursor is in memory, so an app restart rebuilds from the log and the
-durable events; no migration. The display contract is a UI contract; changing a surface is a breaking
-UI change even if JSON is unchanged.
+**Fixtures.** The new vectors are listed above. The earlier plan for `row-display-cases.json` stays
+open (remaining item 5). Card stale/expired/answered/closed, action reason codes and agent-comm
+summary vectors are still missing; `row-protocol.phone.json` and `row-projection.json` remain
+untouched and byte-identical.
 
-**Acceptance.**
+**Compatibility.** Old DSH session logs replay through the same table; an invalid `surfaceOp`
+(`start`/`end` spelling), unknown record type or damaged JSON line is skipped with diagnostics, not
+fatal. The projection cursor is in memory, so an app restart rebuilds from the log and the durable
+events; no migration. A tombstone is reconstructed from the durable delete event after a cold
+rebuild. Changing a display surface remains a breaking P09 UI change even when the row JSON is
+unchanged.
+
+**Acceptance (B7a).**
 ```bash
 python3 spec/bot/v1/tools/validate_vectors.py
+python3 spec/tools/bot/check_golden.py --root .
+swift test --filter 'BotSessionLifecycleGoldenTests|BotProjectionGoldenTests'
 ```
-Kotlin: `:bot:testDebugUnitTest --tests '*Row*' --tests '*Projection*' --tests '*UserAction*'`; the
-golden test must assert `BotRow` fields directly, including `updatedSeq` and tombstones.
+Kotlin (round 2): `:bot:testDebugUnitTest --tests '*Row*' --tests '*Projection*' --tests '*UserAction*'`;
+the golden test must assert `BotRow` fields directly, including `updatedSeq`, tombstones and
+`chatActionNonce` (in-memory only).
 
 ---
 
@@ -1252,67 +1270,87 @@ A real Worker E2E is `NOT_RUN` unless the packaged Worker + model are available.
 
 ### D14 — BotFish renderer contract and numeric trajectory (XL)
 
-**Target.** New `spec/bot/v1/fish-renderer.md`; new `fish-trajectory.schema.json` +
-`golden/fish-trajectory.json`; a new `fish-assets.json` manifest with SHA-256 per file; new
-`spec/bot/v1/tools/fish_trajectory_compare.py`.
+**Status: partial — iOS reference implemented, Android target.** Frozen by lane C5 at base
+`e477497b`. The target moved from the plan's `spec/bot/v1/*` to the P09-owned tree
+`spec/ui/v1/bot/fish/` because this is a UI-projection contract and `spec/bot/v1` is
+upstream-pinned (`spec/bot/v1/dshbot-pin.json`, `spec/README.md` §8.1); no pinned file was edited.
+Where the paths below disagree with the port plan §9 or the original D14 text, this section wins
+for paths only.
 
-**Why.** S17 is entirely `spec-missing`: the layer list, palette/LUT, crop/pivot, clip periods, spring
-constants, sprite order, quantisation and fps/pause exist only in Swift
-(`examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFishRenderer.swift:89-135`, `:203-260`, `:368-450`,
-`:1149-1210`; `BotFishModel.swift:31-170`, `:171-430`; `BotFishEngine.swift:61-100`, `:233-300`,
-`:519-541`; `BotFishView.swift:60-100`). The director/reaction part is already frozen; the pixels are
-not, and pixel parity is not a valid gate across two rasterisers.
+**Delivered.**
 
-**Section outline.**
+| Path | Contents |
+| --- | --- |
+| `spec/ui/v1/bot/fish/fish.md` | owning doc: inputs/outputs, clip table, per-state model + expressive overrides, springs/timers/reactions, pose/boost/alpha, frame clock/freeze, sprite/LUT/layer rules, asset-sharing PROPOSAL, CCRs, evidence map |
+| `spec/ui/v1/bot/fish/golden/trajectory.json` | 97 cases / 954 frames generated from the real Swift app code; 42 clips, 15 palettes (full 768-entry LUTs), 58 source anchors, per-source SHA-256 |
+| `spec/ui/v1/bot/fish/golden/assets.json` | 35 assets (33 PNG + 2 atlas JSON) with SHA-256, PNG headers, runtime layer map, expressive grid/rects, the exact 51 absent web pre-render references, and the iOS-only artwork grant |
+| `spec/ui/v1/bot/fish/schema/fish-trajectory.schema.json` | trajectory shape; params key set is closed |
+| `spec/ui/v1/bot/fish/tools/generate_trajectory.py` | the only generator; `--write` / `--check`; macOS + iOS simulator; `SKIP` (77) elsewhere |
+| `spec/ui/v1/bot/fish/tools/trajectory_harness.swift` | executable harness compiled with the original app fish files |
+| `spec/ui/v1/bot/fish/tools/check_fish.py` | dependency-free gate: schema, source hashes/anchors, clips/atlas, sprites, LUT, every frame's pose/alpha, assets, licence anchor |
+| `spec/ui/v1/bot/fish/tools/test_check_fish.py` | 20 mutation tests (schema, params, pose, alpha, time, order, clips, sprites, LUT, hashes, assets, grant, doc) |
 
-1. **Assets.** Inventory under `BotFish/` with dimensions, RGBA, SHA-256, license/provenance
-   (`SOURCES.md` moves under `spec/` or is linked normatively). `body.png` is greyscale; the LUT uses
-   the 15 color hexes from `bot-profile.json`; hair variants map `long→base/`, others→`hair/<style>/`;
-   crown variants map `crowned/<style>/` + `overlays/crown*.png`; `expressive/eyes.png` and `mouths.png`
-   are 3×4 cells of 256×128 with the exact name order (`BotFishModel.swift:31-60`;
-   `examples/probe-app/BotFish/SOURCES.md:8-60`).
-2. **Layers.** Base = body+fixed+crown+blush+eye whites; face = eyes/iris/brows/mouth/tears/
-   decoration; compositing order and the “crown is in the flat base, then head-sliced” rule
-   (`BotFishRenderer.swift:5-19`, `:368-450`).
-3. **Crop/pivot.** Normal crop 416 px at `(48,30)`, crowned 448 px at `(32,10)`; pivot source
-   `(256,350)`; design size 512; ink `#211919` (`BotFishRenderer.swift:89-135`; `BotFishView.swift:142-160`).
-4. **Model.** Per-state clip period/duration, phase/progress, and every parameter assignment for all
-   P0 states/one-shots (`BotFishModel.swift:118-430`). This is the part the trajectory freezes.
-5. **Controller.** Springs: gaze 23, head 8, body 5, morph 13, face 22; blink/poke/idle timers;
-   expression cross-fade/clip sampling; reaction overlay priority and TTL (`BotFishEngine.swift:61-100`,
-   `:233-300`; `BotFishReactions.swift:8-135`).
-6. **Pose.** Offset 0.25 output px, scale 0.5/target, roll 0.1°, alpha 1/64; the pivot and the
-   `size × displayScale` target (`BotFishEngine.swift:519-541`).
-7. **Frame policy.** 20 fps, 15 fps at ≤40 pt; pause on hidden/background/still/reduce-motion/low-power;
-   paint one frame when paused; head slicing only >40 pt with 0.1-unit quantum
-   (`BotFishView.swift:60-100`; `BotFishRenderer.swift:131-165`).
-8. **Trajectory format.** The schema in the plan §9.3: viewport, cases, frames, params, pose, alpha,
-   static, art names; tolerances 1e-6; ordering; seeded controller replays.
-9. **Comparison tool.** `fish_trajectory_compare.py --golden --android [--ios]`; a missing case/frame
-   or an out-of-tolerance number fails; prints the first JSON path. The iOS side is optional on
-   non-macOS CI and must be reported `NOT_RUN`, not skipped silently.
-10. **Screenshots.** A small set (idle/thinking/working/alerting/celebrate, light/dark, 32/96 pt) is a
-    regression gate only; state explicitly it is not cross-end pixel parity.
+**Frozen numbers.** The 42-case `BotFishLifecycle` (the brief's “41” was stale), the 42 clip
+periods/durations/static flags, `BotFishParams` defaults and every base/expressive/lively
+assignment, the 16 face keys and spring roots (gaze/head/body/morph 23/8/5/13, face 22, lively
+pose 18), 1/120 s substeps and 0–100 ms clamp, blink/idle/lively/poke/reaction TTL + static beat
+rules, motion boost 2.2→1 over 40–64 pt with ±20/±9 clamps, pose quanta 0.25 px / 0.5-per-target /
+0.1° / 1/64 alpha, the 15×768 tint LUT, sprite order/cel index and layer folder rule. Params/pose/
+time/alpha compare at absolute `1e-6`; enums/art names/bools are exact. Rasterisation, Bézier
+paths, antialiasing, crown shadow, cache keys and screenshots are explicitly not gated. Head-slice
+displacement is frozen by `fish.md` §7.4.1 and `trajectory.json#headSlice`: the active profile's
+quantum (0.1 standard / 0.25 lively) is used for both quantise and restore (FISH-1 decided).
 
-**Fixtures.** `fish-trajectory.json` as described; `fish-assets.json` with one SHA-256 entry per asset file
-(33 PNGs + `atlas.json` + `expressive/atlas.json`; `SOURCES.md` is provenance, not an asset);
-`fish-director.json` stays unchanged. Add a mutation test that changes one parameter by 1e-3 and
-expects the comparator to fail.
+**Generation (real code, not a re-implementation).** `generate_trajectory.py` writes a throw-away
+SwiftPM package under the temp directory whose executable target symlinks the original
+`examples/probe-app/PhoneDSHProbe/Bot/Fish/BotFish{Model,Engine,Renderer,Assets,ImageCache,LivelyMotion,MotionProfile}.swift`
+plus `tools/trajectory_harness.swift`, links the real `PhoneDSHBot` product, builds for
+`<arch>-apple-ios17.0-simulator`, and runs the binary with `xcrun simctl spawn`. The asset tree is
+copied next to the executable only because `Bundle.main` folder resources are how the app loads it;
+app source is never copied, moved or edited. Command:
 
-**Compatibility.** New target; no old data. Asset files are copied byte-identically from the pinned
-upstream commit; a missing/changed file fails the checksum gate. A future style/color addition is a new
-case, not a schema change.
-
-**Acceptance.**
 ```bash
-python3 spec/bot/v1/tools/validate_vectors.py
-swift test --filter PhoneDSHBotTests.BotFishDirectorTests    # reference, macOS
-bash android/tools/with-android-toolchain.sh ./gradlew \
-  :bot:testDebugUnitTest --tests 'com.phonedsh.bot.fish.*'
+python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --check   # regenerate + diff
+python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --write   # rewrite both goldens
 ```
-Cross-end: run the comparator with both JSON files; without a macOS run, record the iOS half `NOT_RUN`.
 
----
+**Fixtures.** 10 P0 states × 6 timestamps; 4 one-shots (`celebrate`, `waving`, `bowing` as action
+reactions, `poke` as the state) at first/mid/end/after-TTL; a `happy` expression overlay; 5
+sampling cases (32 pt, crowned, standby) and 4 still/reduced samples; 15 colours × 4 hairstyles at
+idle/t=0; 10 lively samples; 3 seeded
+replays at 16.666… ms (standard poke+celebrate, lively idle blink, lively thinking reading).
+`randomValues` is the consumed LCG prefix, so no end calls a system RNG. The atlas's 51
+`file`/`frames` members are web pre-renders that are not shipped; the golden freezes them as an
+exact exception list and requires every runtime layer to exist.
+
+**Compatibility.** Additive new phone-owned contract; no wire field, event type, stored byte or
+Swift behaviour changes. A future colour/style/keyframe addition is a new case/contract revision,
+not a schema change. The upstream dsh-bot pin is untouched. Android packaging is blocked on the
+iOS-only artwork grant (`examples/probe-app/BotFish/SOURCES.md:9`): the PROPOSAL is a read-only
+Gradle `Sync` from the single asset tree with a SHA-256 gate, not a moved/copied tree; the owner
+must extend the grant before shipping.
+
+**Acceptance (observed).**
+
+```bash
+python3 spec/ui/v1/bot/fish/tools/check_fish.py --root .
+python3 -m unittest discover -s spec/ui/v1/bot/fish/tools -p 'test_*.py'
+python3 spec/ui/v1/bot/fish/tools/generate_trajectory.py --check
+bash scripts/ci/check.sh --only phone-spec,phone-cross-tree
+```
+
+- `check_fish.py` → PASS (97 cases, 954 frames, 35 assets, 42 clips, 15 palettes).
+- unittest → PASS (20 tests).
+- generator `--check` → PASS on macOS 26.2 / Swift 6.2.3 / iOS Simulator 26.2 arm64.
+- `swift test` XCTest conformance → NOT_RUN: `examples/probe-app/**` is not in a SwiftPM target;
+  conformance is the generator run (real app code), not `PhoneDSHBotTests`.
+- Android comparator / Kotlin renderer → NOT_RUN; no Kotlin code exists in this round.
+
+**Remaining.** Kotlin renderer + `fish_trajectory_compare.py` (a D14 follow-up, after the Android
+renderer exists); the artwork-grant decision (now recorded as every platform, `NOTICE`/`SOURCES.md`);
+marking the atlas `file`/`frames` members `legacy` (outside this lane's ownership); a small screenshot
+regression set that is explicitly not cross-end pixel parity. The iOS end stays `partial` until the
+Android end passes the same vectors.
 
 ### D15 — P09 Bot page reconciliation (M)
 
@@ -1364,6 +1402,36 @@ python3 -B spec/ui/v1/tools/page_structure_check.py --root .
 Expected after D15: the Bot pages are either checked with 0 divergences or explicitly excluded with a
 recorded reason; the pre-existing 12 divergences are not made worse. Android:
 `:lib:testDebugUnitTest --tests 'com.phonedsh.ui.bot.*'` and the screenshot suite on an emulator.
+
+**Resolution (2026-11-12, C4 / B7b round 1; PC-20261112-android-bot-w4).**
+Frozen as `spec/ui/v1/bot/ui-state.md` (normative for both ends) + `strings.json` +
+`activity-phrases.json` + `schema/` + `golden/` + `tools/check_bot_ui.py` (+ unittest). Decisions:
+
+1. **Bottom bar.** Option (b) stands (CCR-4): shipped four equal columns (`HomeTabBar.swift:9-21`);
+   `bot-dock.md` stays a superseded non-normative proposal. The Bot tab is `HomeTab.bot`; the app
+   opens on `.tasks` (`NativeShell.swift:97`) and `botPageActive` requires the Bot tab + active scene
+   (`NativeShell.swift:379-382`). README §1 gained one Bot row covering BotChatPage, BotDrawer,
+   BotInfoPage and its data subpages.
+2. **Agent-comm.** CCR-3 stands: the agent-comm row is P0 and renders as one line with the peer avatar
+   (crown when the peer is the main Bot); no new wire fields.
+3. **Machine-readable pages.** No page JSON was added. The Bot pages stay outside
+   `page_structure_check.py`; D15 §3's alternative is taken: a Bot-specific checker
+   (`check_bot_ui.py`) freezes the value seam, and the pages remain prose structure contracts. This is
+   an explicit exclusion, not a lowered floor: no whitelist row and no `_baseline.json` entry changed.
+4. **Capsule contradiction.** The current Swift draws no activity icon, no red “!” and no 6 pt dot on
+   the header capsule (`BotChatPage.swift:130-201`, `HeaderActionPill(showsMenuActivityDot: false)`);
+   `bot-chat.md` §1 was already right, §6 was stale and is corrected. Activity is the single
+   `bot.activity.line` plus the avatar motion.
+5. **Deep link.** `phonedsh://bot/<botID>/<row|routine>/<id>` parser frozen in ui-state.md §2.6/§4.13;
+   unknown/expired rows show `这条消息不可用或已过期。` and never jump to another session.
+6. **Conformance.** The iOS derived logic is app code under `examples/probe-app/PhoneDSHProbe/Bot/**`;
+   no SwiftPM target compiles it and the bot-ui capture harness is an XCUITest app that does not read
+   the JSON vectors. iOS real-code conformance is therefore **NOT_RUN** (reason recorded in
+   ui-state.md §8), not PASS. Android is planned for wave 4 round 2.
+7. **Decided CCRs.** CCR-UI-1 and CCR-UI-2 were decided by the owner in
+   `PC-20261112-android-bot-w4` §7. `ui-state.md` §4.7 now freezes one shared fish-lifecycle
+   projection (`BotRuntimeUnit` computes it, `BotChatModel` consumes it), and §3.1 makes a failed
+   `cardDismiss` retryable exactly like answer/approval (`state == nil || state == .failed`).
 
 ## 3. Delta → checkpoint matrix
 

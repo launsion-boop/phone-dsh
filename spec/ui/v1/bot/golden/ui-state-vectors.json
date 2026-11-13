@@ -1,0 +1,5017 @@
+{
+ "schemaVersion": 1,
+ "vector": "bot-ui-state",
+ "now": 1760000000000,
+ "cases": [
+  {
+   "id": "question-idle",
+   "source": "BotChatModel.swift:306-315, BotChatModel.swift:432-466",
+   "note": "Unanswered question: no settlement, one attention item, idle header.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.idle-default"
+   ]
+  },
+  {
+   "id": "question-answered",
+   "source": "BotChatModel.swift:456-462",
+   "note": "An accepted answer plus the chosen option id settles to 已选择：<label>.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "card:question-1": "accepted"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {
+     "question-1": "library"
+    },
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "checkmark.circle",
+      "title": "已选择：保存到文档库",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-accepted-local",
+   "source": "BotChatModel.swift:456-462",
+   "note": "Accepted local action with no durable status settles from answeredOptionIDs.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "card:question-1": "accepted"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {
+     "question-1": "pdf"
+    },
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "checkmark.circle",
+      "title": "已选择：导出 PDF",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-unknown-option",
+   "source": "BotChatModel.swift:453-460",
+   "note": "Answered status with an unknown option id settles to 已送出, never the raw id.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "card:question-1": "accepted"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {
+     "question-1": "gone"
+    },
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "checkmark.circle",
+      "title": "已送出",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-dismissed",
+   "source": "BotChatModel.swift:451-454",
+   "note": "A locally dismissed question settles to 已关闭 with the prompt detail.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [
+     "question-1"
+    ],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "xmark.circle",
+      "title": "已关闭",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "question-muted",
+   "source": "BotChatModel.swift:412-430, BotChatModel.swift:462-463",
+   "note": "A question before the latest user text that was never handled is muted and settles to 已略过.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     },
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1",
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "question-1",
+     "user-1"
+    ],
+    "mutedCardIDs": [
+     "question-1"
+    ],
+    "settledRowIDs": [
+     "question-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "question-1",
+      "glyph": "minus.circle",
+      "title": "已略过",
+      "detail": "要把这份整理好的内容保存到哪里？",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "steps-muted",
+   "source": "BotChatModel.swift:412-430, BotChatModel.swift:472",
+   "note": "Muted steps use 建议下一步 as the detail when the card has no prompt.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "steps-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "steps",
+       "steps": [
+        {
+         "id": "review",
+         "label": "查看验收结果",
+         "description": "先确认测试和截图证据",
+         "recommended": true
+        },
+        {
+         "id": "pr",
+         "label": "创建 Pull Request"
+        },
+        {
+         "id": "pause",
+         "label": "暂停，稍后继续",
+         "style": "default"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-steps-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     },
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "steps-1",
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "steps-1",
+     "user-1"
+    ],
+    "mutedCardIDs": [
+     "steps-1"
+    ],
+    "settledRowIDs": [
+     "steps-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "steps-1",
+      "glyph": "minus.circle",
+      "title": "已略过",
+      "detail": "建议下一步",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "checklist-idle",
+   "source": "BotChatModel.swift:483-500",
+   "note": "Interactive checklist counts as attention; no settlement while untouched.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "checklist-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "checklist",
+       "title": "发布前检查",
+       "summary": "发布前需要确认 CI、截图和交互检查。",
+       "items": [
+        {
+         "id": "c0",
+         "text": "运行指定 CI 门禁",
+         "done": true
+        },
+        {
+         "id": "c1",
+         "text": "检查浅色与深色截图",
+         "done": true
+        },
+        {
+         "id": "c2",
+         "text": "验证重复点击和迟到结果",
+         "note": "今天"
+        },
+        {
+         "id": "c3",
+         "text": "记录未验证项目",
+         "note": "必填"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-checklist-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "checklist-1"
+    ],
+    "displayRowIDs": [
+     "checklist-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "checklist-sending",
+   "source": "BotChatModel.swift:483-500, BotChatModel.swift:306-315",
+   "note": "While the checklist result is in flight the card stays full and is not an attention item.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "checklist-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "checklist",
+       "title": "发布前检查",
+       "summary": "发布前需要确认 CI、截图和交互检查。",
+       "items": [
+        {
+         "id": "c0",
+         "text": "运行指定 CI 门禁",
+         "done": true
+        },
+        {
+         "id": "c1",
+         "text": "检查浅色与深色截图",
+         "done": true
+        },
+        {
+         "id": "c2",
+         "text": "验证重复点击和迟到结果",
+         "note": "今天"
+        },
+        {
+         "id": "c3",
+         "text": "记录未验证项目",
+         "note": "必填"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-checklist-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {
+     "checklist-1": {
+      "done": 2,
+      "total": 4,
+      "sending": true,
+      "sent": false
+     }
+    },
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "checklist-1"
+    ],
+    "displayRowIDs": [
+     "checklist-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "checklist-sent",
+   "source": "BotChatModel.swift:490-497",
+   "note": "Accepted checklist result settles with the 已完成 x/y detail from local progress.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "checklist-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "checklist",
+       "title": "发布前检查",
+       "summary": "发布前需要确认 CI、截图和交互检查。",
+       "items": [
+        {
+         "id": "c0",
+         "text": "运行指定 CI 门禁",
+         "done": true
+        },
+        {
+         "id": "c1",
+         "text": "检查浅色与深色截图",
+         "done": true
+        },
+        {
+         "id": "c2",
+         "text": "验证重复点击和迟到结果",
+         "note": "今天"
+        },
+        {
+         "id": "c3",
+         "text": "记录未验证项目",
+         "note": "必填"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-checklist-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {
+     "checklist-1": {
+      "done": 2,
+      "total": 4,
+      "sending": false,
+      "sent": true
+     }
+    },
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "checklist-1"
+    ],
+    "displayRowIDs": [
+     "checklist-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "checklist-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "checklist-1",
+      "glyph": "checkmark.circle",
+      "title": "已发送勾选结果",
+      "detail": "发布前检查 · 已完成 2/4",
+      "tone": "neutral",
+      "monospacedDetail": false
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "checklist-noninteractive",
+   "source": "BotChatModel.swift:485-497",
+   "note": "interactive == false keeps the card full and out of attention.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "checklist-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "checklist",
+       "interactive": false,
+       "title": "发布前检查",
+       "summary": "发布前需要确认 CI、截图和交互检查。",
+       "items": [
+        {
+         "id": "c0",
+         "text": "运行指定 CI 门禁",
+         "done": true
+        },
+        {
+         "id": "c1",
+         "text": "检查浅色与深色截图",
+         "done": true
+        },
+        {
+         "id": "c2",
+         "text": "验证重复点击和迟到结果",
+         "note": "今天"
+        },
+        {
+         "id": "c3",
+         "text": "记录未验证项目",
+         "note": "必填"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-checklist-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "checklist-1"
+    ],
+    "displayRowIDs": [
+     "checklist-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "approval-pending",
+   "source": "BotChatModel.swift:295-310, BotHeaderPresence.swift:64-74",
+   "note": "Pending approval with id+digest+action: one attention item and the single 等你确认 header line.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "pending",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 1,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 1,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "alerting",
+    "header": {
+     "phase": "waitingForYou",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "waiting",
+      "startedAt": 0
+     },
+     "fishState": "alerting",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": true,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "等你确认",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "1 项待审批",
+     "color": "warning"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.pending"
+   ]
+  },
+  {
+   "id": "approval-auto-declined",
+   "source": "BotChatModel.swift:512-520",
+   "note": "Auto-declined approval settles to 已略过，视为拒绝 with the monospaced command and leaves the attention count.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "pending",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "approval:approval-1": "accepted"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [
+     "approval-1"
+    ],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "approval-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "approval-1",
+      "glyph": "xmark.circle",
+      "title": "已略过，视为拒绝",
+      "detail": "rm -f /tmp/phone-dsh-old-report.pdf",
+      "tone": "neutral",
+      "monospacedDetail": true
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "approval-allowed",
+   "source": "BotChatModel.swift:521-534",
+   "note": "Durable allowed status settles to 已允许一次 in success tone.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "allowed",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "approval-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "approval-1",
+      "glyph": "checkmark.circle.fill",
+      "title": "已允许一次",
+      "detail": "rm -f /tmp/phone-dsh-old-report.pdf",
+      "tone": "success",
+      "monospacedDetail": true
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "approval-always-session",
+   "source": "BotChatModel.swift:525-528",
+   "note": "always + session scope reads 本次对话都允许.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "always",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "session",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "approval-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "approval-1",
+      "glyph": "checkmark.circle.fill",
+      "title": "本次对话都允许",
+      "detail": "rm -f /tmp/phone-dsh-old-report.pdf",
+      "tone": "success",
+      "monospacedDetail": true
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "approval-always-until",
+   "source": "BotChatModel.swift:525-528",
+   "note": "always + until scope reads 已总是允许.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "always",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [
+     "approval-1"
+    ],
+    "settlements": [
+     {
+      "rowID": "approval-1",
+      "glyph": "checkmark.circle.fill",
+      "title": "已总是允许",
+      "detail": "rm -f /tmp/phone-dsh-old-report.pdf",
+      "tone": "success",
+      "monospacedDetail": true
+     }
+    ],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "approval-failed-retry",
+   "source": "BotChatModel.swift:517-519",
+   "note": "A failed approval action stays full and retryable; the approval still counts.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "pending",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {
+     "approval:approval-1": "failed"
+    },
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 1,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 1,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "alerting",
+    "header": {
+     "phase": "waitingForYou",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "waiting",
+      "startedAt": 0
+     },
+     "fishState": "alerting",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": true,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "等你确认",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "1 项待审批",
+     "color": "warning"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.pending"
+   ]
+  },
+  {
+   "id": "approval-missing-digest",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A pending approval without a digest does not parse, is not rendered, and cannot be approved.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "status": "pending",
+       "action": "删除旧的临时报告"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "counts-following",
+   "source": "BotChatModel.swift:323-343",
+   "note": "Running automation, progress and task cards count as following.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "auto-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "automation",
+       "title": "晨间简报",
+       "status": "running"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-auto-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     },
+     {
+      "id": "progress-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "progress",
+       "title": "生成发布材料",
+       "state": "running"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-progress-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     },
+     {
+      "id": "task-1",
+      "botID": "main",
+      "seq": 3,
+      "updatedSeq": 3,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "task",
+       "title": "整理材料",
+       "status": "active"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-task-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000003000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "auto-1",
+     "progress-1",
+     "task-1"
+    ],
+    "displayRowIDs": [
+     "auto-1",
+     "progress-1",
+     "task-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 3,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "counts-following-override",
+   "source": "BotChatModel.swift:323-325",
+   "note": "An injected following count wins over local computation.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": 7
+    },
+    "rows": [
+     {
+      "id": "auto-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "automation",
+       "title": "晨间简报",
+       "status": "running"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-auto-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "auto-1"
+    ],
+    "displayRowIDs": [
+     "auto-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 7,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "header-problem-multiline",
+   "source": "BotHeaderPresence.swift:48-60, BotHeaderPresence.swift:84-92",
+   "note": "A multi-line problem joins with ；, uses the danger-quiet line and leaves the base fish untouched.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": "附件「周报.pdf」未附加：导入未连接\n历史加载失败：网络中断",
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "problem",
+     "line": {
+      "status": "thinking",
+      "detail": "附件「周报.pdf」未附加：导入未连接；历史加载失败：网络中断",
+      "category": "generic",
+      "startedAt": 0
+     },
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": true,
+     "lineIsProblem": true
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "附件「周报.pdf」未附加：导入未连接；历史加载失败：网络中断",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "header-working-thinking",
+   "source": "BotChatModel.swift:386-410, BotHeaderPresence.swift:61-78",
+   "note": "A running turn with a 61s-old thinking activity maps idle fish to thinking and appends the minute suffix.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": "turn-1",
+     "activity": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 1759999939000
+     },
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-1",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 1759999939000
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 1759999939000
+    },
+    "activityLine": {
+     "text": "思考中… · 1 分钟",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.running-idle-to-working"
+   ]
+  },
+  {
+   "id": "header-working-streaming",
+   "source": "BotChatModel.swift:369-410",
+   "note": "Live streaming wins the line as replying; a durable answer row of the live turn is hidden from display.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "answer-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "message",
+      "role": "assistant",
+      "body": {
+       "type": "text",
+       "text": "构建通过。",
+       "turn": 1
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-answer-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "working",
+     "runningTurnID": "turn-1",
+     "activity": {
+      "status": "tool-running",
+      "detail": "在翻文件 · report.md",
+      "category": "reading",
+      "startedAt": 1759999997000
+     },
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "working",
+     "runningTurnID": "turn-1",
+     "activity": {
+      "status": "tool-running",
+      "detail": "在翻文件 · report.md",
+      "category": "reading",
+      "startedAt": 1759999997000
+     },
+     "reaction": null,
+     "oneShot": null
+    },
+    "live": {
+     "turn": 1,
+     "ended": false
+    },
+    "runningTurnID": "turn-1",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "构建日志里有一处失败，",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "answer-1"
+    ],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "streaming",
+      "detail": "",
+      "category": "replying",
+      "startedAt": 0
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "streaming",
+     "detail": "",
+     "category": "replying",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "正在回复…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.live-over-durable"
+   ]
+  },
+  {
+   "id": "line-suppressed-after-final",
+   "source": "BotChatModel.swift:386-393",
+   "note": "An ended live turn with the line suppressed hides the line and the header goes idle.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "working",
+     "runningTurnID": "turn-1",
+     "activity": {
+      "status": "tool-running",
+      "detail": "在跑命令",
+      "category": "running",
+      "startedAt": 1759999999000
+     },
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "working",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "live": {
+     "turn": 1,
+     "ended": true
+    },
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": true,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "working",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.live-over-durable"
+   ]
+  },
+  {
+   "id": "activity-line-detail-minute",
+   "source": "BotActivityPhrases.swift:344-356, BotActivityPhrases.swift:430-460",
+   "note": "Concrete detail is not rotated; a 65s activity appends · 1 分钟 and the next deadline is the minute boundary.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "working",
+     "runningTurnID": "turn-1",
+     "activity": {
+      "status": "tool-running",
+      "detail": "在翻文件 · report.md",
+      "category": "reading",
+      "startedAt": 1759999935000
+     },
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-1",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "tool-running",
+      "detail": "在翻文件 · report.md",
+      "category": "reading",
+      "startedAt": 1759999935000
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "reading",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "tool-running",
+     "detail": "在翻文件 · report.md",
+     "category": "reading",
+     "startedAt": 1759999935000
+    },
+    "activityLine": {
+     "text": "在翻文件 · report.md · 1 分钟",
+     "nextDeadline": 1760000055000
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.running-keeps-non-idle"
+   ]
+  },
+  {
+   "id": "activity-line-generic-rotation",
+   "source": "BotActivityPhrases.swift:295-306, BotActivityPhrases.swift:382-460",
+   "note": "A generic activity with no detail starts the rotation at index 0 and schedules the 2.4s boundary.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "working",
+     "runningTurnID": "turn-1",
+     "activity": {
+      "status": "thinking",
+      "detail": "",
+      "category": "generic",
+      "startedAt": 0
+     },
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-1",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "generic",
+      "startedAt": 0
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "generic",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "处理中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   },
+   "covers": [
+    "priority.running-keeps-non-idle"
+   ]
+  },
+  {
+   "id": "drawer-running-activity",
+   "source": "BotDrawer.swift:388-416",
+   "note": "Running with a category-only activity uses the category primary phrase, not the fish fallback.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "question-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "widget",
+       "cardType": "question",
+       "question": "要把这份整理好的内容保存到哪里？",
+       "helpText": "推荐保存到文档库，之后可以继续编辑。",
+       "options": [
+        {
+         "id": "library",
+         "label": "保存到文档库",
+         "description": "保留版本并方便之后查找",
+         "recommended": true
+        },
+        {
+         "id": "pdf",
+         "label": "导出 PDF",
+         "description": "生成适合分享的固定版面"
+        },
+        {
+         "id": "later",
+         "label": "稍后决定"
+        }
+       ]
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-question-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": true,
+     "lastMessageAt": null,
+     "unreadCount": 0,
+     "activity": {
+      "status": "tool-running",
+      "detail": "",
+      "category": "reading",
+      "startedAt": 0
+     },
+     "fishState": "working"
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "question-1"
+    ],
+    "displayRowIDs": [
+     "question-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "在翻文件",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "drawer-running-fish-fallback",
+   "source": "BotDrawer.swift:388-416",
+   "note": "Running without activity falls back to the fish-state words.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": true,
+     "lastMessageAt": null,
+     "unreadCount": 0,
+     "activity": null,
+     "fishState": "streaming"
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "user-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "回复中",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "drawer-idle-relative-unread",
+   "source": "BotDrawer.swift:388-416, BotDrawer.swift:437-449",
+   "note": "Idle drawer shows the relative time; unread above 99 renders 99+ with the real count in accessibility.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": 1759999875000,
+     "unreadCount": 120
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "user-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "2 分钟前",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": true,
+     "text": "99+",
+     "accessibility": "120 条未读"
+    }
+   }
+  },
+  {
+   "id": "notice-hidden",
+   "source": "BotChatModel.swift:242-254",
+   "note": "A notice row never enters the transcript; the failure is the problem line instead.",
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "notice-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "notice",
+       "tone": "error",
+       "text": "生成报告失败：模拟器暂时不可用。"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-notice-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     },
+     {
+      "id": "user-1",
+      "botID": "main",
+      "seq": 2,
+      "updatedSeq": 2,
+      "kind": "sendMessage",
+      "role": "user",
+      "body": {
+       "type": "text",
+       "text": "继续"
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-user-1"
+       ],
+       "trust": "owner_direct",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000002000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": "生成报告失败：模拟器暂时不可用。",
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "user-1"
+    ],
+    "displayRowIDs": [
+     "user-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "problem",
+     "line": {
+      "status": "thinking",
+      "detail": "生成报告失败：模拟器暂时不可用。",
+      "category": "generic",
+      "startedAt": 0
+     },
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": true,
+     "lineIsProblem": true
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "生成报告失败：模拟器暂时不可用。",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-pending-beats-oneshot",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "A pending approval is alerting even with an unexpired one-shot and a working durable state.",
+   "covers": [
+    "priority.pending"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [
+     {
+      "id": "approval-1",
+      "botID": "main",
+      "seq": 1,
+      "updatedSeq": 1,
+      "kind": "event",
+      "body": {
+       "type": "approval",
+       "approvalID": "approval-fixture",
+       "digest": "sha256:fixture",
+       "status": "pending",
+       "persistent": true,
+       "kind": "routine",
+       "sessionId": "routine-fixture",
+       "title": "允许执行这个操作吗？",
+       "action": "删除旧的临时报告",
+       "command": "rm -f /tmp/phone-dsh-old-report.pdf",
+       "detail": "文件位于临时目录，删除后无法在页面内恢复。",
+       "alwaysScope": "until",
+       "risk": {
+        "level": "high",
+        "tags": [
+         "irreversible"
+        ]
+       }
+      },
+      "provenance": {
+       "eventIDs": [
+        "evt-approval-1"
+       ],
+       "trust": "model",
+       "tainted": false
+      },
+      "streaming": false,
+      "createdAt": 1760000001000
+     }
+    ],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "working",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "celebrate",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 1,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [
+     "approval-1"
+    ],
+    "displayRowIDs": [
+     "approval-1"
+    ],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 1,
+    "needsAttentionCount": 1,
+    "followingCount": 0,
+    "fishState": "alerting",
+    "header": {
+     "phase": "waitingForYou",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "waiting",
+      "startedAt": 0
+     },
+     "fishState": "alerting",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": true,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "等你确认",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "1 项待审批",
+     "color": "warning"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-oneshot-unexpired",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "An unexpired one-shot outranks running and the base lifecycle.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "happy",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "happy",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "happy",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-oneshot-expired",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Expired one-shots are ignored and the durable fishState is used.",
+   "covers": [
+    "priority.one-shot-expired"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "sad",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "celebrate",
+      "priority": 60,
+      "startedAt": 1759999998000,
+      "endsAt": 1759999999000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "sad",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "sad",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-live-over-durable",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "A live turn presentation wins over the durable presentation.",
+   "covers": [
+    "priority.live-over-durable"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "thinking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "speaking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "live": {
+     "turn": 7,
+     "ended": false
+    },
+    "runningTurnID": "turn-live",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "speaking",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "speaking",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-live-turn-oneshot",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "The live presentation one-shot is chosen before its fishState.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "speaking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "happy",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "live": {
+     "turn": 7,
+     "ended": false
+    },
+    "runningTurnID": "turn-live",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "happy",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "happy",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-live-oneshot-after-settle",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "The last live one-shot is still honoured after the live turn settles.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "happy",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "happy",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "happy",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-durable-oneshot",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "An unexpired durable one-shot is chosen over the durable fishState.",
+   "covers": [
+    "priority.one-shot"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": {
+      "state": "celebrate",
+      "priority": 60,
+      "startedAt": 1759999999900,
+      "endsAt": 1760000001000
+     }
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "celebrate",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "celebrate",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-running-idle-to-working",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Running coerces an idle base to working.",
+   "covers": [
+    "priority.running-idle-to-working"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-running",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-running-keeps-non-idle",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Running leaves a non-idle base untouched.",
+   "covers": [
+    "priority.running-keeps-non-idle"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "thinking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-running",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "thinking",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "thinking",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-idle-sleeping",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "Idle sleep applies when nothing is running, even over a non-idle durable state.",
+   "covers": [
+    "priority.idle-sleeping"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "thinking",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": true,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "sleeping",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "sleeping",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-running-beats-idle-sleeping",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "A running Bot is never shown asleep.",
+   "covers": [
+    "priority.running-idle-to-working"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": "turn-running",
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": true,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": true
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "working",
+    "header": {
+     "phase": "working",
+     "line": {
+      "status": "thinking",
+      "detail": "",
+      "category": "thinking",
+      "startedAt": 0
+     },
+     "fishState": "working",
+     "motion": "lively",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    },
+    "activityLine": {
+     "text": "思考中…",
+     "nextDeadline": 1760000002400
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  },
+  {
+   "id": "priority-idle-default",
+   "source": "BotRuntimeUnit.swift:278-301, BotChatModel.swift:354-371",
+   "note": "With no presentation state the projection defaults to idle.",
+   "covers": [
+    "priority.idle-default"
+   ],
+   "input": {
+    "context": {
+     "botID": "main",
+     "botName": "大肥鱼",
+     "followingCount": null
+    },
+    "rows": [],
+    "actionStates": {},
+    "dismissedCardIDs": [],
+    "autoDeclinedApprovalIDs": [],
+    "answeredOptionIDs": {},
+    "checklistProgress": {},
+    "runtimePresentation": {
+     "fishState": "idle",
+     "runningTurnID": null,
+     "activity": null,
+     "reaction": null,
+     "oneShot": null
+    },
+    "livePresentation": null,
+    "live": null,
+    "runningTurnID": null,
+    "awaitingTurn": false,
+    "lineSuppressed": false,
+    "idleSleeping": false,
+    "streaming": {
+     "pendingDelta": "",
+     "streamingText": null,
+     "liveBuffer": ""
+    },
+    "problem": null,
+    "now": 1760000000000,
+    "drawer": {
+     "isRunning": false,
+     "lastMessageAt": null,
+     "unreadCount": 0
+    },
+    "pendingApprovalCount": 0,
+    "running": false
+   },
+   "expected": {
+    "visibleRowIDs": [],
+    "displayRowIDs": [],
+    "mutedCardIDs": [],
+    "settledRowIDs": [],
+    "settlements": [],
+    "pendingApprovalCount": 0,
+    "needsAttentionCount": 0,
+    "followingCount": 0,
+    "fishState": "idle",
+    "header": {
+     "phase": "idle",
+     "line": null,
+     "fishState": "idle",
+     "motion": "standard",
+     "workStyle": "generic",
+     "lineIsQuiet": false,
+     "lineIsProblem": false
+    },
+    "lineActivity": null,
+    "activityLine": {
+     "text": "",
+     "nextDeadline": null
+    },
+    "drawerStatus": {
+     "text": "还没有消息",
+     "color": "secondary"
+    },
+    "unreadBadge": {
+     "shown": false,
+     "text": "",
+     "accessibility": ""
+    }
+   }
+  }
+ ],
+ "intentCases": [
+  {
+   "id": "dismiss-absent-accepted",
+   "source": "BotChatModel.swift:698-707",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": null,
+   "accepted": true
+  },
+  {
+   "id": "dismiss-failed-retry",
+   "source": "BotChatModel.swift:698-707",
+   "note": "A failed dismiss is retryable, like answer and approval.",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": "failed",
+   "accepted": true
+  },
+  {
+   "id": "dismiss-pending-ignored",
+   "source": "BotChatModel.swift:698-707",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": "pending",
+   "accepted": false
+  },
+  {
+   "id": "dismiss-accepted-ignored",
+   "source": "BotChatModel.swift:698-707",
+   "action": "dismiss",
+   "cardKind": "question",
+   "state": "accepted",
+   "accepted": false
+  },
+  {
+   "id": "dismiss-steps-not-allowed",
+   "source": "BotChatModel.swift:698-699",
+   "note": "Only a question card has a dismiss intent.",
+   "action": "dismiss",
+   "cardKind": "steps",
+   "state": null,
+   "accepted": false
+  },
+  {
+   "id": "answer-failed-retry",
+   "source": "BotChatModel.swift:686-695",
+   "action": "answer",
+   "cardKind": "question",
+   "state": "failed",
+   "accepted": true
+  },
+  {
+   "id": "answer-pending-ignored",
+   "source": "BotChatModel.swift:686-695",
+   "action": "answer",
+   "cardKind": "question",
+   "state": "pending",
+   "accepted": false
+  },
+  {
+   "id": "approval-failed-retry",
+   "source": "BotChatModel.swift:713-722",
+   "action": "approval",
+   "cardKind": "question",
+   "state": "failed",
+   "accepted": true
+  },
+  {
+   "id": "approval-accepted-ignored",
+   "source": "BotChatModel.swift:713-722",
+   "action": "approval",
+   "cardKind": "question",
+   "state": "accepted",
+   "accepted": false
+  }
+ ]
+}

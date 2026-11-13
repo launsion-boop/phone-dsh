@@ -3,14 +3,195 @@
   "title": "BotContextLintFinding v1",
   "type": "array",
   "items": {
-    "type": "object",
-    "required": ["rule", "severity", "evidence", "location"],
-    "properties": {
-      "rule": {"enum": ["system-prompt-bloat", "tool-result-bloat", "duplicate-context", "orphan-tool-call", "orphan-tool-result", "tool-def-bloat"]},
-      "severity": {"enum": ["warn", "error"]},
-      "evidence": {"type": "string", "minLength": 1},
-      "location": {"type": "object"}
-    },
-    "additionalProperties": false
+    "oneOf": [
+      {
+        "type": "object",
+        "required": ["rule", "severity", "evidence", "location"],
+        "properties": {
+          "rule": {"const": "system-prompt-bloat"},
+          "severity": {"enum": ["warn", "error"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "location": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["sessionId", "source", "chars"],
+                "properties": {
+                  "sessionId": {"type": ["string", "null"]},
+                  "source": {"const": "prompt-mount"},
+                  "chars": {"type": "integer", "minimum": 0}
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["sessionId", "source", "turn", "seq", "chars"],
+                "properties": {
+                  "sessionId": {"type": ["string", "null"]},
+                  "source": {"const": "system/message"},
+                  "turn": {"type": ["integer", "null"]},
+                  "seq": {"type": ["integer", "null"]},
+                  "chars": {"type": "integer", "minimum": 0}
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": ["rule", "severity", "evidence", "location"],
+        "properties": {
+          "rule": {"const": "tool-result-bloat"},
+          "severity": {"enum": ["warn", "error"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "location": {
+            "type": "object",
+            "required": ["sessionId", "turn", "step", "seq", "callId", "tool", "tokens"],
+            "properties": {
+              "sessionId": {"type": ["string", "null"]},
+              "turn": {"type": ["integer", "null"]},
+              "step": {"type": ["integer", "null"]},
+              "seq": {"type": ["integer", "null"]},
+              "callId": {"type": ["string", "null"]},
+              "tool": {"type": ["string", "null"]},
+              "tokens": {"type": "integer", "minimum": 0}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": ["rule", "severity", "evidence", "location"],
+        "properties": {
+          "rule": {"const": "duplicate-context"},
+          "severity": {"enum": ["warn", "error"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "location": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["sessionId", "turn", "seq", "occurrences"],
+                "properties": {
+                  "sessionId": {"type": ["string", "null"]},
+                  "turn": {"type": ["integer", "null"]},
+                  "seq": {"type": ["integer", "null"]},
+                  "occurrences": {"type": "integer", "minimum": 1}
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["sessionId", "turn", "seq", "chars"],
+                "properties": {
+                  "sessionId": {"type": ["string", "null"]},
+                  "turn": {"type": ["integer", "null"]},
+                  "seq": {"type": ["integer", "null"]},
+                  "chars": {"type": "integer", "minimum": 0}
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["sessionId", "turn", "seq", "earlierSeq", "chars"],
+                "properties": {
+                  "sessionId": {"type": ["string", "null"]},
+                  "turn": {"type": ["integer", "null"]},
+                  "seq": {"type": ["integer", "null"]},
+                  "earlierSeq": {"type": ["integer", "null"]},
+                  "chars": {"type": "integer", "minimum": 0}
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["sessionId", "turn", "seq", "firstSeq", "occurrences", "chars"],
+                "properties": {
+                  "sessionId": {"type": ["string", "null"]},
+                  "turn": {"type": ["integer", "null"]},
+                  "seq": {"type": ["integer", "null"]},
+                  "firstSeq": {"type": ["integer", "null"]},
+                  "occurrences": {"type": "integer", "minimum": 1},
+                  "chars": {"type": "integer", "minimum": 0}
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": ["rule", "severity", "evidence", "location"],
+        "properties": {
+          "rule": {"const": "orphan-tool-call"},
+          "severity": {"enum": ["warn", "error"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "location": {
+            "type": "object",
+            "required": ["sessionId", "turn", "step", "seq", "callId", "tool"],
+            "properties": {
+              "sessionId": {"type": ["string", "null"]},
+              "turn": {"type": ["integer", "null"]},
+              "step": {"type": ["integer", "null"]},
+              "seq": {"type": ["integer", "null"]},
+              "callId": {"type": "string", "minLength": 1},
+              "tool": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": ["rule", "severity", "evidence", "location"],
+        "properties": {
+          "rule": {"const": "orphan-tool-result"},
+          "severity": {"enum": ["warn", "error"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "location": {
+            "type": "object",
+            "required": ["sessionId", "turn", "step", "seq", "callId"],
+            "properties": {
+              "sessionId": {"type": ["string", "null"]},
+              "turn": {"type": ["integer", "null"]},
+              "step": {"type": ["integer", "null"]},
+              "seq": {"type": ["integer", "null"]},
+              "callId": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "required": ["rule", "severity", "evidence", "location"],
+        "properties": {
+          "rule": {"const": "tool-def-bloat"},
+          "severity": {"enum": ["warn", "error"]},
+          "evidence": {"type": "string", "minLength": 1},
+          "location": {
+            "type": "object",
+            "required": ["sessionId", "source", "count", "tokens", "chars"],
+            "properties": {
+              "sessionId": {"type": ["string", "null"]},
+              "source": {"enum": ["tools/list", "request/header"]},
+              "count": {"type": "integer", "minimum": 0},
+              "tokens": {"type": "integer", "minimum": 0},
+              "chars": {"type": "integer", "minimum": 0}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    ]
   }
 }

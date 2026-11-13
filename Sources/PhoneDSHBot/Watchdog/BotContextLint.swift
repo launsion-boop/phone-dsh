@@ -35,7 +35,7 @@ public struct BotContextLintFinding: Codable, Sendable, Equatable {
     }
 }
 
-public struct BotContextLintThresholds: Sendable, Equatable {
+public struct BotContextLintThresholds: Codable, Sendable, Equatable {
     public var personaCharsWarn: Int
     public var personaCharsError: Int
     public var toolResultTokensWarn: Int
@@ -69,6 +69,44 @@ public struct BotContextLintThresholds: Sendable, Equatable {
         self.maxRuntimeContextsPerTurn = maxRuntimeContextsPerTurn
         self.repeatedTextChars = repeatedTextChars
         self.repeatedTextMaxFindings = repeatedTextMaxFindings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case personaCharsWarn
+        case personaCharsError
+        case toolResultTokensWarn
+        case toolResultTokensError
+        case toolDefTokensWarn
+        case toolDefTokensError
+        case toolCountWarn
+        case maxRuntimeContextsPerTurn
+        case repeatedTextChars
+        case repeatedTextMaxFindings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = Self.default
+        personaCharsWarn = try container.decodeIfPresent(Int.self, forKey: .personaCharsWarn)
+            ?? defaults.personaCharsWarn
+        personaCharsError = try container.decodeIfPresent(Int.self, forKey: .personaCharsError)
+            ?? defaults.personaCharsError
+        toolResultTokensWarn = try container.decodeIfPresent(Int.self, forKey: .toolResultTokensWarn)
+            ?? defaults.toolResultTokensWarn
+        toolResultTokensError = try container.decodeIfPresent(Int.self, forKey: .toolResultTokensError)
+            ?? defaults.toolResultTokensError
+        toolDefTokensWarn = try container.decodeIfPresent(Int.self, forKey: .toolDefTokensWarn)
+            ?? defaults.toolDefTokensWarn
+        toolDefTokensError = try container.decodeIfPresent(Int.self, forKey: .toolDefTokensError)
+            ?? defaults.toolDefTokensError
+        toolCountWarn = try container.decodeIfPresent(Int.self, forKey: .toolCountWarn)
+            ?? defaults.toolCountWarn
+        maxRuntimeContextsPerTurn = try container.decodeIfPresent(
+            Int.self, forKey: .maxRuntimeContextsPerTurn) ?? defaults.maxRuntimeContextsPerTurn
+        repeatedTextChars = try container.decodeIfPresent(Int.self, forKey: .repeatedTextChars)
+            ?? defaults.repeatedTextChars
+        repeatedTextMaxFindings = try container.decodeIfPresent(
+            Int.self, forKey: .repeatedTextMaxFindings) ?? defaults.repeatedTextMaxFindings
     }
 
     public static let `default` = Self()
