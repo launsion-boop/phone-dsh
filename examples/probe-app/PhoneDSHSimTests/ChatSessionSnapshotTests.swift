@@ -42,6 +42,26 @@ final class ChatTranscriptTailPolicyTests: XCTestCase {
             "before the first measurement there is no safe target")
     }
 
+    func testTheAwayPillNeedsMoreThanTheNearFollowingBand() {
+        // 44pt is the near-following tolerance; 96pt is the deliberate-away
+        // margin so a touch plus streamed growth cannot flip the pill.
+        XCTAssertFalse(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 640, viewportHeight: 600))
+        XCTAssertFalse(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 696, viewportHeight: 600))
+        XCTAssertTrue(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 697, viewportHeight: 600))
+        XCTAssertFalse(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 640, viewportHeight: 600, margin: 44))
+        XCTAssertTrue(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 645, viewportHeight: 600, margin: 44),
+            "the caller may pass the old near tolerance explicitly")
+        XCTAssertTrue(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 645, viewportHeight: 600, margin: 24))
+        XCTAssertFalse(ChatTranscriptTailPolicy.isAwayFromTail(
+            tailY: 600, viewportHeight: 0))
+    }
+
     func testOverflowingTranscriptAnchorsToTheMeasuredTail() {
         XCTAssertTrue(ChatTranscriptTailPolicy.shouldScrollToTail(
             contentHeight: 900, viewportHeight: 600, hasRows: true))

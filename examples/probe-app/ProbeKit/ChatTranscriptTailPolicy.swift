@@ -27,6 +27,22 @@ public enum ChatTranscriptTailPolicy {
     /// hiding a real row.
     public static let blankTolerance: CGFloat = 1
 
+    /// How far past the viewport bottom the tail must be before the reader is
+    /// considered deliberately away. The same 44pt used for near-following is
+    /// too small: content growth during a touch could flip the "回到最新" pill
+    /// even though the person never left the bottom.
+    public static let awayMargin: CGFloat = 96
+
+    /// Whether the tail is clearly below the viewport rather than inside the
+    /// near-following band. Only a deliberate scroll away should show the pill.
+    public static func isAwayFromTail(tailY: CGFloat, viewportHeight: CGFloat,
+                                     margin: CGFloat = awayMargin) -> Bool {
+        guard tailY.isFinite, viewportHeight.isFinite, viewportHeight > 0 else {
+            return false
+        }
+        return tailY > viewportHeight + max(0, margin)
+    }
+
     /// Whether a tail scroll can land on real content.
     /// - Parameters:
     ///   - contentHeight: measured transcript height, 0 before the first pass.

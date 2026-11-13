@@ -52,6 +52,11 @@ struct BotChatPage: View {
     /// `onChange` keeps the stack re-measuring while the keyboard is also
     /// changing the viewport.
     @State private var transcriptScrollTask: Task<Void, Never>?
+    /// The newest requested scroll target. A running task reads this box
+    /// instead of cancelling and restarting for every delta; cancelling the
+    /// previous 120ms sleep on each token starved the scroll until the stream
+    /// paused, so a late Markdown/code/card height was never corrected.
+    @State private var transcriptScrollRequest = BotTranscriptScrollRequest()
     /// Eager mode renders a bounded suffix of the loaded rows; this expands
     /// when the reader asks for older loaded rows.
     @State private var eagerRowLimit = 40
@@ -292,6 +297,13 @@ struct BotChatPage: View {
         ScrollViewReader { proxy in
             ScrollView {
                 transcriptStack(proxy: proxy)
+                    .background {
+                        GeometryReader { content in
+                            Color.clear.preference(
+                                key: BotTranscriptContentHeightPreference.self,
+                                value: content.size.height)
+                        }
+                    }
                     // Room for the header status line, reserved at all times
                     // so the floating line never shifts the transcript when
                     // it shows or hides (#132).
@@ -299,6 +311,12 @@ struct BotChatPage: View {
                     .padding(.bottom, 16)
             }
             .coordinateSpace(name: "bot-transcript")
+            // A short transcript (first send, a one-line reply) must sit at
+            // the bottom like the main chat, not at the top with a huge blank
+            // band between it and the composer. This is the layout half of
+            // the "message pushed up / empty page" report; the short-content
+            // scroll guard above is the other half.
+            .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .modifier(BotTranscriptViewportReader(metrics: scrollMetrics) { height in
                 // The keyboard is the dominant viewport change: it does not
@@ -326,10 +344,56 @@ struct BotChatPage: View {
                     break
                 }
             })
+            .onPreferenceChange(BotTranscriptContentHeightPreference.self) { height in
+                guard height.isFinite, height >= 0,
+                      abs(scrollMetrics.contentHeight - height) > 0.5 else { return }
+                scrollMetrics.contentHeight = height
+                // A card/list that changes height without a row id change still
+                // needs to re-evaluate the short-transcript guard and follow.
+                if followsTail { followNewestContent(proxy: proxy) }
+            }
             .onPreferenceChange(BotTranscriptTailPreference.self) { tailY in
                 guard tailY.isFinite else { return }
                 scrollMetrics.tailY = tailY
-                if userScrolling { updateFollowsTail(userDriven: true) }
+                if userScrolling {
+                    updateFollowsTail(userDriven: true)
+                } else if !followsTail,
+                          BotTranscriptLayoutSupport.isNearTail(
+                              tailY: tailY,
+                              viewportHeight: scrollMetrics.viewportHeight,
+                              tolerance: 24) {
+                    // A programmatic scroll can land on the tail without a
+                    // user-driven settle. Re-arm following when the transcript
+                    // is actually at the bottom again; otherwise a single
+                    // stale false would silently stop all future streaming
+                    // scrolls (the Bot page has no "back to latest" pill).
+                    followsTail = true
+                } else if followsTail, tailY < -1 {
+                    // The viewport is past the content tail: the page is
+                    // blank and the rows were pushed up. Re-anchor once the
+                    // real content height is known, with a small retry cap so
+                    // an unmeasured/unscrollable page cannot spin.
+                    if abs(scrollMetrics.blankCorrectionContentHeight
+                           - scrollMetrics.contentHeight) > 0.5 {
+                        scrollMetrics.blankCorrectionContentHeight = scrollMetrics.contentHeight
+                        scrollMetrics.blankCorrectionAttempts = 0
+                    }
+                    if scrollMetrics.blankCorrectionAttempts < 2,
+                       Date().timeIntervalSince(scrollMetrics.lastBlankCorrectionAt) > 0.25 {
+                        scrollMetrics.blankCorrectionAttempts += 1
+                        scrollMetrics.lastBlankCorrectionAt = Date()
+                        if BotTranscriptLayoutSupport.shouldScrollToTail(
+                            contentHeight: scrollMetrics.contentHeight,
+                            viewportHeight: scrollMetrics.viewportHeight) {
+                            proxy.scrollTo("bot-transcript-tail", anchor: .bottom)
+                        } else if let first = model.displayRows.first?.id {
+                            proxy.scrollTo(first, anchor: .top)
+                        }
+                    }
+                } else if tailY >= -1 {
+                    scrollMetrics.blankCorrectionAttempts = 0
+                    scrollMetrics.blankCorrectionContentHeight = 0
+                }
             }
             .onChange(of: model.visibleRows.last?.id) { _, last in
                 guard !preservingHistoryPosition, model.scrollRequestID == nil,
@@ -351,6 +415,9 @@ struct BotChatPage: View {
                 followNewestContent(proxy: proxy)
             }
             .onChange(of: sendScrollTick) { _, _ in
+                // A send is an explicit "show me the new turn": re-arm the
+                // tail even if a previous tap/drag had turned following off.
+                followsTail = true
                 followNewestContent(proxy: proxy)
             }
             // #132 settled cards: once a handled card collapses into its
@@ -520,11 +587,48 @@ struct BotChatPage: View {
                                           anchor: UnitPoint,
                                           delay: UInt64 = 120_000_000) {
         guard followsTail, !preservingHistoryPosition, model.scrollRequestID == nil else { return }
-        transcriptScrollTask?.cancel()
+        // A short transcript has nothing to scroll to: a bottom-anchored
+        // scroll on it pushes the rows up under a blank band. This is the Bug
+        // where sending the first message (or a short new turn) made the page
+        // look empty. Wait until the content actually overflows.
+        guard BotTranscriptLayoutSupport.shouldScrollToTail(
+            contentHeight: scrollMetrics.contentHeight,
+            viewportHeight: scrollMetrics.viewportHeight,
+            hasRows: !model.displayRows.isEmpty || model.streamingText != nil || model.live != nil)
+        else { return }
+        // The newest trigger replaces the target, but it must not restart the
+        // pending sleep. The run below reads this box on every pass, so a
+        // continuous stream gets one scroll per settle window instead of a
+        // sleep that is cancelled before it can fire.
+        transcriptScrollRequest.target = id
+        transcriptScrollRequest.anchor = anchor
+        transcriptScrollRequest.generation &+= 1
+        guard transcriptScrollTask == nil else { return }
         transcriptScrollTask = Task { @MainActor in
-            if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
-            guard !Task.isCancelled else { return }
-            proxy.scrollTo(id, anchor: anchor)
+            defer { transcriptScrollTask = nil }
+            var arrivedGeneration: UInt64 = 0
+            var corrected = false
+            var first = true
+            while !Task.isCancelled {
+                let wait = first ? delay : 180_000_000
+                first = false
+                if wait > 0 { try? await Task.sleep(nanoseconds: wait) }
+                guard !Task.isCancelled, followsTail, !preservingHistoryPosition,
+                      model.scrollRequestID == nil else { return }
+                let generation = transcriptScrollRequest.generation
+                if generation == arrivedGeneration {
+                    // The last pass already covered this content. One more
+                    // settle window catches a Markdown/code/card height that
+                    // lands after the scroll; then stop until new content.
+                    if corrected { return }
+                    corrected = true
+                } else {
+                    arrivedGeneration = generation
+                    corrected = false
+                }
+                proxy.scrollTo(transcriptScrollRequest.target,
+                               anchor: transcriptScrollRequest.anchor)
+            }
         }
     }
 
@@ -1321,6 +1425,15 @@ private struct BotSourceSheet: View {
 private final class BotTranscriptScrollMetrics {
     var tailY: CGFloat = .greatestFiniteMagnitude
     var viewportHeight: CGFloat = 0
+    /// Measured transcript height (before the page's top/bottom padding), so
+    /// the follow pass can skip a bottom-anchored scroll on a short page.
+    var contentHeight: CGFloat = 0
+    /// Blank-viewport correction state. A tail preference change proves the
+    /// viewport went past the real content; two attempts per height are enough
+    /// to let layout settle without spinning forever.
+    var blankCorrectionContentHeight: CGFloat = 0
+    var blankCorrectionAttempts = 0
+    var lastBlankCorrectionAt = Date.distantPast
 }
 
 private struct BotTranscriptTailPreference: PreferenceKey {
@@ -1328,6 +1441,14 @@ private struct BotTranscriptTailPreference: PreferenceKey {
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
+    }
+}
+
+private struct BotTranscriptContentHeightPreference: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -1377,4 +1498,15 @@ private struct BotTranscriptScrollPhaseObserver: ViewModifier {
             content
         }
     }
+}
+
+
+/// Latest requested transcript scroll. Mutated only on the main actor; a
+/// running coalescing task reads it each pass so a new row/card can replace
+/// the target without cancelling the sleep that is already in flight.
+@MainActor
+private final class BotTranscriptScrollRequest {
+    var target: AnyHashable = AnyHashable("bot-transcript-tail")
+    var anchor: UnitPoint = .bottom
+    var generation: UInt64 = 0
 }
