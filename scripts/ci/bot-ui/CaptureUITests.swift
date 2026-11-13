@@ -147,7 +147,12 @@ final class BotCaptureUITests: XCTestCase {
 
     func testDocumentAndSafeLinkActions() throws {
         launch("document")
-        app.buttons["bot.document.open"].tap()
+        let open = app.buttons["bot.document.open"]
+        XCTAssertTrue(open.waitForExistence(timeout: 2))
+        // R5: the whole card is the button, and its VoiceOver label names the
+        // action; there is no separate small control to hunt for.
+        XCTAssertTrue(open.label.hasPrefix("打开"), open.label)
+        open.tap()
         XCTAssertTrue(app.navigationBars["文档"].waitForExistence(timeout: 2))
         // D2: an inline-content document renders its body. The old sheet
         // showed only the path row and the 「没有内嵌正文。」 failure.
@@ -197,6 +202,7 @@ final class BotCaptureUITests: XCTestCase {
         launch("attachment")
         let open = app.buttons["bot.attachment.open"]
         XCTAssertTrue(open.waitForExistence(timeout: 3))
+        XCTAssertTrue(open.label.hasPrefix("打开"), open.label)
         XCTAssertGreaterThanOrEqual(open.frame.height, 44 - 0.01)
         open.tap()
         usleep(200_000)
