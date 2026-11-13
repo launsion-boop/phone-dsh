@@ -12,6 +12,24 @@ final class BotModelImageToolTests: XCTestCase {
         XCTAssertEqual(BotToolEffectClassifier.policy(for: BotToolCatalog.attachToModelName), .ask)
     }
 
+    func testAttachToModelIsDeniedWithoutAnApprovalGrant() async throws {
+        let fixture = try makeBotMCPFixture(modelImageReader: { _ in
+            XCTFail("the reader must not run before approval")
+            return BotModelImage(data: Data(), name: "x.jpg", pixelWidth: 1, pixelHeight: 1)
+        })
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        await beginUserTurn(fixture.runtime)
+        let result = try await registerAndExecute(
+            fixture.runtime, name: BotToolCatalog.attachToModelName,
+            arguments: .object([
+                "path": .string("/dsh/workspace/photo.jpg"),
+                "purpose": .string("看看这张照片"),
+            ]))
+        XCTAssertEqual(result.isError, true)
+        XCTAssertEqual(result.structuredContent?["error"]?["code"], .string("permission_denied"))
+    }
+
     func testAttachToModelFailsClosedWhenTheHostHasNoReader() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

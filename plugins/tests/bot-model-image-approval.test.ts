@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
   needsStructuralApproval,
@@ -28,4 +29,25 @@ test('attach_to_model prefers fileId when a camera artifact has no path', () => 
     purpose: 'describe',
   })
   assert.equal(effects[0]?.resource, 'attachment=art_camera')
+})
+
+test('the Worker effect matches the shared Swift golden for attach_to_model', () => {
+  const path = new URL('../../spec/bot/v1/golden/tool-effects.phone.json', import.meta.url)
+  const golden = JSON.parse(readFileSync(path, 'utf8')) as {
+    valid: Array<{ name: string; args: Record<string, unknown>; effect: Record<string, unknown> }>
+  }
+  const entry = golden.valid.find(value => value.name === 'attach_to_model')
+  assert.ok(entry, 'the shared tool-effects.phone.json must carry attach_to_model')
+  const effects = phoneEffectsForApproval('mcp__phone__attach_to_model', entry.args)
+  assert.equal(effects.length, 1)
+  const effect = effects[0]!
+  assert.equal(effect.tool, 'mcp__phone__attach_to_model')
+  assert.equal(effect.operation, entry.effect.operation)
+  assert.equal(effect.resource, entry.effect.resource)
+  assert.equal(effect.target, entry.effect.target)
+  assert.equal(effect.mutability, entry.effect.mutability)
+  assert.equal(effect.policy, entry.effect.policy)
+  assert.equal(effect.known, entry.effect.known)
+  assert.equal(effect.label, entry.effect.label)
+  assert.equal(effect.detail, entry.effect.detail)
 })

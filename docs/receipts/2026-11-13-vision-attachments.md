@@ -26,7 +26,7 @@ Protocol impact: **P26**（additive `attach_to_model`）；**P19: none**（用�
 | 命令 | 结果 |
 | --- | --- |
 | `swift test --filter BotModelImageTests` | **PASS** 4（缩放/1 MiB/JPEG/非图片） |
-| `swift test --filter BotModelImageToolTests` | **PASS** 5（catalog/effect、无 reader、image block、path/fileId/photoId/purpose/page） |
+| `swift test --filter BotModelImageToolTests` | **PASS** 6（catalog/effect、无审批 grant 拒绝、无 reader、image block、path/fileId/photoId/purpose/page） |
 | `swift test --filter "BotGoldenVectorTests|BotMCPRPCCasesTests|BotCardPayloadTests|BotTeamToolsTests"` | **PASS** 48（tool-effects 28、allDefinitions +1、tools/list +1） |
 | `xcodebuild build -scheme PhoneDSH`（iPhone 17 Pro 模拟器） | **PASS**（移除用户附图 prompt 路径后重新构建） |
 | `npm run typecheck`（plugins） | **PASS** |
