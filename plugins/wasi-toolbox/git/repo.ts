@@ -109,12 +109,22 @@ export interface Repository {
   readonly shallow: ReadonlySet<string>
 }
 
-/** Read a text file, returning undefined when it is missing. */
+/**
+ * Read an optional text file, returning undefined when it is missing or is not
+ * a file.
+ *
+ * `EISDIR` matters during repository discovery: the Worker image has a real
+ * `/dsh/config` directory, and walking up from `/dsh/workspace` to probe for a
+ * bare repository used to read it as `/dsh/config` and fail with
+ * `fatal: EISDIR: read failed, read '/dsh/config'`. A directory at an optional
+ * file path is simply "not this optional file"; callers that need to reject a
+ * corrupt repository already validate the paths they require.
+ */
 async function readOptionalText(fs: GitFs, path: string): Promise<string | undefined> {
   try {
     return decodeText(await fs.readFile(path))
   } catch (error) {
-    if (isErrno(error, 'ENOENT', 'ENOTDIR')) return undefined
+    if (isErrno(error, 'ENOENT', 'ENOTDIR', 'EISDIR')) return undefined
     throw error
   }
 }

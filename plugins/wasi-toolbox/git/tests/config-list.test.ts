@@ -59,6 +59,34 @@ test('git config --list matches the system git', { skip }, async () => {
   }
 })
 
+test('repository discovery never reads a directory named config in an ancestor', { skip }, async () => {
+  // The Worker image has a real /dsh/config directory. Walking up from
+  // /dsh/workspace to probe for a bare repository used to read it as a file
+  // and surface `fatal: EISDIR: read failed, read '/dsh/config'` from any git
+  // command outside a repository (including the then-new --list).
+  const temp = tempDirectory()
+  try {
+    const environment = fixtureEnvironment(temp.path)
+    writeFileSync(join(environment.home, '.gitconfig'), '[user]\n\tname = Home Author\n')
+    const imageRoot = join(temp.path, 'dsh')
+    const workspace = join(imageRoot, 'workspace')
+    mkdirSync(workspace, { recursive: true })
+    mkdirSync(join(imageRoot, 'config'))
+
+    const listed = await workerGit(['config', '--list'], workspace, environment.env)
+    assert.equal(listed.code, 0, listed.stderr.toString())
+    assert.equal(listed.stdout.toString(), 'user.name=Home Author\n')
+    assert.doesNotMatch(listed.stderr.toString(), /EISDIR|read failed/)
+
+    const status = await workerGit(['status'], workspace, environment.env)
+    assert.notEqual(status.code, 0)
+    assert.match(status.stderr.toString(), /not a git repository/iu)
+    assert.doesNotMatch(status.stderr.toString(), /EISDIR|read failed/)
+  } finally {
+    temp.cleanup()
+  }
+})
+
 test('git config --list outside a repository lists the home config, not an error', { skip }, async () => {
   const temp = tempDirectory()
   try {
