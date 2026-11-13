@@ -32,12 +32,12 @@ Additive Bot tool (not in `p0Names`, so the frozen P0 catalog is unchanged):
 ```json
 {
   "name": "attach_to_model",
-  "arguments": {"path": "/dsh/workspace/photo.jpg", "fileId": "art_...", "purpose": "看看这张照片"},
-  "requires": "exactly one of path/fileId and purpose"
+  "arguments": {"path": "/dsh/workspace/photo.jpg", "fileId": "art_...", "photoId": "asset-id", "purpose": "看看这张照片"},
+  "requires": "exactly one of path/fileId/photoId and purpose"
 }
 ```
 
-- Implemented in `BotMCPRuntime.dispatch`; the App injects `BotModelImageReader` (`BotWorkspaceModelImage.image(for:)`). A `path` resolves through the materialized workspace; a `fileId` resolves through `OfficeArtifactStore` (camera/photo artifacts).
+- Implemented in `BotMCPRuntime.dispatch`; the App injects `BotModelImageReader` (`BotWorkspaceModelImage.image(for:)`). A `path` resolves through the materialized workspace; a `fileId` resolves through `OfficeArtifactStore` (camera artifacts); a `photoId` resolves through Photos `PHAsset.fetchAssets(withLocalIdentifiers:)` with `isNetworkAccessAllowed=false` (no iCloud fetch).
 - Success returns an MCP `content` array with a text part and an `image` block (`mimeType/data/name`). The DSH MCP client (`dsh-mcp-client`) decodes canonical base64, asks `llm.resolveModelInfo` for `inputModalities` including `image`, and admits it through the durable attachment store. A text-only route becomes a text diagnostic, not a silent image.
 - `BotToolEffectClassifier` classifies it as `model.image.attach`, `external-send`, `ask`; the Worker `approval-gate` classifies the same operation/resource so the card's `alwaysScope` matches the host. The tool is denied in Task sessions (`task_scope:model_image_denied`) because no present user can approve model egress.
 - Per-turn cap is **2** tool images (`modelImageCounts`, reset in `beginTurn`/`endTurn`). Together with the prompt cap, a turn cannot silently send more than two user attachments plus two tool images; the approval card is per call.
@@ -53,7 +53,7 @@ Additive Bot tool (not in `p0Names`, so the frozen P0 catalog is unchanged):
 
 - `P18`: if a deployment needs to advertise “can send images” before the first tool call, add a `vision` object to the App capability manifest. This slice deliberately does not invent a worker capability; the authoritative check is the model route's `inputModalities` in `dsh-mcp-client`.
 - `camera.scan_document` PDFs: `attach_to_model` currently decodes raster images only. PDF OCR (Vision text) is a follow-up; the tool returns `image_unavailable` for a PDF rather than claiming OCR.
-- `photos.recent/search` metadata may not expose a `fileId`; a photo export path is a follow-up.
+- `photos.recent/search` exposes the PHAsset `id`; `photoId` now exports that local asset. Device permission/asset availability is still to verify.
 
 ## 6. Tests
 
