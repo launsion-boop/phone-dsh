@@ -85,7 +85,9 @@ final class PhonePermissionContractTests: XCTestCase {
             permissionStore: PhonePermissionStore(defaults: defaults),
             requester: PhonePermissionRequester(), audit: PhoneCapabilityAudit())
         let composite = CompositePhoneToolBridge(office: OfficeToolBridge(), phone: bridge)
-        XCTAssertEqual(composite.handles.count, 51)
+        // 32 phone routes + 19 office tools before 2026-11-13; `phone info`
+        // makes the phone catalog 33, so the composite surface is 52.
+        XCTAssertEqual(composite.handles.count, 52)
         XCTAssertFalse(composite.supportsContext)
 
         for tool in ["calendar.create_event", "contacts.search", "location.geofence", "focus.status",

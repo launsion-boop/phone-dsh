@@ -1457,7 +1457,8 @@ struct BotUIFixtureRootView: View {
 
     private var cardActions: BotCardActions {
         BotCardActions(openURL: { hostActions.append("url:\($0.absoluteString)") },
-                       openPath: { hostActions.append("path:\($0)") })
+                       openPath: { hostActions.append("path:\($0)") },
+                       canOpenPath: { _ in true })
     }
 }
 

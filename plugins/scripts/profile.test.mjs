@@ -513,7 +513,10 @@ test('the packed image carries browser bundles and gates web tools in every pres
     const presets = flattenRows(rows).filter(row => row.name === '@deepseek-ai/dsh-agent-preset')
     assert.deepEqual(presets.map(row => row.id).sort(), [
       'preset-cordis', 'preset-device-task', 'preset-minimal', 'preset-phone', 'preset-phone-bot',
-      'preset-ptc', 'preset-standard',
+      // The read-only verifier and the hidden Bot memory-maintainer are
+      // restricted sessions with no `tool-web` row; they are declared in the
+      // same profile and must be accounted for here.
+      'preset-phone-bot-maintainer', 'preset-ptc', 'preset-standard', 'preset-verifier',
     ])
     const devicePreset = presets.find(row => row.id === 'preset-device-task')
     assert.deepEqual(devicePreset.config.plugins.map(row => row.name).sort(), [
@@ -545,7 +548,8 @@ test('the packed image carries browser bundles and gates web tools in every pres
     })
 
     for (const [scope, row] of toolRows) {
-      if (scope === 'preset-minimal' || scope === 'preset-device-task') {
+      if (scope === 'preset-minimal' || scope === 'preset-device-task'
+        || scope === 'preset-phone-bot-maintainer' || scope === 'preset-verifier') {
         assert.equal(row, undefined)
         continue
       }

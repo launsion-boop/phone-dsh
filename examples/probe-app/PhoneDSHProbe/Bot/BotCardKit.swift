@@ -108,9 +108,16 @@ struct BotContentWidth<Content: View>: View {
 struct BotAdaptiveBubbleLayout: Layout {
     /// The last content measurement, tagged with the parent width it was
     /// taken for. Placement reuses it only for the same width.
+    ///
+    /// Both dimensions are kept: a trailing bubble must start at
+    /// `bounds.maxX - measuredWidth`. Using the ratio **cap** there left a
+    /// short user message floating at the 20% mark (the 2026-11-13 field
+    /// sample: a tapped 建议下一步 bubble sat left of the trailing edge while
+    /// its right side stayed empty). The cap is a maximum, not the width.
     struct Cache: Equatable {
         var parentWidth: CGFloat = 0
-        var contentHeight: CGFloat = 0
+        var contentSize: CGSize = .zero
+        var measured = false
     }
 
     let ratio: CGFloat
@@ -123,8 +130,10 @@ struct BotAdaptiveBubbleLayout: Layout {
         guard let width = proposal.width else {
             // No column width yet. Return the content's ideal size instead of
             // collapsing to zero: a 0 → content-height flip is another
-            // needless placement pass.
+            // needless placement pass. The bubble is exactly the ideal size,
+            // so that is also the parent width placement will see.
             let ideal = child.sizeThatFits(.unspecified)
+            cache = Cache(parentWidth: ideal.width, contentSize: ideal, measured: true)
             return BotAdaptiveBubbleGeometry.bubbleSize(availableWidth: ideal.width,
                                                         contentHeight: ideal.height)
         }
@@ -132,7 +141,7 @@ struct BotAdaptiveBubbleLayout: Layout {
             availableWidth: width, availableHeight: proposal.height, ratio: ratio)
         let content = child.sizeThatFits(ProposedViewSize(width: contentProposal?.width,
                                                           height: contentProposal?.height))
-        cache = Cache(parentWidth: width, contentHeight: content.height)
+        cache = Cache(parentWidth: width, contentSize: content, measured: true)
         return BotAdaptiveBubbleGeometry.bubbleSize(availableWidth: width,
                                                      contentHeight: content.height)
     }
@@ -140,19 +149,27 @@ struct BotAdaptiveBubbleLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
                        subviews: Subviews, cache: inout Cache) {
         guard let child = subviews.first, bounds.width > 0 else { return }
-        let contentWidth = BotAdaptiveBubbleGeometry.contentWidth(
+        let placementWidth = BotAdaptiveBubbleGeometry.contentWidth(
             availableWidth: bounds.width, ratio: ratio) ?? bounds.width
-        let contentHeight = BotAdaptiveBubbleGeometry.contentHeight(
-            boundsWidth: bounds.width,
-            cachedWidth: cache.parentWidth,
-            cachedHeight: cache.contentHeight) { width in
-                child.sizeThatFits(ProposedViewSize(width: width * ratio, height: nil)).height
-            }
-        cache = Cache(parentWidth: bounds.width, contentHeight: contentHeight)
+        let contentSize: CGSize
+        if cache.measured, abs(cache.parentWidth - bounds.width) <= 0.5 {
+            contentSize = cache.contentSize
+        } else {
+            // The cache was measured for another width; measure once against
+            // this one instead of trusting a stale height or width.
+            let measured = child.sizeThatFits(ProposedViewSize(width: placementWidth, height: nil))
+            contentSize = measured
+            cache = Cache(parentWidth: bounds.width, contentSize: measured, measured: true)
+        }
+        // Trailing placement uses the measured width. A content-sized short
+        // bubble then ends exactly on the trailing edge instead of starting at
+        // the width cap's left edge. Placing with that same width keeps a
+        // no-column-width measurement (which used the content's ideal size)
+        // from being re-wrapped against a smaller cap.
         let x = BotAdaptiveBubbleGeometry.contentOriginX(
-            bounds: bounds, contentWidth: contentWidth, trailing: trailing)
+            bounds: bounds, contentWidth: contentSize.width, trailing: trailing)
         child.place(at: CGPoint(x: x, y: bounds.minY),
-                    proposal: ProposedViewSize(width: contentWidth, height: contentHeight))
+                    proposal: ProposedViewSize(width: contentSize.width, height: contentSize.height))
     }
 }
 

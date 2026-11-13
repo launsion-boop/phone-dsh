@@ -38,6 +38,9 @@ struct BotChatPage: View {
 
     @State private var sourceRow: BotUIRow?
     @State private var documentRow: BotUIRow?
+    /// The attachment card's native preview. A path the host cannot resolve
+    /// never reaches this state: `canOpenPath` hides the button instead.
+    @State private var previewTarget: PreviewTarget?
     @State private var preservingHistoryPosition = false
     /// Height of the composer dock (notices + attachments + capsule), used to
     /// keep the newest transcript row above it on iOS 17.
@@ -124,6 +127,9 @@ struct BotChatPage: View {
         }
         .sheet(item: $documentRow) { row in
             BotDocumentPreview(row: row)
+        }
+        .sheet(item: $previewTarget) { target in
+            BotFilePreviewSheet(target: target)
         }
         .alert("无法定位消息", isPresented: Binding(
             get: { model.deepLinkError != nil },
@@ -559,6 +565,22 @@ struct BotChatPage: View {
     private var resolvedCardActions: BotCardActions {
         var actions = cardActions
         actions.openDocument = externalDocumentAction ?? { row in documentRow = row }
+        // An injected handler owns a path only when it also declares the
+        // capability. Otherwise the host's native preview is the fallback, and
+        // a path it cannot resolve stays unrepresented instead of becoming a
+        // dead button.
+        let externalCanOpen = cardActions.canOpenPath
+        let externalOpenPath = cardActions.openPath
+        actions.canOpenPath = { path in
+            externalCanOpen(path) || BotCardFileAccess.canOpen(path)
+        }
+        actions.openPath = { path in
+            if externalCanOpen(path) {
+                externalOpenPath(path)
+            } else if BotCardFileAccess.canOpen(path) {
+                previewTarget = .workspaceFile(path)
+            }
+        }
         return actions
     }
 
@@ -1288,47 +1310,6 @@ private struct BotSourceSheet: View {
             }
             .homeGroupedList()
             .navigationTitle("消息来源")
-            .toolbar { Button("完成") { dismiss() } }
-        }
-    }
-}
-
-private struct BotDocumentPreview: View {
-    let row: BotUIRow
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(row.body.string("title", "name", "fileName") ?? "文档")
-                        .botTitleFont()
-                        .foregroundStyle(HomeSpec.textPrimary)
-                    if let content = row.body.string("content", "markdown") {
-                        Text(content)
-                            .botBodyFont()
-                            .foregroundStyle(HomeSpec.textPrimary)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        if let summary = row.body.string("summary", "description") {
-                            Text(summary)
-                                .botBodyFont()
-                                .foregroundStyle(HomeSpec.textSecondary)
-                        }
-                        BotFailureRow(message: "没有内嵌正文。")
-                    }
-                    if let path = row.body.string("path", "url") {
-                        Text(path)
-                            .botCaptionFont()
-                            .foregroundStyle(HomeSpec.textTertiary)
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(HomeSpec.contentInset)
-            }
-            .background(HomeSpec.page)
-            .navigationTitle("文档")
             .toolbar { Button("完成") { dismiss() } }
         }
     }

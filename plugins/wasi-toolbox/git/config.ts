@@ -15,10 +15,13 @@
  *   git config --get <name>           read one value
  *   git config --local <name>         read the repository file only
  *   git config [--local] <name> <value>   write one value
+ *   git config --list                 list the effective key=value pairs
  *
- * Scopes the Worker cannot honour (`--global`, `--system`, `--file`) and
- * mutating actions other than a plain set (`--unset`, `--add`, …) fail loud
- * with the unsupported word in the message; they never pretend to have run.
+ * Scope flags the Worker cannot honour (`--global`, `--system`, `--file`),
+ * mutating actions other than a plain set (`--unset`, `--add`, …) and the
+ * display modifiers that would need per-entry origins (`--show-origin`,
+ * `--show-scope`) fail loud with the unsupported word in the message; they
+ * never pretend to have run.
  * @module @phone-dsh/dsh-wasi-toolbox/git/config
  */
 import { GitFailure, fatal } from './errors.ts'
@@ -29,12 +32,15 @@ import type { GitConfig, Repository } from './repo.ts'
 import type { CommandContext } from './cli.ts'
 
 const CONFIG_USAGE = `usage: git config [--local] [--get] <name> [<value>]
+       git config [--local] --list
 
     --local   read or write the repository's .git/config only
     --get     read one value (exit 1 when it is not set)
+    --list    print every effective key=value pair (also -l)
 
-Scopes other than --local and mutating actions other than a plain set are not
-implemented by the Worker git and fail loudly.
+Scopes other than --local, mutating actions other than a plain set and
+per-entry origin/scope display are not implemented by the Worker git and fail
+loudly.
 `
 
 /** One parsed `section[.subsection].variable` configuration name. */
@@ -162,6 +168,15 @@ function localRepositoryFailure(error: unknown, local: boolean): never {
   throw error
 }
 
+/** Read only the repository-local file, with git's own outside-a-repo error. */
+async function localConfig(context: CommandContext): Promise<GitConfig> {
+  try {
+    return await readLocalConfig(await context.repository())
+  } catch (error) {
+    localRepositoryFailure(error, true)
+  }
+}
+
 /** Read the effective configuration, falling back to the home file outside a repository. */
 async function effectiveConfig(context: CommandContext): Promise<GitConfig> {
   try {
@@ -190,10 +205,12 @@ async function effectiveConfig(context: CommandContext): Promise<GitConfig> {
 export async function config(context: CommandContext): Promise<number> {
   let local = false
   let get = false
+  let list = false
   const positional: string[] = []
   for (const arg of context.args) {
     if (arg === '--local') local = true
     else if (arg === '--get') get = true
+    else if (arg === '--list' || arg === '-l') list = true
     else if (arg === '-h' || arg === '--help') {
       context.output.stdout(CONFIG_USAGE)
       return 129
@@ -205,15 +222,27 @@ export async function config(context: CommandContext): Promise<number> {
         129,
       )
     } else if (arg === '--unset' || arg === '--unset-all' || arg === '--add' || arg === '--replace-all'
-      || arg === '--rename-section' || arg === '--remove-section' || arg === '--list' || arg === '-l') {
-      throw fatal(`unsupported config option '${arg}': the Worker git only implements get and set. Nothing was changed.`, 129)
+      || arg === '--rename-section' || arg === '--remove-section') {
+      throw fatal(`unsupported config option '${arg}': the Worker git only implements get, set and list. Nothing was changed.`, 129)
+    } else if (arg === '--show-origin' || arg === '--show-scope' || arg === '--name-only') {
+      throw fatal(`unsupported config option '${arg}': the Worker git cannot report per-entry origins or names. Nothing was changed.`, 129)
     } else if (arg.startsWith('-')) {
-      throw fatal(`unsupported config option '${arg}': the Worker git only implements get and set. Nothing was changed.`, 129)
+      throw fatal(`unsupported config option '${arg}': the Worker git only implements get, set and list. Nothing was changed.`, 129)
     } else {
       positional.push(arg)
     }
   }
-  if (positional.length === 0) throw fatal('config: missing name; the Worker git only implements get and set', 129)
+  if (list) {
+    if (positional.length > 0) {
+      throw fatal(`config: --list takes no name (unexpected '${positional[0] as string}')`, 129)
+    }
+    const listed = local ? await localConfig(context) : await effectiveConfig(context)
+    for (const [key, value] of listed.withPrefix('')) {
+      context.output.stdout(`${key}=${value}\n`)
+    }
+    return 0
+  }
+  if (positional.length === 0) throw fatal('config: missing name; the Worker git only implements get, set and list', 129)
   const name = positional[0] as string
   // `git config <name>` (one argument) is a get, exactly like `--get`.
   if (get || positional.length === 1) {

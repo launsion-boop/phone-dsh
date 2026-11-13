@@ -126,6 +126,8 @@ private final class PhoneCapabilityEngine {
                 payload = try await device.grantFolder(object: object)
             case "files.list_roots":
                 payload = device.listRoots()
+            case "info":
+                payload = device.info()
             case "device.status":
                 payload = await device.deviceStatus()
             case "motion.activity":

@@ -19,7 +19,7 @@ final class HostStorageCoordinatorTests: XCTestCase {
         documents = root.appendingPathComponent("Documents", isDirectory: true)
         caches = root.appendingPathComponent("Library/Caches/pdsh/ws", isDirectory: true)
         workspace = root.appendingPathComponent("Library/xl/ws", isDirectory: true)
-        for directory in [documents, caches, workspace] {
+        for directory in [documents, caches, workspace].compactMap({ $0 }) {
             try FileManager.default.createDirectory(at: directory,
                                                     withIntermediateDirectories: true)
         }
@@ -103,7 +103,7 @@ final class HostStorageCoordinatorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: attachment.path))
     }
 
-    func testLegacyTranscriptMigrationIsReentrant() throws {
+    func testLegacyTranscriptMigrationIsReentrant() async throws {
         try write(documents.appendingPathComponent("transcript-snapshots/phone/s.json"), "{}")
         let coordinator = HostStorageCoordinator(paths: paths())
         let first = await coordinator.migrateLegacyCachesIfNeeded()
