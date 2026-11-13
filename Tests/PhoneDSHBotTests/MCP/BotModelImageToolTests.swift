@@ -33,6 +33,7 @@ final class BotModelImageToolTests: XCTestCase {
                                   pixelWidth: 800, pixelHeight: 600)
         let fixture = try makeBotMCPFixture(modelImageReader: { request in
             XCTAssertEqual(request.path, "/dsh/workspace/photo.jpg")
+            XCTAssertEqual(request.page, 2)
             XCTAssertEqual(request.purpose, "看看这张照片")
             return image
         })
@@ -44,6 +45,7 @@ final class BotModelImageToolTests: XCTestCase {
             fixture.runtime, name: BotToolCatalog.attachToModelName,
             arguments: .object([
                 "path": .string("/dsh/workspace/photo.jpg"),
+                "page": .number(2),
                 "purpose": .string("看看这张照片"),
             ]))
         XCTAssertNotEqual(result.isError, true)

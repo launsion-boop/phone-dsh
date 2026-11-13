@@ -241,9 +241,11 @@ public enum BotToolCatalog {
 
     public static let attachToModelDefinition = BotMCPToolDefinition(
         name: attachToModelName,
-        description: "Attach one image from the Bot workspace or an Office artifact to the model's context so you can actually see it. Pass exactly one of path, fileId or photoId; purpose is shown to the user in the approval card. The user must approve sending the image to the model service. Use this after camera.capture or when a user attached an image and you need its pixels; do not guess from metadata alone.",
+        description: "Attach one image from the Bot workspace or an Office artifact to the model's context so you can actually see it. Pass exactly one of path, fileId or photoId; for a PDF pass page (1-8, default 1) to pick the page image; purpose is shown to the user in the approval card. The user must approve sending the image to the model service. Use this after camera.capture or when a user attached an image and you need its pixels; do not guess from metadata alone.",
         inputSchema: schema([
-            "path": string(), "fileId": string(), "photoId": string(), "purpose": string(),
+            "path": string(), "fileId": string(), "photoId": string(),
+            "page": .object(["type": .string("integer"), "minimum": .number(1), "maximum": .number(8)]),
+            "purpose": string(),
         ], required: ["purpose"], additionalProperties: false))
 
     public static var allDefinitions: [BotMCPToolDefinition] {

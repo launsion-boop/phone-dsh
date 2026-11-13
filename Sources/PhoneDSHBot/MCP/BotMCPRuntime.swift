@@ -1444,6 +1444,7 @@ public actor BotMCPRuntime {
         guard sources.count == 1 else {
             throw BotMCPError.invalidRequest("attach_to_model 需要 path、fileId 或 photoId 其中之一")
         }
+        let page = (args["page"]?.numberValue).map { max(1, Int($0)) }
         let purpose = string(args["purpose"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !purpose.isEmpty else {
             throw BotMCPError.invalidRequest("attach_to_model 需要 purpose")
@@ -1459,6 +1460,7 @@ public actor BotMCPRuntime {
                 path: (path ?? "").isEmpty ? nil : path,
                 fileID: (fileID ?? "").isEmpty ? nil : fileID,
                 photoID: (photoID ?? "").isEmpty ? nil : photoID,
+                page: page,
                 purpose: purpose))
         } catch {
             return .failure("image_unavailable",

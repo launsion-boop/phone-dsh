@@ -38,13 +38,16 @@ public struct BotModelAttachmentRequest: Sendable, Equatable {
     public let fileID: String?
     /// Photos-library local identifier returned by `photos.recent/search`.
     public let photoID: String?
+    /// One-based PDF page for a document artifact; nil means page 1.
+    public let page: Int?
     public let purpose: String
 
     public init(path: String? = nil, fileID: String? = nil,
-                photoID: String? = nil, purpose: String) {
+                photoID: String? = nil, page: Int? = nil, purpose: String) {
         self.path = path
         self.fileID = fileID
         self.photoID = photoID
+        self.page = page
         self.purpose = purpose
     }
 }
@@ -98,18 +101,6 @@ public enum BotModelImagePreparer {
             name: safeName.isEmpty ? "image.jpg" : String(safeName.prefix(120)),
             pixelWidth: image.width,
             pixelHeight: image.height)
-    }
-
-    /// The DSH `session/prompt` spelling: `PromptContentPart.image` declares
-    /// `mediaType`, not `mimeType`. Extra MCP-only fields are deliberately
-    /// absent so the strict prompt schema never sees them.
-    public static func jsonValue(_ image: BotModelImage) -> BotJSONValue {
-        .object([
-            "type": .string("image"),
-            "mediaType": .string(image.mediaType),
-            "data": .string(image.data.base64EncodedString()),
-            "name": .string(image.name),
-        ])
     }
 
     /// The MCP `CallToolResult.content` spelling. The DSH MCP client admits a

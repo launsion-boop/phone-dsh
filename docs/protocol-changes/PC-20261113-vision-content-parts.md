@@ -1,59 +1,95 @@
-# PC-20261113-01 图片进入模型上下文（P19 / P26）
+# PC-20261113-01 工具/相册图片进入模型上下文（P26）
 
 <!-- SPDX-License-Identifier: MIT -->
 
 Status: implemented on `feat/vision-model-attachments` (App + phone plugins only; no DSH source patch).
 Base: `a2bb79dfe` (PR #159 merge).
-Scope: **P19** `session/prompt.content` image parts; **P26** additive Bot tool `attach_to_model`.
-**P18: none** — this slice does not add a `capabilities.json` field; see §5.
+Scope: **P26** additive Bot tool `attach_to_model` and its MCP image block.
+**P19: none** — user attachments stay path/text-only; the App does not inject prompt image parts.
+**P18: none** — no worker capability field is added; the model route is checked by the MCP client.
 
-## 1. Why
+## 1. Direction
 
-`BotAttachmentPrompt` only produced a JSON line per attachment (`name/path/size/mimeType/kind`). The model could not see image pixels even when the selected route declared vision. `camera.capture`, `photos.*` and `camera.scan_document` returned artifacts with `fileId`/metadata only; a tool result that carries the image was missing.
+The Agent reads the photo library directly; it does not depend on the user attaching a
+picture. Any image that goes to the LLM is an explicit `attach_to_model` call, and that
+call is approval-gated exactly once. The approval card names the purpose and the local
+file/asset, so “send to the model service” is visible before bytes leave the phone.
 
-## 2. P19: prompt image part
-
-`BotDSHRemoteRuntime.sendUserMessage` now prepares at most **two** image attachments through an injected `attachmentImagePreparer` and appends image parts to the existing `session/prompt` content array:
-
-```json
-{"type":"image","mediaType":"image/jpeg","data":"<canonical base64>","name":"photo.jpg"}
-```
-
-- No new RPC method or envelope field; `SessionPromptRequest.content` is already `PromptContentPart[]`.
-- The text attachment block is kept, so non-image files and a failed preparation still have their path.
-- Image preparation: ImageIO decode + orientation + thumbnail with longest edge **1568 px**, JPEG quality ladder, encoded cap **1,048,576 bytes**. A failure drops the image part (never fails the whole send).
-- The App asks the user before a pending image is sent: 「仅这一次 / 本会话都允许 / 取消」. The picker alone is not treated as consent for model egress. A session-scoped choice is kept in the composer's view state only.
-- The transport does not inspect the model route. If the route cannot consume images, the request fails at the model boundary; the text block remains. The tool path (§3) fails closed earlier.
-
-## 3. P26: `attach_to_model`
-
-Additive Bot tool (not in `p0Names`, so the frozen P0 catalog is unchanged):
+## 2. Tool
 
 ```json
 {
   "name": "attach_to_model",
-  "arguments": {"path": "/dsh/workspace/photo.jpg", "fileId": "art_...", "photoId": "asset-id", "purpose": "看看这张照片"},
-  "requires": "exactly one of path/fileId/photoId and purpose"
+  "arguments": {
+    "path": "/dsh/workspace/photo.jpg",
+    "fileId": "art_...",
+    "photoId": "PHAsset localIdentifier",
+    "page": 2,
+    "purpose": "看看这张照片"
+  },
+  "requires": "exactly one of path/fileId/photoId and purpose; page is an optional PDF page (1-8)"
 }
 ```
 
-- Implemented in `BotMCPRuntime.dispatch`; the App injects `BotModelImageReader` (`BotWorkspaceModelImage.image(for:)`). A `path` resolves through the materialized workspace; a `fileId` resolves through `OfficeArtifactStore` (camera artifacts); a `photoId` resolves through Photos `PHAsset.fetchAssets(withLocalIdentifiers:)` with `isNetworkAccessAllowed=false` (no iCloud fetch).
-- Success returns an MCP `content` array with a text part and an `image` block (`mimeType/data/name`). The DSH MCP client (`dsh-mcp-client`) decodes canonical base64, asks `llm.resolveModelInfo` for `inputModalities` including `image`, and admits it through the durable attachment store. A text-only route becomes a text diagnostic, not a silent image.
-- `BotToolEffectClassifier` classifies it as `model.image.attach`, `external-send`, `ask`; the Worker `approval-gate` classifies the same operation/resource so the card's `alwaysScope` matches the host. The tool is denied in Task sessions (`task_scope:model_image_denied`) because no present user can approve model egress.
-- Per-turn cap is **2** tool images (`modelImageCounts`, reset in `beginTurn`/`endTurn`). Together with the prompt cap, a turn cannot silently send more than two user attachments plus two tool images; the approval card is per call.
+Not in `p0Names`: the frozen P0 catalog and every non-vision deployment are unchanged.
+The tool is appended to `allDefinitions` and `BotToolCatalog.isRegistered`.
+
+### Sources
+
+- `path`: Bot materialized workspace file (user attachment, document, scan artifact path).
+- `fileId`: `OfficeArtifactStore` artifact (camera capture / scanned PDF).
+- `photoId`: Photos `PHAsset.localIdentifier` from `photos.recent/search`; exported with
+  `isNetworkAccessAllowed = false` so iCloud is never fetched implicitly.
+- PDF: the chosen page is rasterized (PDFKit) to a 1568px JPEG; a scanned document has no
+  reliable text layer, so a page image is more honest than OCR guesswork. The per-turn cap
+  limits pages naturally.
+
+### Result and model admission
+
+The tool returns an MCP `content` array with a short text part and:
+
+```json
+{"type":"image","mimeType":"image/jpeg","data":"<canonical base64>","name":"photo.jpg"}
+```
+
+`dsh-mcp-client`:
+1. checks canonical base64 and a raster media type;
+2. calls `llm.resolveModelInfo(provider, model)` and requires `inputModalities` to include
+   `image`;
+3. admits the bytes through the durable attachment store and replaces the block with an
+   `ImageBlock`.
+
+A text-only route receives a diagnostic text instead of the image. No DSH patch is needed.
+
+## 3. Approval
+
+- Host classifier: `model.image.attach`, `external-send`, `ask`, `known: true`.
+- Worker `approval-gate` classifies the same operation/resource so the card's
+  `alwaysScope=until` matches the host and never returns `stale:always_scope`.
+- One tool call = one approval; approving does not create a standing permission for later
+  images unless the user chooses the card's existing scope.
+- Task sessions are denied (`task_scope:model_image_denied`): a background task has no
+  present user to approve model egress; the image stays in the workspace.
+- Per-turn cap: 2 tool images (`modelImageCounts`, reset in `beginTurn`/`endTurn`).
+- Image bounds: longest edge 1568 px, encoded ≤ 1 MiB, JPEG quality ladder; decode failure
+  returns `image_unavailable`, never a fabricated image.
 
 ## 4. Fallbacks / compatibility
 
-- No `modelImageReader` (tests, non-App hosts, older App) → `unsupported`; no catalog claim of pixels.
-- Missing materialized workspace file / undecodable bytes → `image_unavailable`; the model still has the path and file tools.
-- No vision route → MCP client replaces the image block with a text diagnostic; prompt images fail at the adapter. Neither path fabricates pixels.
-- Old App + new Worker: `attach_to_model` is simply absent from the old catalog; prompt image parts are not sent. New App + old Worker: `session/prompt` rejects image parts before any turn; the App's UI consent does not bypass the host schema.
+- No `BotModelImageReader` (tests/non-App hosts): `unsupported`.
+- Missing workspace file / artifact / photo / PDF page: `image_unavailable`.
+- Old App + new Worker: the tool is absent from the old catalog.
+- New App + old Worker: the Worker catalog does not advertise the tool.
+- A non-vision route: MCP client text diagnostic. The tool never claims the model can see.
 
 ## 5. Open follow-ups
 
-- `P18`: if a deployment needs to advertise “can send images” before the first tool call, add a `vision` object to the App capability manifest. This slice deliberately does not invent a worker capability; the authoritative check is the model route's `inputModalities` in `dsh-mcp-client`.
-- `camera.scan_document` PDFs: `attach_to_model` currently decodes raster images only. PDF OCR (Vision text) is a follow-up; the tool returns `image_unavailable` for a PDF rather than claiming OCR.
-- `photos.recent/search` exposes the PHAsset `id`; `photoId` now exports that local asset. Device permission/asset availability is still to verify.
+- Dedicated OCR text for PDFs whose pages are mostly text; page rasterization is the current
+  route and is deliberately bounded to one image per call.
+- Optional `vision` advertisement in the App capability manifest (P18), if a deployment
+  needs to show “can send images” before the first tool call. Not required for admission.
+- Multi-page batch helper: the model may call the tool twice per turn, but a single call is
+  one page to keep the approval and context budget explicit.
 
 ## 6. Tests
 

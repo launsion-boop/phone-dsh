@@ -16,13 +16,10 @@ final class BotModelImageTests: XCTestCase {
         XCTAssertEqual(prepared.mediaType, "image/jpeg")
         XCTAssertEqual(prepared.name, "camera.jpg")
         XCTAssertEqual(Array(prepared.data.prefix(2)), [0xFF, 0xD8])
-        let json = BotModelImagePreparer.jsonValue(prepared)
+        let json = BotModelImagePreparer.mcpJSONValue(prepared)
         XCTAssertEqual(json["type"]?.stringValue, "image")
-        XCTAssertEqual(json["mediaType"]?.stringValue, "image/jpeg")
+        XCTAssertEqual(json["mimeType"]?.stringValue, "image/jpeg")
         XCTAssertFalse(json["data"]?.stringValue?.isEmpty ?? true)
-        XCTAssertNil(json["mimeType"])
-        XCTAssertEqual(BotModelImagePreparer.mcpJSONValue(prepared)["mimeType"]?.stringValue,
-                       "image/jpeg")
     }
 
     func testSmallImageKeepsItsPixels() throws {

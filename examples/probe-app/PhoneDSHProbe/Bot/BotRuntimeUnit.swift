@@ -97,8 +97,7 @@ final class BotRuntimeUnit {
             botDataDirectory: BotSessionRegistry.botDataDirectory,
             onSessionRegistered: { sessionID in
                 Task { @MainActor in BotSessionRegistry.shared.register(sessionID) }
-            },
-            attachmentImagePreparer: BotWorkspaceModelImage.prepare)
+            })
         let planner = BotRemoteActionPlanner(
             remote: remote, runtime: runtime, handler: handler,
             store: store, botID: botID, wakeInbox: inbox)

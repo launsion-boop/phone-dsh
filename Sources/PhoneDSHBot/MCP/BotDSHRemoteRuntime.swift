@@ -157,9 +157,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     private let ledger: BotLLMLedger
     private let watchdog: BotWatchdogMonitor
     private let wakeInbox: WakeInbox?
-    /// Injected by the App; see the initializer. `nil` keeps text-only sends
-    /// for tests and deployments that have no workspace materialization.
-    private let attachmentImagePreparer: (@Sendable (BotAttachment) async -> BotModelImage?)?
     private var sessions: [String: SessionCredential] = [:]
     /// Bumped whenever the Worker is replaced. Every session credential is
     /// re-claimed before its next turn, using its current token when that
@@ -209,11 +206,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         wakeInbox: WakeInbox? = nil,
         botDataDirectory: String = BotWorkspaceLayout.defaultBotDataDirectory,
         onSessionRegistered: (@Sendable (String) -> Void)? = nil,
-        /// Turns one user attachment into model-ready image bytes. The App
-        /// supplies a workspace-file resolver; the package never knows a host
-        /// path. A nil/failed preparation keeps the attachment's text block and
-        /// sends no image, so a missing materialized file cannot break a send.
-        attachmentImagePreparer: (@Sendable (BotAttachment) async -> BotModelImage?)? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) }
     ) async throws {
         self.transport = transport
@@ -224,7 +216,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         self.wakeInbox = wakeInbox
         self.botDataDirectory = botDataDirectory
         self.onSessionRegistered = onSessionRegistered
-        self.attachmentImagePreparer = attachmentImagePreparer
         self.now = now
         ledger = BotLLMLedger(eventLog: runtime.store)
         watchdog = BotWatchdogMonitor(eventLog: runtime.store, now: now)
@@ -283,30 +274,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         mainSessionId = nil
     }
 
-    /// Prepare only the image attachments in a user turn, in their original
-    /// order, capped by `BotModelImagePolicy.maxImagesPerTurn`. A preparation
-    /// failure is deliberately non-fatal: the text block still carries the
-    /// path, and the model can use its file tools.
-    private func prepareModelImages(for attachments: [BotAttachment]) async -> [BotModelImage] {
-        guard let attachmentImagePreparer, !attachments.isEmpty else { return [] }
-        var images: [BotModelImage] = []
-        for attachment in attachments where Self.isImageAttachment(attachment) {
-            guard images.count < BotModelImagePolicy.maxImagesPerTurn else { break }
-            if let image = await attachmentImagePreparer(attachment) {
-                images.append(image)
-            }
-        }
-        return images
-    }
-
-    public static func isImageAttachment(_ attachment: BotAttachment) -> Bool {
-        if attachment.kind == "image" { return true }
-        if attachment.mimeType.lowercased().hasPrefix("image/") { return true }
-        let name = attachment.name.lowercased()
-        return ["png", "jpg", "jpeg", "webp", "gif", "heic", "heif"]
-            .contains { name.hasSuffix("." + $0) }
-    }
-
     /// `requestId` is the DSH prompt idempotency key. Callers replaying a
     /// persisted delivery (user action nonce, held inbox item, routine run)
     /// must pass the same value so the Worker does not open a second turn.
@@ -335,7 +302,6 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
             pendingContinuation = nil
             prompt = seam + "\n\n" + prompt
         }
-        let modelImages = await prepareModelImages(for: attachments)
         var stagedKey: String?
         var promptRequestId = requestId ?? BotTurnOrigin.visibleRequestId()
         if !steer, let wakeInbox {
@@ -356,7 +322,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         }
         do {
             let result = try await runTurn(sessionId: sessionId, kind: .chat, prompt: prompt,
-                                           images: modelImages, requestId: promptRequestId)
+                                           requestId: promptRequestId)
             if let stagedKey { _ = try await wakeInbox?.commit(stagedKey) }
             await onUserTurnFinished?()
             return result
@@ -2404,7 +2370,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     private func runTurn(sessionId: String, kind: BotSessionKind,
-                         prompt: String, images: [BotModelImage] = [], requestId: String,
+                         prompt: String, requestId: String,
                          allowSteer: Bool = true) async throws -> BotRemoteTurnResult {
         _ = try await ensureSession(sessionId: sessionId, kind: kind)
         let origin = BotTurnOrigin(rpcId: requestId)
@@ -2412,8 +2378,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         let held = origin.held
         if allowSteer, canSteer(sessionId: sessionId), kind == .chat, !hidden,
            let active = coordinators[sessionId] {
-            try await sendPrompt(sessionId: sessionId, prompt: prompt, images: images,
-                                 mode: "steer", requestId: requestId)
+            try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "steer", requestId: requestId)
             return try await active.work.value
         }
         if let predecessor = queuedTurns[sessionId]?.work ?? coordinators[sessionId]?.work {
@@ -2428,27 +2393,23 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                     }
                 }
                 return try await startCoordinatedTurn(
-                    sessionId: sessionId, kind: kind, prompt: prompt, images: images,
-                    hidden: hidden, held: held,
+                    sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
                     attemptId: attemptId, requestId: requestId, origin: origin)
             }
             queuedTurns[sessionId] = QueuedTurn(attemptId: attemptId, work: work, cancelled: false)
             return try await work.value
         }
         return try await startCoordinatedTurn(
-            sessionId: sessionId, kind: kind, prompt: prompt, images: images,
-            hidden: hidden, held: held,
+            sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
             attemptId: UUID().uuidString.lowercased(), requestId: requestId, origin: origin)
     }
 
     private func startCoordinatedTurn(sessionId: String, kind: BotSessionKind,
-                                      prompt: String, images: [BotModelImage] = [],
-                                      hidden: Bool, held: Bool,
+                                      prompt: String, hidden: Bool, held: Bool,
                                       attemptId: String, requestId: String,
                                       origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
         let work = Task { try await self.performCoordinatedTurn(
-            sessionId: sessionId, kind: kind, prompt: prompt, images: images,
-            hidden: hidden, held: held,
+            sessionId: sessionId, kind: kind, prompt: prompt, hidden: hidden, held: held,
             attemptId: attemptId, requestId: requestId, origin: origin) }
         coordinators[sessionId] = TurnCoordinator(
             sessionId: sessionId, attemptId: attemptId, kind: kind, hidden: hidden,
@@ -2457,8 +2418,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
     }
 
     private func performCoordinatedTurn(sessionId: String, kind: BotSessionKind,
-                                        prompt: String, images: [BotModelImage] = [],
-                                        hidden: Bool, held: Bool,
+                                        prompt: String, hidden: Bool, held: Bool,
                                         attemptId: String, requestId: String,
                                         origin: BotTurnOrigin) async throws -> BotRemoteTurnResult {
         await runtime.beginTurn(sessionId: sessionId, hidden: hidden, held: held, origin: origin)
@@ -2487,8 +2447,7 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
                 return BotRemoteTurnResult(
                     sessionId: sessionId, turnId: nil, status: "cancelled", text: "", error: "cancelled")
             }
-            try await sendPrompt(sessionId: sessionId, prompt: prompt, images: images,
-                                 mode: "queue", requestId: requestId)
+            try await sendPrompt(sessionId: sessionId, prompt: prompt, mode: "queue", requestId: requestId)
             coordinators[sessionId]?.promptAccepted = true
             let result = try await collectTurn(
                 mux: opened, sessionId: sessionId, kind: kind, hidden: hidden, attemptId: attemptId)
@@ -2508,15 +2467,11 @@ public actor BotDSHRemoteRuntime: BotTaskExecuting, BotTaskRestarting, BotTaskAu
         coordinators.removeValue(forKey: sessionId)
     }
 
-    private func sendPrompt(sessionId: String, prompt: String, images: [BotModelImage] = [],
-                            mode: String, requestId: String) async throws {
-        var content: [BotJSONValue] = [
-            .object(["type": .string("text"), "text": .string(prompt)]),
-        ]
-        content.append(contentsOf: images.map(BotModelImagePreparer.jsonValue))
+    private func sendPrompt(sessionId: String, prompt: String, mode: String,
+                            requestId: String) async throws {
         _ = try await transport.call("session/prompt", args: .object(["request": .object([
             "requestId": .string(requestId), "sessionId": .string(sessionId), "mode": .string(mode),
-            "content": .array(content),
+            "content": .array([.object(["type": .string("text"), "text": .string(prompt)])]),
         ])]))
     }
 
