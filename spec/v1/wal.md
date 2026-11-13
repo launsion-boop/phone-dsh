@@ -197,9 +197,9 @@ Worker never issues it. The rewrite runs in this order:
    are neither the open epoch nor the newest epoch-close segment.
 5. **Proof.** Before returning success the host rescans `wal/` and requires that no older
    segment remains; it also requires the rewritten files to match the materialized copy and
-   removes every derived copy: `overlay-cache.tar`, `overlay-*.tar`, `materialized.staging/`,
-   `recovery-backup/` and `materialized/home/storages/session_projcache/sessions/<sessionId>.json`
-   (rebuilt on demand). A pending `reconcile.inprogress` refuses the rewrite.
+   removes every derived copy: `overlay-cache.tar`, `overlay-*.tar`, `overlay-frags/` (§8) and
+   `materialized.staging/`, `recovery-backup/`, `materialized/home/storages/session_projcache/sessions/<sessionId>.json`
+   (rebuilt on demand); a pending `reconcile.inprogress` refuses the rewrite.
 
 Crash windows preserve one of two states. Before step 3 the old session is intact (the
 operation has not happened). After the first tombstone record is durable, recovery replays
@@ -387,7 +387,7 @@ the overlay shares that reader with the image shards. Sending a bare ustar is no
 to boot. This has no unpacking consequence: both the packer and the loader admit only `home/` and
 `workspace/` as a first segment and refuse symlinks and special files outright, so the envelope changes
 neither the entry set nor the traversal rules. It contains no `tmp`, WAL, manifest or step files; `/dsh/tmp`
-is volatile and recreated empty. The overlay is rebuilt for each boot and is an input, not an authority.
+is volatile and recreated empty. The overlay is rebuilt for each boot and is an input, not an authority; only its decompressed ustar is contractual, so a host may assemble the gzip member from cached per-entry DEFLATE fragments (iOS `overlay-frags/`, keyed by lstat identity) as long as a damaged cache is discarded, never trusted.
 
 Image shards `lazy/<sha256>.tar.gz` are produced by the packaging tooling and fetched by the worker
 VFS on first read. They are never persisted by the host and are not in the boot overlay; a mutation of

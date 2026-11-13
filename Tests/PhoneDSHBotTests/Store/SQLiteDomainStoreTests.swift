@@ -221,6 +221,9 @@ final class SQLiteDomainStoreTests: XCTestCase {
         try await store.runFullIntegrityVerificationForTesting()
         let afterFull = try await store.integrityWatermarkForTesting()
         XCTAssertEqual(afterFull, 2)
+        try await store.close()
+    }
+
     func testMigrationGapRollsBackLeavesV2AndNamesTheFirstGap() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let file = directory.appendingPathComponent("domain.sqlite")

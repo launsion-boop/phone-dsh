@@ -62,6 +62,12 @@ public struct ChatItem: Identifiable, Equatable {
     public var turnUsage: NativeTurnUsage?
     public var attachments: [NativeMessageAttachment] = []
     public var rawBlock: JSONValue?
+    /// True only for the display-only row painted from
+    /// `NativeStreamDraftStore` after an interrupted stream. It is never sent
+    /// to the model and never written into the transcript snapshot.
+    public var isInterruptedDraft = false
+    /// The draft file byte cap forced this row to keep only the text tail.
+    public var isInterruptedDraftTruncated = false
     /// Fresh for every constructed value and bumped whenever a field that feeds
     /// the Markdown/summary/changes caches changes. Value copies share it.
     public var renderRevision: Int
