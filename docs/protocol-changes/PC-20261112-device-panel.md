@@ -214,6 +214,17 @@ owning spec §4.1 已补一句说明这两个入口。真机：`testAgentListing
 不改条款、向量或 wire。真机：`DevicePanelHardwareDeviceTests` → PASS（2 tests），截图确认卡片与对勾；
 「其它按钮不再变色」是按代码路径判断的，没有逐帧证据，待需求方在手机上确认。
 
+### 2.12 回到已有面板的入口（2026-11-12，契约 owner）
+
+需求方真机反馈：重新进 App 后要回到之前的面板很难（发现 › 设备 › 连接设备 › 找到那一行 › 设备面板）。
+「发现」页顶部新增一组「设备面板」：列出每台已连接且有 Link 工具的设备（有已采用描述时显示其 `title`），
+以及设备当前未连接的已采用描述（点按进入蓝牙设备页）。没有任何面板时这一组不显示。
+`DevicePanelStore.adoptedSummaries()` 只读现有的宿主私有副本（P18 格式与路径不变），宽松读取 `device_id` 与 `title`，
+不在此求值；描述是否生效仍由面板页对现行工具表求值决定。全部是本地读取，不调用设备。
+证据：`DevicePanelStoreTests.testAdoptedSummariesListStoredDescriptorsOnly` → PASS；真机
+`DevicePanelHardwareDeviceTests` 断言该板子在入口列表里且标题为已采用描述的标题，并截图「发现」页 → PASS。
+从入口真实点按进入面板 → 未验证（需要人在手机上操作）。P09 页面契约已重新生成。
+
 ### 自检（spec/README.md §5.1）
 
 - 第二种表达：没有。面板调用复用 Link 调用路径；描述是新文件，不是现有格式的别名。

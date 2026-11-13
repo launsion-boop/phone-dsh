@@ -40,6 +40,34 @@ public final class DevicePanelStore {
         self.evaluator = evaluator
     }
 
+    /// What an adopted copy says about itself, for listing panels without a
+    /// connected device. Read leniently from the stored bytes and never
+    /// evaluated here: whether the descriptor is in effect is still decided by
+    /// `active` against the device's live tool table (device-panel.md §4.1).
+    public struct AdoptedSummary: Equatable, Sendable {
+        public let linkDeviceID: String
+        public let title: String?
+    }
+
+    /// Every adopted descriptor in the store, sorted by title then device ID.
+    /// Bounded: at most 64 files of at most 16 KiB each are read.
+    public func adoptedSummaries() -> [AdoptedSummary] {
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { $0.hasSuffix(".json") && $0.count == 64 + 5 }.sorted().prefix(64)
+        var summaries: [AdoptedSummary] = []
+        for name in names {
+            let url = directory.appendingPathComponent(name, isDirectory: false)
+            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
+            let bytes = (try? handle.read(upToCount: 16_385)) ?? Data()
+            try? handle.close()
+            guard bytes.count <= 16_384, let document = try? JSONValue.parse(bytes),
+                  let deviceID = document["device_id"]?.stringValue, !deviceID.isEmpty,
+                  fileURL(linkDeviceID: deviceID).lastPathComponent == name else { continue }
+            summaries.append(AdoptedSummary(linkDeviceID: deviceID, title: document["title"]?.stringValue))
+        }
+        return summaries.sorted { ($0.title ?? "", $0.linkDeviceID) < ($1.title ?? "", $1.linkDeviceID) }
+    }
+
     /// Evaluate first; write only on `.ok`. A rejected descriptor leaves any
     /// previously adopted copy untouched. Returns the evaluation result.
     ///

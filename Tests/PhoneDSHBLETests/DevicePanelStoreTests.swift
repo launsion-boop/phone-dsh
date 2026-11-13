@@ -422,4 +422,26 @@ final class DevicePanelStoreTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: file), descriptor)
         assertOnlyPanelFiles(in: directory, expected: [panelFileName(for: linkDeviceID)])
     }
+
+    /// The Discover shortcuts list adopted panels without a connected device:
+    /// the summary comes from the stored bytes, and a stray or misnamed file in
+    /// the directory is never listed.
+    func testAdoptedSummariesListStoredDescriptorsOnly() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("panel-summaries-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DevicePanelStore(directory: directory, evaluator: { _, _, _ in
+            (.ok, DevicePanelDescriptor(title: nil, controls: []))
+        })
+        XCTAssertEqual(store.adoptedSummaries(), [])
+        try store.adopt(Data(#"{"v":1,"device_id":"dev-b","title":"书房","controls":[]}"#.utf8), linkDeviceID: "dev-b", tools: [])
+        try store.adopt(Data(#"{"v":1,"device_id":"dev-a","controls":[]}"#.utf8), linkDeviceID: "dev-a", tools: [])
+        try Data("{}".utf8).write(to: directory.appendingPathComponent("notes.json"))
+        // Right-looking name, but the content names another device.
+        try Data(#"{"device_id":"dev-b"}"#.utf8).write(to: directory.appendingPathComponent(String(repeating: "a", count: 64) + ".json"))
+        XCTAssertEqual(store.adoptedSummaries(), [
+            .init(linkDeviceID: "dev-a", title: nil), .init(linkDeviceID: "dev-b", title: "书房"),
+        ])
+        try store.remove(linkDeviceID: "dev-b")
+        XCTAssertEqual(store.adoptedSummaries().map(\.linkDeviceID), ["dev-a"])
+    }
 }

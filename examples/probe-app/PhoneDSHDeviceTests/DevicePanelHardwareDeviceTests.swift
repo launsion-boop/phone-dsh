@@ -100,6 +100,14 @@ final class DevicePanelHardwareDeviceTests: XCTestCase {
                            expected ? "是" : "否")
             try await snapshot("04-preset-\(expected ? "on" : "off")")
         }
+
+        // Getting back to it later: the adopted panel is one tap from Discover.
+        let entries = PhoneDSHProbe.DevicePanelShortcuts.entries(
+            devices: store.devices, adopted: DevicePanelStore.shared.adoptedSummaries())
+        let entry = try XCTUnwrap(entries.first { $0.deviceID == device.id }, "no Discover shortcut for the board: \(entries)")
+        XCTAssertEqual(entry.title, "TonoLink 灯")
+        show(AnyView(PhoneDSHProbe.ConnectorsPage()))
+        try await snapshot("06-discover")
     }
 
     /// The Agent's leg, without a model: `ble_link_tools` on the real board says
