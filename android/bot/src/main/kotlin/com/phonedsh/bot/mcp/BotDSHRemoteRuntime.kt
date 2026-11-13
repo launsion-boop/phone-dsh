@@ -198,7 +198,7 @@ public class BotDSHRemoteRuntime(
     private val store: BotDomainStore,
     private val transport: BotTaskTransport,
     private val botId: String = "main",
-    private val botRoot: String = "/tmp/bot-$botId",
+    private val botRoot: String,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val incarnationOf: (BotMCPPrincipal) -> String = { it.sessionId },
