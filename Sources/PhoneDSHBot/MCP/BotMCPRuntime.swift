@@ -272,8 +272,8 @@ public actor BotMCPRuntime {
     /// can never be claimed or approved after the restart.
     private var registrationGeneration: UInt64 = 0
     private var suppressingTextSessions: Set<String> = []
-    /// Per-turn `attach_to_model` count. The prompt path caps user images at
-    /// two; this caps tool-provided images at the same number.
+    /// Per-turn `attach_to_model` count. Every image now goes through the tool,
+    /// so one cap covers the whole turn.
     private var modelImageCounts: [String: Int] = [:]
     private var hiddenTextSessions: Set<String> = []
     private var heldMessageSessions: Set<String> = []
