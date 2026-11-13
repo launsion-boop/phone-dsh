@@ -309,6 +309,18 @@ test('the egress allow-list and the Python module list are exactly their inputs'
   assert.equal(manifest.json.limits.single_file_bytes, PHONE_V1_LIMITS.singleFileBytes)
 })
 
+test('the manifest states the global read scope instead of leaving it to guesswork', () => {
+  // 2026-11-13: the Bot can read another session's files because the DSH file
+  // tools have no per-session mount. The manifest must say so; a model and a
+  // person must not each infer a different boundary from the path list.
+  const manifest = buildCapabilityManifest(manifestInput())
+  assert.equal(manifest.json.paths.read_scope, 'global')
+  assert.match(manifest.json.paths.read_scope_note, /read, grep and glob/u)
+  assert.match(manifest.json.paths.read_scope_note, /writes are confined/u)
+  assert.match(manifest.markdown, /Reads are global: `read`, `grep` and `glob`/u)
+  assert.match(manifest.markdown, /not only this session/u)
+})
+
 test('the manifest publishes the host VFS tier quotas, not the stale priors', () => {
   // A host that injects its BudgetTable row (the 8 GiB row here) must see the
   // same numbers in the manifest and in the write-time quota.

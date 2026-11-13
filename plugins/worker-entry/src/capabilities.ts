@@ -436,6 +436,10 @@ export interface CapabilityManifestDocument {
   readonly paths: {
     readonly workspace: string
     readonly home: string
+    /** Whether the file tools can read outside the current session. */
+    readonly read_scope: 'global' | 'session'
+    /** One sentence a model can quote when asked about the read boundary. */
+    readonly read_scope_note: string
     readonly image_readonly: readonly string[]
     readonly tmp: readonly string[]
     readonly persisted: readonly string[]
@@ -749,6 +753,8 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
     '',
     '## Paths and /tmp',
     '- `/dsh/workspace` persisted cwd; `/dsh/home` persisted `$HOME`/`$DSH_HOME`; `/dsh/bin` read-only.',
+    '- Reads are global: `read`, `grep` and `glob` can reach every session under `/dsh/workspace` and '
+      + '`/dsh/home`, not only this session. Writes are confined separately by the host policy.',
     '- `/tmp` and `/dsh/tmp`: one volatile store, not persisted, empty after restart, cleared first under pressure; '
       + 'writes outside `/dsh/{home,workspace,tmp}` fail.',
     // P21: the harness decorates a refusal with `[sandbox: escalation available
@@ -1080,6 +1086,14 @@ export function buildCapabilityManifest(input: CapabilityManifestInput): Capabil
     paths: {
       workspace: '/dsh/workspace',
       home: '/dsh/home',
+      // The DSH file tools are process-wide: they have no per-session mount,
+      // so every Bot session can read every workspace/home path. Saying so is
+      // the honest prior; a session boundary needs a protocol change (P14/P15)
+      // and must not be faked by hiding a path here. Writes are confined by the
+      // host tool policy, not by this list.
+      read_scope: 'global',
+      read_scope_note: 'read, grep and glob can reach every session under /dsh/workspace and /dsh/home; '
+        + 'writes are confined separately by the host policy',
       image_readonly: ['/dsh/bin'],
       tmp: ['/tmp', '/dsh/tmp'],
       persisted: ['/dsh/home', '/dsh/workspace'],
