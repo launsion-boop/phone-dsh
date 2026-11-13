@@ -29,6 +29,9 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,7 +42,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import com.phonedsh.bot.profile.BotFishAppearance
+import com.phonedsh.bot.rows.BotRow
 import com.phonedsh.ui.UiStrings
+import com.phonedsh.ui.bot.driver.BotChatDriver
+import com.phonedsh.ui.bot.driver.BotChatModel
+import com.phonedsh.ui.bot.page.BotFishSlot
+import com.phonedsh.ui.bot.page.BotPageLayer
+import com.phonedsh.ui.bot.page.chat.BotChatPage
+import com.phonedsh.ui.bot.page.chat.LocalBotPageActive
+import com.phonedsh.ui.bot.state.BotAppearanceIntent
+import com.phonedsh.ui.bot.state.BotDrawerIntent
+import com.phonedsh.ui.bot.state.BotFishReaction
+import com.phonedsh.ui.bot.state.BotInfoIntent
+import com.phonedsh.ui.bot.state.BotInfoModelState
+import com.phonedsh.ui.bot.state.BotRosterEntry
+import com.phonedsh.ui.bot.state.BotUiContext
 import com.phonedsh.ui.page.AutomationLocalState
 import com.phonedsh.ui.page.AutomationScreenState
 import com.phonedsh.ui.page.AutomationUiEvent
@@ -510,8 +528,84 @@ public fun PdshNavHost(
     onGitHubAgentDeleteToken: () -> Boolean = { false },
     /** Persists the explicit write opt-in. */
     onGitHubAgentAllowWrites: (Boolean) -> Unit = {},
+    /**
+     * The host's Bot chat driver. The Bot tab and [PdshRoute.Bot] are shown only
+     * when this is non-null (`HomeTab.visibleTabs`); `:app` does not supply one
+     * yet, so its bar is unchanged.
+     */
+    botDriver: BotChatDriver? = null,
+    /** The selected Bot and the menu summary's injected follow count. */
+    botContext: BotUiContext = BotUiContext(botID = "main", botName = "Bot"),
+    botAppearance: BotFishAppearance = BotFishAppearance.CLASSIC,
+    botIsMainBot: Boolean = true,
+    /** `NativeShell.swift:379-382`: the Bot page polls only while its tab and scene are active. */
+    botSceneActive: Boolean = true,
+    botHasOnlineDevices: Boolean = false,
+    /** The BotFish renderer slot; `null` draws an empty box instead. */
+    botFish: BotFishSlot? = null,
+    /**
+     * The host's drawer/info overrides. A non-null value keeps the pre-K5c
+     * behaviour: the callback is invoked and no library overlay opens. `null`
+     * (the default) opens the corresponding K5b surface inside [PdshNavHost].
+     */
+    onOpenBotDrawer: (() -> Unit)? = null,
+    onOpenBotInfo: (() -> Unit)? = null,
+    onOpenBotDocument: ((BotRow) -> Unit)? = null,
+    onOpenBotPath: (String) -> Unit = {},
+    onOpenBotUrl: (String) -> Unit = {},
+    onSelectBot: (String) -> Unit = {},
+    botPeerAppearance: (String) -> BotFishAppearance? = { null },
+    botPeerIsMainBot: (String) -> Boolean = { false },
+    botPeerReaction: (String) -> BotFishReaction? = { null },
+    /** The host's attachment picker adds a chip through `BotChatModel`. */
+    onBotAttach: () -> Unit = {},
+    /**
+     * The Bot drawer's roster (K5b). The default reports an empty roster, so a
+     * host that supplies only a driver still gets the drawer's honest empty
+     * state instead of a fabricated row.
+     */
+    botRoster: List<BotRosterEntry> = emptyList(),
+    /** The Bot info page's load result (K5b); the default is its empty state. */
+    botInfoState: BotInfoModelState = BotInfoModelState(),
+    /** The Bot info page's profile description; empty renders the default line. */
+    botDescription: String = "",
+    /** One drawer intent other than close/appearance. */
+    onBotDrawerIntent: (BotDrawerIntent) -> Unit = {},
+    /** One info-page write. */
+    onBotInfoIntent: (BotInfoIntent) -> Unit = {},
+    /** One appearance selection from the info page or the drawer overlay. */
+    onBotAppearanceIntent: (BotAppearanceIntent) -> Unit = {},
 ) {
     val route = nav.current
+    val botScope = rememberCoroutineScope()
+    val botModel = if (botDriver != null) {
+        remember(botDriver, botContext) {
+            BotChatModel(
+                context = botContext,
+                driver = botDriver,
+                scope = botScope,
+                appearance = botAppearance,
+                isMainBot = botIsMainBot,
+            )
+        }
+    } else {
+        null
+    }
+    val botPageActive = botDriver != null && nav.selectedTab == HomeTab.BOT && botSceneActive
+    LaunchedEffect(botPageActive) { botModel?.setPageActive(botPageActive) }
+    LaunchedEffect(botAppearance, botIsMainBot, botContext.botName) {
+        botModel?.updateProfile(botContext.botName, botAppearance)
+        botModel?.setMainBot(botIsMainBot)
+    }
+    LaunchedEffect(botModel) {
+        if (botModel != null) {
+            botModel.setPageActive(botPageActive)
+            if (botPageActive) botModel.start()
+        }
+    }
+    DisposableEffect(botModel) {
+        onDispose { botModel?.close() }
+    }
     if (route == PdshRoute.Home) {
         CompositionLocalProvider(LocalSheetBackHost provides sheetBackHost) {
             home()
@@ -527,7 +621,68 @@ public fun PdshNavHost(
         onDismissRequest = onBack,
         sheetBackHost = sheetBackHost,
     ) {
-        when (route) {
+        // The Bot tab owns the shared chat-surface route value (`PdshRoute.Bot`
+        // aliases `Chat`): when the Bot tab is selected, the Bot page replaces the
+        // DSH chat page. The decision is made outside the route disclosure so the
+        // shipped `PdshRoute.Chat -> ChatRoute(...)` call keeps its direct shape for
+        // the page-structure gate's `verified_chat_artifact_route_binding` check.
+        if (botModel != null && nav.selectedTab == HomeTab.BOT && route == PdshRoute.Chat) {
+            val model = botModel
+            val snapshot by model.state.collectAsState()
+            CompositionLocalProvider(LocalBotPageActive provides botPageActive) {
+                val slot: BotFishSlot = botFish ?: { _, _, _, _, _, modifier ->
+                    Box(modifier)
+                }
+                // The K5b surfaces live inside `:lib` now: the layer owns the
+                // drawer/info/appearance overlays and only calls the host's
+                // `onOpenBot*` overrides when the host supplied one.
+                BotPageLayer(
+                    active = nav.selectedTab == HomeTab.BOT && botDriver != null,
+                    botRoster = botRoster,
+                    botContext = botContext,
+                    botInfoState = botInfoState,
+                    botAppearance = botAppearance,
+                    botIsMainBot = botIsMainBot,
+                    botDescription = botDescription,
+                    fish = slot,
+                    onBotDrawerIntent = onBotDrawerIntent,
+                    onBotInfoIntent = onBotInfoIntent,
+                    onBotAppearanceIntent = onBotAppearanceIntent,
+                    hostOnOpenDrawer = onOpenBotDrawer,
+                    hostOnOpenInfo = onOpenBotInfo,
+                ) { openDrawer, openInfo ->
+                    BotChatPage(
+                        state = snapshot,
+                        fish = slot,
+                        onDraftChange = model::setDraft,
+                        onSend = model::send,
+                        onStop = model::stop,
+                        onAnswer = model::answer,
+                        onDismiss = model::dismiss,
+                        onApproval = model::decide,
+                        onChecklistProgress = model::noteChecklistProgress,
+                        onChecklistSend = model::sendChecklist,
+                        onLoadHistory = model::loadHistory,
+                        onTick = { model.tick() },
+                        onInteraction = model::noteInteraction,
+                        onOpenInfo = openInfo,
+                        onConnectDevice = { onNavigate(PdshRoute.DeviceConnection) },
+                        onAttach = onBotAttach,
+                        onRemoveAttachment = model::removeDraftAttachment,
+                        onDismissAttachmentNotice = model::dismissAttachmentNotice,
+                        onOpenDrawer = openDrawer,
+                        onOpenDocument = onOpenBotDocument,
+                        onOpenPath = onOpenBotPath,
+                        onOpenUrl = onOpenBotUrl,
+                        onSelectBot = onSelectBot,
+                        peerAppearance = botPeerAppearance,
+                        peerIsMainBot = botPeerIsMainBot,
+                        peerReaction = botPeerReaction,
+                        hasOnlineDevices = botHasOnlineDevices,
+                    )
+                }
+            }
+        } else when (route) {
             PdshRoute.Home -> Unit // rendered above; kept for the exhaustive when
             PdshRoute.Sessions ->
                 if (sessions != null) sessions() else SessionsRoute(facts, onBack)

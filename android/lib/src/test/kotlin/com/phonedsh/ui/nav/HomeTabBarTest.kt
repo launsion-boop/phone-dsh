@@ -4,6 +4,7 @@ package com.phonedsh.ui.nav
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeTabBarTest {
@@ -15,6 +16,47 @@ class HomeTabBarTest {
         assertEquals(HomeTab.DISCOVER, chat.push(PdshRoute.Discover).selectedHomeTab())
         assertEquals(HomeTab.ME, chat.push(PdshRoute.MeTab).selectedHomeTab())
         assertEquals(HomeTab.TASKS, PdshNavState(listOf(PdshRoute.Home, PdshRoute.Chat)).selectedHomeTab())
+        assertEquals(
+            HomeTab.BOT,
+            PdshNavState(
+                stacks = mapOf(HomeTab.BOT to listOf(PdshRoute.Home, PdshRoute.Chat)),
+                selectedTab = HomeTab.BOT,
+            ).selectedHomeTab(),
+        )
+    }
+
+    @Test
+    fun `Bot is the first tab and its root is the Bot route`() {
+        assertEquals(HomeTab.BOT, HomeTab.entries.first())
+        assertEquals(PdshRoute.Bot, HomeTab.BOT.root)
+        assertEquals(listOf("Bot", "DSH", "发现", "我的"), HomeTab.entries.map { it.title })
+    }
+
+    @Test
+    fun `the Bot tab is present only with a driver`() {
+        assertEquals(
+            listOf(HomeTab.TASKS, HomeTab.DISCOVER, HomeTab.ME),
+            HomeTab.visibleTabs(showBot = false),
+        )
+        assertEquals(
+            listOf(HomeTab.BOT, HomeTab.TASKS, HomeTab.DISCOVER, HomeTab.ME),
+            HomeTab.visibleTabs(showBot = true),
+        )
+        assertTrue(HomeTab.visibleTabs(showBot = false).none { it.requiresBotDriver })
+        assertTrue(HomeTab.visibleTabs(showBot = true).any { it.requiresBotDriver })
+    }
+
+    @Test
+    fun `selecting the Bot tab gives it a root stack and back returns to tasks`() {
+        val bot = chat.selectHomeTab(HomeTab.BOT)
+        assertEquals(HomeTab.BOT, bot.selectedTab)
+        assertEquals(listOf(PdshRoute.Chat), bot.stack)
+        assertEquals(0, bot.depthOf(HomeTab.TASKS))
+        assertEquals(HomeTab.BOT, bot.selectHomeTab(HomeTab.BOT).selectedTab)
+        assertEquals(PdshRoute.Chat, bot.pop().current)
+        assertEquals(HomeTab.BOT, bot.pop().selectedTab)
+        assertEquals(HomeTab.TASKS, bot.selectHomeTab(HomeTab.TASKS).selectedTab)
+        assertEquals(listOf(PdshRoute.Chat), bot.selectHomeTab(HomeTab.TASKS).stack)
     }
 
     @Test

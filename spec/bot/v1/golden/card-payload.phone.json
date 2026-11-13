@@ -270,6 +270,209 @@
           "caption": "报告"
         }
       }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "选择",
+        "options": [
+          {
+            "label": "A"
+          },
+          {
+            "label": "其他"
+          },
+          {
+            "label": "B"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "选择",
+          "options": [
+            {
+              "id": "o0",
+              "label": "A"
+            },
+            {
+              "id": "o1",
+              "label": "B"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "风格",
+        "options": [
+          {
+            "label": "A",
+            "style": "weird"
+          },
+          {
+            "label": "B",
+            "recommended": true
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "question",
+          "question": "风格",
+          "options": [
+            {
+              "id": "o0",
+              "label": "B",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "A",
+              "style": "default"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          "  A  ",
+          "B"
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "id": "o0",
+              "label": "A"
+            },
+            {
+              "id": "o1",
+              "label": "B"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "删除",
+            "style": "danger",
+            "recommended": true
+          },
+          {
+            "label": "保留",
+            "recommended": true
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "steps",
+          "steps": [
+            {
+              "id": "o0",
+              "label": "保留",
+              "recommended": true
+            },
+            {
+              "id": "o1",
+              "label": "删除",
+              "style": "danger"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_document",
+      "args": {
+        "content": "# 标题\n\n正文",
+        "kind": "markdown"
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "document",
+          "title": "标题",
+          "docKind": "markdown",
+          "docTypeLabel": "Markdown",
+          "content": "# 标题\n\n正文",
+          "toc": [
+            "标题"
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "args": {
+        "title": "清单",
+        "items": [
+          {
+            "text": "任务",
+            "note": "说明"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "checklist",
+          "title": "清单",
+          "items": [
+            {
+              "id": "item-0",
+              "text": "任务",
+              "done": false,
+              "note": "说明"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "show_link",
+      "args": {
+        "links": [
+          {
+            "url": "ftp://example.test/x"
+          },
+          {
+            "url": "https://example.test/a",
+            "title": "A"
+          }
+        ]
+      },
+      "result": {
+        "ok": true,
+        "card": {
+          "cardType": "link",
+          "links": [
+            {
+              "url": "https://example.test/a",
+              "title": "A",
+              "site": "example.test",
+              "kind": "other"
+            }
+          ]
+        }
+      }
     }
   ],
   "invalid": [
@@ -302,6 +505,182 @@
       "tool": "show_progress",
       "args": {
         "title": "收尾进度",
+        "final": "yes"
+      },
+      "result": {
+        "ok": false,
+        "error": "final 必须是 boolean。"
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "五选一",
+        "options": [
+          {
+            "label": "A"
+          },
+          {
+            "label": "B"
+          },
+          {
+            "label": "C"
+          },
+          {
+            "label": "D"
+          },
+          {
+            "label": "E"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "ask_user 需要 2–4 个 options。"
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "只剩一个",
+        "options": [
+          {
+            "label": "A"
+          },
+          {
+            "label": "其它"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "ask_user 需要 2–4 个有效 options。"
+      }
+    },
+    {
+      "tool": "show_next_steps",
+      "args": {
+        "steps": [
+          {
+            "label": "A"
+          },
+          {
+            "label": "B"
+          },
+          {
+            "label": "C"
+          },
+          {
+            "label": "D"
+          },
+          {
+            "label": "E"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "show_next_steps 需要 2–4 个 steps。"
+      }
+    },
+    {
+      "tool": "ask_user",
+      "args": {
+        "question": "坏风格",
+        "options": [
+          {
+            "label": "A",
+            "style": 1
+          },
+          {
+            "label": "B"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "options[0].style 不合法。"
+      }
+    },
+    {
+      "tool": "show_attachment",
+      "args": {},
+      "result": {
+        "ok": false,
+        "error": "path 不能为空。"
+      }
+    },
+    {
+      "tool": "show_document",
+      "args": {},
+      "result": {
+        "ok": false,
+        "error": "show_document 需要 path 或 content。"
+      }
+    },
+    {
+      "tool": "show_progress",
+      "args": {
+        "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "result": {
+        "ok": false,
+        "error": "show_progress title 最多 80 字。"
+      }
+    },
+    {
+      "tool": "show_checklist",
+      "args": {
+        "title": "空",
+        "items": []
+      },
+      "result": {
+        "ok": false,
+        "error": "show_checklist 需要 1–12 个 items。"
+      }
+    },
+    {
+      "tool": "show_link",
+      "args": {
+        "links": [
+          {
+            "url": "https://a.test"
+          },
+          {
+            "url": "https://b.test"
+          },
+          {
+            "url": "https://c.test"
+          },
+          {
+            "url": "https://d.test"
+          },
+          {
+            "url": "https://e.test"
+          }
+        ]
+      },
+      "result": {
+        "ok": false,
+        "error": "show_link 最多 4 个 links。"
+      }
+    },
+    {
+      "tool": "show_table",
+      "args": {},
+      "result": {
+        "ok": false,
+        "error": "unknown or non-P0 card tool: show_table"
+      }
+    },
+    {
+      "tool": "show_link",
+      "args": {
+        "links": [
+          {
+            "url": "https://example.test/x"
+          }
+        ],
         "final": "yes"
       },
       "result": {

@@ -271,7 +271,9 @@ public actor BotWatchdogMonitor {
                 "unitKind": .string(unitKind.rawValue),
                 "unitId": .string(trimmedId),
                 "botId": botWatchdogString(botId),
+                "sessionId": botWatchdogString(sessionId),
                 "check": .string(finding.check.rawValue),
+                "at": botWatchdogNumber(at),
                 "evidence": finding.evidence,
             ]))
         do {
@@ -283,7 +285,7 @@ public actor BotWatchdogMonitor {
             seen.insert(seenKey)
             let flag = BotWatchdogFlag(
                 unitKind: unitKind, unitId: trimmedId, botId: botId,
-                check: finding.check, evidence: finding.evidence,
+                sessionId: sessionId, check: finding.check, evidence: finding.evidence,
                 at: at, eventId: eventId, commitSeq: commitSeq)
             recentFlags.insert(flag, at: 0)
             if recentFlags.count > max(1, config.historyLimit) {

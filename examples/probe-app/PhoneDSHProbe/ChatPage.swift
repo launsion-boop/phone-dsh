@@ -843,6 +843,7 @@ struct ChatPage: View {
         // measurements so the first height callback owns the initial jump.
         scrollTrace.contentHeight = 0
         scrollTrace.tailOffsetY = 0
+        scrollTrace.lastBlankCorrectionHeight = nil
         pendingInitialScroll = true
         management.refreshSoon()
 
@@ -1411,8 +1412,19 @@ struct ChatPage: View {
                         contentHeightDidChange(height, proxy: proxy,
                                                viewportHeight: viewport.size.height)
                     },
-                    onTailMetrics: { tailY, measuredViewport in
-                        applyTailMetrics(tailY: tailY, viewportHeight: measuredViewport)
+                    onGeometry: { metrics in
+                        // Check before updating near/follow state: a blank
+                        // viewport reports itself as far from the tail, and
+                        // that must not turn the correction off.
+                        correctBlankTailViewportIfNeeded(
+                            contentHeight: metrics.contentHeight,
+                            contentOffsetY: metrics.contentOffsetY,
+                            viewportHeight: metrics.viewportHeight,
+                            contentInsetTop: metrics.contentInsetTop,
+                            contentInsetBottom: metrics.contentInsetBottom,
+                            proxy: proxy)
+                        applyTailMetrics(tailY: metrics.tailY,
+                                         viewportHeight: metrics.viewportHeight)
                     }))
                 .onPreferenceChange(TranscriptContentHeightPreference.self) { height in
                     // iOS 17 fallback only; no producer exists on iOS 18.
@@ -1420,9 +1432,18 @@ struct ChatPage: View {
                                               viewportHeight: viewport.size.height)
                 }
                 .onPreferenceChange(TranscriptTailPreference.self) { tailY in
-                    // iOS 17 fallback only.
+                    // iOS 17 fallback only. The tail's distance from the
+                    // visible top gives the raw offset; without scroll
+                    // geometry there are no content insets to normalize.
                     guard tailY.isFinite else { return }
                     scrollTrace.tailOffsetY = tailY
+                    correctBlankTailViewportIfNeeded(
+                        contentHeight: scrollTrace.contentHeight,
+                        contentOffsetY: scrollTrace.contentHeight - tailY,
+                        viewportHeight: viewport.size.height,
+                        contentInsetTop: 0,
+                        contentInsetBottom: 0,
+                        proxy: proxy)
                     applyTailMetrics(tailY: tailY, viewportHeight: viewport.size.height)
                 }
                 .onChange(of: transcriptScrollSignature) { _, _ in
@@ -1453,6 +1474,7 @@ struct ChatPage: View {
                     pendingInitialScroll = true
                     scrollTrace.contentHeight = 0
                     scrollTrace.tailOffsetY = 0
+                    scrollTrace.lastBlankCorrectionHeight = nil
                 }
                 .onChange(of: scrollToLatestTrigger) { _, _ in
                     nearBottom = true
@@ -1515,7 +1537,10 @@ struct ChatPage: View {
     /// phases (iOS 18+) only an explicit drag away turns it off; before that
     /// the geometric near-bottom test is all there is.
     private var followsTail: Bool {
-        tracksScrollPhase ? !userScrolledAway : (nearBottom && !userScrolledAway)
+        if tracksScrollPhase { return !userScrolledAway }
+        // On iOS 17 a negative tail offset is the blank state itself; keep
+        // following so the geometry check can run after `nearBottom` flips.
+        return (nearBottom || scrollTrace.tailOffsetY < -1) && !userScrolledAway
     }
 
     /// Resigns whichever text input holds the keyboard, even when the focus
@@ -1570,22 +1595,55 @@ struct ChatPage: View {
         pendingInitialScroll = false
         nearBottom = true
         scrollToTail(proxy, viewportHeight: viewportHeight)
-        // Lazy rows can report their estimated height first. A second pass
-        // after that layout settles lands on the real last row instead of a
-        // blank band below the content.
-        scheduleInitialTailSettle(proxy, viewportHeight: viewportHeight)
     }
 
-    /// One deferred second scroll after the initial height report. It is
-    /// cancelled by the next follow scroll, so ordinary streaming keeps the
-    /// single debounced path.
-    private func scheduleInitialTailSettle(_ proxy: ScrollViewProxy,
-                                           viewportHeight: CGFloat) {
-        tailScrollTask?.cancel()
-        tailScrollTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(40))
-            guard !Task.isCancelled, followsTail else { return }
-            scrollToTail(proxy, viewportHeight: viewportHeight)
+    /// Geometry-driven blank-screen invariant. Lazy rows can report estimated
+    /// heights first, so a scroll may land past the real content; the next real
+    /// geometry change puts the actual last row back on screen instead of
+    /// waiting for a timer or a user drag.
+    ///
+    /// One correction per content height prevents a feedback loop when the
+    /// scroll cannot move, and a drag always wins over the auto-correction.
+    private func correctBlankTailViewportIfNeeded(contentHeight: CGFloat,
+                                                  contentOffsetY: CGFloat,
+                                                  viewportHeight: CGFloat,
+                                                  contentInsetTop: CGFloat,
+                                                  contentInsetBottom: CGFloat,
+                                                  proxy: ScrollViewProxy) {
+        guard !userScrolling else { return }
+        guard followsTail || pendingInitialScroll else { return }
+        guard !timelineSourceItems.isEmpty else { return }
+        let correction = ChatTranscriptTailPolicy.correction(
+            contentHeight: contentHeight,
+            contentOffsetY: contentOffsetY,
+            viewportHeight: viewportHeight,
+            contentInsetTop: contentInsetTop,
+            contentInsetBottom: contentInsetBottom,
+            hasRows: true)
+        guard correction != .none else { return }
+        // Resolve the rows only when a correction is actually due: this runs
+        // on every scroll frame, and the timeline snapshot must stay cheap.
+        guard let firstRow = timelineRows.first?.scrollTargetID,
+              let lastRow = timelineRows.last?.scrollTargetID else { return }
+        if let correctedHeight = scrollTrace.lastBlankCorrectionHeight,
+           abs(correctedHeight - contentHeight) < 0.5 {
+            return
+        }
+        scrollTrace.lastBlankCorrectionHeight = contentHeight
+        switch correction {
+        case .scrollToTop:
+            proxy.scrollTo(firstRow, anchor: .top)
+        case .scrollToLastRow:
+            proxy.scrollTo(lastRow, anchor: .bottom)
+        case .none:
+            return
+        }
+        if Date().timeIntervalSince(scrollTrace.lastBlankCorrectionLog) > 1 {
+            scrollTrace.lastBlankCorrectionLog = Date()
+            ChatModel.appendDiagnostic(
+                "scroll blank-correction content=\(Self.traceValue(contentHeight)) "
+                + "offset=\(Self.traceValue(contentOffsetY)) "
+                + "viewport=\(Self.traceValue(viewportHeight))")
         }
     }
 
@@ -2993,6 +3051,7 @@ struct ChatPage: View {
                 nearBottom = true
                 userScrolledAway = false
                 pendingInitialScroll = true
+                scrollTrace.lastBlankCorrectionHeight = nil
             } else if draft.isEmpty {
                 // The send was refused before it produced a row (host not
                 // ready, session switching, busy): keep the text so the person
@@ -4006,10 +4065,18 @@ private struct ScrollInteractionObserver: ViewModifier {
 final class ScrollTraceBox {
     var tailOffsetY: CGFloat = 0
     var contentHeight: CGFloat = 0
+    /// Content height of the last blank correction. One correction per height
+    /// prevents a scroll feedback loop when the stack cannot move further.
+    var lastBlankCorrectionHeight: CGFloat?
+    /// Last time the blank-correction diagnostic was written (1/s limit).
+    var lastBlankCorrectionLog = Date.distantPast
 }
 
 private struct TranscriptScrollMetrics: Equatable {
     var contentHeight: CGFloat
+    var contentOffsetY: CGFloat
+    var contentInsetTop: CGFloat
+    var contentInsetBottom: CGFloat
     var tailY: CGFloat
     var viewportHeight: CGFloat
 }
@@ -4020,13 +4087,16 @@ private struct TranscriptScrollMetrics: Equatable {
 private struct TranscriptScrollGeometryObserver: ViewModifier {
     let trace: ScrollTraceBox
     let onContentHeightChange: (CGFloat) -> Void
-    let onTailMetrics: (CGFloat, CGFloat) -> Void
+    let onGeometry: (TranscriptScrollMetrics) -> Void
 
     func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
             content.onScrollGeometryChange(for: TranscriptScrollMetrics.self) { geometry in
                 TranscriptScrollMetrics(
                     contentHeight: geometry.contentSize.height,
+                    contentOffsetY: geometry.contentOffset.y,
+                    contentInsetTop: geometry.contentInsets.top,
+                    contentInsetBottom: geometry.contentInsets.bottom,
                     // Distance from the visible top to the content tail. At the
                     // bottom this is approximately the viewport height, which
                     // keeps the old preference's near test unchanged.
@@ -4037,7 +4107,7 @@ private struct TranscriptScrollGeometryObserver: ViewModifier {
                     trace.contentHeight = metrics.contentHeight
                     onContentHeightChange(metrics.contentHeight)
                 }
-                onTailMetrics(metrics.tailY, metrics.viewportHeight)
+                onGeometry(metrics)
             }
         } else {
             content
@@ -4321,16 +4391,22 @@ private struct ChatMessageRow: View {
                 if !item.attachments.isEmpty { NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile) }
             }
         case .assistant:
-            assistantBody
-                .contextMenu {
-                    if !item.text.isEmpty {
-                        Button("复制全文", systemImage: "doc.on.doc") {
-                            UIPasteboard.general.string = item.text
-                        }
+            VStack(alignment: .leading, spacing: 6) {
+                assistantBody
+                if item.isInterruptedDraft { interruptedDraftNote }
+            }
+            .contextMenu {
+                if !item.text.isEmpty {
+                    Button("复制全文", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = item.text
                     }
                 }
+            }
         case .reasoning:
-            NativeThinkingRow(item: item)
+            VStack(alignment: .leading, spacing: 6) {
+                NativeThinkingRow(item: item)
+                if item.isInterruptedDraft { interruptedDraftNote }
+            }
         case .image:
             NativeAttachmentList(attachments: item.attachments, onOpenFile: onOpenFile)
         case .systemEvent, .turnError, .maxTokens:
@@ -4340,6 +4416,28 @@ private struct ChatMessageRow: View {
         case .status:
             EmptyView()
         }
+    }
+
+    /// The visible mark on a row restored from the interrupted-stream draft.
+    /// The row is display-only: the text was never written into the DSH session
+    /// and the model cannot see it.
+    @ViewBuilder
+    private var interruptedDraftNote: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(NativeStreamDraftPolicy.interruptedNotice)
+                .font(.footnote)
+                .foregroundStyle(HomeSpec.textSecondary)
+            if item.isInterruptedDraftTruncated {
+                Text("内容过长，仅保留末尾。")
+                    .font(.caption2)
+                    .foregroundStyle(HomeSpec.textTertiary)
+            }
+        }
+        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        .background(HomeSpec.userBubble.opacity(0.6),
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityIdentifier("interrupted-draft-note")
     }
 
     private var assistantBody: some View {

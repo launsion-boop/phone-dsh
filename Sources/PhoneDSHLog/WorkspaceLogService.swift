@@ -479,7 +479,11 @@ public actor WorkspaceLog: WorkspaceLogging {
     /// The boot overlay bytes: gzip-compressed ustar (wal.md §8, D21).
     public func packOverlay() async throws -> Data {
         _ = try await materialize()
-        return try OverlayPacker(materializedDirectory: materializer.materializedDirectory).data()
+        let fragmentCacheURL = Self.overlayFragmentCacheURL(root: paths.root)
+        try? LogFile.ensureDirectory(fragmentCacheURL)
+        Self.excludeFromBackup(fragmentCacheURL)
+        return try OverlayPacker(materializedDirectory: materializer.materializedDirectory,
+                                 fragmentCacheDirectory: fragmentCacheURL).data()
     }
 
     /// Writes the boot overlay to `<root>/overlay-<boot_id>.tar` and returns
@@ -492,9 +496,10 @@ public actor WorkspaceLog: WorkspaceLogging {
         _ = try await materialize()
         // The overlay is a gzip of the whole materialized tree. Rebuilding it
         // on every boot made start-up O(workspace): a 100 MB workspace spent
-        // ~10 s packing the same bytes again (measured on the phone). The tree
-        // at a given materialized watermark is deterministic, so the cache is
-        // valid exactly while that watermark is unchanged.
+        // ~10 s packing the same bytes again (measured on the phone). Two
+        // caches avoid that: this whole-tree watermark cache (O(1) link when
+        // nothing changed) and `overlay-frags/`, which recompresses only the
+        // files whose lstat identity changed since the previous boot.
         let watermark = materializer.materializedUptoMseq
         let cacheDirectory = paths.overlayCacheDirectory
         try FileManager.default.createDirectory(at: cacheDirectory,
@@ -506,8 +511,12 @@ public actor WorkspaceLog: WorkspaceLogging {
                                                cacheDirectory: cacheDirectory)
         let cacheURL = Self.overlayCacheURL(in: cacheDirectory)
         let bootURL = paths.overlayURL(bootID: bootID)
+        let fragmentCacheURL = Self.overlayFragmentCacheURL(root: paths.root)
+        try? LogFile.ensureDirectory(fragmentCacheURL)
+        Self.excludeFromBackup(fragmentCacheURL)
         if !Self.overlayCacheIsValid(root: cacheDirectory, watermark: watermark) {
-            _ = try OverlayPacker(materializedDirectory: materializer.materializedDirectory)
+            _ = try OverlayPacker(materializedDirectory: materializer.materializedDirectory,
+                                  fragmentCacheDirectory: fragmentCacheURL)
                 .pack(to: cacheURL)
             try Self.writeOverlayCacheSidecar(root: cacheDirectory, watermark: watermark)
         }
@@ -515,8 +524,9 @@ public actor WorkspaceLog: WorkspaceLogging {
         // O(1) and the cache file is only ever replaced by an atomic rename,
         // never modified in place.
         try Self.materializeBootOverlay(cache: cacheURL, boot: bootURL)
-        // Both files are derived from the materialized tree and are rebuilt on
-        // demand; they must not be uploaded as part of the device backup.
+        // The cache, the per-boot tar and the fragment directory are all
+        // derived from the materialized tree and are rebuilt on demand; they
+        // must not be uploaded as part of the device backup.
         Self.excludeFromBackup(cacheURL)
         Self.excludeFromBackup(bootURL)
         Self.pruneBootOverlays(root: paths.root, keeping: [cacheURL, bootURL])
@@ -585,6 +595,10 @@ public actor WorkspaceLog: WorkspaceLogging {
             // Re-entrant: a partial migration leaves at most one new file and
             // the next call either sees both and validates, or rebuilds.
         }
+    }
+
+    static func overlayFragmentCacheURL(root: URL) -> URL {
+        root.appendingPathComponent(OverlayFragmentCache.directoryName, isDirectory: true)
     }
 
     private static func overlayCacheIsValid(root: URL, watermark: UInt64) -> Bool {

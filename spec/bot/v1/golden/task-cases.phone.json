@@ -1,0 +1,1304 @@
+{
+  "schemaVersion": 1,
+  "vector": "task-cases.phone",
+  "source": {
+    "checkout": "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6",
+    "swift": [
+      "Sources/PhoneDSHBot/MCP/BotDSHRemoteRuntime.swift",
+      "Sources/PhoneDSHBot/MCP/BotMCPRuntime.swift",
+      "Sources/PhoneDSHBot/MCP/BotMCPTypes.swift",
+      "Sources/PhoneDSHBot/Wake/BotTurnOrigin.swift",
+      "spec/bot/v1/mcp-endpoint.md"
+    ]
+  },
+  "upstream": [],
+  "delta": [
+    "P26: freeze Task/AwaitTask/StopSubagent arguments, statuses, timeout and error strings from Swift (D12).",
+    "P25: freeze the persistedTask snapshot inside task.created/task.updated, restore preference, and the durable wake markers.",
+    "P25/P26: freeze request-id derivation and the single interrupted/settled/denied parent wake.",
+    "P05: none — no gateway route or HTTP body changes; Task uses the existing DSH session transport."
+  ],
+  "contract": {
+    "defaultTaskTimeoutMs": 180000,
+    "taskTimeoutRangeMs": [
+      1000,
+      300000
+    ],
+    "defaultAwaitTimeoutMs": 180000,
+    "awaitTimeoutRangeMs": [
+      1000,
+      600000
+    ],
+    "maximumCompletionCharacters": 4000,
+    "maximumPurposeCharacters": 2000,
+    "maximumConstraints": 8,
+    "maximumConstraintCharacters": 500,
+    "maximumWriteDirectories": 32,
+    "budgetRangeMs": [
+      1000,
+      300000
+    ],
+    "statuses": [
+      "running",
+      "stopping",
+      "waiting_approval",
+      "completed",
+      "failed",
+      "stopped",
+      "interrupted",
+      "denied"
+    ],
+    "awaitTerminalStatuses": [
+      "completed",
+      "failed",
+      "stopped",
+      "interrupted",
+      "denied",
+      "waiting_approval"
+    ],
+    "lifecycleTerminalStatuses": [
+      "completed",
+      "failed",
+      "stopped",
+      "interrupted",
+      "denied"
+    ],
+    "approvalParkedStatus": "waiting_approval",
+    "requestIds": {
+      "taskTurn": "task-turn:<taskId>",
+      "taskSettled": "task-settled:<taskId>",
+      "taskInterrupted": "task-interrupted:<taskId>",
+      "taskTurnApprovalResume": "task-turn:<taskId>:approval:<approvalID>",
+      "taskSettledApprovalDenied": "task-settled:<taskId>:approval:<approvalID>"
+    },
+    "persistedTask": {
+      "requiredKeys": [
+        "taskId",
+        "sessionId",
+        "parentSessionId",
+        "parentBotId",
+        "parentIncarnation",
+        "parentKind",
+        "title",
+        "prompt",
+        "asynchronous",
+        "timeoutMs",
+        "status",
+        "createdAt",
+        "wakeDelivered"
+      ],
+      "optionalKeys": [
+        "result",
+        "partial",
+        "error",
+        "authorization",
+        "completion",
+        "purpose",
+        "constraints",
+        "budget",
+        "verification",
+        "waitingApprovalID"
+      ],
+      "parentKinds": [
+        "chat",
+        "task",
+        "routine"
+      ],
+      "createdAtSemantics": "snapshot write time in milliseconds, not the original create time"
+    },
+    "wakePrompts": {
+      "settled": "[SAND_HIDDEN_PROMPT][subagent]\n<title> | <status> | <taskId>\n<excerpt>",
+      "interrupted": "[SAND_HIDDEN_PROMPT][subagent]\n<title> | interrupted | <taskId>\nApp 重启时中断了这个任务，结果还不完整。",
+      "denied": "[SAND_HIDDEN_PROMPT][subagent]\n<title> | denied | <taskId>\n用户没有批准待确认的操作（<reason>）。任务已经结束，没有执行。请如实告诉用户这次任务被拒绝了，不要把它说成已完成。"
+    },
+    "errors": {
+      "onlyChatOrTask": "只有聊天或任务会话可以派发任务",
+      "childCannotDelegate": "当前任务会话里不能再派发任务",
+      "missingPrompt": "派发任务需要说明要做什么",
+      "taskTimeout": "任务超时必须在 1000 到 300000 毫秒之间",
+      "completionTooLong": "任务的完成条件最多 4000 个字符",
+      "purposeTooLong": "任务的用途说明最多 2000 个字符",
+      "constraints": "任务约束最多 8 条，每条最多 500 个字符",
+      "budgetKey": "任务预算只接受 max_duration_ms",
+      "budgetRange": "任务预算的 max_duration_ms 必须在 1000 到 300000 毫秒之间",
+      "writeDirectories": "allowed_write_directories accepts at most 32 entries",
+      "historyResume": "暂不支持从历史任务继续",
+      "awaitMissingId": "等待任务需要提供任务编号",
+      "awaitTimeout": "等待任务的超时必须在 1000 到 600000 毫秒之间",
+      "stopMissingId": "停止任务需要提供任务编号",
+      "unknownTask": "unknown task: <taskId>",
+      "unauthorized": "Unauthorized"
+    },
+    "events": {
+      "created": "task.created",
+      "started": "task.started",
+      "updated": "task.updated",
+      "resumed": "task.resumed",
+      "settled": "task.settled",
+      "stopRequested": "task.stop_requested",
+      "persistedTaskField": "persistedTask",
+      "updatedEventIds": [
+        "persisted:settled:<taskId>",
+        "persisted:stopped:<taskId>",
+        "persisted:failed:<taskId>",
+        "persisted:interrupted:<taskId>",
+        "persisted:waiting-approval:<taskId>",
+        "persisted:resumed:<taskId>",
+        "persisted:denied:<taskId>",
+        "persisted:wake:<taskId>"
+      ]
+    },
+    "ownership": {
+      "chatEpochSuccessorInherits": true,
+      "taskChildCannotDelegate": true,
+      "restoredLegacyRecord": "ignored"
+    }
+  },
+  "valid": [
+    {
+      "name": "task-start-sync-completed",
+      "kind": "start",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "done"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ]
+        }
+      },
+      "arguments": {
+        "task_title": "Audit",
+        "prompt": "look at the logs",
+        "timeout_ms": 30000,
+        "async": false
+      },
+      "expect": {
+        "isError": false,
+        "status": "completed",
+        "record": {
+          "task_id": "<taskId>",
+          "sessionId": "<sessionId>",
+          "status": "completed",
+          "title": "Audit",
+          "result": "done",
+          "partial": "done"
+        },
+        "eventOrder": [
+          "task.created",
+          "task.updated",
+          "task.settled",
+          "task.started"
+        ],
+        "requestIds": [
+          "task-turn:<taskId>"
+        ],
+        "authorization": {
+          "workspaceRootSuffix": "/main",
+          "allowedWriteDirectoriesCount": 1,
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        },
+        "text": "@canonicalJSON@",
+        "persistedTask": {
+          "status": "completed",
+          "asynchronous": false,
+          "timeoutMs": 30000,
+          "wakeDelivered": false,
+          "createdAt": 1000
+        }
+      }
+    },
+    {
+      "name": "task-start-async-running",
+      "kind": "start",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "pause": [
+          "gb-created-1"
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "later"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ]
+        }
+      },
+      "arguments": {
+        "task_title": "Async audit",
+        "prompt": "work in background",
+        "timeout_ms": 30000,
+        "async": true
+      },
+      "expect": {
+        "isError": false,
+        "status": "running",
+        "record": {
+          "task_id": "<taskId>",
+          "sessionId": "<sessionId>",
+          "status": "running",
+          "title": "Async audit",
+          "partial": ""
+        },
+        "eventOrder": [
+          "task.created",
+          "task.started"
+        ],
+        "requestIds": [
+          "task-turn:<taskId>"
+        ],
+        "authorization": {
+          "workspaceRootSuffix": "/main",
+          "allowedWriteDirectoriesCount": 1,
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        },
+        "cleanup": "stop",
+        "persistedTask": {
+          "status": "running",
+          "asynchronous": true,
+          "timeoutMs": 30000,
+          "wakeDelivered": false,
+          "createdAt": 1000
+        }
+      }
+    },
+    {
+      "name": "task-await-completed",
+      "kind": "await",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "start": {
+          "taskTitle": "Await audit",
+          "prompt": "finish",
+          "async": true,
+          "timeoutMs": 30000
+        },
+        "pause": [
+          "gb-created-1"
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "finished"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ],
+          "gb-main": [
+            [
+              {
+                "type": "turn",
+                "turn": 2
+              },
+              {
+                "type": "assistant",
+                "text": "wake consumed"
+              },
+              {
+                "type": "end",
+                "turn": 2,
+                "reason": "completed"
+              }
+            ]
+          ]
+        },
+        "resume": [
+          "gb-created-1"
+        ]
+      },
+      "arguments": {
+        "task_id": "<taskId>",
+        "timeout_ms": 5000
+      },
+      "expect": {
+        "isError": false,
+        "status": "completed",
+        "record": {
+          "task_id": "<taskId>",
+          "sessionId": "<sessionId>",
+          "status": "completed",
+          "title": "Await audit",
+          "result": "finished",
+          "partial": "finished"
+        },
+        "eventOrder": [
+          "task.created",
+          "task.updated",
+          "task.settled"
+        ],
+        "requestIds": [
+          "task-turn:<taskId>",
+          "task-settled:<taskId>"
+        ],
+        "authorization": {
+          "workspaceRootSuffix": "/main",
+          "allowedWriteDirectoriesCount": 1,
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        },
+        "waitForWake": true,
+        "persistedTask": {
+          "status": "completed",
+          "asynchronous": true,
+          "timeoutMs": 30000,
+          "wakeDelivered": false,
+          "createdAt": 1000
+        }
+      }
+    },
+    {
+      "name": "task-await-timeout-running",
+      "kind": "await",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "start": {
+          "taskTitle": "Slow audit",
+          "prompt": "slow",
+          "async": true,
+          "timeoutMs": 30000
+        },
+        "pause": [
+          "gb-created-1"
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "late"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ]
+        }
+      },
+      "arguments": {
+        "task_id": "<taskId>",
+        "timeout_ms": 1000
+      },
+      "expect": {
+        "isError": false,
+        "status": "running",
+        "record": {
+          "task_id": "<taskId>",
+          "sessionId": "<sessionId>",
+          "status": "running",
+          "title": "Slow audit",
+          "partial": ""
+        },
+        "eventOrder": [
+          "task.created"
+        ],
+        "elapsedUnderMs": 2000,
+        "cleanup": "stop",
+        "authorization": {
+          "workspaceRootSuffix": "/main",
+          "allowedWriteDirectoriesCount": 1,
+          "canWriteOutsideWorkspace": false,
+          "canNetworkWrite": false,
+          "canDelegateTasks": false
+        },
+        "persistedTask": {
+          "status": "running",
+          "asynchronous": true,
+          "timeoutMs": 30000,
+          "wakeDelivered": false,
+          "createdAt": 1000
+        }
+      }
+    },
+    {
+      "name": "task-stop-running",
+      "kind": "stop",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "start": {
+          "taskTitle": "Stop audit",
+          "prompt": "long work",
+          "async": true,
+          "timeoutMs": 30000
+        },
+        "pause": [
+          "gb-created-1"
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "late result"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ]
+        }
+      },
+      "arguments": {
+        "task_id": "<taskId>"
+      },
+      "expect": {
+        "isError": false,
+        "status": "stopped",
+        "record": {
+          "task_id": "<taskId>",
+          "sessionId": "<sessionId>",
+          "status": "stopped",
+          "title": "Stop audit",
+          "partial": ""
+        },
+        "eventOrder": [
+          "task.created",
+          "task.updated",
+          "task.settled",
+          "task.stop_requested"
+        ],
+        "cancelledSession": "gb-created-1",
+        "stopAsync": true,
+        "noResult": true,
+        "persistedTask": {
+          "status": "stopped",
+          "asynchronous": true,
+          "timeoutMs": 30000,
+          "wakeDelivered": false,
+          "createdAt": 1000
+        }
+      }
+    },
+    {
+      "name": "task-stop-alias-id",
+      "kind": "stop",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "start": {
+          "taskTitle": "Alias stop",
+          "prompt": "long work",
+          "async": true,
+          "timeoutMs": 30000
+        },
+        "pause": [
+          "gb-created-1"
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "late result"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ]
+        }
+      },
+      "arguments": {
+        "id": "<taskId>"
+      },
+      "expect": {
+        "isError": false,
+        "status": "stopped",
+        "record": {
+          "task_id": "<taskId>",
+          "sessionId": "<sessionId>",
+          "status": "stopped",
+          "title": "Alias stop",
+          "partial": ""
+        },
+        "eventOrder": [
+          "task.created",
+          "task.updated",
+          "task.settled",
+          "task.stop_requested"
+        ],
+        "cancelledSession": "gb-created-1",
+        "stopAsync": true,
+        "noResult": true,
+        "persistedTask": {
+          "status": "stopped",
+          "asynchronous": true,
+          "timeoutMs": 30000,
+          "wakeDelivered": false,
+          "createdAt": 1000
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "task-missing-prompt",
+      "kind": "start",
+      "arguments": {
+        "task_title": "No prompt"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "派发任务需要说明要做什么"
+          }
+        },
+        "text": "派发任务需要说明要做什么"
+      }
+    },
+    {
+      "name": "task-timeout-out-of-range",
+      "kind": "start",
+      "arguments": {
+        "prompt": "x",
+        "timeout_ms": 999
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "任务超时必须在 1000 到 300000 毫秒之间"
+          }
+        },
+        "text": "任务超时必须在 1000 到 300000 毫秒之间"
+      }
+    },
+    {
+      "name": "task-completion-too-long",
+      "kind": "start",
+      "arguments": {
+        "prompt": "x",
+        "completion": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "任务的完成条件最多 4000 个字符"
+          }
+        },
+        "text": "任务的完成条件最多 4000 个字符"
+      }
+    },
+    {
+      "name": "task-constraints-too-many",
+      "kind": "start",
+      "arguments": {
+        "prompt": "x",
+        "constraints": [
+          "c",
+          "c",
+          "c",
+          "c",
+          "c",
+          "c",
+          "c",
+          "c",
+          "c"
+        ]
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "任务约束最多 8 条，每条最多 500 个字符"
+          }
+        },
+        "text": "任务约束最多 8 条，每条最多 500 个字符"
+      }
+    },
+    {
+      "name": "task-budget-unknown-key",
+      "kind": "start",
+      "arguments": {
+        "prompt": "x",
+        "budget": {
+          "max_duration_ms": 1000,
+          "extra": 1
+        }
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "任务预算只接受 max_duration_ms"
+          }
+        },
+        "text": "任务预算只接受 max_duration_ms"
+      }
+    },
+    {
+      "name": "task-history-resume",
+      "kind": "start",
+      "arguments": {
+        "prompt": "x",
+        "task_id": "task-1"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "暂不支持从历史任务继续"
+          }
+        },
+        "text": "暂不支持从历史任务继续"
+      }
+    },
+    {
+      "name": "task-routine-principal",
+      "kind": "start",
+      "setup": {
+        "parentSessionId": "gb-routine",
+        "parentKind": "routine"
+      },
+      "arguments": {
+        "prompt": "x"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "只有聊天或任务会话可以派发任务"
+          }
+        },
+        "text": "只有聊天或任务会话可以派发任务"
+      }
+    },
+    {
+      "name": "task-child-without-delegate",
+      "kind": "start",
+      "setup": {
+        "parentSessionId": "gb-task-parent",
+        "parentKind": "task"
+      },
+      "arguments": {
+        "prompt": "x"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "permission_denied",
+            "message": "当前任务会话里不能再派发任务"
+          }
+        },
+        "text": "当前任务会话里不能再派发任务"
+      }
+    },
+    {
+      "name": "await-missing-task-id",
+      "kind": "await",
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "等待任务需要提供任务编号"
+          }
+        },
+        "text": "等待任务需要提供任务编号"
+      }
+    },
+    {
+      "name": "await-timeout-out-of-range",
+      "kind": "await",
+      "arguments": {
+        "task_id": "task-1",
+        "timeout_ms": 601000
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "等待任务的超时必须在 1000 到 600000 毫秒之间"
+          }
+        },
+        "text": "等待任务的超时必须在 1000 到 600000 毫秒之间"
+      }
+    },
+    {
+      "name": "stop-missing-task-id",
+      "kind": "stop",
+      "arguments": {},
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "停止任务需要提供任务编号"
+          }
+        },
+        "text": "停止任务需要提供任务编号"
+      }
+    },
+    {
+      "name": "stop-unknown-task",
+      "kind": "stop",
+      "arguments": {
+        "task_id": "task-missing"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "unknown task: task-missing"
+          }
+        },
+        "text": "unknown task: task-missing"
+      }
+    },
+    {
+      "name": "await-unknown-task",
+      "kind": "await",
+      "arguments": {
+        "task_id": "task-missing"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "invalid_arguments",
+            "message": "unknown task: task-missing"
+          }
+        },
+        "text": "unknown task: task-missing"
+      }
+    },
+    {
+      "name": "await-foreign-session",
+      "kind": "await",
+      "setup": {
+        "parentSessionId": "gb-main",
+        "parentTurn": [
+          {
+            "type": "turn",
+            "turn": 1
+          },
+          {
+            "type": "assistant",
+            "text": "parent"
+          },
+          {
+            "type": "end",
+            "turn": 1,
+            "reason": "completed"
+          }
+        ],
+        "start": {
+          "taskTitle": "Foreign",
+          "prompt": "owned elsewhere",
+          "async": true,
+          "timeoutMs": 30000
+        },
+        "pause": [
+          "gb-created-1"
+        ],
+        "scripts": {
+          "gb-created-1": [
+            [
+              {
+                "type": "turn",
+                "turn": 1
+              },
+              {
+                "type": "assistant",
+                "text": "late"
+              },
+              {
+                "type": "end",
+                "turn": 1,
+                "reason": "completed"
+              }
+            ]
+          ]
+        },
+        "executeSessionId": "gb-other"
+      },
+      "arguments": {
+        "task_id": "<taskId>"
+      },
+      "expect": {
+        "isError": true,
+        "structured": {
+          "ok": false,
+          "error": {
+            "code": "unauthorized",
+            "message": "Unauthorized"
+          }
+        },
+        "text": "Unauthorized",
+        "cleanup": "stop"
+      }
+    }
+  ],
+  "restoreCases": [
+    {
+      "name": "restore-interrupted-wake-once",
+      "seedEvents": [
+        {
+          "type": "task.created",
+          "eventId": "created:task-restore-1",
+          "principalSessionId": "gb-main",
+          "principalKind": "chat",
+          "data": {
+            "task_id": "task-restore-1",
+            "sessionId": "gb-task-restore",
+            "status": "running",
+            "title": "Restore task",
+            "partial": "half done",
+            "persistedTask": {
+              "taskId": "task-restore-1",
+              "sessionId": "gb-task-restore",
+              "parentSessionId": "gb-main",
+              "parentBotId": "main",
+              "parentIncarnation": "inc-main",
+              "parentKind": "chat",
+              "title": "Restore task",
+              "prompt": "finish the restore",
+              "asynchronous": true,
+              "timeoutMs": 30000,
+              "status": "running",
+              "createdAt": 1000,
+              "wakeDelivered": false,
+              "authorization": {
+                "workspaceRoot": "/tmp/bot-main",
+                "allowedWriteDirectories": [
+                  "/tmp/bot-main"
+                ],
+                "canWriteOutsideWorkspace": false,
+                "canNetworkWrite": false,
+                "canDelegateTasks": false
+              },
+              "partial": "half done"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "interrupted",
+        "record": {
+          "task_id": "task-restore-1",
+          "sessionId": "gb-task-restore",
+          "status": "interrupted",
+          "title": "Restore task",
+          "partial": "half done",
+          "error": "worker_restarted"
+        },
+        "appendedEventSuffix": "persisted:interrupted:task-restore-1",
+        "wake": {
+          "delivered": 1,
+          "requestId": "task-interrupted:task-restore-1",
+          "sessionId": "gb-main",
+          "promptContains": [
+            "Restore task",
+            "interrupted",
+            "task-restore-1",
+            "App 重启时中断了这个任务，结果还不完整。"
+          ]
+        },
+        "secondWake": 0,
+        "wakePersistedSuffix": "persisted:wake:task-restore-1",
+        "noSettledWake": true
+      },
+      "wakeScripts": {
+        "gb-main": [
+          [
+            {
+              "type": "turn",
+              "turn": 2
+            },
+            {
+              "type": "assistant",
+              "text": "restart wake consumed"
+            },
+            {
+              "type": "end",
+              "turn": 2
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "name": "restore-settled-record-wins",
+      "seedEvents": [
+        {
+          "type": "task.updated",
+          "eventId": "persisted:settled:task-restore-2",
+          "principalSessionId": "gb-main",
+          "principalKind": "chat",
+          "data": {
+            "task_id": "task-restore-2",
+            "sessionId": "gb-task-2",
+            "status": "running",
+            "title": "Settled restore",
+            "partial": "half done",
+            "persistedTask": {
+              "taskId": "task-restore-2",
+              "sessionId": "gb-task-2",
+              "parentSessionId": "gb-main",
+              "parentBotId": "main",
+              "parentIncarnation": "inc-main",
+              "parentKind": "chat",
+              "title": "Restore task",
+              "prompt": "finish the restore",
+              "asynchronous": true,
+              "timeoutMs": 30000,
+              "status": "running",
+              "createdAt": 1000,
+              "wakeDelivered": false,
+              "authorization": {
+                "workspaceRoot": "/tmp/bot-main",
+                "allowedWriteDirectories": [
+                  "/tmp/bot-main"
+                ],
+                "canWriteOutsideWorkspace": false,
+                "canNetworkWrite": false,
+                "canDelegateTasks": false
+              },
+              "partial": "half done"
+            }
+          }
+        },
+        {
+          "type": "task.settled",
+          "eventId": "settled:task-restore-2",
+          "principalSessionId": "gb-main",
+          "principalKind": "chat",
+          "data": {
+            "task_id": "task-restore-2",
+            "sessionId": "gb-task-2",
+            "status": "completed",
+            "title": "Settled restore",
+            "result": "done",
+            "partial": "done"
+          }
+        }
+      ],
+      "expect": {
+        "status": "completed",
+        "record": {
+          "task_id": "task-restore-2",
+          "sessionId": "gb-task-2",
+          "status": "completed",
+          "title": "Settled restore",
+          "result": "done",
+          "partial": "done"
+        },
+        "wake": {
+          "delivered": 0
+        },
+        "secondWake": 0
+      }
+    },
+    {
+      "name": "restore-waiting-approval-survives",
+      "seedEvents": [
+        {
+          "type": "task.updated",
+          "eventId": "persisted:waiting-approval:task-restore-3",
+          "principalSessionId": "gb-main",
+          "principalKind": "chat",
+          "data": {
+            "task_id": "task-restore-3",
+            "sessionId": "gb-task-3",
+            "status": "waiting_approval",
+            "title": "Parked restore",
+            "partial": "",
+            "error": "approval_pending",
+            "persistedTask": {
+              "taskId": "task-restore-3",
+              "sessionId": "gb-task-3",
+              "parentSessionId": "gb-main",
+              "parentBotId": "main",
+              "parentIncarnation": "inc-main",
+              "parentKind": "chat",
+              "title": "Parked restore",
+              "prompt": "finish the restore",
+              "asynchronous": true,
+              "timeoutMs": 30000,
+              "status": "waiting_approval",
+              "createdAt": 1000,
+              "wakeDelivered": false,
+              "authorization": {
+                "workspaceRoot": "/tmp/bot-main",
+                "allowedWriteDirectories": [
+                  "/tmp/bot-main"
+                ],
+                "canWriteOutsideWorkspace": false,
+                "canNetworkWrite": false,
+                "canDelegateTasks": false
+              },
+              "partial": "",
+              "error": "approval_pending",
+              "waitingApprovalID": "approval-9"
+            }
+          }
+        }
+      ],
+      "expect": {
+        "status": "waiting_approval",
+        "record": {
+          "task_id": "task-restore-3",
+          "sessionId": "gb-task-3",
+          "status": "waiting_approval",
+          "title": "Parked restore",
+          "partial": "",
+          "error": "approval_pending"
+        },
+        "wake": {
+          "delivered": 0
+        },
+        "secondWake": 0
+      }
+    },
+    {
+      "name": "restore-legacy-record-ignored",
+      "seedEvents": [
+        {
+          "type": "task.created",
+          "eventId": "created:task-legacy",
+          "principalSessionId": "gb-main",
+          "principalKind": "chat",
+          "data": {
+            "task_id": "task-legacy",
+            "sessionId": "gb-legacy",
+            "status": "running",
+            "title": "Legacy"
+          }
+        }
+      ],
+      "expect": {
+        "status": null,
+        "errorCode": "invalid_arguments",
+        "errorMessage": "unknown task: task-legacy",
+        "wake": {
+          "delivered": 0
+        },
+        "secondWake": 0
+      }
+    }
+  ],
+  "requestIdCases": [
+    {
+      "name": "task-turn",
+      "taskId": "task-abc",
+      "approvalId": null,
+      "expected": "task-turn:task-abc",
+      "prefix": "task-turn:",
+      "origin": "task",
+      "hidden": true,
+      "memorySource": "task"
+    },
+    {
+      "name": "task-settled",
+      "taskId": "task-abc",
+      "approvalId": null,
+      "expected": "task-settled:task-abc",
+      "prefix": "task-settled:",
+      "origin": "task-wake",
+      "hidden": true,
+      "memorySource": "hidden-wake"
+    },
+    {
+      "name": "task-interrupted",
+      "taskId": "task-abc",
+      "approvalId": null,
+      "expected": "task-interrupted:task-abc",
+      "prefix": "task-interrupted:",
+      "origin": "task-wake",
+      "hidden": true,
+      "memorySource": "hidden-wake"
+    },
+    {
+      "name": "task-turn-approval-resume",
+      "taskId": "task-abc",
+      "approvalId": "approval-9",
+      "expected": "task-turn:task-abc:approval:approval-9",
+      "prefix": "task-turn:",
+      "origin": "task",
+      "hidden": true,
+      "memorySource": "task"
+    },
+    {
+      "name": "task-settled-approval-denied",
+      "taskId": "task-abc",
+      "approvalId": "approval-9",
+      "expected": "task-settled:task-abc:approval:approval-9",
+      "prefix": "task-settled:",
+      "origin": "task-wake",
+      "hidden": true,
+      "memorySource": "hidden-wake"
+    }
+  ]
+}

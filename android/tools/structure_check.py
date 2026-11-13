@@ -51,6 +51,7 @@ EXPECTED_MODULES = (
     "core",
     "net",
     "pclink",
+    "bot",
     "controller",
     "engine",
     "shell",

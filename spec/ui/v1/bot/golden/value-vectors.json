@@ -1,0 +1,141 @@
+{
+ "schemaVersion": 1,
+ "vector": "value-types",
+ "cases": [
+  {
+   "id": "roster-entry",
+   "schema": "roster-entry",
+   "value": {
+    "id": "main",
+    "name": "大肥鱼",
+    "description": "帮你盯发布窗口。",
+    "appearance": {
+     "color": "purple",
+     "hairstyle": "twin-tail",
+     "autoColor": false,
+     "autoHairstyle": false
+    },
+    "isMainBot": true,
+    "isHidden": false,
+    "unreadCount": 3,
+    "lastMessageAt": 1760000000000,
+    "runtime": {
+     "fishState": "working",
+     "activity": {
+      "status": "tool-running",
+      "detail": "在翻文件 · report.md",
+      "category": "reading",
+      "startedAt": 1760000000000
+     },
+     "isRunning": true,
+     "pendingApprovalCount": 0,
+     "reaction": {
+      "id": "reaction-1",
+      "botID": "main",
+      "kind": "action",
+      "name": "celebrate",
+      "startedAt": 1760000000000,
+      "durationMs": 2400
+     },
+     "runtimeState": {
+      "kind": "ready"
+     }
+    }
+   }
+  },
+  {
+   "id": "roster-runtime-state-failed",
+   "schema": "roster-runtime-state",
+   "value": {
+    "fishState": "alerting",
+    "activity": null,
+    "isRunning": false,
+    "pendingApprovalCount": 2,
+    "reaction": null,
+    "runtimeState": {
+     "kind": "failed",
+     "message": "Worker exited"
+    }
+   }
+  },
+  {
+   "id": "runtime-state-recovering",
+   "schema": "runtime-state",
+   "value": {
+    "kind": "recovering"
+   }
+  },
+  {
+   "id": "drawer-create",
+   "schema": "drawer-intent",
+   "value": {
+    "kind": "create",
+    "name": "新 Bot",
+    "color": "blue",
+    "hairstyle": "long"
+   }
+  },
+  {
+   "id": "drawer-hide",
+   "schema": "drawer-intent",
+   "value": {
+    "kind": "setHidden",
+    "botID": "main",
+    "hidden": true
+   }
+  },
+  {
+   "id": "info-rollback",
+   "schema": "info-intent",
+   "value": {
+    "kind": "rollbackMaintenance",
+    "batchID": "mm-1"
+   }
+  },
+  {
+   "id": "info-save-proactive",
+   "schema": "info-intent",
+   "value": {
+    "kind": "saveProactiveSettings",
+    "settings": {
+     "mode": "on",
+     "dnd": false,
+     "quietStart": "23:00",
+     "quietEnd": "08:00",
+     "routineQuietWeekends": false,
+     "timeZone": "Asia/Shanghai"
+    }
+   }
+  },
+  {
+   "id": "appearance-color",
+   "schema": "appearance-intent",
+   "value": {
+    "kind": "selectColor",
+    "color": "purple"
+   }
+  },
+  {
+   "id": "deep-link-row",
+   "schema": "deep-link",
+   "value": {
+    "botID": "main",
+    "destination": {
+     "kind": "row",
+     "id": "row-1"
+    }
+   }
+  },
+  {
+   "id": "deep-link-routine",
+   "schema": "deep-link",
+   "value": {
+    "botID": "main",
+    "destination": {
+     "kind": "routine",
+     "id": "routine-1"
+    }
+   }
+  }
+ ]
+}

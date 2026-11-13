@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/runtime-state.schema.json",
+  "title": "BotRuntimeState v1 (P09 view value)",
+  "description": "JSON binding of the Swift enum with one associated value.",
+  "type": "object",
+  "required": [
+    "kind"
+  ],
+  "properties": {
+    "kind": {
+      "enum": [
+        "idle",
+        "preparing",
+        "connecting",
+        "ready",
+        "recovering",
+        "failed",
+        "stopped"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "dependentRequired": {
+    "message": []
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "enum": [
+            "idle",
+            "preparing",
+            "connecting",
+            "ready",
+            "recovering",
+            "stopped"
+          ]
+        }
+      }
+    },
+    {
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "kind": {
+          "const": "failed"
+        }
+      }
+    }
+  ]
+}

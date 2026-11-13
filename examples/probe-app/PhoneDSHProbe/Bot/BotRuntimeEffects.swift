@@ -65,6 +65,12 @@ actor BotRoutineOutbox: RoutineResultSink {
 actor BotProductionEffectRunner {
     typealias Handler = @Sendable (BotEffectLease) async throws -> BotEffectState
 
+    /// Closed catalogue of effect kinds this host understands. The store's
+    /// `bot_effects.kind` accepts any non-empty string, so a row can carry a
+    /// kind outside this set; that is a permanent producer error, not a
+    /// missing executor (`spec/bot/v1/store.md` §9.7).
+    static let catalogue: Set<String> = [BotRoutineOutbox.kind]
+
     private let store: SQLiteDomainStore
     private var handlers: [String: Handler] = [:]
     private var work: Task<Void, Never>?
@@ -103,19 +109,26 @@ actor BotProductionEffectRunner {
 
     @discardableResult
     func runNext() async throws -> BotEffectState? {
-        let pending = try await store.effects(state: .pending) + store.effects(state: .failed)
-        let next = pending.sorted {
-            ($0.effect.notBefore ?? 0, $0.enqueuedCommitSeq, $0.effectKey)
-                < ($1.effect.notBefore ?? 0, $1.enqueuedCommitSeq, $1.effectKey)
-        }.first
-        guard let next, let handler = handlers[next.effect.kind] else { return nil }
-        guard let lease = try await store.lease(owner: "bot-production-effects", now: now()) else { return nil }
-        guard lease.effectKey == next.effectKey, let current = handlers[next.effect.kind] else {
-            try await store.fail(lease, errorClass: "permanent", reason: "effect has no registered executor")
+        // The store's lease is the only selection order. The runner must not
+        // build its own pending/failed ordering or filter candidates first.
+        guard let lease = try await store.lease(owner: "bot-production-effects", now: now()) else {
+            return nil
+        }
+        guard let record = try await store.effect(lease.effectKey) else {
+            throw SQLiteDomainStoreError.unknownEffect(lease.effectKey)
+        }
+        let kind = record.effect.kind
+        guard Self.catalogue.contains(kind) else {
+            try await store.fail(lease, errorClass: "permanent", reason: "unknown_effect_kind")
             return .deadLetter
         }
+        guard let handler = handlers[kind] else {
+            // Known kind, executor not installed yet: return the effect to the
+            // retry lane with the store's retry delay; never dead-letter it.
+            return try await store.release(lease)
+        }
         do {
-            return try await current(lease)
+            return try await handler(lease)
         } catch {
             try await store.fail(lease, errorClass: "unknown", reason: String(describing: error))
             return .needsReconciliation

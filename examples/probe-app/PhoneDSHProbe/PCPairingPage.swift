@@ -12,9 +12,9 @@ import SwiftUI
 import UIKit
 
 struct PCPairingPage: View {
+    @Environment(AppModel.self) private var appModel
     @Environment(\.workspaceModels) private var models
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
 
     @State private var flow: PCPairingFlow?
     @State private var pasteURI = ""
@@ -71,10 +71,12 @@ struct PCPairingPage: View {
         .onChange(of: flow?.state) { _, state in
             if case .paired = state { enterPCWorkspace() }
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: appModel.isSceneActive) { _, active in
             // Lock/background during the hand-off drops the relay socket on a
             // real device. Keep the page open and say so instead of spinning.
-            if phase != .active, state.isBusy { interrupted = true }
+            // The app entry owns the scene-phase observer; this page only reads
+            // its UI-only `isSceneActive` projection.
+            if !active, state.isBusy { interrupted = true }
         }
         .sheet(isPresented: $showScanner) {
             NavigationStack {

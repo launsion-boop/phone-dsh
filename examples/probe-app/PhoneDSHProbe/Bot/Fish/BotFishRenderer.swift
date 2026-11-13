@@ -139,11 +139,13 @@ final class BotFishRenderer {
     /// is <0.02pt at 28pt and roughly quarters the slice rebuild rate
     /// compared with the standard 0.1-unit quantum, without a visible step.
     static let livelyHeadSlicingMinimumSize: CGFloat = 24
-    static let livelyHeadSliceQuantum = 0.25
+    static let livelyHeadSliceQuantum = BotFishHeadSlice.livelyQuantum
 
     /// Head-slice inputs are quantised to 1/10 source unit (~0.07px at 96pt
-    /// @3x). Anything finer changed no displayed pixel.
-    static let headSliceQuantum = 0.1
+    /// @3x) for the standard profile. Anything finer changed no displayed
+    /// pixel. The lively profile uses 0.25; both the quantiser and the restore
+    /// read the active profile's quantum (`BotFishHeadSlice`).
+    static let headSliceQuantum = BotFishHeadSlice.standardQuantum
 
     private let assets: BotFishAssets?
     private let crownStyle: BotFishCrownStyle
@@ -175,7 +177,9 @@ final class BotFishRenderer {
     private struct SliceKey: Equatable {
         var faceGeneration: Int
         var head: BotFishHeadSignature
-        var quantumTag: Int
+        /// The quantum that produced `head`; sliceImage MUST restore with it
+        /// (FISH-1). A tag would let the two values drift apart again.
+        var quantum: Double
     }
     private var sliceKey: SliceKey?
     private var slicedBase: CGImage?
@@ -204,14 +208,14 @@ final class BotFishRenderer {
                                       enabled: Bool,
                                       quantum: Double) -> BotFishHeadSignature {
         guard enabled else { return .identity }
-        let step = quantum > 0 ? quantum : headSliceQuantum
-        func quantise(_ value: Double) -> Int {
-            Int((value / step).rounded())
-        }
-        return BotFishHeadSignature(headX: quantise(p.headX),
-                                    headY: quantise(p.headY),
-                                    hairSway: quantise(p.hairSway),
-                                    earFlutter: quantise(p.earFlutter))
+        let levels = BotFishHeadSlice.levels(headX: p.headX, headY: p.headY,
+                                             hairSway: p.hairSway,
+                                             earFlutter: p.earFlutter,
+                                             quantum: quantum)
+        return BotFishHeadSignature(headX: levels.headX,
+                                    headY: levels.headY,
+                                    hairSway: levels.hairSway,
+                                    earFlutter: levels.earFlutter)
     }
 
     // MARK: - Frame preparation
@@ -258,15 +262,16 @@ final class BotFishRenderer {
         let head = Self.headSignature(params, enabled: headSlicing,
                                       quantum: headSliceQuantum)
         if !head.isIdentity {
-            let quantumTag = Int((max(0.001, headSliceQuantum) * 1000).rounded())
             let key = SliceKey(faceGeneration: faceGeneration, head: head,
-                               quantumTag: quantumTag)
+                               quantum: headSliceQuantum)
             if sliceKey != key || slicedBase == nil || slicedFace == nil {
                 guard ensureSliceContexts(),
-                      let b = sliceImage(baseImage, head: head, into: slicedBaseContext,
-                                         target: target),
-                      let f = sliceImage(faceImage, head: head, into: slicedFaceContext,
-                                         target: target)
+                      let b = sliceImage(baseImage, head: head,
+                                         quantum: headSliceQuantum,
+                                         into: slicedBaseContext, target: target),
+                      let f = sliceImage(faceImage, head: head,
+                                         quantum: headSliceQuantum,
+                                         into: slicedFaceContext, target: target)
                 else { return nil }
                 slicedBase = b
                 slicedFace = f
@@ -1195,16 +1200,22 @@ final class BotFishRenderer {
     // MARK: - Head slices
 
     private func sliceImage(_ source: CGImage, head: BotFishHeadSignature,
+                            quantum: Double,
                             into context: CGContext?, target: Int) -> CGImage? {
         guard let cg = context else { return nil }
         resetCTM(cg)
         cg.clear(fullPixelRect)
         cg.setShouldAntialias(false)
         let scale = pixelScale
-        let headX = Double(head.headX) * Self.headSliceQuantum
-        let headY = Double(head.headY) * Self.headSliceQuantum
-        let hairSway = Double(head.hairSway) * Self.headSliceQuantum
-        let earFlutter = Double(head.earFlutter) * Self.headSliceQuantum
+        let displacement = BotFishHeadSlice.displacement(
+            BotFishHeadSliceLevels(headX: head.headX, headY: head.headY,
+                                   hairSway: head.hairSway,
+                                   earFlutter: head.earFlutter),
+            quantum: quantum)
+        let headX = displacement.headX
+        let headY = displacement.headY
+        let hairSway = displacement.hairSway
+        let earFlutter = displacement.earFlutter
         var y = 0.0
         while y < Double(Self.size) {
             let nextY = min(Double(Self.size), y + 8)

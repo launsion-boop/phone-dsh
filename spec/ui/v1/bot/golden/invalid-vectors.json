@@ -1,0 +1,482 @@
+{
+ "schemaVersion": 1,
+ "vector": "invalid",
+ "cases": [
+  {
+   "id": "row-missing-provenance",
+   "validator": "schema:row",
+   "value": {
+    "id": "r",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "message",
+    "body": {
+     "type": "text",
+     "text": "x"
+    },
+    "streaming": false,
+    "createdAt": 1760000000000
+   },
+   "reason": "provenance_required",
+   "source": "spec/bot/v1/row.schema.json",
+   "note": "BotUIRow requires provenance; the view cannot invent it."
+  },
+  {
+   "id": "row-body-missing-type",
+   "validator": "schema:row",
+   "value": {
+    "id": "r",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "message",
+    "body": {},
+    "provenance": {
+     "eventIDs": [
+      "e"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000000000
+   },
+   "reason": "body_type_required",
+   "source": "BotUIModels.swift:105-114",
+   "note": "A body without type throws in the reference decoder."
+  },
+  {
+   "id": "row-unknown-kind",
+   "validator": "schema:row",
+   "value": {
+    "id": "r",
+    "botID": "main",
+    "seq": 1,
+    "updatedSeq": 1,
+    "kind": "typing",
+    "body": {
+     "type": "text",
+     "text": "x"
+    },
+    "provenance": {
+     "eventIDs": [
+      "e"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000000000
+   },
+   "reason": "kind_enum",
+   "source": "spec/bot/v1/row.schema.json:9",
+   "note": "Unknown row kinds are rejected, not coerced."
+  },
+  {
+   "id": "row-negative-seq",
+   "validator": "schema:row",
+   "value": {
+    "id": "r",
+    "botID": "main",
+    "seq": -1,
+    "updatedSeq": 1,
+    "kind": "message",
+    "body": {
+     "type": "text",
+     "text": "x"
+    },
+    "provenance": {
+     "eventIDs": [
+      "e"
+     ],
+     "trust": "model",
+     "tainted": false
+    },
+    "streaming": false,
+    "createdAt": 1760000000000
+   },
+   "reason": "seq_minimum",
+   "source": "spec/bot/v1/row.schema.json:10",
+   "note": "seq is a non-negative order key."
+  },
+  {
+   "id": "presentation-unknown-fish",
+   "validator": "schema:presentation",
+   "value": {
+    "fishState": "dancing-on-the-moon"
+   },
+   "reason": "fish_state_enum",
+   "source": "Sources/PhoneDSHBot/Avatar/BotFishDirector.swift:5-14",
+   "note": "Unknown lifecycle values are rejected."
+  },
+  {
+   "id": "presentation-unknown-status",
+   "validator": "schema:presentation",
+   "value": {
+    "activity": {
+     "status": "paused",
+     "detail": "",
+     "category": "thinking",
+     "startedAt": 0
+    }
+   },
+   "reason": "activity_status_enum",
+   "source": "BotRuntimePresentation.swift:39-55",
+   "note": "The three statuses are closed."
+  },
+  {
+   "id": "presentation-unknown-category",
+   "validator": "schema:presentation",
+   "value": {
+    "activity": {
+     "status": "thinking",
+     "detail": "",
+     "category": "cooking",
+     "startedAt": 0
+    }
+   },
+   "reason": "activity_category_enum",
+   "source": "BotActivityPhrases.swift:10-27",
+   "note": "The twelve categories are closed."
+  },
+  {
+   "id": "oneshot-missing-ends",
+   "validator": "schema:presentation",
+   "value": {
+    "oneShot": {
+     "state": "celebrate",
+     "priority": 1,
+     "startedAt": 0
+    }
+   },
+   "reason": "oneshot_required",
+   "source": "BotRuntimePresentation.swift:57-66, Sources/PhoneDSHBot/Avatar/BotFishDirector.swift:16-28",
+   "note": "A one-shot needs its TTL boundary."
+  },
+  {
+   "id": "info-memories-not-array",
+   "validator": "schema:info",
+   "value": {
+    "botName": "x",
+    "memories": {},
+    "routines": [],
+    "approvals": []
+   },
+   "reason": "memories_array",
+   "source": "BotInfoPage.swift:7-138",
+   "note": "A snapshot with the wrong container type cannot render a tree."
+  },
+  {
+   "id": "info-negative-notifications",
+   "validator": "schema:info",
+   "value": {
+    "botName": "x",
+    "memories": [],
+    "routines": [],
+    "approvals": [],
+    "presence": {
+     "level": "foreground",
+     "deferred": [],
+     "scheduledNotificationCount": -1
+    }
+   },
+   "reason": "count_non_negative",
+   "source": "Sources/PhoneDSHBot/Routines/RoutinePresence.swift:30-41",
+   "note": "The count is clamped to >= 0 by the value initializer."
+  },
+  {
+   "id": "info-unknown-mode",
+   "validator": "schema:info",
+   "value": {
+    "botName": "x",
+    "memories": [],
+    "routines": [],
+    "approvals": [],
+    "proactiveSettings": {
+     "mode": "maybe",
+     "dnd": false,
+     "quietStart": "23:00",
+     "quietEnd": "08:00",
+     "routineQuietWeekends": false,
+     "timeZone": "UTC"
+    }
+   },
+   "reason": "proactive_mode_enum",
+   "source": "Sources/PhoneDSHBot/Proactive/ProactiveSettings.swift:5-9",
+   "note": "off/would/on only."
+  },
+  {
+   "id": "info-maintenance-missing-checks",
+   "validator": "schema:info",
+   "value": {
+    "botName": "x",
+    "memories": [],
+    "routines": [],
+    "approvals": [],
+    "maintenance": {
+     "batchID": "b",
+     "status": "committed",
+     "trigger": "index",
+     "startedAt": 0,
+     "finishedAt": 1,
+     "changedDocuments": 0,
+     "changes": [],
+     "rolledBack": false,
+     "canRollback": false,
+     "tokensUsed": 0,
+     "notification": false
+    }
+   },
+   "reason": "maintenance_required",
+   "source": "BotInfoPage.swift:37-52",
+   "note": "checksPassed is required on a batch; the page must not imply it."
+  },
+  {
+   "id": "drawer-create-missing-color",
+   "validator": "schema:drawer-intent",
+   "value": {
+    "kind": "create",
+    "name": "x"
+   },
+   "reason": "create_required",
+   "source": "BotDrawer.swift:10-23, BotDrawer.swift:679-780",
+   "note": "create always carries both appearance fields."
+  },
+  {
+   "id": "info-resolve-unknown-decision",
+   "validator": "schema:info-intent",
+   "value": {
+    "kind": "resolveReconciliation",
+    "routineID": "r",
+    "decision": "ignore"
+   },
+   "reason": "reconciliation_decision_enum",
+   "source": "BotInfoPage.swift:140-158",
+   "note": "Only acknowledge or retry."
+  },
+  {
+   "id": "appearance-unknown-color",
+   "validator": "schema:appearance-intent",
+   "value": {
+    "kind": "selectColor",
+    "color": "rainbow"
+   },
+   "reason": "fish_color_enum",
+   "source": "Sources/PhoneDSHBot/Profile/BotFishAppearance.swift:10-25",
+   "note": "Fifteen colors only."
+  },
+  {
+   "id": "deeplink-unknown-kind",
+   "validator": "schema:deep-link",
+   "value": {
+    "botID": "main",
+    "destination": {
+     "kind": "message",
+     "id": "x"
+    }
+   },
+   "reason": "destination_kind_enum",
+   "source": "BotUIModels.swift:496-521",
+   "note": "Only row or routine destinations exist."
+  },
+  {
+   "id": "action-cardanswer-text",
+   "validator": "rule:user-action",
+   "value": {
+    "nonce": "n1",
+    "botID": "main",
+    "kind": "cardAnswer",
+    "cardID": "c",
+    "optionID": "o",
+    "text": "自由回答"
+   },
+   "reason": "card_answer_text_forbidden",
+   "source": "spec/bot/v1/user-action.schema.json",
+   "note": "Free text travels as a chat action."
+  },
+  {
+   "id": "action-approval-missing-digest",
+   "validator": "rule:user-action",
+   "value": {
+    "nonce": "n2",
+    "botID": "main",
+    "kind": "approval",
+    "approvalID": "a",
+    "decision": "allowOnce"
+   },
+   "reason": "digest_required",
+   "source": "spec/bot/v1/user-action.schema.json",
+   "note": "An approval decision is digest-bound."
+  },
+  {
+   "id": "name-empty",
+   "validator": "rule:name-cap",
+   "value": "   \n",
+   "reason": "name_empty",
+   "source": "BotDrawer.swift:46-56",
+   "note": "Whitespace-only names are rejected."
+  },
+  {
+   "id": "name-61-units",
+   "validator": "rule:name-cap",
+   "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "reason": "name_too_long",
+   "source": "BotDrawer.swift:35-57",
+   "note": "The limit is 60 UTF-16 units."
+  },
+  {
+   "id": "deeplink-wrong-scheme",
+   "validator": "rule:deep-link",
+   "value": "https://bot/main/row/r1",
+   "reason": "scheme",
+   "source": "BotUIModels.swift:496-521",
+   "note": "Only phonedsh://."
+  },
+  {
+   "id": "deeplink-wrong-host",
+   "validator": "rule:deep-link",
+   "value": "phonedsh://chat/main/row/r1",
+   "reason": "host",
+   "source": "BotUIModels.swift:496-521",
+   "note": "Host must be bot."
+  },
+  {
+   "id": "deeplink-two-components",
+   "validator": "rule:deep-link",
+   "value": "phonedsh://bot/main/row",
+   "reason": "components",
+   "source": "BotUIModels.swift:496-521",
+   "note": "Exactly three path components."
+  },
+  {
+   "id": "deeplink-four-components",
+   "validator": "rule:deep-link",
+   "value": "phonedsh://bot/main/row/r1/extra",
+   "reason": "components",
+   "source": "BotUIModels.swift:496-521",
+   "note": "Exactly three path components."
+  },
+  {
+   "id": "deeplink-unknown-middle",
+   "validator": "rule:deep-link",
+   "value": "phonedsh://bot/main/message/r1",
+   "reason": "middle",
+   "source": "BotUIModels.swift:496-521",
+   "note": "The middle component is row or routine."
+  },
+  {
+   "id": "deeplink-empty-id",
+   "validator": "rule:deep-link",
+   "value": "phonedsh://bot/main/row/",
+   "reason": "empty_id",
+   "source": "BotUIModels.swift:496-521",
+   "note": "The id must be non-empty."
+  },
+  {
+   "id": "approval-pending-no-digest",
+   "validator": "rule:approval-renderability",
+   "value": {
+    "type": "approval",
+    "approvalID": "a",
+    "status": "pending",
+    "action": "删除"
+   },
+   "reason": "approval_requires_id_digest_action",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A pending approval without a digest is not rendered."
+  },
+  {
+   "id": "approval-pending-no-action",
+   "validator": "rule:approval-renderability",
+   "value": {
+    "type": "approval",
+    "approvalID": "a",
+    "digest": "sha256:x",
+    "status": "pending"
+   },
+   "reason": "approval_requires_id_digest_action",
+   "source": "BotUIModels.swift:681-717",
+   "note": "A pending approval without an action is not rendered."
+  },
+  {
+   "id": "checklist-without-items",
+   "validator": "rule:card-parse",
+   "value": {
+    "type": "widget",
+    "cardType": "checklist",
+    "title": "清单",
+    "items": []
+   },
+   "reason": "checklist_requires_items",
+   "source": "BotUIModels.swift:681-717",
+   "note": "An empty checklist fails closed."
+  },
+  {
+   "id": "roster-missing-runtime",
+   "validator": "schema:roster-entry",
+   "value": {
+    "id": "main",
+    "name": "大肥鱼",
+    "description": "",
+    "appearance": {
+     "color": "blue",
+     "hairstyle": "long",
+     "autoColor": false,
+     "autoHairstyle": false
+    },
+    "isMainBot": true,
+    "isHidden": false,
+    "unreadCount": 0,
+    "lastMessageAt": null
+   },
+   "reason": "runtime_required",
+   "source": "BotRosterModel.swift:24-42",
+   "note": "A roster entry without its live runtime half cannot render status."
+  },
+  {
+   "id": "dismiss-steps-not-retryable",
+   "source": "BotChatModel.swift:698-699",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "dismiss",
+    "cardKind": "steps",
+    "state": null
+   },
+   "reason": "dismiss_steps_not_allowed"
+  },
+  {
+   "id": "dismiss-accepted-not-retryable",
+   "source": "BotChatModel.swift:698-707",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "dismiss",
+    "cardKind": "question",
+    "state": "accepted"
+   },
+   "reason": "accepted_is_not_retryable"
+  },
+  {
+   "id": "answer-pending-not-retryable",
+   "source": "BotChatModel.swift:686-695",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "answer",
+    "cardKind": "question",
+    "state": "pending"
+   },
+   "reason": "pending_is_not_retryable"
+  },
+  {
+   "id": "approval-accepted-not-retryable",
+   "source": "BotChatModel.swift:713-722",
+   "validator": "rule:action-retry",
+   "value": {
+    "action": "approval",
+    "cardKind": "question",
+    "state": "accepted"
+   },
+   "reason": "accepted_is_not_retryable"
+  }
+ ]
+}

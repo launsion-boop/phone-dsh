@@ -9,7 +9,7 @@
   "source": {
     "file": "ChatPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/ChatPage.swift",
-    "lines": 5340,
+    "lines": 5438,
     "structLine": 12,
     "renderedFrom": [
       "body",
@@ -81,7 +81,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "text-2634",
+          "id": "text-2692",
           "label": null,
           "labelExpr": "error",
           "kind": "text",
@@ -91,12 +91,12 @@
           "destination": null,
           "writes": false,
           "condition": null,
-          "provenance": "ChatPage.swift:2634",
+          "provenance": "ChatPage.swift:2692",
           "anchor": "Section(\"暂不可用\") { Text(error) }",
           "extraction": "manual"
         }
       ],
-      "provenance": "ChatPage.swift:2634",
+      "provenance": "ChatPage.swift:2692",
       "anchor": "Section(\"暂不可用\") { Text(error) }",
       "extraction": "syntax"
     },
@@ -111,7 +111,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "action-2650",
+          "id": "action-2708",
           "label": null,
           "labelExpr": null,
           "kind": "action",
@@ -121,13 +121,13 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ChatPage.swift:2650",
+          "provenance": "ChatPage.swift:2708",
           "anchor": "Button {",
           "extraction": "manual",
           "collection": "modes"
         }
       ],
-      "provenance": "ChatPage.swift:2669",
+      "provenance": "ChatPage.swift:2727",
       "anchor": "Text(AccessModeWording.title(for: model.currentAccessMode ?? \"\") == \"完全权限\"",
       "extraction": "syntax",
       "suppressed": true,
@@ -145,7 +145,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "action-2740",
+          "id": "action-2798",
           "label": null,
           "labelExpr": null,
           "kind": "action",
@@ -155,13 +155,13 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ChatPage.swift:2740",
+          "provenance": "ChatPage.swift:2798",
           "anchor": "Button {",
           "extraction": "manual",
           "collection": "route.reasoningEfforts.reversed()"
         },
         {
-          "id": "action-2750",
+          "id": "action-2808",
           "label": null,
           "labelExpr": null,
           "kind": "action",
@@ -171,12 +171,12 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ChatPage.swift:2750",
+          "provenance": "ChatPage.swift:2808",
           "anchor": "Button {",
           "extraction": "manual"
         }
       ],
-      "provenance": "ChatPage.swift:2738",
+      "provenance": "ChatPage.swift:2796",
       "anchor": "Section(\"强度\") {",
       "extraction": "syntax"
     },
@@ -191,7 +191,7 @@
       "collection": null,
       "rows": [
         {
-          "id": "action-2766",
+          "id": "action-2824",
           "label": null,
           "labelExpr": null,
           "kind": "action",
@@ -201,20 +201,20 @@
           "destination": null,
           "writes": true,
           "condition": null,
-          "provenance": "ChatPage.swift:2766",
+          "provenance": "ChatPage.swift:2824",
           "anchor": "Button {",
           "extraction": "manual",
           "collection": "listedModelRoutes.reversed()"
         }
       ],
-      "provenance": "ChatPage.swift:2764",
+      "provenance": "ChatPage.swift:2822",
       "anchor": "Section(\"模型\") {",
       "extraction": "syntax"
     }
   ],
   "actions": [
     {
-      "id": "button-2650",
+      "id": "button-2708",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -223,14 +223,14 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2650",
+      "provenance": "ChatPage.swift:2708",
       "anchor": "Button {",
       "extraction": "manual",
       "labelAlternatives": [],
       "presents": "alert-612"
     },
     {
-      "id": "button-2740",
+      "id": "button-2798",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -239,13 +239,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2740",
+      "provenance": "ChatPage.swift:2798",
       "anchor": "Button {",
       "extraction": "manual",
       "labelAlternatives": []
     },
     {
-      "id": "button-2750",
+      "id": "button-2808",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -254,13 +254,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2750",
+      "provenance": "ChatPage.swift:2808",
       "anchor": "Button {",
       "extraction": "manual",
       "labelAlternatives": []
     },
     {
-      "id": "button-2766",
+      "id": "button-2824",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -269,13 +269,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2766",
+      "provenance": "ChatPage.swift:2824",
       "anchor": "Button {",
       "extraction": "manual",
       "labelAlternatives": []
     },
     {
-      "id": "gesture-2435",
+      "id": "gesture-2493",
       "label": null,
       "labelExpr": null,
       "kind": "gesture",
@@ -284,7 +284,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2435",
+      "provenance": "ChatPage.swift:2493",
       "anchor": ".onTapGesture { if composerEnabled { inputFocused = true } }",
       "extraction": "syntax"
     },
@@ -497,7 +497,7 @@
       "extraction": "syntax"
     },
     {
-      "id": "button-987",
+      "id": "button-988",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -506,7 +506,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:987",
+      "provenance": "ChatPage.swift:988",
       "anchor": "Button {",
       "extraction": "manual"
     },
@@ -520,7 +520,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1061",
+      "provenance": "ChatPage.swift:1062",
       "anchor": "Button(\"重试\") { Task { _ = await model.retryFailedPrompt() } }",
       "extraction": "syntax"
     },
@@ -534,7 +534,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1180",
+      "provenance": "ChatPage.swift:1181",
       "anchor": "Button(\"重试\") { Task { _ = await model.retryFailedPrompt() } }",
       "extraction": "syntax"
     },
@@ -548,12 +548,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1188",
+      "provenance": "ChatPage.swift:1189",
       "anchor": "Button(\"重新启动引擎\") { Task { await model.restartEngine() } }",
       "extraction": "syntax"
     },
     {
-      "id": "button-1192",
+      "id": "button-1193",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -562,7 +562,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1192",
+      "provenance": "ChatPage.swift:1193",
       "anchor": "Button { model.clearError() } label: { Image(systemName: \"xmark\").font(.caption.",
       "extraction": "manual"
     },
@@ -576,7 +576,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1220",
+      "provenance": "ChatPage.swift:1221",
       "anchor": "Button(\"重试\") { Task { await model.loadCommands() } }",
       "extraction": "syntax"
     },
@@ -590,7 +590,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1272",
+      "provenance": "ChatPage.swift:1273",
       "anchor": "Text(loadingEarlierTranscript ? \"正在加载…\" : \"加载更早消息\")",
       "extraction": "syntax"
     },
@@ -604,7 +604,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1498",
+      "provenance": "ChatPage.swift:1520",
       "anchor": "Label(\"回到最新\", systemImage: \"arrow.down\")",
       "extraction": "syntax"
     },
@@ -618,7 +618,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1773",
+      "provenance": "ChatPage.swift:1831",
       "anchor": "Text(model.busy ? \"正在启动…\" : \"启动本地引擎\")",
       "extraction": "syntax"
     },
@@ -632,7 +632,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1796",
+      "provenance": "ChatPage.swift:1854",
       "anchor": "Text(\"去配置模型服务\")",
       "extraction": "syntax",
       "presents": "sheet-518"
@@ -647,7 +647,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1864",
+      "provenance": "ChatPage.swift:1922",
       "anchor": "Button(\"暂停\") { runGoalCommand(\"pause\") }",
       "extraction": "syntax"
     },
@@ -661,12 +661,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1867",
+      "provenance": "ChatPage.swift:1925",
       "anchor": "Button(\"继续\") { runGoalCommand(\"resume\") }",
       "extraction": "syntax"
     },
     {
-      "id": "button-1870",
+      "id": "button-1928",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -675,7 +675,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:1870",
+      "provenance": "ChatPage.swift:1928",
       "anchor": "Button {",
       "extraction": "manual"
     },
@@ -689,7 +689,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2013",
+      "provenance": "ChatPage.swift:2071",
       "anchor": "Text(\"\\(rows.count) 条排队消息\")",
       "extraction": "syntax",
       "dynamicLabel": true
@@ -704,10 +704,10 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2048",
+      "provenance": "ChatPage.swift:2106",
       "anchor": "Button(\"取消\", role: .cancel) { queueEditItem = nil }",
       "extraction": "syntax",
-      "presents": "alert-2043"
+      "presents": "alert-2101"
     },
     {
       "id": "保存",
@@ -719,12 +719,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2049",
+      "provenance": "ChatPage.swift:2107",
       "anchor": "Button(\"保存\") {",
       "extraction": "syntax"
     },
     {
-      "id": "button-2113",
+      "id": "button-2171",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -733,7 +733,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2113",
+      "provenance": "ChatPage.swift:2171",
       "anchor": "Button(action: action) {",
       "extraction": "manual"
     },
@@ -747,7 +747,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2296",
+      "provenance": "ChatPage.swift:2354",
       "anchor": "Button(\"取消\") { voice.cancel() }",
       "extraction": "syntax"
     },
@@ -761,7 +761,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2312",
+      "provenance": "ChatPage.swift:2370",
       "anchor": "Button(\"关闭\") { self.attachmentError = nil }.font(.footnote)",
       "extraction": "syntax"
     },
@@ -775,12 +775,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2324",
+      "provenance": "ChatPage.swift:2382",
       "anchor": "Button(\"关闭\") { self.fileImportNotice = nil }.font(.footnote)",
       "extraction": "syntax"
     },
     {
-      "id": "button-2449",
+      "id": "button-2507",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -789,12 +789,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2449",
+      "provenance": "ChatPage.swift:2507",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-2483",
+      "id": "button-2541",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -803,12 +803,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2483",
+      "provenance": "ChatPage.swift:2541",
       "anchor": "Button { submitDraft() } label: {",
       "extraction": "manual"
     },
     {
-      "id": "button-2502",
+      "id": "button-2560",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -817,12 +817,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2502",
+      "provenance": "ChatPage.swift:2560",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-2540",
+      "id": "button-2598",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -831,7 +831,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2540",
+      "provenance": "ChatPage.swift:2598",
       "anchor": "Button {",
       "extraction": "manual"
     },
@@ -845,7 +845,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2577",
+      "provenance": "ChatPage.swift:2635",
       "anchor": "Button(\"调用指令\", systemImage: \"slash.square\") {",
       "extraction": "syntax"
     },
@@ -859,7 +859,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2581",
+      "provenance": "ChatPage.swift:2639",
       "anchor": "Button(\"引用文件或对话\", systemImage: \"at\") {",
       "extraction": "syntax"
     },
@@ -873,7 +873,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2585",
+      "provenance": "ChatPage.swift:2643",
       "anchor": "Button(\"添加图片\", systemImage: \"photo\") { showAttachmentPicker = true }",
       "extraction": "syntax"
     },
@@ -887,7 +887,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2586",
+      "provenance": "ChatPage.swift:2644",
       "anchor": "Button(voice.speaking ? \"停止朗读\" : \"朗读最近回复\", systemImage: \"speaker.wave.2\") {",
       "extraction": "syntax"
     },
@@ -901,12 +901,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2591",
+      "provenance": "ChatPage.swift:2649",
       "anchor": "Button(\"添加文件（写入工作区）\", systemImage: \"doc.badge.plus\") {",
       "extraction": "syntax"
     },
     {
-      "id": "button-2650",
+      "id": "button-2708",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -915,12 +915,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2650",
+      "provenance": "ChatPage.swift:2708",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-2740",
+      "id": "button-2798",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -929,12 +929,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2740",
+      "provenance": "ChatPage.swift:2798",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-2750",
+      "id": "button-2808",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -943,12 +943,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2750",
+      "provenance": "ChatPage.swift:2808",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-2766",
+      "id": "button-2824",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -957,12 +957,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2766",
+      "provenance": "ChatPage.swift:2824",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-2887",
+      "id": "button-2945",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -971,7 +971,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2887",
+      "provenance": "ChatPage.swift:2945",
       "anchor": "Button { pendingAttachments.remove(at: index) } label: {",
       "extraction": "manual"
     },
@@ -985,12 +985,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:3328",
+      "provenance": "ChatPage.swift:3387",
       "anchor": "Button(\"重试\") { Task { await model.loadCommands() } }",
       "extraction": "syntax"
     },
     {
-      "id": "button-3377",
+      "id": "button-3436",
       "label": null,
       "labelExpr": "title",
       "kind": "button",
@@ -999,12 +999,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:3377",
+      "provenance": "ChatPage.swift:3436",
       "anchor": "return Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-3457",
+      "id": "button-3516",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -1013,12 +1013,12 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:3457",
+      "provenance": "ChatPage.swift:3516",
       "anchor": "Button {",
       "extraction": "manual"
     },
     {
-      "id": "button-3472",
+      "id": "button-3531",
       "label": null,
       "labelExpr": null,
       "kind": "button",
@@ -1027,7 +1027,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:3472",
+      "provenance": "ChatPage.swift:3531",
       "anchor": "Button {",
       "extraction": "manual"
     },
@@ -1046,7 +1046,7 @@
       "extraction": "syntax"
     },
     {
-      "id": "menu-2576",
+      "id": "menu-2634",
       "label": null,
       "labelExpr": null,
       "kind": "menu",
@@ -1055,12 +1055,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2576",
+      "provenance": "ChatPage.swift:2634",
       "anchor": "Menu {",
       "extraction": "manual"
     },
     {
-      "id": "menu-2630",
+      "id": "menu-2688",
       "label": null,
       "labelExpr": null,
       "kind": "menu",
@@ -1069,12 +1069,12 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2630",
+      "provenance": "ChatPage.swift:2688",
       "anchor": "Menu {",
       "extraction": "manual"
     },
     {
-      "id": "menu-2730",
+      "id": "menu-2788",
       "label": null,
       "labelExpr": null,
       "kind": "menu",
@@ -1083,7 +1083,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:2730",
+      "provenance": "ChatPage.swift:2788",
       "anchor": "Menu {",
       "extraction": "manual"
     },
@@ -1097,13 +1097,13 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:5057",
+      "provenance": "ChatPage.swift:5155",
       "anchor": "ToolbarItem(placement: .confirmationAction) { Button(\"完成\") { dismiss() }.fontWei",
       "extraction": "syntax",
       "presentedBy": "sheet-534"
     },
     {
-      "id": "share-5059",
+      "id": "share-5157",
       "label": null,
       "labelExpr": null,
       "kind": "share",
@@ -1112,7 +1112,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:5059",
+      "provenance": "ChatPage.swift:5157",
       "anchor": "ShareLink(item: execution.text ?? execution.line,",
       "extraction": "manual",
       "presentedBy": "sheet-534"
@@ -1127,7 +1127,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4260",
+      "provenance": "ChatPage.swift:4330",
       "anchor": "Button(\"刷新\", systemImage: \"arrow.clockwise\") { onRefresh() }",
       "extraction": "syntax",
       "presentedBy": "sheet-568"
@@ -1142,7 +1142,7 @@
       "writes": false,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4212",
+      "provenance": "ChatPage.swift:4282",
       "anchor": "Button(\"刷新\", systemImage: \"arrow.clockwise\") { onRefresh() }",
       "extraction": "syntax",
       "presentedBy": "sheet-576"
@@ -1157,7 +1157,7 @@
       "writes": true,
       "destination": null,
       "condition": "pending permission card",
-      "provenance": "ChatPage.swift:5244",
+      "provenance": "ChatPage.swift:5342",
       "anchor": "Text(\"允许一次\")",
       "extraction": "manual"
     },
@@ -1171,7 +1171,7 @@
       "writes": true,
       "destination": null,
       "condition": "pending permission card",
-      "provenance": "ChatPage.swift:5257",
+      "provenance": "ChatPage.swift:5355",
       "anchor": "Text(\"拒绝\")",
       "extraction": "manual"
     },
@@ -1241,13 +1241,13 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "ChatPage.swift:4096",
+      "provenance": "ChatPage.swift:4166",
       "anchor": "Button(\"提交回答\", systemImage: \"arrow.up\") { submitAnswers() }",
       "extraction": "manual",
       "specRequired": false,
       "specRef": null,
       "baselineReachable": true,
-      "note": "`QuestionCard` is a sibling view struct (ChatPage.swift:4025), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
+      "note": "`QuestionCard` is a sibling view struct (ChatPage.swift:4133), outside the page struct the extractor walks; the card is rendered in ChatPage's pending-answer slot and Android implements the submit button."
     },
     {
       "id": "打开会话列表",
@@ -1560,7 +1560,7 @@
       "deadUiEvidence": "the state binding showActivity is never assigned outside its declaration, so nothing opens this sheet"
     },
     {
-      "id": "sheet-913",
+      "id": "sheet-914",
       "kind": "sheet",
       "title": null,
       "destination": "NativeTurnUsageDetails",
@@ -1568,15 +1568,15 @@
         "tailUsage"
       ],
       "span": [
-        913,
-        918
+        914,
+        919
       ],
-      "provenance": "ChatPage.swift:913",
+      "provenance": "ChatPage.swift:914",
       "anchor": ".sheet(isPresented: Binding(",
       "triggered": true
     },
     {
-      "id": "alert-2043",
+      "id": "alert-2101",
       "kind": "alert",
       "title": "编辑排队消息",
       "destination": null,
@@ -1584,10 +1584,10 @@
         "queueEditItem"
       ],
       "span": [
-        2043,
-        2056
+        2101,
+        2114
       ],
-      "provenance": "ChatPage.swift:2043",
+      "provenance": "ChatPage.swift:2101",
       "anchor": ".alert(\"编辑排队消息\", isPresented: Binding(",
       "triggered": true
     }
@@ -1600,55 +1600,55 @@
         {
           "renders": "这台电脑还没有打开会话",
           "when": "model.isStarted",
-          "provenance": "ChatPage.swift:1740",
+          "provenance": "ChatPage.swift:1798",
           "anchor": "if model.isStarted { return \"这台电脑还没有打开会话\" }"
         },
         {
           "renders": "这条排队消息还没有落盘，暂时不能删除",
           "when": null,
-          "provenance": "ChatPage.swift:2095",
+          "provenance": "ChatPage.swift:2153",
           "anchor": "reason: row.item == nil ? \"这条排队消息还没有落盘，暂时不能删除\" : nil) {"
         },
         {
           "renders": "这条排队消息还没有落盘，暂时不能编辑",
           "when": null,
-          "provenance": "ChatPage.swift:2130",
+          "provenance": "ChatPage.swift:2188",
           "anchor": "guard let item = row.item else { return \"这条排队消息还没有落盘，暂时不能编辑\" }"
         },
         {
           "renders": "这条排队消息还没有落盘，暂时不能插话发送",
           "when": null,
-          "provenance": "ChatPage.swift:2139",
+          "provenance": "ChatPage.swift:2197",
           "anchor": "guard let item = row.item else { return \"这条排队消息还没有落盘，暂时不能插话发送\" }"
         },
         {
           "renders": "没有可切换的权限。",
           "when": "model.availableAccessModes.isEmpty",
-          "provenance": "ChatPage.swift:2637",
+          "provenance": "ChatPage.swift:2695",
           "anchor": "Text(\"没有可切换的权限。\")"
         },
         {
           "renders": "没有可切换的权限。",
           "when": "modes.isEmpty",
-          "provenance": "ChatPage.swift:2641",
+          "provenance": "ChatPage.swift:2699",
           "anchor": "Text(\"没有可切换的权限。\")"
         },
         {
           "renders": "没有匹配的命令",
           "when": "matches.isEmpty",
-          "provenance": "ChatPage.swift:3333",
+          "provenance": "ChatPage.swift:3392",
           "anchor": "Text(\"没有匹配的命令\").font(.system(size: 13))"
         },
         {
           "renders": "没有匹配的文件或对话",
           "when": "referenceFiles.isEmpty && referenceSessions.isEmpty",
-          "provenance": "ChatPage.swift:3451",
+          "provenance": "ChatPage.swift:3510",
           "anchor": "Text(\"没有匹配的文件或对话\")"
         },
         {
           "renders": "没有这条命令：/\\(name)",
           "when": null,
-          "provenance": "ChatPage.swift:3510",
+          "provenance": "ChatPage.swift:3569",
           "anchor": "composerNotice = ComposerNotice(level: .error, text: \"没有这条命令：/\\(name)\")"
         }
       ],
@@ -1665,67 +1665,67 @@
         {
           "renders": "重试",
           "when": "model.failedPrompt != nil",
-          "provenance": "ChatPage.swift:1061",
+          "provenance": "ChatPage.swift:1062",
           "anchor": "Button(\"重试\") { Task { _ = await model.retryFailedPrompt() } }"
         },
         {
           "renders": "示例：这次回合失败了。",
           "when": "previewItems != nil, let state = debugChatState, !didInjectDebugState",
-          "provenance": "ChatPage.swift:1081",
+          "provenance": "ChatPage.swift:1082",
           "anchor": "error: \"示例：这次回合失败了。\","
         },
         {
           "renders": "重试",
           "when": "model.failedPrompt != nil",
-          "provenance": "ChatPage.swift:1180",
+          "provenance": "ChatPage.swift:1181",
           "anchor": "Button(\"重试\") { Task { _ = await model.retryFailedPrompt() } }"
         },
         {
           "renders": "重试",
           "when": null,
-          "provenance": "ChatPage.swift:1220",
+          "provenance": "ChatPage.swift:1221",
           "anchor": "Button(\"重试\") { Task { await model.loadCommands() } }"
         },
         {
           "renders": "打开过的会话仍可查看上次同步的内容；连上后自动恢复，也可以在会话列表里点「重试」。",
           "when": null,
-          "provenance": "ChatPage.swift:1755",
+          "provenance": "ChatPage.swift:1813",
           "anchor": "return \"打开过的会话仍可查看上次同步的内容；连上后自动恢复，也可以在会话列表里点「重试」。\""
         },
         {
           "renders": "排队消息操作失败：\\(error.localizedDescription)",
           "when": null,
-          "provenance": "ChatPage.swift:2162",
+          "provenance": "ChatPage.swift:2220",
           "anchor": "text: \"排队消息操作失败：\\(error.localizedDescription)\")"
         },
         {
           "renders": "命令执行失败",
           "when": "result.name == \"compact\" || result.kind != \"success\"",
-          "provenance": "ChatPage.swift:3100",
+          "provenance": "ChatPage.swift:3159",
           "anchor": "? (result.kind == \"success\" ? \"已完成 /\\(result.name)\" : \"命令执行失败\")"
         },
         {
           "renders": "无法读取所选图片：\\(error.localizedDescription)",
           "when": null,
-          "provenance": "ChatPage.swift:3195",
+          "provenance": "ChatPage.swift:3254",
           "anchor": "attachmentError = \"无法读取所选图片：\\(error.localizedDescription)\""
         },
         {
           "renders": "重试",
           "when": "let error = model.commandsError, model.availableCommands.isEmpty",
-          "provenance": "ChatPage.swift:3328",
+          "provenance": "ChatPage.swift:3387",
           "anchor": "Button(\"重试\") { Task { await model.loadCommands() } }"
         },
         {
           "renders": "无法读取所选文件：\\(error.localizedDescription)",
           "when": null,
-          "provenance": "ChatPage.swift:3532",
+          "provenance": "ChatPage.swift:3591",
           "anchor": "attachmentError = \"无法读取所选文件：\\(error.localizedDescription)\""
         },
         {
           "renders": "导入失败：\\(error.localizedDescription)",
           "when": null,
-          "provenance": "ChatPage.swift:3601",
+          "provenance": "ChatPage.swift:3660",
           "anchor": "attachmentError = \"导入失败：\\(error.localizedDescription)\""
         }
       ],
@@ -1740,109 +1740,109 @@
         {
           "renders": "正在加载…",
           "when": "model.transcriptHasMore",
-          "provenance": "ChatPage.swift:1272",
+          "provenance": "ChatPage.swift:1273",
           "anchor": "Text(loadingEarlierTranscript ? \"正在加载…\" : \"加载更早消息\")"
         },
         {
           "renders": "正在打开会话…",
           "when": null,
-          "provenance": "ChatPage.swift:1674",
+          "provenance": "ChatPage.swift:1732",
           "anchor": "Text(\"正在打开会话…\")"
         },
         {
           "renders": "正在打开会话",
           "when": null,
-          "provenance": "ChatPage.swift:1683",
+          "provenance": "ChatPage.swift:1741",
           "anchor": ".accessibilityLabel(\"正在打开会话\")"
         },
         {
           "renders": "正在连接电脑",
           "when": null,
-          "provenance": "ChatPage.swift:1742",
+          "provenance": "ChatPage.swift:1800",
           "anchor": "case .reconnecting, .online: return \"正在连接电脑\""
         },
         {
           "renders": "正在重新连上这台电脑，连上后会回到上次的会话。",
           "when": null,
-          "provenance": "ChatPage.swift:1751",
+          "provenance": "ChatPage.swift:1809",
           "anchor": "return \"正在重新连上这台电脑，连上后会回到上次的会话。\""
         },
         {
           "renders": "正在启动…",
           "when": null,
-          "provenance": "ChatPage.swift:1773",
+          "provenance": "ChatPage.swift:1831",
           "anchor": "Text(model.busy ? \"正在启动…\" : \"启动本地引擎\")"
         },
         {
           "renders": "正在停止",
           "when": null,
-          "provenance": "ChatPage.swift:2526",
+          "provenance": "ChatPage.swift:2584",
           "anchor": ".accessibilityLabel(stopping ? \"正在停止\" : \"停止执行\")"
         },
         {
           "renders": "权限：正在读取",
           "when": null,
-          "provenance": "ChatPage.swift:2706",
+          "provenance": "ChatPage.swift:2764",
           "anchor": ".accessibilityLabel(model.accessModeLoading ? \"权限：正在读取\" : \"权限：\\(accessModeTitle)"
         },
         {
           "renders": "正在读取 DSH 命令…",
           "when": "model.commandsLoading && model.availableCommands.isEmpty",
-          "provenance": "ChatPage.swift:3321",
+          "provenance": "ChatPage.swift:3380",
           "anchor": "Text(\"正在读取 DSH 命令…\").font(.system(size: 13)).foregroundStyle(.secondary)"
         },
         {
           "renders": "ProgressView",
           "when": null,
-          "provenance": "ChatPage.swift:1152",
+          "provenance": "ChatPage.swift:1153",
           "anchor": "ProgressView()"
         },
         {
           "renders": "ProgressView",
           "when": "loadingEarlierTranscript",
-          "provenance": "ChatPage.swift:1271",
+          "provenance": "ChatPage.swift:1272",
           "anchor": "if loadingEarlierTranscript { ProgressView().controlSize(.small) }"
         },
         {
           "renders": "ProgressView",
           "when": "model.isShowingCachedTranscript",
-          "provenance": "ChatPage.swift:1289",
+          "provenance": "ChatPage.swift:1290",
           "anchor": "ProgressView().controlSize(.mini)"
         },
         {
           "renders": "ProgressView",
           "when": null,
-          "provenance": "ChatPage.swift:1673",
+          "provenance": "ChatPage.swift:1731",
           "anchor": "ProgressView().controlSize(.mini)"
         },
         {
           "renders": "ProgressView",
           "when": null,
-          "provenance": "ChatPage.swift:2174",
+          "provenance": "ChatPage.swift:2232",
           "anchor": "ProgressView()"
         },
         {
           "renders": "ProgressView",
           "when": null,
-          "provenance": "ChatPage.swift:2470",
+          "provenance": "ChatPage.swift:2528",
           "anchor": "ProgressView().controlSize(.mini)"
         },
         {
           "renders": "ProgressView",
           "when": "stopping",
-          "provenance": "ChatPage.swift:2512",
+          "provenance": "ChatPage.swift:2570",
           "anchor": "ProgressView()"
         },
         {
           "renders": "ProgressView",
           "when": "model.accessModeLoading",
-          "provenance": "ChatPage.swift:2688",
+          "provenance": "ChatPage.swift:2746",
           "anchor": "ProgressView()"
         },
         {
           "renders": "ProgressView",
           "when": "model.commandsLoading && model.availableCommands.isEmpty",
-          "provenance": "ChatPage.swift:3320",
+          "provenance": "ChatPage.swift:3379",
           "anchor": "ProgressView().controlSize(.mini)"
         }
       ]
@@ -1861,28 +1861,28 @@
   "subpages": [
     {
       "name": "RuntimeDetailsPage",
-      "line": 4940,
+      "line": 5038,
       "private": false,
       "embedded": false,
       "sections": [
         {
           "title": "本次运行",
-          "provenance": "ChatPage.swift:4986"
+          "provenance": "ChatPage.swift:5084"
         },
         {
           "title": "最近出错",
-          "provenance": "ChatPage.swift:4993"
+          "provenance": "ChatPage.swift:5091"
         }
       ],
-      "provenance": "ChatPage.swift:4940"
+      "provenance": "ChatPage.swift:5038"
     },
     {
       "name": "CommandExecutionResultPage",
-      "line": 5024,
+      "line": 5122,
       "private": true,
       "embedded": true,
       "sections": [],
-      "provenance": "ChatPage.swift:5024"
+      "provenance": "ChatPage.swift:5122"
     }
   ],
   "unreachable": [],

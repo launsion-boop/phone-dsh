@@ -397,6 +397,10 @@ internal fun HostShell(
     val configurationFacts by engine.configuration.collectAsState()
     val agentPresetFacts by engine.agentPresets.collectAsState()
     val context = LocalContext.current
+    // The composition root owns the Bot driver/store/channel; this shell only
+    // passes plain values into `:lib`. A construction failure leaves the tab
+    // absent rather than rendering a fake conversation.
+    val botPlatform by engine.botPlatformConfig.collectAsState()
     // PCLink C5: the view model owns the controller's lifetime (`onCleared`), so
     // this shell only observes its snapshot and maps it onto the plain `:lib`
     // page state. The camera prompt stays the Activity's one CAMERA request.
@@ -1263,6 +1267,17 @@ internal fun HostShell(
                     PdshNavHost(
                         nav = nav,
                         facts = shownFacts,
+                        botDriver = botPlatform?.driver,
+                        botContext = botPlatform?.context
+                            ?: com.phonedsh.ui.bot.state.BotUiContext(
+                                botID = "main",
+                                botName = "Bot",
+                            ),
+                        botAppearance = botPlatform?.appearance
+                            ?: com.phonedsh.bot.profile.BotFishAppearance.CLASSIC,
+                        botRoster = botPlatform?.roster ?: emptyList(),
+                        botIsMainBot = botPlatform?.isMainBot ?: true,
+                        botDescription = botPlatform?.description.orEmpty(),
                         // §2 rule 9 / §4 rule 5: the same chain the SHEET layer
                         // above dispatches to, so a page-owned or route-presented
                         // sheet is the layer this host's back closes first.
@@ -1748,6 +1763,7 @@ internal fun HostShell(
                 if (showTabBar) {
                     HomeTabBar(
                         selection = homeTab,
+                        showBot = botPlatform != null,
                         onSelect = { tab ->
                             // A re-tap is a no-op inside `selectTab` (§4 rule 2), and
                             // the target tab's route stack is the only one this host owns.

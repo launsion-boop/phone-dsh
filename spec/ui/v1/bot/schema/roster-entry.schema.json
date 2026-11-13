@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spec/ui/v1/bot/schema/roster-entry.schema.json",
+  "title": "BotRosterEntry v1 (P09 inbound value)",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "description",
+    "appearance",
+    "isMainBot",
+    "isHidden",
+    "unreadCount",
+    "lastMessageAt",
+    "runtime"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "description": {
+      "type": "string"
+    },
+    "appearance": {
+      "type": "object",
+      "required": [
+        "color",
+        "hairstyle",
+        "autoColor",
+        "autoHairstyle"
+      ],
+      "properties": {
+        "color": {
+          "enum": [
+            "white",
+            "brown",
+            "red",
+            "orange",
+            "amber",
+            "green",
+            "teal",
+            "blue",
+            "purple",
+            "magenta",
+            "gray",
+            "black",
+            "silver",
+            "peach",
+            "sky"
+          ]
+        },
+        "hairstyle": {
+          "enum": [
+            "long",
+            "twin-tail",
+            "bob",
+            "side-braid"
+          ]
+        },
+        "autoColor": {
+          "type": "boolean"
+        },
+        "autoHairstyle": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "isMainBot": {
+      "type": "boolean"
+    },
+    "isHidden": {
+      "type": "boolean"
+    },
+    "unreadCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lastMessageAt": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "runtime": {
+      "$comment": "roster-runtime-state.schema.json"
+    }
+  },
+  "additionalProperties": false
+}

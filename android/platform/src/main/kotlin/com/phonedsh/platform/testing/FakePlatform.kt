@@ -17,6 +17,7 @@ import com.phonedsh.platform.LifecycleSignal
 import com.phonedsh.platform.LifecycleSignals
 import com.phonedsh.platform.LifecycleSnapshot
 import com.phonedsh.platform.NotificationAction
+import com.phonedsh.platform.NotificationDeepLink
 import com.phonedsh.platform.Notifier
 import com.phonedsh.platform.NotifierAvailability
 import com.phonedsh.platform.SecureLookup
@@ -38,6 +39,7 @@ data class NotificationCall(
     val body: String,
     val ongoing: Boolean,
     val action: NotificationAction?,
+    val deepLink: NotificationDeepLink? = null,
 )
 
 /**
@@ -60,8 +62,9 @@ data class NotificationCall(
  * - SecureStore: in-memory three-state lookup ([SecureLookup.Found] /
  *   [SecureLookup.Absent] / [SecureLookup.Unreadable]), defensive byte copies,
  *   and [securityLevel]; [markUnreadable] models key invalidation.
- * - Notifier: records every call in [notifications]/[cancelledIds] and can press
- *   the recorded action through [performAction].
+ * - Notifier: records every call (including an optional [NotificationDeepLink])
+ *   in [notifications]/[cancelledIds] and can press the recorded action through
+ *   [performAction].
  * - EngineHost: delegates to [engine], a [FakeEngineHost].
  *
  * [root] lets a test supply its own directory; otherwise the first [tempDir]
@@ -253,8 +256,19 @@ class FakePlatform(
         ongoing: Boolean,
         action: NotificationAction?,
     ) {
+        notify(id, title, body, ongoing, action, deepLink = null)
+    }
+
+    override fun notify(
+        id: Int,
+        title: String,
+        body: String,
+        ongoing: Boolean,
+        action: NotificationAction?,
+        deepLink: NotificationDeepLink?,
+    ) {
         synchronized(lock) {
-            notificationCalls.add(NotificationCall(id, title, body, ongoing, action))
+            notificationCalls.add(NotificationCall(id, title, body, ongoing, action, deepLink))
         }
     }
 

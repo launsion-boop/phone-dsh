@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.View
 import android.webkit.WebView
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.phonedsh.agentcore.JsonObject
 import com.phonedsh.agentcore.JsonArray
 import com.phonedsh.agentcore.JsonBool
@@ -113,6 +114,9 @@ import com.phonedsh.platform.android.AndroidDurability
 import com.phonedsh.platform.android.AndroidLifecycleSignals
 import com.phonedsh.platform.android.ProotRuntime
 import com.phonedsh.platform.android.UbuntuRootfsStore
+import com.phonedsh.probe.bot.AppBotRuntime
+import com.phonedsh.probe.bot.BotPlatformConfig
+import com.phonedsh.probe.bot.DshBotSessionTransport
 import com.phonedsh.probe.pc.PcLinkWorkspace
 import com.phonedsh.probe.pc.PcWorkspaceController
 import com.phonedsh.shell.AcceleratorMount
@@ -1177,6 +1181,13 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // process-owned server the Android ADB settings page tests with (iOS sets
         // `configuration.nativeMCP` unconditionally too).
         nativeMcp = AndroidAdbHost.get(application).server,
+        // spec/bot/v1/mcp-endpoint.md §1: when the Bot listener is live, the
+        // Worker gets its loopback URL and the non-secret placeholder token;
+        // the provider is read again on every page load, so a recovered port is
+        // never a stale URL.
+        botMcpEnvironment = {
+            appBotRuntime?.mcpUrl?.let { url -> com.phonedsh.engine.BotMcpEnvironment(url) }
+        },
     )
 
     private val clock = AndroidClock()
@@ -1622,6 +1633,58 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
      */
     val hostState: StateFlow<com.phonedsh.controller.HostState> = host.state
     val channel: StateFlow<ChannelStatus> = engine.channel
+
+    /**
+     * The Bot runtime composition (P25 store, memory/routines, authz and MCP
+     * listener). Construction is lazy and failure is honest: the rest of the
+     * App keeps working and the log names the reason.
+     */
+    private val _botPlatformConfig = MutableStateFlow<BotPlatformConfig?>(null)
+
+    /**
+     * The Bot tab's one composition seam, published as state: the runtime is
+     * created lazily (and only after the host channel exists), so a plain lazy
+     * property would leave the first composition with `null` forever.
+     */
+    internal val botPlatformConfig: StateFlow<BotPlatformConfig?> = _botPlatformConfig.asStateFlow()
+
+    private val appBotRuntimeDelegate = lazy<AppBotRuntime?> {
+        runCatching {
+            AppBotRuntime.create(
+                context = getApplication(),
+                transport = DshBotSessionTransport(host.channel, ::logTurn),
+                logger = { line -> Log.i("AppBotRuntime", line) },
+            )
+        }.onSuccess { runtime ->
+            runtime?.let {
+                _botPlatformConfig.value = it.platformConfig
+            }
+        }.onFailure { error ->
+            Log.w(TAG_TURN, "Bot platform unavailable: ${error.javaClass.simpleName}: ${error.message}")
+        }.getOrNull()
+    }
+    internal val appBotRuntime: AppBotRuntime? by appBotRuntimeDelegate
+
+    /**
+     * Foreground lifecycle hooks. The listener binds and probes a socket, so
+     * both run off the main thread; `start` also publishes [botPlatformConfig]
+     * by creating the lazy runtime for the first time.
+     */
+    internal fun startBotRuntime() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { appBotRuntime?.start() }
+                .onFailure { error ->
+                    Log.w(TAG_TURN, "Bot runtime start failed: ${error.javaClass.simpleName}")
+                }
+        }
+    }
+
+    internal fun stopBotRuntime() {
+        if (!appBotRuntimeDelegate.isInitialized()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { appBotRuntime?.stop() }
+        }
+    }
     val handshake: StateFlow<HandshakeSummary?> = engine.handshake
 
     /**
@@ -2259,6 +2322,10 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
         // credential". No endpoint and no key appears here.
         LogcatHostLog.info(modelRouteLine())
         channelSeam.attach(host.channelHandler)
+        // The Bot listener must be live before the first page load: the engine
+        // reads its URL into the Worker env at launch time. The Activity's
+        // onStart/onStop then keep these services on the foreground lifecycle.
+        startBotRuntime()
         restoreSessionArchive()
         restoreChatSessions()
         // Asynchronous by contract: recovery, the final HELLO and engine.start()
@@ -4381,6 +4448,7 @@ class ProbeEngineViewModel private constructor(application: Application) : Andro
 
     override fun onCleared() {
         turnScope.cancel()
+        if (appBotRuntimeDelegate.isInitialized()) appBotRuntime?.close()
         pcWorkspace?.close()
         chatIo.cancel()
         host.stop()

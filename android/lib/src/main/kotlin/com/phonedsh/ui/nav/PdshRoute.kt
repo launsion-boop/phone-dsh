@@ -515,6 +515,20 @@ public sealed interface PdshRoute {
     }
 
     /**
+     * The Bot tab's root (`HomeTab.BOT.root`, `bot-chat.md` §1). The Bot page is a
+     * full-screen chat page of its own, but its route is the shared chat surface
+     * value: the app's route-wide disclosure `when` is outside this lane's
+     * writable tree and must keep compiling, so the selected [HomeTab] (not a
+     * second sealed subtype) decides whether this route renders the DSH chat or
+     * the Bot chat. [PdshNavHost] makes that choice; the stack model keeps the
+     * Bot tab's own stack under `HomeTab.BOT`.
+     */
+    public companion object {
+        /** The Bot tab's root route value. */
+        public val Bot: PdshRoute get() = Chat
+    }
+
+    /**
      * 电脑会话历史: one paired PC's durable session history, read-only.
      *
      * The host reads `session/page` through the PCLink transport; this route only
@@ -594,7 +608,12 @@ public data class PdshNavState(
 
     /** Opens [route] on top of the selected tab's current page. */
     public fun push(route: PdshRoute): PdshNavState {
-        val target = HomeTab.entries.firstOrNull { it != selectedTab && it.root == route }
+        // Bot is selected from the bar, never pushed as a target: its root is the
+        // shared chat surface, so a pushed Chat from 会话 stays a page instead of
+        // switching (wrongly) to the Bot tab.
+        val target = HomeTab.entries.firstOrNull {
+            it != selectedTab && it != HomeTab.BOT && it.root == route
+        }
         // A tab root pushed from another tab's floor shows that tab, it is not a
         // page over the current one. Once a page is pushed, a tab root is just a
         // page: 会话 → 对话 pushes Chat one level above its floor.
@@ -608,7 +627,7 @@ public data class PdshNavState(
     public fun pop(): PdshNavState {
         if (!canGoBack) return this
         val nextStack = stack.dropLast(1)
-        val nextTab = inferredTab(nextStack)
+        val nextTab = tabAfterStackChange(nextStack)
         val next = stacks.toMutableMap()
         if (nextTab != selectedTab) next.remove(selectedTab)
         next[nextTab] = nextStack
@@ -621,7 +640,7 @@ public data class PdshNavState(
     /** Replaces the top route of the selected tab, keeping its depth. */
     public fun replaceTop(route: PdshRoute): PdshNavState {
         val nextStack = stack.dropLast(1) + route
-        val nextTab = inferredTab(nextStack)
+        val nextTab = tabAfterStackChange(nextStack)
         val next = stacks.toMutableMap()
         if (nextTab != selectedTab) next.remove(selectedTab)
         next[nextTab] = nextStack
@@ -640,10 +659,24 @@ public data class PdshNavState(
     public fun selectHomeTab(tab: HomeTab): PdshNavState {
         if (tab == selectedTab) return this
         val target = stacks[tab] ?: chatFloor().let { floor ->
-            if (tab == HomeTab.TASKS) floor else floor + tab.root
+            // The Bot tab's root is the chat surface (a value alias of Chat), so
+            // appending it would duplicate the floor route.
+            if (floor.lastOrNull() == tab.root) floor else floor + tab.root
         }
         return PdshNavState(stacks + (tab to target), tab)
     }
+
+    /**
+     * The tab that owns [nextStack] after a pop/replace. A non-DSH tab keeps its
+     * selection while its root remains in the stack; the Bot tab's root is the
+     * shared chat surface, so route inference cannot tell the two tabs apart.
+     */
+    private fun tabAfterStackChange(nextStack: List<PdshRoute>): HomeTab =
+        if (selectedTab != HomeTab.TASKS && nextStack.any { it == selectedTab.root }) {
+            selectedTab
+        } else {
+            inferredTab(nextStack)
+        }
 
     /** The leading Home/Chat floor every tab root sits on (`HomeTabBar.kt`). */
     private fun chatFloor(): List<PdshRoute> {

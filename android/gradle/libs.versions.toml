@@ -20,6 +20,9 @@ bouncycastle = "1.86"               # unverified pin
 # :lib AAR stays camera-free.
 camera = "1.4.1"                    # unverified pin
 zxing = "3.5.3"                     # unverified pin
+# JVM-only P25 store vectors need a real SQLite engine (PC-20261112-android-bot-w4 §7);
+# testImplementation of :bot only.
+sqlite-jdbc = "3.47.1.0"            # unverified pin
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
@@ -36,6 +39,7 @@ androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.r
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camera" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "camera" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
