@@ -1659,16 +1659,34 @@ struct ChatPage: View {
             contentInsetTop: contentInsetTop,
             contentInsetBottom: contentInsetBottom,
             hasRows: true)
-        guard correction != .none else { return }
+        guard correction != .none else {
+            // A visible frame proves the last correction landed. Reset the
+            // per-height latch so a later blank at the same height (e.g. the
+            // same row re-estimated after a send) can correct again.
+            scrollTrace.lastBlankCorrectionHeight = nil
+            scrollTrace.blankCorrectionAttempts = 0
+            return
+        }
         // Resolve the rows only when a correction is actually due: this runs
         // on every scroll frame, and the timeline snapshot must stay cheap.
         guard let firstRow = timelineRows.first?.scrollTargetID,
               let lastRow = timelineRows.last?.scrollTargetID else { return }
         if let correctedHeight = scrollTrace.lastBlankCorrectionHeight,
            abs(correctedHeight - contentHeight) < 0.5 {
-            return
+            // One correction per height used to be enough, but a lazy row
+            // that was still estimated can land blank again at the same
+            // content height. Retry twice, spaced out, instead of freezing
+            // the empty viewport until a manual drag.
+            guard scrollTrace.blankCorrectionAttempts < 2,
+                  Date().timeIntervalSince(scrollTrace.lastBlankCorrectionAt) > 0.2 else {
+                return
+            }
+        } else {
+            scrollTrace.lastBlankCorrectionHeight = contentHeight
+            scrollTrace.blankCorrectionAttempts = 0
         }
-        scrollTrace.lastBlankCorrectionHeight = contentHeight
+        scrollTrace.blankCorrectionAttempts += 1
+        scrollTrace.lastBlankCorrectionAt = Date()
         switch correction {
         case .scrollToTop:
             proxy.scrollTo(firstRow, anchor: .top)
@@ -1693,6 +1711,11 @@ struct ChatPage: View {
                                   userDriven: Bool = false) {
         scrollTrace.tailOffsetY = tailY
         scrollTrace.viewportHeight = viewportHeight
+        if userScrolling {
+            // The person's drag wins over any pending blank correction.
+            scrollTrace.lastBlankCorrectionHeight = nil
+            scrollTrace.blankCorrectionAttempts = 0
+        }
         let near = tailY >= -1 && tailY <= viewportHeight + 44
         if nearBottom != near {
             nearBottom = near
@@ -4140,6 +4163,10 @@ final class ScrollTraceBox {
     /// Content height of the last blank correction. One correction per height
     /// prevents a scroll feedback loop when the stack cannot move further.
     var lastBlankCorrectionHeight: CGFloat?
+    /// A second attempt at the same height is allowed after the first lands
+    /// blank again; cap it so a truly unmovable stack cannot spin.
+    var blankCorrectionAttempts = 0
+    var lastBlankCorrectionAt = Date.distantPast
     /// Last time the blank-correction diagnostic was written (1/s limit).
     var lastBlankCorrectionLog = Date.distantPast
 }

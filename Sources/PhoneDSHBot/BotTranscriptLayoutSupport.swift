@@ -38,6 +38,20 @@ public enum BotTranscriptLayoutSupport {
         return tailY >= -1 && tailY <= viewportHeight + max(0, tolerance)
     }
 
+    /// Whether scrolling to the tail is safe. A transcript shorter than the
+    /// viewport is already fully visible; a bottom-anchored scroll on it
+    /// overshoots and leaves the messages pushed up under a blank band. This
+    /// is the Bot page's equivalent of the main chat's
+    /// `ChatTranscriptTailPolicy.shouldScrollToTail`.
+    public static func shouldScrollToTail(contentHeight: CGFloat,
+                                          viewportHeight: CGFloat,
+                                          hasRows: Bool = true,
+                                          tolerance: CGFloat = 1) -> Bool {
+        guard hasRows, contentHeight.isFinite, viewportHeight.isFinite,
+              contentHeight > 0, viewportHeight > 0 else { return false }
+        return contentHeight > viewportHeight + max(0, tolerance)
+    }
+
     /// Resolves the follow flag after a user-driven scroll settles.
     ///
     /// Only a user-driven transition may turn following off: the keyboard and

@@ -145,6 +145,21 @@ final class BotCaptureUITests: XCTestCase {
                                  "no large blank gap below the newest message")
     }
 
+    func testShortTranscriptSendStaysVisible() throws {
+        launch("empty")
+        let input = app.textFields["bot.composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 3))
+        input.tap()
+        input.typeText("继续")
+        app.buttons["bot.composer.send"].tap()
+        let bubble = app.staticTexts["继续"]
+        XCTAssertTrue(bubble.waitForExistence(timeout: 3))
+        XCTAssertLessThanOrEqual(bubble.frame.maxY, input.frame.minY,
+                                 "the sent bubble must stay above the composer")
+        XCTAssertLessThanOrEqual(input.frame.minY - bubble.frame.maxY, 160,
+                                 "a short send must not push the bubble up under a blank band")
+    }
+
     func testDocumentAndSafeLinkActions() throws {
         launch("document")
         let open = app.buttons["bot.document.open"]

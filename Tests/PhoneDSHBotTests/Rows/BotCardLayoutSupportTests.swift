@@ -83,6 +83,21 @@ final class BotCardLayoutSupportTests: XCTestCase {
         XCTAssertEqual(measures, 0)
     }
 
+    func testShortTranscriptNeverGetsABottomAnchoredTailScroll() {
+        // A send/new row in a short transcript used to scroll to the tail
+        // anchor and push the visible rows up under a blank band.
+        XCTAssertFalse(BotTranscriptLayoutSupport.shouldScrollToTail(
+            contentHeight: 300, viewportHeight: 600))
+        XCTAssertFalse(BotTranscriptLayoutSupport.shouldScrollToTail(
+            contentHeight: 0, viewportHeight: 600))
+        XCTAssertFalse(BotTranscriptLayoutSupport.shouldScrollToTail(
+            contentHeight: 900, viewportHeight: 600, hasRows: false))
+        XCTAssertTrue(BotTranscriptLayoutSupport.shouldScrollToTail(
+            contentHeight: 900, viewportHeight: 600))
+        XCTAssertTrue(BotTranscriptLayoutSupport.shouldScrollToTail(
+            contentHeight: 602, viewportHeight: 600))
+    }
+
     func testShortTrailingBubbleUsesItsMeasuredWidthNotTheWidthCap() {
         // 2026-11-13 field sample: after tapping 建议下一步 the sent message
         // bubble sat at the 20% mark with empty space to its right. The
