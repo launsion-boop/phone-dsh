@@ -36,12 +36,22 @@ only the model-facing sentence grows. An MCP client that matches the code keeps
 working; a client that matches the old exact string is not a contract here
 (the code is).
 
-## Why phone-dsh cannot fix it locally
+## Phone status (2026-11-13): actionable hint added without a DSH patch
+
+phone-dsh now mounts `@phone-dsh/dsh-tool-fs-directory-hint`
+([PC-20261113-read-directory-hint](../../docs/protocol-changes/PC-20261113-read-directory-hint.md)),
+a `tools/post-execute` policy that appends
+`Hint: this path is a directory; use glob (or \`bash ls\`) to list its entries.`
+to the exact `read` failure. The tool name, schema, result status and
+`FS_NOT_REGULAR_FILE` code stay DSH's. The upstream proposal below remains the
+better place for the sentence (it would also serve non-phone deployments).
+
+## Why this belongs upstream too
 
 `dsh-tool-fs` is a pinned DSH package, and the phone repository forbids patching
 or vendoring `@deepseek-ai` sources (`scripts/ci/no_dsh_patch.py`). The Worker
-profile mounts the package unmodified; there is no phone-side `read` wrapper.
-This is an upstream wording improvement, not a phone protocol change.
+profile mounts the package unmodified; the phone-side hint is a policy layer,
+not a replacement for the upstream wording fix.
 
 ## Workaround available today
 

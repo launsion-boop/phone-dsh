@@ -309,9 +309,11 @@ them, or returns `Credential.none` for an anonymous egress host).
 The Worker profile selects the official DSH web providers from the same
 host-owned decision. Independent Search/Fetch mode exposes
 `PDSH_WEB_SEARCH_PROVIDER=deepseek-search-api`,
-`PDSH_WEB_FETCH_PROVIDER=deepseek-fetch-api`, the configured base and a
+`PDSH_WEB_FETCH_PROVIDER=phone-host-fetch`, the configured base and a
 non-secret `DEEPSEEK_SEARCH_API_KEY` placeholder; the mounted
-`web-deepseek-api` row registers both providers. Explicit follow-model mode
+`web-deepseek-api` row registers the independent search, and the phone-local
+`web-fetch-host` provider serves `web_fetch` over the Worker's host-routed
+`fetch` (raw `text/plain` is returned verbatim). Explicit follow-model mode
 exposes `deepseek-official` only when the selected model service is the official
 DeepSeek Messages endpoint the provider actually supports. With no selection,
 neither `web-search-deepseek` nor `web-deepseek-api` is mounted, so an

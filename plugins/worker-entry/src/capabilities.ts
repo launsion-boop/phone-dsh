@@ -716,7 +716,10 @@ function markdownFor(document: CapabilityManifestDocument, compactCommands = fal
       '## Host phone tools',
       'The catalog is host-owned; the Worker only forwards `phone <tool> <json-object>`. '
         + `This host serves ${document.phone.tools.map(tool => `\`${tool.usage}\``).join(', ')}. `
-        + 'Any other tool name fails as not available and executes nothing.',
+        + 'Any other tool name returns a structured `{"ok":false,"error":{"code":"unknown_tool"}}` result '
+        + 'and executes nothing. The command exit code belongs to the host bridge, not the tool result: '
+        + 'the iOS bridge exits 0 for `ok:false`, so read `ok`/`error.code` rather than `$?` (127 is the '
+        + 'shell\'s missing-program code for a missing command).',
       '',
     ],
     ...document.jq === undefined ? [] : [
@@ -964,7 +967,10 @@ export function phoneCapability(ubuntu: boolean = false): NonNullable<Capability
     ],
     notes: [
       'The catalog is owned by the host build, not by the Worker. This list is what THIS host serves.',
-      'Any other tool name is refused as not available: the host executes nothing and the shell reports exit 127.',
+      'Any other tool name is refused as not available: the host executes nothing and returns a structured '
+        + 'ok:false result. The exit code is the host bridge\'s, not the tool result\'s: the iOS bridge exits 0 '
+        + 'for ok:false; 127 is the shell\'s missing-program code for a missing command. Read the JSON ok field, '
+        + 'not `$?`.',
     ],
   }
 }

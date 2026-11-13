@@ -14,6 +14,8 @@
     "tool-journal",
     "lifecycle-gate",
     "channel",
+    "web-fetch-host",
+    "tool-fs-directory-hint",
     "worker-entry",
     "wasi-toolbox",
     "shell-ext",

@@ -226,7 +226,7 @@ test('the worker patch mounts the six phone surfaces and the model/search wiring
   const followEnv = { PDSH_WEB_SEARCH_PROVIDER: 'deepseek-official' }
   const independentEnv = {
     PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
-    PDSH_WEB_FETCH_PROVIDER: 'deepseek-fetch-api',
+    PDSH_WEB_FETCH_PROVIDER: 'phone-host-fetch',
     DEEPSEEK_SEARCH_API_BASE_URL: 'https://search.example/v1/tools',
   }
   const emptyEnv = {}
@@ -234,9 +234,9 @@ test('the worker patch mounts the six phone surfaces and the model/search wiring
     PDSH_WEB_SEARCH_PROVIDER: 'openai-compatible',
     PDSH_WEB_FETCH_PROVIDER: 'deepseek-fetch-api',
   }
-  // A fetch id alone must not expose either tool: the independent Search API
-  // row registers the fetch provider only for the `deepseek-search-api` pair.
-  const fetchOnlyEnv = { PDSH_WEB_FETCH_PROVIDER: 'deepseek-fetch-api' }
+  // The host-routed provider is selectable on its own: it does not need the
+  // independent Search API pair, because it uses the Worker's global fetch.
+  const fetchOnlyEnv = { PDSH_WEB_FETCH_PROVIDER: 'phone-host-fetch' }
   // The search provider alone exposes web_search, but not web_fetch: follow
   // and an incomplete independent environment have no real fetch provider.
   const searchOnlyEnv = {
@@ -253,7 +253,11 @@ test('the worker patch mounts the six phone surfaces and the model/search wiring
   assert.equal(evaluateLoaderValue(messagesRow?.disabled, followEnv), false)
   assert.equal(evaluateLoaderValue(apiRow?.disabled, followEnv), true)
   assert.equal(evaluateLoaderValue(webRow?.config?.searchProvider, independentEnv), 'deepseek-search-api')
-  assert.equal(evaluateLoaderValue(webRow?.config?.fetchProvider, independentEnv), 'deepseek-fetch-api')
+  assert.equal(evaluateLoaderValue(webRow?.config?.fetchProvider, independentEnv), 'phone-host-fetch')
+  const hostFetchRow = byId.get('web-fetch-host')
+  assert.equal(evaluateLoaderValue(hostFetchRow?.disabled, independentEnv), false)
+  assert.equal(evaluateLoaderValue(hostFetchRow?.disabled, fetchOnlyEnv), false)
+  assert.equal(evaluateLoaderValue(hostFetchRow?.disabled, followEnv), true)
   assert.equal(evaluateLoaderValue(messagesRow?.disabled, independentEnv), true)
   assert.equal(evaluateLoaderValue(apiRow?.disabled, independentEnv), false)
   assert.equal(evaluateLoaderValue(apiRow?.config?.apiKeyEnv, independentEnv), 'DEEPSEEK_SEARCH_API_KEY')
@@ -262,8 +266,9 @@ test('the worker patch mounts the six phone surfaces and the model/search wiring
   assert.equal(evaluateLoaderValue(apiRow?.disabled, unsupportedEnv), true)
 
   // Both tool-web registration sites (top-level Worker row and the phone
-  // preset row) expose web_search only for a supported provider id. Empty,
-  // unsupported and fetch-only environments expose neither tool.
+  // preset row) expose web_search only for a supported provider id, and
+  // web_fetch only for a registered fetch provider (host-routed or the
+  // legacy independent pair).
   for (const row of [byId.get('tool-web'), webTool]) {
     assert.equal(evaluateLoaderValue(row?.config?.search, emptyEnv), false)
     assert.equal(evaluateLoaderValue(row?.config?.fetch, emptyEnv), false)
@@ -276,7 +281,7 @@ test('the worker patch mounts the six phone surfaces and the model/search wiring
     assert.equal(evaluateLoaderValue(row?.config?.search, searchOnlyEnv), true)
     assert.equal(evaluateLoaderValue(row?.config?.fetch, searchOnlyEnv), false)
     assert.equal(evaluateLoaderValue(row?.config?.search, fetchOnlyEnv), false)
-    assert.equal(evaluateLoaderValue(row?.config?.fetch, fetchOnlyEnv), false)
+    assert.equal(evaluateLoaderValue(row?.config?.fetch, fetchOnlyEnv), true)
   }
   // The native host owns model service configuration and the preview notice
   // is a desktop-Web modal; phone-model-config is the same Worker's model page.
@@ -507,7 +512,11 @@ test('the packed image carries browser bundles and gates web tools in every pres
     const { createLaunchEnvironmentSnapshot } = await load('packages/util/launch-environment/lib/index.js')
     const messagesProvider = await load('packages/web/web-search-deepseek/lib/index.js')
     const apiProvider = await load('packages/web/web-deepseek-api/lib/index.js')
-    const resolvedConfig = (row, env) => Object.fromEntries(Object.entries(row.config).map(
+    // The host-routed provider is a phone package in this worktree, not a DSH
+    // checkout face; the profile row is what this test selects.
+    const hostFetchProvider = await import(
+      pathToFileURL(join(worktree, 'web-fetch-host/src/index.ts')).href)
+    const resolvedConfig = (row, env) => Object.fromEntries(Object.entries(row.config ?? {}).map(
       ([key, value]) => [key, evaluateLoaderValue(value, env)],
     ))
     const presets = flattenRows(rows).filter(row => row.name === '@deepseek-ai/dsh-agent-preset')
@@ -542,6 +551,11 @@ test('the packed image carries browser bundles and gates web tools in every pres
         case 'https://search.test/v1/tools/fetch':
           assert.equal(headers.get('authorization'), 'Bearer test-search-key')
           return Response.json({ content: 'Fixture page' })
+        case source:
+          return new Response('Fixture page', {
+            status: 200,
+            headers: { 'content-type': 'text/plain; charset=utf-8' },
+          })
         default:
           assert.fail(`unexpected request to ${url}`)
       }
@@ -557,7 +571,7 @@ test('the packed image carries browser bundles and gates web tools in every pres
       for (const [mode, env, expected] of [
         ['no backend', {}, []],
         ['unsupported backend', { PDSH_WEB_SEARCH_PROVIDER: 'unsupported' }, []],
-        ['fetch only', { PDSH_WEB_FETCH_PROVIDER: 'deepseek-fetch-api' }, []],
+        ['fetch only', { PDSH_WEB_FETCH_PROVIDER: 'phone-host-fetch' }, ['web_fetch']],
         ['official Messages search', {
           PDSH_WEB_SEARCH_PROVIDER: 'deepseek-official',
           DEEPSEEK_SEARCH_BASE_URL: 'https://model.test/anthropic/v1',
@@ -565,7 +579,7 @@ test('the packed image carries browser bundles and gates web tools in every pres
         }, ['web_search']],
         ['independent Search/Fetch', {
           PDSH_WEB_SEARCH_PROVIDER: 'deepseek-search-api',
-          PDSH_WEB_FETCH_PROVIDER: 'deepseek-fetch-api',
+          PDSH_WEB_FETCH_PROVIDER: 'phone-host-fetch',
           DEEPSEEK_SEARCH_API_BASE_URL: 'https://search.test/v1/tools',
           DEEPSEEK_SEARCH_API_KEY: 'test-search-key',
         }, ['web_search', 'web_fetch']],
@@ -578,6 +592,7 @@ test('the packed image carries browser bundles and gates web tools in every pres
           for (const [id, plugin] of [
             ['web-search-deepseek', messagesProvider],
             ['web-deepseek-api', apiProvider],
+            ['web-fetch-host', hostFetchProvider],
           ]) {
             const providerRow = findRow(rows, id)
             if (!evaluateLoaderValue(providerRow.disabled, env)) {

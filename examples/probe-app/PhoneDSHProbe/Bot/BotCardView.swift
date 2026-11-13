@@ -310,6 +310,25 @@ private struct BotAttachmentCardView: View {
     private var icon: String { BotCardFileIcon.name(for: name, mime: row.body["mimeType"]?.string) }
 
     var body: some View {
+        if let path, actions.canOpenPath(path) {
+            Button { actions.openPath(path) } label: {
+                card(open: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("bot.attachment.open")
+            .accessibilityLabel("打开 \(name)")
+            .accessibilityHint("打开文件预览")
+        } else {
+            // No handler: the card stays readable but has no control that
+            // could do nothing when tapped.
+            card(open: false)
+                .accessibilityElement(children: .combine)
+        }
+    }
+
+    /// One card face. `open` only controls the visible affordance; the whole
+    /// surface is the button when a handler exists.
+    private func card(open: Bool) -> some View {
         BotCardSurface {
             HStack(spacing: 12) {
                 BotCardTile(systemImage: icon)
@@ -323,14 +342,13 @@ private struct BotAttachmentCardView: View {
                             .lineLimit(1)
                     }
                 }
-                if let path, actions.canOpenPath(path) {
-                    Button("打开") { actions.openPath(path) }
-                        .buttonStyle(BotCardButtonStyle(kind: .plain))
-                        .accessibilityIdentifier("bot.attachment.open")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if open {
+                    BotCardOpenAffordance()
                 }
             }
         }
-        .accessibilityElement(children: .contain)
+        .contentShape(Rectangle())
     }
 }
 
@@ -354,7 +372,6 @@ enum BotCardFileIcon {
 private struct BotDocumentCardView: View {
     let row: BotUIRow
     let actions: BotCardActions
-    @State private var expanded = false
 
     private var path: String? { row.body.string("path", "url") }
     private var title: String {
@@ -389,50 +406,70 @@ private struct BotDocumentCardView: View {
     private var fileName: String { row.body.string("fileName") ?? title }
 
     var body: some View {
-        BotCardSurface {
-            VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
-                BotCardHeading(icon: "doc.text", eyebrow: typeLabel, title: title)
-                if let summary {
-                    Text(summary)
-                        .botCardBody()
-                        .lineLimit(expanded ? nil : 3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .onTapGesture { expanded.toggle() }
-                }
-                if !toc.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("本页内容").botCardMeta()
-                        ForEach(Array(toc.enumerated()), id: \.offset) { index, item in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text("\(index + 1)")
-                                    .botCardMeta()
-                                    .monospacedDigit()
-                                    .frame(width: 14, alignment: .trailing)
-                                Text(item)
-                                    .botCardRow()
-                                    .lineLimit(1)
+        Button { actions.openDocument(row) } label: {
+            BotCardSurface {
+                VStack(alignment: .leading, spacing: BotCardMetrics.blockGap) {
+                    // `titleLineLimit: 0` keeps the heading's own expand
+                    // control out of the whole-card button; the preview is
+                    // the place to read the full title.
+                    BotCardHeading(icon: "doc.text", eyebrow: typeLabel, title: title,
+                                   titleLineLimit: 0) { EmptyView() }
+                    if let summary {
+                        // The summary is informational: the card's one action
+                        // is opening the document, not expanding this text.
+                        Text(summary)
+                            .botCardBody()
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !toc.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("本页内容").botCardMeta()
+                            ForEach(Array(toc.enumerated()), id: \.offset) { index, item in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text("\(index + 1)")
+                                        .botCardMeta()
+                                        .monospacedDigit()
+                                        .frame(width: 14, alignment: .trailing)
+                                    Text(item)
+                                        .botCardRow()
+                                        .lineLimit(1)
+                                }
                             }
                         }
                     }
-                }
-                BotCardDivider()
-                HStack(spacing: 12) {
-                    BotCardTile(systemImage: BotCardFileIcon.name(for: fileName, mime: nil))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(fileName)
-                            .botCardRow(weight: .medium)
-                            .lineLimit(1)
-                        if let size = row.body["size"]?.string {
-                            Text(size).botCardMeta()
+                    BotCardDivider()
+                    HStack(spacing: 12) {
+                        BotCardTile(systemImage: BotCardFileIcon.name(for: fileName, mime: nil))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(fileName)
+                                .botCardRow(weight: .medium)
+                                .lineLimit(1)
+                            if let size = row.body["size"]?.string {
+                                Text(size).botCardMeta()
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        BotCardOpenAffordance()
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Button("打开") { actions.openDocument(row) }
-                        .buttonStyle(BotCardButtonStyle(kind: .plain))
-                        .accessibilityIdentifier("bot.document.open")
                 }
             }
+            .contentShape(Rectangle())
         }
-        .accessibilityElement(children: .contain)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("bot.document.open")
+        .accessibilityLabel("打开 \(title)")
+        .accessibilityHint("打开文档预览")
+    }
+}
+
+/// The visible "打开" text. The whole card is the button; this is only the
+/// affordance, never a second nested control.
+private struct BotCardOpenAffordance: View {
+    var body: some View {
+        Text("打开")
+            .font(.system(size: HomeSpec.processSize, weight: .medium))
+            .foregroundStyle(HomeSpec.textPrimary)
+            .frame(minWidth: 44, minHeight: 44)
     }
 }

@@ -4,7 +4,8 @@ Date: 2026-11-13
 Component: DSH `tool-web` + `web-deepseek-api` (pinned 0.2.2-rc.1, commit
 `66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db`)
 Phone profile: `plugins/profile/phone.worker.cordis.patch.yml` (independent
-Search/Fetch mode selects `deepseek-fetch-api`)
+Search/Fetch mode selected `deepseek-fetch-api` on 2026-11-13; phone-dsh now
+selects the host-routed `phone-host-fetch` provider, see below)
 
 ## Observed
 
@@ -27,7 +28,17 @@ phone-dsh network error. The tool's local body renderer would accept `text/plain
 (`packages/web/web-fetch-http/src/policy.ts` classifies any `text/*` as `text`),
 but that provider is not the one selected on the phone.
 
-## Why phone-dsh cannot fix it locally
+## Phone status (2026-11-13): fixed by the host-routed provider
+
+phone-dsh now selects `phone-host-fetch` in independent mode
+([PC-20261113-host-fetch-provider](../protocol-changes/PC-20261113-host-fetch-provider.md)).
+That provider uses the Worker's global `fetch` (already carried over the host
+`/v1/http` route and its egress allow-list) and returns `text/plain` verbatim,
+so the phone no longer sends raw sources to the remote extractor. The upstream
+proposal below remains valid for the official `/fetch` operation and for other
+clients that still select it.
+
+## Why the remote `/fetch` still needs upstream
 
 The Worker profile pins the fetch provider:
 
@@ -70,7 +81,9 @@ Both return the bytes; neither depends on the remote extractor.
 
 ## Status
 
-Open. This note is a proposal, not a patch: not applied to the pinned DSH
-checkout and not vendored here. No phone-dsh test can prove the remote API's
-content-type behaviour; the evidence above is the field observation plus the
-local profile/egress facts.
+Open for the official `/fetch` operation. This note is a proposal, not a patch:
+not applied to the pinned DSH checkout and not vendored here. The phone's
+`phone-host-fetch` provider is a local workaround, tested in
+`plugins/tests/web-fetch-host.test.ts`; it does not prove or change the remote
+API's content-type behaviour. The evidence above is the field observation plus
+the local profile/egress facts.
