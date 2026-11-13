@@ -105,7 +105,7 @@ final class PhoneWebSearchSettingsTests: XCTestCase {
         XCTAssertEqual(environment[PhoneWebSearchSettings.workerBaseURLKey], Self.searchBase)
         XCTAssertEqual(environment[PhoneWebSearchSettings.workerAPIKeyEnv],
                        PhoneWebSearchSettings.placeholderAPIKey)
-        XCTAssertEqual(environment[PhoneWebSearchSettings.workerFetchProviderKey], "deepseek-fetch-api")
+        XCTAssertEqual(environment[PhoneWebSearchSettings.workerFetchProviderKey], "phone-host-fetch")
         XCTAssertFalse(environment.values.joined().contains(Self.secret))
     }
 

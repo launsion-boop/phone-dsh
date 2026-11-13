@@ -30,6 +30,8 @@
     "lifecycle-gate/src",
     "channel/src",
     "worker-entry/src",
+    "web-fetch-host/src",
+    "tool-fs-directory-hint/src",
     "workflow-worker/src",
     "shell-ext/src",
     "bundle/entry.ts",

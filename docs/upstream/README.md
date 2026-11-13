@@ -62,20 +62,21 @@ monolith and new workers fall back to it.
 [`2026-11-13-web-fetch-raw-text.md`](2026-11-13-web-fetch-raw-text.md) records
 the 2026-11-13 field failure: `web_fetch` on a public raw source file returns
 the remote Fetch API's retrieval 404, while `curl` from the same Worker gets a
-200 `text/plain` body. The local HTTP provider already accepts `text/*`, but
-the Worker profile selects `deepseek-fetch-api` and disables `web-fetch-http`
-(no undici/node:dns host route). The note proposes either accepting
-`text/plain` in the official `/fetch` operation or adding a provider over the
-already-installed host-routed `fetch`. It is a proposal note, not a patch; the
-`github get` and `curl` workarounds stay available.
+200 `text/plain` body. phone-dsh now selects a host-routed
+`phone-host-fetch` provider for the phone (`PC-20261113-host-fetch-provider`),
+so raw text works there; the note remains open for the official `/fetch`
+operation and other clients. It also proposes accepting `text/plain` in
+`/fetch`. The `github get` and `curl` workarounds stay available.
 
 ## Pending proposal — `read` on a directory should name the next tool
 
 [`2026-11-13-tool-fs-read-directory.md`](2026-11-13-tool-fs-read-directory.md)
 proposes appending a directory hint to the existing
 `cannot read "…": not a regular file` message (and keeping
-`FS_NOT_REGULAR_FILE` unchanged). The model has to infer `glob`/`ls` from the
-code today; the phone repository cannot patch the pinned `dsh-tool-fs`.
+`FS_NOT_REGULAR_FILE` unchanged). The phone now appends the same hint through a
+`tools/post-execute` policy (`PC-20261113-read-directory-hint`); the upstream
+wording fix remains useful for other deployments and for a single source of
+truth.
 
 ## Pending proposal — Cordis `Fiber.dispose` return value
 

@@ -92,7 +92,7 @@ final class WebSearchHostConfigurationSimTests: XCTestCase {
         XCTAssertNil(resolved.warning)
         XCTAssertEqual(plan.allowedModelHosts, ["https://api.deepseek.com"])
         XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerProviderKey], "deepseek-search-api")
-        XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerFetchProviderKey], "deepseek-fetch-api")
+        XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerFetchProviderKey], "phone-host-fetch")
         XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerBaseURLKey], "https://api.deepseek.com/v1/tools")
         XCTAssertNil(plan.environment[WebSearchHostConfiguration.modelSearchBaseEnvironmentKey])
         XCTAssertFalse(plan.environment.values.contains(key))
@@ -198,7 +198,7 @@ final class WebSearchHostConfigurationSimTests: XCTestCase {
         XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerProviderKey],
                        "deepseek-search-api")
         XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerFetchProviderKey],
-                       "deepseek-fetch-api")
+                       "phone-host-fetch")
         XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerBaseURLKey],
                        "https://search.example:8443/v1/tools")
         XCTAssertEqual(plan.environment[PhoneWebSearchSettings.workerAPIKeyEnv],
@@ -239,7 +239,7 @@ final class WebSearchHostConfigurationSimTests: XCTestCase {
         var configured = ModelProviderLaunchPlan(credentialProvider: model)
         WebSearchHostConfiguration.apply(to: &configured, modelProfile: modelProfile, settings: settings)
         XCTAssertEqual(configured.environment[PhoneWebSearchSettings.workerProviderKey], "deepseek-search-api")
-        XCTAssertEqual(configured.environment[PhoneWebSearchSettings.workerFetchProviderKey], "deepseek-fetch-api")
+        XCTAssertEqual(configured.environment[PhoneWebSearchSettings.workerFetchProviderKey], "phone-host-fetch")
 
         _ = try settings.clearAPIKey()
         XCTAssertEqual(try settings.load().configuration.baseURL, searchBase)

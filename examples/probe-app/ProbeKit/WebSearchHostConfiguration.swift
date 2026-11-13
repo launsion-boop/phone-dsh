@@ -121,7 +121,7 @@ public enum WebSearchHostConfiguration {
                     credentialProvider: modelProvider,
                     environment: [
                         PhoneWebSearchSettings.workerProviderKey: PhoneWebSearchMode.searchAPI.providerID,
-                        PhoneWebSearchSettings.workerFetchProviderKey: "deepseek-fetch-api",
+                        PhoneWebSearchSettings.workerFetchProviderKey: "phone-host-fetch",
                         PhoneWebSearchSettings.workerBaseURLKey: PhoneModelProviderSettings.officialDeepSeekWebBaseURL,
                         PhoneWebSearchSettings.workerAPIKeyEnv: PhoneWebSearchSettings.placeholderAPIKey,
                     ],

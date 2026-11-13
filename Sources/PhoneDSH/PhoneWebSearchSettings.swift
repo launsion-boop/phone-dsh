@@ -43,7 +43,7 @@ public enum PhoneWebSearchMode: String, Codable, CaseIterable, Hashable, Sendabl
     public var fetchProviderID: String? {
         switch self {
         case .followModel: return nil
-        case .searchAPI: return "deepseek-fetch-api"
+        case .searchAPI: return "phone-host-fetch"
         }
     }
 

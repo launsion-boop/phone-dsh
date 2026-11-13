@@ -1,0 +1,20 @@
+{
+  "name": "@phone-dsh/dsh-tool-fs-directory-hint",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "Append a glob/ls hint to DSH read's not-a-regular-file error",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
+  }
+}

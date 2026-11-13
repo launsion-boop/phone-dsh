@@ -68,9 +68,17 @@ allows host-injected credentials:
 | Entry | Value |
 | --- | --- |
 | `PDSH_WEB_SEARCH_PROVIDER` | `deepseek-search-api` |
-| `PDSH_WEB_FETCH_PROVIDER` | `deepseek-fetch-api` |
+| `PDSH_WEB_FETCH_PROVIDER` | `phone-host-fetch` |
 | `DEEPSEEK_SEARCH_API_BASE_URL` | the canonical base |
 | `DEEPSEEK_SEARCH_API_KEY` | the fixture `placeholder` |
+
+The fetch half is served by the Worker-local `phone-host-fetch` provider: it
+uses the Worker's global `fetch`, which `llm-bridge` carries over the host
+`/v1/http` route and the gateway's egress allow-list, and returns `text/plain`
+bodies verbatim. The independent `/fetch` operation described below remains
+registered by `web-deepseek-api` for deployments that select it, but
+`phone-host-fetch` is the phone host's default selection; the independent base
+and key are used for search.
 
 Otherwise the host publishes none of them and mounts no independent grant. The
 independent mode never publishes the official base or falls back to the follow-model

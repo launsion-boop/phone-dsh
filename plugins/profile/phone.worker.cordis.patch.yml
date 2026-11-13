@@ -225,8 +225,10 @@
 # The native host resolves one independent search document. In explicit
 # follow-model mode it sends `PDSH_WEB_SEARCH_PROVIDER=deepseek-official` and
 # the Messages-search base (only for an official DeepSeek endpoint). In
-# independent mode it sends `deepseek-search-api` / `deepseek-fetch-api`, the
-# configured `/v1/tools` base, and a non-secret placeholder key. The search key
+# independent mode it sends `deepseek-search-api` / `phone-host-fetch`, the
+# configured `/v1/tools` base (search), and a non-secret placeholder key; the
+# host-routed `phone-host-fetch` provider keeps raw `text/plain` sources out of
+# the Fetch API extractor. The search key
 # itself never enters the Worker: the host credential router matches the
 # normalized `/search` and `/fetch` paths on the configured host and injects the
 # dedicated Keychain value. Every other path keeps the model credential.
@@ -258,13 +260,21 @@
   disabled: false
   config:
     search: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-official' || (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api'
-    fetch: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api'
+    fetch: !!js ((process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'phone-host-fetch') || ((process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api')
     searchTimeoutMs: 60000
 # The local HTTP fetch provider talks to node:dns/undici directly and has no
-# Worker host route. Independent mode uses the official Search-and-Fetch API
-# provider below instead.
+# Worker host route, so it stays disabled. The Worker's global fetch is instead
+# installed by llm-bridge and carried over the App /v1/http route; the provider
+# below exposes that transport so text/plain sources are returned verbatim
+# instead of going through the independent Fetch API's Markdown extractor.
 - id: web-fetch-http
   disabled: true
+# A new phone package, not a DSH row: `insert` is what makes it visible to the
+# loader's patch composer and to the "row id exists in the roster" gate.
+- insert:
+    - id: web-fetch-host
+      name: '@phone-dsh/dsh-web-fetch-host'
+      disabled: !!js (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) !== 'phone-host-fetch'
 - id: web-deepseek-api
   disabled: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) !== 'deepseek-search-api'
   config:
@@ -883,7 +893,7 @@
               # no web_search for empty/unsupported provider ids, and web_fetch
               # only with the independent Search/Fetch provider pair.
               search: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-official' || (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api'
-              fetch: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api'
+              fetch: !!js ((process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'phone-host-fetch') || ((process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api')
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
@@ -952,7 +962,7 @@
             name: '@deepseek-ai/dsh-tool-web'
             config:
               search: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-official' || (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api'
-              fetch: !!js (process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api'
+              fetch: !!js ((process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'phone-host-fetch') || ((process.env.PDSH_WEB_SEARCH_PROVIDER ?? process.env.DSH_WEB_SEARCH_PROVIDER) === 'deepseek-search-api' && (process.env.PDSH_WEB_FETCH_PROVIDER ?? process.env.DSH_WEB_FETCH_PROVIDER) === 'deepseek-fetch-api')
               searchTimeoutMs: 60000
           - id: compaction
             name: cordis:group
@@ -1035,6 +1045,12 @@
     # Native Files folder import into the existing session workspace.
     - id: phone-directory-import
       name: '@phone-dsh/dsh-phone-directory-import'
+
+    # R2 (2026-11-13): append "use glob (or bash ls)" to DSH read's directory
+    # error. It is a tools/post-execute policy; the tool name, schema and
+    # FS_NOT_REGULAR_FILE identity stay DSH's.
+    - id: tool-fs-directory-hint
+      name: '@phone-dsh/dsh-tool-fs-directory-hint'
 
     - id: dshbot-channel
       name: '@phone-dsh/dsh-bot-runtime/channel'
