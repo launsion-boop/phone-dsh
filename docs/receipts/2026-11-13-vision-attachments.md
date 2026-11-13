@@ -31,7 +31,7 @@ Protocol impact: **P26**（additive `attach_to_model`）；**P19: none**（用�
 | `xcodebuild build -scheme PhoneDSH`（iPhone 17 Pro 模拟器） | **PASS**（移除用户附图 prompt 路径后重新构建） |
 | `npm run typecheck`（plugins） | **PASS** |
 | `node --test tests/bot-model-image-approval.test.ts` | **PASS** 2 |
-| Bot UI capture（23 个 XCUITest） | **PASS** — `** TEST SUCCEEDED **`，61 张 fixture 截图；本版移除了用户附图同意对话框测试 |
+| Bot UI capture（22 个 XCUITest） | **PASS** — `** TEST SUCCEEDED **`，61 张 fixture 截图；本版移除了用户附图同意对话框测试 |
 | `python3 spec/bot/v1/tools/validate_vectors.py` / `phone-cross-tree` / `phone-bundle-fresh` | **PASS**（重建 bundle 后） |
 
 ## 4. 未验证 / 风险
