@@ -34,6 +34,7 @@ Protocol impact: **P09: none** — 只改原生聊天页的本地滚动状态机
 | `xcodebuild test -only-testing:PhoneDSHSimTests/ChatTranscriptTailPolicyTests` | **PASS**（含新增 away-margin 用例） |
 | `xcodebuild build -scheme PhoneDSH`（iPhone 17 Pro 模拟器） | **PASS** |
 | Bot UI capture：`scripts/ci/bot-ui/capture.sh` | **PASS** — build + 22 个 XCUITest（`All tests passed`，0 failures）+ 61 张 fixture 截图 |
+| `xcodebuild test -only-testing:PhoneDSHDeviceUITests/PhoneDSHDeviceUITests/testHistoryRestoreThenSendKeepsLatestMessageVisible` | **BLOCKED / NOT A CODE FAILURE** — 测试在 `createNewSession()` 等 `app.buttons["新建会话"]`，当前抽屉显示的是「新会话」（截图证据在 xcresult），15s 超时；它没有走到跟随断言。属于测试 label 与 UI 的既有不一致，需另开测试修复 |
 | 现有 `swift test --filter PhoneDSHBotTests` | 未重跑；本 diff 只改 probe-app 视图，不改 PhoneDSHBot 包 |
 
 ## 4. 未验证 / 剩余风险
