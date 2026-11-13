@@ -21,6 +21,7 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readBytes
 import io.ktor.websocket.readReason
 import io.ktor.websocket.readText
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.flow.Flow
@@ -62,19 +63,16 @@ fun interface PclinkWebSocketFactory {
     suspend fun connect(url: String): PclinkWebSocket
 }
 
-/**
- * The production adapter (Ktor client CIO + WebSockets 3.2.3, the version
- * `:net` already pins). The client never contacts a real relay in a test: the
- * URL comes from the caller, and the test server is a loopback Ktor instance.
- *
- * [MAX_RELAY_FRAME_BYTES] is the transport ceiling. A frame above it is mapped
- * to `frame_too_large`; the relay client also checks the UTF-8 length before
- * parsing so the fake and the real transport agree.
- */
-class KtorPclinkWebSocketFactory(
-    private val client: HttpClient = defaultClient(),
+class KtorPclinkWebSocketFactory private constructor(
+    private val client: HttpClient,
+    private val boundOrigin: String?,
 ) : PclinkWebSocketFactory, AutoCloseable {
+    constructor(client: HttpClient = defaultClient()) : this(client, null)
+
     override suspend fun connect(url: String): PclinkWebSocket {
+        if (boundOrigin != null && PclinkRelayClientFactory.originForWebSocketUrl(url) != boundOrigin) {
+            throw PclinkError.BadFrame("relay socket belongs to another origin")
+        }
         val session = try {
             client.webSocketSession { url(urlString = url) }
         } catch (cancelled: CancellationException) {
@@ -90,10 +88,23 @@ class KtorPclinkWebSocketFactory(
     }
 
     companion object {
-        fun defaultClient(): HttpClient = HttpClient(CIO) {
+        fun defaultClient(): HttpClient = createClient()
+
+        fun forOrigin(origin: String, trustManagerForHost: (String) -> X509TrustManager): KtorPclinkWebSocketFactory {
+            PclinkValidation.origin(origin)
+            val host = origin.substringAfter("://").substringBefore(':')
+            val tls = if (origin.startsWith("https://")) trustManagerForHost(host) else null
+            return KtorPclinkWebSocketFactory(createClient(tls), origin)
+        }
+
+        private fun createClient(trust: X509TrustManager? = null): HttpClient = HttpClient(CIO) {
+            followRedirects = false
+            if (trust != null) {
+                engine {
+                    https { trustManager = trust }
+                }
+            }
             install(WebSockets) {
-                // The relay's single-frame cap. The client re-checks the decoded
-                // UTF-8 length so FakeWebSocket and Ktor produce the same error.
                 maxFrameSize = PclinkLimits.MAX_RELAY_FRAME_BYTES.toLong()
             }
         }

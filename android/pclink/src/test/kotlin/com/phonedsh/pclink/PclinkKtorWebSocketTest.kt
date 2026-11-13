@@ -109,6 +109,36 @@ class PclinkKtorWebSocketTest {
         }
     }
 
+    @Test
+    fun `the real socket enforces the relay frame ceiling`() = runBlocking {
+        val oversized = "x".repeat(PclinkLimits.MAX_RELAY_FRAME_BYTES + 1)
+        val server = embeddedServer(CIO, port = 0) {
+            install(WebSockets)
+            routing {
+                webSocket("/") {
+                    send(Frame.Text(oversized))
+                    delay(50)
+                    close(CloseReason(CloseReason.Codes.NORMAL, "done"))
+                }
+            }
+        }
+        server.start(wait = false)
+        val port = server.engine.resolvedConnectors().first().port
+        val socketFactory = KtorPclinkWebSocketFactory()
+        try {
+            val socket = socketFactory.connect("ws://127.0.0.1:$port/")
+            val failure = runCatching { socket.incoming.first() }.exceptionOrNull()
+            assertTrue(
+                "expected frame_too_large, got $failure",
+                failure is PclinkError.FrameTooLarge,
+            )
+            socket.close(1009, "frame_too_large")
+        } finally {
+            socketFactory.close()
+            server.stop(0, 0)
+        }
+    }
+
     private fun sid(): String = TestSupport.requireString(
         TestSupport.at(TestSupport.vectors(), "handshake"),
         "sid",

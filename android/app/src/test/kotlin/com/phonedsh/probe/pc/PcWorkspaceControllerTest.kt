@@ -367,6 +367,43 @@ class PcWorkspaceControllerTest {
     }
 
     @Test
+    fun `session history read is bound to the paired machine and uses the session page shape`() = runBlocking {
+        val fixture = onlineFixture()
+        try {
+            val record = PcTestValues.record()
+            fixture.client.setOnline(record)
+            await(fixture.controller.state) { it.record != null }
+            fixture.transport.handler = { endpoint, _ ->
+                assertEquals(PcWorkspaceController.SESSION_PAGE_ENDPOINT, endpoint)
+                JsonObject(
+                    linkedMapOf(
+                        "records" to JsonArray(emptyList()),
+                        "hasMore" to JsonBool(true),
+                    ),
+                )
+            }
+
+            val read = fixture.controller.readSessionHistoryPage(record.peerMachineId, "session-1")
+            assertTrue(read.hasMore)
+            val call = fixture.transport.calls.single()
+            assertEquals("session/page", call.first)
+            val request = (call.second as JsonObject)["request"] as JsonObject
+            val address = request["address"] as JsonObject
+            assertEquals("session", (address["kind"] as JsonString).value)
+            assertEquals("session-1", (address["sessionId"] as JsonString).value)
+            assertEquals("60", (request["maxMessages"] as JsonNumber).raw)
+
+            val refused = runCatching {
+                fixture.controller.readSessionHistoryPage("other-machine", "session-1")
+            }
+            assertTrue(refused.isFailure)
+            assertEquals(1, fixture.transport.calls.size)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
     fun `a failed roster read keeps the cached rows and reports the error`() = runBlocking {
         val fixture = Fixture()
         try {

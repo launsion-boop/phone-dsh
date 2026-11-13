@@ -280,6 +280,15 @@ internal sealed interface PcTurnState {
     data class Failed(val error: PcWorkspaceError) : PcTurnState
 }
 
+/** One bounded `session/page` window; [events] is still DSH's raw event set. */
+internal data class PcSessionHistoryRead(
+    val events: List<JsonObject>,
+    val hasMore: Boolean,
+)
+
+/** A history read refusal or a malformed answer; the message is page copy. */
+internal class PcSessionHistoryReadException(message: String) : Exception(message)
+
 /** The whole App-side state the page integrator maps. */
 internal data class PcWorkspaceState(
     val backend: PcBackend = PcBackend.PHONE,
@@ -330,9 +339,10 @@ internal interface PcLinkClientPort {
 /**
  * The App's one PC workspace controller.
  *
- * All intents are non-blocking except the two `suspend` internals used by
- * `PcLinkWorkspace`; each returns the [Job] that performs the work so a caller
- * (and the test suite) can await the terminal state.
+ * All intents are non-blocking except the suspend internals used by
+ * `PcLinkWorkspace` and the bounded session-history read; each intent returns
+ * the [Job] that performs the work so a caller (and the test suite) can await
+ * the terminal state.
  */
 internal class PcWorkspaceController(
     private val client: PcLinkClientPort,
@@ -712,6 +722,60 @@ internal class PcWorkspaceController(
             }
         }
     }
+
+    // ---- Session history ------------------------------------------------
+
+    /**
+     * One bounded `session/page` read. The read is bound to the currently paired
+     * machine: a stale route address is refused before any frame is sent, and a
+     * pairing that changed during the call discards the answer.
+     *
+     * The caller projects [PcSessionHistoryRead.events] with the existing
+     * transcript code; this controller owns no UI type.
+     */
+    suspend fun readSessionHistoryPage(
+        machineId: String,
+        sessionId: String,
+    ): PcSessionHistoryRead {
+        if (sessionId.isBlank()) throw PcSessionHistoryReadException("这个会话没有可读取的编号。")
+        if (pairedMachineId() != machineId) {
+            throw PcSessionHistoryReadException("这台电脑不是当前配对的电脑，未读取会话历史。")
+        }
+        val result = transport.call(
+            SESSION_PAGE_ENDPOINT,
+            JsonObject(
+                linkedMapOf(
+                    "request" to JsonObject(
+                        linkedMapOf(
+                            "address" to JsonObject(
+                                linkedMapOf(
+                                    "kind" to JsonString("session"),
+                                    "sessionId" to JsonString(sessionId),
+                                ),
+                            ),
+                            "maxMessages" to JsonNumber(SESSION_HISTORY_MAX_MESSAGES.toString()),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        if (pairedMachineId() != machineId) {
+            throw PcSessionHistoryReadException("电脑配对已变化，本次历史未采用。")
+        }
+        val response = result as? JsonObject
+            ?: throw PcSessionHistoryReadException("电脑没有返回可读的历史页。")
+        val records = response["records"] as? JsonArray
+            ?: throw PcSessionHistoryReadException("电脑没有返回历史记录集合。")
+        val events = records.values.map { record ->
+            (record as? JsonObject)?.get("event") as? JsonObject
+                ?: throw PcSessionHistoryReadException("电脑返回了无法读取的历史记录。")
+        }
+        val hasMore = (response["hasMore"] as? JsonBool)?.value
+            ?: throw PcSessionHistoryReadException("电脑没有返回历史分页状态。")
+        return PcSessionHistoryRead(events, hasMore)
+    }
+
+    private fun pairedMachineId(): String? = mutableState.value.record?.machineId
 
     // ---- Turn -----------------------------------------------------------
 
@@ -1116,6 +1180,8 @@ internal class PcWorkspaceController(
 
     companion object {
         const val SESSION_LIST_ENDPOINT: String = "session/list"
+        const val SESSION_PAGE_ENDPOINT: String = "session/page"
+        const val SESSION_HISTORY_MAX_MESSAGES: Int = 60
         private const val PRESENCE_TICK_MILLIS: Long = 500
 
         /**

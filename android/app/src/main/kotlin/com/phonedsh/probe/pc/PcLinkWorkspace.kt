@@ -10,6 +10,8 @@
 package com.phonedsh.probe.pc
 
 import android.content.Context
+import android.net.http.X509TrustManagerExtensions
+import com.phonedsh.pclink.KtorPclinkWebSocketFactory
 import com.phonedsh.pclink.PclinkClient
 import com.phonedsh.pclink.PclinkClientConfiguration
 import com.phonedsh.pclink.PclinkClientStatus
@@ -29,6 +31,10 @@ import com.phonedsh.pclink.PclinkRpc
 import com.phonedsh.platform.android.AndroidSecureStore
 import com.phonedsh.probe.SharedPreferenceFile
 import java.io.File
+import java.security.KeyStore
+import java.security.cert.X509Certificate
+import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,20 +74,47 @@ internal class PclinkClientAdapter(
 internal class StoredIdentityRelayLinkFactory(
     private val identityStore: PclinkIdentityStore,
 ) : PclinkRelayLinkFactory, AutoCloseable {
-    private var factory: PclinkRelayClientFactory? = null
+    private data class Dialer(val origin: String, val factory: PclinkRelayClientFactory)
+
+    private var dialer: Dialer? = null
 
     override suspend fun connect(url: String): PclinkRelayLink {
+        val origin = PclinkRelayClientFactory.originForWebSocketUrl(url)
         val seed = identityStore.loadSeed() ?: throw PclinkError.NoIdentity()
-        val identity = PclinkIdentity(seed)
         val current = synchronized(this) {
-            factory ?: PclinkRelayClientFactory(identity).also { factory = it }
+            dialer?.takeIf { it.origin == origin } ?: Dialer(
+                origin,
+                PclinkRelayClientFactory(
+                    PclinkIdentity(seed),
+                    socketFactory = KtorPclinkWebSocketFactory.forOrigin(origin, ::androidRelayTrustManager),
+                ),
+            ).also {
+                dialer?.factory?.close()
+                dialer = it
+            }
         }
-        return current.connect(url)
+        return current.factory.connect(url)
     }
 
     override fun close() {
-        synchronized(this) { factory }?.close()
-        synchronized(this) { factory = null }
+        synchronized(this) {
+            dialer?.factory?.close()
+            dialer = null
+        }
+    }
+}
+
+// CIO checks the certificate hostname separately and passes only the chain to
+// its trust manager. Android needs the dialed host to choose the trust policy.
+private fun androidRelayTrustManager(host: String): X509TrustManager {
+    val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+    factory.init(null as KeyStore?)
+    val platform = factory.trustManagers.filterIsInstance<X509TrustManager>().single()
+    val hostnameTrust = X509TrustManagerExtensions(platform)
+    return object : X509TrustManager by platform {
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
+            hostnameTrust.checkServerTrusted(chain, authType, host)
+        }
     }
 }
 
