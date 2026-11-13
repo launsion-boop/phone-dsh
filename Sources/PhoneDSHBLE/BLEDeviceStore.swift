@@ -25,6 +25,10 @@ import PhoneDSHAgentCore
         public var allowRead = false
         public var allowAlert = false
         public var linkIdentity = ""
+        /// The Link device ID exactly as `tools/list` returned it. `linkIdentity`
+        /// stays lowercased for existing trust/journal consumers; the device panel
+        /// descriptor compares `device_id` verbatim (device-panel.md §4).
+        public var linkDeviceID = ""
         public var linkState = "未发现 Link"
         public var linkTools: [String] = []
         public var linkToolDescriptors: [JSONValue] = []
@@ -62,8 +66,17 @@ import PhoneDSHAgentCore
     @ObservationIgnored private var linkTaskTools: [UUID: Set<String>] = [:]
     @ObservationIgnored private var linkTasks: [UUID: Task<Void, Never>] = [:]
     private final class LinkOperation {
-        let owner: Owner
-        init(owner: Owner) { self.owner = owner }
+        /// Identity for the shared entry's hold/release pair.
+        let id = UUID()
+        /// The connection generation that owns the slot, if any was connected at admission.
+        let owner: Owner?
+        /// False for a call the user started from the device panel. An Agent
+        /// turn or MCP cancellation must not disconnect it: panel calls are not
+        /// part of the device Session (device-panel.md §3).
+        let agentCancellable: Bool
+        init(owner: Owner?, agentCancellable: Bool = true) {
+            self.owner = owner; self.agentCancellable = agentCancellable
+        }
     }
     @ObservationIgnored private var linkBusy: [UUID: LinkOperation] = [:]
     /// ble-link.md@scan-intent-v1: the latest admitted scan/stop owns every later scan effect.
@@ -695,7 +708,7 @@ import PhoneDSHAgentCore
             guard self.owners[id] === current,
                   !serviceChange || (self.poweredOn && self.managerUnavailableRevision === unavailableRevision) else { return }
             $0.state = self.phaseLabel(current.phase)
-            $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkTools = []; $0.linkToolDescriptors = []
+            $0.linkState = "未连接"; $0.linkIdentity = ""; $0.linkDeviceID = ""; $0.linkTools = []; $0.linkToolDescriptors = []
             $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false; $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevision { $0.identityError = "" }
             $0.grantedTools = []; $0.homeOrigins = ""; $0.events = []; $0.profiles = []; $0.readings = [:]
             $0.allowRead = current.read; $0.allowAlert = current.alert
@@ -774,7 +787,7 @@ import PhoneDSHAgentCore
                 guard self.owners[id] === current else { return }
                 $0.allowRead = current.read; $0.allowAlert = current.alert; $0.state = self.phaseLabel(current.phase)
                 $0.allowDeviceTasks = false; $0.supportsDeviceTasks = false
-                $0.linkIdentity = ""; $0.linkState = "未连接"; $0.linkTools = []; $0.linkToolDescriptors = []
+                $0.linkIdentity = ""; $0.linkDeviceID = ""; $0.linkState = "未连接"; $0.linkTools = []; $0.linkToolDescriptors = []
                 $0.taskIdentity = ""; $0.pendingIdentity = ""; if current.identityErrorRevision === errorRevisions[id] { $0.identityError = "" }; $0.grantedTools = []; $0.homeOrigins = ""
                 $0.events = []; $0.profiles = []; $0.readings = [:]; $0.secureDevice = ""; $0.secureState = ""
             }
@@ -1741,6 +1754,7 @@ import PhoneDSHAgentCore
         update(id) {
             guard self.isCurrentChannelInstallation(id, current: current, channel: channel, installation: installation) else { return }
             $0.linkIdentity = deviceID.lowercased()
+            $0.linkDeviceID = deviceID
         }
     }
     func testLinkEvent(_ id: UUID, segment: Data) {
@@ -2151,7 +2165,8 @@ import PhoneDSHAgentCore
         let ordinaryTools = tools.filter { !Self.isReservedTaskTool($0["name"]?.stringValue ?? "") }
         // GAP-16 remains open; advertised task tools are never invoked here.
         installIdentityClient(id, current: current, client: client, isCurrent: isCurrent) {
-            $0.linkIdentity = deviceID.lowercased(); $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }
+            $0.linkIdentity = deviceID.lowercased(); $0.linkDeviceID = deviceID
+            $0.linkTools = names.filter { !Self.isReservedTaskTool($0) }
             $0.linkToolDescriptors = ordinaryTools; $0.linkState += " · PDSH Tools v1"
             if self.trustConnectedDevices {
                 // Connecting is the trust decision: every advertised tool except the user's revocations.
@@ -2404,6 +2419,45 @@ import PhoneDSHAgentCore
         guard linkBusy[id] == nil else { return }
         update(id) { $0.homeOrigins = text }
     }
+    /// Atomically claims this device's single Link slot. `callLinkTool` and
+    /// `queryLinkTool` take it *before* writing the journal intent
+    /// (ble-link.md「Link 调用准入」 rule 1); device tasks and grant changes see
+    /// the same `linkBusy` slot. Throws `LinkBusy` without touching the journal.
+    func admitLink(_ id: UUID, origin: LinkCallOrigin = .agent) throws -> LinkAdmission {
+        guard linkBusy[id] == nil else { throw LinkBusy() }
+        let operation = LinkOperation(owner: owners[id], agentCancellable: origin == .agent)
+        linkBusy[id] = operation
+        return LinkAdmission(deviceID: id, operationID: operation.id)
+    }
+
+    /// Releases a held admission. The identity check guarantees a stale release
+    /// can never clear a newer operation's reservation.
+    func releaseLink(_ admission: LinkAdmission) {
+        guard linkBusy[admission.deviceID]?.id == admission.operationID else { return }
+        linkBusy[admission.deviceID] = nil
+    }
+
+    /// The invoke half of `invokeLink` for a caller that already holds `admission`.
+    /// Authorization happened in the shared entry before the journal intent; the
+    /// connection and submission guards stay exactly those of `invokeLink`.
+    func invokeAdmittedLink(_ admission: LinkAdmission, requestID: UUID, name: String,
+                            arguments: JSONValue, key: String) async throws -> JSONValue {
+        guard linkBusy[admission.deviceID]?.id == admission.operationID,
+              let client = linkClients[admission.deviceID] else { throw BLEFailure("Link is busy") }
+        guard let current = owners[admission.deviceID], current.phase == .connected, poweredOn else { throw BLEFailure("Link disconnected") }
+        guard submitConnected(admission.deviceID, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
+        return try await client.invoke(requestID: requestID, name: name, arguments: arguments, idempotencyKey: key)
+    }
+
+    /// The query half of `queryLink` for a caller that already holds `admission`.
+    func queryAdmittedLink(_ admission: LinkAdmission, requestID: UUID) async throws -> JSONValue? {
+        guard linkBusy[admission.deviceID]?.id == admission.operationID,
+              let client = linkClients[admission.deviceID] else { throw BLEFailure("Link is busy") }
+        guard let current = owners[admission.deviceID], current.phase == .connected, poweredOn else { throw BLEFailure("Link disconnected") }
+        guard submitConnected(admission.deviceID, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
+        return try await client.query(requestID: requestID)
+    }
+
     public func authorizeLink(_ id: UUID, name: String, arguments: JSONValue?) throws {
         guard poweredOn, owners[id]?.phase == .connected, !Self.isReservedTaskTool(name),
               let device = devices.first(where: { $0.id == id }), linkClients[id] != nil,
@@ -2430,6 +2484,18 @@ import PhoneDSHAgentCore
         guard submitConnected(id, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
         return try await client.query(requestID: requestID)
     }
-    public func cancelLinkOperations() { for (id, operation) in Array(linkBusy) where owners[id] === operation.owner { disconnect(id) } }
+    /// Agent-side cancellation (turn stop, MCP `notifications/cancelled`). It
+    /// disconnects devices whose Link slot is held by the Agent or a device
+    /// task, as before; a user-origin panel call keeps running.
+    public func cancelLinkOperations() {
+        for (id, operation) in Array(linkBusy) where operation.agentCancellable && owners[id] === operation.owner { disconnect(id) }
+    }
 
+}
+
+/// A held per-device Link admission. The shared entry takes it before the
+/// journal intent and releases it after the call/query finishes.
+struct LinkAdmission: Sendable {
+    let deviceID: UUID
+    let operationID: UUID
 }

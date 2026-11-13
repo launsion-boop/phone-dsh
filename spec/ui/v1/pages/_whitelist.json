@@ -67,6 +67,28 @@
    "platformRef": "platform.tonolink-iphone-agent",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "device-panel",
+   "kind": "missing-section",
+   "name": "<android-screen>",
+   "id": "device-panel-ios-only",
+   "reason": "Native device panel: Android has no usable PDSH Link tool channel (no tool RPC, durable intent or per-tool grants) until GAP-20 closes; Android must not render it or a disabled placeholder.",
+   "side": "ios-only",
+   "platformRef": "platform.device-panel-ios",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30"
+  },
+  {
+   "page": "bluetooth-devices",
+   "side": "ios-only",
+   "platformRef": "platform.device-panel-ios",
+   "owner": "ui-contract",
+   "reviewBy": "2027-06-30",
+   "kind": "missing-action",
+   "name": "设备面板",
+   "id": "bluetooth-devices-open-device-panel-ios-only",
+   "reason": "The panel entry exists only where PDSH Link tools are callable; Android Link tool RPC is blocked by GAP-20."
   }
  ]
 }

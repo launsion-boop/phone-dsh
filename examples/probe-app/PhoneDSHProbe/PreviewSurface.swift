@@ -270,7 +270,7 @@ struct PreviewSurface: View {
                             .buttonStyle(.borderedProminent)
                     }
                 } else {
-                    body(for: model.kind)
+                    PreviewSurfaceContent(path: model.path) { body(for: model.kind) }
                 }
             }
             if model.isLoading && !model.text.isEmpty {
@@ -865,3 +865,19 @@ extension PreviewDebugFixtures {
     }
 }
 #endif
+
+/// A device panel descriptor opens as the panel it describes, with one tap to
+/// adopt it, not as raw JSON (device-panel.md §4.1). Every other file keeps the
+/// kind-specific body.
+private struct PreviewSurfaceContent<Fallback: View>: View {
+    let path: String
+    @ViewBuilder let fallback: () -> Fallback
+
+    var body: some View {
+        if DevicePanelDescriptorPreview.handles(path) {
+            DevicePanelDescriptorPreview(path: path)
+        } else {
+            fallback()
+        }
+    }
+}

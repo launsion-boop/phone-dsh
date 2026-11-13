@@ -112,6 +112,16 @@ struct BluetoothDevicesPage: View {
                     if let value = device.readings[profile.rawValue] { Text(value).font(.caption) }
                 }
                 Text(device.linkState).font(.footnote)
+                // device-panel.md §1: a device that did not negotiate PDSH
+                // Tools v1 has no panel. There is no placeholder page either.
+                if !device.linkTools.isEmpty {
+                    NavigationLink {
+                        DevicePanelPage(device: device, store: store)
+                    } label: {
+                        Label("设备面板", systemImage: "slider.horizontal.3")
+                    }
+                    .accessibilityIdentifier("ble-device-panel-\(device.id.uuidString)")
+                }
                 #if PDSH_ENABLE_DEVICE_TASKS
                 if !device.identityError.isEmpty {
                     Text(device.identityError)

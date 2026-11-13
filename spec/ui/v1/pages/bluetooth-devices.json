@@ -13,7 +13,7 @@
   "source": {
     "file": "BluetoothDevicesPage.swift",
     "path": "examples/probe-app/PhoneDSHProbe/BluetoothDevicesPage.swift",
-    "lines": 156,
+    "lines": 166,
     "structLine": 6,
     "renderedFrom": [
       "body",
@@ -411,6 +411,21 @@
           "extraction": "manual"
         },
         {
+          "id": "设备面板",
+          "label": "设备面板",
+          "labelExpr": null,
+          "kind": "navigation",
+          "value": null,
+          "valueExpr": null,
+          "clickable": true,
+          "destination": "DevicePanelPage",
+          "writes": false,
+          "condition": "!device.linkTools.isEmpty",
+          "provenance": "BluetoothDevicesPage.swift:121",
+          "anchor": "Label(\"设备面板\", systemImage: \"slider.horizontal.3\")",
+          "extraction": "syntax"
+        },
+        {
           "id": "设备-id-device-linkidentity",
           "label": "设备 ID：{device.linkIdentity}",
           "labelExpr": null,
@@ -421,7 +436,7 @@
           "destination": null,
           "writes": false,
           "condition": "!device.linkIdentity.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:136",
+          "provenance": "BluetoothDevicesPage.swift:146",
           "anchor": "if !device.linkIdentity.isEmpty { Text(\"设备 ID：\\(device.linkIdentity)\").font(.cap",
           "extraction": "manual",
           "dynamicLabel": true
@@ -437,7 +452,7 @@
           "destination": null,
           "writes": true,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:138",
+          "provenance": "BluetoothDevicesPage.swift:148",
           "anchor": "Toggle(\"允许工具：\\(name)\", isOn: Binding(get: {",
           "extraction": "manual",
           "dynamicLabel": true,
@@ -454,7 +469,7 @@
           "destination": null,
           "writes": true,
           "condition": "device.linkTools.contains(\"home.http\")",
-          "provenance": "BluetoothDevicesPage.swift:144",
+          "provenance": "BluetoothDevicesPage.swift:154",
           "anchor": "TextField(\"允许的家居地址：http://192.168.1.50:8123\", text: Binding(get: {",
           "extraction": "syntax"
         },
@@ -469,12 +484,12 @@
           "destination": null,
           "writes": false,
           "condition": "device.linkTools.contains(\"home.http\")",
-          "provenance": "BluetoothDevicesPage.swift:148",
+          "provenance": "BluetoothDevicesPage.swift:158",
           "anchor": "Text(\"只允许填写明确的私网 IP 与端口，多个地址用空格分隔。设备固件也必须允许该地址。HTTP 不跟随跳转。\")",
           "extraction": "syntax"
         },
         {
-          "id": "text-151",
+          "id": "text-161",
           "label": null,
           "labelExpr": "event",
           "kind": "text",
@@ -484,7 +499,7 @@
           "destination": null,
           "writes": false,
           "condition": "!(device.state == \"未连接\")",
-          "provenance": "BluetoothDevicesPage.swift:151",
+          "provenance": "BluetoothDevicesPage.swift:161",
           "anchor": "ForEach(Array(device.events.enumerated()), id: \\.offset) { _, event in Text(even",
           "extraction": "manual",
           "collection": "Array(device.events.enumerated()), id: \\.offset"
@@ -500,12 +515,12 @@
           "destination": null,
           "writes": false,
           "condition": "device.profiles.isEmpty && device.linkTools.isEmpty",
-          "provenance": "BluetoothDevicesPage.swift:152",
+          "provenance": "BluetoothDevicesPage.swift:162",
           "anchor": "if device.profiles.isEmpty && device.linkTools.isEmpty { Text(\"尚未发现可用标准能力；厂商私有服务",
           "extraction": "syntax"
         }
       ],
-      "provenance": "BluetoothDevicesPage.swift:154",
+      "provenance": "BluetoothDevicesPage.swift:164",
       "anchor": "} header: { Text(device.name) }",
       "extraction": "syntax",
       "criterion": {
@@ -642,6 +657,20 @@
       "dynamicLabel": true
     },
     {
+      "id": "设备面板",
+      "label": "设备面板",
+      "labelExpr": null,
+      "kind": "navigation",
+      "trigger": "tap",
+      "semantic": "navigate:DevicePanelPage",
+      "writes": false,
+      "destination": "DevicePanelPage",
+      "condition": null,
+      "provenance": "BluetoothDevicesPage.swift:121",
+      "anchor": "Label(\"设备面板\", systemImage: \"slider.horizontal.3\")",
+      "extraction": "syntax"
+    },
+    {
       "id": "允许工具-name",
       "label": "允许工具：{name}",
       "labelExpr": null,
@@ -651,7 +680,7 @@
       "writes": true,
       "destination": null,
       "condition": null,
-      "provenance": "BluetoothDevicesPage.swift:138",
+      "provenance": "BluetoothDevicesPage.swift:148",
       "anchor": "Toggle(\"允许工具：\\(name)\", isOn: Binding(get: {",
       "extraction": "manual",
       "dynamicLabel": true
@@ -718,7 +747,7 @@
       "empty": [],
       "data": [
         {
-          "renders": "untitled section at 33 | 展开其他设备（N 个，未发现设备能力） | 结果 | 支持范围 | untitled section at 154",
+          "renders": "untitled section at 33 | 展开其他设备（N 个，未发现设备能力） | 结果 | 支持范围 | untitled section at 164",
           "when": null,
           "provenance": "BluetoothDevicesPage.swift:6",
           "anchor": "struct BluetoothDevicesPage: View {",

@@ -267,6 +267,12 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # The device panel page carries its UI-free, injected-source model and
+      # the scripted fake, so this hostless suite drives the real panel state
+      # machine without BLE or Application Support. The app-only adoption sheet
+      # is ChatModel-bound; DevicePanelPage.swift hides that reference behind
+      # PDSH_PROBE_HOSTLESS_TESTS (this target does not compile ChatModel.swift).
+      - path: PhoneDSHProbe/DevicePanelPage.swift
       # The PCLink connection owner is UI-free except for the debug identity
       # store; the simulator suite drives its foreground wake-through.
       - path: PhoneDSHProbe/PCLinkWorkspace.swift
@@ -327,6 +333,10 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+        # PhoneDSHProbe/DevicePanelPage.swift is compiled into this hostless
+        # module, which does not compile ChatModel.swift. The app-only adoption
+        # sheet reference in that file is guarded by this condition.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PDSH_PROBE_HOSTLESS_TESTS"
 
   # Device twin of PhoneDSHScenarioSimTests: the same sources hosted by the
   # probe app, because tool-hosted unit tests cannot run on a physical device.
@@ -403,6 +413,12 @@ targets:
       - path: PhoneDSHProbe/LegacyTaskInspectionModel.swift
       - path: PhoneDSHProbe/LegacyTaskInspectionSection.swift
       - path: PhoneDSHProbe/BluetoothDevicesPage.swift
+      # The device panel page carries its UI-free, injected-source model and
+      # the scripted fake, so this hostless suite drives the real panel state
+      # machine without BLE or Application Support. The app-only adoption sheet
+      # is ChatModel-bound; DevicePanelPage.swift hides that reference behind
+      # PDSH_PROBE_HOSTLESS_TESTS (this target does not compile ChatModel.swift).
+      - path: PhoneDSHProbe/DevicePanelPage.swift
       - path: PhoneDSHProbe/PCLinkWorkspace.swift
       # The App-side Bot MCP listener supervisor is host-free and links the
       # real PhoneDSHBot recovery result, so the three lifecycle timings run
@@ -452,6 +468,9 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+        # Same source split as PhoneDSHSimTests: this twin compiles the app
+        # sources individually and does not see ChatModel.swift.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) PDSH_PROBE_HOSTLESS_TESTS"
 
   PhoneDSHDeviceUITests:
     type: bundle.ui-testing

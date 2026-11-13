@@ -73,7 +73,7 @@ struct ConnectorsPage: View {
     @State private var pushed: DiscoverConnector?
 
     var body: some View {
-        List {
+        List { DevicePanelShortcuts()
             Section {
                 ForEach(DiscoverConnector.allCases) { connector in
                     row(connector)
