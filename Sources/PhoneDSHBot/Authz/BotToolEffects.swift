@@ -146,7 +146,7 @@ public enum BotToolEffectClassifier {
                                  isMcp: isMcp)
         case "attach_to_model":
             let purpose = clip(args["purpose"], max: 120)
-            let target = clip(firstNonEmpty(args["path"], args["fileId"], args["photoId"]), max: 120)
+            let target = clip(firstNonEmpty(args["path"], args["fileId"], args["photoId"]), max: 200)
             return BotToolEffect(
                 tool: bareName, operation: "model.image.attach",
                 resource: target.isEmpty ? "model:image" : "attachment=\(target)",
