@@ -247,6 +247,12 @@ public actor BotMCPRuntime {
     /// internal callers working, but the MCP tool refuses user/profile writes
     /// without a verified user-message reference.
     public let recordEvidence: (any BotRecordEvidenceResolving)?
+    /// Resolves one existing image into encoded bytes for `attach_to_model`.
+    /// `nil` (tests, non-App hosts) makes the tool fail closed instead of
+    /// advertising a capability that cannot produce pixels.
+    public typealias BotModelImageReader =
+        @Sendable (BotModelAttachmentRequest) async throws -> BotModelImage
+    private let modelImageReader: BotModelImageReader?
 
     private let now: @Sendable () -> Int64
     /// Host data root used by the Task authorization fallback when the
@@ -266,6 +272,9 @@ public actor BotMCPRuntime {
     /// can never be claimed or approved after the restart.
     private var registrationGeneration: UInt64 = 0
     private var suppressingTextSessions: Set<String> = []
+    /// Per-turn `attach_to_model` count. The prompt path caps user images at
+    /// two; this caps tool-provided images at the same number.
+    private var modelImageCounts: [String: Int] = [:]
     private var hiddenTextSessions: Set<String> = []
     private var heldMessageSessions: Set<String> = []
     /// Installed by the App composition while the Bot runtime is bound. The
@@ -318,6 +327,7 @@ public actor BotMCPRuntime {
         taskExecutor: (any BotTaskExecuting)? = nil,
         routineStore: (any RoutineStore)? = nil,
         recordEvidence: (any BotRecordEvidenceResolving)? = nil,
+        modelImageReader: BotModelImageReader? = nil,
         now: @escaping @Sendable () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1_000) },
         approvalTimeoutMs: Int64 = BotApprovalCoordinator.defaultTimeoutMilliseconds,
         approvalExpiryMs: Int64 = BotApprovalCoordinator.defaultDurableExpiryMilliseconds,
@@ -333,6 +343,7 @@ public actor BotMCPRuntime {
         authorizer = BotExecutionAuthorizer(grants: grants)
         eventWriter = BotMCPEventWriter(eventLog: store, now: now)
         self.recordEvidence = recordEvidence
+        self.modelImageReader = modelImageReader
         approvals = BotApprovalCoordinator(
             grants: grants, eventWriter: eventWriter, eventLog: store, now: now,
             approvalTimeoutMs: approvalTimeoutMs, durableExpiryMs: approvalExpiryMs)
@@ -647,6 +658,7 @@ public actor BotMCPRuntime {
         suppressingTextSessions.remove(sessionId)
         turnIDs.removeValue(forKey: sessionId)
         currentUserMessageRefs.removeValue(forKey: sessionId)
+        modelImageCounts.removeValue(forKey: sessionId)
         if hidden { hiddenTextSessions.insert(sessionId) } else { hiddenTextSessions.remove(sessionId) }
         if held { heldMessageSessions.insert(sessionId) } else { heldMessageSessions.remove(sessionId) }
         if let origin { turnOrigins[sessionId] = origin } else { turnOrigins.removeValue(forKey: sessionId) }
@@ -677,6 +689,7 @@ public actor BotMCPRuntime {
         turnOrigins.removeValue(forKey: sessionId)
         turnIDs.removeValue(forKey: sessionId)
         currentUserMessageRefs.removeValue(forKey: sessionId)
+        modelImageCounts.removeValue(forKey: sessionId)
     }
 
     public func suppressText(sessionId: String) {
@@ -1404,9 +1417,68 @@ public actor BotMCPRuntime {
         case "UpdateRoutine": return try await updateRoutine(arguments, call: call)
         case "ListRoutines": return .success(try await BotRoutineTool.list(machine: routineMachine, principal: call.principal))
         case "RequestApproval": return try await requestApproval(arguments, call: call)
+        case BotToolCatalog.attachToModelName:
+            return try await attachToModel(arguments, call: call)
         case "SendToUser": return try await sendToUser(arguments, call: call)
         default: throw BotMCPError.unknownTool(name)
         }
+    }
+
+    /// Hand one existing image to the model as an MCP image block. The DSH MCP
+    /// client verifies the selected model route declares image input, admits
+    /// the bytes through the durable attachment store and only then turns it
+    /// into an `ImageBlock`; a text-only model gets a diagnostic instead of a
+    /// silent image. Approval is a separate structural effect on this call.
+    private func attachToModel(_ arguments: BotJSONValue,
+                               call: BotResolvedToolCall) async throws -> BotMCPCallResult {
+        guard let reader = modelImageReader else {
+            return .failure("unsupported", "当前部署不支持把图片交给模型")
+        }
+        guard case .object(let args) = arguments else {
+            throw BotMCPError.invalidRequest("arguments must be an object")
+        }
+        let path = string(args["path"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileID = string(args["fileId"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let photoID = string(args["photoId"])?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sources = [path, fileID, photoID].filter { !($0 ?? "").isEmpty }
+        guard sources.count == 1 else {
+            throw BotMCPError.invalidRequest("attach_to_model 需要 path、fileId 或 photoId 其中之一")
+        }
+        let purpose = string(args["purpose"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !purpose.isEmpty else {
+            throw BotMCPError.invalidRequest("attach_to_model 需要 purpose")
+        }
+        let used = modelImageCounts[call.sessionId, default: 0]
+        guard used < BotModelImagePolicy.maxImagesPerTurn else {
+            return .failure("too_many_images",
+                            "一条消息最多附 \(BotModelImagePolicy.maxImagesPerTurn) 张图片给模型")
+        }
+        let image: BotModelImage
+        do {
+            image = try await reader(BotModelAttachmentRequest(
+                path: (path ?? "").isEmpty ? nil : path,
+                fileID: (fileID ?? "").isEmpty ? nil : fileID,
+                photoID: (photoID ?? "").isEmpty ? nil : photoID,
+                purpose: purpose))
+        } catch {
+            return .failure("image_unavailable",
+                            "无法读取这张图片：\(error.localizedDescription)")
+        }
+        modelImageCounts[call.sessionId] = used + 1
+        let summary = "已附上图片 \(image.name)（\(image.pixelWidth)x\(image.pixelHeight)，"
+            + "\(image.data.count) bytes）。用途：\(purpose)"
+        let structured: BotJSONValue = .object([
+            "ok": .bool(true), "kind": .string("image"), "name": .string(image.name),
+            "bytes": .number(Double(image.data.count)),
+            "width": .number(Double(image.pixelWidth)),
+            "height": .number(Double(image.pixelHeight)),
+        ])
+        return BotMCPCallResult(
+            content: [
+                .object(["type": .string("text"), "text": .string(summary)]),
+                BotModelImagePreparer.mcpJSONValue(image),
+            ],
+            structuredContent: structured)
     }
 
     /// Turn origin decides the memory trust. A turn without a registered
@@ -2002,6 +2074,11 @@ public actor BotMCPRuntime {
     private func taskAuthorityDenial(call: BotResolvedToolCall, name: String,
                                      arguments: BotJSONValue, command: String) -> String? {
         guard call.principal.kind == .task else { return nil }
+        if name == BotToolCatalog.attachToModelName {
+            // A background task has no present user to approve model egress;
+            // keep the image in the workspace and let the parent chat decide.
+            return "task_scope:model_image_denied"
+        }
         guard name == "write" || name == "edit" || name == "bash" else { return nil }
         guard let authorization = BotTaskAuthorization.from(
             capabilities: call.principal.capabilities) else {

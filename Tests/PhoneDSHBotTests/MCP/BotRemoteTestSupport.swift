@@ -97,6 +97,9 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
     var createPresetOverride: String?
 
     private(set) var prompts: [String: (sessionId: String, mode: String, text: String)] = [:]
+    /// Raw `content` array, so a test can prove an image part was sent
+    /// alongside the text part.
+    private(set) var promptContents: [String: [BotJSONValue]] = [:]
     private(set) var promptHistory: [(sessionId: String, mode: String, text: String)] = []
     private(set) var promptRequestIds: [(sessionId: String, requestId: String, mode: String)] = []
     private(set) var cancellations: [String] = []
@@ -254,8 +257,10 @@ final class BotScriptedRemoteTransport: DSHRemoteTransport, @unchecked Sendable 
                 $0["text"]?.stringValue
             }.joined()
             let requestId = request["requestId"]?.stringValue ?? ""
+            let content = request["content"]?.arrayValue ?? []
             lock.withLock {
                 prompts[sessionId] = (sessionId, mode, text)
+                promptContents[sessionId] = content
                 promptHistory.append((sessionId, mode, text))
                 promptRequestIds.append((sessionId, requestId, mode))
             }

@@ -145,6 +145,21 @@ final class BotCaptureUITests: XCTestCase {
                                  "no large blank gap below the newest message")
     }
 
+    func testImageAttachmentSendAsksBeforeModelEgress() throws {
+        launch("composerAttachments")
+        let input = app.textFields["bot.composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 3))
+        input.tap()
+        input.typeText("看看这张图")
+        app.buttons["bot.composer.send"].tap()
+        // The image is the only attachment whose bytes leave the phone; the
+        // consent dialog must appear before the send, not after it.
+        let once = app.buttons["仅这一次"]
+        XCTAssertTrue(once.waitForExistence(timeout: 3))
+        once.tap()
+        XCTAssertTrue(app.staticTexts["看看这张图"].waitForExistence(timeout: 3))
+    }
+
     func testDocumentAndSafeLinkActions() throws {
         launch("document")
         let open = app.buttons["bot.document.open"]

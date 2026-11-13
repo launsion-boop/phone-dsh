@@ -654,6 +654,12 @@ private struct BotComposerDock: View {
 
     @State private var draft: String
     @State private var pendingAttachments: [BotDraftAttachment]
+    /// User consent before a pending image is sent to the model service. The
+    /// attachment picker alone does not prove the person knows the bytes leave
+    /// the phone; the composer asks once, with a session-scoped option.
+    @State private var imageConsentPresented = false
+    @State private var imageConsentForSession = false
+    @State private var deferredSend: BotDeferredSend?
     @State private var attachmentNotice: String?
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showPhotos = false
@@ -753,6 +759,22 @@ private struct BotComposerDock: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.data],
                       allowsMultipleSelection: true) { result in
             importPickedFiles(result)
+        }
+        .confirmationDialog("把图片发送给模型服务？", isPresented: $imageConsentPresented,
+                            titleVisibility: .visible) {
+            Button("仅这一次") {
+                imageConsentForSession = false
+                dispatchDeferredSend()
+            }
+            Button("本会话都允许") {
+                imageConsentForSession = true
+                dispatchDeferredSend()
+            }
+            Button("取消", role: .cancel) {
+                deferredSend = nil
+            }
+        } message: {
+            Text("图片会随本条消息发送给当前模型服务；最多 2 张，长边缩放到 1568px 且不超过 1 MB。")
         }
     }
 
@@ -945,12 +967,37 @@ private struct BotComposerDock: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let files = pendingAttachments.map(\.url)
         guard !text.isEmpty || !files.isEmpty else { return }
+        // An image is the one attachment whose bytes leave the phone. Ask
+        // before the send; the text-only path keeps its immediate behaviour.
+        if hasPendingImage && !imageConsentForSession {
+            deferredSend = BotDeferredSend(text: text, files: files)
+            imageConsentPresented = true
+            model.noteInteraction()
+            return
+        }
+        performSend(text: text, files: files)
+    }
+
+    private var hasPendingImage: Bool {
+        pendingAttachments.contains { item in
+            item.attachment.kind == "image"
+                || item.attachment.mimeType.lowercased().hasPrefix("image/")
+        }
+    }
+
+    private func performSend(text: String, files: [URL]) {
         draft = ""
         pendingAttachments = []
         attachmentNotice = nil
         model.send(text: text, files: files)
         onSend()
         focus.wrappedValue = true
+    }
+
+    private func dispatchDeferredSend() {
+        guard let deferred = deferredSend else { return }
+        deferredSend = nil
+        performSend(text: deferred.text, files: deferred.files)
     }
 }
 
@@ -1012,6 +1059,11 @@ private struct BotComposerLayout: Layout {
 /// One picked file waiting for the send button. `attachment` is the metadata
 /// the transcript card and the import action use; `url` is the readable local
 /// copy handed to `BotAttachmentImporting`.
+private struct BotDeferredSend {
+    let text: String
+    let files: [URL]
+}
+
 struct BotDraftAttachment: Identifiable, Equatable {
     let id: UUID
     let url: URL

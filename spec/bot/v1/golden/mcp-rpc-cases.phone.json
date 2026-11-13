@@ -178,11 +178,12 @@
             "SendToUser",
             "FishAction",
             "BotVolatileContext",
+            "attach_to_model",
             "SendToAgent",
             "CreateTeammate",
             "native_echo"
           ],
-          "count": 22,
+          "count": 23,
           "last": "native_echo",
           "notContains": [
             "show_table",
@@ -209,7 +210,7 @@
       },
       "expect": {
         "toolList": {
-          "count": 21,
+          "count": 22,
           "contains": [
             "SendToAgent",
             "FishAction"

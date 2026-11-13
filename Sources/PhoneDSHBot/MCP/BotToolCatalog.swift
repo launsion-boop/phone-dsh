@@ -10,6 +10,10 @@ public enum BotToolCatalog {
     ]
     public static let p1TargetNames = ["show_table", "show_callout", "show_info", "show_payload", "show_library"]
     public static let volatileContextName = "BotVolatileContext"
+    /// One existing image handed to the model as an MCP image content block.
+    /// Not in `p0Names`: it is an additive vision capability, so the frozen P0
+    /// golden and every non-vision deployment stay unchanged.
+    public static let attachToModelName = "attach_to_model"
     public static let cardToolNames = Set(p0Names.prefix(7))
     /// The five content cards accept the P26 `final` control flag. `ask_user` and
     /// `show_next_steps` already end the turn and do not take it.
@@ -182,7 +186,8 @@ public enum BotToolCatalog {
 
     public static func allDefinitions(roster: BotRoster,
                                       callerBotID: String?) -> [BotMCPToolDefinition] {
-        definitions + [fishActionDefinition, volatileContextDefinition]
+        definitions + [fishActionDefinition, volatileContextDefinition,
+                       attachToModelDefinition]
             + teamDefinitions(roster: roster, callerBotID: callerBotID)
     }
 
@@ -234,12 +239,20 @@ public enum BotToolCatalog {
             "additionalProperties": .bool(false),
         ]))
 
+    public static let attachToModelDefinition = BotMCPToolDefinition(
+        name: attachToModelName,
+        description: "Attach one image from the Bot workspace or an Office artifact to the model's context so you can actually see it. Pass exactly one of path, fileId or photoId; purpose is shown to the user in the approval card. The user must approve sending the image to the model service. Use this after camera.capture or when a user attached an image and you need its pixels; do not guess from metadata alone.",
+        inputSchema: schema([
+            "path": string(), "fileId": string(), "photoId": string(), "purpose": string(),
+        ], required: ["purpose"], additionalProperties: false))
+
     public static var allDefinitions: [BotMCPToolDefinition] {
-        definitions + [fishActionDefinition, volatileContextDefinition] + baseTeamDefinitions
+        definitions + [fishActionDefinition, volatileContextDefinition,
+                       attachToModelDefinition] + baseTeamDefinitions
     }
 
     public static func isRegistered(_ name: String) -> Bool {
-        name == volatileContextName || p0Names.contains(name)
+        name == volatileContextName || name == attachToModelName || p0Names.contains(name)
     }
 
     public static func isTeamTool(_ name: String) -> Bool {

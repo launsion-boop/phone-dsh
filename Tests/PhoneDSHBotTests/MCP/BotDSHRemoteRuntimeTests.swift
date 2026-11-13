@@ -86,6 +86,46 @@ final class BotDSHRemoteRuntimeTests: XCTestCase {
                        "the routine creation header must be the Bot surface")
     }
 
+    func testUserImageAttachmentsBecomePromptImagePartsAndAreCapped() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        let transport = BotScriptedRemoteTransport(scripts: [
+            "gb-main": [[.turn(), .assistant("seen"), .end()]],
+        ])
+        // The App's preparer reads a workspace file and returns encoded bytes;
+        // this test only proves the runtime shape and the cap.
+        let fake = BotModelImage(data: Data([0xFF, 0xD8, 0x01]), name: "photo.jpg",
+                                 pixelWidth: 1_568, pixelHeight: 1_176)
+        let remote = try await BotDSHRemoteRuntime(
+            transport: transport, runtime: fixture.runtime,
+            attachmentImagePreparer: { attachment in
+                attachment.name == "broken.png" ? nil : fake
+            })
+        let attachments = [
+            BotAttachment(name: "one.jpg", path: "/dsh/workspace/one.jpg", size: 10,
+                          mimeType: "image/jpeg", kind: "image"),
+            BotAttachment(name: "notes.txt", path: "/dsh/workspace/notes.txt", size: 10,
+                          mimeType: "text/plain", kind: "text"),
+            BotAttachment(name: "two.png", path: "/dsh/workspace/two.png", size: 10,
+                          mimeType: "image/png", kind: "image"),
+            BotAttachment(name: "three.png", path: "/dsh/workspace/three.png", size: 10,
+                          mimeType: "image/png", kind: "image"),
+            BotAttachment(name: "broken.png", path: "/dsh/workspace/broken.png", size: 10,
+                          mimeType: "image/png", kind: "image"),
+        ]
+        let result = try await remote.sendUserMessage(
+            "看看这些图", attachments: attachments)
+        XCTAssertEqual(result.status, "completed")
+        let content = try XCTUnwrap(transport.promptContents["gb-main"])
+        let images = content.filter { $0["type"]?.stringValue == "image" }
+        XCTAssertEqual(images.count, 2, "only the first two readable images")
+        XCTAssertEqual(content.first?["type"]?.stringValue, "text")
+        XCTAssertTrue(content.first?["text"]?.stringValue?.contains("one.jpg") == true)
+        XCTAssertEqual(images.first?["mediaType"]?.stringValue, "image/jpeg")
+        XCTAssertNil(images.first?["mimeType"])
+        XCTAssertNil(images.first?["path"])
+    }
+
     func testBotSessionComposedPresetMismatchFailsClosed() async throws {
         let fixture = try makeBotMCPFixture()
         defer { fixture.cleanup() }

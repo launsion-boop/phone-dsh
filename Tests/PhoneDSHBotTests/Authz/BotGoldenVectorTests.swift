@@ -51,7 +51,7 @@ final class BotGoldenVectorTests: XCTestCase {
         XCTAssertEqual(vector.schemaVersion, 1)
         XCTAssertEqual(vector.vector, "tool-effects")
         XCTAssertEqual(vector.source.checkout, "bf4075b0a2e8092b04b726c59a7b085d5a37e6f6")
-        XCTAssertEqual(vector.valid.count + vector.invalid.count, 27)
+        XCTAssertEqual(vector.valid.count + vector.invalid.count, 28)
         for call in vector.valid + vector.invalid {
             let actual = BotToolEffectClassifier.effect(for: call.name, arguments: call.args, language: .zh)
             XCTAssertEqual(BotToolEffectClassifier.policy(for: call.name, arguments: call.args),

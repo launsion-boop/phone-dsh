@@ -542,6 +542,28 @@
         "known": true,
         "isMcp": false
       }
+    },
+    {
+      "name": "attach_to_model",
+      "args": {
+        "path": "/dsh/workspace/camera.jpg",
+        "purpose": "看看这张照片"
+      },
+      "policy": "ask",
+      "effect": {
+        "tool": "attach_to_model",
+        "operation": "model.image.attach",
+        "resource": "attachment=/dsh/workspace/camera.jpg",
+        "target": "/dsh/workspace/camera.jpg",
+        "mutability": "external-send",
+        "policy": "ask",
+        "label": "把图片发送给模型",
+        "detail": "把图片发送给模型服务，让模型看到像素。用途：看看这张照片",
+        "ui": false,
+        "execution": null,
+        "known": true,
+        "isMcp": false
+      }
     }
   ],
   "invalid": [

@@ -190,7 +190,7 @@ final class BotCardPayloadTests: XCTestCase {
 
     func testCatalogRegistersExactlyP0AndVolatileContext() {
         XCTAssertEqual(BotToolCatalog.definitions.map(\.name), BotToolCatalog.p0Names)
-        XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 4)
+        XCTAssertEqual(BotToolCatalog.allDefinitions.count, BotToolCatalog.p0Names.count + 5)
         for name in BotToolCatalog.p1TargetNames + ["show_canvas", "show_product", "show_gift", "GenerateImage"] {
             XCTAssertFalse(BotToolCatalog.isRegistered(name))
         }
