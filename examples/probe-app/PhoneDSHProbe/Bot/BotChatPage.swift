@@ -311,6 +311,12 @@ struct BotChatPage: View {
                     .padding(.bottom, 16)
             }
             .coordinateSpace(name: "bot-transcript")
+            // A short transcript (first send, a one-line reply) must sit at
+            // the bottom like the main chat, not at the top with a huge blank
+            // band between it and the composer. This is the layout half of
+            // the "message pushed up / empty page" report; the short-content
+            // scroll guard above is the other half.
+            .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .modifier(BotTranscriptViewportReader(metrics: scrollMetrics) { height in
                 // The keyboard is the dominant viewport change: it does not
