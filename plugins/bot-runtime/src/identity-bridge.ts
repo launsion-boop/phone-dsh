@@ -110,6 +110,10 @@ export function needsIdentityRegistration(name: string): boolean {
   if (name.startsWith(NATIVE_PHONE_TOOL_PREFIX)) return false
   if (name.startsWith(NATIVE_BLE_TOOL_PREFIX)) return false
   if (name === 'bash' || name === 'write' || name === 'edit') return true
+  // read_image is a Worker fs tool, but its approval card is hosted by the
+  // App's structural gate; without a registered identity the card is
+  // unattributed and the call is denied.
+  if (name === 'read_image') return true
   return name.startsWith(PHONE_TOOL_PREFIX)
 }
 

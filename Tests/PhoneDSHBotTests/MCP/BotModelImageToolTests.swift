@@ -12,6 +12,17 @@ final class BotModelImageToolTests: XCTestCase {
         XCTAssertEqual(BotToolEffectClassifier.policy(for: BotToolCatalog.attachToModelName), .ask)
     }
 
+    func testReadImageCanRegisterForItsStructuralApproval() async throws {
+        let fixture = try makeBotMCPFixture()
+        defer { fixture.cleanup() }
+        _ = try await fixture.runtime.issueSession(botId: "main", sessionId: "gb-main", kind: .chat)
+        let attribution = try await fixture.runtime.registerIdentity(
+            runtimeId: BotMCPRuntime.defaultRuntimeID, sessionId: "gb-main",
+            callId: "read-image-call", name: "read_image",
+            arguments: .object(["path": .string("/dsh/workspace/photo.jpg")]))
+        XCTAssertEqual(attribution.name, "read_image")
+    }
+
     func testAttachToModelIsDeniedWithoutAnApprovalGrant() async throws {
         let fixture = try makeBotMCPFixture(modelImageReader: { _ in
             XCTFail("the reader must not run before approval")

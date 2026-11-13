@@ -20,17 +20,18 @@ Protocol impact: **P26**（additive `attach_to_model`）；**P19: none**（用�
   - 每回合最多 2 张；Task 会话拒绝。
 - 审批：Host `BotToolEffects` 与 Worker `approval-gate` 都分类为 `model.image.attach / external-send / ask`；Worker 资源的 path/fileId/photoId 与 Host 一致，避免 `stale:always_scope`。DSH 内置的 `read_image` 也在 Worker gate 中被分类并拦截——否则工作区图片可以绕过审批直接进模型。
 - Photos 导出：`isNetworkAccessAllowed=false`，不在后台拉 iCloud；缺失/不可用返回 `image_unavailable`。
+- 用户附件仍只提交原有文本/路径块；模型需要像素时对附件路径调用 DSH 内置 `read_image`，或调用 `attach_to_model(path:)`。两者都经过同一张审批卡；`read_image` 的 identity registration 也已加入允许名单，否则审批会因 `unattributed` 失败。
 
 ## 3. 验证
 
 | 命令 | 结果 |
 | --- | --- |
 | `swift test --filter BotModelImageTests` | **PASS** 4（缩放/1 MiB/JPEG/非图片） |
-| `swift test --filter BotModelImageToolTests` | **PASS** 6（catalog/effect、无审批 grant 拒绝、无 reader、image block、path/fileId/photoId/purpose/page） |
+| `swift test --filter BotModelImageToolTests` | **PASS** 7（catalog/effect、read_image identity、无审批 grant 拒绝、无 reader、image block、path/fileId/photoId/purpose/page） |
 | `swift test --filter "BotGoldenVectorTests|BotMCPRPCCasesTests|BotCardPayloadTests|BotTeamToolsTests"` | **PASS** 48（tool-effects 28、allDefinitions +1、tools/list +1） |
 | `xcodebuild build -scheme PhoneDSH`（iPhone 17 Pro 模拟器） | **PASS**（移除用户附图 prompt 路径后重新构建） |
 | `npm run typecheck`（plugins） | **PASS** |
-| `node --test tests/bot-model-image-approval.test.ts` | **PASS** 2 |
+| `node --test tests/bot-model-image-approval.test.ts` | **PASS** 4（含 read_image 与 Worker/Host golden） |
 | Bot UI capture（22 个 XCUITest） | **PASS** — `** TEST SUCCEEDED **`，61 张 fixture 截图；本版移除了用户附图同意对话框测试 |
 | `python3 spec/bot/v1/tools/validate_vectors.py` / `phone-cross-tree` / `phone-bundle-fresh` | **PASS**（重建 bundle 后） |
 

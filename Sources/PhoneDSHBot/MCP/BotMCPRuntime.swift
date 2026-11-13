@@ -724,7 +724,7 @@ public actor BotMCPRuntime {
         _ = pruneExpiredRegistrationsSync()
         let bareName = bareToolName(name)
         guard BotToolCatalog.isRegistered(bareName)
-                || ["bash", "write", "edit", "phone"].contains(bareName)
+                || ["bash", "write", "edit", "read_image", "phone"].contains(bareName)
                 || BotDeviceToolProvider.tools.contains(bareName)
                 || handlesTeamTool(bareName) else {
             throw BotMCPError.unknownTool(name)

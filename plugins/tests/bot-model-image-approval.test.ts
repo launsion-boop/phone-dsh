@@ -6,6 +6,7 @@ import {
   needsStructuralApproval,
   phoneEffectsForApproval,
 } from '../bot-runtime/src/approval-gate.ts'
+import { needsIdentityRegistration } from '../bot-runtime/src/identity-bridge.ts'
 
 test('attach_to_model is a structural, approval-gated external send', () => {
   assert.equal(needsStructuralApproval('mcp__phone__attach_to_model'), true)
@@ -25,6 +26,7 @@ test('attach_to_model is a structural, approval-gated external send', () => {
 
 test('read_image is gated as the same external send', () => {
   assert.equal(needsStructuralApproval('read_image'), true)
+  assert.equal(needsIdentityRegistration('read_image'), true)
   const effects = phoneEffectsForApproval('read_image', { path: '/dsh/workspace/camera.jpg' })
   assert.equal(effects.length, 1)
   assert.equal(effects[0]?.operation, 'model.image.attach')
