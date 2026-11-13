@@ -1,13 +1,14 @@
 # 设备面板 v1（device-panel-v1）
 
-Status: `partial` — iOS `implemented`（未上真机），Android `target`（受 GAP-20 阻塞，未实现）。
+Status: `partial` — iOS `implemented`（真机已跑通灯的开、关、读回，见变更单 §2.8），Android `target`（受 GAP-20 阻塞，未实现）。
 Owner: P07（面板与调用语义）；宿主私有的已采用描述属 P18。
 变更单：[PC-20261112-device-panel](../../../docs/protocol-changes/PC-20261112-device-panel.md)。
 
 iOS 端已实现 §2 的分类器、§4.2 的求值器、§3 的调用路径与原生面板页：真实函数读 §7 的两份共享向量
 （`Tests/PhoneDSHBLETests/DevicePanelVectorTests.swift`），已采用描述的存储、并发准入与调用有各自的回归，
-面板页只经共用的 `LinkToolCaller` 调用设备。真机（iPhone + TonoLink M21-R4）E2E 尚未取得，所以是 `implemented`
-而不是「真机已验证」。Android 端未实现（GAP-20），不得把面板作为可用功能呈现（[基线](../../README.md) §2 状态词汇）。
+面板页只经共用的 `LinkToolCaller` 调用设备。真机（iPhone + TonoLink M21-R4）上面板 model 经真实 BLE Link
+完成了 `light.set`／`light.get` 的开、关、读回，以及采用描述后的预设按钮；断电恢复、撤销授权、
+模型生成描述和页面在 App 导航里的触控操作仍未验证。Android 端未实现（GAP-20），不得把面板作为可用功能呈现（[基线](../../README.md) §2 状态词汇）。
 
 ## 1. 范围
 
@@ -100,6 +101,8 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 3. 宿主此时对文件字节求值（§4.2）。结果不是 `ok` 时不写入，显示原因，此前已采用的描述保持不变。
 4. 结果是 `ok` 时，宿主把这些字节原样拷贝到宿主私有目录，按 Link device ID 存放，每台设备至多一份。
    写入必须原子；宿主不重新序列化。
+   iOS 上有两个等价的入口：面板页的「采用描述…」，以及在对话或文件页打开 `device-panels/*.json` 时的原生预览。
+   预览只画出控件的样子并照实列出每个控件将调用的工具与参数，其中的控件不调用设备；采用仍是用户在预览里的一次明确点按。
 5. 面板只读宿主私有的那一份。工作区文件之后被改写或删除不影响已采用的描述；要生效必须再次采用。
 6. 用户可以随时移除已采用的描述。
 
@@ -151,7 +154,7 @@ Agent 不会被告知面板操作，它要了解设备状态只能自己调用�
 
 | 端 | 状态 |
 | --- | --- |
-| iOS（Swift） | `implemented`：分类器、求值器、存储、准入与面板页；共享向量与模拟器 UI 测试通过，真机 E2E 未做 |
+| iOS（Swift） | `implemented`：分类器、求值器、存储、准入与面板页；共享向量通过；面板 model 有 fake source 测试和一条真机测试（真实 BLE Link，`DevicePanelHardwareDeviceTests`）；没有触控级 UI 测试 |
 | Android（Kotlin） | `target`，未实现，且受 GAP-20 阻塞：普通 Link 通道没有工具 RPC、持久意图与用户授权（[BLE Link](ble-link.md)「Android Link channel target」）。在该通道落地并有两端 runtime 证据之前，Android 不渲染面板，不调用 Link 工具，也不放置全部禁用的占位页 |
 | 固件（C） | 不变。本文不要求设备新增字段、工具或行为 |
 

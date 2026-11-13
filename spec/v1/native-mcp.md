@@ -95,6 +95,16 @@ unless requested.
 
 The existing authenticated native MCP endpoint may additionally expose `ble_devices`, `ble_read`, `ble_alert`, `ble_link_tools`, `ble_link_call` and `ble_link_result`. These are additive tool names; older servers do not advertise them. Device scans and connection require user action; per-tool grants follow [BLE Link](../device/v1/ble-link.md) rule 6 (the iOS app trusts a board the user connected: its tools are allowed until the user revokes one). The Link call and result semantics, bounded frames, per-connection grants and side-effect journal rules are defined by [BLE Link](../device/v1/ble-link.md). An Immediate Alert write has no execution acknowledgement and is reported as submitted, never applied. Uncertain effects must not be automatically replayed. Android tools remain available on the same endpoint.
 
+`ble_link_tools` returns one JSON object. `tools` is the device's advertised tool list. When the device has a
+negotiated Link, the object also carries two additive members for the
+[device panel descriptor](../device/v1/device-panel.md): `device_id`, the Link device ID exactly as the device
+returned it (the value a descriptor's `device_id` must equal), and `panel_path`, the workspace-relative path the
+host suggests for that descriptor, `device-panels/<name>.json`. `<name>` is the Link device ID when it is 1–64
+ASCII letters, digits, `_` or `-`; otherwise the first 16 lowercase hex characters of its UTF-8 SHA-256, so
+device-supplied text never becomes a path component. Both members are absent without a negotiated Link; a
+consumer that does not know them ignores them. The path is a naming convention only: adoption evaluates the
+file's content. The tool's description tells the model the descriptor shape and that only the user can adopt it.
+
 Status: implemented by the iOS host (`Sources/PhoneDSHBLE/DeviceMCPServer.swift`), verified by
 `golden/native-mcp/ble-devices.json`, `BLEDeviceMCPTests` and `DeviceMCPNativeRegressionTests`; the
 Android host does not serve these tools. The composed server answers `tools/call` for `ble_*` names and

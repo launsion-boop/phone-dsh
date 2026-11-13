@@ -3,8 +3,10 @@ import Foundation
 import CryptoKit
 import PhoneDSHAgentCore
 
-/// Who asked for this Link call. It only affects host-side display and logs;
-/// it is not part of the Link wire or the journal on-disk format
+/// Who asked for this Link call. It decides whether Agent-side cancellation
+/// may interrupt the call (`BLEDeviceStore.cancelLinkOperations` leaves a
+/// `.user` call running); it is not part of the Link wire or the journal
+/// on-disk format
 /// (ble-link.md「Link 调用准入」, device-panel.md §3).
 public enum LinkCallOrigin: Equatable, Sendable {
     case agent
@@ -77,7 +79,7 @@ func callLinkTool(
     store: BLEDeviceStore,
     journal: LinkToolJournal
 ) async throws -> LinkCallOutcome {
-    try await withLinkAdmission(store, deviceID) { admission in
+    try await withLinkAdmission(store, deviceID, origin) { admission in
         // Authorization still precedes the durable intent (ble-link.md rule 1/6).
         try await store.authorizeLink(deviceID, name: name, arguments: arguments)
         // Persist key/device/name/fingerprint/request UUID before uploading.
@@ -130,7 +132,7 @@ func queryLinkTool(
     store: BLEDeviceStore,
     journal: LinkToolJournal
 ) async throws -> LinkCallOutcome {
-    try await withLinkAdmission(store, deviceID) { admission in
+    try await withLinkAdmission(store, deviceID, origin) { admission in
         // Rule 4: only this host's journal records for this device are queryable.
         // Unknown records and revoked grants throw their existing errors.
         let intent = try journal.find(deviceID: deviceID, requestID: requestID)
@@ -151,9 +153,10 @@ func queryLinkTool(
 private func withLinkAdmission<T>(
     _ store: BLEDeviceStore,
     _ deviceID: UUID,
+    _ origin: LinkCallOrigin,
     _ body: (LinkAdmission) async throws -> T
 ) async throws -> T {
-    let admission = try await store.admitLink(deviceID)
+    let admission = try await store.admitLink(deviceID, origin: origin)
     do {
         let value = try await body(admission)
         await store.releaseLink(admission)

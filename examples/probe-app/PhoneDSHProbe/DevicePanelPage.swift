@@ -108,6 +108,8 @@ struct DevicePanelResultRecord: Equatable, Sendable {
     let requestID: UUID
     let state: State
     let at: Date
+    /// What the device answered, as plain text rows. Only for `.completed`.
+    var summary: DevicePanelResultSummary? = nil
 
     /// Only an unfinished/unclear request may be queried. A completed call and
     /// a `not_executed` refusal are terminal; the latter is re-sent by a new
@@ -128,6 +130,66 @@ struct DevicePanelResultRecord: Equatable, Sendable {
         case .completed, .notExecuted: return true
         }
     }
+}
+
+/// A device reply reduced to what a person reads first: did the device say it
+/// worked, and the scalar members of its `result`. Everything is plain text
+/// produced from untrusted JSON; nothing here is interpreted as device state
+/// beyond "this is what that one call returned" (device-panel.md §2).
+struct DevicePanelResultSummary: Equatable, Sendable {
+    struct Row: Equatable, Sendable {
+        let name: String
+        let value: String
+    }
+
+    /// The device's own `status` was `completed`.
+    let succeeded: Bool
+    /// The device's error text when it reported a failure, if it gave one.
+    let failure: String?
+    let rows: [Row]
+
+    static let maxRows = 8
+
+    init(reply: JSONValue) {
+        let status = reply["status"]?.stringValue
+        succeeded = status == "completed"
+        if succeeded {
+            failure = nil
+        } else if let text = reply["error"]?.stringValue {
+            failure = text
+        } else if let text = reply["error"]?["message"]?.stringValue ?? reply["error"]?["code"]?.stringValue {
+            failure = text
+        } else {
+            failure = status
+        }
+        var rows: [Row] = []
+        if case .object(let result)? = reply["result"] {
+            for name in result.keys.sorted() {
+                guard rows.count < Self.maxRows, let text = Self.scalarText(result[name]) else { continue }
+                rows.append(Row(name: name, value: text))
+            }
+        }
+        self.rows = rows
+    }
+
+    private static func scalarText(_ value: JSONValue?) -> String? {
+        switch value {
+        case .bool(let flag)?: return flag ? "是" : "否"
+        case .number(let number)?:
+            if number.isFinite, number == number.rounded(), abs(number) <= 9_007_199_254_740_991 {
+                return String(Int64(number))
+            }
+            return String(number)
+        case .string(let text)?: return text
+        default: return nil
+        }
+    }
+}
+
+struct DevicePanelFlash: Equatable, Sendable {
+    let tool: String
+    let preset: JSONValue?
+    let succeeded: Bool
 }
 
 /// Descriptor controls bucketed by `group`, in first-seen order. `nil` is the
@@ -186,6 +248,30 @@ protocol DevicePanelSource: AnyObject {
     func query(requestID: UUID) async throws -> LinkCallOutcome
 }
 
+// MARK: - Result records that outlive one page
+
+/// The last panel result per tool for one peripheral. It lives for the app
+/// process, not for one page instance: leaving the panel after `outcome_unknown`
+/// (or while the device is still running) must not drop the request UUID,
+/// because the only action allowed afterwards is a query (device-panel.md §3).
+/// Memory only on purpose: persisting it would add a P18 surface. After an app
+/// restart the request stays in the Link journal but the panel no longer
+/// offers its query.
+@MainActor
+final class DevicePanelResultCache {
+    private static var live: [UUID: DevicePanelResultCache] = [:]
+
+    /// The process-wide cache for one peripheral.
+    static func shared(for peripheralID: UUID) -> DevicePanelResultCache {
+        if let cache = live[peripheralID] { return cache }
+        let cache = DevicePanelResultCache()
+        live[peripheralID] = cache
+        return cache
+    }
+
+    var records: [String: DevicePanelResultRecord] = [:]
+}
+
 // MARK: - Panel model
 
 /// UI-free state machine for one device panel. The view is a pure projection
@@ -194,6 +280,7 @@ protocol DevicePanelSource: AnyObject {
 @Observable
 final class DevicePanelModel {
     private let source: any DevicePanelSource
+    private let results: DevicePanelResultCache
 
     private(set) var tools: [DevicePanelTool] = []
     private(set) var grantedTools: Set<String> = []
@@ -203,18 +290,39 @@ final class DevicePanelModel {
     private(set) var adoptedDescriptorResult: DevicePanelDescriptorResult?
     /// True when a host-private copy exists, even if it is currently rejected.
     private(set) var hasAdoptedDescriptor = false
-    /// Last result of a panel call per tool. Memory only.
-    private(set) var lastResults: [String: DevicePanelResultRecord] = [:]
+    /// Last result of a panel call per tool. Memory only; mirrored into
+    /// `results` so a reopened panel still knows an unsettled request.
+    private(set) var lastResults: [String: DevicePanelResultRecord]
     private(set) var inFlightTool: String?
+    /// The preset being sent, so only the tapped button shows progress.
+    private(set) var inFlightPreset: JSONValue?
+    /// The control whose call just came back, for a short tick on that button.
+    /// It acknowledges the call; it is not a claim about the device's state.
+    private(set) var flash: DevicePanelFlash?
+    private var flashGeneration = 0
     private(set) var queryingTool: String?
     private(set) var errorText: String?
     private var editorValues: [DevicePanelEditorKey: DevicePanelEditorValue] = [:]
 
-    init(source: any DevicePanelSource) {
+    /// `results` nil means a private cache: the records then live only as long
+    /// as this model (tests and the injected-model page).
+    init(source: any DevicePanelSource, results: DevicePanelResultCache? = nil) {
+        let cache = results ?? DevicePanelResultCache()
         self.source = source
+        self.results = cache
+        self.lastResults = cache.records
     }
 
     var linkDeviceID: String { source.linkDeviceID }
+
+    /// False once the device dropped its Link: there is no Link device ID to
+    /// address, so the panel says so instead of showing an empty tool list.
+    var isConnected: Bool { !source.linkDeviceID.isEmpty }
+
+    /// Tools that have a result to show, newest first.
+    var toolsWithResults: [String] {
+        lastResults.sorted { $0.value.at > $1.value.at }.map(\.key)
+    }
 
     /// Busy counts a result query too: the panel never overlaps two Link
     /// operations on one device (device-panel.md §3 concurrency row).
@@ -320,7 +428,15 @@ final class DevicePanelModel {
     /// A preset is sent verbatim; a non-preset control sends only the editors
     /// that are set. Every tap generates a new idempotency key.
     func canSend(toolName: String, preset: JSONValue?) -> Bool {
-        guard !isBusy, isAuthorized(toolName) else { return false }
+        !isBusy && isSendable(toolName: toolName, preset: preset)
+    }
+
+    /// Everything that decides whether a control may be sent, except "another
+    /// call is in flight". The view dims a control only for these lasting
+    /// reasons; while one call runs the others just ignore taps, so one tap
+    /// does not make every button flicker.
+    func isSendable(toolName: String, preset: JSONValue?) -> Bool {
+        guard isAuthorized(toolName) else { return false }
         // device-panel.md §3: outcome_unknown is query-only, and a still-running
         // request is not replayed. not_executed and completed may be re-sent.
         if let record = lastResults[toolName], !record.permitsNewCall { return false }
@@ -350,10 +466,15 @@ final class DevicePanelModel {
         errorText = nil
         let idempotencyKey = UUID().uuidString.lowercased()
         inFlightTool = toolName
+        inFlightPreset = preset
         do {
             let outcome = try await source.invoke(tool: toolName, arguments: arguments,
                                                   idempotencyKey: idempotencyKey)
             apply(outcome, tool: toolName)
+            if case .completed? = lastResults[toolName]?.state {
+                showFlash(DevicePanelFlash(tool: toolName, preset: preset,
+                                           succeeded: lastResults[toolName]?.summary?.succeeded ?? true))
+            }
         } catch is LinkBusy {
             // Admission rejected before any journal write: nothing was sent and
             // there is no request UUID to query. The user may send again.
@@ -362,6 +483,18 @@ final class DevicePanelModel {
             errorText = "调用未完成：\(error.localizedDescription)"
         }
         inFlightTool = nil
+        inFlightPreset = nil
+    }
+
+    private func showFlash(_ value: DevicePanelFlash) {
+        flash = value
+        flashGeneration += 1
+        let generation = flashGeneration
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(1100))
+            guard let self, self.flashGeneration == generation else { return }
+            self.flash = nil
+        }
     }
 
     func canQuery(toolName: String) -> Bool {
@@ -396,7 +529,8 @@ final class DevicePanelModel {
         case .completed(let requestID, let reply):
             record = DevicePanelResultRecord(requestID: requestID,
                                              state: .completed(text: DevicePanelJSONText.pretty(reply)),
-                                             at: Date())
+                                             at: Date(),
+                                             summary: DevicePanelResultSummary(reply: reply))
         case .running(let requestID):
             record = DevicePanelResultRecord(requestID: requestID, state: .running, at: Date())
         case .notExecuted(let requestID, let stage, let status):
@@ -407,6 +541,7 @@ final class DevicePanelModel {
                                              state: .outcomeUnknown(message: message), at: Date())
         }
         lastResults[toolName] = record
+        results.records[toolName] = record
     }
 
     // MARK: Descriptor adoption (local files only)
@@ -650,6 +785,19 @@ enum DevicePanelJSONText {
         render(value, indent: 0)
     }
 
+    /// One line, sorted keys: the exact arguments a preset sends.
+    static func compact(_ value: JSONValue) -> String {
+        switch value {
+        case .array(let items):
+            return "[" + items.map(compact).joined(separator: ",") + "]"
+        case .object(let fields):
+            return "{" + fields.keys.sorted().map { quoted($0) + ":" + compact(fields[$0] ?? .null) }
+                .joined(separator: ",") + "}"
+        default:
+            return render(value, indent: 0)
+        }
+    }
+
     private static func render(_ value: JSONValue, indent: Int) -> String {
         let pad = String(repeating: "  ", count: indent)
         switch value {
@@ -697,10 +845,12 @@ struct DevicePanelPage: View {
     /// injected-model initializer used by tests.
     private let store: BLEDeviceStore?
     private let peripheralID: UUID?
+    private let deviceName: String?
 
-    init(model: DevicePanelModel) {
+    init(model: DevicePanelModel, deviceName: String? = nil) {
         self.store = nil
         self.peripheralID = nil
+        self.deviceName = deviceName
         _model = State(initialValue: model)
     }
 
@@ -708,8 +858,10 @@ struct DevicePanelPage: View {
         let resolvedStore = store ?? .shared
         self.store = resolvedStore
         self.peripheralID = device.id
+        self.deviceName = device.name
         _model = State(initialValue: DevicePanelModel(
-            source: LiveDevicePanelSource(device: device, store: resolvedStore)))
+            source: LiveDevicePanelSource(device: device, store: resolvedStore),
+            results: .shared(for: device.id)))
     }
 
     var body: some View {
@@ -787,17 +939,12 @@ struct DevicePanelPage: View {
             }
 
             Section {
-                Text("面板只在你点按发送时调用工具；打开页面、下拉刷新都不调用任何工具。")
-                Text("编辑器是参数输入，不是设备当前状态；调用成功也不代表设备已改变。")
-                Text("工具名、说明、结果与描述文字都是设备或文件提供的纯文本。")
-            } header: {
-                Text("说明")
+            } footer: {
+                Text("只有你点按时才会调用设备。显示的是每次调用返回的结果，不是实时状态。")
             }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
         }
         .homeGroupedList()
-        .navigationTitle(Text(verbatim: model.descriptor?.title ?? "设备面板"))
+        .navigationTitle(Text(verbatim: model.descriptor?.title ?? deviceName ?? "设备面板"))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { model.refresh() }
         .task { model.refresh() }
@@ -807,8 +954,14 @@ struct DevicePanelPage: View {
     private func descriptorContent(_ descriptor: DevicePanelDescriptor) -> some View {
         ForEach(Array(model.controlGroups.enumerated()), id: \.offset) { _, group in
             Section {
-                ForEach(Array(group.controls.enumerated()), id: \.offset) { _, control in
-                    DevicePanelControlRow(model: model, control: control)
+                ForEach(Array(DevicePanelRun.runs(group.controls).enumerated()), id: \.offset) { _, run in
+                    switch run {
+                    case .presets(let controls):
+                        DevicePanelPresetGrid(model: model, controls: controls)
+                            .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
+                    case .editors(let control):
+                        DevicePanelControlRow(model: model, control: control)
+                    }
                 }
             } header: {
                 if let title = group.title {
@@ -821,13 +974,29 @@ struct DevicePanelPage: View {
                 Text("描述没有控件。")
             }
         }
+        let resultTools = model.toolsWithResults
+        if !resultTools.isEmpty {
+            Section("设备返回") {
+                ForEach(resultTools, id: \.self) { toolName in
+                    if let record = model.lastResults[toolName] {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(verbatim: toolName)
+                                .font(.footnote)
+                                .foregroundStyle(HomeSpec.textSecondary)
+                                .lineLimit(1)
+                            DevicePanelResultView(model: model, toolName: toolName, record: record)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
     private var toolListContent: some View {
         if model.tools.isEmpty {
             Section {
-                Text("设备没有自报可显示的工具。")
+                Text(model.isConnected ? "设备没有自报可显示的工具。" : "设备已断开。回到蓝牙设备页重新连接后再打开面板。")
                     .foregroundStyle(.secondary)
                 #if !PDSH_PROBE_HOSTLESS_TESTS
                 Button("采用描述…") { showingAdoption = true }
@@ -886,7 +1055,7 @@ private struct DevicePanelToolRow: View {
     let tool: DevicePanelTool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             switch tool.render {
             case .agentOnly:
                 // device-panel.md §2: an agent_only tool shows only its name
@@ -903,39 +1072,201 @@ private struct DevicePanelToolRow: View {
                         .lineLimit(3)
                 }
                 DevicePanelEditorFields(model: model, toolName: tool.name, editors: editors)
-                sendButton
+                DevicePanelSendButton(model: model, toolName: tool.name, preset: nil,
+                                      title: editors.isEmpty ? "执行" : "发送",
+                                      identifier: "device-panel-tool-send")
             }
             if let record = model.lastResults[tool.name] {
                 DevicePanelResultView(model: model, toolName: tool.name, record: record)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
+    }
+}
+
+// MARK: - Send button
+
+/// The one way a panel control calls the device. The black capsule carries the
+/// label itself (a descriptor preset's own words, or 发送／执行), so a preset is
+/// one tap. The reason a button is disabled is always spelled out under it.
+@MainActor
+private struct DevicePanelSendButton: View {
+    let model: DevicePanelModel
+    let toolName: String
+    let preset: JSONValue?
+    let title: String
+    let identifier: String
+
+    private var inFlight: Bool {
+        model.inFlightTool == toolName && model.inFlightPreset == preset
     }
 
-    private var sendButton: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if !model.isAuthorized(tool.name) {
-                Text("未授权：到蓝牙设备页授权后才能发送。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else if !model.missingRequiredArguments(for: tool.name).isEmpty {
-                Text("请先设置全部必填参数。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
-                Task { await model.send(toolName: tool.name, preset: nil) }
+                Task { await model.send(toolName: toolName, preset: preset) }
             } label: {
-                if model.inFlightTool == tool.name {
-                    ProgressView()
+                if inFlight {
+                    ProgressView().tint(HomeSpec.primaryButtonInk)
                 } else {
-                    Text("发送")
+                    Text(verbatim: title).lineLimit(1)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canSend(toolName: tool.name, preset: nil))
-            .accessibilityIdentifier("device-panel-tool-send")
+            .buttonStyle(HomePrimaryButtonStyle())
+            .disabled(!model.isSendable(toolName: toolName, preset: preset))
+            .allowsHitTesting(!model.isBusy)
+            .accessibilityIdentifier(identifier)
+            if let hint {
+                Text(verbatim: hint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private var hint: String? {
+        if !model.isAuthorized(toolName) {
+            return "未授权：到蓝牙设备页允许这个工具后才能使用。"
+        }
+        if let record = model.lastResults[toolName], !record.permitsNewCall {
+            return "上一次调用的结果还没确定，请先在结果里查询。"
+        }
+        if preset == nil, !model.missingRequiredArguments(for: toolName).isEmpty {
+            return "先选好上面的参数。"
+        }
+        return nil
+    }
+}
+
+// MARK: - Preset tiles
+
+/// Descriptor controls in array order, with each run of consecutive preset
+/// buttons kept together so it can be laid out as one grid.
+enum DevicePanelRun {
+    case presets([DevicePanelControl])
+    case editors(DevicePanelControl)
+
+    static func runs(_ controls: [DevicePanelControl]) -> [DevicePanelRun] {
+        var runs: [DevicePanelRun] = []
+        for control in controls {
+            if control.preset == nil {
+                runs.append(.editors(control))
+            } else if case .presets(let current)? = runs.last {
+                runs[runs.count - 1] = .presets(current + [control])
+            } else {
+                runs.append(.presets([control]))
+            }
+        }
+        return runs
+    }
+}
+
+/// One-tap preset buttons as a two-column grid of tiles. Only the tapped tile
+/// reacts: it shows progress, then a short tick when the device answers.
+@MainActor
+private struct DevicePanelPresetGrid: View {
+    let model: DevicePanelModel
+    let controls: [DevicePanelControl]
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 10), count: controls.count == 1 ? 1 : 2)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(Array(controls.enumerated()), id: \.offset) { _, control in
+                    DevicePanelPresetTile(model: model, control: control)
+                }
+            }
+            if let hint {
+                Text(verbatim: hint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+
+    private var hint: String? {
+        for control in controls {
+            if !model.isAuthorized(control.tool) {
+                return "有工具未授权：到蓝牙设备页允许后才能使用。"
+            }
+            if let record = model.lastResults[control.tool], !record.permitsNewCall {
+                return "上一次调用的结果还没确定，请先在下面查询。"
+            }
+        }
+        return nil
+    }
+}
+
+@MainActor
+private struct DevicePanelPresetTile: View {
+    let model: DevicePanelModel
+    let control: DevicePanelControl
+
+    private var inFlight: Bool {
+        model.inFlightTool == control.tool && model.inFlightPreset == control.preset
+    }
+
+    private var flash: DevicePanelFlash? {
+        guard let flash = model.flash, flash.tool == control.tool, flash.preset == control.preset else { return nil }
+        return flash
+    }
+
+    var body: some View {
+        Button {
+            Task { await model.send(toolName: control.tool, preset: control.preset) }
+        } label: {
+            HStack(spacing: 6) {
+                if inFlight {
+                    ProgressView()
+                } else if let flash {
+                    Image(systemName: flash.succeeded ? "checkmark" : "exclamationmark.triangle")
+                        .font(.system(size: 14, weight: .bold))
+                }
+                Text(verbatim: control.label)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.horizontal, 10)
+        }
+        .buttonStyle(DevicePanelTileStyle(highlighted: flash != nil))
+        .disabled(!model.isSendable(toolName: control.tool, preset: control.preset))
+        .allowsHitTesting(!model.isBusy)
+        .sensoryFeedback(.impact(weight: .light), trigger: inFlight) { _, now in now }
+        .sensoryFeedback(trigger: flash) { _, now in
+            now.map { $0.succeeded ? .success : .error }
+        }
+        .accessibilityIdentifier("device-panel-preset-send")
+        .accessibilityHint(Text(verbatim: "\(control.tool) \(control.preset.map(DevicePanelJSONText.compact) ?? "")"))
+    }
+}
+
+/// A soft gray tile that turns solid for a moment when its call comes back.
+struct DevicePanelTileStyle: ButtonStyle {
+    var highlighted = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: HomeSpec.bodySize, weight: .semibold))
+            .foregroundStyle(highlighted ? HomeSpec.primaryButtonInk : HomeSpec.textPrimary)
+            .tint(highlighted ? HomeSpec.primaryButtonInk : HomeSpec.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 64)
+            .background(highlighted ? HomeSpec.primaryButton : HomeSpec.page,
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(HomeSpec.borderList, lineWidth: highlighted ? 0 : 1)
+            }
+            .opacity(isEnabled ? 1 : 0.4)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.18), value: highlighted)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -948,90 +1279,28 @@ private struct DevicePanelControlRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if control.preset != nil {
+            Group {
                 Text(verbatim: control.label)
                     .font(.system(size: HomeSpec.bodySize, weight: .semibold))
                     .lineLimit(2)
-                Text(verbatim: "预设调用：\(control.tool)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                presetButton
-            } else {
-                Text(verbatim: control.label)
-                    .font(.system(size: HomeSpec.bodySize, weight: .semibold))
-                    .lineLimit(2)
-                Text(verbatim: "调用：\(control.tool)")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
                 if let tool = model.tool(named: control.tool),
                    case .editors(let editors) = tool.render {
                     DevicePanelEditorFields(model: model, toolName: control.tool, editors: editors)
-                    sendButton
+                    DevicePanelSendButton(model: model, toolName: control.tool, preset: nil,
+                                          title: editors.isEmpty ? "执行" : "发送",
+                                          identifier: "device-panel-control-send")
+                    Text(verbatim: control.tool)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 } else {
                     Text("这个工具当前不可用。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
-            if let record = model.lastResults[control.tool] {
-                DevicePanelResultView(model: model, toolName: control.tool, record: record)
-            }
         }
-        .padding(.vertical, 2)
-    }
-
-    private var presetButton: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            authorizationHint
-            Button {
-                Task { await model.send(toolName: control.tool, preset: control.preset) }
-            } label: {
-                if model.inFlightTool == control.tool {
-                    ProgressView()
-                } else {
-                    Text("发送")
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canSend(toolName: control.tool, preset: control.preset))
-            .accessibilityIdentifier("device-panel-preset-send")
-        }
-    }
-
-    private var sendButton: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            authorizationHint
-            if model.isAuthorized(control.tool),
-               !model.missingRequiredArguments(for: control.tool).isEmpty {
-                Text("请先设置全部必填参数。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Button {
-                Task { await model.send(toolName: control.tool, preset: nil) }
-            } label: {
-                if model.inFlightTool == control.tool {
-                    ProgressView()
-                } else {
-                    Text("发送")
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canSend(toolName: control.tool, preset: nil))
-            .accessibilityIdentifier("device-panel-control-send")
-        }
-    }
-
-    @ViewBuilder
-    private var authorizationHint: some View {
-        if !model.isAuthorized(control.tool) {
-            Text("未授权：到蓝牙设备页授权后才能发送。采用描述不会授权工具。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
-        }
+        .padding(.vertical, 6)
     }
 }
 
@@ -1066,9 +1335,6 @@ private struct DevicePanelEditorRow: View {
             case .picker(let argument, _, let options):
                 pickerEditor(argument, options: options)
             }
-            Text("参数输入，不是设备当前值。")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
     }
 
@@ -1204,13 +1470,44 @@ private struct DevicePanelResultView: View {
         VStack(alignment: .leading, spacing: 4) {
             switch record.state {
             case .completed(let text):
-                Text(verbatim: text)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(6)
-                    .textSelection(.enabled)
-                Text(verbatim: Self.timeText(record.at))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                let succeeded = record.summary?.succeeded ?? true
+                HStack(spacing: 6) {
+                    Image(systemName: succeeded ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(succeeded ? HomeSpec.success : Color.red)
+                    Text(succeeded ? "设备已完成" : "设备报告失败")
+                        .font(.footnote.weight(.semibold))
+                    Spacer()
+                    Text(verbatim: Self.timeText(record.at))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                if let failure = record.summary?.failure {
+                    Text(verbatim: failure)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+                ForEach(Array((record.summary?.rows ?? []).enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(verbatim: row.name)
+                            .foregroundStyle(HomeSpec.textSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 12)
+                        Text(verbatim: row.value)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(.footnote)
+                }
+                DisclosureGroup("原始结果") {
+                    Text(verbatim: text)
+                        .font(.system(.caption, design: .monospaced))
+                        .lineLimit(24)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption)
+                .foregroundStyle(HomeSpec.textSecondary)
             case .running:
                 Text("设备仍在执行。只有查询能取得后续状态，不会自动重发。")
                     .font(.footnote)

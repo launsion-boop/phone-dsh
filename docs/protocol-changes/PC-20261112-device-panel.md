@@ -140,6 +140,80 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
    同时把既有 `UniqueJSONKeys` 的 `struct`／`init`／`check` 放开为 `public`，避免复制重复键扫描器；
    语义不变。
 
+### 2.7 交付后审阅的修正（2026-11-12，契约 owner）
+
+对实施 head `80da4725` 的审阅发现三处，均不改变 owning spec 的条款、共享向量或 Link wire／journal 格式：
+
+1. **Agent 侧取消不再打断面板调用。** `BLEDeviceStore.cancelLinkOperations`（回合停止、MCP
+   `notifications/cancelled`）原先断开所有占用 Link 槽位的设备，包括用户在面板里发起的调用，与 §3
+   「不进入设备 Session」相悖。现在准入按 `origin` 标记：`.user` 的占用不被 Agent 侧取消断开；`.agent`
+   与设备任务的占用行为不变。
+2. **未结清的请求在离开面板页后保留。** 上次结果原先只在页面实例的内存里，`outcome_unknown` 后离开再进入
+   会丢失 request UUID，既无法查询又允许重发，与 §3「恢复后只能查询」不符。现在按外设在进程内保留
+   （`DevicePanelResultCache`）；仍不落盘（落盘是新的 P18 表面）。**App 重启后记录仍会丢失**：请求留在
+   Link journal 里，但面板不再提供它的查询，记为剩余风险。
+3. **收窄 device-panel.md §5 的 iOS 行。** 原文「模拟器 UI 测试通过」不实：面板只有 model 级测试。
+
+### 2.8 真机跑通与体验修正（2026-11-12，契约 owner）
+
+设备：iPhone `00008160-00023D1C2240000A`（iOS 27.2，经 longshu 的局域网配对），App `com.tono.phonedsh.probe`
+（team `Q322S2LD93`，在 Mac Studio 构建签名），板子 `PhoneAgent-7356`（Link device ID
+`468d389c-143c-443a-9b04-ea7be58b9a97`，自报 `light.set`、`light.get`，未自报 `home.http`）。
+
+- **真机结果。** `DevicePanelHardwareDeviceTests.testPanelSwitchesLEDAndReadsItBack`（宿主在 App 进程内，真实
+  `BLEDeviceStore.shared` + `callLinkTool(origin: .user)`）→ PASS，两次运行：面板 model 依次开、关、开，
+  每次 `light.get` 读回的 `on` 与刚发送的一致，`state_revision` 逐次加一；随后经真实求值器与宿主私有存储采用
+  一份描述（开灯／关灯／读取灯状态三个预设），预设按钮同样读回一致。该描述留在手机上。
+- **未验证。** 页面在 App 自身导航栈里的样子与触控操作（XCUITest 在该机上启用自动化模式超时，截图取自测试自建的
+  窗口）；采用 sheet 的真实交互；断电／断线恢复；撤销授权；模型生成描述；灯是否真的亮（只有设备自报的读回）。
+- **体验修正（不改条款、向量或 wire）。**
+  1. 发送按钮在已启用时是一块没有文字的黑条（列表的 tint 与前景同色）→ 改用 `HomePrimaryButtonStyle`；
+     预设按钮直接以描述的 `label` 为按钮文字，一次点按即发送，按钮下方照实显示实际调用的工具与参数。
+  2. 结果原先是截到 6 行的原始 JSON，关键字段被截掉 → 先显示设备是否完成、`result` 的标量成员逐行列出，
+     原始 JSON 收进可展开项；设备自报 `failed` 时明确显示失败而不是当成功。
+  3. 有描述时结果原先在同一工具的每个控件下各重复一次 → 改为页面底部一处「最近结果」。
+  4. 去掉每个编辑器下重复的免责声明和三行说明，收成页脚一句；无参数工具的按钮叫「执行」；标题用设备名；
+     断开后显示「设备已断开」而不是「没有工具」。
+  5. **入口不再藏在开关后面。** 原先（§2.6 第 3 条）是蓝牙设备页里每次启动都要重新打开的内存开关；
+     现在只要设备已连接并协商了 PDSH Tools v1 就显示「设备面板」入口。这推翻了 §3「功能放在开关后，默认关闭」
+     的发布安排，由需求方 2026-11-12「把小程序跑通…从用户体验的角度去…更改」的指示决定；P09 页面契约与白名单已同步。
+- **仍缺的一环（未做）。** Agent 还不知道描述的格式，也拿不到 Link device ID（`ble_link_tools` 不返回它），
+  所以「让模型给设备生成面板」目前只能手写描述。补上它要改 native MCP 的工具输出与说明，属 P05 的契约变更，须另提。
+
+### 2.9 Agent 生成描述所需的信息（2026-11-12，契约 owner；P05 增量）
+
+- **触发 → 现状 → 期望。** 模型要写描述必须知道 Link device ID 与描述格式；`ble_link_tools` 只返回 `tools`，
+  说明里也没有描述格式 → 结果对象新增 `device_id`（设备原样返回的 Link device ID）与 `panel_path`
+  （宿主建议的工作区路径），并在该工具的 description 里写明描述的形状与「只有用户能采用」。
+- **编码与限制。** 见 [native-mcp.md](../../spec/v1/native-mcp.md)「BLE tools」：`panel_path` 为
+  `device-panels/<name>.json`，`<name>` 仅在 ID 是 1–64 个 ASCII 字母数字、`_`、`-` 时取 ID 本身，否则取其
+  SHA-256 前 16 个十六进制字符。未协商 Link 时两个成员都不出现。
+- **相容性。** 增量字段：旧模型／旧调用方忽略未知成员；旧 App 不返回它们，模型就无从写出正确的 `device_id`，
+  采用时会得到 `device_mismatch` 或 `schema`，不会误采用。工具名、参数 schema、错误文本不变。Android 不提供这些工具。
+  §2.6 第 2 条的文件名约定由「Link device ID」改为宿主给出的 `panel_path`（不安全的 ID 不再进入路径）。
+- **证据。** `LinkAdmissionTests.testLinkToolsListingCarriesLinkDeviceIDAndPanelPath`（真实 `DeviceMCPServer` +
+  `BLEDeviceStore`）；真机见 §4。**模型按说明实际写出合法描述**没有验证（需要真实模型回合）。
+
+### 2.10 从对话直达面板（2026-11-12，契约 owner）
+
+需求方真机试用：Agent 说「面板已生成」，点开文件只看到纯文本。对话与文件页打开工作区文件都走 `PreviewSurface`，
+描述文件被当成普通 JSON。现在路径是 `device-panels/*.json` 的文件改由 `DevicePanelDescriptorPreview` 呈现：
+用真实求值器对已连接设备的现行工具表求值，画出分组与按钮（不可点、不调用设备，并照实列出工具与参数），
+给一个「采用并打开面板」按钮；采用成功后直接进入该设备的面板页。已采用同一份描述时按钮是「打开面板」；
+求值不是 `ok` 时显示原因；设备未连接时提示先连接；文件内容收进可展开项。
+不改变 §4.1 的规则：采用仍是用户在 WebView 之外原生界面里的明确动作，面板仍只读宿主私有副本；
+owning spec §4.1 已补一句说明这两个入口。真机：`testAgentListingIsEnoughToAuthorAnAdoptableDescriptor`
+在 App 窗口里呈现该预览并截图 → PASS；从对话里真实点开文件、点按采用后的跳转 → 未验证（需要人在手机上操作）。
+
+### 2.11 面板按钮的反馈与样式（2026-11-12，契约 owner）
+
+需求方真机反馈：点一个按钮，所有按钮都短暂变色；界面不好看。原因是调用进行中时所有控件都被 `disabled`
+而整体变淡。现在只因持久原因（未授权、上次结果未结清、必填参数未设置）才变淡；有调用在途时其它控件只是不响应点按。
+描述里连续的预设按钮排成两列卡片，被点的那一个显示进度，设备返回后短暂显示对勾（失败为警示）并给触感反馈——
+这是对那一次调用的确认，不表示设备状态。按钮下不再逐个显示工具与参数（采用前的预览里仍照实列出，按钮的无障碍提示里也有）。
+不改条款、向量或 wire。真机：`DevicePanelHardwareDeviceTests` → PASS（2 tests），截图确认卡片与对勾；
+「其它按钮不再变色」是按代码路径判断的，没有逐帧证据，待需求方在手机上确认。
+
 ### 自检（spec/README.md §5.1）
 
 - 第二种表达：没有。面板调用复用 Link 调用路径；描述是新文件，不是现有格式的别名。
@@ -208,7 +282,22 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
   - `xcodebuild -scheme PhoneDSHSim -only-testing:PhoneDSHSimTests/DevicePanelModelTests test` → PASS（12 tests，
     iOS 18.0 模拟器；这是 model/fake 级证据，不是设备结论）
   - `python3 scripts/ci/protocol_impact.py --base main --body-file …` → PASS（触发 P05、P07、P09、P18）
-  - 真机 iPhone + TonoLink M21-R4 → NOT_RUN
+  - §2.7 修正后（工作树，基于 `80da4725`）：`swift test --filter 'DevicePanel|LinkAdmission'` → PASS（30 tests，
+    新增 `testAgentCancellationLeavesAUserPanelCallRunning`，真实 `BLEDeviceStore`）；
+    `swift test --filter 'StandardGatt|PDSHLink|DeviceMCP'` → PASS（56 tests）；
+    `xcodebuild -scheme PhoneDSHSim -destination 'generic/platform=iOS Simulator' build-for-testing` → PASS；
+    `xcodebuild -scheme PhoneDSHSim -only-testing:PhoneDSHSimTests/DevicePanelModelTests test`（iOS 18.4 模拟器）
+    → FAIL：测试包加载失败（`Library not loaded: /usr/lib/swift/libswiftWebKit.dylib`），在 §2.7 修改之前同样失败，
+    所以新增的 `testReopenedPanelKeepsUnsettledRequestQueryOnly` 只有编译级证据，**NOT_RUN**；
+    上面那条「iOS 18.0 模拟器 PASS」在审阅机上未能复现（该模拟器无法启动）
+  - 真机 iPhone + TonoLink M21-R4（§2.8、§2.9）：`xcodebuild test-without-building … -only-testing:PhoneDSHDeviceTests/DevicePanelHardwareDeviceTests`
+    （`TEST_RUNNER_PDSH_DEVICE_PANEL_TEST=1`）→ PASS（2 tests）：`testPanelSwitchesLEDAndReadsItBack` 三次运行均通过；
+    `testAgentListingIsEnoughToAuthorAnAdoptableDescriptor` 一次：真机 `ble_link_tools` 返回 `device_id` 与
+    `panel_path=device-panels/468d389c-143c-443a-9b04-ea7be58b9a97.json`，仅凭该返回写出的描述放到该路径后被采用页的
+    解析函数读到并求值为 `ok`（文件由测试直接写入 materialized 工作区，不是经模型的文件工具）。
+    XCUITest（触控级）→ NOT_RUN：启用自动化模式超时。真实模型回合生成描述 → NOT_RUN
+  - §2.8／§2.9 修改后：`swift test --filter 'DevicePanel|LinkAdmission'` → PASS（31 tests）；
+    `swift test --filter 'BLEDeviceMCP|DeviceMCPNative'` → PASS（14 tests）
 - **未验证。** 真机 E2E（连接、发送、断电恢复、撤销授权、模型生成描述后采用）、断电/崩溃的持久性、
   模拟器里真实 BLE 路径（仅 fake source）、采用 sheet 的真实 UI 交互、已准入调用中的真实断线、
   Android 上规则的可行性。
@@ -235,6 +324,8 @@ Android `target`（GAP-20），本文档状态为 `implemented`。
 | `spec/device/v1/device-panel.md@5ed9d78d3f2b5c7eb22c8301dc3f39c98ee1bcec` | 协调者 | 冻结 A 档契约（用户指示执行冻结） | 无（没有实现方）；Swift implementer 待指定 |
 | 同 revision（实施） | 协调者 + WP1–WP4 | Swift 实施落地；P18 目录/命名登记、P09 页面与平台差异登记；owning spec 端状态推进到 iOS `implemented`（真机未验） | iOS implementer（WP1–WP4）、WP5 评审 |
 | 同 revision（评审后） | 协调者 + WP2/WP4 | WP5 评审：M2 恢复 `ble_link_result` 的两层既有忙文本；M1 面板观察工具表/授权变化；m3 `agent_only` 只显示名称与「仅 Agent 可用」；M3 修正 P18 状态；m2 登记 GAP-40；其余 MINOR 收窄声明或记为剩余风险 | WP2、WP4、WP5 |
+| 同 revision（交付后审阅） | 契约 owner | §2.7：Agent 取消不打断面板调用；未结清请求跨页面保留；收窄 §5 iOS 行的测试声明 | iOS implementer |
+| 同 revision（真机） | 契约 owner | §2.8：真机跑通 A0／A1 调用；面板体验修正；入口去掉开关 | iOS implementer |
 
 ## 7. 实施交付（2026-11-12）
 

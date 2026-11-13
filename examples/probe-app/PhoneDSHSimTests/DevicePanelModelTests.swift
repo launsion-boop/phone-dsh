@@ -335,4 +335,35 @@ final class DevicePanelModelTests: XCTestCase {
         XCTAssertTrue(fake.invocations.isEmpty)
         XCTAssertNotNil(model.errorText)
     }
+
+    // MARK: - Unsettled request survives leaving the panel
+
+    /// device-panel.md §3: after `outcome_unknown` only a query is allowed.
+    /// A new page instance (a new model over the same per-device result cache)
+    /// must still hold the request UUID, refuse a resend and offer the query.
+    func testReopenedPanelKeepsUnsettledRequestQueryOnly() async throws {
+        let fake = source()
+        let cache = DevicePanelResultCache()
+        let requestID = UUID()
+        fake.invokeOutcomes = [.outcomeUnknown(requestID: requestID, message: "connection lost")]
+        let preset = JSONValue.object(["on": .bool(true)])
+
+        let first = DevicePanelModel(source: fake, results: cache)
+        first.refresh()
+        await first.send(toolName: "light.set", preset: preset)
+
+        let reopened = DevicePanelModel(source: fake, results: cache)
+        reopened.refresh()
+        XCTAssertEqual(reopened.lastResults["light.set"]?.requestID, requestID)
+        XCTAssertFalse(reopened.canSend(toolName: "light.set", preset: preset))
+        XCTAssertTrue(reopened.canQuery(toolName: "light.set"))
+        await reopened.send(toolName: "light.set", preset: preset)
+        XCTAssertEqual(fake.invocations.count, 1, "a reopened panel must not replay an unknown outcome")
+
+        fake.queryOutcomes = [.completed(requestID: requestID, reply: .object(["status": .string("completed")]))]
+        await reopened.query(toolName: "light.set")
+        XCTAssertEqual(fake.queryCalls, [requestID])
+        XCTAssertTrue(DevicePanelModel(source: fake, results: cache).canSend(toolName: "light.set", preset: preset),
+                      "a settled request frees the tool for a new call")
+    }
 }

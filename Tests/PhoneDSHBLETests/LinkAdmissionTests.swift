@@ -296,6 +296,75 @@ final class LinkAdmissionTests: XCTestCase {
         XCTAssertEqual(journalFiles(journalDirectory(root)).count, 2)
     }
 
+    /// device-panel.md §3: a panel call is not part of the device Session, so
+    /// Agent-side cancellation (turn stop / MCP cancel) must not disconnect the
+    /// device under it. An Agent-origin call is still cancelled as before.
+    @MainActor
+    func testAgentCancellationLeavesAUserPanelCallRunning() async throws {
+        let transport = LinkTransport()
+        let (store, id) = try await makeLink(transport)
+        let journal = LinkToolJournal(directory: journalDirectory(makeReceiptRoot()))
+        defer { transport.releaseHeldQueries() }
+
+        transport.holdQueries = true
+        let panel = Task { @MainActor in
+            try await callLinkTool(deviceID: id, name: "light.set", arguments: self.lightOn,
+                                   idempotencyKey: "panel-send", origin: .user,
+                                   store: store, journal: journal)
+        }
+        try await waitForHeldQuery(transport)
+        store.cancelLinkOperations()
+        XCTAssertEqual(store.testPhase(id), "connected",
+                       "Agent cancellation must not disconnect a user-origin panel call")
+        transport.holdQueries = false
+        transport.releaseHeldQueries()
+        guard case .completed = try await panel.value else {
+            return XCTFail("the panel call must complete after an Agent-side cancel")
+        }
+
+        transport.holdQueries = true
+        let agent = Task { @MainActor in
+            try await callLinkTool(deviceID: id, name: "light.set", arguments: self.lightOn,
+                                   idempotencyKey: "agent-send", origin: .agent,
+                                   store: store, journal: journal)
+        }
+        try await waitForHeldQuery(transport)
+        store.cancelLinkOperations()
+        XCTAssertNotEqual(store.testPhase(id), "connected",
+                          "an Agent-origin call keeps the existing cancel-by-disconnect behaviour")
+        transport.failHeldQueries(BLEFailure("connection lost"))
+        guard case .outcomeUnknown = try await agent.value else {
+            return XCTFail("a cancelled Agent call reports an unknown outcome")
+        }
+    }
+
+    /// native-mcp.md「BLE tools」: `ble_link_tools` tells the Agent the verbatim
+    /// Link device ID and a host-computed workspace path for a panel descriptor
+    /// (device-panel.md §4); a device-supplied ID never becomes a path component
+    /// unless it is a plain safe name.
+    @MainActor
+    func testLinkToolsListingCarriesLinkDeviceIDAndPanelPath() async throws {
+        let transport = LinkTransport()
+        let (store, id) = try await makeLink(transport)
+        let server = DeviceMCPServer(receiptDirectory: makeReceiptRoot(), store: store)
+        let response = await server.handle(try call("ble_link_tools", .object(["device_id": .string(id.uuidString)])))
+        let listing = try JSONValue.parse(Data(try responseText(response).utf8))
+        XCTAssertEqual(listing["device_id"]?.stringValue, LinkTransport.deviceID, "verbatim, not lowercased")
+        XCTAssertEqual(listing["panel_path"]?.stringValue, "device-panels/\(LinkTransport.deviceID).json")
+        guard case .array(let tools)? = listing["tools"] else { return XCTFail("tools missing") }
+        XCTAssertEqual(tools.compactMap { $0["name"]?.stringValue }, ["light.set", "light.get"])
+
+        XCTAssertEqual(DeviceMCPServer.panelDescriptorPath(linkDeviceID: "../../etc/passwd").count,
+                       "device-panels/".count + 16 + ".json".count, "unsafe IDs never become path components")
+        XCTAssertFalse(DeviceMCPServer.panelDescriptorPath(linkDeviceID: "a/b").contains("a/b"))
+        XCTAssertEqual(DeviceMCPServer.panelDescriptorPath(linkDeviceID: "书房"), DeviceMCPServer.panelDescriptorPath(linkDeviceID: "书房"))
+
+        let unknown = await server.handle(try call("ble_link_tools", .object(["device_id": .string(UUID().uuidString)])))
+        let empty = try JSONValue.parse(Data(try responseText(unknown).utf8))
+        XCTAssertNil(empty["device_id"], "no Link, no descriptor target")
+        XCTAssertNil(empty["panel_path"])
+    }
+
     /// `ble_link_result` during an in-flight call is rejected before it reads
     /// or writes the journal, through both the shared entry and the MCP path.
     @MainActor

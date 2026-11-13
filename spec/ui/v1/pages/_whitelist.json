@@ -85,30 +85,8 @@
    "platformRef": "platform.device-panel-ios",
    "owner": "ui-contract",
    "reviewBy": "2027-06-30",
-   "kind": "missing-section",
-   "name": "显示设备面板（实验）",
-   "id": "bluetooth-devices-device-panel-toggle-ios-only",
-   "reason": "The experimental device-panel switch is iOS-only until GAP-20 gives Android a usable PDSH Link tool channel; Android must not show it or a placeholder."
-  },
-  {
-   "page": "bluetooth-devices",
-   "side": "ios-only",
-   "platformRef": "platform.device-panel-ios",
-   "owner": "ui-contract",
-   "reviewBy": "2027-06-30",
    "kind": "missing-action",
-   "name": "显示设备面板（实验）",
-   "id": "bluetooth-devices-device-panel-toggle-action-ios-only",
-   "reason": "Same iOS-only experimental switch; Android has no panel to open."
-  },
-  {
-   "page": "bluetooth-devices",
-   "side": "ios-only",
-   "platformRef": "platform.device-panel-ios",
-   "owner": "ui-contract",
-   "reviewBy": "2027-06-30",
-   "kind": "missing-action",
-   "name": "打开设备面板",
+   "name": "设备面板",
    "id": "bluetooth-devices-open-device-panel-ios-only",
    "reason": "The panel entry exists only where PDSH Link tools are callable; Android Link tool RPC is blocked by GAP-20."
   }

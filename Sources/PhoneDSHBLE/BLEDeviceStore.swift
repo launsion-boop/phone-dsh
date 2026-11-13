@@ -70,7 +70,13 @@ import PhoneDSHAgentCore
         let id = UUID()
         /// The connection generation that owns the slot, if any was connected at admission.
         let owner: Owner?
-        init(owner: Owner?) { self.owner = owner }
+        /// False for a call the user started from the device panel. An Agent
+        /// turn or MCP cancellation must not disconnect it: panel calls are not
+        /// part of the device Session (device-panel.md §3).
+        let agentCancellable: Bool
+        init(owner: Owner?, agentCancellable: Bool = true) {
+            self.owner = owner; self.agentCancellable = agentCancellable
+        }
     }
     @ObservationIgnored private var linkBusy: [UUID: LinkOperation] = [:]
     /// ble-link.md@scan-intent-v1: the latest admitted scan/stop owns every later scan effect.
@@ -2417,9 +2423,9 @@ import PhoneDSHAgentCore
     /// `queryLinkTool` take it *before* writing the journal intent
     /// (ble-link.md「Link 调用准入」 rule 1); device tasks and grant changes see
     /// the same `linkBusy` slot. Throws `LinkBusy` without touching the journal.
-    func admitLink(_ id: UUID) throws -> LinkAdmission {
+    func admitLink(_ id: UUID, origin: LinkCallOrigin = .agent) throws -> LinkAdmission {
         guard linkBusy[id] == nil else { throw LinkBusy() }
-        let operation = LinkOperation(owner: owners[id])
+        let operation = LinkOperation(owner: owners[id], agentCancellable: origin == .agent)
         linkBusy[id] = operation
         return LinkAdmission(deviceID: id, operationID: operation.id)
     }
@@ -2478,7 +2484,12 @@ import PhoneDSHAgentCore
         guard submitConnected(id, current: current, action: .link, physical: {}) else { throw BLEFailure("Link disconnected") }
         return try await client.query(requestID: requestID)
     }
-    public func cancelLinkOperations() { for (id, operation) in Array(linkBusy) where owners[id] === operation.owner { disconnect(id) } }
+    /// Agent-side cancellation (turn stop, MCP `notifications/cancelled`). It
+    /// disconnects devices whose Link slot is held by the Agent or a device
+    /// task, as before; a user-origin panel call keeps running.
+    public func cancelLinkOperations() {
+        for (id, operation) in Array(linkBusy) where operation.agentCancellable && owners[id] === operation.owner { disconnect(id) }
+    }
 
 }
 
