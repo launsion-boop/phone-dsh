@@ -436,6 +436,9 @@ export default function dshbotApprovalGate(ctx: Context, config: ApprovalGateCon
       return { kind: 'deny', reason: '[sensitive read] The operation targets protected credentials and was NOT executed.' }
     }
     if (!needsStructuralApproval(exec.name)) return next()
+    // read_image is also a workbench tool. Only a Bot session gets the new
+    // model-egress approval; a plain DSH session keeps its prior behaviour.
+    if (exec.name === 'read_image' && !botRuntimeAvailable(ctx, exec)) return next()
     if (!botRuntimeAvailable(ctx, exec)) {
       return { kind: 'deny', reason: BOT_RUNTIME_UNAVAILABLE_REASON }
     }

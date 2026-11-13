@@ -18,7 +18,7 @@ Protocol impact: **P26**（additive `attach_to_model`）；**P19: none**（用�
   - `page` 可选（1–8），PDF 用 PDFKit 栅格化该页；
   - 返回 MCP `image` content block，DSH MCP client 检查当前模型 `inputModalities` 并 admit；
   - 每回合最多 2 张；Task 会话拒绝。
-- 审批：Host `BotToolEffects` 与 Worker `approval-gate` 都分类为 `model.image.attach / external-send / ask`；Worker 资源的 path/fileId/photoId 与 Host 一致，避免 `stale:always_scope`。DSH 内置的 `read_image` 也在 Worker gate 中被分类并拦截——否则工作区图片可以绕过审批直接进模型。
+- 审批：Host `BotToolEffects` 与 Worker `approval-gate` 都分类为 `model.image.attach / external-send / ask`；Worker 资源的 path/fileId/photoId 与 Host 一致，避免 `stale:always_scope`。DSH 内置的 `read_image` 也在 Worker gate 中被分类并拦截——否则工作区图片可以绕过审批直接进模型；该拦截只作用于 Bot session，普通 DSH 工作台保持原行为。
 - Photos 导出：`isNetworkAccessAllowed=false`，不在后台拉 iCloud；缺失/不可用返回 `image_unavailable`。
 - 用户附件仍只提交原有文本/路径块；模型需要像素时对附件路径调用 DSH 内置 `read_image`，或调用 `attach_to_model(path:)`。两者都经过同一张审批卡；`read_image` 的 identity registration 也已加入允许名单，否则审批会因 `unattributed` 失败。
 

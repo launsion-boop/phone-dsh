@@ -69,7 +69,9 @@ A text-only route receives a diagnostic text instead of the image. No DSH patch 
 - DSH's built-in `read_image` is also a model-egress path. It is **not** in the
   App catalog, but the Worker gate treats it as the same `model.image.attach`
   external send, so a workspace image cannot reach the model without the one
-  approval card. This is a phone-side gate, not a DSH patch.
+  approval card. The gate applies only to a Bot-owned session; a plain DSH
+  workbench session keeps its prior `read_image` behaviour. This is a
+  phone-side gate, not a DSH patch.
 - One tool call = one approval; approving does not create a standing permission for later
   images unless the user chooses the card's existing scope.
 - Task sessions are denied (`task_scope:model_image_denied`): a background task has no
