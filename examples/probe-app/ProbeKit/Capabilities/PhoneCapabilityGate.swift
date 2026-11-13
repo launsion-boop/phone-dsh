@@ -40,6 +40,7 @@ public enum PhoneToolCatalog {
         "clipboard.write": PhoneToolRoute(capability: .clipboard, scope: "clipboard.write", writes: true),
         "files.grant_folder": PhoneToolRoute(capability: .filesFolder, scope: "files.folder.grant", writes: true, presentsUserGrant: true),
         "files.list_roots": PhoneToolRoute(capability: .filesFolder, scope: "files.folder.list"),
+        "info": PhoneToolRoute(capability: .device, scope: "device.read"),
         "device.status": PhoneToolRoute(capability: .device, scope: "device.read"),
         "motion.activity": PhoneToolRoute(capability: .motion, scope: "motion.activity.read"),
         "motion.steps": PhoneToolRoute(capability: .motion, scope: "motion.steps.read"),

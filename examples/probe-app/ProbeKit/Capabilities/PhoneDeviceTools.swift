@@ -111,6 +111,54 @@ public struct PhoneDeviceTools {
         return PhoneToolPayload(data: data)
     }
 
+    /// The smallest honest `phone info`: facts the iOS SDK exposes without a
+    /// permission prompt, in the same shape the Worker publishes for the
+    /// Android host (`model` / OS / display). `model` is the SDK's generic
+    /// device class (e.g. "iPhone"); `machine` carries the hardware identifier
+    /// a diagnostic actually needs. `.device` is always enabled and read-only,
+    /// so this tool never presents a permission sheet.
+    public func info() -> PhoneToolPayload {
+        let device = UIDevice.current
+        let screen = UIScreen.main
+        let native = screen.nativeBounds.size
+        let idiom: String
+        switch device.userInterfaceIdiom {
+        case .phone: idiom = "phone"
+        case .pad: idiom = "pad"
+        case .mac: idiom = "mac"
+        case .tv: idiom = "tv"
+        case .carPlay: idiom = "carPlay"
+        case .vision: idiom = "vision"
+        default: idiom = "unspecified"
+        }
+        return PhoneToolPayload(data: [
+            "model": device.model,
+            "systemName": device.systemName,
+            "systemVersion": device.systemVersion,
+            "idiom": idiom,
+            "machine": Self.machineIdentifier,
+            "display": [
+                "widthPoints": Double(screen.bounds.width),
+                "heightPoints": Double(screen.bounds.height),
+                "scale": Double(screen.scale),
+                "nativeWidthPx": Int(native.width.rounded()),
+                "nativeHeightPx": Int(native.height.rounded()),
+                "nativeScale": Double(screen.nativeScale),
+            ],
+        ])
+    }
+
+    /// The `uname -m` hardware identifier (e.g. `iPhone17,1`), read without a
+    /// prompt. Simulator builds return the simulator's architecture.
+    private static var machineIdentifier: String {
+        var value = utsname()
+        uname(&value)
+        return withUnsafeBytes(of: &value.machine) { raw in
+            let bytes = raw.prefix { $0 != 0 }
+            return String(decoding: bytes, as: UTF8.self)
+        }
+    }
+
     public func deviceStatus() async -> PhoneToolPayload {
         let device = UIDevice.current
         device.isBatteryMonitoringEnabled = true

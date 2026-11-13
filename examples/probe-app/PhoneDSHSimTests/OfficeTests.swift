@@ -374,8 +374,10 @@ final class OfficeTests: XCTestCase {
             ["limit": 51], "limit", default: 20, minimum: 1, maximum: 50))
 
         let composite = CompositePhoneToolBridge(office: OfficeToolBridge(), phone: bridge)
-        XCTAssertEqual(composite.handles.count, 51)
+        // `phone info` joined the phone catalog on 2026-11-13.
+        XCTAssertEqual(composite.handles.count, 52)
         XCTAssertTrue(composite.handles.contains("files.list"))
+        XCTAssertTrue(composite.handles.contains("info"))
         XCTAssertTrue(composite.handles.contains("device.status"))
         let unknown = try object(await composite.callTool(name: "phone.not.real", arguments: "{}"))
         XCTAssertEqual((unknown["error"] as? [String: Any])?["code"] as? String, "unknown_tool")
